@@ -1,17 +1,18 @@
 {
-  "name": "Fellspiral Monorepo",
+  "name": "Fellspiral Monorepo (Nix)",
   "image": "nixos/nix:latest",
 
-  // Configure Nix with flakes support
+  // Configure Nix with flakes support on container creation
   "onCreateCommand": {
-    "configure-nix": "mkdir -p ~/.config/nix && echo 'experimental-features = nix-command flakes' > ~/.config/nix/nix.conf"
+    "configure-nix": "mkdir -p ~/.config/nix && echo 'experimental-features = nix-command flakes' > ~/.config/nix/nix.conf",
+    "setup-env": "nix develop --command bash -c 'echo \"Nix environment configured with: gcloud, gh, terraform, node, npm\"'"
   },
 
-  // Install dependencies after container is created
-  "postCreateCommand": "nix develop --command bash -c 'echo \"Environment ready\" && npm install'",
+  // Install npm dependencies after Nix environment is ready
+  "postCreateCommand": "nix develop --command npm install",
 
-  // Keep container running
-  "overrideCommand": false,
+  // Show welcome message on each start
+  "postStartCommand": "echo '🚀 Fellspiral dev environment ready! All tools available via: nix develop'",
 
   // Forward ports for development
   "forwardPorts": [3000],
@@ -27,11 +28,7 @@
     "vscode": {
       "extensions": [
         "jnoortheen.nix-ide",
-        "arrterian.nix-env-selector",
-        "bbenoist.Nix",
-        "ms-playwright.playwright",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode"
+        "bbenoist.Nix"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
@@ -39,10 +36,13 @@
           "bash": {
             "path": "/bin/bash",
             "args": ["-l"]
+          },
+          "nix-shell": {
+            "path": "nix",
+            "args": ["develop", "--command", "bash"]
           }
         },
-        "nix.enableLanguageServer": true,
-        "nix.serverPath": "nil"
+        "nix.enableLanguageServer": false
       }
     }
   },
@@ -52,22 +52,9 @@
     "NIXPKGS_ALLOW_UNFREE": "1"
   },
 
-  // Features to add
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
-  },
-
-  // Lifecycle scripts
-  "postStartCommand": "nix develop --command bash -c 'echo \"🚀 Fellspiral dev environment ready! Type \\\"npm run dev\\\" to start the dev server.\"'",
-
-  // Mount workspace as workspace folder
+  // Mount workspace folder
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 
-  // Run as non-root user for better security
-  "remoteUser": "root",
-
-  // Container environment setup
-  "mounts": [
-    "source=${localWorkspaceFolder}/.nix-cache,target=/root/.cache/nix,type=bind,consistency=cached"
-  ]
+  // Run as root (required for Nix)
+  "remoteUser": "root"
 }
