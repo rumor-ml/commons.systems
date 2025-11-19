@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fellspiral - Tactical Tabletop RPG</title>
+  <meta name="description" content="A tactical tabletop RPG with initiative-based combat, zones, and strategic gameplay">
+  <link rel="stylesheet" href="/styles/main.css">
+  <script type="module" src="/scripts/main.js"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-brand">
+        <h1>Fellspiral</h1>
+        <span class="tagline">Tactical Tabletop RPG</span>
+      </div>
+      <ul class="nav-menu">
+        <li><a href="#concepts">Concepts</a></li>
+        <li><a href="#combat">Combat</a></li>
+        <li><a href="#equipment">Equipment</a></li>
+        <li><a href="#examples">Examples</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>Welcome to Fellspiral</h1>
+        <p class="hero-description">
+          A tactical tabletop RPG where initiative and narrative control shape the battlefield.
+          Master the art of combat through strategic positioning, clever use of equipment, and creative storytelling.
+        </p>
+        <div class="hero-actions">
+          <a href="#concepts" class="btn btn-primary">Get Started</a>
+          <a href="#examples" class="btn btn-secondary">See Examples</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="concepts" class="section">
+      <div class="container">
+        <h2>Core Concepts</h2>
+
+        <article class="concept-card">
+          <h3>Initiative</h3>
+          <p>
+            <strong>Initiative</strong> is essential for controlling the tempo of battle. The player with initiative
+            has narrative control of how an exchange plays out. This is especially important for determining the
+            nature of the damage dealt.
+          </p>
+        </article>
+
+        <article class="concept-card">
+          <h3>Referee & Antagonist Roles</h3>
+          <p>
+            The <strong>referee</strong> and <strong>antagonist</strong> roles are distinct. The referee determines
+            if narration is valid:
+          </p>
+          <ul>
+            <li>Narration cannot contradict written rules</li>
+            <li>Narration must match the setting</li>
+            <li>Players cannot change the basic nature of characters they aren't playing</li>
+          </ul>
+        </article>
+
+        <article class="concept-card">
+          <h3>Damage System</h3>
+          <p>
+            <strong>Damage</strong> is dealt as "slots" and/or "conditions". Players have up to 10 equipment slots
+            and 10 skill slots. When AC fails to defend:
+          </p>
+          <ul>
+            <li>Equipment or skill slots are lost</li>
+            <li>Conditions are inflicted</li>
+            <li>If no slots remain, take "shot to the heart" condition (removed from game at end of round)</li>
+          </ul>
+        </article>
+
+        <article class="concept-card">
+          <h3>Combat Rounds</h3>
+          <p>
+            Combat rounds are divided into <strong>5 phases</strong>:
+          </p>
+          <ul>
+            <li>Each player chooses a phase to act</li>
+            <li>Each side rolls d20 - lowest chooses starting phase and acts first</li>
+            <li>If two sides share a phase, the side with initiative acts first</li>
+            <li>At round end, players with "shot to the heart" are removed</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="combat" class="section section-alt">
+      <div class="container">
+        <h2>Combat Rules</h2>
+
+        <div class="rules-grid">
+          <article class="rule-card">
+            <h3>Zones</h3>
+            <p>
+              The battlefield is divided into zones (~10 paces each). Within a zone, targets can be
+              adjacent or non-adjacent. By default, you cannot pass through foes.
+            </p>
+          </article>
+
+          <article class="rule-card">
+            <h3>Actions</h3>
+            <p>Free actions (start of phase):</p>
+            <ul>
+              <li>Move within zone</li>
+              <li>Speak</li>
+              <li>Use consumables</li>
+            </ul>
+            <p>Choose one:</p>
+            <ul>
+              <li><strong>Move</strong> to next zone</li>
+              <li><strong>Attack</strong> (defender rolls d20 + weapon die vs AC)</li>
+              <li><strong>Equip</strong> gear from slots/environment</li>
+              <li><strong>Use</strong> action skill/interact/cast spell</li>
+              <li><strong>Hold</strong> - skip action, choose different phase</li>
+              <li><strong>Hurry</strong> - move + action (or move twice) at -5 AC</li>
+            </ul>
+          </article>
+
+          <article class="rule-card">
+            <h3>Trading Initiative</h3>
+            <ul>
+              <li>Defender has initiative by default</li>
+              <li>On strike + crit, attacker takes initiative</li>
+              <li>Player with initiative narrates 1 slot loss OR replaces 1 slot with 1 condition</li>
+              <li>If defender rolls 20, first equipment slot is destroyed permanently</li>
+            </ul>
+          </article>
+
+          <article class="rule-card">
+            <h3>Conditions</h3>
+            <div class="condition-list">
+              <div><strong>Pinned:</strong> Attacker has initiative & +2 weapon rolls</div>
+              <div><strong>Stunned:</strong> Cannot take action during phase</div>
+              <div><strong>Exhausted/Freezing:</strong> Cannot hurry, use skills/spells. +5 AC when attacking</div>
+              <div><strong>Afraid:</strong> Must use action to move away</div>
+              <div><strong>Immobilized:</strong> Cannot use move action</div>
+              <div><strong>Bleeding/Corrosion/Burning:</strong> Strike 1 slot at start of phase</div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="equipment" class="section">
+      <div class="container">
+        <h2>Equipment & Skills</h2>
+
+        <div class="equipment-tabs">
+          <button class="tab-btn active" data-tab="weapons">Weapons</button>
+          <button class="tab-btn" data-tab="armor">Armor</button>
+          <button class="tab-btn" data-tab="skills">Skills</button>
+          <button class="tab-btn" data-tab="upgrades">Upgrades</button>
+        </div>
+
+        <div id="weapons" class="tab-content active">
+          <div class="equipment-grid">
+            <div class="equipment-card">
+              <h4>Long Sword</h4>
+              <div class="tags">
+                <span class="tag">2h</span>
+                <span class="tag">-1c</span>
+                <span class="tag">swept</span>
+                <span class="tag">precise</span>
+              </div>
+              <p>d10 weapon die, 2 slots</p>
+              <p class="note">Can use 1-handed (d8, no -1c) but cannot equip second weapon</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Long Bow</h4>
+              <div class="tags">
+                <span class="tag">1x</span>
+                <span class="tag">1-4 ranged</span>
+                <span class="tag">-1z2-3</span>
+                <span class="tag">-2z4</span>
+                <span class="tag">2h</span>
+                <span class="tag">precise</span>
+              </div>
+              <p>d6 weapon die, 2 slots</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Dagger</h4>
+              <div class="tags">
+                <span class="tag">0-1 thrown</span>
+                <span class="tag">precise</span>
+              </div>
+              <p>d4 weapon die, 2 slots</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Scimitar</h4>
+              <div class="tags">
+                <span class="tag">swept</span>
+                <span class="tag">precise</span>
+                <span class="tag">1 adjacent</span>
+              </div>
+              <p>d6 weapon die, 2 slots</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Spear</h4>
+              <div class="tags">
+                <span class="tag">0-1 thrown</span>
+                <span class="tag">-4z1</span>
+                <span class="tag">reach</span>
+                <span class="tag">precise</span>
+              </div>
+              <p>d8 weapon die, 2 slots</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Musket</h4>
+              <div class="tags">
+                <span class="tag">2x</span>
+                <span class="tag">1-4 ranged</span>
+                <span class="tag">-2z2-3</span>
+                <span class="tag">d8r</span>
+                <span class="tag">noisy</span>
+                <span class="tag">2h</span>
+              </div>
+              <p>d6 weapon die, 4 slots</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="armor" class="tab-content">
+          <div class="equipment-grid">
+            <div class="equipment-card">
+              <h4>Chain Mail</h4>
+              <p>+3 AC</p>
+              <p class="note">Noisy</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Scale Vest</h4>
+              <div class="tags"><span class="tag">durable</span></div>
+              <p>+3 AC</p>
+              <p class="note">Rare, requires expert blacksmith</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Helm</h4>
+              <p>+1 AC</p>
+              <p class="note">Draws enemy attention</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Greaves</h4>
+              <p>+1 AC</p>
+              <p class="note">Protects against some immobilize attempts</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Cloak</h4>
+              <p>+1 AC, +3 Stealth</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Wood Shield</h4>
+              <div class="tags"><span class="tag">durable</span></div>
+              <p>+1 AC</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="skills" class="tab-content">
+          <h3>Attack Skills</h3>
+          <div class="skill-grid">
+            <div class="skill-card">
+              <h4>Surgical</h4>
+              <p>If weapon is <em>precise</em> and defender adjacent: on success, +1 weapon die and +1 to roll</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Dual Wielding</h4>
+              <p>If 2 weapons equipped: on success, resolve second attack with other weapon (no attack skills)</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Take Aim</h4>
+              <p>If ranged + <em>precise</em>: attack resolves in 1d6 phases. On success, +1 weapon die and +3</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Melee</h4>
+              <p>If weapon is <em>swept</em>: On strike and success, add "1 adjacent"</p>
+            </div>
+          </div>
+
+          <h3>Defense Skills</h3>
+          <div class="skill-grid">
+            <div class="skill-card">
+              <h4>Counter Strike</h4>
+              <p>If attacker adjacent: on successful defense and skill roll, take no damage and next attack has initiative</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Moving Target</h4>
+              <p>If no conditions: on success, subtract result from defense roll (min 0)</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Brace</h4>
+              <p>Skip next action. On success, subtract result from defense and defend with initiative</p>
+            </div>
+          </div>
+
+          <h3>Tenacity Skills</h3>
+          <div class="skill-grid">
+            <div class="skill-card">
+              <h4>Grit</h4>
+              <p>On success, 1 slot damage directed to this skill, maintain initiative</p>
+            </div>
+
+            <div class="skill-card">
+              <h4>Flesh Wound</h4>
+              <p>If you have initiative: on success, 1 slot damage to this skill, gain "meat shield" slot</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="upgrades" class="tab-content">
+          <div class="equipment-grid">
+            <div class="equipment-card">
+              <h4>Master-Craft</h4>
+              <p>On crit, inflict burn on primary defender</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Serrated</h4>
+              <p>On crit, inflict bleed on primary defender</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Sword Breaker</h4>
+              <p>On crit, inflict corrosion on primary defender</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Lucky</h4>
+              <p>-1c (easier to crit)</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Balanced</h4>
+              <p>+1 to weapon roll</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Deadly</h4>
+              <p>On strike, deal 1 additional slot of damage</p>
+            </div>
+
+            <div class="equipment-card">
+              <h4>Knuckle Guard</h4>
+              <p>Foe with initiative cannot disarm you</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="examples" class="section section-alt">
+      <div class="container">
+        <h2>Combat Example</h2>
+
+        <article class="example-story">
+          <h3>The Hungry Goblin</h3>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>You are fresh from camp when ambushed by a hungry goblin. The goblin attacks with his rusty sword
+              and strikes for 1 slot, but as defender you retain the initiative.</p>
+            </div>
+          </div>
+
+          <div class="story-beat player-narration">
+            <div class="speaker">Player (with initiative)</div>
+            <div class="narrative">
+              <p>"My father's ceremonial sword will have its day of vengeance, but today is not that day.
+              It is safely tucked within my bedroll. I step back from the goblin attack just in time,
+              but the ceremonial sword is inaccessible now that the pace of battle has quickened."</p>
+            </div>
+            <div class="mechanics">Lost: Ceremonial sword slot (not tactically important)</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>You attack with your dagger and score a critical strike to gain initiative. With initiative,
+              you may choose to inflict a condition instead of slot damage.</p>
+            </div>
+          </div>
+
+          <div class="story-beat player-narration">
+            <div class="speaker">Player (with initiative)</div>
+            <div class="narrative">
+              <p>"The goblin knows he is outmatched, but he is hungry and desperate. I slice with my dagger.
+              It is only enough to graze his cheek, but it's enough to frighten the goblin and make him flee."</p>
+            </div>
+            <div class="mechanics">Inflicted: Afraid condition (must flee)</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>You pull out your long bow and hurry to create distance. The goblin steels himself and charges back.</p>
+            </div>
+          </div>
+
+          <div class="story-beat antagonist-narration">
+            <div class="speaker">Antagonist</div>
+            <div class="narrative">
+              <p>"The arrow strikes flesh, but this only enrages the goblin as he charges back at the adventurer."</p>
+            </div>
+            <div class="mechanics">Goblin uses "Flesh Wound" skill</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>The goblin hurries to close the gap. You hurry to maintain distance, but he catches you.
+              With a critical melee strike, he takes initiative.</p>
+            </div>
+          </div>
+
+          <div class="story-beat antagonist-narration">
+            <div class="speaker">Antagonist (with initiative)</div>
+            <div class="narrative">
+              <p>"The goblin leaps onto the adventurer, grasping his lapel, pinning him."</p>
+            </div>
+            <div class="mechanics">Inflicted: Pinned condition</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>Your long bow is useless against the adjacent foe. You retrieve your dagger, but the goblin
+              has initiative as he thrashes while pinning you.</p>
+            </div>
+          </div>
+
+          <div class="story-beat antagonist-narration">
+            <div class="speaker">Antagonist (with initiative)</div>
+            <div class="narrative">
+              <p>"The adventurer stumbles backward under the rabid goblin. He trips and drops his dagger."</p>
+            </div>
+            <div class="mechanics">Lost: Dagger slot</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>Fortunately, you always carry a backup. Your AC defends against his next strike.</p>
+            </div>
+          </div>
+
+          <div class="story-beat player-narration">
+            <div class="speaker">Player (with initiative)</div>
+            <div class="narrative">
+              <p>"The goblin tried to bite me but his teeth fail to sink through my bracers."</p>
+            </div>
+            <div class="mechanics">Lost: Bracers (AC reduced)</div>
+          </div>
+
+          <div class="story-beat">
+            <div class="narrative">
+              <p>Now, backup dagger in hand, goblin at your throat, you strike true once more.
+              How do you finish him?</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>&copy; 2024 Fellspiral. A tactical tabletop RPG.</p>
+      <p>Built with care for strategic storytelling.</p>
+    </div>
+  </footer>
+</body>
+</html>

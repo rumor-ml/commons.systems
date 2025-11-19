@@ -1,0 +1,221 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+
+jobs:
+  build:
+    name: Build Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build site
+        run: npm run build
+        working-directory: fellspiral/site
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+          retention-days: 7
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+        working-directory: fellspiral/tests
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+
+      - name: Run tests
+        run: npm test
+        working-directory: fellspiral/tests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: fellspiral/tests/playwright-report/
+          retention-days: 30
+
+  deploy:
+    name: Deploy to GCP
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build, test]
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Storage
+        id: deploy
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+
+          # Sync files to bucket
+          gsutil -m rsync -r -d \
+            -x ".*\.map$" \
+            fellspiral/site/dist/ "gs://${BUCKET_NAME}/"
+
+          # Set cache control headers
+          gsutil -m setmeta -h "Cache-Control:no-cache,max-age=0" \
+            "gs://${BUCKET_NAME}/**/*.html" || true
+
+          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
+            "gs://${BUCKET_NAME}/**/*.css" || true
+
+          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
+            "gs://${BUCKET_NAME}/**/*.js" || true
+
+          # Get static IP if available
+          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+
+          if [ -n "$STATIC_IP" ]; then
+            echo "url=http://${STATIC_IP}" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Invalidate CDN cache
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache fellspiral-url-map \
+            --path "/*" \
+            --project "$GCP_PROJECT_ID" \
+            --async || echo "CDN not configured, skipping cache invalidation"
+
+  test-deployed:
+    name: Test Deployed Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: fellspiral/tests
+
+      - name: Get deployment URL
+        id: get-url
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+
+          # Try to get static IP, fall back to storage URL
+          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+
+          if [ -n "$STATIC_IP" ]; then
+            echo "DEPLOYED_URL=http://${STATIC_IP}" >> $GITHUB_ENV
+          else
+            echo "DEPLOYED_URL=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_ENV
+          fi
+
+      - name: Wait for deployment propagation
+        run: sleep 30
+
+      - name: Run deployment tests
+        run: npm run test:deployed
+        working-directory: fellspiral/tests
+        env:
+          DEPLOYED: true
+
+      - name: Upload deployment test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-test-results
+          path: fellspiral/tests/playwright-report/
+          retention-days: 30
+
+      - name: Comment on commit
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.DEPLOYED_URL;
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `🚀 Deployment completed!\n\n Site URL: ${url}`
+            })
