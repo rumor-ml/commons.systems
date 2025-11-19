@@ -1,9 +1,9 @@
 name: Deploy to GCP
 
-# TEMPORARY: Running on all branches for debugging - will revert to main-only after testing
 on:
   push:
-    branches: ['**']
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       environment:
@@ -112,8 +112,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [build, test]
-    # TEMPORARY: Only deploy on main branch during debugging phase
-    if: github.ref == 'refs/heads/main'
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
       url: ${{ steps.deploy.outputs.url }}
