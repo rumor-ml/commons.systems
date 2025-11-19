@@ -1,9 +1,9 @@
 name: Health Check
 
 on:
-  schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
+  # Disabled by default - uncomment to enable scheduled health checks
+  # schedule:
+  #   - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
