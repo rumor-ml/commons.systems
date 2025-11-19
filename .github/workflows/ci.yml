@@ -2,7 +2,7 @@ name: CI - Test Suite
 
 on:
   push:
-    branches: ['*']
+    branches: ['**']
 
 jobs:
   test:
