@@ -1,10 +1,6 @@
 name: Infrastructure as Code
 
 on:
-  pull_request:
-    paths:
-      - 'infrastructure/terraform/**'
-      - '.github/workflows/infrastructure.yml'
   push:
     branches:
       - main
@@ -110,36 +106,6 @@ jobs:
             cat plan.txt
             echo EOF
           } >> "$GITHUB_OUTPUT"
-
-      - name: Comment PR with plan
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
-            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
-            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
-            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
-
-            <details><summary>Show Plan</summary>
-
-            \`\`\`terraform
-            ${{ steps.plan-output.outputs.plan }}
-            \`\`\`
-
-            </details>
-
-            **Pushed by:** @${{ github.actor }}
-            **Action:** \`${{ github.event_name }}\`
-
-            *Infrastructure will auto-apply when merged to main*`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            });
 
       - name: Terraform Apply
         if: |
