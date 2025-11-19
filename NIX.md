@@ -40,18 +40,11 @@ direnv allow  # First time only
 
 All tools will be automatically available!
 
-### Option 2: Using nix develop (Flakes)
+### Option 2: Using nix develop
 
 ```bash
 cd commons.systems
 nix develop
-```
-
-### Option 3: Using nix-shell (Legacy)
-
-```bash
-cd commons.systems
-nix-shell
 ```
 
 ## What's Included
@@ -127,8 +120,7 @@ npx playwright install
 
 ## Files
 
-- `flake.nix` - Nix flake configuration (primary)
-- `shell.nix` - Legacy nix-shell configuration (fallback)
+- `flake.nix` - Nix flake configuration
 - `.envrc` - direnv configuration (auto-loads flake)
 - `.gitignore` - Excludes Nix build artifacts
 
