@@ -48,7 +48,7 @@ Deploy the Fellspiral site to GCP with **zero local setup** or **one local comma
 
 2. **Load the Nix environment** (all tools are accessed via Nix):
    ```bash
-   nix develop
+   nix develop --impure
    ```
 
 3. **Run the initialization script**:
@@ -184,7 +184,7 @@ For instant setup with zero local configuration:
 **Development:**
 ```bash
 # First, enter the Nix environment (provides all tools)
-nix develop
+nix develop --impure
 
 # Then run your development commands
 npm run dev    # Start dev server

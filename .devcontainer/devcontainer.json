@@ -5,14 +5,14 @@
   // Configure Nix with flakes support on container creation
   "onCreateCommand": {
     "configure-nix": "mkdir -p ~/.config/nix && echo 'experimental-features = nix-command flakes' > ~/.config/nix/nix.conf",
-    "setup-env": "nix develop --command bash -c 'echo \"Nix environment configured with: gcloud, gh, terraform, node, npm\"'"
+    "setup-env": "nix develop --impure --command bash -c 'echo \"Nix environment configured with: gcloud, gh, terraform, node, npm\"'"
   },
 
   // Install npm dependencies after Nix environment is ready
-  "postCreateCommand": "nix develop --command npm install",
+  "postCreateCommand": "nix develop --impure --command npm install",
 
   // Show welcome message on each start
-  "postStartCommand": "echo '🚀 Fellspiral dev environment ready! All tools available via: nix develop'",
+  "postStartCommand": "echo '🚀 Fellspiral dev environment ready! All tools available via: nix develop --impure'",
 
   // Forward ports for development
   "forwardPorts": [3000],
