@@ -69,6 +69,35 @@ resource "google_storage_bucket_iam_member" "public_read" {
   member = "allUsers"
 }
 
+# Backup bucket for rollback functionality
+resource "google_storage_bucket" "backup_bucket" {
+  name          = "${var.project_id}-fellspiral-site-backup"
+  location      = var.region
+  force_destroy = false
+
+  uniform_bucket_level_access = true
+
+  # Lifecycle policy to clean up old backups and reduce costs
+  lifecycle_rule {
+    condition {
+      age = 7
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  lifecycle_rule {
+    condition {
+      age                = 1
+      num_newer_versions = 5
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
 # Reserve static IP for load balancer
 resource "google_compute_global_address" "site_ip" {
   name = "fellspiral-site-ip"
