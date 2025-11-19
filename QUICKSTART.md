@@ -4,16 +4,20 @@ Deploy the Fellspiral site to GCP with **one local command** and **three GitHub 
 
 ## Overview
 
-**Time:** 2 minutes
-**Local commands:** 1 (30 seconds)
-**Manual steps:** Add 3 GitHub secrets (90 seconds)
+**Time:** 1 minute (with `gh` CLI) or 2 minutes (without)
+**Local commands:** 1
+**Manual steps:** 0 (with `gh` CLI) or add 3 GitHub secrets (without)
 **Result:** Fully automated infrastructure + deployment
 
 ## Prerequisites
 
+**Required:**
 - Google Cloud Platform account
 - GCP Project created
 - `gcloud` CLI installed locally ([install guide](https://cloud.google.com/sdk/docs/install))
+
+**Optional (but recommended):**
+- GitHub CLI (`gh`) for automatic secret creation ([install guide](https://cli.github.com/))
 
 ## Step 1: Run Setup Script (30 seconds)
 
@@ -26,23 +30,39 @@ This script:
 - ✅ Enables required GCP APIs
 - ✅ Creates Workload Identity Pool & Provider (keyless auth)
 - ✅ Creates service account with correct permissions
-- ✅ Outputs the 3 values you need for GitHub secrets
+- ✅ **Automatically creates GitHub secrets** (if you have `gh` CLI)
 
 **No keys, no tokens, completely secure!**
 
-## Step 2: Add GitHub Secrets (90 seconds)
+### If You Have GitHub CLI
 
-Go to: `https://github.com/rumor-ml/commons.systems/settings/secrets/actions`
+The script will detect `gh` CLI and offer to create secrets automatically:
+- Answer `y` when prompted
+- Secrets are created instantly
+- **Skip to Step 2!**
 
-Add these 3 secrets (values shown by the script):
+### If You Don't Have GitHub CLI
 
-| Secret Name | Value |
-|-------------|-------|
-| `GCP_PROJECT_ID` | Your GCP project ID |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/###/locations/global/workloadIdentityPools/...` |
-| `GCP_SERVICE_ACCOUNT` | `github-actions-terraform@your-project.iam.gserviceaccount.com` |
+Install it (optional but recommended):
+```bash
+# macOS
+brew install gh
 
-## Step 3: Merge PR (30 seconds)
+# Linux
+# See: https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+
+# Windows
+# See: https://github.com/cli/cli#windows
+
+# Then authenticate
+gh auth login
+```
+
+Or add secrets manually:
+1. Go to: `https://github.com/rumor-ml/commons.systems/settings/secrets/actions`
+2. Add the 3 secrets shown by the script
+
+## Step 2: Merge PR (30 seconds)
 
 Merge your PR to `main`.
 
@@ -107,8 +127,9 @@ Edit any file in `infrastructure/terraform/` and commit:
 
 ### New Way (Automated)
 1. Run one script (`setup-workload-identity.sh`)
-2. Add 3 secrets (no keys!)
-3. Merge PR → everything automatic forever
+   - With `gh` CLI: Secrets created automatically (answer `y`)
+   - Without `gh` CLI: Copy/paste 3 values to GitHub
+2. Merge PR → everything automatic forever
 
 ## Troubleshooting
 

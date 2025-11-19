@@ -15,16 +15,17 @@ A tactical tabletop RPG with detailed combat mechanics featuring initiative-base
 
 ### 🚀 Deploy to GCP
 
-Deploy in **2 minutes** with **one local command**:
+Deploy in **1 minute** with **one command**:
 
 1. Run `./infrastructure/scripts/setup-workload-identity.sh` (30 sec)
-2. Add 3 GitHub secrets (90 sec)
-3. Merge PR → Infrastructure + site deploy automatically! (30 sec)
+   - Optionally creates GitHub secrets automatically (via `gh` CLI)
+2. Merge PR → Infrastructure + site deploy automatically! (30 sec)
 
 **👉 See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions.**
 
 **Features:**
-- ✅ Keyless authentication (Workload Identity - no keys to manage!)
+- ✅ Keyless authentication (Workload Identity - no keys!)
+- ✅ Automatic GitHub secret creation (via `gh` CLI)
 - ✅ Infrastructure managed by Terraform automatically
 - ✅ Service accounts created and managed by Terraform
 - ✅ Zero maintenance - merge and forget
@@ -83,32 +84,28 @@ npm run test:headed      # See browser during tests
 
 **One local command, then fully automated forever:**
 
-1. **One-time Setup** (2 minutes):
+1. **One-time Setup** (1 minute):
    ```bash
    cd infrastructure/scripts
    ./setup-workload-identity.sh
    ```
    - Sets up keyless authentication (Workload Identity)
    - Creates service account with correct permissions
-   - Outputs 3 values for GitHub secrets
+   - **Optionally creates GitHub secrets automatically** (if `gh` CLI available)
+   - Or outputs 3 values to add manually
 
-2. **Add Secrets** (90 seconds):
-   - `GCP_PROJECT_ID`
-   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
-   - `GCP_SERVICE_ACCOUNT`
-
-3. **Merge PR** → Everything automatic:
+2. **Merge PR** → Everything automatic:
    - ✅ Infrastructure created/updated via Terraform
    - ✅ Site builds and deploys
    - ✅ Tests run against deployed site
 
-4. **Ongoing** (zero maintenance):
+3. **Ongoing** (zero maintenance):
    - Every PR → Tests run
    - Every merge → Infrastructure updates + deployment
    - Every 6 hours → Health checks
    - On failure → GitHub issue created
 
-**👉 Complete guide:** [QUICKSTART.md](QUICKSTART.md) (2 minutes total)
+**👉 Complete guide:** [QUICKSTART.md](QUICKSTART.md) (1-2 minutes total)
 
 ### Alternative: Local Setup
 
