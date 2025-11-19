@@ -1,146 +1,136 @@
-# Quick Start - Zero Local Setup Required
+# Quick Start - Deploy in 2 Minutes
 
-Get the Fellspiral site deployed to GCP in **5 minutes** with **zero local commands**.
+Deploy the Fellspiral site to GCP with **one local command** and **three GitHub secrets**.
+
+## Overview
+
+**Time:** 2 minutes
+**Local commands:** 1 (30 seconds)
+**Manual steps:** Add 3 GitHub secrets (90 seconds)
+**Result:** Fully automated infrastructure + deployment
 
 ## Prerequisites
 
-- GitHub account with access to this repository
 - Google Cloud Platform account
 - GCP Project created
+- `gcloud` CLI installed locally ([install guide](https://cloud.google.com/sdk/docs/install))
 
-## Step 1: Create GCP Service Account (2 minutes)
+## Step 1: Run Setup Script (30 seconds)
 
-1. Go to [GCP Console > IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+```bash
+cd infrastructure/scripts
+./setup-workload-identity.sh
+```
 
-2. Click **"Create Service Account"**
-   - Name: `github-actions-terraform`
-   - Description: `GitHub Actions for Terraform and deployments`
+This script:
+- ✅ Enables required GCP APIs
+- ✅ Creates Workload Identity Pool & Provider (keyless auth)
+- ✅ Creates service account with correct permissions
+- ✅ Outputs the 3 values you need for GitHub secrets
 
-3. Click **"Create and Continue"**
+**No keys, no tokens, completely secure!**
 
-4. Grant these roles:
-   - `Storage Admin`
-   - `Compute Load Balancer Admin`
-   - `Service Account Admin`
-   - `Project IAM Admin`
+## Step 2: Add GitHub Secrets (90 seconds)
 
-5. Click **"Done"**
+Go to: `https://github.com/rumor-ml/commons.systems/settings/secrets/actions`
 
-6. Click on the service account you just created
+Add these 3 secrets (values shown by the script):
 
-7. Go to **"Keys"** tab → **"Add Key"** → **"Create new key"** → **JSON**
+| Secret Name | Value |
+|-------------|-------|
+| `GCP_PROJECT_ID` | Your GCP project ID |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/###/locations/global/workloadIdentityPools/...` |
+| `GCP_SERVICE_ACCOUNT` | `github-actions-terraform@your-project.iam.gserviceaccount.com` |
 
-8. Save the JSON file (you'll need it next)
+## Step 3: Merge PR (30 seconds)
 
-## Step 2: Configure GitHub Secrets (1 minute)
+Merge your PR to `main`.
 
-1. Go to your repo: **Settings** → **Secrets and variables** → **Actions**
+**What happens automatically:**
 
-2. Click **"New repository secret"**, add:
+1. **Infrastructure workflow** runs:
+   - ✅ Terraform creates Cloud Storage bucket
+   - ✅ Terraform creates Cloud CDN + Load Balancer
+   - ✅ Terraform creates Static IP
+   - ✅ Terraform creates deployment service account
+   - ⏱️ Takes ~2 minutes
 
-   **Secret 1:**
-   - Name: `GCP_PROJECT_ID`
-   - Value: `your-gcp-project-id`
-
-   **Secret 2:**
-   - Name: `GCP_SA_KEY`
-   - Value: (paste entire contents of the JSON file from Step 1)
-
-## Step 3: Create Pull Request (30 seconds)
-
-1. Visit: https://github.com/rumor-ml/commons.systems/pull/new/claude/fellspiral-monorepo-setup-01UJV6E51Gorw8c7jC1mECNM
-
-2. Click **"Create Pull Request"**
-
-## Step 4: Run Infrastructure Setup (1 minute)
-
-1. In your PR or main branch, go to **Actions** tab
-
-2. Click **"Setup Infrastructure"** workflow
-
-3. Click **"Run workflow"** → Select `apply` → **"Run workflow"**
-
-4. Wait ~2 minutes for Terraform to create all GCP resources
-
-5. Check the workflow summary for your site URL!
-
-## Step 5: Merge and Deploy (30 seconds)
-
-1. Merge your PR to `main`
-
-2. The **Deploy** workflow runs automatically:
+2. **Deploy workflow** runs:
    - ✅ Builds the site
-   - ✅ Runs all tests
+   - ✅ Runs full test suite
    - ✅ Deploys to GCP
-   - ✅ Validates deployment
+   - ✅ Tests the deployed site
+   - ⏱️ Takes ~5 minutes
 
-3. Done! Your site is live at the URL from Step 4
+3. **Done!** Your site is live at the IP shown in the workflow output.
 
-## What Gets Created
+## What You Get
 
-### GCP Infrastructure (via Terraform)
-- ✅ Cloud Storage bucket (website hosting)
-- ✅ Cloud CDN (global delivery)
-- ✅ Load Balancer (HTTP/HTTPS)
-- ✅ Static IP address
-- ✅ Service account for deployments
+### Automated Forever
+- ✅ **Every PR** → Tests run automatically
+- ✅ **Every merge to main** → Infrastructure updates (if changed) + site deploys
+- ✅ **Every 6 hours** → Health checks
+- ✅ **On failure** → GitHub issue created
 
-### Automation
-- ✅ Tests run on every PR
-- ✅ Auto-deploy on merge to main
-- ✅ Health checks every 6 hours
-- ✅ Test reports and artifacts
+### Infrastructure Updates
+Edit any file in `infrastructure/terraform/` and commit:
+- **On PR** → Terraform plan shown in PR comment
+- **On merge** → Terraform apply runs automatically
+- **Service account, CDN, storage** → All managed by Terraform
+
+### Zero Maintenance
+- No keys to rotate (Workload Identity is keyless)
+- No manual deployments
+- No infrastructure drift
+- Infrastructure as Code in Git
 
 ## Cost
 
 **~$0.13/month** for typical traffic (~1000 visitors/month)
 
-| Service | Cost |
-|---------|------|
-| Storage | ~$0.002 |
-| Operations | ~$0.05 |
-| CDN | ~$0.08 |
-| Static IP | $0.00 (free) |
+| Service | Monthly Cost |
+|---------|--------------|
+| Storage (100MB) | $0.002 |
+| Operations (10k) | $0.05 |
+| CDN (1GB egress) | $0.08 |
+| Static IP | $0.00 (free when attached) |
 
-## Optional: Manual Infrastructure Control
+## What's Different?
 
-### View Infrastructure
-```bash
-# In Actions tab → Setup Infrastructure → Run workflow → Select "plan"
-```
+### Old Way (Manual)
+1. Create service account manually
+2. Download key JSON (security risk)
+3. Add key to GitHub secrets
+4. Manually run infrastructure setup
+5. Manually trigger deployments
+6. Rotate keys periodically
 
-### Destroy Infrastructure
-```bash
-# In Actions tab → Setup Infrastructure → Run workflow → Select "destroy"
-```
-
-### Update Infrastructure
-Edit `infrastructure/terraform/*.tf` files, commit, and run the workflow again.
+### New Way (Automated)
+1. Run one script (`setup-workload-identity.sh`)
+2. Add 3 secrets (no keys!)
+3. Merge PR → everything automatic forever
 
 ## Troubleshooting
 
-### "Terraform init failed"
-- Check that `GCP_SA_KEY` secret has the correct JSON (including braces)
-- Verify the service account has all required roles
+### "Workload Identity Provider not found"
+- Make sure you ran `setup-workload-identity.sh`
+- Check the provider value in GitHub secrets matches script output
 
 ### "Permission denied"
-- Ensure service account has these roles:
-  - Storage Admin
-  - Compute Load Balancer Admin
-  - Service Account Admin
-  - Project IAM Admin
+- Script creates service account with all required permissions
+- If errors persist, check GCP IAM console
 
-### "Deploy workflow fails"
-- Run the **Setup Infrastructure** workflow first
-- Verify both GitHub secrets are set correctly
+### "Terraform plan fails"
+- First merge will create infrastructure
+- Subsequent merges update it
+- Check workflow logs for details
 
 ## Next Steps
 
-- View your site at the URL from the workflow output
-- Make changes to `fellspiral/site/src/` and push → auto-deploys!
-- Add a custom domain (see [SETUP.md](SETUP.md))
-- Enable HTTPS (see [infrastructure/README.md](infrastructure/README.md))
+- **Custom domain**: See [SETUP.md](SETUP.md#custom-domain)
+- **HTTPS**: See [infrastructure/README.md](infrastructure/README.md#https-setup)
+- **Staging environment**: See [CONTRIBUTING.md](CONTRIBUTING.md#environments)
 
 ---
 
-**That's it!** No local setup, no terminal commands, all automated via GitHub Actions.
+**That's it!** 30 seconds of local setup, then merge and you're done.

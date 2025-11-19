@@ -13,16 +13,21 @@ A tactical tabletop RPG with detailed combat mechanics featuring initiative-base
 
 ## Quick Start
 
-### 🚀 Deploy to GCP (Zero Local Setup)
+### 🚀 Deploy to GCP
 
-Deploy in **5 minutes** with **zero terminal commands**:
+Deploy in **2 minutes** with **one local command**:
 
-1. Create GCP service account (2 min, web UI only)
-2. Add 2 GitHub secrets (1 min)
-3. Run "Setup Infrastructure" workflow in Actions tab (30 sec)
-4. Merge PR → Site auto-deploys! (30 sec)
+1. Run `./infrastructure/scripts/setup-workload-identity.sh` (30 sec)
+2. Add 3 GitHub secrets (90 sec)
+3. Merge PR → Infrastructure + site deploy automatically! (30 sec)
 
 **👉 See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions.**
+
+**Features:**
+- ✅ Keyless authentication (Workload Identity - no keys to manage!)
+- ✅ Infrastructure managed by Terraform automatically
+- ✅ Service accounts created and managed by Terraform
+- ✅ Zero maintenance - merge and forget
 
 ### 💻 Local Development
 
@@ -74,25 +79,36 @@ npm run test:headed      # See browser during tests
 
 ## Deployment
 
-### Zero-Setup Deployment (Recommended)
+### Automated Deployment (Recommended)
 
-**No local tools needed** - everything runs in GitHub Actions:
+**One local command, then fully automated forever:**
 
-1. **Setup Infrastructure** (one-time):
-   - Create GCP service account in GCP Console
-   - Add GitHub secrets (`GCP_PROJECT_ID`, `GCP_SA_KEY`)
-   - Run "Setup Infrastructure" workflow → Creates all GCP resources via Terraform
+1. **One-time Setup** (2 minutes):
+   ```bash
+   cd infrastructure/scripts
+   ./setup-workload-identity.sh
+   ```
+   - Sets up keyless authentication (Workload Identity)
+   - Creates service account with correct permissions
+   - Outputs 3 values for GitHub secrets
 
-2. **Deploy Site** (automatic):
-   - Merge to `main` → Site deploys automatically
-   - Every push to `main` → Tests, builds, deploys, validates
+2. **Add Secrets** (90 seconds):
+   - `GCP_PROJECT_ID`
+   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
+   - `GCP_SERVICE_ACCOUNT`
 
-3. **Ongoing**:
-   - Tests run on every PR
-   - Deploy runs on every merge
-   - Health checks every 6 hours
+3. **Merge PR** → Everything automatic:
+   - ✅ Infrastructure created/updated via Terraform
+   - ✅ Site builds and deploys
+   - ✅ Tests run against deployed site
 
-**👉 Complete guide:** [QUICKSTART.md](QUICKSTART.md) (5 minutes total)
+4. **Ongoing** (zero maintenance):
+   - Every PR → Tests run
+   - Every merge → Infrastructure updates + deployment
+   - Every 6 hours → Health checks
+   - On failure → GitHub issue created
+
+**👉 Complete guide:** [QUICKSTART.md](QUICKSTART.md) (2 minutes total)
 
 ### Alternative: Local Setup
 
@@ -162,10 +178,12 @@ Designed for minimal GCP costs:
 
 ### Workflows
 
-1. **Setup Infrastructure** (`.github/workflows/setup-infrastructure.yml`)
-   - Triggers: Manual (Actions UI)
-   - Runs Terraform to create GCP resources
-   - One-time setup, no local tools needed
+1. **Infrastructure** (`.github/workflows/infrastructure.yml`)
+   - Triggers: PR (plan) + Push to main (apply)
+   - Runs Terraform to manage GCP infrastructure
+   - **On PR**: Shows plan in comment
+   - **On merge**: Applies changes automatically
+   - Manages: Storage, CDN, Load Balancer, Service Accounts
 
 2. **CI** (`.github/workflows/ci.yml`)
    - Triggers: All pushes and PRs
@@ -175,21 +193,32 @@ Designed for minimal GCP costs:
 3. **Deploy** (`.github/workflows/deploy.yml`)
    - Triggers: Push to main, manual dispatch
    - Steps: Build → Test → Deploy → Validate
+   - Uses Workload Identity (keyless auth)
    - Environments: Production (extensible to staging)
 
 4. **Health Check** (`.github/workflows/health-check.yml`)
    - Triggers: Every 6 hours, manual dispatch
    - Runs: Smoke tests against live site
    - Creates issue on failure
+   - Uses Workload Identity (keyless auth)
 
 ### Required Secrets
 
+Three secrets enable keyless authentication via Workload Identity Federation:
+
 - `GCP_PROJECT_ID`: Your GCP project ID
-- `GCP_SA_KEY`: Service account key JSON (roles: Storage Admin, Compute Load Balancer Admin, Service Account Admin, Project IAM Admin)
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`: Workload Identity Provider resource name
+- `GCP_SERVICE_ACCOUNT`: Service account email for authentication
 
-The service account needs broader permissions for the Setup Infrastructure workflow to create resources. After initial setup, deployments only use Storage Admin and Compute Load Balancer Admin.
+**Setup:** Run `./infrastructure/scripts/setup-workload-identity.sh` to create these resources and get the values.
 
-See [QUICKSTART.md](QUICKSTART.md) for quick setup or [SETUP.md](SETUP.md) for detailed instructions.
+**Security Benefits:**
+- ✅ No keys or tokens stored in GitHub
+- ✅ No key rotation needed
+- ✅ Automatic credential management
+- ✅ Short-lived tokens only
+
+See [QUICKSTART.md](QUICKSTART.md) for step-by-step setup.
 
 ## Testing
 
