@@ -1,0 +1,330 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  contents: read
+  id-token: write  # Required for Workload Identity Federation
+  issues: write    # Required for rollback notifications
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+jobs:
+  build:
+    name: Build Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Install dependencies
+        run: nix develop .#ci --command npm install
+
+      - name: Build site
+        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+          retention-days: 7
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Install dependencies
+        run: nix develop .#ci --command npm install
+
+      - name: Install Playwright browsers
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+
+      - name: Run tests
+        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: fellspiral/tests/playwright-report/
+          retention-days: 30
+
+  deploy:
+    name: Deploy to GCP
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build, test]
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      backup-path: ${{ steps.backup.outputs.BACKUP_PATH }}
+      has-backup: ${{ steps.backup.outputs.HAS_BACKUP }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: fellspiral/site/dist/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Backup current deployment
+        id: backup
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+          BACKUP_BUCKET="${GCP_PROJECT_ID}-fellspiral-site-backup"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+          # Create backup bucket if it doesn't exist
+          gsutil ls "gs://${BACKUP_BUCKET}" 2>/dev/null || gsutil mb -l us-central1 "gs://${BACKUP_BUCKET}"
+
+          # Backup current production state
+          if gsutil ls "gs://${BUCKET_NAME}/**" 2>/dev/null; then
+            echo "Backing up current deployment..."
+            gsutil -m rsync -r "gs://${BUCKET_NAME}/" "gs://${BACKUP_BUCKET}/rollback-${TIMESTAMP}/"
+            echo "BACKUP_PATH=gs://${BACKUP_BUCKET}/rollback-${TIMESTAMP}/" >> $GITHUB_OUTPUT
+            echo "HAS_BACKUP=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing deployment to backup"
+            echo "HAS_BACKUP=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Cloud Storage
+        id: deploy
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+
+          # Sync files to bucket
+          gsutil -m rsync -r -d \
+            -x ".*\.map$" \
+            fellspiral/site/dist/ "gs://${BUCKET_NAME}/"
+
+          # Set cache control headers
+          gsutil -m setmeta -h "Cache-Control:no-cache,max-age=0" \
+            "gs://${BUCKET_NAME}/**/*.html" || true
+
+          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
+            "gs://${BUCKET_NAME}/**/*.css" || true
+
+          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
+            "gs://${BUCKET_NAME}/**/*.js" || true
+
+          # Get static IP if available
+          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+
+          if [ -n "$STATIC_IP" ]; then
+            echo "url=http://${STATIC_IP}" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Invalidate CDN cache
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache fellspiral-url-map \
+            --path "/*" \
+            --project "$GCP_PROJECT_ID" \
+            --async || echo "CDN not configured, skipping cache invalidation"
+
+  test-deployed:
+    name: Test Deployed Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Install dependencies
+        run: nix develop .#ci --command npm install
+
+      - name: Install Playwright browsers
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get deployment URL
+        id: get-url
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+
+          # Try to get static IP, fall back to storage URL
+          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+
+          if [ -n "$STATIC_IP" ]; then
+            echo "DEPLOYED_URL=http://${STATIC_IP}" >> $GITHUB_ENV
+          else
+            echo "DEPLOYED_URL=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_ENV
+          fi
+
+      - name: Wait for deployment propagation
+        run: sleep 30
+
+      - name: Run deployment tests
+        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
+        env:
+          DEPLOYED: true
+
+      - name: Upload deployment test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-test-results
+          path: fellspiral/tests/playwright-report/
+          retention-days: 30
+
+      - name: Comment on commit
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.DEPLOYED_URL;
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `🚀 Deployment completed!\n\nSite URL: ${url}`
+            })
+
+  rollback:
+    name: Rollback on Test Failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy, test-deployed]
+    if: failure() && needs.deploy.outputs.has-backup == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Restore previous deployment
+        run: |
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+          BACKUP_PATH="${{ needs.deploy.outputs.backup-path }}"
+
+          echo "🔄 Rolling back deployment..."
+          echo "Restoring from: $BACKUP_PATH"
+
+          # Restore from backup
+          gsutil -m rsync -r -d "$BACKUP_PATH" "gs://${BUCKET_NAME}/"
+
+          echo "✅ Rollback completed successfully"
+
+      - name: Invalidate CDN cache
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache fellspiral-url-map \
+            --path "/*" \
+            --project "$GCP_PROJECT_ID" \
+            --async || echo "CDN not configured, skipping cache invalidation"
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automatic Rollback Executed',
+              body: `Deployment tests failed for commit ${context.sha}.\n\nThe deployment has been automatically rolled back to the previous version.\n\n**Action required:** Please investigate the test failures before attempting to deploy again.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'deployment', 'rollback']
+            })

@@ -1,0 +1,20 @@
+{
+  "name": "commons-systems-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo for commons.systems projects",
+  "private": true,
+  "workspaces": [
+    "fellspiral/site",
+    "fellspiral/tests"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=fellspiral/site",
+    "build": "npm run build --workspace=fellspiral/site",
+    "test": "npm test --workspace=fellspiral/tests",
+    "test:deployed": "npm run test:deployed --workspace=fellspiral/tests",
+    "preview": "npm run preview --workspace=fellspiral/site"
+  },
+  "keywords": ["monorepo", "fellspiral", "tabletop", "rpg"],
+  "author": "",
+  "license": "MIT"
+}

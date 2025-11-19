@@ -1,0 +1,182 @@
+name: Infrastructure as Code
+
+on:
+  push:
+    branches: ['*']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  TF_VERSION: '1.6.0'
+  WORKING_DIR: infrastructure/terraform
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write  # Required for Workload Identity Federation
+
+jobs:
+  check:
+    name: Branch Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify branch or manual trigger
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "✅ Running on main branch or manual trigger"
+          else
+            echo "⊘ Skipping - not on main branch"
+          fi
+
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: check
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Load Nix environment
+        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded with gcloud and terraform'"
+
+      - name: Create terraform.tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id  = "${{ secrets.GCP_PROJECT_ID }}"
+          region      = "us-central1"
+          environment = "production"
+          EOF
+
+      - name: Terraform Format Check
+        id: fmt
+        run: nix develop .#ci --command terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: nix develop .#ci --command terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: nix develop .#ci --command terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        run: nix develop .#ci --command terraform plan -no-color -out=tfplan
+        continue-on-error: false
+
+      - name: Save plan output
+        id: plan-output
+        run: |
+          nix develop .#ci --command terraform show -no-color tfplan > plan.txt
+          # Truncate if too long for PR comment
+          if [ $(wc -l < plan.txt) -gt 100 ]; then
+            head -n 100 plan.txt > plan_truncated.txt
+            echo "... (output truncated)" >> plan_truncated.txt
+            mv plan_truncated.txt plan.txt
+          fi
+          {
+            echo 'plan<<EOF'
+            cat plan.txt
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Apply
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+        run: nix develop .#ci --command terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+        run: nix develop .#ci --command terraform destroy -auto-approve
+
+      - name: Get Infrastructure Outputs
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+        id: outputs
+        run: |
+          echo "bucket_name=$(nix develop .#ci --command terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "site_ip=$(nix develop .#ci --command terraform output -raw site_ip)" >> $GITHUB_OUTPUT
+          echo "site_url=$(nix develop .#ci --command terraform output -raw site_url)" >> $GITHUB_OUTPUT
+          echo "sa_email=$(nix develop .#ci --command terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
+
+      - name: Post results
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `## Infrastructure Updated! 🚀
+
+            **Infrastructure Details:**
+            - Bucket: \`${{ steps.outputs.outputs.bucket_name }}\`
+            - Static IP: \`${{ steps.outputs.outputs.site_ip }}\`
+            - Site URL: ${{ steps.outputs.outputs.site_url }}
+            - Service Account: \`${{ steps.outputs.outputs.sa_email }}\`
+
+            **Next deployment to main will use this infrastructure automatically.**
+
+            **Cost:** ~$0.13/month for typical traffic
+
+            ---
+            *Infrastructure managed via Terraform • Keyless auth via Workload Identity*`;
+
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: output
+            });
+
+      - name: Summary
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+        run: |
+          echo "### Infrastructure Updated! ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Bucket:** ${{ steps.outputs.outputs.bucket_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Static IP:** ${{ steps.outputs.outputs.site_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Site URL:** ${{ steps.outputs.outputs.site_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Service Account:** ${{ steps.outputs.outputs.sa_email }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Infrastructure managed automatically via Terraform" >> $GITHUB_STEP_SUMMARY

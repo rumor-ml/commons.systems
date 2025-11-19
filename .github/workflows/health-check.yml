@@ -1,0 +1,85 @@
+name: Health Check
+
+on:
+  # Disabled by default - uncomment to enable scheduled health checks
+  # schedule:
+  #   - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # Required for Workload Identity Federation
+  issues: write
+
+jobs:
+  health-check:
+    name: Check Site Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Install dependencies
+        run: nix develop .#ci --command npm install
+
+      - name: Install Playwright
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get deployment URL
+        id: get-url
+        run: |
+          GCP_PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+
+          # Try to get static IP
+          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+
+          if [ -n "$STATIC_IP" ]; then
+            echo "DEPLOYED_URL=http://${STATIC_IP}" >> $GITHUB_ENV
+          else
+            echo "DEPLOYED_URL=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_ENV
+          fi
+
+      - name: Run health check tests
+        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
+        env:
+          DEPLOYED: true
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.DEPLOYED_URL;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Site Health Check Failed',
+              body: `The scheduled health check failed for ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'health-check']
+            })

@@ -1,0 +1,86 @@
+name: CI - Test Suite
+
+on:
+  push:
+    branches: ['*']
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Load Nix development environment
+        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded'"
+
+      - name: Install dependencies
+        run: nix develop .#ci --command npm install
+
+      - name: Install Playwright browsers
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
+
+      - name: Build site
+        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
+
+      - name: Run tests
+        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: fellspiral/tests/playwright-report/
+          retention-days: 30
+
+      - name: Upload test results JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: fellspiral/tests/test-results.json
+          retention-days: 30
+
+  lint:
+    name: Lint Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check HTML files
+        run: |
+          echo "Checking for common HTML issues..."
+          ! grep -r "console\.log" fellspiral/site/src/ || (echo "Found console.log in source" && exit 1)
+
+      - name: Check for TODO comments
+        run: |
+          echo "Checking for TODO comments..."
+          grep -r "TODO\|FIXME" fellspiral/ || echo "No TODOs found"
