@@ -22,15 +22,9 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          config.allowUnfree = true;
-          overlays = [
-            (final: prev: {
-              fish = prev.fish.overrideAttrs (oldAttrs: {
-                doCheck = false;  # Binary cache unavailable for this version
-              });
-            })
-            # Node.js is NOT overridden - uses standard prebuilt binaries
-          ];
+          config = {
+            allowUnfree = true;
+          };
         };
 
         # Common tools used across development and CI
@@ -42,7 +36,7 @@
           gh
 
           # Node.js and package managers
-          nodejs-slim  # Slim version for better binary cache availability
+          nodejs  # Standard nodejs package with good binary cache coverage
           nodePackages.npm
 
           # Infrastructure as Code
@@ -167,7 +161,7 @@
         apps.build = {
           type = "app";
           program = "${pkgs.writeShellScript "build" ''
-            ${pkgs.nodejs-slim}/bin/npm run build
+            ${pkgs.nodejs}/bin/npm run build
           ''}";
         };
       }
