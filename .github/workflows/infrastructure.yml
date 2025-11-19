@@ -26,10 +26,23 @@ permissions:
   id-token: write  # Required for Workload Identity Federation
 
 jobs:
+  check:
+    name: Branch Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify branch or manual trigger
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "✅ Running on main branch or manual trigger"
+          else
+            echo "⊘ Skipping - not on main branch"
+          fi
+
   terraform:
     name: Terraform
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: check
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
 
     defaults:
