@@ -46,20 +46,25 @@ Deploy the Fellspiral site to GCP with **zero local setup** or **one local comma
    - Click "Create codespace on your-branch"
    - Wait 2-3 minutes for container to build
 
-2. **Run the initialization script**:
+2. **Load the Nix environment** (all tools are accessed via Nix):
+   ```bash
+   nix develop
+   ```
+
+3. **Run the initialization script**:
    ```bash
    cd infrastructure/scripts
    ./setup-workload-identity.sh
    ```
 
-3. **The script handles everything**:
+4. **The script handles everything**:
    - Checks GCP authentication (prompts `gcloud auth login` if needed)
    - Checks GitHub authentication (prompts `gh auth login` if needed)
    - Creates Workload Identity Pool & Provider
    - Creates service accounts with IAM permissions
    - Offers to create GitHub secrets automatically
 
-4. **Done!** Close Codespace, merge PR, and deployments work automatically
+5. **Done!** Close Codespace, merge PR, and deployments work automatically
 
 **Benefits:**
 - ✅ No local tool installation needed
@@ -178,6 +183,10 @@ For instant setup with zero local configuration:
 
 **Development:**
 ```bash
+# First, enter the Nix environment (provides all tools)
+nix develop
+
+# Then run your development commands
 npm run dev    # Start dev server
 npm test       # Run tests
 npm run build  # Build site
