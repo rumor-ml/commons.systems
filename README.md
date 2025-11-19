@@ -2,6 +2,8 @@
 
 A monorepo for commons.systems projects, starting with Fellspiral - a tactical tabletop RPG.
 
+<!-- Workflows verified: CI tests run on push, infrastructure only on main -->
+
 ## Projects
 
 ### Fellspiral
