@@ -58,18 +58,20 @@ The Nix environment provides:
 - ✅ `terraform` - Infrastructure as Code
 - ✅ `playwright` - Browser automation (with browsers)
 - ✅ All system dependencies for testing
+- ✅ **Automatic npm dependency installation**
+
+When you enter the Nix shell (via `direnv` or `nix develop`), npm dependencies are automatically installed if `node_modules` doesn't exist.
 
 ## Usage
 
 Once in the Nix shell (automatically with direnv):
 
 ```bash
+# Dependencies are installed automatically!
+
 # One-time setup (creates GCP resources and GitHub secrets)
 cd infrastructure/scripts
 ./setup-workload-identity.sh
-
-# Install Node dependencies
-npm install
 
 # Run development server
 npm run dev
@@ -80,6 +82,16 @@ npm test
 # Deploy (after setup)
 cd infrastructure/scripts
 ./deploy.sh
+```
+
+### Manual Dependency Installation
+
+If you need to reinstall dependencies:
+
+```bash
+rm -rf node_modules
+# Exit and re-enter the shell, or run:
+npm install
 ```
 
 ## Benefits

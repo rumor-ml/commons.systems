@@ -50,12 +50,6 @@
             echo "  - npm v$(npm --version)"
             echo "  - terraform v$(terraform version -json | jq -r .terraform_version)"
             echo ""
-            echo "Quick start:"
-            echo "  1. Run setup: cd infrastructure/scripts && ./setup-workload-identity.sh"
-            echo "  2. Install dependencies: npm install"
-            echo "  3. Run tests: npm test"
-            echo "  4. Deploy: cd infrastructure/scripts && ./deploy.sh"
-            echo ""
 
             # Set up Playwright
             export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
@@ -68,6 +62,21 @@
             if [ -f infrastructure/scripts/setup-workload-identity.sh ]; then
               chmod +x infrastructure/scripts/*.sh
             fi
+
+            # Auto-install npm dependencies if needed
+            if [ ! -d "node_modules" ]; then
+              echo "📦 Installing npm dependencies..."
+              npm install
+              echo "✅ Dependencies installed"
+              echo ""
+            fi
+
+            echo "Quick start:"
+            echo "  1. Run setup: cd infrastructure/scripts && ./setup-workload-identity.sh"
+            echo "  2. Run dev server: npm run dev"
+            echo "  3. Run tests: npm test"
+            echo "  4. Deploy: cd infrastructure/scripts && ./deploy.sh"
+            echo ""
           '';
 
           # Environment variables
