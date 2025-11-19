@@ -41,6 +41,8 @@ jobs:
 
       - name: Install Playwright
         run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium"
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -70,6 +72,7 @@ jobs:
         run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
         env:
           DEPLOYED: true
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
 
       - name: Create issue on failure
         if: failure()

@@ -37,11 +37,14 @@ jobs:
 
       - name: Install Playwright browsers
         run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
 
       - name: Run tests
         run: nix develop .#ci --command npm test --workspace=fellspiral/tests
         env:
           CI: true
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
 
       - name: Upload test results
         if: always()
