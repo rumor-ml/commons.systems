@@ -2,8 +2,7 @@ name: Infrastructure as Code
 
 on:
   push:
-    branches:
-      - main
+    branches: ['*']
   workflow_dispatch:
     inputs:
       action:
