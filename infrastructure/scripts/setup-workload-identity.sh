@@ -56,6 +56,9 @@ read -p "Press Enter to continue..."
 # Set project
 gcloud config set project "$PROJECT_ID"
 
+# Get project number (needed for workload identity)
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+
 # Enable required APIs
 echo ""
 echo -e "${YELLOW}[1/4] Enabling required APIs...${NC}"
@@ -136,19 +139,9 @@ echo "  → Allowing GitHub Actions to impersonate service account..."
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_NAME}/attribute.repository/${REPO_OWNER}/${REPO_NAME}" \
   --role="roles/iam.workloadIdentityUser" \
-  --quiet 2>/dev/null || {
-    # Get project number if not set
-    PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
-    gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-      --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_NAME}/attribute.repository/${REPO_OWNER}/${REPO_NAME}" \
-      --role="roles/iam.workloadIdentityUser" \
-      --quiet
-  }
+  --quiet 2>/dev/null || true
 
 echo -e "  ${GREEN}→ Permissions granted${NC}"
-
-# Get project number
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
 
 # Get workload identity provider resource name
 WI_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_NAME}/providers/${PROVIDER_NAME}"
