@@ -1,9 +1,21 @@
 {
-  "name": "Fellspiral Monorepo (Simple)",
+  "name": "Fellspiral Monorepo (Nix + Node)",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
 
-  // Minimal setup - just install dependencies
+  // Install Nix and configure it with flakes support
+  "features": {
+    "ghcr.io/devcontainers/features/nix:1": {
+      "version": "latest",
+      "multiUser": false,
+      "extraNixConfig": "experimental-features = nix-command flakes"
+    }
+  },
+
+  // Install npm dependencies (Nix tools available via 'nix develop')
   "postCreateCommand": "npm install",
+
+  // Show welcome message with instructions
+  "postStartCommand": "echo '🚀 Dev environment ready! Use \"nix develop\" to access gcloud, gh, terraform, etc.'",
 
   // Forward ports for development
   "forwardPorts": [3000],
@@ -11,9 +23,27 @@
   // VS Code customizations
   "customizations": {
     "vscode": {
+      "extensions": [
+        "jnoortheen.nix-ide"
+      ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "terminal.integrated.defaultProfile.linux": "nix-shell",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash"
+          },
+          "nix-shell": {
+            "path": "/bin/bash",
+            "args": ["-c", "nix develop --command bash"]
+          }
+        },
+        "nix.enableLanguageServer": false
       }
     }
+  },
+
+  // Environment variables
+  "containerEnv": {
+    "NIXPKGS_ALLOW_UNFREE": "1"
   }
 }
