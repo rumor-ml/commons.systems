@@ -47,7 +47,9 @@ export default defineConfig({
   ],
 
   webServer: isDeployed ? undefined : {
-    command: 'cd ../site && npm run dev',
+    command: process.env.CI
+      ? 'npx http-server ../site/dist -p 3000 -s'
+      : 'cd ../site && npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,

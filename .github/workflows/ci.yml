@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: nix develop .#ci --command npm install
 
+      - name: Build site
+        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
+
       - name: Install Playwright browsers
         run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
         env:
