@@ -29,72 +29,14 @@ A tactical tabletop RPG with detailed combat mechanics featuring initiative-base
 
 ## Quick Start
 
-Deploy the Fellspiral site to GCP with **zero local commands** or **one local command**.
-
-### Option A: GitHub Actions Setup (Recommended - Zero Local Commands)
-
-**Time:** 2 minutes
-**Local commands:** 0
-**Manual steps:** 1 (create service account key)
-**Result:** Fully automated infrastructure + deployment
-
-#### Prerequisites
-
-- Google Cloud Platform account
-- GCP Project created
-
-#### Setup Steps
-
-1. **Create a one-time service account key**:
-   ```bash
-   # In GCP Cloud Shell or locally with gcloud installed
-   PROJECT_ID="your-project-id"
-   SA_NAME="github-init"
-
-   # Create service account
-   gcloud iam service-accounts create $SA_NAME \
-     --display-name="GitHub Actions Init"
-
-   # Grant owner role (one-time setup only)
-   gcloud projects add-iam-policy-binding $PROJECT_ID \
-     --member="serviceAccount:${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
-     --role="roles/owner"
-
-   # Create key
-   gcloud iam service-accounts keys create key.json \
-     --iam-account="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-   # Copy the key content
-   cat key.json
-   ```
-
-2. **Add GitHub secret**:
-   - Go to: `https://github.com/your-org/commons.systems/settings/secrets/actions`
-   - Create new secret: `GCP_CREDENTIALS_JSON`
-   - Paste the entire JSON content from `key.json`
-   - **Delete `key.json` after adding to GitHub**
-
-3. **Run the initialization workflow**:
-   - Go to: Actions → "Initialize Infrastructure" → "Run workflow"
-   - Enter your GCP Project ID
-   - Click "Run workflow"
-   - Wait 2-3 minutes for completion
-
-4. **Done!**
-   - All secrets are automatically created
-   - Workload Identity is configured
-   - Merge your PR and deployments will work automatically
-
-**Security Note:** The `GCP_CREDENTIALS_JSON` is only used for this one-time setup. After initialization, all deployments use keyless Workload Identity Federation with no stored credentials.
-
-### Option B: Local Setup Script
+Deploy the Fellspiral site to GCP with **one local command** and **automatic secret creation**.
 
 **Time:** 1 minute (with `gh` CLI) or 2 minutes (without)
 **Local commands:** 1
 **Manual steps:** 0 (with `gh` CLI) or add 3 GitHub secrets (without)
 **Result:** Fully automated infrastructure + deployment
 
-#### Prerequisites
+### Prerequisites
 
 **Required:**
 - Google Cloud Platform account
@@ -105,7 +47,7 @@ Deploy the Fellspiral site to GCP with **zero local commands** or **one local co
 - GitHub CLI (`gh`) for automatic secret creation ([install guide](https://cli.github.com/))
 - Nix + direnv for reproducible development environment (see [Local Development](#local-development))
 
-#### Step 1: Run Setup Script (30 seconds)
+### Step 1: Run Setup Script (30 seconds)
 
 ```bash
 cd infrastructure/scripts
@@ -120,13 +62,13 @@ This script:
 
 **No keys, no tokens, completely secure!**
 
-**With GitHub CLI (Recommended):**
+#### With GitHub CLI (Recommended)
 The script detects `gh` CLI and offers to create secrets automatically:
 - Answer `y` when prompted
 - Secrets created instantly
 - **Skip to Step 2!**
 
-**Without GitHub CLI:**
+#### Without GitHub CLI
 Add secrets manually:
 1. Go to: `https://github.com/your-org/commons.systems/settings/secrets/actions`
 2. Add the 3 secrets shown by the script:
@@ -134,7 +76,7 @@ Add secrets manually:
    - `GCP_WORKLOAD_IDENTITY_PROVIDER`
    - `GCP_SERVICE_ACCOUNT`
 
-#### Step 2: Merge PR (30 seconds)
+### Step 2: Merge PR (30 seconds)
 
 Merge your PR to `main`.
 
@@ -340,15 +282,6 @@ cp .env.example .env
 All workflows use Nix for consistent environments across local development and CI/CD.
 
 ### Workflows
-
-#### 0. Initialize Infrastructure (`.github/workflows/init-infrastructure.yml`) - One-Time Setup
-- **Triggers:** Manual dispatch only
-- **Uses:** Nix CI environment
-- **Purpose:** One-time initialization of GCP infrastructure from GitHub Actions
-- **Creates:** Workload Identity Pool, Provider, Service Account, GitHub Secrets
-- **Requirements:** `GCP_CREDENTIALS_JSON` secret (one-time)
-- **Output:** All required secrets for automated deployments
-- **When to use:** Initial setup instead of running local setup script
 
 #### 1. Infrastructure (`.github/workflows/infrastructure.yml`)
 - **Triggers:** PR (plan) + Push to main (apply)
