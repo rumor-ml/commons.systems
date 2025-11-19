@@ -1,0 +1,73 @@
+{
+  "name": "Fellspiral Monorepo",
+  "image": "nixos/nix:latest",
+
+  // Configure Nix with flakes support
+  "onCreateCommand": {
+    "configure-nix": "mkdir -p ~/.config/nix && echo 'experimental-features = nix-command flakes' > ~/.config/nix/nix.conf"
+  },
+
+  // Install dependencies after container is created
+  "postCreateCommand": "nix develop --command bash -c 'echo \"Environment ready\" && npm install'",
+
+  // Keep container running
+  "overrideCommand": false,
+
+  // Forward ports for development
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Dev Server",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // VS Code customizations
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "jnoortheen.nix-ide",
+        "arrterian.nix-env-selector",
+        "bbenoist.Nix",
+        "ms-playwright.playwright",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash",
+            "args": ["-l"]
+          }
+        },
+        "nix.enableLanguageServer": true,
+        "nix.serverPath": "nil"
+      }
+    }
+  },
+
+  // Environment variables
+  "containerEnv": {
+    "NIXPKGS_ALLOW_UNFREE": "1"
+  },
+
+  // Features to add
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Lifecycle scripts
+  "postStartCommand": "nix develop --command bash -c 'echo \"🚀 Fellspiral dev environment ready! Type \\\"npm run dev\\\" to start the dev server.\"'",
+
+  // Mount workspace as workspace folder
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+  // Run as non-root user for better security
+  "remoteUser": "root",
+
+  // Container environment setup
+  "mounts": [
+    "source=${localWorkspaceFolder}/.nix-cache,target=/root/.cache/nix,type=bind,consistency=cached"
+  ]
+}

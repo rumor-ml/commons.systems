@@ -29,14 +29,59 @@ A tactical tabletop RPG with detailed combat mechanics featuring initiative-base
 
 ## Quick Start
 
-Deploy the Fellspiral site to GCP with **one local command** and **automatic secret creation**.
+Deploy the Fellspiral site to GCP with **zero local setup** or **one local command**.
+
+### Option A: GitHub Codespaces (Recommended - Zero Local Setup)
+
+**Time:** 2 minutes
+**Local setup:** None
+**Requirements:** GitHub account with Codespaces enabled
+**Result:** Fully configured dev environment + infrastructure setup
+
+#### Steps
+
+1. **Open in Codespaces**:
+   - Click the green "Code" button on GitHub
+   - Select "Codespaces" tab
+   - Click "Create codespace on your-branch"
+   - Wait 2-3 minutes for container to build
+
+2. **Run the initialization script**:
+   ```bash
+   # Environment is already configured with Nix, gcloud, gh CLI, etc.
+   cd infrastructure/scripts
+   ./setup-workload-identity.sh
+   ```
+
+3. **Authenticate with GCP**:
+   ```bash
+   gcloud auth login
+   # Follow the prompts to authenticate in your browser
+   ```
+
+4. **Script creates everything automatically**:
+   - ✅ Workload Identity Pool & Provider
+   - ✅ Service accounts
+   - ✅ IAM permissions
+   - ✅ GitHub secrets (via `gh` CLI)
+
+5. **Done!** Close Codespace, merge PR, and deployments work automatically
+
+**Benefits:**
+- ✅ No local tool installation needed
+- ✅ Consistent environment (same Nix flake as CI/CD)
+- ✅ All tools pre-installed (gcloud, gh, terraform, node, npm)
+- ✅ Works from any machine with a browser
+- ✅ Free tier available (60 hours/month)
+
+### Option B: Local Setup Script
 
 **Time:** 1 minute (with `gh` CLI) or 2 minutes (without)
 **Local commands:** 1
 **Manual steps:** 0 (with `gh` CLI) or add 3 GitHub secrets (without)
 **Result:** Fully automated infrastructure + deployment
 
-### Prerequisites
+#### Prerequisites
 
 **Required:**
 - Google Cloud Platform account
@@ -47,7 +92,7 @@ Deploy the Fellspiral site to GCP with **one local command** and **automatic sec
 - GitHub CLI (`gh`) for automatic secret creation ([install guide](https://cli.github.com/))
 - Nix + direnv for reproducible development environment (see [Local Development](#local-development))
 
-### Step 1: Run Setup Script (30 seconds)
+#### Step 1: Run Setup Script (30 seconds)
 
 ```bash
 cd infrastructure/scripts
@@ -121,9 +166,38 @@ Merge your PR to `main`.
 
 ## Local Development
 
-### Option 1: Nix/direnv (Recommended)
+### Option 1: GitHub Codespaces (Easiest)
 
-For a fully reproducible environment with all tools pre-configured:
+For instant setup with zero local configuration:
+
+**Setup:**
+1. Click "Code" → "Codespaces" → "Create codespace"
+2. Wait 2-3 minutes for environment to build
+3. Start developing immediately
+
+**What you get:**
+- ✅ All tools pre-installed via Nix (gcloud, gh, terraform, node, npm)
+- ✅ Automatic dependency installation
+- ✅ VS Code in browser with extensions
+- ✅ Same environment as CI/CD
+- ✅ Port forwarding for dev server (port 3000)
+
+**Development:**
+```bash
+npm run dev    # Start dev server
+npm test       # Run tests
+npm run build  # Build site
+```
+
+**When to use:**
+- Quick prototyping or testing
+- Contributing without local setup
+- Consistent environment across machines
+- Teaching or demos
+
+### Option 2: Nix/direnv (Local Machine)
+
+For a fully reproducible environment on your local machine:
 
 #### Prerequisites
 
@@ -192,7 +266,7 @@ The environment automatically sets `PLAYWRIGHT_BROWSERS_PATH`. If issues persist
 npx playwright install
 ```
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
 
 ```bash
 # Install prerequisites: Node.js 20, gcloud CLI, gh CLI
