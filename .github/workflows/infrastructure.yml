@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'infrastructure/terraform/**'
-      - '.github/workflows/infrastructure.yml'
   workflow_dispatch:
     inputs:
       action:
