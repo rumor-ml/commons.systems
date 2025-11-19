@@ -43,48 +43,90 @@ CI - Test Suite #4 - commit def5678 - feature-branch - Status unclear (no icon v
 - Duration
 - Commit SHA and message
 
-### Step 3: Get Error Details (if workflow failed)
-**URL:** `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
+### Step 3: Get Workflow Run Details (if workflow failed)
 
-Where `[RUN_ID]` is from the failed run (example: 19514524199)
+**How to find the run ID:**
+1. From the actions page, find the failed workflow run
+2. The URL format is: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
+3. Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517117436`
 
-**CRITICAL: Extract detailed failure information:**
+**What to extract from the workflow run page:**
+- **Overall status**: Look at the top of the page for "Status Success", "Status Failure", or "Status Cancelled"
+- **Jobs list**: All jobs with their status icons and durations
+  - ✓ green checkmark = passed
+  - ✗ red X = failed
+  - ⊘ grey circle = skipped
+- **Job names and links**: Each job has a link to its detail page (see Step 4)
 
-**What to extract:**
-- **Overall status**: Look for "Success", "Failure", "Cancelled" at the top of the page
-- **Job statuses**: For each job (Run Tests, Lint Check, Build, Deploy, etc.):
-  - Job name
-  - Status icon (✓ green checkmark = passed, ✗ red X = failed, ⊘ grey circle = skipped)
-  - Duration
-- **For FAILED jobs**:
-  - Identify which specific step failed (will have red X next to it)
-  - Extract the error message from the failed step
-  - Look for exit codes (e.g., "Process completed with exit code 1")
-  - Extract relevant log output showing the actual error
-- **For SKIPPED jobs**:
-  - Note which jobs were skipped (usually due to conditionals or earlier failures)
-
-**Example format for failed run:**
+**Example workflow run page output:**
 ```
-Overall Status: ✗ Failure
+Overall Status: Status Failure
 
-Job: Run Tests - ✗ Failed (duration: 2m 14s)
-  Step "Run tests" failed with exit code 1
-  Error: TypeError: Cannot read property 'foo' of undefined
+Jobs:
+✗ Run Tests - 11s - /actions/runs/19517117436/job/55871594318
+✗ Lint Check - 7s - /actions/runs/19517117436/job/55871594338
 
-Job: Lint Check - ⊘ Skipped (dependency failed)
-
-Job: Deploy - ⊘ Skipped (not on main branch)
+Warnings:
+- Upload test results: No files found at fellspiral/tests/test-results.json
+- Upload Playwright report: No files found at fellspiral/tests/playwright-report/
 ```
 
-**Alternative URL for full logs:**
-`https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/workflow`
+### Step 4: Get Job-Level Error Details
 
-### Step 4: Get Job-Level Details
-**URL:** `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+**How to find job details:**
+1. From the workflow run page, click on a failed job name
+2. The URL format is: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+3. Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517117436/job/55871594318`
+
+**CRITICAL: Extract detailed step-by-step failure information:**
+
+**What to extract from the job detail page:**
+- **Job name and overall status**
+- **ALL steps in execution order** with status icons (✓/✗)
+- **For EACH step**: Name, duration, status
+- **For FAILED steps**:
+  - The exact command that was run
+  - Complete error message and log output
+  - Exit code (e.g., "Process completed with exit code 1")
+  - Stack traces if present
+  - Any specific error messages (e.g., "ENOENT: no such file or directory")
+
+**Example job detail output:**
+```
+Job: Run Tests
+Overall Status: Failed (11s)
+
+Steps:
+✓ Checkout code (1s)
+✓ Install Nix (2s)
+✓ Setup Nix cache (1s)
+✓ Load Nix development environment (2s)
+✓ Install dependencies (3s)
+✗ Run tests (2s) - FAILED
+  Command: nix develop .#ci --command npm test --workspace=fellspiral/tests
+  Exit code: 1
+  Error: ENOENT: no such file or directory, open 'fellspiral/tests/e2e/homepage.spec.js'
+  at Object.openSync (node:fs:601:3)
+
+⊘ Upload test results (skipped - test failure)
+⊘ Upload test results JSON (skipped - test failure)
+```
+
+**Link chain summary:**
+1. Actions overview → Find failing workflow → Get RUN_ID
+2. Workflow run page (`/runs/[RUN_ID]`) → See all jobs → Get JOB_ID
+3. Job detail page (`/runs/[RUN_ID]/job/[JOB_ID]`) → See all steps and error logs
+
+### Step 5: Alternative - Check Commit Status Page
+**URL:** `https://github.com/rumor-ml/commons.systems/commit/[COMMIT_SHA]`
+
+If workflow run pages have loading issues, try the commit page:
+- Scroll to the "checks" section
+- See all workflows/checks that ran on this commit
+- Click individual checks to see their details
 
 **What to extract:**
-- Step-by-step execution log
+- Step-by-step execution log (removed duplicate section)
 - Which step failed (highlighted in red)
 - Exact error message
 - Command that was run
