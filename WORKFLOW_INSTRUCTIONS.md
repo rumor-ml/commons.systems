@@ -9,17 +9,30 @@ This document provides step-by-step instructions for checking GitHub Actions wor
 ### Step 1: Check All Recent Runs
 **URL:** `https://github.com/rumor-ml/commons.systems/actions`
 
+**CRITICAL: You MUST extract the actual pass/fail status for each workflow run.**
+
 **What to extract:**
 - List of recent workflow runs (up to 20)
-- Each run shows: workflow name, commit SHA (first 7 chars), status (✓/✗/⏳), branch name
-- Look for the most recent commit on the branch you pushed to
+- For EACH run, look for:
+  - Status indicators: green checkmark icon (✓), red X icon (✗), yellow dot (⏳)
+  - HTML elements with status classes like "status-success", "status-failure", "status-pending"
+  - ARIA labels or data attributes indicating "success", "failure", "in_progress", "completed"
+  - Text stating "Success", "Failure", "Completed", "Failed", "In progress"
+- DO NOT assume success - you must find explicit evidence of pass/fail status
+- If status is unclear, state "Status: Unknown - need to check individual run"
 
 **Expected output format:**
 ```
-CI - Test Suite #5 - commit abc1234 - main - ✓ Success
+CI - Test Suite #5 - commit abc1234 - main - ✓ Success (explicit green checkmark found)
 Infrastructure as Code #22 - commit abc1234 - main - ✓ Success
-Deploy to GCP #3 - commit abc1234 - main - ✓ Success
+Deploy to GCP #3 - commit abc1234 - main - ✗ Failure (explicit red X found)
+CI - Test Suite #4 - commit def5678 - feature-branch - Status unclear (no icon visible)
 ```
+
+**If you cannot see status icons:**
+- State explicitly: "Cannot determine pass/fail status from this view"
+- Recommend checking individual workflow run URLs
+- Try alternative: Check commit status page at `https://github.com/rumor-ml/commons.systems/commit/[SHA]`
 
 ### Step 2: Get Specific Workflow Details
 **URL:** `https://github.com/rumor-ml/commons.systems/actions/workflows/ci.yml`
@@ -35,11 +48,34 @@ Deploy to GCP #3 - commit abc1234 - main - ✓ Success
 
 Where `[RUN_ID]` is from the failed run (example: 19514524199)
 
+**CRITICAL: Extract detailed failure information:**
+
 **What to extract:**
-- Which jobs failed (Run Tests, Lint Check, etc.)
-- Which steps in each job failed
-- Error messages from failed steps
-- Exit codes
+- **Overall status**: Look for "Success", "Failure", "Cancelled" at the top of the page
+- **Job statuses**: For each job (Run Tests, Lint Check, Build, Deploy, etc.):
+  - Job name
+  - Status icon (✓ green checkmark = passed, ✗ red X = failed, ⊘ grey circle = skipped)
+  - Duration
+- **For FAILED jobs**:
+  - Identify which specific step failed (will have red X next to it)
+  - Extract the error message from the failed step
+  - Look for exit codes (e.g., "Process completed with exit code 1")
+  - Extract relevant log output showing the actual error
+- **For SKIPPED jobs**:
+  - Note which jobs were skipped (usually due to conditionals or earlier failures)
+
+**Example format for failed run:**
+```
+Overall Status: ✗ Failure
+
+Job: Run Tests - ✗ Failed (duration: 2m 14s)
+  Step "Run tests" failed with exit code 1
+  Error: TypeError: Cannot read property 'foo' of undefined
+
+Job: Lint Check - ⊘ Skipped (dependency failed)
+
+Job: Deploy - ⊘ Skipped (not on main branch)
+```
 
 **Alternative URL for full logs:**
 `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/workflow`
