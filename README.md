@@ -41,9 +41,8 @@ For a fully reproducible environment with all tools:
 # See NIX.md for installation instructions
 
 cd commons.systems
-direnv allow  # Loads all tools automatically
-npm install
-npm run dev
+direnv allow  # Loads environment + installs npm dependencies automatically!
+npm run dev   # Dependencies already installed
 ```
 
 See **[NIX.md](NIX.md)** for complete Nix setup instructions.
