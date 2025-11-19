@@ -13,6 +13,19 @@ A tactical tabletop RPG with detailed combat mechanics featuring initiative-base
 
 ## Quick Start
 
+### 🚀 Deploy to GCP (Zero Local Setup)
+
+Deploy in **5 minutes** with **zero terminal commands**:
+
+1. Create GCP service account (2 min, web UI only)
+2. Add 2 GitHub secrets (1 min)
+3. Run "Setup Infrastructure" workflow in Actions tab (30 sec)
+4. Merge PR → Site auto-deploys! (30 sec)
+
+**👉 See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions.**
+
+### 💻 Local Development
+
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -61,16 +74,45 @@ npm run test:headed      # See browser during tests
 
 ## Deployment
 
-The site is automatically deployed to GCP Cloud Storage + CDN via GitHub Actions.
+### Zero-Setup Deployment (Recommended)
 
-### Automatic Deployment (GitHub Actions)
+**No local tools needed** - everything runs in GitHub Actions:
 
-1. **On Pull Request**: Runs full test suite
-2. **On Merge to Main**: Builds, tests, deploys, and validates deployment
-3. **Every 6 Hours**: Health check ensures site is operational
+1. **Setup Infrastructure** (one-time):
+   - Create GCP service account in GCP Console
+   - Add GitHub secrets (`GCP_PROJECT_ID`, `GCP_SA_KEY`)
+   - Run "Setup Infrastructure" workflow → Creates all GCP resources via Terraform
 
-### Manual Deployment
+2. **Deploy Site** (automatic):
+   - Merge to `main` → Site deploys automatically
+   - Every push to `main` → Tests, builds, deploys, validates
 
+3. **Ongoing**:
+   - Tests run on every PR
+   - Deploy runs on every merge
+   - Health checks every 6 hours
+
+**👉 Complete guide:** [QUICKSTART.md](QUICKSTART.md) (5 minutes total)
+
+### Alternative: Local Setup
+
+If you prefer local control:
+
+**Terraform:**
+```bash
+cd infrastructure/terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars
+terraform init && terraform apply
+```
+
+**Shell Script:**
+```bash
+cd infrastructure/scripts
+./setup-deployment.sh  # All-in-one setup
+```
+
+**Manual Deployment:**
 ```bash
 cd infrastructure/scripts
 cp .env.example .env
@@ -78,26 +120,7 @@ cp .env.example .env
 ./deploy.sh
 ```
 
-### Infrastructure Setup
-
-Choose one method:
-
-**Automated Script (Easiest):**
-```bash
-cd infrastructure/scripts
-./setup-gcp.sh
-```
-
-**Terraform (Recommended):**
-```bash
-cd infrastructure/terraform
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars
-terraform init
-terraform apply
-```
-
-See [SETUP.md](SETUP.md) for detailed instructions.
+See [SETUP.md](SETUP.md) for detailed local setup instructions.
 
 ## Architecture
 
@@ -139,17 +162,22 @@ Designed for minimal GCP costs:
 
 ### Workflows
 
-1. **CI** (`.github/workflows/ci.yml`)
+1. **Setup Infrastructure** (`.github/workflows/setup-infrastructure.yml`)
+   - Triggers: Manual (Actions UI)
+   - Runs Terraform to create GCP resources
+   - One-time setup, no local tools needed
+
+2. **CI** (`.github/workflows/ci.yml`)
    - Triggers: All pushes and PRs
    - Runs: Build + full test suite
    - Outputs: Test reports and coverage
 
-2. **Deploy** (`.github/workflows/deploy.yml`)
+3. **Deploy** (`.github/workflows/deploy.yml`)
    - Triggers: Push to main, manual dispatch
    - Steps: Build → Test → Deploy → Validate
    - Environments: Production (extensible to staging)
 
-3. **Health Check** (`.github/workflows/health-check.yml`)
+4. **Health Check** (`.github/workflows/health-check.yml`)
    - Triggers: Every 6 hours, manual dispatch
    - Runs: Smoke tests against live site
    - Creates issue on failure
@@ -157,9 +185,11 @@ Designed for minimal GCP costs:
 ### Required Secrets
 
 - `GCP_PROJECT_ID`: Your GCP project ID
-- `GCP_SA_KEY`: Service account key JSON (roles: storage.admin, compute.loadBalancerAdmin)
+- `GCP_SA_KEY`: Service account key JSON (roles: Storage Admin, Compute Load Balancer Admin, Service Account Admin, Project IAM Admin)
 
-See [SETUP.md](SETUP.md) for configuration details.
+The service account needs broader permissions for the Setup Infrastructure workflow to create resources. After initial setup, deployments only use Storage Admin and Compute Load Balancer Admin.
+
+See [QUICKSTART.md](QUICKSTART.md) for quick setup or [SETUP.md](SETUP.md) for detailed instructions.
 
 ## Testing
 
@@ -207,10 +237,14 @@ commons.systems/
 
 ## Documentation
 
-- [SETUP.md](SETUP.md) - Detailed setup instructions
+### Getting Started
+- **[QUICKSTART.md](QUICKSTART.md)** - Deploy in 5 minutes (zero local setup)
+- [SETUP.md](SETUP.md) - Detailed local setup instructions
 - [CONTRIBUTING.md](CONTRIBUTING.md) - How to contribute
-- [infrastructure/README.md](infrastructure/README.md) - Infrastructure details
-- [fellspiral/rules.md](fellspiral/rules.md) - Game rules
+
+### Technical Details
+- [infrastructure/README.md](infrastructure/README.md) - Architecture and infrastructure
+- [fellspiral/rules.md](fellspiral/rules.md) - Game rules documentation
 
 ## Contributing
 
