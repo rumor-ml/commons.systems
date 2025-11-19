@@ -117,20 +117,68 @@ Steps:
 2. Workflow run page (`/runs/[RUN_ID]`) → See all jobs → Get JOB_ID
 3. Job detail page (`/runs/[RUN_ID]/job/[JOB_ID]`) → See all steps and error logs
 
-### Step 5: Alternative - Check Commit Status Page
-**URL:** `https://github.com/rumor-ml/commons.systems/commit/[COMMIT_SHA]`
+### Step 5: Access Logs from Commit Page (FASTEST Method)
 
-If workflow run pages have loading issues, try the commit page:
-- Scroll to the "checks" section
-- See all workflows/checks that ran on this commit
-- Click individual checks to see their details
+**URL Format:** `https://github.com/rumor-ml/commons.systems/commit/[FULL_COMMIT_SHA]`
+**Example:** `https://github.com/rumor-ml/commons.systems/commit/c8d90e0628cfcef65e86fce17be381246bfc798f`
 
-**What to extract:**
-- Step-by-step execution log (removed duplicate section)
-- Which step failed (highlighted in red)
-- Exact error message
-- Command that was run
-- Exit code
+**This is often the FASTEST way to access workflow failure details:**
+
+1. **Navigate to the commit page** using the full 40-character commit SHA
+2. **Find the "checks" section** (usually below the commit message and file changes)
+3. **Identify failed checks** - look for red ✗ icons next to check names
+4. **Click the "Details" link** next to any failed check
+5. **You'll be taken directly to the job page** with the specific failure logs
+
+**What to look for in the checks section:**
+```
+✓ Infrastructure as Code — Passed (8s)
+✗ Run Tests — Failed (11s) [Details →]
+✗ Lint Check — Failed (9s) [Details →]
+```
+
+**Clicking "Details" takes you to:**
+- Direct URL format: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+- Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517357402/job/55872410208`
+- This is the SAME job details page from Step 4, but accessed more quickly
+
+**Why use this method:**
+- ✅ Faster than navigating: Actions → Workflow → Run → Job
+- ✅ Shows ALL checks for this specific commit in one view
+- ✅ Direct "Details" links to failed jobs
+- ✅ Useful when you have a commit SHA but don't know the run ID
+
+### Step 6: Understanding Log Access
+
+**IMPORTANT:** Detailed execution logs may require authentication to GitHub.
+
+**What you can see WITHOUT authentication:**
+- Job name and overall status
+- Duration
+- Warnings (e.g., "No files found at path...")
+- List of steps (but not their detailed output)
+
+**What MAY REQUIRE authentication:**
+- Step-by-step console output
+- Actual error messages and stack traces
+- Command execution logs
+- Exit codes from failed commands
+
+**If you see "Sign in to view logs":**
+- The job page is accessible but logs require GitHub authentication
+- You can still see high-level info (warnings, job status, step list)
+- For complete debugging, access the page while signed into GitHub
+
+**Complete Link Chain Summary:**
+```
+Method 1 (From Actions Overview):
+Actions → Workflow runs → Run details → Job details → Logs
+
+Method 2 (From Commit Page - FASTEST):
+Commit page → Checks section → "Details" link → Job details → Logs
+
+Both methods lead to the same job details page with execution logs.
+```
 
 ## Checking Specific Workflows
 
