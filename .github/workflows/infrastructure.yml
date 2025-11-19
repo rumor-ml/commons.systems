@@ -70,7 +70,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Load Nix environment
         run: nix develop .#ci --command bash -c "echo 'Nix environment loaded with gcloud and terraform'"
