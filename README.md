@@ -48,24 +48,18 @@ Deploy the Fellspiral site to GCP with **zero local setup** or **one local comma
 
 2. **Run the initialization script**:
    ```bash
-   # Environment is already configured with Nix, gcloud, gh CLI, etc.
    cd infrastructure/scripts
    ./setup-workload-identity.sh
    ```
 
-3. **Authenticate with GCP**:
-   ```bash
-   gcloud auth login
-   # Follow the prompts to authenticate in your browser
-   ```
+3. **The script handles everything**:
+   - Checks GCP authentication (prompts `gcloud auth login` if needed)
+   - Checks GitHub authentication (prompts `gh auth login` if needed)
+   - Creates Workload Identity Pool & Provider
+   - Creates service accounts with IAM permissions
+   - Offers to create GitHub secrets automatically
 
-4. **Script creates everything automatically**:
-   - ✅ Workload Identity Pool & Provider
-   - ✅ Service accounts
-   - ✅ IAM permissions
-   - ✅ GitHub secrets (via `gh` CLI)
-
-5. **Done!** Close Codespace, merge PR, and deployments work automatically
+4. **Done!** Close Codespace, merge PR, and deployments work automatically
 
 **Benefits:**
 - ✅ No local tool installation needed

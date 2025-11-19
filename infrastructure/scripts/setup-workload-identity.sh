@@ -23,6 +23,17 @@ if ! command -v gcloud &> /dev/null; then
   exit 1
 fi
 
+# Check GCP authentication
+echo -e "${BLUE}Checking GCP authentication...${NC}"
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
+  echo -e "${YELLOW}Not authenticated to GCP. Opening browser for authentication...${NC}"
+  gcloud auth login
+fi
+
+ACTIVE_ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" | head -n1)
+echo -e "  ${GREEN}→ Authenticated as: ${ACTIVE_ACCOUNT}${NC}"
+echo ""
+
 # Get project ID
 echo -e "${BLUE}Enter your GCP Project ID:${NC}"
 read -r PROJECT_ID
@@ -151,7 +162,18 @@ echo ""
 # Check if gh CLI is available
 if command -v gh &> /dev/null; then
   echo -e "${BLUE}GitHub CLI detected!${NC}"
+
+  # Check GitHub authentication
+  echo -e "${BLUE}Checking GitHub authentication...${NC}"
+  if ! gh auth status &> /dev/null; then
+    echo -e "${YELLOW}Not authenticated to GitHub. Opening browser for authentication...${NC}"
+    gh auth login
+  fi
+
+  GH_USER=$(gh api user -q .login 2>/dev/null || echo "unknown")
+  echo -e "  ${GREEN}→ Authenticated as: ${GH_USER}${NC}"
   echo ""
+
   echo -e "${YELLOW}Do you want to automatically create GitHub secrets?${NC}"
   echo "This will add the following secrets to ${REPO_OWNER}/${REPO_NAME}:"
   echo "  - GCP_PROJECT_ID"
