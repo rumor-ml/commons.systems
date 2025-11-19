@@ -5,6 +5,7 @@ A monorepo for commons.systems projects, starting with Fellspiral - a tactical t
 <!-- Workflows verified: CI tests run on push, infrastructure only on main -->
 <!-- Triggering CI workflow to verify Playwright webServer fix -->
 <!-- Updated: Workflows now run on feature branches with '**' pattern -->
+<!-- Testing: Deploy workflow enabled on feature branches for debugging -->
 
 ## Projects
 
