@@ -10,34 +10,60 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            # GCP tools
-            google-cloud-sdk
 
-            # GitHub CLI
-            gh
+        # Common tools used across development and CI
+        commonTools = with pkgs; [
+          # GCP tools
+          google-cloud-sdk
 
-            # Node.js and package managers
-            nodejs_20
-            nodePackages.npm
+          # GitHub CLI
+          gh
 
-            # Infrastructure as Code
-            terraform
+          # Node.js and package managers
+          nodejs_20
+          nodePackages.npm
 
+          # Infrastructure as Code
+          terraform
+
+          # Shell utilities
+          bash
+          coreutils
+          git
+          jq
+          curl
+        ];
+
+        # Fellspiral site package
+        fellspiral-site = pkgs.buildNpmPackage rec {
+          pname = "fellspiral-site";
+          version = "1.0.0";
+
+          src = ./.;
+
+          npmDepsHash = pkgs.lib.fakeSha256;  # Replace with actual hash after first build
+
+          # Build only the site workspace
+          buildPhase = ''
+            npm run build --workspace=fellspiral/site
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            cp -r fellspiral/site/dist/* $out/
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Fellspiral static website";
+            license = licenses.mit;
+          };
+        };
+
+        # Development shell with all tools
+        devShell = pkgs.mkShell {
+          buildInputs = commonTools ++ [
             # Playwright dependencies (for running tests)
-            playwright-driver.browsers
-
-            # Shell utilities
-            bash
-            coreutils
-            git
-
-            # Optional but useful
-            jq
-            curl
+            pkgs.playwright-driver.browsers
           ];
 
           shellHook = ''
@@ -64,6 +90,7 @@
             fi
 
             # Auto-install npm dependencies if needed
+            # Note: In future, this will be replaced by Nix-managed dependencies
             if [ ! -d "node_modules" ]; then
               echo "📦 Installing npm dependencies..."
               npm install
@@ -75,12 +102,51 @@
             echo "  1. Run setup: cd infrastructure/scripts && ./setup-workload-identity.sh"
             echo "  2. Run dev server: npm run dev"
             echo "  3. Run tests: npm test"
-            echo "  4. Deploy: cd infrastructure/scripts && ./deploy.sh"
+            echo "  4. Build with Nix: nix build .#fellspiral-site"
             echo ""
           '';
 
           # Environment variables
           NIXPKGS_ALLOW_UNFREE = "1";
+        };
+
+        # CI shell with same tools but no interactive features
+        ciShell = pkgs.mkShell {
+          buildInputs = commonTools ++ [
+            # Playwright dependencies
+            pkgs.playwright-driver.browsers
+          ];
+
+          shellHook = ''
+            # Set up Playwright
+            export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+            export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+
+            # Ensure npm install works properly
+            export npm_config_cache="$PWD/.npm-cache"
+          '';
+
+          NIXPKGS_ALLOW_UNFREE = "1";
+        };
+
+      in
+      {
+        packages = {
+          default = fellspiral-site;
+          fellspiral-site = fellspiral-site;
+        };
+
+        devShells = {
+          default = devShell;
+          ci = ciShell;
+        };
+
+        # Make common tools available as app
+        apps.build = {
+          type = "app";
+          program = "${pkgs.writeShellScript "build" ''
+            ${pkgs.nodejs_20}/bin/npm run build
+          ''}";
         };
       }
     );

@@ -46,20 +46,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: true
+      - name: Load Nix environment
+        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded with gcloud and terraform'"
 
       - name: Create terraform.tfvars
         run: |
@@ -71,26 +79,26 @@ jobs:
 
       - name: Terraform Format Check
         id: fmt
-        run: terraform fmt -check -recursive
+        run: nix develop .#ci --command terraform fmt -check -recursive
         continue-on-error: true
 
       - name: Terraform Init
         id: init
-        run: terraform init
+        run: nix develop .#ci --command terraform init
 
       - name: Terraform Validate
         id: validate
-        run: terraform validate -no-color
+        run: nix develop .#ci --command terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan
+        run: nix develop .#ci --command terraform plan -no-color -out=tfplan
         continue-on-error: false
 
       - name: Save plan output
         id: plan-output
         run: |
-          terraform show -no-color tfplan > plan.txt
+          nix develop .#ci --command terraform show -no-color tfplan > plan.txt
           # Truncate if too long for PR comment
           if [ $(wc -l < plan.txt) -gt 100 ]; then
             head -n 100 plan.txt > plan_truncated.txt
@@ -137,11 +145,11 @@ jobs:
         if: |
           (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
-        run: terraform apply -auto-approve tfplan
+        run: nix develop .#ci --command terraform apply -auto-approve tfplan
 
       - name: Terraform Destroy
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
-        run: terraform destroy -auto-approve
+        run: nix develop .#ci --command terraform destroy -auto-approve
 
       - name: Get Infrastructure Outputs
         if: |
@@ -149,10 +157,10 @@ jobs:
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         id: outputs
         run: |
-          echo "bucket_name=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
-          echo "site_ip=$(terraform output -raw site_ip)" >> $GITHUB_OUTPUT
-          echo "site_url=$(terraform output -raw site_url)" >> $GITHUB_OUTPUT
-          echo "sa_email=$(terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
+          echo "bucket_name=$(nix develop .#ci --command terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "site_ip=$(nix develop .#ci --command terraform output -raw site_ip)" >> $GITHUB_OUTPUT
+          echo "site_url=$(nix develop .#ci --command terraform output -raw site_url)" >> $GITHUB_OUTPUT
+          echo "sa_email=$(nix develop .#ci --command terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
 
       - name: Post results
         if: |

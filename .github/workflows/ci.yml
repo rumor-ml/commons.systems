@@ -16,26 +16,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
         with:
-          node-version: '20'
-          cache: 'npm'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Load Nix development environment
+        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded'"
 
       - name: Install dependencies
-        run: npm install
+        run: nix develop .#ci --command npm install
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
-        working-directory: fellspiral/tests
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
 
       - name: Build site
-        run: npm run build
-        working-directory: fellspiral/site
+        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
 
       - name: Run tests
-        run: npm test
-        working-directory: fellspiral/tests
+        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
 
       - name: Upload test results
         if: always()
@@ -62,10 +70,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
         with:
-          node-version: '20'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       - name: Check HTML files
         run: |

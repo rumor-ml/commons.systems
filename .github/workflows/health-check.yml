@@ -21,18 +21,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
         with:
-          node-version: '20'
-          cache: 'npm'
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
 
       - name: Install dependencies
-        run: npm install
+        run: nix develop .#ci --command npm install
 
       - name: Install Playwright
-        run: npx playwright install --with-deps chromium
-        working-directory: fellspiral/tests
+        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -59,8 +66,7 @@ jobs:
           fi
 
       - name: Run health check tests
-        run: npm run test:deployed
-        working-directory: fellspiral/tests
+        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
         env:
           DEPLOYED: true
 
