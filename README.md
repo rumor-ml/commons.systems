@@ -32,8 +32,26 @@ Deploy in **1 minute** with **one command**:
 
 ### 💻 Local Development
 
+#### Option 1: Nix/direnv (Recommended)
+
+For a fully reproducible environment with all tools:
+
 ```bash
-# Clone the repository
+# Install Nix with flakes + direnv (one-time)
+# See NIX.md for installation instructions
+
+cd commons.systems
+direnv allow  # Loads all tools automatically
+npm install
+npm run dev
+```
+
+See **[NIX.md](NIX.md)** for complete Nix setup instructions.
+
+#### Option 2: Manual Setup
+
+```bash
+# Install prerequisites: Node.js 20, gcloud CLI, gh CLI
 git clone <repository-url>
 cd commons.systems
 
@@ -264,7 +282,8 @@ commons.systems/
 ## Documentation
 
 ### Getting Started
-- **[QUICKSTART.md](QUICKSTART.md)** - Deploy in 5 minutes (zero local setup)
+- **[QUICKSTART.md](QUICKSTART.md)** - Deploy in 1-2 minutes
+- **[NIX.md](NIX.md)** - Reproducible dev environment with Nix/direnv
 - [SETUP.md](SETUP.md) - Detailed local setup instructions
 - [CONTRIBUTING.md](CONTRIBUTING.md) - How to contribute
 

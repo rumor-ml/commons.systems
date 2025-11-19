@@ -46,3 +46,10 @@ yarn-error.log*
 tmp/
 temp/
 *.tmp
+
+# Nix
+.direnv/
+.envrc.cache
+result
+result-*
+.npm-cache/
