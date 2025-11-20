@@ -132,8 +132,17 @@ jobs:
       - name: Terraform Init
         id: init
         run: |
+          # Debug: Check if bucket is accessible
+          echo "Checking if state bucket is accessible..."
+          gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo "Bucket not accessible"
+
+          # Debug: Show current GCP project
+          echo "Current GCP project: $(gcloud config get-value project)"
+
+          # Initialize Terraform with backend configuration
           nix develop .#ci --command terraform init \
-            -backend-config="project=${{ secrets.GCP_PROJECT_ID }}"
+            -backend-config="project=${{ secrets.GCP_PROJECT_ID }}" \
+            -reconfigure
 
       - name: Import existing resources if needed
         id: import
