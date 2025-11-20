@@ -29,7 +29,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate service name
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate service name and labels
         id: service-name
         run: |
           # Sanitize branch name for Cloud Run (lowercase, alphanumeric, hyphens only)
@@ -38,6 +41,10 @@ jobs:
           BRANCH_NAME="${BRANCH_NAME#claude/}"
           # Convert to lowercase, replace / and _ with -, remove invalid chars
           SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+
+          # Sanitize for GCP labels (max 63 chars, only lowercase letters, numbers, underscores, hyphens)
+          LABEL_SAFE=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9_-]//g' | cut -c1-63)
+
           # Get short SHA
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
@@ -49,6 +56,7 @@ jobs:
           SERVICE_NAME="${SERVICE_NAME%-}"
 
           echo "name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
+          echo "label_safe_branch=${LABEL_SAFE}" >> $GITHUB_OUTPUT
           echo "### Preview Deployment" >> $GITHUB_STEP_SUMMARY
           echo "Service name: \`${SERVICE_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -83,10 +91,21 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ steps.service-name.outputs.name }}:${{ github.sha }}"
+          CACHE_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/cache:latest"
 
           cd fellspiral/site
-          docker build -t "${IMAGE_NAME}" .
+
+          # Build with cache from previous builds
+          docker build \
+            --cache-from="${CACHE_IMAGE}" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t "${IMAGE_NAME}" \
+            -t "${CACHE_IMAGE}" \
+            .
+
+          # Push both the versioned image and cache image
           docker push "${IMAGE_NAME}"
+          docker push "${CACHE_IMAGE}" || true  # Don't fail if cache push fails
 
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
 
@@ -105,7 +124,7 @@ jobs:
             --timeout=300 \
             --port=8080 \
             --set-env-vars="ENVIRONMENT=preview,BRANCH_NAME=${{ github.ref_name }},COMMIT_SHA=${{ github.sha }}" \
-            --labels="preview=true,branch=${{ github.ref_name }},commit=${{ github.sha }}" \
+            --labels="preview=true,branch=${{ steps.service-name.outputs.label_safe_branch }},commit=${{ github.sha }}" \
             --quiet
 
       - name: Get service URL
