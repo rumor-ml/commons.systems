@@ -301,6 +301,49 @@ def setup_ci_logs_proxy(config):
     else:
         print_info(f"Artifact Registry repository '{repo_name}' already exists")
 
+    # Create Artifact Registry repositories for Fellspiral site deployments
+    print_info("Creating Artifact Registry repositories for Fellspiral site...")
+
+    # Production repository
+    prod_repo = "fellspiral-production"
+    prod_exists = run_command(
+        f'gcloud artifacts repositories describe {prod_repo} '
+        f'--location={region} --project={config["project_id"]} 2>/dev/null',
+        check=False
+    )
+
+    if not prod_exists:
+        run_command(
+            f'gcloud artifacts repositories create {prod_repo} '
+            f'--repository-format=docker '
+            f'--location={region} '
+            f'--description="Production Docker images for Fellspiral site" '
+            f'--project={config["project_id"]}'
+        )
+        print_success(f"Artifact Registry repository '{prod_repo}' created")
+    else:
+        print_info(f"Artifact Registry repository '{prod_repo}' already exists")
+
+    # Preview/feature branch repository
+    preview_repo = "fellspiral-previews"
+    preview_exists = run_command(
+        f'gcloud artifacts repositories describe {preview_repo} '
+        f'--location={region} --project={config["project_id"]} 2>/dev/null',
+        check=False
+    )
+
+    if not preview_exists:
+        run_command(
+            f'gcloud artifacts repositories create {preview_repo} '
+            f'--repository-format=docker '
+            f'--location={region} '
+            f'--description="Feature branch preview Docker images for Fellspiral site" '
+            f'--project={config["project_id"]}'
+        )
+        print_success(f"Artifact Registry repository '{preview_repo}' created")
+    else:
+        print_info(f"Artifact Registry repository '{preview_repo}' already exists")
+
     # Create GitHub API token secret
     print_info("Setting up GitHub API token secret...")
     secret_name = "GITHUB_API_TOKEN"
