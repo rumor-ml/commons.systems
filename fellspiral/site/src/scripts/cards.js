@@ -40,21 +40,17 @@ async function loadCards() {
 
   if (storedCards) {
     state.cards = JSON.parse(storedCards);
-    console.log('Loaded cards from localStorage:', state.cards.length);
   } else {
     // Load from JSON file
     try {
       const response = await fetch('/data/cards.json');
       if (response.ok) {
         state.cards = await response.json();
-        console.log('Loaded cards from JSON file:', state.cards.length);
         saveCardsToStorage();
       } else {
-        console.warn('No cards file found, starting with empty database');
         state.cards = [];
       }
     } catch (error) {
-      console.error('Error loading cards:', error);
       state.cards = [];
     }
   }
