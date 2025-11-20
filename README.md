@@ -3,7 +3,7 @@
 A monorepo for commons.systems projects, starting with Fellspiral - a tactical tabletop RPG.
 
 <!-- Workflows verified: CI tests run on push, infrastructure only on main -->
-<!-- Triggering CI workflow to verify Playwright webServer fix -->
+<!-- CI/Infrastructure workflows run on all branches, Deploy workflow runs only on main -->
 
 ## Projects
 

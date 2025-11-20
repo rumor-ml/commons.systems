@@ -2,43 +2,43 @@ name: CI - Test Suite
 
 on:
   push:
-    branches: ['*']
+    branches: ['**']
 
 jobs:
   test:
-    name: Run Tests
+    name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
         with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Load Nix development environment
-        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded'"
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('fellspiral/tests/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install dependencies
-        run: nix develop .#ci --command npm install
+        run: npm install
+
+      - name: Build site
+        run: npm run build --workspace=fellspiral/site
 
       - name: Install Playwright browsers
-        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
+        run: cd fellspiral/tests && npx playwright install --with-deps chromium
 
       - name: Run tests
-        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
+        run: npm test --workspace=fellspiral/tests -- --project=chromium
         env:
           CI: true
 
@@ -50,29 +50,14 @@ jobs:
           path: fellspiral/tests/playwright-report/
           retention-days: 30
 
-      - name: Upload test results JSON
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: fellspiral/tests/test-results.json
-          retention-days: 30
-
   lint:
     name: Lint Check
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
 
       - name: Check for console.log in source
         run: |

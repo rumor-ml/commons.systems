@@ -71,6 +71,9 @@ test.describe('Equipment Section', () => {
   test('should display skills when skills tab clicked', async ({ page }) => {
     await page.click('text=Skills');
 
+    // Wait for skills content to be visible
+    await page.locator('.skill-card').first().waitFor({ state: 'visible' });
+
     // Check skill categories
     await expect(page.locator('h3', { hasText: 'Attack Skills' })).toBeVisible();
     await expect(page.locator('h3', { hasText: 'Defense Skills' })).toBeVisible();

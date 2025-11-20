@@ -7,19 +7,51 @@ This document provides step-by-step instructions for checking GitHub Actions wor
 ## Quick Check: Latest Workflow Status
 
 ### Step 1: Check All Recent Runs
+
 **URL:** `https://github.com/rumor-ml/commons.systems/actions`
+**Optional filter by branch:** `https://github.com/rumor-ml/commons.systems/actions?query=branch:[BRANCH_NAME]`
+
+**CRITICAL PARSING RULES:**
+
+1. **Runtime Duration = Completed Workflow**
+   - If you see a duration like "5m 29s", "3m 12s", "45s", the workflow has **COMPLETED**
+   - This is the PRIMARY indicator that a workflow finished (not still running)
+   - If you see "In progress" text but ALSO see a duration, trust the duration - it completed
+
+2. **No Duration = Still Running or Queued**
+   - If there's NO duration shown, the workflow is still in progress or queued
+   - Look for spinner icons (⏳) or "In progress" text
+
+3. **To Determine Pass/Fail:**
+   - Duration alone doesn't tell you if it passed or failed
+   - You MUST check the individual workflow run page to see Success/Failure status
+   - Go to: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
+
+**CRITICAL: You MUST extract the actual pass/fail status for each workflow run.**
 
 **What to extract:**
 - List of recent workflow runs (up to 20)
-- Each run shows: workflow name, commit SHA (first 7 chars), status (✓/✗/⏳), branch name
-- Look for the most recent commit on the branch you pushed to
+- For EACH run, look for:
+  - **Runtime duration** (e.g., "5m 29s") - if present, workflow COMPLETED
+  - Status indicators: green checkmark icon (✓), red X icon (✗), yellow dot (⏳)
+  - HTML elements with status classes like "status-success", "status-failure", "status-pending"
+  - ARIA labels or data attributes indicating "success", "failure", "in_progress", "completed"
+  - Text stating "Success", "Failure", "Completed", "Failed", "In progress"
+- DO NOT assume success - you must find explicit evidence of pass/fail status
+- If status is unclear, state "Status: Unknown - need to check individual run"
 
 **Expected output format:**
 ```
-CI - Test Suite #5 - commit abc1234 - main - ✓ Success
+CI - Test Suite #5 - commit abc1234 - main - ✓ Success (explicit green checkmark found)
 Infrastructure as Code #22 - commit abc1234 - main - ✓ Success
-Deploy to GCP #3 - commit abc1234 - main - ✓ Success
+Deploy to GCP #3 - commit abc1234 - main - ✗ Failure (explicit red X found)
+CI - Test Suite #4 - commit def5678 - feature-branch - Status unclear (no icon visible)
 ```
+
+**If you cannot see status icons:**
+- State explicitly: "Cannot determine pass/fail status from this view"
+- Recommend checking individual workflow run URLs
+- Try alternative: Check commit status page at `https://github.com/rumor-ml/commons.systems/commit/[SHA]`
 
 ### Step 2: Get Specific Workflow Details
 **URL:** `https://github.com/rumor-ml/commons.systems/actions/workflows/ci.yml`
@@ -30,29 +62,142 @@ Deploy to GCP #3 - commit abc1234 - main - ✓ Success
 - Duration
 - Commit SHA and message
 
-### Step 3: Get Error Details (if workflow failed)
-**URL:** `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
+### Step 3: Get Workflow Run Details (if workflow failed)
 
-Where `[RUN_ID]` is from the failed run (example: 19514524199)
+**How to find the run ID:**
+1. From the actions page, find the failed workflow run
+2. The URL format is: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
+3. Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517117436`
 
-**What to extract:**
-- Which jobs failed (Run Tests, Lint Check, etc.)
-- Which steps in each job failed
-- Error messages from failed steps
-- Exit codes
+**What to extract from the workflow run page:**
+- **Overall status**: Look at the top of the page for "Status Success", "Status Failure", or "Status Cancelled"
+- **Jobs list**: All jobs with their status icons and durations
+  - ✓ green checkmark = passed
+  - ✗ red X = failed
+  - ⊘ grey circle = skipped
+- **Job names and links**: Each job has a link to its detail page (see Step 4)
 
-**Alternative URL for full logs:**
-`https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/workflow`
+**Example workflow run page output:**
+```
+Overall Status: Status Failure
 
-### Step 4: Get Job-Level Details
-**URL:** `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+Jobs:
+✗ Run Tests - 11s - /actions/runs/19517117436/job/55871594318
+✗ Lint Check - 7s - /actions/runs/19517117436/job/55871594338
 
-**What to extract:**
-- Step-by-step execution log
-- Which step failed (highlighted in red)
-- Exact error message
-- Command that was run
-- Exit code
+Warnings:
+- Upload test results: No files found at fellspiral/tests/test-results.json
+- Upload Playwright report: No files found at fellspiral/tests/playwright-report/
+```
+
+### Step 4: Get Job-Level Error Details
+
+**How to find job details:**
+1. From the workflow run page, click on a failed job name
+2. The URL format is: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+3. Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517117436/job/55871594318`
+
+**CRITICAL: Extract detailed step-by-step failure information:**
+
+**What to extract from the job detail page:**
+- **Job name and overall status**
+- **ALL steps in execution order** with status icons (✓/✗)
+- **For EACH step**: Name, duration, status
+- **For FAILED steps**:
+  - The exact command that was run
+  - Complete error message and log output
+  - Exit code (e.g., "Process completed with exit code 1")
+  - Stack traces if present
+  - Any specific error messages (e.g., "ENOENT: no such file or directory")
+
+**Example job detail output:**
+```
+Job: Run Tests
+Overall Status: Failed (11s)
+
+Steps:
+✓ Checkout code (1s)
+✓ Install Nix (2s)
+✓ Setup Nix cache (1s)
+✓ Load Nix development environment (2s)
+✓ Install dependencies (3s)
+✗ Run tests (2s) - FAILED
+  Command: nix develop .#ci --command npm test --workspace=fellspiral/tests
+  Exit code: 1
+  Error: ENOENT: no such file or directory, open 'fellspiral/tests/e2e/homepage.spec.js'
+  at Object.openSync (node:fs:601:3)
+
+⊘ Upload test results (skipped - test failure)
+⊘ Upload test results JSON (skipped - test failure)
+```
+
+**Link chain summary:**
+1. Actions overview → Find failing workflow → Get RUN_ID
+2. Workflow run page (`/runs/[RUN_ID]`) → See all jobs → Get JOB_ID
+3. Job detail page (`/runs/[RUN_ID]/job/[JOB_ID]`) → See all steps and error logs
+
+### Step 5: Access Logs from Commit Page (FASTEST Method)
+
+**URL Format:** `https://github.com/rumor-ml/commons.systems/commit/[FULL_COMMIT_SHA]`
+**Example:** `https://github.com/rumor-ml/commons.systems/commit/c8d90e0628cfcef65e86fce17be381246bfc798f`
+
+**This is often the FASTEST way to access workflow failure details:**
+
+1. **Navigate to the commit page** using the full 40-character commit SHA
+2. **Find the "checks" section** (usually below the commit message and file changes)
+3. **Identify failed checks** - look for red ✗ icons next to check names
+4. **Click the "Details" link** next to any failed check
+5. **You'll be taken directly to the job page** with the specific failure logs
+
+**What to look for in the checks section:**
+```
+✓ Infrastructure as Code — Passed (8s)
+✗ Run Tests — Failed (11s) [Details →]
+✗ Lint Check — Failed (9s) [Details →]
+```
+
+**Clicking "Details" takes you to:**
+- Direct URL format: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]/job/[JOB_ID]`
+- Example: `https://github.com/rumor-ml/commons.systems/actions/runs/19517357402/job/55872410208`
+- This is the SAME job details page from Step 4, but accessed more quickly
+
+**Why use this method:**
+- ✅ Faster than navigating: Actions → Workflow → Run → Job
+- ✅ Shows ALL checks for this specific commit in one view
+- ✅ Direct "Details" links to failed jobs
+- ✅ Useful when you have a commit SHA but don't know the run ID
+
+### Step 6: Understanding Log Access
+
+**IMPORTANT:** Detailed execution logs may require authentication to GitHub.
+
+**What you can see WITHOUT authentication:**
+- Job name and overall status
+- Duration
+- Warnings (e.g., "No files found at path...")
+- List of steps (but not their detailed output)
+
+**What MAY REQUIRE authentication:**
+- Step-by-step console output
+- Actual error messages and stack traces
+- Command execution logs
+- Exit codes from failed commands
+
+**If you see "Sign in to view logs":**
+- The job page is accessible but logs require GitHub authentication
+- You can still see high-level info (warnings, job status, step list)
+- For complete debugging, access the page while signed into GitHub
+
+**Complete Link Chain Summary:**
+```
+Method 1 (From Actions Overview):
+Actions → Workflow runs → Run details → Job details → Logs
+
+Method 2 (From Commit Page - FASTEST):
+Commit page → Checks section → "Details" link → Job details → Logs
+
+Both methods lead to the same job details page with execution logs.
+```
 
 ## Checking Specific Workflows
 
