@@ -391,6 +391,344 @@ function chooseInitiativeAction(attacker, defender) {
   };
 }
 
+// ============================================================================
+// CHARACTER GENERATION HEURISTICS
+// ============================================================================
+
+/**
+ * Equipment and skill database with costs and properties
+ */
+const EQUIPMENT_DATABASE = {
+  weapons: [
+    { name: 'Long Sword', die: 10, slots: 2, cost: 5, tags: ['2h', 'swept', 'precise'], special: 'Can use 1h (d8, lose -1c)' },
+    { name: 'Short Sword', die: 8, slots: 2, cost: 5, tags: ['precise'] },
+    { name: 'Scimitar', die: 6, slots: 2, cost: 5, tags: ['swept', 'precise', '1 adjacent'] },
+    { name: 'Dagger', die: 4, slots: 2, cost: 5, tags: ['0-1 thrown', 'precise'] },
+    { name: 'Spear', die: 8, slots: 2, cost: 5, tags: ['0-1 thrown', 'reach', 'precise'] },
+    { name: 'Long Bow', die: 6, slots: 2, cost: 5, tags: ['1-4 ranged', 'precise', '2h', '1x'] },
+    { name: 'Short Bow', die: 6, slots: 2, cost: 5, tags: ['0-2 ranged', 'precise', '2h'] },
+    { name: 'Crossbow', die: 8, slots: 2, cost: 5, tags: ['1-2 ranged', 'precise', '2h'] },
+    { name: 'War Hammer', die: 8, slots: 2, cost: 5, tags: ['2h', 'brutish', 'swept'], special: 'On crit: stun 1 round' },
+    { name: 'Great Axe', die: 8, slots: 2, cost: 5, tags: ['2h', 'swept', 'brutish', '2 adjacent'] },
+    { name: 'Studded Mace', die: 6, slots: 2, cost: 5, tags: [], special: 'On crit: stun 3 phases' },
+    { name: 'Walking Staff', die: 6, slots: 1, cost: 5, tags: ['2h', 'swept'], special: 'On crit: pin 1 round' }
+  ],
+  armor: [
+    { name: 'Chain Mail', ac: 3, slots: 1, cost: 3 },
+    { name: 'Scale Vest', ac: 3, slots: 1, cost: 5, tags: ['durable'] },
+    { name: 'Wood Shield', ac: 1, slots: 1, cost: 3, tags: ['durable'] },
+    { name: 'Helm', ac: 1, slots: 1, cost: 1 },
+    { name: 'Greaves', ac: 1, slots: 1, cost: 2 },
+    { name: 'Cloak', ac: 1, slots: 1, cost: 1 }
+  ]
+};
+
+const SKILLS_DATABASE = {
+  attack: [
+    { name: 'Surgical', slots: 1, cost: 1, requires: 'precise weapon + adjacent', effect: '+1 die, +1 roll' },
+    { name: 'Dual Wielding', slots: 1, cost: 1, requires: '2 weapons', effect: 'Second attack with other weapon' },
+    { name: 'Melee', slots: 1, cost: 1, requires: 'swept weapon', effect: 'Add 1 adjacent on strike' },
+    { name: 'All In', slots: 1, cost: 1, requires: 'brutish weapon + adjacent', effect: '+2 slots damage, -5 AC' },
+    { name: 'Feint', slots: 1, cost: 1, requires: 'any', effect: 'Auto-succeed, stun 1 round, gain initiative' },
+    { name: 'Take Aim', slots: 1, cost: 1, requires: 'ranged + precise', effect: 'Delay 1d6 phases, +1 die +3 roll' }
+  ],
+  defense: [
+    { name: 'Counter Strike', slots: 1, cost: 1, requires: 'attacker adjacent', effect: 'On defense+skill success: no damage, gain initiative' },
+    { name: 'Moving Target', slots: 1, cost: 1, requires: 'no conditions', effect: 'Subtract skill roll from defense (min 0)' },
+    { name: 'Brace', slots: 1, cost: 1, requires: 'skip next action', effect: 'Subtract from defense, always have initiative' }
+  ],
+  tenacity: [
+    { name: 'Grit', slots: 1, cost: 1, requires: 'when hit', effect: '1 slot to this skill, maintain initiative' },
+    { name: 'Flesh Wound', slots: 1, cost: 1, requires: 'have initiative', effect: '1 slot here, gain temporary meat shield slot' }
+  ]
+};
+
+/**
+ * Evaluates the synergy between equipment and skills
+ */
+function evaluateSynergy(equipment, skills) {
+  let synergy = 0;
+
+  const weapons = equipment.filter(e => e.type === 'weapon');
+  const hasWeapon = weapons.length > 0;
+
+  if (!hasWeapon) return 0;
+
+  const primaryWeapon = weapons[0];
+  const isPrecise = primaryWeapon.tags?.includes('precise') || primaryWeapon.name.includes('Sword') || primaryWeapon.name.includes('Bow');
+  const isSwept = primaryWeapon.tags?.includes('swept') || primaryWeapon.name.includes('Scimitar') || primaryWeapon.name.includes('Sword');
+  const isBrutish = primaryWeapon.tags?.includes('brutish') || primaryWeapon.name.includes('Hammer') || primaryWeapon.name.includes('Axe');
+  const isRanged = primaryWeapon.tags?.some(t => t.includes('ranged'));
+
+  for (const skill of skills) {
+    const skillName = skill.name.toLowerCase();
+
+    // Surgical synergy with precise weapons
+    if (skillName.includes('surgical') && isPrecise) synergy += 15;
+
+    // Dual Wielding synergy
+    if (skillName.includes('dual wielding') && weapons.length >= 2) synergy += 12;
+
+    // Melee synergy with swept weapons
+    if (skillName.includes('melee') && isSwept) synergy += 10;
+
+    // All In synergy with brutish weapons
+    if (skillName.includes('all in') && isBrutish) synergy += 8;
+
+    // Take Aim synergy with ranged precise weapons
+    if (skillName.includes('take aim') && isRanged && isPrecise) synergy += 10;
+  }
+
+  // Bonus for having balance
+  const attackSkills = skills.filter(s => s.type === 'attack').length;
+  const defenseSkills = skills.filter(s => s.type === 'defense').length;
+  const tenacitySkills = skills.filter(s => s.type === 'tenacity').length;
+
+  if (attackSkills > 0 && defenseSkills > 0) synergy += 5; // Balance bonus
+  if (tenacitySkills > 0) synergy += 3; // Tenacity is always valuable
+
+  return synergy;
+}
+
+/**
+ * Generates a character build for a given point budget
+ * @param {number} pointBudget - Total points available (e.g., 15, 20, 25)
+ * @param {Object} options - Build preferences
+ * @param {string} options.playstyle - 'aggressive', 'defensive', 'balanced', 'ranged'
+ * @param {string} options.name - Character name (default: Generated)
+ * @returns {Object} Generated character with equipment and skills
+ */
+function generateCharacter(pointBudget, options = {}) {
+  const playstyle = options.playstyle || 'balanced';
+  const name = options.name || `Generated ${playstyle.charAt(0).toUpperCase() + playstyle.slice(1)} Fighter`;
+
+  const character = {
+    name: name,
+    type: 'Generated',
+    subtype: 'Human',
+    baseAC: 6,
+    equipment: [],
+    skills: [],
+    pointsSpent: 0,
+    pointBudget: pointBudget
+  };
+
+  let remainingPoints = pointBudget;
+  const maxSkillPoints = Math.min(18, Math.floor(pointBudget * 0.4)); // Max 40% on skills, cap at 18
+  let skillPointsSpent = 0;
+
+  // Step 1: Choose primary weapon based on playstyle
+  let primaryWeapon = null;
+
+  if (playstyle === 'aggressive') {
+    // High damage weapons
+    const aggressiveWeapons = EQUIPMENT_DATABASE.weapons.filter(w => w.die >= 8 && w.cost <= remainingPoints);
+    primaryWeapon = aggressiveWeapons.sort((a, b) => b.die - a.die)[0];
+  } else if (playstyle === 'defensive') {
+    // Balanced weapons with defensive options
+    const defensiveWeapons = EQUIPMENT_DATABASE.weapons.filter(w => w.die >= 6 && w.die <= 8 && w.cost <= remainingPoints);
+    primaryWeapon = defensiveWeapons[Math.floor(defensiveWeapons.length / 2)];
+  } else if (playstyle === 'ranged') {
+    // Ranged weapons
+    const rangedWeapons = EQUIPMENT_DATABASE.weapons.filter(w => w.tags.some(t => t.includes('ranged')) && w.cost <= remainingPoints);
+    primaryWeapon = rangedWeapons.sort((a, b) => b.die - a.die)[0];
+  } else {
+    // Balanced - good all-around weapon
+    const balancedWeapons = EQUIPMENT_DATABASE.weapons.filter(w => w.die === 8 && w.cost <= remainingPoints);
+    primaryWeapon = balancedWeapons[0] || EQUIPMENT_DATABASE.weapons.filter(w => w.cost <= remainingPoints)[0];
+  }
+
+  if (primaryWeapon && primaryWeapon.cost <= remainingPoints) {
+    character.equipment.push({
+      name: primaryWeapon.name,
+      type: 'weapon',
+      die: primaryWeapon.die,
+      slots: primaryWeapon.slots,
+      tags: primaryWeapon.tags
+    });
+    remainingPoints -= primaryWeapon.cost;
+    character.pointsSpent += primaryWeapon.cost;
+  }
+
+  // Step 2: Add armor based on playstyle
+  const armorBudget = playstyle === 'aggressive' ? Math.floor(remainingPoints * 0.3) : Math.floor(remainingPoints * 0.5);
+  let armorPoints = 0;
+
+  // Prioritize high AC armor
+  const sortedArmor = [...EQUIPMENT_DATABASE.armor].sort((a, b) => (b.ac / b.cost) - (a.ac / a.cost));
+
+  for (const armor of sortedArmor) {
+    if (armorPoints + armor.cost <= armorBudget && armor.cost <= remainingPoints) {
+      character.equipment.push({
+        name: armor.name,
+        type: 'armor',
+        ac: armor.ac,
+        slots: armor.slots
+      });
+      remainingPoints -= armor.cost;
+      armorPoints += armor.cost;
+      character.pointsSpent += armor.cost;
+    }
+  }
+
+  // Step 3: Add skills based on playstyle and synergy
+  const skillPreferences = {
+    aggressive: { attack: 0.7, defense: 0.2, tenacity: 0.1 },
+    defensive: { attack: 0.3, defense: 0.5, tenacity: 0.2 },
+    balanced: { attack: 0.4, defense: 0.4, tenacity: 0.2 },
+    ranged: { attack: 0.6, defense: 0.3, tenacity: 0.1 }
+  };
+
+  const prefs = skillPreferences[playstyle];
+  const attackSkillCount = Math.floor(maxSkillPoints * prefs.attack);
+  const defenseSkillCount = Math.floor(maxSkillPoints * prefs.defense);
+  const tenacitySkillCount = Math.floor(maxSkillPoints * prefs.tenacity);
+
+  // Add attack skills
+  const weaponTags = character.equipment.find(e => e.type === 'weapon')?.tags || [];
+  const isPrecise = weaponTags.includes('precise') || primaryWeapon?.name.includes('Sword') || primaryWeapon?.name.includes('Bow');
+  const isSwept = weaponTags.includes('swept') || primaryWeapon?.name.includes('Scimitar');
+  const isBrutish = weaponTags.includes('brutish') || primaryWeapon?.name.includes('Hammer');
+  const isRanged = weaponTags.some(t => t.includes('ranged'));
+
+  let addedAttackSkills = 0;
+  if (isPrecise && addedAttackSkills < attackSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+    character.skills.push({ name: 'Surgical', type: 'attack', slots: 1 });
+    remainingPoints -= 1;
+    skillPointsSpent += 1;
+    character.pointsSpent += 1;
+    addedAttackSkills++;
+  }
+
+  if (isSwept && addedAttackSkills < attackSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+    character.skills.push({ name: 'Melee', type: 'attack', slots: 1 });
+    remainingPoints -= 1;
+    skillPointsSpent += 1;
+    character.pointsSpent += 1;
+    addedAttackSkills++;
+  }
+
+  if (isBrutish && addedAttackSkills < attackSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+    character.skills.push({ name: 'All In', type: 'attack', slots: 1 });
+    remainingPoints -= 1;
+    skillPointsSpent += 1;
+    character.pointsSpent += 1;
+    addedAttackSkills++;
+  }
+
+  if (isRanged && isPrecise && addedAttackSkills < attackSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+    character.skills.push({ name: 'Take Aim', type: 'attack', slots: 1 });
+    remainingPoints -= 1;
+    skillPointsSpent += 1;
+    character.pointsSpent += 1;
+    addedAttackSkills++;
+  }
+
+  // Add versatile attack skills if we still have room
+  if (addedAttackSkills < attackSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+    character.skills.push({ name: 'Feint', type: 'attack', slots: 1 });
+    remainingPoints -= 1;
+    skillPointsSpent += 1;
+    character.pointsSpent += 1;
+    addedAttackSkills++;
+  }
+
+  // Add defense skills
+  let addedDefenseSkills = 0;
+  const defenseSkillPriority = playstyle === 'defensive'
+    ? ['Counter Strike', 'Moving Target', 'Brace']
+    : ['Moving Target', 'Counter Strike', 'Brace'];
+
+  for (const skillName of defenseSkillPriority) {
+    if (addedDefenseSkills < defenseSkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+      character.skills.push({ name: skillName, type: 'defense', slots: 1 });
+      remainingPoints -= 1;
+      skillPointsSpent += 1;
+      character.pointsSpent += 1;
+      addedDefenseSkills++;
+    }
+  }
+
+  // Add tenacity skills
+  let addedTenacitySkills = 0;
+  const tenacityPriority = ['Grit', 'Flesh Wound'];
+
+  for (const skillName of tenacityPriority) {
+    if (addedTenacitySkills < tenacitySkillCount && skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1) {
+      character.skills.push({ name: skillName, type: 'tenacity', slots: 1 });
+      remainingPoints -= 1;
+      skillPointsSpent += 1;
+      character.pointsSpent += 1;
+      addedTenacitySkills++;
+    }
+  }
+
+  // Step 4: Spend remaining points on additional armor or secondary weapon
+  if (remainingPoints >= 5 && playstyle === 'aggressive') {
+    // Try to add a secondary weapon for dual wielding
+    const secondaryWeapons = EQUIPMENT_DATABASE.weapons.filter(w => w.die <= 6 && w.cost <= remainingPoints);
+    if (secondaryWeapons.length > 0) {
+      const secondary = secondaryWeapons[0];
+      character.equipment.push({
+        name: secondary.name,
+        type: 'weapon',
+        die: secondary.die,
+        slots: secondary.slots,
+        tags: secondary.tags
+      });
+      remainingPoints -= secondary.cost;
+      character.pointsSpent += secondary.cost;
+
+      // Add dual wielding skill if we have room
+      if (skillPointsSpent + 1 <= maxSkillPoints && remainingPoints >= 1 && !character.skills.some(s => s.name === 'Dual Wielding')) {
+        character.skills.push({ name: 'Dual Wielding', type: 'attack', slots: 1 });
+        remainingPoints -= 1;
+        skillPointsSpent += 1;
+        character.pointsSpent += 1;
+      }
+    }
+  } else if (remainingPoints >= 1) {
+    // Add more armor with remaining points
+    const affordableArmor = EQUIPMENT_DATABASE.armor.filter(a => a.cost <= remainingPoints);
+    for (const armor of affordableArmor) {
+      if (remainingPoints >= armor.cost) {
+        character.equipment.push({
+          name: armor.name,
+          type: 'armor',
+          ac: armor.ac,
+          slots: armor.slots
+        });
+        remainingPoints -= armor.cost;
+        character.pointsSpent += armor.cost;
+      }
+    }
+  }
+
+  // Calculate final stats
+  character.finalAC = character.baseAC + character.equipment
+    .filter(e => e.type === 'armor')
+    .reduce((sum, a) => sum + (a.ac || 0), 0);
+
+  character.synergy = evaluateSynergy(character.equipment, character.skills);
+  character.remainingPoints = remainingPoints;
+
+  return character;
+}
+
+/**
+ * Generates and compares multiple character builds
+ */
+function generateBuildComparison(pointBudget) {
+  const builds = {
+    aggressive: generateCharacter(pointBudget, { playstyle: 'aggressive', name: 'Aggressive Build' }),
+    defensive: generateCharacter(pointBudget, { playstyle: 'defensive', name: 'Defensive Build' }),
+    balanced: generateCharacter(pointBudget, { playstyle: 'balanced', name: 'Balanced Build' }),
+    ranged: generateCharacter(pointBudget, { playstyle: 'ranged', name: 'Ranged Build' })
+  };
+
+  return builds;
+}
+
 function runCombatSimulation(char1Key, char2Key) {
   const log = [];
   const round = { value: 0 };
