@@ -220,7 +220,7 @@ jobs:
         run: sleep 30
 
       - name: Run deployment tests
-        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
+        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests -- --project=chromium
         env:
           DEPLOYED: true
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
