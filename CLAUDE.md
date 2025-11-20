@@ -109,16 +109,7 @@ For usage examples, run:
 ./gcp_token_usage_examples.sh
 ```
 
-#### Direct Usage (Advanced)
-
-If you need to work with the credentials directly without the helper script:
-
-1. The credentials are stored in `$GOOGLE_APPLICATION_CREDENTIALS_JSON`
-2. Create a JWT with the service account's private key
-3. Exchange the JWT for an access token at `https://oauth2.googleapis.com/token`
-4. Use the access token with `Authorization: Bearer $ACCESS_TOKEN` header
-
-See `get_gcp_token.sh` for implementation details.
+For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
 
 ## Documentation Policy
 
