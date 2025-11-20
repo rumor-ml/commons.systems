@@ -1,7 +1,10 @@
 name: Deploy to GCP
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Infrastructure as Code"]
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
@@ -28,6 +31,8 @@ jobs:
     name: Build Site
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only run if IAC workflow succeeded or this is a manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout code
