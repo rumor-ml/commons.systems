@@ -1,8 +1,11 @@
 name: Infrastructure as Code
 
+# Manages GCP infrastructure via Terraform
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW
   workflow_dispatch:
     inputs:
       action:
@@ -18,6 +21,7 @@ on:
 env:
   TF_VERSION: '1.6.0'
   WORKING_DIR: infrastructure/terraform
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
 permissions:
   contents: write  # Required for creating commit comments
@@ -31,10 +35,12 @@ jobs:
     steps:
       - name: Verify branch or manual trigger
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "✅ Running on main branch or manual trigger"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW" ]] || \
+             [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "✅ Running on allowed branch or manual trigger"
           else
-            echo "⊘ Skipping - not on main branch"
+            echo "⊘ Skipping - not on allowed branch"
           fi
 
   terraform:
@@ -42,7 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: check
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: |
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW' ||
+      github.event_name == 'workflow_dispatch'
 
     defaults:
       run:
@@ -51,6 +60,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Cache Nix store
+        uses: actions/cache@v4
+        with:
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          key: ${{ runner.os }}-nix-${{ hashFiles('flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nix-
 
       - name: Install Nix
         uses: cachix/install-nix-action@v25
@@ -73,9 +92,19 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: 'access_token'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache gcloud components
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/gcloud
+          key: ${{ runner.os }}-gcloud-${{ hashFiles('.github/workflows/infrastructure.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-gcloud-
 
       - name: Create Terraform state bucket
         run: |
@@ -96,6 +125,10 @@ jobs:
             else
               echo 'State bucket already exists'
             fi
+
+            # Verify service account has access
+            echo 'Verifying service account access to state bucket...'
+            gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
           "
 
       - name: Load Nix environment
@@ -114,15 +147,33 @@ jobs:
         run: nix develop .#ci --command terraform fmt -check -recursive
         continue-on-error: true
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORKING_DIR }}/.terraform
+            ${{ github.workspace }}/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+      - name: Create Terraform plugin cache directory
+        run: mkdir -p ${{ env.TF_PLUGIN_CACHE_DIR }}
+
       - name: Terraform Init
         id: init
-        run: nix develop .#ci --command terraform init
+        run: terraform init -reconfigure
 
       - name: Import existing resources if needed
         id: import
         continue-on-error: true
         run: |
-          nix develop .#ci --command bash -c "
+          bash -c "
             # Check if state is empty (no resources)
             RESOURCE_COUNT=\$(terraform state list 2>/dev/null | wc -l)
 
@@ -147,11 +198,8 @@ jobs:
                 terraform import google_compute_global_address.site_ip projects/\${PROJECT_ID}/global/addresses/fellspiral-site-ip || true
               fi
 
-              # Import service account if it exists
-              if gcloud iam service-accounts describe github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com --project=\${PROJECT_ID} &>/dev/null; then
-                echo 'Importing service account...'
-                terraform import google_service_account.github_actions projects/\${PROJECT_ID}/serviceAccounts/github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com || true
-              fi
+              # Note: Service account is now a data source (github-actions-terraform),
+              # not a resource, so no import needed
 
               # Import other resources
               terraform import google_compute_backend_bucket.site_backend fellspiral-backend 2>/dev/null || true
@@ -159,10 +207,11 @@ jobs:
               terraform import google_compute_target_http_proxy.site_http_proxy fellspiral-http-proxy 2>/dev/null || true
               terraform import google_compute_global_forwarding_rule.site_http fellspiral-http-forwarding-rule 2>/dev/null || true
 
-              # Import IAM bindings
+              # Import public read IAM binding for site bucket
               terraform import google_storage_bucket_iam_member.public_read \"\${PROJECT_ID}-fellspiral-site roles/storage.objectViewer allUsers\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_storage \"\${PROJECT_ID} roles/storage.admin serviceAccount:github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_compute \"\${PROJECT_ID} roles/compute.loadBalancerAdmin serviceAccount:github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com\" 2>/dev/null || true
+
+              # Note: IAM bindings for github-actions-terraform service account are managed by setup.py
+              # and should NOT be imported into Terraform state
 
               echo '✅ Import completed'
             else
@@ -170,19 +219,78 @@ jobs:
             fi
           "
 
+      - name: Remove IAM resources from state
+        id: cleanup-state
+        continue-on-error: true
+        run: |
+          echo "Removing IAM resources managed by setup.py from Terraform state..."
+
+          # Get current state resources
+          STATE_RESOURCES=$(terraform state list 2>/dev/null || echo "")
+
+          # List of IAM resources to remove
+          IAM_RESOURCES=(
+            "google_project_iam_member.github_actions_storage"
+            "google_project_iam_member.github_actions_compute"
+            "google_project_iam_member.github_actions_cloud_run"
+            "google_project_iam_member.github_actions_artifact_registry"
+            "google_project_iam_member.github_actions_service_account_user"
+            "google_project_iam_member.github_actions_secret_manager"
+            "google_secret_manager_secret_iam_member.github_token_access"
+          )
+
+          # Only remove resources that exist in state
+          REMOVED_COUNT=0
+          for resource in "${IAM_RESOURCES[@]}"; do
+            if echo "$STATE_RESOURCES" | grep -q "^${resource}$"; then
+              echo "  Removing: $resource"
+              terraform state rm "$resource" 2>/dev/null && REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            fi
+          done
+
+          echo "✅ State cleanup completed (removed $REMOVED_COUNT resources)"
+
+      - name: Import Playwright resources if needed
+        id: import-playwright
+        continue-on-error: true
+        run: |
+          echo "Checking for Playwright resources to import..."
+          ACTIONS_TAKEN=0
+
+          # Check state once
+          STATE_LIST=$(terraform state list 2>/dev/null || echo "")
+
+          # Import artifact registry if it exists and isn't in state
+          if ! echo "$STATE_LIST" | grep -q "google_artifact_registry_repository.playwright_server"; then
+            if gcloud artifacts repositories describe playwright-server --location=us-central1 --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
+              echo "  Importing playwright-server artifact registry..."
+              terraform import google_artifact_registry_repository.playwright_server projects/${{ secrets.GCP_PROJECT_ID }}/locations/us-central1/repositories/playwright-server && ACTIONS_TAKEN=$((ACTIONS_TAKEN + 1)) || echo "    Failed to import"
+            fi
+          fi
+
+          # Untaint playwright service account if it's tainted
+          if echo "$STATE_LIST" | grep -q "google_service_account.playwright_server"; then
+            if terraform state show google_service_account.playwright_server 2>&1 | grep -q "Tainted: *true"; then
+              echo "  Untainting playwright service account..."
+              terraform untaint google_service_account.playwright_server && ACTIONS_TAKEN=$((ACTIONS_TAKEN + 1))
+            fi
+          fi
+
+          echo "✅ Playwright resource check completed ($ACTIONS_TAKEN actions taken)"
+
       - name: Terraform Validate
         id: validate
-        run: nix develop .#ci --command terraform validate -no-color
+        run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: nix develop .#ci --command terraform plan -no-color -out=tfplan
+        run: terraform plan -no-color -out=tfplan
         continue-on-error: false
 
       - name: Save plan output
         id: plan-output
         run: |
-          nix develop .#ci --command terraform show -no-color tfplan > plan.txt
+          terraform show -no-color tfplan > plan.txt
           # Truncate if too long for PR comment
           if [ $(wc -l < plan.txt) -gt 100 ]; then
             head -n 100 plan.txt > plan_truncated.txt
@@ -197,28 +305,28 @@ jobs:
 
       - name: Terraform Apply
         if: |
-          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
-        run: nix develop .#ci --command terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve tfplan
 
       - name: Terraform Destroy
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
-        run: nix develop .#ci --command terraform destroy -auto-approve
+        run: terraform destroy -auto-approve
 
       - name: Get Infrastructure Outputs
         if: |
-          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         id: outputs
         run: |
-          echo "bucket_name=$(nix develop .#ci --command terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
-          echo "site_ip=$(nix develop .#ci --command terraform output -raw site_ip)" >> $GITHUB_OUTPUT
-          echo "site_url=$(nix develop .#ci --command terraform output -raw site_url)" >> $GITHUB_OUTPUT
-          echo "sa_email=$(nix develop .#ci --command terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
+          echo "bucket_name=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "site_ip=$(terraform output -raw site_ip)" >> $GITHUB_OUTPUT
+          echo "site_url=$(terraform output -raw site_url)" >> $GITHUB_OUTPUT
+          echo "sa_email=$(terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
 
       - name: Post results
         if: |
-          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         uses: actions/github-script@v7
         with:
@@ -247,7 +355,7 @@ jobs:
 
       - name: Summary
         if: |
-          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         run: |
           echo "### Infrastructure Updated! ✅" >> $GITHUB_STEP_SUMMARY

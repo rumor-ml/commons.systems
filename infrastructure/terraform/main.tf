@@ -139,25 +139,11 @@ resource "google_compute_global_forwarding_rule" "site_http" {
   ip_address = google_compute_global_address.site_ip.address
 }
 
-# Service account for GitHub Actions deployments
-resource "google_service_account" "github_actions" {
-  account_id   = "github-actions-deployer"
-  display_name = "GitHub Actions Deployer"
-  description  = "Service account used by GitHub Actions for deployments"
-}
-
-# Grant storage admin to deployment service account
-resource "google_project_iam_member" "github_actions_storage" {
-  project = var.project_id
-  role    = "roles/storage.admin"
-  member  = "serviceAccount:${google_service_account.github_actions.email}"
-}
-
-# Grant compute load balancer admin to deployment service account
-resource "google_project_iam_member" "github_actions_compute" {
-  project = var.project_id
-  role    = "roles/compute.loadBalancerAdmin"
-  member  = "serviceAccount:${google_service_account.github_actions.email}"
+# Service account for GitHub Actions deployments (created and configured by setup.py)
+# IAM permissions for this service account are managed by setup.py, not Terraform,
+# to avoid chicken-and-egg problems where Terraform would need permissions to grant itself permissions.
+data "google_service_account" "github_actions" {
+  account_id = "github-actions-terraform"
 }
 
 # Optional: HTTPS setup (requires SSL certificate)
@@ -208,6 +194,6 @@ output "site_url" {
 }
 
 output "deployment_service_account_email" {
-  value       = google_service_account.github_actions.email
+  value       = data.google_service_account.github_actions.email
   description = "Email of the service account for deployments"
 }
