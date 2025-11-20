@@ -2,7 +2,7 @@ name: Infrastructure as Code
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -20,7 +20,7 @@ env:
   WORKING_DIR: infrastructure/terraform
 
 permissions:
-  contents: read
+  contents: write  # Required for creating commit comments
   pull-requests: write
   id-token: write  # Required for Workload Identity Federation
 
