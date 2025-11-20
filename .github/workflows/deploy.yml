@@ -1,16 +1,12 @@
 name: Deploy to GCP
 
 on:
-  push:
-    branches:
-      - claude/fix-iac-workflow-01QEPQWQLsKdBAzqHqGc2Muu
   workflow_run:
     workflows: ["Infrastructure as Code", "CI - Test Suite"]
     types:
       - completed
     branches:
       - main
-      - claude/fix-iac-workflow-01QEPQWQLsKdBAzqHqGc2Muu
   workflow_dispatch:
     inputs:
       environment:
@@ -35,8 +31,8 @@ jobs:
     name: Build Site
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run if IAC workflow succeeded, push to feature branch, or manual dispatch
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    # Only run if IAC workflow succeeded or manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout code
