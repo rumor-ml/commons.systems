@@ -42,7 +42,7 @@ jobs:
         run: cd videobrowser/tests && npx playwright install --with-deps chromium
 
       - name: Run tests
-        run: npm run test:videobrowser -- --project=chromium
+        run: npm test --workspace=videobrowser/tests -- --project=chromium
         env:
           CI: true
 
