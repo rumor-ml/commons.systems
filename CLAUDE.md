@@ -111,98 +111,79 @@ For usage examples, run:
 
 For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
 
-### Getting the Playwright Server URL for Local Testing
+## Debugging and Log Access
 
-The repository includes a deployed Playwright server on Cloud Run for running E2E tests remotely. To run tests locally against this server, you need to retrieve its URL.
+**IMPORTANT:** Never ask the user to check logs when you have access to them via API.
 
-#### Quick Method: Using Helper Scripts
+### Accessing GitHub Actions Workflow Logs
 
-The easiest way to run tests locally is using the provided helper scripts:
+You have access to GitHub Actions workflow logs via the GitHub API. Always fetch and analyze logs directly instead of asking the user to check them.
 
+**Get workflow run logs:**
 ```bash
-# Option 1: Automatic URL retrieval (requires gcloud CLI)
-./run-tests-remote.sh --project chromium
+# List recent workflow runs
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs"
 
-# Option 2: Manual URL (no gcloud required)
-./test-with-url.sh https://playwright-server-xxxxx.run.app --project chromium
+# Get specific workflow run details
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID"
+
+# Get workflow run logs (download URL)
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/logs"
+
+# List jobs for a workflow run
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/jobs"
 ```
 
-#### Getting the URL via GCP API
+### Accessing Cloud Run Logs
 
-If you need to retrieve the URL programmatically using the available GCP credentials:
+You have access to Cloud Run logs via the GCP Logging API.
 
+**Get Cloud Run service logs:**
 ```bash
-# Get access token
 source get_gcp_token.sh 2>/dev/null
 
-# Query Cloud Run service for URL
-PLAYWRIGHT_SERVER_URL=$(curl -s -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services/playwright-server" \
-  | jq -r '.uri')
-
-echo "Playwright Server URL: $PLAYWRIGHT_SERVER_URL"
+# List recent Cloud Run logs
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  "https://logging.googleapis.com/v2/entries:list" \
+  -d '{
+    "resourceNames": ["projects/chalanding"],
+    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"fellspiral-site\"",
+    "orderBy": "timestamp desc",
+    "pageSize": 50
+  }'
 ```
 
-#### Getting the URL via gcloud CLI
+### Rule: Always Fetch Logs Yourself
 
-If `gcloud` is available and configured:
+When debugging deployment issues or investigating failures:
 
-```bash
-PLAYWRIGHT_SERVER_URL=$(gcloud run services describe playwright-server \
-  --platform managed \
-  --region us-central1 \
-  --format 'value(status.url)')
+1. **DO:** Fetch and analyze logs via API directly
+2. **DO:** Present relevant log excerpts to the user with your analysis
+3. **DON'T:** Ask the user to "check the logs" or "view the GitHub Actions page"
+4. **DON'T:** Suggest the user manually investigate when you have API access
 
-echo "Playwright Server URL: $PLAYWRIGHT_SERVER_URL"
+**Example of correct behavior:**
+```
+User: "The deployment failed"
+Claude: *fetches workflow logs via API*
+Claude: "The deployment failed because of X error in the build step. Here's the relevant log excerpt: [shows logs]. The issue is Y. Here's how to fix it: Z"
 ```
 
-#### Running Tests with the URL
-
-Once you have the URL, set it as an environment variable and use the client script:
-
-```bash
-export PLAYWRIGHT_SERVER_URL=https://playwright-server-xxxxx.run.app
-
-# Run all tests
-cd playwright-server
-node run-tests.js --project chromium
-
-# Run specific test file
-node run-tests.js --test-file homepage.spec.js
-
-# Run tests matching a pattern
-node run-tests.js --grep "combat"
-
-# Test deployed site
-node run-tests.js --deployed
-
-# Run with multiple workers
-node run-tests.js --workers 4
+**Example of incorrect behavior:**
 ```
-
-#### Verifying Server Health
-
-Before running tests, verify the server is responding:
-
-```bash
-curl $PLAYWRIGHT_SERVER_URL/health
-
-# Expected response:
-# {"status":"healthy","timestamp":"...","version":"1.0.0"}
+User: "The deployment failed"
+Claude: "Can you check the GitHub Actions logs and tell me what error you see?"  ❌ WRONG
 ```
-
-#### When to Use Remote vs Local Playwright
-
-**Use the remote server when:**
-- You don't have Playwright browsers installed locally
-- You want to save local resources (browsers run on the server)
-- You want to test in the exact CI environment
-- You need consistent cross-platform testing
-
-**Use local Playwright when:**
-- You need headed/UI mode for debugging
-- You want faster feedback (no network latency)
-- You're actively developing and iterating on tests
 
 ## Documentation Policy
 

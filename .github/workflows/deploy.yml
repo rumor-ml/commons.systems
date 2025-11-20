@@ -2,12 +2,11 @@ name: Deploy to GCP
 
 on:
   workflow_run:
-    workflows: ["Infrastructure as Code", "CI - Test Suite"]
+    workflows: ["Infrastructure as Code"]
     types:
       - completed
     branches:
       - main
-      - claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW
   workflow_dispatch:
     inputs:
       environment:
@@ -23,138 +22,194 @@ permissions:
   contents: write  # Required for creating commit comments
   id-token: write  # Required for Workload Identity Federation
   issues: write    # Required for rollback notifications
+  actions: read    # Required to check workflow status
 
 env:
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+  SERVICE_NAME: fellspiral-site
+  ARTIFACT_REGISTRY_REPO: fellspiral-production
 
 jobs:
-  build:
-    name: Build Site
+  verify-prerequisites:
+    name: Verify Prerequisites
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     # Only run if IAC workflow succeeded or manual dispatch
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Install dependencies
-        run: nix develop .#ci --command npm install
-
-      - name: Build site
-        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: site-build
-          path: fellspiral/site/dist/
-          retention-days: 7
-
-  deploy:
-    name: Deploy to GCP
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: build
-    environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
-      url: ${{ steps.deploy.outputs.url }}
     outputs:
-      backup-path: ${{ steps.backup.outputs.BACKUP_PATH }}
-      has-backup: ${{ steps.backup.outputs.HAS_BACKUP }}
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+
+    steps:
+      - name: Check CI workflow status
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // For manual dispatch, always proceed
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('should-deploy', 'true');
+              console.log('Manual dispatch - proceeding with deployment');
+              return;
+            }
+
+            // For workflow_run, verify CI also succeeded
+            const { data: workflows } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: context.ref.replace('refs/heads/', ''),
+              event: 'push',
+              status: 'completed',
+              per_page: 10
+            });
+
+            const commitSha = context.payload.workflow_run.head_sha;
+            const ciWorkflow = workflows.workflow_runs.find(
+              run => run.name === 'CI - Test Suite' &&
+                     run.head_sha === commitSha &&
+                     run.conclusion === 'success'
+            );
+
+            if (ciWorkflow) {
+              core.setOutput('should-deploy', 'true');
+              console.log('✅ CI workflow succeeded - proceeding with deployment');
+            } else {
+              core.setOutput('should-deploy', 'false');
+              console.log('⏸️  CI workflow not yet complete or failed - skipping deployment');
+            }
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: verify-prerequisites
+    if: needs.verify-prerequisites.outputs.should-deploy == 'true'
+    outputs:
+      image-name: ${{ steps.build.outputs.image-name }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: site-build
-          path: fellspiral/site/dist/
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Backup current deployment
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Create Artifact Registry repository if not exists
+        run: |
+          if ! gcloud artifacts repositories describe ${{ env.ARTIFACT_REGISTRY_REPO }} \
+            --location=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} 2>/dev/null; then
+            echo "Creating Artifact Registry repository..."
+            gcloud artifacts repositories create ${{ env.ARTIFACT_REGISTRY_REPO }} \
+              --repository-format=docker \
+              --location=${{ env.GCP_REGION }} \
+              --description="Production Fellspiral site images" \
+              --project=${{ env.GCP_PROJECT_ID }}
+          else
+            echo "Artifact Registry repository already exists"
+          fi
+
+      - name: Build and push Docker image
+        id: build
+        run: |
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          IMAGE_LATEST="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.SERVICE_NAME }}:latest"
+
+          cd fellspiral/site
+          docker build -t "${IMAGE_NAME}" -t "${IMAGE_LATEST}" .
+          docker push "${IMAGE_NAME}"
+          docker push "${IMAGE_LATEST}"
+
+          echo "image-name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "Built and pushed: ${IMAGE_NAME}"
+
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build-and-push
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      previous-revision: ${{ steps.backup.outputs.PREVIOUS_REVISION }}
+      has-backup: ${{ steps.backup.outputs.HAS_BACKUP }}
+      service-url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check for existing deployment
         id: backup
         run: |
-          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
-          BACKUP_BUCKET="${GCP_PROJECT_ID}-fellspiral-site-backup"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          # Check if service exists and get current revision
+          if gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} 2>/dev/null; then
 
-          # Create backup bucket if it doesn't exist
-          gsutil ls "gs://${BACKUP_BUCKET}" 2>/dev/null || gsutil mb -l us-central1 "gs://${BACKUP_BUCKET}"
+            CURRENT_REVISION=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
 
-          # Backup current production state
-          if gsutil ls "gs://${BUCKET_NAME}/**" 2>/dev/null; then
-            echo "Backing up current deployment..."
-            gsutil -m rsync -r "gs://${BUCKET_NAME}/" "gs://${BACKUP_BUCKET}/rollback-${TIMESTAMP}/"
-            echo "BACKUP_PATH=gs://${BACKUP_BUCKET}/rollback-${TIMESTAMP}/" >> $GITHUB_OUTPUT
+            echo "Current revision: $CURRENT_REVISION"
+            echo "PREVIOUS_REVISION=${CURRENT_REVISION}" >> $GITHUB_OUTPUT
             echo "HAS_BACKUP=true" >> $GITHUB_OUTPUT
           else
-            echo "No existing deployment to backup"
+            echo "No existing deployment found (first deployment)"
             echo "HAS_BACKUP=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy to Cloud Storage
+      - name: Deploy to Cloud Run
         id: deploy
         run: |
-          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image="${{ needs.build-and-push.outputs.image-name }}" \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --allow-unauthenticated \
+            --cpu=1 \
+            --memory=512Mi \
+            --min-instances=0 \
+            --max-instances=10 \
+            --timeout=300 \
+            --port=8080 \
+            --set-env-vars="ENVIRONMENT=production,COMMIT_SHA=${{ github.sha }}" \
+            --labels="environment=production,commit=${{ github.sha }}" \
+            --quiet
 
-          # Sync files to bucket
-          gsutil -m rsync -r -d \
-            -x ".*\.map$" \
-            fellspiral/site/dist/ "gs://${BUCKET_NAME}/"
+          # Get service URL
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
 
-          # Set cache control headers
-          gsutil -m setmeta -h "Cache-Control:no-cache,max-age=0" \
-            "gs://${BUCKET_NAME}/**/*.html" || true
-
-          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
-            "gs://${BUCKET_NAME}/**/*.css" || true
-
-          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
-            "gs://${BUCKET_NAME}/**/*.js" || true
-
-          # Get static IP if available
-          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
-
-          if [ -n "$STATIC_IP" ]; then
-            echo "url=http://${STATIC_IP}" >> $GITHUB_OUTPUT
-          else
-            echo "url=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Invalidate CDN cache
-        run: |
-          gcloud compute url-maps invalidate-cdn-cache fellspiral-url-map \
-            --path "/*" \
-            --project "$GCP_PROJECT_ID" \
-            --async || echo "CDN not configured, skipping cache invalidation"
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "### 🚀 Production Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Production URL:** ${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
 
   test-deployed:
     name: Test Deployed Site
@@ -190,31 +245,23 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get deployment URL
-        id: get-url
+      - name: Set deployment URL
         run: |
-          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+          echo "DEPLOYED_URL=${{ needs.deploy.outputs.service-url }}" >> $GITHUB_ENV
 
-          # Try to get static IP, fall back to storage URL
-          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+      - name: Wait for Cloud Run to be ready
+        run: |
+          echo "Testing deployment at ${{ needs.deploy.outputs.service-url }}"
 
-          if [ -n "$STATIC_IP" ]; then
-            echo "DEPLOYED_URL=http://${STATIC_IP}" >> $GITHUB_ENV
-          else
-            echo "DEPLOYED_URL=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_ENV
-          fi
-
-      - name: Wait for deployment propagation
-        run: sleep 30
+          # Wait for service to be ready
+          for i in {1..30}; do
+            if curl -sf "${{ needs.deploy.outputs.service-url }}/health" > /dev/null 2>&1; then
+              echo "✅ Cloud Run service is ready!"
+              break
+            fi
+            echo "Waiting for service to be ready... ($i/30)"
+            sleep 2
+          done
 
       - name: Run deployment tests
         run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests -- --project=chromium
@@ -235,7 +282,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const url = process.env.DEPLOYED_URL;
+            const url = '${{ needs.deploy.outputs.service-url }}';
             github.rest.repos.createCommitComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -257,31 +304,26 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Restore previous deployment
+      - name: Rollback to previous revision
         run: |
-          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
-          BACKUP_PATH="${{ needs.deploy.outputs.backup-path }}"
+          PREVIOUS_REVISION="${{ needs.deploy.outputs.previous-revision }}"
 
           echo "🔄 Rolling back deployment..."
-          echo "Restoring from: $BACKUP_PATH"
+          echo "Reverting to revision: $PREVIOUS_REVISION"
 
-          # Restore from backup
-          gsutil -m rsync -r -d "$BACKUP_PATH" "gs://${BUCKET_NAME}/"
+          # Update traffic to route 100% to previous revision
+          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+            --to-revisions="${PREVIOUS_REVISION}=100" \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }}
 
           echo "✅ Rollback completed successfully"
-
-      - name: Invalidate CDN cache
-        run: |
-          gcloud compute url-maps invalidate-cdn-cache fellspiral-url-map \
-            --path "/*" \
-            --project "$GCP_PROJECT_ID" \
-            --async || echo "CDN not configured, skipping cache invalidation"
 
       - name: Create rollback issue
         uses: actions/github-script@v7
@@ -291,6 +333,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: '🚨 Automatic Rollback Executed',
-              body: `Deployment tests failed for commit ${context.sha}.\n\nThe deployment has been automatically rolled back to the previous version.\n\n**Action required:** Please investigate the test failures before attempting to deploy again.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              body: `Deployment tests failed for commit ${context.sha}.\n\nThe deployment has been automatically rolled back to the previous revision.\n\n**Previous revision:** ${{ needs.deploy.outputs.previous-revision }}\n\n**Action required:** Please investigate the test failures before attempting to deploy again.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               labels: ['bug', 'deployment', 'rollback']
             })
