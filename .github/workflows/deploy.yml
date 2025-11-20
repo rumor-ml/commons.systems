@@ -94,8 +94,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-          service_account: 'github-actions-sa@chalanding.iam.gserviceaccount.com'
+          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -153,8 +153,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-          service_account: 'github-actions-sa@chalanding.iam.gserviceaccount.com'
+          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -304,8 +304,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-          service_account: 'github-actions-sa@chalanding.iam.gserviceaccount.com'
+          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
