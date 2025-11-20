@@ -63,7 +63,7 @@ export default defineConfig({
       ? 'npx http-server ../site/dist -p 3000 -s'
       : 'cd ../site && npm run dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true, // Always reuse existing server to avoid port conflicts
     timeout: 120 * 1000,
   },
 });
