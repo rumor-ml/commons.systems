@@ -47,13 +47,33 @@ app.get('/health', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     name: 'Fellspiral Playwright Test Server',
-    version: '1.0.0',
+    version: '1.3.0',
     endpoints: {
       health: 'GET /health',
       runTests: 'POST /api/test',
       getTestStatus: 'GET /api/test/:id',
-      getReport: 'GET /api/reports/:id'
+      getReport: 'GET /api/reports/:id',
+      debug: 'GET /api/debug'
     }
+  });
+});
+
+// Debug endpoint to see all test runs
+app.get('/api/debug', (req, res) => {
+  const testRunsArray = Array.from(testRuns.entries()).map(([id, run]) => ({
+    id,
+    status: run.status,
+    startTime: run.startTime,
+    endTime: run.endTime,
+    exitCode: run.exitCode,
+    outputLines: run.output.length,
+    lastOutput: run.output.slice(-3),
+    error: run.error
+  }));
+
+  res.json({
+    totalRuns: testRuns.size,
+    runs: testRunsArray
   });
 });
 
