@@ -8,6 +8,15 @@ on:
     branches:
       - main
       - claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW
+      - claude/use-deployed-playwright-server-0191587orbaBcCpdDXYodgNQ
+  push:
+    branches:
+      - claude/use-deployed-playwright-server-0191587orbaBcCpdDXYodgNQ
+    paths:
+      - 'playwright-server/**'
+      - 'fellspiral/tests/**'
+      - 'fellspiral/site/**'
+      - '.github/workflows/deploy-playwright-server.yml'
   workflow_dispatch:
 
 env:
@@ -80,8 +89,10 @@ jobs:
             --timeout 900 \
             --cpu 2 \
             --memory 4Gi \
-            --min-instances 0 \
-            --max-instances 1 \
+            --min-instances 1 \
+            --max-instances 2 \
+            --cpu-throttling \
+            --concurrency 10 \
             --set-env-vars NODE_ENV=production
 
       - name: Get service URL

@@ -106,7 +106,7 @@ app.get('/api/reports/:id', async (req, res) => {
   }
 
   // Try to read the JSON report
-  const reportPath = path.join(__dirname, '../../fellspiral/tests/test-results/.last-run.json');
+  const reportPath = path.join(__dirname, '../../tests/test-results/.last-run.json');
 
   try {
     if (existsSync(reportPath)) {
@@ -163,7 +163,7 @@ async function runPlaywrightTests(testId, options) {
   // Always use JSON reporter for programmatic access
   args.push('--reporter=json,list');
 
-  const testsDir = path.join(__dirname, '../../fellspiral/tests');
+  const testsDir = path.join(__dirname, '../../tests');
 
   // Set environment variables
   const env = {
