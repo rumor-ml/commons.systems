@@ -86,15 +86,33 @@ async function runTests() {
   try {
     // Start the test run
     console.log('⏳ Sending test request...');
+    console.log(`   URL: ${SERVER_URL}/api/test`);
+    console.log(`   Method: POST`);
+    console.log(`   Body: ${JSON.stringify(requestBody)}`);
+
     const startResponse = await fetch(`${SERVER_URL}/api/test`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
+    }).catch(err => {
+      console.error('❌ Fetch failed with error:');
+      console.error(`   Error name: ${err.name}`);
+      console.error(`   Error message: ${err.message}`);
+      console.error(`   Error stack: ${err.stack}`);
+      console.error(`   Server URL: ${SERVER_URL}`);
+      throw new Error(`Network request failed: ${err.message}`);
     });
 
+    console.log(`   Response status: ${startResponse.status} ${startResponse.statusText}`);
+
     if (!startResponse.ok) {
+      const errorText = await startResponse.text().catch(() => 'Unable to read error response');
+      console.error(`❌ Server returned error:`);
+      console.error(`   Status: ${startResponse.status}`);
+      console.error(`   Status text: ${startResponse.statusText}`);
+      console.error(`   Response body: ${errorText}`);
       throw new Error(`Failed to start tests: ${startResponse.status} ${startResponse.statusText}`);
     }
 
@@ -185,7 +203,33 @@ async function runTests() {
     }
 
   } catch (error) {
-    console.error('❌ Error running tests:', error.message);
+    console.error('');
+    console.error('═══════════════════════════════════════════');
+    console.error('❌ ERROR RUNNING TESTS');
+    console.error('═══════════════════════════════════════════');
+    console.error('');
+    console.error('Error details:');
+    console.error(`  Name: ${error.name}`);
+    console.error(`  Message: ${error.message}`);
+    console.error('');
+    if (error.stack) {
+      console.error('Stack trace:');
+      console.error(error.stack);
+      console.error('');
+    }
+    console.error('Configuration:');
+    console.error(`  Server URL: ${SERVER_URL}`);
+    console.error(`  Project: ${values.project}`);
+    console.error(`  Workers: ${values.workers}`);
+    console.error('');
+    console.error('Troubleshooting:');
+    console.error('  1. Verify server is accessible:');
+    console.error(`     curl ${SERVER_URL}/health`);
+    console.error('  2. Check server is deployed and running');
+    console.error('  3. Verify network connectivity to Cloud Run');
+    console.error('  4. Check server logs for errors');
+    console.error('');
+    console.error('═══════════════════════════════════════════');
     process.exit(1);
   }
 }
