@@ -234,6 +234,85 @@ User: "The deployment failed"
 Claude: "Can you check the GitHub Actions logs and tell me what error you see?"  ❌ WRONG
 ```
 
+## CI/CD Pipeline Verification Before Merge
+
+**CRITICAL:** Always verify full successful execution of the CI/CD pipeline for feature branches before prompting the user to merge or create a pull request.
+
+### Rules:
+
+1. **NEVER prompt for merge** without confirming pipeline success
+2. **ALWAYS check workflow status** using the GitHub API or `check_workflows.py` tool
+3. **ALWAYS verify deployment completion** if the workflow includes deployment steps
+4. **WAIT for in-progress workflows** to complete before suggesting merge
+
+### What Constitutes "Full Successful Execution":
+
+A feature branch is ready for merge ONLY when:
+
+1. ✅ **All workflow runs completed successfully** - No failed jobs
+2. ✅ **All checks passed** - Build, test, lint, and any other validation steps
+3. ✅ **Deployment completed** (if applicable) - Service is running and healthy
+4. ✅ **No pending workflows** - All triggered workflows have finished
+
+### Verification Process:
+
+**Step 1: Check workflow status for the branch**
+```bash
+./claudetool/check_workflows.py --branch <branch-name>
+```
+
+**Step 2: Verify latest workflow run via API**
+```bash
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs?branch=<branch-name>&per_page=1"
+```
+
+**Step 3: If deployment is involved, verify service health**
+```bash
+source claudetool/get_gcp_token.sh 2>/dev/null
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services/<service-name>"
+```
+
+**Step 4: Only after ALL checks pass, suggest merge**
+
+### Example of Correct Workflow:
+
+```
+User: "I've finished the feature implementation"
+Claude: *checks workflow status via API*
+Claude: *sees workflows are still running*
+Claude: "The feature is implemented. Let me verify the CI/CD pipeline..."
+Claude: *waits or monitors workflow completion*
+Claude: *verifies all checks passed*
+Claude: *verifies deployment succeeded (if applicable)*
+Claude: "All CI/CD checks passed successfully. The feature branch is ready to merge. Would you like me to create a pull request?"
+```
+
+### Example of Incorrect Workflow:
+
+```
+User: "I've finished the feature implementation"
+Claude: "Great! The feature is ready. Would you like me to create a pull request?"  ❌ WRONG
+(Did not verify pipeline status)
+```
+
+### Handling In-Progress or Failed Workflows:
+
+- **In-Progress**: Wait for completion or inform the user that verification is pending
+- **Failed**: Fetch logs, diagnose the issue, fix it, then restart verification process
+- **No Workflow Triggered**: Investigate why and ensure workflows run before suggesting merge
+
+### Tools to Use:
+
+1. `./claudetool/check_workflows.py --branch <branch-name>` - Quick status check
+2. GitHub Actions API - Detailed workflow information
+3. `./claudetool/check_workflows.py --branch <branch-name> --monitor` - Monitor ongoing workflows
+4. GCP Cloud Run API - Verify deployment health (if applicable)
+
+**Remember**: User trust depends on delivering fully verified, production-ready code. Never shortcut the verification process.
+
 ## Documentation Policy
 
 **IMPORTANT:** Do NOT create markdown (`.md`) documentation files unless explicitly requested by the user.
