@@ -71,11 +71,12 @@ test.describe('Equipment Section', () => {
   });
 
   test('should display skills when skills tab clicked', async ({ page }) => {
-    await page.click('text=Skills');
+    // Click the specific skills tab button
+    await page.click('.tab-btn[data-tab="skills"]');
 
     // Wait for skills tab content to become active
     const skillsContent = page.locator('#skills');
-    await expect(skillsContent).toHaveClass(/active/);
+    await expect(skillsContent).toHaveClass('tab-content active');
 
     // Check skill categories
     await expect(page.locator('h3', { hasText: 'Attack Skills' })).toBeVisible();
