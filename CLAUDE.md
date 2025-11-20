@@ -1,5 +1,59 @@
 # Claude Instructions for This Repository
 
+## Claude Debugging Tools
+
+The `claudetool/` directory contains utility scripts for Claude Code debugging and operational tasks. These tools help with common debugging workflows like checking deployment status, verifying GCP credentials, and monitoring workflows.
+
+### Available Tools
+
+#### `check_workflows.py` - GitHub Actions Workflow Inspector
+Check GitHub Actions workflow status with optional continuous monitoring.
+
+**Usage:**
+```bash
+# Check recent workflows (all branches)
+./claudetool/check_workflows.py
+
+# Check workflows for specific branch
+./claudetool/check_workflows.py --branch <branch-name>
+
+# Continuously monitor latest workflow
+./claudetool/check_workflows.py --monitor
+
+# Monitor specific branch continuously
+./claudetool/check_workflows.py --branch <branch-name> --monitor
+```
+
+This tool replaces the older `check_deployment_status.sh`, `check_workflow_status.py`, and `monitor_deployment.sh` scripts with a unified, flexible interface.
+
+#### `debug_gcp_deployment.py` - GCP Prerequisites Debugger
+Comprehensive diagnostic tool for GCP deployment issues. Checks APIs, permissions, Artifact Registry repositories, and Cloud Run services.
+
+**Usage:**
+```bash
+./claudetool/debug_gcp_deployment.py
+```
+
+Provides recommendations for fixing any issues found.
+
+#### `get_gcp_token.sh` - GCP Access Token Manager
+Generates and caches GCP OAuth2 access tokens for API calls. See the "Google Cloud Platform API Access" section below for detailed usage.
+
+#### `verify_gcp_credentials.sh` - GCP Credentials Verifier
+Quick verification that GCP credentials are properly configured and working.
+
+**Usage:**
+```bash
+./claudetool/verify_gcp_credentials.sh
+```
+
+### When to Use These Tools
+
+- **Debugging deployment failures**: Use `check_workflows.py` to see workflow status, then fetch logs via API
+- **GCP setup issues**: Use `debug_gcp_deployment.py` to diagnose configuration problems
+- **Monitoring deployments**: Use `check_workflows.py --monitor` to watch deployment progress
+- **Verifying GCP access**: Use `verify_gcp_credentials.sh` before attempting GCP operations
+
 ## API Access in CI/CD Environment
 
 This repository's CI/CD environment provides authenticated access to GitHub and Google Cloud Platform APIs via environment variables.
@@ -41,7 +95,7 @@ Use the provided helper script to obtain an OAuth2 access token:
 
 ```bash
 # Source the helper script to set GCP_ACCESS_TOKEN
-source get_gcp_token.sh
+source claudetool/get_gcp_token.sh
 
 # The script will:
 # - Create a JWT from the service account credentials
@@ -52,7 +106,7 @@ source get_gcp_token.sh
 
 **Suppress output in scripts:**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 ```
 
 #### Using the Access Token
@@ -61,21 +115,21 @@ Once you've sourced the script, use `$GCP_ACCESS_TOKEN` in your API calls:
 
 **Example: List Cloud Storage buckets**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
 ```
 
 **Example: List Compute Engine zones**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
 ```
 
 **Example: List Cloud Run services**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services"
 ```
@@ -83,7 +137,7 @@ curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
 **Example: Multiple API calls with one token:**
 ```bash
 # Set up token once
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 
 # Use for multiple calls
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
@@ -101,15 +155,10 @@ The token is cached in `/tmp/gcp_token_cache.json` and automatically refreshed w
 
 To verify the credentials work, run:
 ```bash
-./verify_gcp_credentials.sh
+./claudetool/verify_gcp_credentials.sh
 ```
 
-For usage examples, run:
-```bash
-./gcp_token_usage_examples.sh
-```
-
-For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
+For implementation details, see the scripts in the `claudetool/` directory.
 
 ## Debugging and Log Access
 
@@ -148,7 +197,7 @@ You have access to Cloud Run logs via the GCP Logging API.
 
 **Get Cloud Run service logs:**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 
 # List recent Cloud Run logs
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
