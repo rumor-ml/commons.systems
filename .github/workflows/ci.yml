@@ -60,7 +60,7 @@ jobs:
       - name: Run tests via remote Playwright server
         run: |
           cd playwright-server
-          node run-tests.js --project chromium --workers 4
+          node run-tests.js --project chromium --workers 4 --deployed
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           CI: true
