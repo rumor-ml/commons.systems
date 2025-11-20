@@ -1,6 +1,9 @@
 name: Deploy to GCP
 
 on:
+  push:
+    branches:
+      - claude/fix-iac-workflow-01QEPQWQLsKdBAzqHqGc2Muu
   workflow_run:
     workflows: ["Infrastructure as Code"]
     types:
@@ -20,7 +23,7 @@ on:
           - staging
 
 permissions:
-  contents: read
+  contents: write  # Required for creating commit comments
   id-token: write  # Required for Workload Identity Federation
   issues: write    # Required for rollback notifications
 
@@ -32,8 +35,8 @@ jobs:
     name: Build Site
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run if IAC workflow succeeded or this is a manual dispatch
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only run if IAC workflow succeeded, push to feature branch, or manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
 
     steps:
       - name: Checkout code
