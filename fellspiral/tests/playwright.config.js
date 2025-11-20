@@ -29,6 +29,7 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
+        // Disable sandbox for Docker/container environments
         launchOptions: {
           args: [
             '--no-sandbox',
