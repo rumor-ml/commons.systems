@@ -102,12 +102,12 @@ jobs:
             --allow-unauthenticated \
             --service-account playwright-server@${{ steps.project.outputs.project_id }}.iam.gserviceaccount.com \
             --timeout 900 \
-            --cpu 2 \
-            --memory 4Gi \
+            --cpu 4 \
+            --memory 8Gi \
             --min-instances 1 \
             --max-instances 1 \
-            --cpu-throttling \
-            --concurrency 10 \
+            --no-cpu-throttling \
+            --concurrency 5 \
             --set-env-vars NODE_ENV=production
 
       - name: Get service URL

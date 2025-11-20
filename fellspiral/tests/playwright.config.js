@@ -13,15 +13,16 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 4 : undefined,
   reporter: [
-    ['html'],
-    ['list'],
-    ['json', { outputFile: 'test-results.json' }]
+    ['list'],  // Console output
+    ['json', { outputFile: 'test-results.json' }]  // Machine-readable results
+    // HTML reporter disabled to reduce server resource usage
   ],
   use: {
     baseURL,
     headless: true,
-    trace: 'on-first-retry',
+    trace: 'off',  // Disabled to reduce memory usage on server
     screenshot: 'only-on-failure',
+    video: 'off',  // Disabled to reduce resource usage
   },
 
   projects: [
