@@ -25,7 +25,10 @@ permissions:
   actions: read
 
 env:
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+  SERVICE_NAME: videobrowser-site
+  ARTIFACT_REGISTRY_REPO: videobrowser-production
 
 jobs:
   verify-prerequisites:
@@ -72,102 +75,139 @@ jobs:
               console.log('⏸️  CI workflow not yet complete or failed - skipping deployment');
             }
 
-  build:
-    name: Build Video Browser
+  build-and-push:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     needs: verify-prerequisites
     if: needs.verify-prerequisites.outputs.should-deploy == 'true'
+    outputs:
+      image-name: ${{ steps.build.outputs.image-name }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build site
-        run: npm run build:videobrowser
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: videobrowser-build
-          path: videobrowser/site/dist/
-          retention-days: 7
-
-  deploy:
-    name: Deploy to GCP
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: build
-    environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
-      url: ${{ steps.deploy.outputs.url }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: videobrowser-build
-          path: videobrowser/site/dist/
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Storage
-        id: deploy
+      - name: Configure Docker for Artifact Registry
         run: |
-          BUCKET_NAME="${GCP_PROJECT_ID}-videobrowser-site"
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
-          # Sync files to bucket
-          gsutil -m rsync -r -d \
-            -x ".*\.map$" \
-            videobrowser/site/dist/ "gs://${BUCKET_NAME}/"
-
-          # Set cache control headers
-          gsutil -m setmeta -h "Cache-Control:no-cache,max-age=0" \
-            "gs://${BUCKET_NAME}/**/*.html" || true
-
-          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
-            "gs://${BUCKET_NAME}/**/*.css" || true
-
-          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" \
-            "gs://${BUCKET_NAME}/**/*.js" || true
-
-          # Get static IP if available
-          STATIC_IP=$(gcloud compute addresses describe videobrowser-site-ip --global --format="value(address)" 2>/dev/null || echo "")
-
-          if [ -n "$STATIC_IP" ]; then
-            echo "url=http://${STATIC_IP}" >> $GITHUB_OUTPUT
+      - name: Create Artifact Registry repository if not exists
+        run: |
+          if ! gcloud artifacts repositories describe ${{ env.ARTIFACT_REGISTRY_REPO }} \
+            --location=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} 2>/dev/null; then
+            echo "Creating Artifact Registry repository..."
+            gcloud artifacts repositories create ${{ env.ARTIFACT_REGISTRY_REPO }} \
+              --repository-format=docker \
+              --location=${{ env.GCP_REGION }} \
+              --description="Production Video Browser site images" \
+              --project=${{ env.GCP_PROJECT_ID }}
           else
-            echo "url=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_OUTPUT
+            echo "Artifact Registry repository already exists"
           fi
 
-      - name: Invalidate CDN cache
+      - name: Build and push Docker image
+        id: build
         run: |
-          gcloud compute url-maps invalidate-cdn-cache videobrowser-url-map \
-            --path "/*" \
-            --project "$GCP_PROJECT_ID" \
-            --async || echo "CDN not configured, skipping cache invalidation"
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          IMAGE_LATEST="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.SERVICE_NAME }}:latest"
+
+          cd videobrowser/site
+          docker build -t "${IMAGE_NAME}" -t "${IMAGE_LATEST}" .
+          docker push "${IMAGE_NAME}"
+          docker push "${IMAGE_LATEST}"
+
+          echo "image-name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "Built and pushed: ${IMAGE_NAME}"
+
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build-and-push
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      previous-revision: ${{ steps.backup.outputs.PREVIOUS_REVISION }}
+      has-backup: ${{ steps.backup.outputs.HAS_BACKUP }}
+      service-url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check for existing deployment
+        id: backup
+        run: |
+          if gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} 2>/dev/null; then
+
+            CURRENT_REVISION=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+
+            echo "Current revision: $CURRENT_REVISION"
+            echo "PREVIOUS_REVISION=${CURRENT_REVISION}" >> $GITHUB_OUTPUT
+            echo "HAS_BACKUP=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing deployment found (first deployment)"
+            echo "HAS_BACKUP=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image="${{ needs.build-and-push.outputs.image-name }}" \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --allow-unauthenticated \
+            --cpu=1 \
+            --memory=512Mi \
+            --min-instances=0 \
+            --max-instances=10 \
+            --timeout=300 \
+            --port=8080 \
+            --set-env-vars="ENVIRONMENT=production,COMMIT_SHA=${{ github.sha }}" \
+            --labels="environment=production,commit=${{ github.sha }}" \
+            --quiet
+
+          # Get service URL
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "### 🚀 Video Browser Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Production URL:** ${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Comment on commit
-        if: always()
         uses: actions/github-script@v7
         with:
           script: |

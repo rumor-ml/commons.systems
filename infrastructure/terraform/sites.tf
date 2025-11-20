@@ -1,63 +1,159 @@
-# Site configurations using the reusable static-site module
+# Site configurations using Cloud Run architecture
+# Each site gets: Production Artifact Registry + Preview Artifact Registry
 
 # Fellspiral - Tactical tabletop RPG
-module "fellspiral" {
-  source = "./modules/static-site"
+resource "google_artifact_registry_repository" "fellspiral_production" {
+  location      = var.region
+  repository_id = "fellspiral-production"
+  description   = "Production Docker images for Fellspiral site"
+  format        = "DOCKER"
 
-  project_id = var.project_id
-  site_name  = "fellspiral"
-  region     = var.region
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
 
-  enable_cdn                = true
-  cdn_ttl                   = 3600
-  cdn_max_ttl               = 86400
-  enable_backup             = true
-  backup_retention_days     = 7
-  enable_lifecycle_policies = true
+    most_recent_versions {
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-old-untagged"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "604800s"  # 7 days
+    }
+  }
+}
+
+resource "google_artifact_registry_repository" "fellspiral_previews" {
+  location      = var.region
+  repository_id = "fellspiral-previews"
+  description   = "Feature branch preview Docker images for Fellspiral"
+  format        = "DOCKER"
+
+  cleanup_policies {
+    id     = "delete-old-previews"
+    action = "DELETE"
+
+    condition {
+      older_than = "2592000s"  # 30 days
+    }
+  }
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+}
+
+resource "google_artifact_registry_repository_iam_member" "fellspiral_production_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.fellspiral_production.location
+  repository = google_artifact_registry_repository.fellspiral_production.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "fellspiral_previews_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.fellspiral_previews.location
+  repository = google_artifact_registry_repository.fellspiral_previews.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
 }
 
 # Video Browser - Navigate video binaries from GCS
-module "videobrowser" {
-  source = "./modules/static-site"
+resource "google_artifact_registry_repository" "videobrowser_production" {
+  location      = var.region
+  repository_id = "videobrowser-production"
+  description   = "Production Docker images for Video Browser site"
+  format        = "DOCKER"
 
-  project_id = var.project_id
-  site_name  = "videobrowser"
-  region     = var.region
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
 
-  enable_cdn                = true
-  cdn_ttl                   = 3600
-  cdn_max_ttl               = 86400
-  enable_backup             = false # No need for backup on video browser
-  enable_lifecycle_policies = false # Video browser doesn't need lifecycle policies
+    most_recent_versions {
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-old-untagged"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "604800s"  # 7 days
+    }
+  }
+}
+
+resource "google_artifact_registry_repository" "videobrowser_previews" {
+  location      = var.region
+  repository_id = "videobrowser-previews"
+  description   = "Feature branch preview Docker images for Video Browser"
+  format        = "DOCKER"
+
+  cleanup_policies {
+    id     = "delete-old-previews"
+    action = "DELETE"
+
+    condition {
+      older_than = "2592000s"  # 30 days
+    }
+  }
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+}
+
+resource "google_artifact_registry_repository_iam_member" "videobrowser_production_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.videobrowser_production.location
+  repository = google_artifact_registry_repository.videobrowser_production.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "videobrowser_previews_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.videobrowser_previews.location
+  repository = google_artifact_registry_repository.videobrowser_previews.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
 }
 
 # Outputs for all sites
-output "fellspiral_bucket_name" {
-  value       = module.fellspiral.bucket_name
-  description = "Fellspiral storage bucket name"
+output "fellspiral_production_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.fellspiral_production.repository_id}"
+  description = "Fellspiral production Artifact Registry URL"
 }
 
-output "fellspiral_site_url" {
-  value       = module.fellspiral.site_url
-  description = "Fellspiral site URL"
+output "fellspiral_preview_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.fellspiral_previews.repository_id}"
+  description = "Fellspiral preview Artifact Registry URL"
 }
 
-output "fellspiral_site_ip" {
-  value       = module.fellspiral.site_ip
-  description = "Fellspiral static IP"
+output "videobrowser_production_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.videobrowser_production.repository_id}"
+  description = "Video Browser production Artifact Registry URL"
 }
 
-output "videobrowser_bucket_name" {
-  value       = module.videobrowser.bucket_name
-  description = "Video Browser storage bucket name"
-}
-
-output "videobrowser_site_url" {
-  value       = module.videobrowser.site_url
-  description = "Video Browser site URL"
-}
-
-output "videobrowser_site_ip" {
-  value       = module.videobrowser.site_ip
-  description = "Video Browser static IP"
+output "videobrowser_preview_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.videobrowser_previews.repository_id}"
+  description = "Video Browser preview Artifact Registry URL"
 }
