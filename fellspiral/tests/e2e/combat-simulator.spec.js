@@ -19,21 +19,20 @@ test.describe('Combat Simulator', () => {
   });
 
   test('should list all available characters in dropdowns', async ({ page }) => {
-    const combatant1Select = page.locator('#combatant1');
+    // Check that all characters are available by counting total options
+    const combatant1Options = await page.locator('#combatant1 option').count();
+    const combatant2Options = await page.locator('#combatant2 option').count();
 
-    // Check that all characters are available
-    const characters = [
-      'Caleb',
-      'Skeleton',
-      'Skeleton Commander',
-      'Ghoul',
-      'Krovnaya Striga'
-    ];
+    expect(combatant1Options).toBe(5);
+    expect(combatant2Options).toBe(5);
 
-    for (const character of characters) {
-      const option = combatant1Select.locator('option', { hasText: character });
-      await expect(option).toHaveCount(1);
-    }
+    // Check specific characters exist (using includes to check option text contains character name)
+    const combatant1Text = await page.locator('#combatant1').textContent();
+    expect(combatant1Text).toContain('Caleb');
+    expect(combatant1Text).toContain('Skeleton');
+    expect(combatant1Text).toContain('Skeleton Commander');
+    expect(combatant1Text).toContain('Ghoul');
+    expect(combatant1Text).toContain('Krovnaya Striga');
   });
 
   test('should have a simulate combat button', async ({ page }) => {
