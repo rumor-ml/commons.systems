@@ -1,10 +1,12 @@
 /**
  * Fellspiral Playwright Test Server
- * Version: 1.1.0
+ * Version: 1.2.0
  *
  * Fixes:
  * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
  * - Improved Cloud Run configuration (min-instances: 1, concurrency: 10)
+ * - Added comprehensive logging for debugging 404 errors
+ * - Set max-instances: 1 to prevent distributed state issues
  */
 
 import express from 'express';
@@ -34,7 +36,8 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.1.0'
+    version: '1.2.0',
+    testRunsInMemory: testRuns.size
   });
 });
 
@@ -64,6 +67,9 @@ app.post('/api/test', async (req, res) => {
     deployed = false
   } = req.body;
 
+  console.log(`[SERVER] Creating test run: ${testId}, workers: ${workers}, project: ${project}`);
+  console.log(`[SERVER] Current test runs in memory: ${testRuns.size}`);
+
   // Initialize test run status
   testRuns.set(testId, {
     id: testId,
@@ -73,6 +79,8 @@ app.post('/api/test', async (req, res) => {
     error: null,
     exitCode: null
   });
+
+  console.log(`[SERVER] Test run ${testId} stored in memory. Total runs: ${testRuns.size}`);
 
   // Respond immediately with test ID
   res.json({
@@ -89,12 +97,19 @@ app.post('/api/test', async (req, res) => {
 // Get test status endpoint
 app.get('/api/test/:id', (req, res) => {
   const testId = req.params.id;
+  console.log(`[SERVER] Status check for test run: ${testId}`);
+  console.log(`[SERVER] Total test runs in memory: ${testRuns.size}`);
+  console.log(`[SERVER] Test run IDs in memory: ${Array.from(testRuns.keys()).join(', ')}`);
+
   const testRun = testRuns.get(testId);
 
   if (!testRun) {
+    console.error(`[SERVER] ERROR: Test run ${testId} not found in memory!`);
+    console.error(`[SERVER] Available test runs: ${Array.from(testRuns.keys()).join(', ') || 'none'}`);
     return res.status(404).json({ error: 'Test run not found' });
   }
 
+  console.log(`[SERVER] Test run ${testId} found. Status: ${testRun.status}`);
   res.json(testRun);
 });
 
