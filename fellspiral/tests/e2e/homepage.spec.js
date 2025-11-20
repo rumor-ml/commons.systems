@@ -30,6 +30,9 @@ test.describe('Homepage', () => {
   test('should have working navigation', async ({ page }) => {
     await page.goto('/');
 
+    // Wait for navigation to be ready
+    await page.locator('.nav-menu').waitFor({ state: 'visible' });
+
     // Check nav links exist
     const navLinks = ['Concepts', 'Combat', 'Equipment', 'Examples'];
     for (const linkText of navLinks) {
@@ -41,8 +44,9 @@ test.describe('Homepage', () => {
     await page.click('text=Concepts');
     await expect(page.url()).toContain('#concepts');
 
-    // Verify section is visible
+    // Wait for section to scroll into view
     const conceptsSection = page.locator('#concepts');
+    await page.waitForTimeout(300); // Small delay for scroll animation
     await expect(conceptsSection).toBeInViewport();
   });
 

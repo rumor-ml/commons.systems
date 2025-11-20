@@ -21,9 +21,15 @@ test.describe('Performance', () => {
   test('should have CSS loaded', async ({ page }) => {
     await page.goto('/');
 
+    // Wait for CSS to be loaded
+    await page.waitForLoadState('domcontentloaded');
+
     // Check that styles are applied by checking computed color
     const hero = page.locator('.hero');
     await expect(hero).toBeVisible();
+
+    // Wait a bit for styles to be applied
+    await page.waitForTimeout(100);
 
     const bgColor = await hero.evaluate((el) => {
       return window.getComputedStyle(el).backgroundColor;

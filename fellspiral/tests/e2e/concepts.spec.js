@@ -6,6 +6,9 @@ test.describe('Core Concepts Section', () => {
   });
 
   test('should display all concept cards', async ({ page }) => {
+    // Wait for first card to ensure content is loaded
+    await page.locator('.concept-card').first().waitFor({ state: 'visible' });
+
     const conceptTitles = [
       'Initiative',
       'Referee & Antagonist Roles',
@@ -21,6 +24,7 @@ test.describe('Core Concepts Section', () => {
 
   test('should explain initiative concept', async ({ page }) => {
     const initiativeCard = page.locator('.concept-card', { hasText: 'Initiative' });
+    await initiativeCard.waitFor({ state: 'visible' });
     await expect(initiativeCard).toContainText('narrative control');
     await expect(initiativeCard).toContainText('tempo of battle');
   });
