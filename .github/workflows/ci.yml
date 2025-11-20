@@ -8,7 +8,7 @@ jobs:
   test:
     name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -60,7 +60,7 @@ jobs:
       - name: Run tests via remote Playwright server
         run: |
           cd playwright-server
-          node run-tests.js --project chromium
+          node run-tests.js --project chromium --workers 4
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           CI: true

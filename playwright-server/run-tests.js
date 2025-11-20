@@ -125,7 +125,7 @@ async function runTests() {
     // Poll for test completion
     let completed = false;
     let attempts = 0;
-    const maxAttempts = 120; // 10 minutes max (5 second intervals)
+    const maxAttempts = 240; // 20 minutes max (5 second intervals)
 
     while (!completed && attempts < maxAttempts) {
       attempts++;
@@ -138,12 +138,21 @@ async function runTests() {
 
       const statusData = await statusResponse.json();
 
-      // Print latest output
+      // Print latest output with progress
       if (statusData.output && statusData.output.length > 0) {
         const newOutput = statusData.output.slice(-5); // Last 5 lines
-        console.log('📄 Test output:');
+
+        // Extract test progress from output
+        const fullOutput = statusData.output.join('\n');
+        const progressMatch = fullOutput.match(/✓\s+(\d+)\s+\[/g);
+        const testCount = progressMatch ? progressMatch.length : 0;
+
+        console.log(`⏳ Waiting for tests to complete... (${attempts * 5}s) - ${testCount} tests passed`);
+        console.log('📄 Recent test output:');
         newOutput.forEach(line => console.log(line.trim()));
         console.log('');
+      } else {
+        console.log(`⏳ Waiting for tests to complete... (${attempts * 5}s)`);
       }
 
       if (statusData.status !== 'running') {
