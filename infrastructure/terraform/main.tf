@@ -104,7 +104,7 @@ resource "google_artifact_registry_repository" "previews" {
 # IAM permissions for this service account are managed by setup.py, not Terraform,
 # to avoid chicken-and-egg problems where Terraform would need permissions to grant itself permissions.
 data "google_service_account" "github_actions" {
-  account_id = "github-actions-sa"
+  account_id = "github-actions-terraform"
 }
 
 # Grant necessary permissions to GitHub Actions service account
