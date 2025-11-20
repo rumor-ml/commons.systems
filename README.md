@@ -75,41 +75,47 @@ This repository is structured as a monorepo hosting multiple static sites with s
 ```
 commons.systems/
 ├── fellspiral/              # Fellspiral RPG site
-│   ├── site/               # Vite project
+│   ├── site/               # Vite project + Docker
 │   └── tests/              # Playwright tests
 ├── videobrowser/           # Video Browser site
-│   ├── site/               # Vite project
+│   ├── site/               # Vite project + Docker
 │   └── tests/              # Playwright tests
 ├── playwright-server/      # Shared test infrastructure
 ├── infrastructure/         # Shared Terraform infrastructure
 │   └── terraform/
-│       ├── modules/
-│       │   └── static-site/  # Reusable site module
 │       ├── main.tf         # Core infrastructure
-│       └── sites.tf        # Site-specific resources
+│       └── sites.tf        # Site-specific Artifact Registry repos
 └── .github/workflows/      # CI/CD workflows
 ```
 
 ### Key Principles
 
 1. **Each site is independent** - Sites can be developed, tested, and deployed separately
-2. **Shared infrastructure** - Common resources (Terraform modules, test server) are reused
+2. **Shared infrastructure** - Common resources (Artifact Registry repos, test server) are reused
 3. **Workspace-based builds** - npm workspaces manage dependencies and builds
 4. **Path-based CI/CD** - Workflows only trigger when relevant files change
-5. **Cost-effective** - Each site costs ~$0.13/month (static hosting + CDN only)
+5. **Cost-effective** - Each site costs ~$0.20/month (Cloud Run with scale-to-zero)
 
 ### Infrastructure Pattern
 
-Each site uses the reusable `static-site` Terraform module which provisions:
-- GCS bucket for static hosting
-- Cloud CDN with configurable TTL
-- Global load balancer with static IP
-- Optional backup bucket with lifecycle policies
+Each site uses Cloud Run for deployment and Terraform provisions:
+- Production Artifact Registry (for Docker images)
+- Preview Artifact Registry (for feature branch previews)
+- Automated cleanup policies (keep 10 production, 3 preview versions)
+- IAM permissions for GitHub Actions
 
 Sites share:
 - Terraform state backend (GCS)
 - Service accounts for deployment
 - Playwright server for testing
+
+**Benefits of Cloud Run:**
+- Managed HTTPS with automatic SSL certificates
+- Global load balancing included
+- Scale to zero when idle (~$0.20/month per site)
+- Fast deployments (~2 minutes)
+- Easy rollback via revision management
+- Feature branch preview deployments
 
 ---
 
@@ -223,6 +229,78 @@ export default defineConfig({
   },
 });
 EOF
+
+# Create Dockerfile
+cat > newsite/site/Dockerfile <<'EOF'
+# Multi-stage build for efficient image size
+FROM node:20-alpine AS builder
+
+WORKDIR /build
+COPY package*.json ./
+RUN npm install --production=false
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /build/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm /etc/nginx/conf.d/default.conf.default 2>/dev/null || true
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+# Create nginx.conf
+cat > newsite/site/nginx.conf <<'EOF'
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/json;
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    location ~* \.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+
+    location /health {
+        access_log off;
+        return 200 "healthy
+";
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+
+# Create .dockerignore
+cat > newsite/site/.dockerignore <<'EOF'
+node_modules
+dist
+.git
+.github
+*.md
+.gitignore
+.env*
+*.log
+.DS_Store
+EOF
+
 ```
 
 ### Step 2: Update Root package.json
@@ -251,36 +329,46 @@ Add your site to the workspaces and scripts:
 
 ### Step 3: Add Infrastructure
 
-Edit `infrastructure/terraform/sites.tf` to add your site:
+Edit `infrastructure/terraform/sites.tf` to add Artifact Registry repositories for your site:
 
 ```hcl
-module "newsite" {
-  source = "./modules/static-site"
+# New Site - Production and Preview registries
+resource "google_artifact_registry_repository" "newsite_production" {
+  location      = var.region
+  repository_id = "newsite-production"
+  description   = "Production Docker images for New Site"
+  format        = "DOCKER"
 
-  project_id = var.project_id
-  site_name  = "newsite"
-  region     = var.region
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+    most_recent_versions { keep_count = 10 }
+  }
 
-  enable_cdn    = true
-  cdn_ttl       = 3600
-  cdn_max_ttl   = 86400
-  enable_backup = true  # Optional
+  cleanup_policies {
+    id     = "delete-old-untagged"
+    action = "DELETE"
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "604800s"  # 7 days
+    }
+  }
 }
+
+resource "google_artifact_registry_repository_iam_member" "newsite_production_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.newsite_production.location
+  repository = google_artifact_registry_repository.newsite_production.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+# Add preview registry similarly...
 
 # Add outputs
-output "newsite_bucket_name" {
-  value       = module.newsite.bucket_name
-  description = "New Site storage bucket name"
-}
-
-output "newsite_site_url" {
-  value       = module.newsite.site_url
-  description = "New Site URL"
-}
-
-output "newsite_site_ip" {
-  value       = module.newsite.site_ip
-  description = "New Site static IP"
+output "newsite_production_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.newsite_production.repository_id}"
+  description = "New Site production Artifact Registry URL"
 }
 ```
 
@@ -323,18 +411,20 @@ Create `.github/workflows/deploy-newsite.yml` (copy and modify from `deploy-vide
 ### Step 5: Implement Your Site
 
 1. Create HTML, CSS, and JavaScript in `newsite/site/src/`
+2. Docker files (Dockerfile, nginx.conf, .dockerignore) are already created in Step 1
 2. Create basic tests in `newsite/tests/e2e/`
 3. Test locally: `npm run dev:newsite`
 4. Build and test: `npm run build:newsite && npm run test:newsite`
+5. Test Docker build: `cd newsite/site && docker build -t newsite:test .`
 
 ### Step 6: Deploy
 
 1. Commit and push to your branch
 2. CI workflow will run automatically
 3. Merge to main to deploy:
-   - Infrastructure workflow creates GCS bucket, CDN, load balancer
-   - Deploy workflow builds and uploads your site
-   - Site will be available at the static IP
+   - Infrastructure workflow creates Artifact Registry repositories
+   - Deploy workflow builds Docker image and deploys to Cloud Run
+   - Site will be available at the Cloud Run URL with managed HTTPS
 
 ### Example: Video Browser
 
@@ -451,22 +541,22 @@ Push to main
 
 Optimize infrastructure for cost.
 
-### Estimated Monthly Cost
+### Estimated Monthly Cost (Per Site)
 
 | Service | Cost | Notes |
 |---------|------|-------|
-| Cloud Storage | ~$0.002/month | 100MB storage |
-| Storage Operations | ~$0.05/month | 10k requests |
-| Cloud CDN | ~$0.08/month | 1GB egress |
-| Static IP | $0.00 | Free when attached |
-| Backup Storage | ~$0.001/month | 7-day retention |
-| **Total** | **~$0.13/month** | For ~1000 visitors |
+| Cloud Run (scale-to-zero) | ~$0.10/month | Minimal idle time, fast cold starts |
+| Artifact Registry Storage | ~$0.05/month | Docker images with cleanup policies |
+| Cloud Run Requests | ~$0.03/month | 1000 requests |
+| Egress | ~$0.02/month | 1GB outbound traffic |
+| **Total per site** | **~$0.20/month** | With moderate traffic |
+| **Two sites (current)** | **~$0.40/month** | Fellspiral + Video Browser |
 
 ### Cost Optimization Features
 
-- Static-only (no compute instances)
-- Aggressive CDN caching
-- Lifecycle policies for old content
-- Compressed assets
-- Optimized cache headers
-- Automatic backup cleanup (7 days)
+- **Scale to zero**: Cloud Run instances shut down when not in use
+- **Image cleanup**: Automatic deletion of old Docker images (keep 10 production, 3 preview)
+- **Fast cold starts**: ~2-3 second startup with nginx alpine (~5MB images)
+- **Efficient caching**: nginx handles gzip compression and cache headers
+- **Managed SSL**: Free HTTPS certificates included
+- **No load balancer costs**: Cloud Run includes global load balancing
