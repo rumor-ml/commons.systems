@@ -1,3 +1,12 @@
+/**
+ * Fellspiral Playwright Test Server
+ * Version: 1.1.0
+ *
+ * Fixes:
+ * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
+ * - Improved Cloud Run configuration (min-instances: 1, concurrency: 10)
+ */
+
 import express from 'express';
 import cors from 'cors';
 import { spawn } from 'child_process';
@@ -25,7 +34,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.1.0'
   });
 });
 
