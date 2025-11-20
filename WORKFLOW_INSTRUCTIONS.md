@@ -8,21 +8,15 @@ This document provides step-by-step instructions for checking GitHub Actions wor
 
 ### Step 1: Check All Recent Runs
 
-**REQUIRED URL (for specific branch):** `https://github.com/rumor-ml/commons.systems/actions?query=branch:[BRANCH_NAME]`
-**⚠️ DO NOT USE:** `https://github.com/rumor-ml/commons.systems/actions` (general page shows stale/incomplete data)
-
-**WHY branch-filtered URL is REQUIRED:**
-- The general actions page often returns stale or cached HTML
-- Status may show "In progress" for workflows that actually completed
-- Durations may not be visible
-- The branch-filtered URL provides accurate, up-to-date status
+**URL:** `https://github.com/rumor-ml/commons.systems/actions`
+**Optional filter by branch:** `https://github.com/rumor-ml/commons.systems/actions?query=branch:[BRANCH_NAME]`
 
 **CRITICAL PARSING RULES:**
 
 1. **Runtime Duration = Completed Workflow**
    - If you see a duration like "5m 29s", "3m 12s", "45s", the workflow has **COMPLETED**
    - This is the PRIMARY indicator that a workflow finished (not still running)
-   - If you see "In progress" text but ALSO see a duration, trust the duration - it means completed
+   - If you see "In progress" text but ALSO see a duration, trust the duration - it completed
 
 2. **No Duration = Still Running or Queued**
    - If there's NO duration shown, the workflow is still in progress or queued
@@ -32,11 +26,6 @@ This document provides step-by-step instructions for checking GitHub Actions wor
    - Duration alone doesn't tell you if it passed or failed
    - You MUST check the individual workflow run page to see Success/Failure status
    - Go to: `https://github.com/rumor-ml/commons.systems/actions/runs/[RUN_ID]`
-
-4. **Use Branch-Filtered URL for Accuracy**
-   - The general actions page may show stale/cached data
-   - Branch-filtered URLs are more reliable: `?query=branch:BRANCH_NAME`
-   - This is especially important for feature branches
 
 **CRITICAL: You MUST extract the actual pass/fail status for each workflow run.**
 
