@@ -129,6 +129,11 @@ jobs:
         run: nix develop .#ci --command terraform fmt -check -recursive
         continue-on-error: true
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
       - name: Terraform Init
         id: init
         run: |
@@ -139,8 +144,16 @@ jobs:
           # Debug: Show current GCP project
           echo "Current GCP project: $(gcloud config get-value project)"
 
-          # Initialize Terraform with backend configuration
-          nix develop .#ci --command terraform init \
+          # Debug: Check authentication
+          echo "Testing GCP authentication..."
+          gcloud auth list
+
+          # Debug: Try listing bucket contents
+          echo "Attempting to access state bucket..."
+          gsutil ls gs://fellspiral-terraform-state/ || echo "Cannot list bucket contents"
+
+          # Initialize Terraform with backend configuration (without Nix wrapper)
+          terraform init \
             -backend-config="project=${{ secrets.GCP_PROJECT_ID }}" \
             -reconfigure
 
@@ -148,7 +161,7 @@ jobs:
         id: import
         continue-on-error: true
         run: |
-          nix develop .#ci --command bash -c "
+          bash -c "
             # Check if state is empty (no resources)
             RESOURCE_COUNT=\$(terraform state list 2>/dev/null | wc -l)
 
@@ -199,17 +212,17 @@ jobs:
 
       - name: Terraform Validate
         id: validate
-        run: nix develop .#ci --command terraform validate -no-color
+        run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: nix develop .#ci --command terraform plan -no-color -out=tfplan
+        run: terraform plan -no-color -out=tfplan
         continue-on-error: false
 
       - name: Save plan output
         id: plan-output
         run: |
-          nix develop .#ci --command terraform show -no-color tfplan > plan.txt
+          terraform show -no-color tfplan > plan.txt
           # Truncate if too long for PR comment
           if [ $(wc -l < plan.txt) -gt 100 ]; then
             head -n 100 plan.txt > plan_truncated.txt
@@ -226,11 +239,11 @@ jobs:
         if: |
           ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
-        run: nix develop .#ci --command terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve tfplan
 
       - name: Terraform Destroy
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
-        run: nix develop .#ci --command terraform destroy -auto-approve
+        run: terraform destroy -auto-approve
 
       - name: Get Infrastructure Outputs
         if: |
@@ -238,10 +251,10 @@ jobs:
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         id: outputs
         run: |
-          echo "bucket_name=$(nix develop .#ci --command terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
-          echo "site_ip=$(nix develop .#ci --command terraform output -raw site_ip)" >> $GITHUB_OUTPUT
-          echo "site_url=$(nix develop .#ci --command terraform output -raw site_url)" >> $GITHUB_OUTPUT
-          echo "sa_email=$(nix develop .#ci --command terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
+          echo "bucket_name=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "site_ip=$(terraform output -raw site_ip)" >> $GITHUB_OUTPUT
+          echo "site_url=$(terraform output -raw site_url)" >> $GITHUB_OUTPUT
+          echo "sa_email=$(terraform output -raw deployment_service_account_email)" >> $GITHUB_OUTPUT
 
       - name: Post results
         if: |
