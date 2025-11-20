@@ -1,14 +1,25 @@
 name: CI - Test Suite
 
 on:
+  workflow_run:
+    workflows: ["Deploy Feature Branch Preview"]
+    types:
+      - completed
+    branches-ignore:
+      - main
   push:
-    branches: ['**']
+    branches:
+      - main
 
 jobs:
   test:
     name: Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Only run if feature branch deployment succeeded, or if on main
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
       id-token: write
@@ -38,6 +49,41 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Determine deployment URL
+        id: deployment-url
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            # Main branch tests the production deployment
+            SITE_URL="https://fellspiral.commons.systems"
+            echo "Testing main branch against production: $SITE_URL"
+          else
+            # Feature branch - get the preview deployment URL
+            BRANCH_NAME="${{ github.ref_name }}"
+            BRANCH_NAME="${BRANCH_NAME#claude/}"
+            SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            SERVICE_NAME="fb-${SANITIZED}-${SHORT_SHA}"
+            SERVICE_NAME="${SERVICE_NAME:0:63}"
+            SERVICE_NAME="${SERVICE_NAME%-}"
+
+            echo "Looking for feature branch service: $SERVICE_NAME"
+
+            SITE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+              --region=us-central1 \
+              --format='value(status.url)' 2>/dev/null || echo "")
+
+            if [ -z "$SITE_URL" ]; then
+              echo "❌ Could not find feature branch deployment: $SERVICE_NAME"
+              exit 1
+            fi
+
+            echo "Testing feature branch against preview: $SITE_URL"
+          fi
+
+          echo "url=${SITE_URL}" >> $GITHUB_OUTPUT
+          echo "Site URL: ${SITE_URL}"
+
       - name: Get Playwright server URL
         id: playwright-server
         run: |
@@ -57,12 +103,33 @@ jobs:
           }
           echo "✅ Playwright server is healthy"
 
+      - name: Wait for site to be ready
+        run: |
+          SITE_URL="${{ steps.deployment-url.outputs.url }}"
+          echo "Waiting for site to be ready: $SITE_URL"
+
+          for i in {1..30}; do
+            if curl -sf "$SITE_URL" > /dev/null 2>&1; then
+              echo "✅ Site is ready!"
+              break
+            fi
+            echo "Waiting for site... ($i/30)"
+            sleep 2
+          done
+
+          # Final check
+          if ! curl -sf "$SITE_URL" > /dev/null 2>&1; then
+            echo "❌ Site is not responding after 60 seconds"
+            exit 1
+          fi
+
       - name: Run tests via remote Playwright server
         run: |
           cd playwright-server
           node run-tests.js --project chromium --workers 4 --deployed
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ steps.deployment-url.outputs.url }}
           CI: true
 
       # Note: Test reports are stored on the Playwright server
