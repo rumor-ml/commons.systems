@@ -1,6 +1,12 @@
 name: Deploy to GCP
 
 on:
+  push:
+    branches:
+      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
+    paths:
+      - 'fellspiral/site/**'
+      - '.github/workflows/deploy.yml'
   workflow_run:
     workflows: ["Infrastructure as Code"]
     types:
@@ -33,8 +39,8 @@ jobs:
     name: Verify Prerequisites
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only run if IAC workflow succeeded or manual dispatch
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only run if IAC workflow succeeded, push event, or manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     outputs:
       should-deploy: ${{ steps.check.outputs.should-deploy }}
 
