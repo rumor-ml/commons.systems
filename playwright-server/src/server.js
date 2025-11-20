@@ -1,6 +1,6 @@
 /**
  * Fellspiral Playwright Test Server
- * Version: 1.3.0
+ * Version: 1.4.0
  *
  * Fixes:
  * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
@@ -9,6 +9,8 @@
  * - Set max-instances: 1 to prevent distributed state issues
  * - Added process spawn error handling and PID logging
  * - Enhanced stdout/stderr logging with prefixes
+ * - Track server start time, process PID, and request count
+ * - Log all incoming requests to detect server restarts
  */
 
 import express from 'express';
@@ -29,17 +31,36 @@ const PORT = process.env.PORT || 8080;
 // Store test runs and their results
 const testRuns = new Map();
 
+// Track server start time to detect restarts
+const serverStartTime = new Date().toISOString();
+let requestCount = 0;
+console.log(`[SERVER] ========================================`);
+console.log(`[SERVER] Server started at: ${serverStartTime}`);
+console.log(`[SERVER] Process PID: ${process.pid}`);
+console.log(`[SERVER] ========================================`);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Log all requests
+app.use((req, res, next) => {
+  requestCount++;
+  console.log(`[SERVER] Request #${requestCount}: ${req.method} ${req.path} from ${req.ip}`);
+  next();
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.3.0',
-    testRunsInMemory: testRuns.size
+    version: '1.4.0',
+    serverStartTime: serverStartTime,
+    processUptime: Math.floor(process.uptime()),
+    requestCount: requestCount,
+    testRunsInMemory: testRuns.size,
+    processPid: process.pid
   });
 });
 
