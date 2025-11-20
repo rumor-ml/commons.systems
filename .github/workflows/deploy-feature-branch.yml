@@ -48,12 +48,9 @@ jobs:
           # Sanitize for GCP labels (max 63 chars, only lowercase letters, numbers, underscores, hyphens)
           LABEL_SAFE=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9_-]//g' | cut -c1-63)
 
-          # Get short SHA
-          SHORT_SHA="${{ github.sha }}"
-          SHORT_SHA="${SHORT_SHA:0:7}"
-          # Combine with full site name (max 63 chars for Cloud Run)
-          SERVICE_NAME="fellspiral-${SANITIZED}-${SHORT_SHA}"
-          # Truncate if needed
+          # Service name: fellspiral-<branch> (no SHA - one service per branch)
+          SERVICE_NAME="fellspiral-${SANITIZED}"
+          # Truncate if needed (max 63 chars for Cloud Run)
           SERVICE_NAME="${SERVICE_NAME:0:63}"
           # Remove trailing hyphen if present
           SERVICE_NAME="${SERVICE_NAME%-}"
@@ -62,6 +59,7 @@ jobs:
           echo "label_safe_branch=${LABEL_SAFE}" >> $GITHUB_OUTPUT
           echo "### Fellspiral Preview Deployment" >> $GITHUB_STEP_SUMMARY
           echo "Service name: \`${SERVICE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** Subsequent commits will update this same service" >> $GITHUB_STEP_SUMMARY
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
