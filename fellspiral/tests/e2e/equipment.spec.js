@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Equipment Section', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/#equipment');
+    // Wait for JavaScript to load and attach event listeners
+    await page.waitForLoadState('networkidle');
   });
 
   test('should display equipment tabs', async ({ page }) => {
