@@ -188,20 +188,29 @@ jobs:
               terraform import google_compute_target_http_proxy.site_http_proxy fellspiral-http-proxy 2>/dev/null || true
               terraform import google_compute_global_forwarding_rule.site_http fellspiral-http-forwarding-rule 2>/dev/null || true
 
-              # Import IAM bindings
-              SA_EMAIL=\"github-actions-terraform@\${PROJECT_ID}.iam.gserviceaccount.com\"
+              # Import public read IAM binding for site bucket
               terraform import google_storage_bucket_iam_member.public_read \"\${PROJECT_ID}-fellspiral-site roles/storage.objectViewer allUsers\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_storage \"\${PROJECT_ID} roles/storage.admin serviceAccount:\${SA_EMAIL}\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_compute \"\${PROJECT_ID} roles/compute.loadBalancerAdmin serviceAccount:\${SA_EMAIL}\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_cloud_run \"\${PROJECT_ID} roles/run.admin serviceAccount:\${SA_EMAIL}\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_artifact_registry \"\${PROJECT_ID} roles/artifactregistry.repoAdmin serviceAccount:\${SA_EMAIL}\" 2>/dev/null || true
-              terraform import google_project_iam_member.github_actions_service_account_user \"\${PROJECT_ID} roles/iam.serviceAccountUser serviceAccount:\${SA_EMAIL}\" 2>/dev/null || true
+
+              # Note: IAM bindings for github-actions-terraform service account are managed by setup.py
+              # and should NOT be imported into Terraform state
 
               echo '✅ Import completed'
             else
               echo '✅ State already contains \$RESOURCE_COUNT resources, skipping import'
             fi
           "
+
+      - name: Remove IAM resources from state
+        id: cleanup-state
+        continue-on-error: true
+        run: |
+          echo "Removing IAM resources managed by setup.py from Terraform state..."
+          terraform state rm google_project_iam_member.github_actions_storage 2>/dev/null || echo "  Not in state"
+          terraform state rm google_project_iam_member.github_actions_compute 2>/dev/null || echo "  Not in state"
+          terraform state rm google_project_iam_member.github_actions_cloud_run 2>/dev/null || echo "  Not in state"
+          terraform state rm google_project_iam_member.github_actions_artifact_registry 2>/dev/null || echo "  Not in state"
+          terraform state rm google_project_iam_member.github_actions_service_account_user 2>/dev/null || echo "  Not in state"
+          echo "✅ State cleanup completed"
 
       - name: Terraform Validate
         id: validate
