@@ -214,6 +214,28 @@ jobs:
           terraform state rm google_secret_manager_secret_iam_member.github_token_access 2>/dev/null || echo "  Not in state"
           echo "✅ State cleanup completed"
 
+      - name: Import Playwright resources if needed
+        id: import-playwright
+        continue-on-error: true
+        run: |
+          echo "Checking for Playwright resources to import..."
+
+          # Import artifact registry if it exists and isn't in state
+          if ! terraform state show google_artifact_registry_repository.playwright_server &>/dev/null; then
+            if gcloud artifacts repositories describe playwright-server --location=us-central1 --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
+              echo "Importing playwright-server artifact registry..."
+              terraform import google_artifact_registry_repository.playwright_server projects/${{ secrets.GCP_PROJECT_ID }}/locations/us-central1/repositories/playwright-server || echo "  Failed to import"
+            fi
+          fi
+
+          # Untaint playwright service account if it's tainted
+          if terraform state show google_service_account.playwright_server &>/dev/null; then
+            echo "Untainting playwright service account..."
+            terraform untaint google_service_account.playwright_server 2>/dev/null || echo "  Not tainted or already clean"
+          fi
+
+          echo "✅ Playwright resource check completed"
+
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
