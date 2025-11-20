@@ -139,25 +139,44 @@ resource "google_compute_global_forwarding_rule" "site_http" {
   ip_address = google_compute_global_address.site_ip.address
 }
 
-# Service account for GitHub Actions deployments
-resource "google_service_account" "github_actions" {
-  account_id   = "github-actions-deployer"
-  display_name = "GitHub Actions Deployer"
-  description  = "Service account used by GitHub Actions for deployments"
+# Service account for GitHub Actions deployments (created by setup.py or manually)
+data "google_service_account" "github_actions" {
+  account_id = "github-actions-terraform"
 }
 
 # Grant storage admin to deployment service account
 resource "google_project_iam_member" "github_actions_storage" {
   project = var.project_id
   role    = "roles/storage.admin"
-  member  = "serviceAccount:${google_service_account.github_actions.email}"
+  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
 }
 
 # Grant compute load balancer admin to deployment service account
 resource "google_project_iam_member" "github_actions_compute" {
   project = var.project_id
   role    = "roles/compute.loadBalancerAdmin"
-  member  = "serviceAccount:${google_service_account.github_actions.email}"
+  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+# Grant Cloud Run Admin to GitHub Actions service account for deployments
+resource "google_project_iam_member" "github_actions_cloud_run" {
+  project = var.project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+# Grant Artifact Registry Admin to GitHub Actions for creating repos and pushing images
+resource "google_project_iam_member" "github_actions_artifact_registry" {
+  project = var.project_id
+  role    = "roles/artifactregistry.repoAdmin"
+  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+# Grant Service Account User so GitHub Actions can deploy as service accounts
+resource "google_project_iam_member" "github_actions_service_account_user" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
 }
 
 # Optional: HTTPS setup (requires SSL certificate)
@@ -208,6 +227,6 @@ output "site_url" {
 }
 
 output "deployment_service_account_email" {
-  value       = google_service_account.github_actions.email
+  value       = data.google_service_account.github_actions.email
   description = "Email of the service account for deployments"
 }
