@@ -32,7 +32,7 @@ test.describe('Combat Simulator', () => {
 
     for (const character of characters) {
       const option = combatant1Select.locator('option', { hasText: character });
-      await expect(option).toBeVisible();
+      await expect(option).toHaveCount(1);
     }
   });
 
