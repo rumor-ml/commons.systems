@@ -19,12 +19,19 @@
 
   // Forward ports for development
   "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Dev Server",
+      "onAutoForward": "notify"
+    }
+  },
 
   // VS Code customizations
   "customizations": {
     "vscode": {
       "extensions": [
-        "jnoortheen.nix-ide"
+        "jnoortheen.nix-ide",
+        "bbenoist.Nix"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "nix-shell",
@@ -45,5 +52,8 @@
   // Environment variables
   "containerEnv": {
     "NIXPKGS_ALLOW_UNFREE": "1"
-  }
+  },
+
+  // Mount workspace folder
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}"
 }
