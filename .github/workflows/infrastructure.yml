@@ -131,6 +131,8 @@ jobs:
 
       - name: Terraform Init
         id: init
+        env:
+          GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
         run: nix develop .#ci --command terraform init
 
       - name: Import existing resources if needed
