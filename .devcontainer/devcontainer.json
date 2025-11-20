@@ -1,18 +1,23 @@
 {
-  "name": "Fellspiral Monorepo (Nix)",
-  "image": "nixos/nix:latest",
+  "name": "Fellspiral Monorepo (Nix + Node)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
 
-  // Configure Nix with flakes support on container creation
-  "onCreateCommand": {
-    "configure-nix": "mkdir -p ~/.config/nix && echo 'experimental-features = nix-command flakes' > ~/.config/nix/nix.conf",
-    "setup-env": "nix develop --command bash -c 'echo \"Nix environment configured with: gcloud, gh, terraform, node, npm\"'"
+  // Install Nix and configure it with flakes support
+  "features": {
+    "ghcr.io/devcontainers/features/nix:1": {
+      "version": "latest",
+      "multiUser": false,
+      "extraNixConfig": "experimental-features = nix-command flakes\naccept-flake-config = true\nextra-substituters = https://cache.nixos.org https://nix-community.cachix.org\nextra-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=\ntrusted-substituters = https://cache.nixos.org https://nix-community.cachix.org\ntrusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=\ntrusted-users = root node\ndownload-buffer-size = 1073741824"
+    }
   },
 
-  // Install npm dependencies after Nix environment is ready
-  "postCreateCommand": "nix develop --command npm install",
+  // Pre-build Nix environment and install npm dependencies
+  // This downloads and builds everything during container creation
+  // so terminals launch instantly without waiting for Nix downloads
+  "postCreateCommand": "nix develop --accept-flake-config --command echo 'Nix environment built' && npm install",
 
-  // Show welcome message on each start
-  "postStartCommand": "echo '🚀 Fellspiral dev environment ready! All tools available via: nix develop'",
+  // Show welcome message with instructions
+  "postStartCommand": "echo '🚀 Dev environment ready! Use \"nix develop\" to access gcloud, gh, terraform, etc.'",
 
   // Forward ports for development
   "forwardPorts": [3000],
@@ -31,15 +36,14 @@
         "bbenoist.Nix"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.defaultProfile.linux": "nix-shell",
         "terminal.integrated.profiles.linux": {
           "bash": {
-            "path": "/bin/bash",
-            "args": ["-l"]
+            "path": "/bin/bash"
           },
           "nix-shell": {
-            "path": "nix",
-            "args": ["develop", "--command", "bash"]
+            "path": "/bin/bash",
+            "args": ["-c", "nix develop --accept-flake-config --command bash"]
           }
         },
         "nix.enableLanguageServer": false
@@ -53,8 +57,5 @@
   },
 
   // Mount workspace folder
-  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-
-  // Run as root (required for Nix)
-  "remoteUser": "root"
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}"
 }
