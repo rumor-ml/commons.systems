@@ -7,6 +7,7 @@ on:
       - completed
     branches:
       - main
+      - claude/fix-iac-workflow-01QEPQWQLsKdBAzqHqGc2Muu
   workflow_dispatch:
     inputs:
       environment:
