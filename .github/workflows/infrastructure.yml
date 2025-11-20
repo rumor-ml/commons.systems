@@ -21,6 +21,7 @@ on:
 env:
   TF_VERSION: '1.6.0'
   WORKING_DIR: infrastructure/terraform
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
 permissions:
   contents: write  # Required for creating commit comments
@@ -106,19 +107,9 @@ jobs:
               echo 'State bucket already exists'
             fi
 
-            # Grant service account access to state bucket
-            echo 'Granting service account access to state bucket...'
-            gcloud storage buckets add-iam-policy-binding gs://fellspiral-terraform-state \
-              --member='serviceAccount:${{ secrets.GCP_SERVICE_ACCOUNT }}' \
-              --role='roles/storage.objectAdmin' \
-              --quiet || echo 'Permission already granted or failed (will retry)'
-
-            # Grant service account permission to impersonate itself (needed for Workload Identity)
-            echo 'Granting service account token creator role to itself...'
-            gcloud iam service-accounts add-iam-policy-binding '${{ secrets.GCP_SERVICE_ACCOUNT }}' \
-              --member='serviceAccount:${{ secrets.GCP_SERVICE_ACCOUNT }}' \
-              --role='roles/iam.serviceAccountTokenCreator' \
-              --quiet || echo 'Permission already granted or failed (will retry)'
+            # Verify service account has access
+            echo 'Verifying service account access to state bucket...'
+            gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
           "
 
       - name: Load Nix environment
@@ -142,26 +133,22 @@ jobs:
         with:
           terraform_version: "1.6.0"
 
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORKING_DIR }}/.terraform
+            ${{ github.workspace }}/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+      - name: Create Terraform plugin cache directory
+        run: mkdir -p ${{ env.TF_PLUGIN_CACHE_DIR }}
+
       - name: Terraform Init
         id: init
-        run: |
-          # Debug: Check if bucket is accessible
-          echo "Checking if state bucket is accessible..."
-          gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo "Bucket not accessible"
-
-          # Debug: Show current GCP project
-          echo "Current GCP project: $(gcloud config get-value project)"
-
-          # Debug: Check authentication
-          echo "Testing GCP authentication..."
-          gcloud auth list
-
-          # Debug: Try listing bucket contents
-          echo "Attempting to access state bucket..."
-          gsutil ls gs://fellspiral-terraform-state/ || echo "Cannot list bucket contents"
-
-          # Initialize Terraform (GCS backend uses Application Default Credentials)
-          terraform init -reconfigure
+        run: terraform init -reconfigure
 
       - name: Import existing resources if needed
         id: import
