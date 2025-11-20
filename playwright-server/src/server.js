@@ -1,12 +1,14 @@
 /**
  * Fellspiral Playwright Test Server
- * Version: 1.2.0
+ * Version: 1.3.0
  *
  * Fixes:
  * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
  * - Improved Cloud Run configuration (min-instances: 1, concurrency: 10)
  * - Added comprehensive logging for debugging 404 errors
  * - Set max-instances: 1 to prevent distributed state issues
+ * - Added process spawn error handling and PID logging
+ * - Enhanced stdout/stderr logging with prefixes
  */
 
 import express from 'express';
@@ -36,7 +38,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.2.0',
+    version: '1.3.0',
     testRunsInMemory: testRuns.size
   });
 });
@@ -208,17 +210,28 @@ async function runPlaywrightTests(testId, options) {
     shell: true
   });
 
+  console.log(`[${testId}] Process spawned with PID: ${playwrightProcess.pid}`);
+
+  // Handle spawn errors
+  playwrightProcess.on('error', (err) => {
+    console.error(`[${testId}] Failed to spawn process:`, err);
+    testRun.error = err.message;
+    testRun.status = 'failed';
+    testRun.exitCode = -1;
+    testRun.endTime = new Date().toISOString();
+  });
+
   // Capture stdout
   playwrightProcess.stdout.on('data', (data) => {
     const output = data.toString();
-    console.log(`[${testId}] ${output}`);
+    console.log(`[${testId}] STDOUT: ${output}`);
     testRun.output.push(output);
   });
 
   // Capture stderr
   playwrightProcess.stderr.on('data', (data) => {
     const output = data.toString();
-    console.error(`[${testId}] ${output}`);
+    console.error(`[${testId}] STDERR: ${output}`);
     testRun.output.push(output);
   });
 
