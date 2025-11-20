@@ -19,6 +19,7 @@
         <li><a href="#concepts">Concepts</a></li>
         <li><a href="#combat">Combat</a></li>
         <li><a href="#equipment">Equipment</a></li>
+        <li><a href="#simulator">Simulator</a></li>
         <li><a href="#examples">Examples</a></li>
       </ul>
     </div>
@@ -370,7 +371,50 @@
       </div>
     </section>
 
-    <section id="examples" class="section section-alt">
+    <section id="simulator" class="section section-alt">
+      <div class="container">
+        <h2>Combat Simulator</h2>
+        <p class="section-description">
+          Simulate battles between different foes and origins from the Fellspiral universe.
+          Watch how the tactical combat system plays out in real-time!
+        </p>
+
+        <div class="simulator-controls">
+          <div class="combatant-select">
+            <h3>Combatant 1</h3>
+            <select id="combatant1" class="select-character">
+              <option value="caleb">Caleb (Origin - Human)</option>
+              <option value="skeleton">Skeleton (Foe - Undead)</option>
+              <option value="skeletonCommander">Skeleton Commander (Foe - Undead)</option>
+              <option value="ghoul">Ghoul (Foe - Vampire)</option>
+              <option value="krovnayaStriga">Krovnaya Striga (Foe - Vampire)</option>
+            </select>
+          </div>
+
+          <div class="vs-divider">VS</div>
+
+          <div class="combatant-select">
+            <h3>Combatant 2</h3>
+            <select id="combatant2" class="select-character">
+              <option value="skeleton">Skeleton (Foe - Undead)</option>
+              <option value="caleb">Caleb (Origin - Human)</option>
+              <option value="skeletonCommander">Skeleton Commander (Foe - Undead)</option>
+              <option value="ghoul">Ghoul (Foe - Vampire)</option>
+              <option value="krovnayaStriga">Krovnaya Striga (Foe - Vampire)</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="simulateBtn" class="btn btn-primary btn-large">⚔️ Simulate Combat</button>
+
+        <div id="combatLog" class="combat-log" style="display: none;">
+          <h3>Combat Log</h3>
+          <pre id="logContent"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="examples" class="section">
       <div class="container">
         <h2>Combat Example</h2>
 

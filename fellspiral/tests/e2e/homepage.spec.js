@@ -19,11 +19,11 @@ test.describe('Homepage', () => {
     await expect(heroDescription).toBeVisible();
     await expect(heroDescription).toContainText('tactical tabletop RPG');
 
-    // Check hero buttons
-    const primaryButton = page.locator('.btn-primary');
+    // Check hero buttons (use .first() since .btn-primary appears in multiple sections)
+    const primaryButton = page.locator('.hero .btn-primary');
     await expect(primaryButton).toBeVisible();
 
-    const secondaryButton = page.locator('.btn-secondary');
+    const secondaryButton = page.locator('.hero .btn-secondary');
     await expect(secondaryButton).toBeVisible();
   });
 
@@ -34,7 +34,7 @@ test.describe('Homepage', () => {
     await page.locator('.nav-menu').waitFor({ state: 'visible' });
 
     // Check nav links exist
-    const navLinks = ['Concepts', 'Combat', 'Equipment', 'Examples'];
+    const navLinks = ['Concepts', 'Combat', 'Equipment', 'Simulator', 'Examples'];
     for (const linkText of navLinks) {
       const link = page.locator('.nav-menu a', { hasText: linkText });
       await expect(link).toBeVisible();
@@ -54,7 +54,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     // Check all major sections are present
-    const sections = ['#concepts', '#combat', '#equipment', '#examples'];
+    const sections = ['#concepts', '#combat', '#equipment', '#simulator', '#examples'];
     for (const sectionId of sections) {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();
