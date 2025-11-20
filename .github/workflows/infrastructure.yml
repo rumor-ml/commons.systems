@@ -61,6 +61,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Cache Nix store
+        uses: actions/cache@v4
+        with:
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          key: ${{ runner.os }}-nix-${{ hashFiles('flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nix-
+
       - name: Install Nix
         uses: cachix/install-nix-action@v25
         with:
@@ -86,6 +96,15 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache gcloud components
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/gcloud
+          key: ${{ runner.os }}-gcloud-${{ hashFiles('.github/workflows/infrastructure.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-gcloud-
 
       - name: Create Terraform state bucket
         run: |
@@ -205,36 +224,59 @@ jobs:
         continue-on-error: true
         run: |
           echo "Removing IAM resources managed by setup.py from Terraform state..."
-          terraform state rm google_project_iam_member.github_actions_storage 2>/dev/null || echo "  Not in state"
-          terraform state rm google_project_iam_member.github_actions_compute 2>/dev/null || echo "  Not in state"
-          terraform state rm google_project_iam_member.github_actions_cloud_run 2>/dev/null || echo "  Not in state"
-          terraform state rm google_project_iam_member.github_actions_artifact_registry 2>/dev/null || echo "  Not in state"
-          terraform state rm google_project_iam_member.github_actions_service_account_user 2>/dev/null || echo "  Not in state"
-          terraform state rm google_project_iam_member.github_actions_secret_manager 2>/dev/null || echo "  Not in state"
-          terraform state rm google_secret_manager_secret_iam_member.github_token_access 2>/dev/null || echo "  Not in state"
-          echo "✅ State cleanup completed"
+
+          # Get current state resources
+          STATE_RESOURCES=$(terraform state list 2>/dev/null || echo "")
+
+          # List of IAM resources to remove
+          IAM_RESOURCES=(
+            "google_project_iam_member.github_actions_storage"
+            "google_project_iam_member.github_actions_compute"
+            "google_project_iam_member.github_actions_cloud_run"
+            "google_project_iam_member.github_actions_artifact_registry"
+            "google_project_iam_member.github_actions_service_account_user"
+            "google_project_iam_member.github_actions_secret_manager"
+            "google_secret_manager_secret_iam_member.github_token_access"
+          )
+
+          # Only remove resources that exist in state
+          REMOVED_COUNT=0
+          for resource in "${IAM_RESOURCES[@]}"; do
+            if echo "$STATE_RESOURCES" | grep -q "^${resource}$"; then
+              echo "  Removing: $resource"
+              terraform state rm "$resource" 2>/dev/null && REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            fi
+          done
+
+          echo "✅ State cleanup completed (removed $REMOVED_COUNT resources)"
 
       - name: Import Playwright resources if needed
         id: import-playwright
         continue-on-error: true
         run: |
           echo "Checking for Playwright resources to import..."
+          ACTIONS_TAKEN=0
+
+          # Check state once
+          STATE_LIST=$(terraform state list 2>/dev/null || echo "")
 
           # Import artifact registry if it exists and isn't in state
-          if ! terraform state show google_artifact_registry_repository.playwright_server &>/dev/null; then
+          if ! echo "$STATE_LIST" | grep -q "google_artifact_registry_repository.playwright_server"; then
             if gcloud artifacts repositories describe playwright-server --location=us-central1 --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
-              echo "Importing playwright-server artifact registry..."
-              terraform import google_artifact_registry_repository.playwright_server projects/${{ secrets.GCP_PROJECT_ID }}/locations/us-central1/repositories/playwright-server || echo "  Failed to import"
+              echo "  Importing playwright-server artifact registry..."
+              terraform import google_artifact_registry_repository.playwright_server projects/${{ secrets.GCP_PROJECT_ID }}/locations/us-central1/repositories/playwright-server && ACTIONS_TAKEN=$((ACTIONS_TAKEN + 1)) || echo "    Failed to import"
             fi
           fi
 
           # Untaint playwright service account if it's tainted
-          if terraform state show google_service_account.playwright_server &>/dev/null; then
-            echo "Untainting playwright service account..."
-            terraform untaint google_service_account.playwright_server 2>/dev/null || echo "  Not tainted or already clean"
+          if echo "$STATE_LIST" | grep -q "google_service_account.playwright_server"; then
+            if terraform state show google_service_account.playwright_server 2>&1 | grep -q "Tainted: *true"; then
+              echo "  Untainting playwright service account..."
+              terraform untaint google_service_account.playwright_server && ACTIONS_TAKEN=$((ACTIONS_TAKEN + 1))
+            fi
           fi
 
-          echo "✅ Playwright resource check completed"
+          echo "✅ Playwright resource check completed ($ACTIONS_TAKEN actions taken)"
 
       - name: Terraform Validate
         id: validate
