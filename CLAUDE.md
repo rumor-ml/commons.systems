@@ -32,32 +32,93 @@ curl -X POST \
 ### Google Cloud Platform API Access
 
 The environment provides GCP credentials via:
-- `GCP_ACCESS_TOKEN`: OAuth2 access token
-- `GCP_PROJECT_ID`: The GCP project ID
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Service account credentials in JSON format
+- `GCP_PROJECT_ID`: The GCP project ID (currently: `chalanding`)
 
-**Example: Get project information**
+#### Getting an Access Token
+
+Use the provided helper script to obtain an OAuth2 access token:
+
 ```bash
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://cloudresourcemanager.googleapis.com/v1/projects/$GCP_PROJECT_ID"
+# Source the helper script to set GCP_ACCESS_TOKEN
+source get_gcp_token.sh
+
+# The script will:
+# - Create a JWT from the service account credentials
+# - Exchange it for an OAuth2 access token
+# - Cache the token for ~1 hour
+# - Auto-refresh when expired (with 5-minute buffer)
 ```
+
+**Suppress output in scripts:**
+```bash
+source get_gcp_token.sh 2>/dev/null
+```
+
+#### Using the Access Token
+
+Once you've sourced the script, use `$GCP_ACCESS_TOKEN` in your API calls:
 
 **Example: List Cloud Storage buckets**
 ```bash
+source get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
 ```
 
 **Example: List Compute Engine zones**
 ```bash
+source get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
 ```
 
 **Example: List Cloud Run services**
 ```bash
+source get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/-/services"
+  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services"
 ```
+
+**Example: Multiple API calls with one token:**
+```bash
+# Set up token once
+source get_gcp_token.sh 2>/dev/null
+
+# Use for multiple calls
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
+
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
+```
+
+#### Token Caching
+
+The token is cached in `/tmp/gcp_token_cache.json` and automatically refreshed when older than 55 minutes. Subsequent calls to `get_gcp_token.sh` will reuse the cached token without regenerating it.
+
+#### Verification
+
+To verify the credentials work, run:
+```bash
+./verify_gcp_credentials.sh
+```
+
+For usage examples, run:
+```bash
+./gcp_token_usage_examples.sh
+```
+
+#### Direct Usage (Advanced)
+
+If you need to work with the credentials directly without the helper script:
+
+1. The credentials are stored in `$GOOGLE_APPLICATION_CREDENTIALS_JSON`
+2. Create a JWT with the service account's private key
+3. Exchange the JWT for an access token at `https://oauth2.googleapis.com/token`
+4. Use the access token with `Authorization: Bearer $ACCESS_TOKEN` header
+
+See `get_gcp_token.sh` for implementation details.
 
 ## Documentation Policy
 
