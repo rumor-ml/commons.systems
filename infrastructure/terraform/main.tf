@@ -77,6 +77,70 @@ resource "google_artifact_registry_repository" "previews" {
 # Note: The actual service deployment is handled by GitHub Actions, not Terraform
 # This is intentional to allow fast deployments without Terraform state updates
 
+# ============================================================================
+# DEPRECATED RESOURCES - GCS + CDN ARCHITECTURE (Pre-Cloud Run Migration)
+# ============================================================================
+#
+# The following resources are from the old GCS + CDN architecture and are
+# NO LONGER NEEDED after the Cloud Run migration.
+#
+# MIGRATION STEPS:
+# 1. Deploy to Cloud Run using the new workflows (already done)
+# 2. Verify Cloud Run deployment is working correctly
+# 3. Run the cleanup script: infrastructure/scripts/cleanup-old-infrastructure.sh
+# 4. Remove these resource definitions from this file
+# 5. Run: terraform apply (Terraform will remove them from state)
+#
+# Deprecated resources:
+# - google_storage_bucket.site_bucket (replaced by Cloud Run)
+# - google_storage_bucket.backup_bucket (replaced by Cloud Run revisions)
+# - google_compute_global_address.site_ip (replaced by Cloud Run URL)
+# - google_compute_backend_bucket.site_backend (no longer needed)
+# - google_compute_url_map.site_url_map (no longer needed)
+# - google_compute_target_http_proxy.site_http_proxy (no longer needed)
+# - google_compute_global_forwarding_rule.site_http (no longer needed)
+#
+# These resources are commented out but LEFT IN THE FILE for reference.
+# After running the cleanup script and confirming everything works,
+# you can remove this entire section.
+#
+# ============================================================================
+
+# DEPRECATED: Storage bucket for static site hosting
+# resource "google_storage_bucket" "site_bucket" {
+#   name          = "${var.project_id}-fellspiral-site"
+#   location      = var.region
+#   force_destroy = false
+#   # ... (rest of configuration)
+# }
+
+# DEPRECATED: Backup bucket for rollback functionality
+# resource "google_storage_bucket" "backup_bucket" {
+#   name          = "${var.project_id}-fellspiral-site-backup"
+#   location      = var.region
+#   # ... (rest of configuration)
+# }
+
+# DEPRECATED: Static IP for load balancer
+# resource "google_compute_global_address" "site_ip" {
+#   name = "fellspiral-site-ip"
+# }
+
+# DEPRECATED: Backend bucket for Cloud CDN
+# resource "google_compute_backend_bucket" "site_backend" {
+#   name        = "fellspiral-backend"
+#   # ... (rest of configuration)
+# }
+
+# DEPRECATED: URL map, HTTP proxy, forwarding rule
+# resource "google_compute_url_map" "site_url_map" { ... }
+# resource "google_compute_target_http_proxy" "site_http_proxy" { ... }
+# resource "google_compute_global_forwarding_rule" "site_http" { ... }
+
+# ============================================================================
+# END DEPRECATED RESOURCES
+# ============================================================================
+
 # Service account for GitHub Actions deployments (created and configured by setup.py)
 # IAM permissions for this service account are managed by setup.py, not Terraform,
 # to avoid chicken-and-egg problems where Terraform would need permissions to grant itself permissions.
