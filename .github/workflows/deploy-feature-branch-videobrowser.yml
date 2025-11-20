@@ -51,8 +51,8 @@ jobs:
           # Get short SHA
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
-          # Combine (max 63 chars for Cloud Run) - add "vb-" prefix for videobrowser
-          SERVICE_NAME="vb-${SANITIZED}-${SHORT_SHA}"
+          # Combine with full site name (max 63 chars for Cloud Run)
+          SERVICE_NAME="videobrowser-${SANITIZED}-${SHORT_SHA}"
           # Truncate if needed
           SERVICE_NAME="${SERVICE_NAME:0:63}"
           # Remove trailing hyphen if present
