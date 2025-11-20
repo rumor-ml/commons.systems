@@ -111,6 +111,99 @@ For usage examples, run:
 
 For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
 
+### Getting the Playwright Server URL for Local Testing
+
+The repository includes a deployed Playwright server on Cloud Run for running E2E tests remotely. To run tests locally against this server, you need to retrieve its URL.
+
+#### Quick Method: Using Helper Scripts
+
+The easiest way to run tests locally is using the provided helper scripts:
+
+```bash
+# Option 1: Automatic URL retrieval (requires gcloud CLI)
+./run-tests-remote.sh --project chromium
+
+# Option 2: Manual URL (no gcloud required)
+./test-with-url.sh https://playwright-server-xxxxx.run.app --project chromium
+```
+
+#### Getting the URL via GCP API
+
+If you need to retrieve the URL programmatically using the available GCP credentials:
+
+```bash
+# Get access token
+source get_gcp_token.sh 2>/dev/null
+
+# Query Cloud Run service for URL
+PLAYWRIGHT_SERVER_URL=$(curl -s -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services/playwright-server" \
+  | jq -r '.uri')
+
+echo "Playwright Server URL: $PLAYWRIGHT_SERVER_URL"
+```
+
+#### Getting the URL via gcloud CLI
+
+If `gcloud` is available and configured:
+
+```bash
+PLAYWRIGHT_SERVER_URL=$(gcloud run services describe playwright-server \
+  --platform managed \
+  --region us-central1 \
+  --format 'value(status.url)')
+
+echo "Playwright Server URL: $PLAYWRIGHT_SERVER_URL"
+```
+
+#### Running Tests with the URL
+
+Once you have the URL, set it as an environment variable and use the client script:
+
+```bash
+export PLAYWRIGHT_SERVER_URL=https://playwright-server-xxxxx.run.app
+
+# Run all tests
+cd playwright-server
+node run-tests.js --project chromium
+
+# Run specific test file
+node run-tests.js --test-file homepage.spec.js
+
+# Run tests matching a pattern
+node run-tests.js --grep "combat"
+
+# Test deployed site
+node run-tests.js --deployed
+
+# Run with multiple workers
+node run-tests.js --workers 4
+```
+
+#### Verifying Server Health
+
+Before running tests, verify the server is responding:
+
+```bash
+curl $PLAYWRIGHT_SERVER_URL/health
+
+# Expected response:
+# {"status":"healthy","timestamp":"...","version":"1.0.0"}
+```
+
+#### When to Use Remote vs Local Playwright
+
+**Use the remote server when:**
+- You don't have Playwright browsers installed locally
+- You want to save local resources (browsers run on the server)
+- You want to test in the exact CI environment
+- You need consistent cross-platform testing
+
+**Use local Playwright when:**
+- You need headed/UI mode for debugging
+- You want faster feedback (no network latency)
+- You're actively developing and iterating on tests
+
 ## Documentation Policy
 
 **IMPORTANT:** Do NOT create markdown (`.md`) documentation files unless explicitly requested by the user.
