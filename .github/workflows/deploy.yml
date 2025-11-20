@@ -7,6 +7,7 @@ on:
       - completed
     branches:
       - main
+      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
   workflow_dispatch:
     inputs:
       environment:

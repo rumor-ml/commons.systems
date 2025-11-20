@@ -8,6 +8,7 @@ on:
       - completed
     branches:
       - main
+      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
   workflow_dispatch:
     inputs:
       action:
@@ -290,7 +291,7 @@ jobs:
 
       - name: Terraform Apply
         if: |
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW' || github.ref == 'refs/heads/claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         run: terraform apply -auto-approve tfplan
 
@@ -300,7 +301,7 @@ jobs:
 
       - name: Get Infrastructure Outputs
         if: |
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW' || github.ref == 'refs/heads/claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         id: outputs
         run: |
@@ -311,7 +312,7 @@ jobs:
 
       - name: Post results
         if: |
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW' || github.ref == 'refs/heads/claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         uses: actions/github-script@v7
         with:
@@ -340,7 +341,7 @@ jobs:
 
       - name: Summary
         if: |
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW') && github.event_name == 'push') ||
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW' || github.ref == 'refs/heads/claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui') && github.event_name == 'push') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         run: |
           echo "### Infrastructure Updated! ✅" >> $GITHUB_STEP_SUMMARY
