@@ -514,7 +514,7 @@ function generateCharacter(pointBudget, options = {}) {
   };
 
   let remainingPoints = pointBudget;
-  const maxSkillPoints = Math.min(18, Math.floor(pointBudget * 0.4)); // Max 40% on skills, cap at 18
+  const maxSkillPoints = 18; // Hard cap at 18 skill points
   let skillPointsSpent = 0;
 
   // Step 1: Choose primary weapon based on playstyle
