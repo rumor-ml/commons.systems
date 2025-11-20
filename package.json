@@ -5,16 +5,23 @@
   "private": true,
   "workspaces": [
     "fellspiral/site",
-    "fellspiral/tests"
+    "fellspiral/tests",
+    "videobrowser/site",
+    "videobrowser/tests"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=fellspiral/site",
     "build": "npm run build --workspace=fellspiral/site",
     "test": "npm test --workspace=fellspiral/tests",
     "test:deployed": "npm run test:deployed --workspace=fellspiral/tests",
-    "preview": "npm run preview --workspace=fellspiral/site"
+    "preview": "npm run preview --workspace=fellspiral/site",
+    "dev:videobrowser": "npm run dev --workspace=videobrowser/site",
+    "build:videobrowser": "npm run build --workspace=videobrowser/site",
+    "test:videobrowser": "npm test --workspace=videobrowser/tests",
+    "test:videobrowser:deployed": "npm run test:deployed --workspace=videobrowser/tests",
+    "preview:videobrowser": "npm run preview --workspace=videobrowser/site"
   },
-  "keywords": ["monorepo", "fellspiral", "tabletop", "rpg"],
+  "keywords": ["monorepo", "fellspiral", "tabletop", "rpg", "videobrowser", "gcs"],
   "author": "",
   "license": "MIT"
 }
