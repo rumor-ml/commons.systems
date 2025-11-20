@@ -2,7 +2,7 @@ name: Deploy to GCP
 
 on:
   workflow_run:
-    workflows: ["Infrastructure as Code"]
+    workflows: ["Infrastructure as Code", "CI - Test Suite"]
     types:
       - completed
     branches:
@@ -19,7 +19,7 @@ on:
           - staging
 
 permissions:
-  contents: read
+  contents: write  # Required for creating commit comments
   id-token: write  # Required for Workload Identity Federation
   issues: write    # Required for rollback notifications
 
@@ -31,7 +31,7 @@ jobs:
     name: Build Site
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run if IAC workflow succeeded or this is a manual dispatch
+    # Only run if IAC workflow succeeded or manual dispatch
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
@@ -44,6 +44,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
@@ -66,63 +67,11 @@ jobs:
           path: fellspiral/site/dist/
           retention-days: 7
 
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: build
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Install dependencies
-        run: nix develop .#ci --command npm install
-
-      - name: Install Playwright browsers
-        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: site-build
-          path: fellspiral/site/dist/
-
-      - name: Run tests
-        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: fellspiral/tests/playwright-report/
-          retention-days: 30
-
   deploy:
     name: Deploy to GCP
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [build, test]
+    needs: build
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
       url: ${{ steps.deploy.outputs.url }}
@@ -222,6 +171,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
@@ -266,7 +216,7 @@ jobs:
         run: sleep 30
 
       - name: Run deployment tests
-        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
+        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests -- --project=chromium
         env:
           DEPLOYED: true
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers

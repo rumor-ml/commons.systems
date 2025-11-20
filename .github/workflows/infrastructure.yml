@@ -58,6 +58,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
@@ -72,6 +73,30 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Create Terraform state bucket
+        run: |
+          nix develop .#ci --command bash -c "
+            # Create the state bucket if it doesn't exist
+            if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
+              echo 'Creating Terraform state bucket...'
+              gcloud storage buckets create gs://fellspiral-terraform-state \
+                --project=${{ secrets.GCP_PROJECT_ID }} \
+                --location=us-central1 \
+                --uniform-bucket-level-access
+
+              # Enable versioning for state file protection
+              gcloud storage buckets update gs://fellspiral-terraform-state \
+                --versioning
+
+              echo 'State bucket created successfully with versioning enabled'
+            else
+              echo 'State bucket already exists'
+            fi
+          "
 
       - name: Load Nix environment
         run: nix develop .#ci --command bash -c "echo 'Nix environment loaded with gcloud and terraform'"
@@ -92,6 +117,58 @@ jobs:
       - name: Terraform Init
         id: init
         run: nix develop .#ci --command terraform init
+
+      - name: Import existing resources if needed
+        id: import
+        continue-on-error: true
+        run: |
+          nix develop .#ci --command bash -c "
+            # Check if state is empty (no resources)
+            RESOURCE_COUNT=\$(terraform state list 2>/dev/null | wc -l)
+
+            if [ \$RESOURCE_COUNT -eq 0 ]; then
+              echo '📦 State is empty, checking for existing resources to import...'
+              PROJECT_ID='${{ secrets.GCP_PROJECT_ID }}'
+
+              # Import storage buckets if they exist
+              if gcloud storage buckets describe gs://\${PROJECT_ID}-fellspiral-site &>/dev/null; then
+                echo 'Importing site bucket...'
+                terraform import google_storage_bucket.site_bucket \${PROJECT_ID}-fellspiral-site || true
+              fi
+
+              if gcloud storage buckets describe gs://\${PROJECT_ID}-fellspiral-site-backup &>/dev/null; then
+                echo 'Importing backup bucket...'
+                terraform import google_storage_bucket.backup_bucket \${PROJECT_ID}-fellspiral-site-backup || true
+              fi
+
+              # Import IP address if it exists
+              if gcloud compute addresses describe fellspiral-site-ip --global --project=\${PROJECT_ID} &>/dev/null; then
+                echo 'Importing static IP...'
+                terraform import google_compute_global_address.site_ip projects/\${PROJECT_ID}/global/addresses/fellspiral-site-ip || true
+              fi
+
+              # Import service account if it exists
+              if gcloud iam service-accounts describe github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com --project=\${PROJECT_ID} &>/dev/null; then
+                echo 'Importing service account...'
+                terraform import google_service_account.github_actions projects/\${PROJECT_ID}/serviceAccounts/github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com || true
+              fi
+
+              # Import other resources
+              terraform import google_compute_backend_bucket.site_backend fellspiral-backend 2>/dev/null || true
+              terraform import google_compute_url_map.site_url_map fellspiral-url-map 2>/dev/null || true
+              terraform import google_compute_target_http_proxy.site_http_proxy fellspiral-http-proxy 2>/dev/null || true
+              terraform import google_compute_global_forwarding_rule.site_http fellspiral-http-forwarding-rule 2>/dev/null || true
+
+              # Import IAM bindings
+              terraform import google_storage_bucket_iam_member.public_read \"\${PROJECT_ID}-fellspiral-site roles/storage.objectViewer allUsers\" 2>/dev/null || true
+              terraform import google_project_iam_member.github_actions_storage \"\${PROJECT_ID} roles/storage.admin serviceAccount:github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com\" 2>/dev/null || true
+              terraform import google_project_iam_member.github_actions_compute \"\${PROJECT_ID} roles/compute.loadBalancerAdmin serviceAccount:github-actions-deployer@\${PROJECT_ID}.iam.gserviceaccount.com\" 2>/dev/null || true
+
+              echo '✅ Import completed'
+            else
+              echo '✅ State already contains \$RESOURCE_COUNT resources, skipping import'
+            fi
+          "
 
       - name: Terraform Validate
         id: validate

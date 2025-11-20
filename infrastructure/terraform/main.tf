@@ -8,11 +8,11 @@ terraform {
     }
   }
 
-  # Uncomment to use GCS backend for state
-  # backend "gcs" {
-  #   bucket = "fellspiral-terraform-state"
-  #   prefix = "terraform/state"
-  # }
+  # GCS backend for state persistence across workflow runs
+  backend "gcs" {
+    bucket = "fellspiral-terraform-state"
+    prefix = "terraform/state"
+  }
 }
 
 provider "google" {
