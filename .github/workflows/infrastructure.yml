@@ -210,6 +210,8 @@ jobs:
           terraform state rm google_project_iam_member.github_actions_cloud_run 2>/dev/null || echo "  Not in state"
           terraform state rm google_project_iam_member.github_actions_artifact_registry 2>/dev/null || echo "  Not in state"
           terraform state rm google_project_iam_member.github_actions_service_account_user 2>/dev/null || echo "  Not in state"
+          terraform state rm google_project_iam_member.github_actions_secret_manager 2>/dev/null || echo "  Not in state"
+          terraform state rm google_secret_manager_secret_iam_member.github_token_access 2>/dev/null || echo "  Not in state"
           echo "✅ State cleanup completed"
 
       - name: Terraform Validate
