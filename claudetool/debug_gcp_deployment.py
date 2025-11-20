@@ -13,8 +13,12 @@ SERVICE_ACCOUNT = "github-actions-sa@chalanding.iam.gserviceaccount.com"
 def get_gcp_token():
     """Get GCP access token."""
     try:
+        # Get the directory where this script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        token_script = os.path.join(script_dir, 'get_gcp_token.sh')
+
         result = subprocess.run(
-            ["bash", "-c", "source get_gcp_token.sh 2>/dev/null && echo $GCP_ACCESS_TOKEN"],
+            ["bash", "-c", f"source {token_script} 2>/dev/null && echo $GCP_ACCESS_TOKEN"],
             capture_output=True,
             text=True,
             timeout=10
