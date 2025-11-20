@@ -2,12 +2,11 @@ name: Deploy to GCP
 
 on:
   workflow_run:
-    workflows: ["Infrastructure as Code", "CI - Test Suite"]
+    workflows: ["Infrastructure as Code"]
     types:
       - completed
     branches:
       - main
-      - claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW
   workflow_dispatch:
     inputs:
       environment:
@@ -23,17 +22,65 @@ permissions:
   contents: write  # Required for creating commit comments
   id-token: write  # Required for Workload Identity Federation
   issues: write    # Required for rollback notifications
+  actions: read    # Required to check workflow status
 
 env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
 
 jobs:
+  verify-prerequisites:
+    name: Verify Prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only run if IAC workflow succeeded or manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+
+    steps:
+      - name: Check CI workflow status
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // For manual dispatch, always proceed
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('should-deploy', 'true');
+              console.log('Manual dispatch - proceeding with deployment');
+              return;
+            }
+
+            // For workflow_run, verify CI also succeeded
+            const { data: workflows } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: context.ref.replace('refs/heads/', ''),
+              event: 'push',
+              status: 'completed',
+              per_page: 10
+            });
+
+            const commitSha = context.payload.workflow_run.head_sha;
+            const ciWorkflow = workflows.workflow_runs.find(
+              run => run.name === 'CI - Test Suite' &&
+                     run.head_sha === commitSha &&
+                     run.conclusion === 'success'
+            );
+
+            if (ciWorkflow) {
+              core.setOutput('should-deploy', 'true');
+              console.log('✅ CI workflow succeeded - proceeding with deployment');
+            } else {
+              core.setOutput('should-deploy', 'false');
+              console.log('⏸️  CI workflow not yet complete or failed - skipping deployment');
+            }
+
   build:
     name: Build Site
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run if IAC workflow succeeded or manual dispatch
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    needs: verify-prerequisites
+    if: needs.verify-prerequisites.outputs.should-deploy == 'true'
 
     steps:
       - name: Checkout code
