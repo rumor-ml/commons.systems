@@ -11,8 +11,10 @@
     }
   },
 
-  // Install npm dependencies (Nix tools available via 'nix develop')
-  "postCreateCommand": "npm install",
+  // Pre-build Nix environment and install npm dependencies
+  // This downloads and builds everything during container creation
+  // so terminals launch instantly without waiting for Nix downloads
+  "postCreateCommand": "nix develop --accept-flake-config --command echo 'Nix environment built' && npm install",
 
   // Show welcome message with instructions
   "postStartCommand": "echo '🚀 Dev environment ready! Use \"nix develop\" to access gcloud, gh, terraform, etc.'",
