@@ -27,13 +27,15 @@ This guide documents the migration from GCS + CDN architecture to Cloud Run arch
 
 ## Post-Migration Cleanup
 
+**Good news:** Terraform handles all cleanup automatically! No manual intervention needed.
+
 ### Prerequisites
 
-Before cleaning up old infrastructure, ensure:
+Before cleanup (automatic via Terraform), ensure:
 
 1. ✅ Cloud Run production deployment is working and accessible
 2. ✅ DNS is updated (if you had custom domain pointing to static IP)
-3. ✅ All required data is backed up from GCS buckets
+3. ✅ All required data is backed up from GCS buckets (if needed)
 4. ✅ Team has tested and approved the new Cloud Run deployment
 
 ### Step 1: Verify Cloud Run Deployment
@@ -60,44 +62,50 @@ If you were using a custom domain with the old static IP:
 
 **Note:** Cloud Run provides automatic SSL certificates for custom domains.
 
-### Step 3: Run Cleanup Script
+### Step 3: Terraform Automatic Cleanup
 
-Once you've verified everything works:
+Once the PR is merged to main, the Infrastructure workflow will run automatically.
+
+**What happens:**
+1. Infrastructure workflow runs `terraform apply`
+2. Terraform detects old resources are no longer in configuration
+3. Terraform automatically destroys:
+   - GCS buckets (site + backup)
+   - Load balancer components (URL map, HTTP proxy, forwarding rule)
+   - Backend bucket (Cloud CDN)
+   - Static IP address
+4. Terraform updates state to reflect the removal
+
+**No manual intervention needed!** Terraform handles everything.
+
+### Step 4: Monitor the Cleanup
+
+Watch the Infrastructure workflow:
 
 ```bash
-cd infrastructure/scripts
-./cleanup-old-infrastructure.sh
-```
+# Via GitHub Actions UI
+# https://github.com/rumor-ml/commons.systems/actions/workflows/infrastructure.yml
 
-This script will:
-- Create a final backup of GCS buckets to `./gcs-migration-backup-{timestamp}/`
-- Remove forwarding rule, HTTP proxy, URL map, backend bucket
-- Remove static IP address
-- Delete GCS buckets (site and backup)
-
-### Step 4: Update Terraform State
-
-After running the cleanup script:
-
-```bash
+# Or check Terraform plan (before merge)
 cd infrastructure/terraform
-
-# This will remove the deleted resources from Terraform state
-terraform apply
+terraform plan
 ```
 
-Terraform will detect that the resources no longer exist and remove them from state.
+The plan will show resources being destroyed.
 
-### Step 5: Clean Up Terraform Configuration
+### Optional: Manual Backup Before Cleanup
 
-Edit `infrastructure/terraform/main.tf` and remove the entire "DEPRECATED RESOURCES" section (lines 80-142).
-
-Then run:
+If you want to backup GCS data before Terraform destroys the buckets:
 
 ```bash
-terraform fmt
-terraform validate
+# Create local backup of site bucket
+gsutil -m rsync -r gs://chalanding-fellspiral-site ./gcs-backup/site/
+
+# Create local backup of backup bucket
+gsutil -m rsync -r gs://chalanding-fellspiral-site-backup ./gcs-backup/backup/
 ```
+
+Store these backups somewhere safe before merging the PR.
 
 ## Resources Removed
 

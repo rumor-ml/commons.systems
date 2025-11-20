@@ -13,19 +13,24 @@ Please see:
 
 This project has migrated from GCS + CDN to Cloud Run architecture.
 
-📖 **[Migration Guide](MIGRATION_GUIDE.md)** - Complete guide for cleaning up old infrastructure
+📖 **[Migration Guide](MIGRATION_GUIDE.md)** - Complete migration documentation
 
 ### Quick Reference
 
-**Cleanup old infrastructure:**
-```bash
-cd infrastructure/scripts
-./cleanup-old-infrastructure.sh
-```
+**Cleanup happens automatically via Terraform!**
+- When this PR merges to main, the Infrastructure workflow runs
+- Terraform detects removed resources and destroys them
+- No manual cleanup needed
 
 **Monitor Cloud Run deployment:**
 ```bash
 gcloud run services describe fellspiral-site \
   --region=us-central1 \
   --project=chalanding
+```
+
+**Check what Terraform will remove:**
+```bash
+cd infrastructure/terraform
+terraform plan  # Shows resources to be destroyed
 ```
