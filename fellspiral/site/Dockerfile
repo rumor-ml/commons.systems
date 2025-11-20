@@ -6,8 +6,8 @@ WORKDIR /build
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --production=false
+# Install dependencies (use install instead of ci for workspace compatibility)
+RUN npm install --production=false
 
 # Copy source files
 COPY . .
