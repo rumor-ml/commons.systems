@@ -5,44 +5,10 @@ on:
     branches: ['**']
 
 jobs:
-  build:
-    name: Build Site
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Load Nix development environment
-        run: nix develop .#ci --command bash -c "echo 'Nix environment loaded'"
-
-      - name: Install dependencies
-        run: nix develop .#ci --command npm install
-
-      - name: Build site
-        run: nix develop .#ci --command npm run build --workspace=fellspiral/site
-
   test:
-    name: Run Tests
+    name: Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: build
 
     steps:
       - name: Checkout code
@@ -62,6 +28,26 @@ jobs:
           name: fellspiral
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           skipPush: true
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            fellspiral/site/node_modules
+            fellspiral/tests/node_modules
+            .npm-cache
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/playwright-browsers
+          key: ${{ runner.os }}-playwright-${{ hashFiles('fellspiral/tests/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install dependencies
         run: nix develop .#ci --command npm install
