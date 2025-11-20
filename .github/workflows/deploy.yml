@@ -45,6 +45,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
@@ -83,6 +84,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
@@ -223,6 +225,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Setup Nix cache
         uses: cachix/cachix-action@v14
