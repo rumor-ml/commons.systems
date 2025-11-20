@@ -1,0 +1,112 @@
+name: Cleanup Feature Branch Preview
+
+on:
+  delete:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Branch name to clean up (optional - auto-detected on delete)'
+        required: false
+        type: string
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+  ARTIFACT_REGISTRY_REPO: fellspiral-previews
+
+jobs:
+  cleanup:
+    name: Delete Preview Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Determine branch name
+        id: branch
+        run: |
+          if [ "${{ github.event_name }}" = "delete" ]; then
+            BRANCH_NAME="${{ github.event.ref }}"
+          elif [ -n "${{ inputs.branch_name }}" ]; then
+            BRANCH_NAME="${{ inputs.branch_name }}"
+          else
+            echo "Error: Could not determine branch name"
+            exit 1
+          fi
+
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "Cleaning up branch: ${BRANCH_NAME}"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/106134737392/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+          service_account: 'github-actions-sa@chalanding.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Find and delete preview services
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
+
+          # Sanitize branch name (same logic as deployment)
+          BRANCH_NAME="${BRANCH_NAME#claude/}"
+          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+
+          echo "Looking for services matching pattern: fb-${SANITIZED}-*"
+
+          # List all Cloud Run services
+          SERVICES=$(gcloud run services list \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(metadata.name)' \
+            --filter="metadata.labels.preview=true" 2>/dev/null || echo "")
+
+          if [ -z "$SERVICES" ]; then
+            echo "No preview services found to clean up"
+            exit 0
+          fi
+
+          # Filter services matching this branch
+          DELETED_COUNT=0
+          while IFS= read -r service; do
+            if [[ "$service" == fb-${SANITIZED}-* ]]; then
+              echo "Deleting service: $service"
+              gcloud run services delete "$service" \
+                --region=${{ env.GCP_REGION }} \
+                --project=${{ env.GCP_PROJECT_ID }} \
+                --quiet || echo "Failed to delete $service (may already be deleted)"
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            fi
+          done <<< "$SERVICES"
+
+          echo "### 🧹 Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Services deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Clean up old images (optional)
+        continue-on-error: true
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
+          BRANCH_NAME="${BRANCH_NAME#claude/}"
+          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+
+          echo "Cleaning up images for fb-${SANITIZED}-*"
+
+          # List and delete old images (keep this simple to avoid errors)
+          gcloud artifacts docker images list \
+            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}" \
+            --format='value(package)' \
+            --filter="package:fb-${SANITIZED}" 2>/dev/null | while read -r package; do
+              echo "Deleting image package: $package"
+              gcloud artifacts docker images delete "$package" \
+                --delete-tags \
+                --quiet 2>/dev/null || true
+            done
+
+          echo "Image cleanup completed (best effort)"
