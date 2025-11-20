@@ -88,6 +88,73 @@ Deploy the to GCP with **zero local setup** and **one local command**.
 
 ---
 
+## CI/CD Pipeline
+
+The repository uses GitHub Actions workflows that ensure code quality and safe deployments.
+
+### Workflow Pattern
+
+```
+Push to any branch
+    └─> CI workflow runs
+        ├─> Build & Test
+        └─> Lint Check
+
+Push to main
+    └─> CI workflow runs
+         └─> (on success) IAC workflow runs
+              └─> (on success) Concurrently:
+                   ├─> Deploy to GCP
+                   │    ├─> Verify CI succeeded
+                   │    ├─> Build site
+                   │    ├─> Deploy to Cloud Storage
+                   │    ├─> Test deployed site
+                   │    └─> (on failure) Rollback to previous version
+                   │
+                   └─> Deploy Playwright Server (only if playwright-server/ changed)
+                        ├─> Build Docker image
+                        ├─> Deploy to Cloud Run
+                        └─> Test deployment
+```
+
+### Workflows
+
+- **CI - Test Suite** (`.github/workflows/ci.yml`)
+  - Runs on every push to any branch
+  - Builds site, runs Playwright tests, and lints code
+  - Must succeed before deployment can proceed
+
+- **Infrastructure as Code** (`.github/workflows/infrastructure.yml`)
+  - Runs on push to main (after CI succeeds)
+  - Manages GCP infrastructure via Terraform
+  - Creates/updates buckets, CDN, static IP, etc.
+
+- **Deploy to GCP** (`.github/workflows/deploy.yml`)
+  - Triggers after IAC workflow completes
+  - Verifies CI also succeeded before deploying
+  - Deploys site to Cloud Storage
+  - Runs deployment tests
+  - Automatically rolls back on test failure
+
+- **Deploy Playwright Server** (`.github/workflows/deploy-playwright-server.yml`)
+  - Triggers after IAC workflow completes
+  - Only runs if `playwright-server/` directory has changes
+  - Builds and deploys containerized Playwright server to Cloud Run
+
+- **Health Check** (`.github/workflows/health-check.yml`)
+  - Manual trigger only (scheduled checks disabled)
+  - Runs deployment tests against production site
+  - Creates issue on failure
+
+### Deployment Safety
+
+- **Prerequisite verification**: Deploy only runs if both CI and IAC succeed
+- **No duplicate runs**: Deploy triggers once per commit (after IAC completes)
+- **Automated rollback**: On test failure, automatically restores previous version
+- **Conditional deploys**: Playwright server only deploys when relevant files change
+
+---
+
 ## Cost
 
 Optimize infrastructure for cost.
