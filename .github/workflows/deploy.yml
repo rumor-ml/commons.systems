@@ -1,19 +1,12 @@
 name: Deploy to GCP
 
 on:
-  push:
-    branches:
-      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
-    paths:
-      - 'fellspiral/site/**'
-      - '.github/workflows/deploy.yml'
   workflow_run:
     workflows: ["Infrastructure as Code"]
     types:
       - completed
     branches:
       - main
-      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
   workflow_dispatch:
     inputs:
       environment:
@@ -42,8 +35,8 @@ jobs:
     name: Verify Prerequisites
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only run if IAC workflow succeeded, push event, or manual dispatch
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    # Only run if IAC workflow succeeded or manual dispatch
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       should-deploy: ${{ steps.check.outputs.should-deploy }}
 
@@ -57,13 +50,6 @@ jobs:
             if (context.eventName === 'workflow_dispatch') {
               core.setOutput('should-deploy', 'true');
               console.log('Manual dispatch - proceeding with deployment');
-              return;
-            }
-
-            // For push events, always proceed (infrastructure already validated)
-            if (context.eventName === 'push') {
-              core.setOutput('should-deploy', 'true');
-              console.log('Push event - proceeding with deployment');
               return;
             }
 
