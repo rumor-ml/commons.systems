@@ -90,7 +90,7 @@ jobs:
             --cpu 2 \
             --memory 4Gi \
             --min-instances 1 \
-            --max-instances 2 \
+            --max-instances 1 \
             --cpu-throttling \
             --concurrency 10 \
             --set-env-vars NODE_ENV=production
