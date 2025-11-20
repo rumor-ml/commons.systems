@@ -78,6 +78,9 @@ test.describe('Equipment Section', () => {
     const skillsContent = page.locator('#skills');
     await expect(skillsContent).toHaveClass('tab-content active');
 
+    // Wait for skills content to be visible
+    await page.locator('.skill-card').first().waitFor({ state: 'visible' });
+
     // Check skill categories
     await expect(page.locator('h3', { hasText: 'Attack Skills' })).toBeVisible();
     await expect(page.locator('h3', { hasText: 'Defense Skills' })).toBeVisible();
