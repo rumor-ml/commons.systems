@@ -5,7 +5,7 @@ on:
     branches:
       - claude/fix-iac-workflow-01QEPQWQLsKdBAzqHqGc2Muu
   workflow_run:
-    workflows: ["Infrastructure as Code"]
+    workflows: ["Infrastructure as Code", "CI - Test Suite"]
     types:
       - completed
     branches:
@@ -71,64 +71,11 @@ jobs:
           path: fellspiral/site/dist/
           retention-days: 7
 
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: build
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Install dependencies
-        run: nix develop .#ci --command npm install
-
-      - name: Install Playwright browsers
-        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium firefox webkit"
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: site-build
-          path: fellspiral/site/dist/
-
-      - name: Run tests
-        run: nix develop .#ci --command npm test --workspace=fellspiral/tests
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: fellspiral/tests/playwright-report/
-          retention-days: 30
-
   deploy:
     name: Deploy to GCP
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [build, test]
+    needs: build
     environment:
       name: ${{ github.event.inputs.environment || 'production' }}
       url: ${{ steps.deploy.outputs.url }}
