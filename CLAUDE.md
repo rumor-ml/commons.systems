@@ -1,5 +1,64 @@
 # Claude Instructions for This Repository
 
+## API Access in CI/CD Environment
+
+This repository's CI/CD environment provides authenticated access to GitHub and Google Cloud Platform APIs via environment variables.
+
+### GitHub API Access
+
+The environment provides a `GITHUB_TOKEN` variable for authenticated GitHub API access.
+
+**Example: Get current repository information**
+```bash
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/OWNER/REPO
+```
+
+**Example: List pull requests**
+```bash
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/OWNER/REPO/pulls
+```
+
+**Example: Create an issue**
+```bash
+curl -X POST \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Issue title","body":"Issue description"}' \
+  https://api.github.com/repos/OWNER/REPO/issues
+```
+
+### Google Cloud Platform API Access
+
+The environment provides GCP credentials via:
+- `GCP_ACCESS_TOKEN`: OAuth2 access token
+- `GCP_PROJECT_ID`: The GCP project ID
+
+**Example: Get project information**
+```bash
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://cloudresourcemanager.googleapis.com/v1/projects/$GCP_PROJECT_ID"
+```
+
+**Example: List Cloud Storage buckets**
+```bash
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
+```
+
+**Example: List Compute Engine zones**
+```bash
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
+```
+
+**Example: List Cloud Run services**
+```bash
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/-/services"
+```
+
 ## Documentation Policy
 
 **IMPORTANT:** Do NOT create markdown (`.md`) documentation files unless explicitly requested by the user.
@@ -17,7 +76,7 @@ The following markdown files are acceptable and should be kept:
 - `README.md` (main documentation)
 - `fellspiral/rules.md` (game rules - content, not technical documentation)
 - `infrastructure/README.md` (minimal pointer to main README)
-- This file (`.claude.md`)
+- This file (`CLAUDE.md`)
 
 ### When User Asks for Documentation:
 
