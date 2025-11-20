@@ -1,0 +1,22 @@
+{
+  "totalCards": 50,
+  "cardsByType": {
+    "Equipment": 25,
+    "Upgrade": 7,
+    "Skill": 13,
+    "Foe": 4,
+    "Origin": 1
+  },
+  "cardsBySubtype": {
+    "Weapon": 26,
+    "Attack": 7,
+    "Defense": 3,
+    "Tenacity": 2,
+    "Vampire": 2,
+    "Core": 1,
+    "Armor": 6,
+    "Undead": 2,
+    "Human": 1
+  },
+  "lastUpdated": "2025-11-20T19:16:03.739Z"
+}
