@@ -1,0 +1,126 @@
+name: Deploy Playwright Server
+
+on:
+  workflow_run:
+    workflows: ["Infrastructure as Code"]
+    types:
+      - completed
+    branches:
+      - main
+      - claude/refactor-setup-scripts-017YWtTPSj64Wpnngb9YYWYW
+  workflow_dispatch:
+
+env:
+  GCP_REGION: us-central1
+  SERVICE_NAME: playwright-server
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  deploy:
+    name: Build and Deploy Playwright Server
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check infrastructure workflow result
+        if: github.event_name == 'workflow_run'
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "Infrastructure workflow did not succeed. Skipping deployment."
+            exit 1
+          fi
+          echo "Infrastructure workflow succeeded. Proceeding with deployment."
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Get GCP Project ID
+        id: project
+        run: |
+          PROJECT_ID=$(gcloud config get-value project)
+          echo "project_id=${PROJECT_ID}" >> $GITHUB_OUTPUT
+          echo "Project ID: ${PROJECT_ID}"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:latest \
+            -t ${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            -f playwright-server/Dockerfile \
+            .
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:latest \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --allow-unauthenticated \
+            --service-account playwright-server@${{ steps.project.outputs.project_id }}.iam.gserviceaccount.com \
+            --timeout 900 \
+            --cpu 2 \
+            --memory 4Gi \
+            --min-instances 0 \
+            --max-instances 1 \
+            --set-env-vars NODE_ENV=production
+
+      - name: Get service URL
+        id: service
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=${SERVICE_URL}" >> $GITHUB_OUTPUT
+          echo "Service URL: ${SERVICE_URL}"
+
+      - name: Test deployment
+        run: |
+          # Wait for service to be ready
+          sleep 10
+
+          # Test health endpoint
+          curl -f ${{ steps.service.outputs.url }}/health || exit 1
+
+          # Test API info endpoint
+          curl -f ${{ steps.service.outputs.url }}/api || exit 1
+
+          echo "✅ Playwright server deployed successfully!"
+          echo "🌐 URL: ${{ steps.service.outputs.url }}"
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Playwright Server Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Deployment successful!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service URL**: ${{ steps.service.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ env.GCP_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ env.REGISTRY }}/${{ steps.project.outputs.project_id }}/playwright-server/${{ env.SERVICE_NAME }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 API Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Health: \`GET ${{ steps.service.outputs.url }}/health\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run Tests: \`POST ${{ steps.service.outputs.url }}/api/test\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Test Status: \`GET ${{ steps.service.outputs.url }}/api/test/{id}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Test Report: \`GET ${{ steps.service.outputs.url }}/api/reports/{id}\`" >> $GITHUB_STEP_SUMMARY

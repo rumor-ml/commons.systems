@@ -12,9 +12,11 @@ create_token() {
     echo "Creating new GCP access token..." >&2
 
     # Extract credentials from env
-    env | grep "export GOOGLE_APPLICATION_CREDENTIALS_JSON" | \
-        sed 's/export GOOGLE_APPLICATION_CREDENTIALS_JSON=//' | \
-        sed "s/^'//" | sed "s/'$//" > "$CREDS_FILE"
+    if [ -z "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then
+        echo "Error: GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable not set" >&2
+        return 1
+    fi
+    echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$CREDS_FILE"
 
     # Extract private key
     jq -r '.private_key' "$CREDS_FILE" > /tmp/private_key.pem
