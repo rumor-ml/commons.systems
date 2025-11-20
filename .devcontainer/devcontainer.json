@@ -34,7 +34,7 @@
           },
           "nix-shell": {
             "path": "/bin/bash",
-            "args": ["-c", "nix develop --command bash"]
+            "args": ["-c", "nix develop --accept-flake-config --command bash"]
           }
         },
         "nix.enableLanguageServer": false
