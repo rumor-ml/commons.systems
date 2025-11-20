@@ -7,7 +7,7 @@
     "ghcr.io/devcontainers/features/nix:1": {
       "version": "latest",
       "multiUser": false,
-      "extraNixConfig": "experimental-features = nix-command flakes\nextra-substituters = https://cache.nixos.org https://nix-community.cachix.org\nextra-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=\ntrusted-substituters = https://cache.nixos.org https://nix-community.cachix.org\ntrusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      "extraNixConfig": "experimental-features = nix-command flakes\nextra-substituters = https://cache.nixos.org https://nix-community.cachix.org\nextra-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=\ntrusted-substituters = https://cache.nixos.org https://nix-community.cachix.org\ntrusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=\ndownload-buffer-size = 134217728"
     }
   },
 
