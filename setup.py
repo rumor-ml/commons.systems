@@ -586,6 +586,35 @@ def setup_ci_logs_proxy(config):
                     print_success("github-actions-terraform granted Compute Network Admin role")
             else:
                 print_info("github-actions-terraform already has Compute Network Admin permissions")
+
+            # Grant Service Account Token Creator (required for Workload Identity impersonation)
+            print_info("Granting Service Account Token Creator permissions...")
+            has_token_creator_permission = False
+            if project_policy:
+                try:
+                    policy = json.loads(project_policy)
+                    member = f"serviceAccount:{terraform_sa_email}"
+                    for binding in policy.get('bindings', []):
+                        if binding.get('role') == 'roles/iam.serviceAccountTokenCreator':
+                            if member in binding.get('members', []):
+                                has_token_creator_permission = True
+                                break
+                except json.JSONDecodeError:
+                    pass
+
+            if not has_token_creator_permission:
+                # Grant on the service account itself (for self-impersonation)
+                result = run_command(
+                    f'gcloud iam service-accounts add-iam-policy-binding {terraform_sa_email} '
+                    f'--member="serviceAccount:{terraform_sa_email}" '
+                    f'--role="roles/iam.serviceAccountTokenCreator" '
+                    f'--quiet 2>&1',
+                    check=False
+                )
+                if result and ("Updated IAM policy" in result or "bindings:" in result):
+                    print_success("github-actions-terraform granted Service Account Token Creator role")
+            else:
+                print_info("github-actions-terraform already has Service Account Token Creator permissions")
         else:
             print(f"\n{Colors.YELLOW}WARNING: github-actions-terraform service account not found.{Colors.NC}")
             print("This is expected if you haven't run Terraform yet.")
