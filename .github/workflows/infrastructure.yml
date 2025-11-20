@@ -2,6 +2,14 @@ name: Infrastructure as Code
 
 # Manages GCP infrastructure via Terraform
 on:
+  push:
+    branches:
+      - claude/add-db-card-crud-01EyzW3nEMXmqsmoV3YiXEui
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/infrastructure.yml'
+      - '.github/workflows/deploy.yml'
+      - 'fellspiral/site/**'
   workflow_run:
     workflows: ["CI - Test Suite"]
     types:
