@@ -57,6 +57,13 @@ jobs:
               return;
             }
 
+            // For push events, always proceed (infrastructure already validated)
+            if (context.eventName === 'push') {
+              core.setOutput('should-deploy', 'true');
+              console.log('Push event - proceeding with deployment');
+              return;
+            }
+
             // For workflow_run, verify CI also succeeded
             const { data: workflows } = await github.rest.actions.listWorkflowRunsForRepo({
               owner: context.repo.owner,
