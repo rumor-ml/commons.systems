@@ -111,6 +111,13 @@ jobs:
               --member='serviceAccount:${{ secrets.GCP_SERVICE_ACCOUNT }}' \
               --role='roles/storage.objectAdmin' \
               --quiet || echo 'Permission already granted or failed (will retry)'
+
+            # Grant service account permission to impersonate itself (needed for Workload Identity)
+            echo 'Granting service account token creator role to itself...'
+            gcloud iam service-accounts add-iam-policy-binding '${{ secrets.GCP_SERVICE_ACCOUNT }}' \
+              --member='serviceAccount:${{ secrets.GCP_SERVICE_ACCOUNT }}' \
+              --role='roles/iam.serviceAccountTokenCreator' \
+              --quiet || echo 'Permission already granted or failed (will retry)'
           "
 
       - name: Load Nix environment
@@ -152,10 +159,8 @@ jobs:
           echo "Attempting to access state bucket..."
           gsutil ls gs://fellspiral-terraform-state/ || echo "Cannot list bucket contents"
 
-          # Initialize Terraform with backend configuration (without Nix wrapper)
-          terraform init \
-            -backend-config="project=${{ secrets.GCP_PROJECT_ID }}" \
-            -reconfigure
+          # Initialize Terraform (GCS backend uses Application Default Credentials)
+          terraform init -reconfigure
 
       - name: Import existing resources if needed
         id: import
