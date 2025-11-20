@@ -111,6 +111,80 @@ For usage examples, run:
 
 For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
 
+## Debugging and Log Access
+
+**IMPORTANT:** Never ask the user to check logs when you have access to them via API.
+
+### Accessing GitHub Actions Workflow Logs
+
+You have access to GitHub Actions workflow logs via the GitHub API. Always fetch and analyze logs directly instead of asking the user to check them.
+
+**Get workflow run logs:**
+```bash
+# List recent workflow runs
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs"
+
+# Get specific workflow run details
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID"
+
+# Get workflow run logs (download URL)
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/logs"
+
+# List jobs for a workflow run
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/jobs"
+```
+
+### Accessing Cloud Run Logs
+
+You have access to Cloud Run logs via the GCP Logging API.
+
+**Get Cloud Run service logs:**
+```bash
+source get_gcp_token.sh 2>/dev/null
+
+# List recent Cloud Run logs
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  "https://logging.googleapis.com/v2/entries:list" \
+  -d '{
+    "resourceNames": ["projects/chalanding"],
+    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"fellspiral-site\"",
+    "orderBy": "timestamp desc",
+    "pageSize": 50
+  }'
+```
+
+### Rule: Always Fetch Logs Yourself
+
+When debugging deployment issues or investigating failures:
+
+1. **DO:** Fetch and analyze logs via API directly
+2. **DO:** Present relevant log excerpts to the user with your analysis
+3. **DON'T:** Ask the user to "check the logs" or "view the GitHub Actions page"
+4. **DON'T:** Suggest the user manually investigate when you have API access
+
+**Example of correct behavior:**
+```
+User: "The deployment failed"
+Claude: *fetches workflow logs via API*
+Claude: "The deployment failed because of X error in the build step. Here's the relevant log excerpt: [shows logs]. The issue is Y. Here's how to fix it: Z"
+```
+
+**Example of incorrect behavior:**
+```
+User: "The deployment failed"
+Claude: "Can you check the GitHub Actions logs and tell me what error you see?"  ❌ WRONG
+```
+
 ## Documentation Policy
 
 **IMPORTANT:** Do NOT create markdown (`.md`) documentation files unless explicitly requested by the user.

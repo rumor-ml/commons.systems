@@ -20,177 +20,119 @@ provider "google" {
   region  = var.region
 }
 
-# Storage bucket for static site hosting
-resource "google_storage_bucket" "site_bucket" {
-  name          = "${var.project_id}-fellspiral-site"
+# Artifact Registry repository for production Docker images
+resource "google_artifact_registry_repository" "production" {
   location      = var.region
-  force_destroy = false
+  repository_id = "fellspiral-production"
+  description   = "Production Docker images for Fellspiral site"
+  format        = "DOCKER"
 
-  uniform_bucket_level_access = true
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
 
-  website {
-    main_page_suffix = "index.html"
-    not_found_page   = "index.html"
+    most_recent_versions {
+      keep_count = 10
+    }
   }
 
-  cors {
-    origin          = ["*"]
-    method          = ["GET", "HEAD"]
-    response_header = ["*"]
-    max_age_seconds = 3600
-  }
+  cleanup_policies {
+    id     = "delete-old-untagged"
+    action = "DELETE"
 
-  # Lifecycle policy to reduce costs
-  lifecycle_rule {
     condition {
-      age = 30
-      matches_prefix = ["old/"]
-    }
-    action {
-      type = "Delete"
-    }
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 7
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
+      tag_state  = "UNTAGGED"
+      older_than = "604800s"  # 7 days
     }
   }
 }
 
-# Make bucket publicly readable
-resource "google_storage_bucket_iam_member" "public_read" {
-  bucket = google_storage_bucket.site_bucket.name
-  role   = "roles/storage.objectViewer"
-  member = "allUsers"
-}
-
-# Backup bucket for rollback functionality
-resource "google_storage_bucket" "backup_bucket" {
-  name          = "${var.project_id}-fellspiral-site-backup"
+# Artifact Registry repository for feature branch preview images
+resource "google_artifact_registry_repository" "previews" {
   location      = var.region
-  force_destroy = false
+  repository_id = "fellspiral-previews"
+  description   = "Feature branch preview Docker images"
+  format        = "DOCKER"
 
-  uniform_bucket_level_access = true
+  cleanup_policies {
+    id     = "delete-old-previews"
+    action = "DELETE"
 
-  # Lifecycle policy to clean up old backups and reduce costs
-  lifecycle_rule {
     condition {
-      age = 7
-    }
-    action {
-      type = "Delete"
+      older_than = "2592000s"  # 30 days
     }
   }
 
-  lifecycle_rule {
-    condition {
-      age                = 1
-      num_newer_versions = 5
-    }
-    action {
-      type = "Delete"
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 3
     }
   }
 }
 
-# Reserve static IP for load balancer
-resource "google_compute_global_address" "site_ip" {
-  name = "fellspiral-site-ip"
-}
+# Cloud Run service for production (managed by workflow, but Terraform ensures IAM is set)
+# Note: The actual service deployment is handled by GitHub Actions, not Terraform
+# This is intentional to allow fast deployments without Terraform state updates
 
-# Backend bucket for Cloud CDN
-resource "google_compute_backend_bucket" "site_backend" {
-  name        = "fellspiral-backend"
-  bucket_name = google_storage_bucket.site_bucket.name
-  enable_cdn  = true
-
-  cdn_policy {
-    cache_mode        = "CACHE_ALL_STATIC"
-    client_ttl        = 3600
-    default_ttl       = 3600
-    max_ttl           = 86400
-    negative_caching  = true
-    serve_while_stale = 86400
-  }
-}
-
-# URL map
-resource "google_compute_url_map" "site_url_map" {
-  name            = "fellspiral-url-map"
-  default_service = google_compute_backend_bucket.site_backend.id
-}
-
-# HTTP proxy
-resource "google_compute_target_http_proxy" "site_http_proxy" {
-  name    = "fellspiral-http-proxy"
-  url_map = google_compute_url_map.site_url_map.id
-}
-
-# Forwarding rule
-resource "google_compute_global_forwarding_rule" "site_http" {
-  name       = "fellspiral-http-forwarding-rule"
-  target     = google_compute_target_http_proxy.site_http_proxy.id
-  port_range = "80"
-  ip_address = google_compute_global_address.site_ip.address
-}
+# ============================================================================
+# MIGRATION NOTE: GCS + CDN Resources Removed
+# ============================================================================
+#
+# The following resources have been REMOVED from this configuration and will be
+# automatically destroyed by Terraform when you run `terraform apply`:
+#
+# - google_storage_bucket.site_bucket (replaced by Cloud Run)
+# - google_storage_bucket.backup_bucket (replaced by Cloud Run revisions)
+# - google_compute_global_address.site_ip (replaced by Cloud Run URL)
+# - google_compute_backend_bucket.site_backend (no longer needed)
+# - google_compute_url_map.site_url_map (no longer needed)
+# - google_compute_target_http_proxy.site_http_proxy (no longer needed)
+# - google_compute_global_forwarding_rule.site_http (no longer needed)
+#
+# When this PR is merged to main and the Infrastructure workflow runs:
+# - Terraform will detect these resources are no longer in the configuration
+# - Terraform will automatically destroy them
+# - Terraform state will be updated to reflect the removal
+#
+# No manual cleanup is needed - Terraform handles everything automatically.
+# ============================================================================
 
 # Service account for GitHub Actions deployments (created and configured by setup.py)
 # IAM permissions for this service account are managed by setup.py, not Terraform,
 # to avoid chicken-and-egg problems where Terraform would need permissions to grant itself permissions.
 data "google_service_account" "github_actions" {
-  account_id = "github-actions-terraform"
+  account_id = "github-actions-sa"
 }
 
-# Optional: HTTPS setup (requires SSL certificate)
-# Uncomment these resources after obtaining an SSL certificate
+# Grant necessary permissions to GitHub Actions service account
+resource "google_artifact_registry_repository_iam_member" "github_actions_production" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.production.location
+  repository = google_artifact_registry_repository.production.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
 
-# resource "google_compute_ssl_certificate" "site_cert" {
-#   name_prefix = "fellspiral-cert-"
-#   private_key = file("path/to/private.key")
-#   certificate = file("path/to/certificate.crt")
-#
-#   lifecycle {
-#     create_before_destroy = true
-#   }
-# }
-
-# resource "google_compute_target_https_proxy" "site_https_proxy" {
-#   name             = "fellspiral-https-proxy"
-#   url_map          = google_compute_url_map.site_url_map.id
-#   ssl_certificates = [google_compute_ssl_certificate.site_cert.id]
-# }
-
-# resource "google_compute_global_forwarding_rule" "site_https" {
-#   name       = "fellspiral-https-forwarding-rule"
-#   target     = google_compute_target_https_proxy.site_https_proxy.id
-#   port_range = "443"
-#   ip_address = google_compute_global_address.site_ip.address
-# }
+resource "google_artifact_registry_repository_iam_member" "github_actions_previews" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.previews.location
+  repository = google_artifact_registry_repository.previews.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
 
 # Output values
-output "bucket_name" {
-  value       = google_storage_bucket.site_bucket.name
-  description = "Name of the storage bucket"
+output "production_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.production.repository_id}"
+  description = "Production Artifact Registry URL"
 }
 
-output "bucket_url" {
-  value       = "gs://${google_storage_bucket.site_bucket.name}"
-  description = "GCS URL of the bucket"
-}
-
-output "site_ip" {
-  value       = google_compute_global_address.site_ip.address
-  description = "Static IP address for the site"
-}
-
-output "site_url" {
-  value       = "http://${google_compute_global_address.site_ip.address}"
-  description = "URL of the deployed site"
+output "preview_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.previews.repository_id}"
+  description = "Preview Artifact Registry URL"
 }
 
 output "deployment_service_account_email" {
