@@ -191,7 +191,7 @@ jobs:
             --allow-unauthenticated \
             --cpu=1 \
             --memory=512Mi \
-            --min-instances=1 \
+            --min-instances=0 \
             --max-instances=10 \
             --timeout=300 \
             --port=8080 \

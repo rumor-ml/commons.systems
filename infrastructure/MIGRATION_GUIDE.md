@@ -134,21 +134,25 @@ The following GCP resources are removed during cleanup:
 - **Total: ~$0.13/month**
 
 **After (Cloud Run):**
-- Cloud Run (production, min-instances=1): ~$5-10/month
+- Cloud Run (production, min-instances=0): ~$0.10/month
 - Artifact Registry storage: ~$0.10/month
 - Feature branch previews: ~$0.00/month (scale to zero)
-- **Total: ~$5-10/month**
+- **Total: ~$0.20/month**
 
-**Note:** Cost increase is due to always-on production instance (min-instances=1) to avoid cold starts. If cold starts are acceptable, you can set min-instances=0 to reduce cost to ~$0.10/month.
+**Cost optimization:** Production is configured with `min-instances=0` to scale to zero when idle. This keeps costs near the original GCS+CDN costs (~$0.20/month vs ~$0.13/month).
 
-To reduce production costs to near-zero:
+**Trade-off:** 2-3 second cold start on first request after idle period (typically after ~15 minutes of no traffic).
+
+**If cold starts are unacceptable:**
+
+You can set min-instances=1 to keep one instance always running (no cold starts):
 
 ```bash
-# In .github/workflows/deploy.yml, change line 191:
---min-instances=0 \  # Instead of --min-instances=1
+# In .github/workflows/deploy.yml, change line 194:
+--min-instances=1 \  # Instead of --min-instances=0
 ```
 
-This trades cost for ~2-3 second cold start on first request.
+This will cost ~$5-10/month but eliminates cold starts entirely.
 
 ## Benefits of Cloud Run Architecture
 
