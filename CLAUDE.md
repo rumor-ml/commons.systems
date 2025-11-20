@@ -1,5 +1,59 @@
 # Claude Instructions for This Repository
 
+## Claude Debugging Tools
+
+The `claudetool/` directory contains utility scripts for Claude Code debugging and operational tasks. These tools help with common debugging workflows like checking deployment status, verifying GCP credentials, and monitoring workflows.
+
+### Available Tools
+
+#### `check_workflows.py` - GitHub Actions Workflow Inspector
+Check GitHub Actions workflow status with optional continuous monitoring.
+
+**Usage:**
+```bash
+# Check recent workflows (all branches)
+./claudetool/check_workflows.py
+
+# Check workflows for specific branch
+./claudetool/check_workflows.py --branch <branch-name>
+
+# Continuously monitor latest workflow
+./claudetool/check_workflows.py --monitor
+
+# Monitor specific branch continuously
+./claudetool/check_workflows.py --branch <branch-name> --monitor
+```
+
+This tool replaces the older `check_deployment_status.sh`, `check_workflow_status.py`, and `monitor_deployment.sh` scripts with a unified, flexible interface.
+
+#### `debug_gcp_deployment.py` - GCP Prerequisites Debugger
+Comprehensive diagnostic tool for GCP deployment issues. Checks APIs, permissions, Artifact Registry repositories, and Cloud Run services.
+
+**Usage:**
+```bash
+./claudetool/debug_gcp_deployment.py
+```
+
+Provides recommendations for fixing any issues found.
+
+#### `get_gcp_token.sh` - GCP Access Token Manager
+Generates and caches GCP OAuth2 access tokens for API calls. See the "Google Cloud Platform API Access" section below for detailed usage.
+
+#### `verify_gcp_credentials.sh` - GCP Credentials Verifier
+Quick verification that GCP credentials are properly configured and working.
+
+**Usage:**
+```bash
+./claudetool/verify_gcp_credentials.sh
+```
+
+### When to Use These Tools
+
+- **Debugging deployment failures**: Use `check_workflows.py` to see workflow status, then fetch logs via API
+- **GCP setup issues**: Use `debug_gcp_deployment.py` to diagnose configuration problems
+- **Monitoring deployments**: Use `check_workflows.py --monitor` to watch deployment progress
+- **Verifying GCP access**: Use `verify_gcp_credentials.sh` before attempting GCP operations
+
 ## API Access in CI/CD Environment
 
 This repository's CI/CD environment provides authenticated access to GitHub and Google Cloud Platform APIs via environment variables.
@@ -8,25 +62,11 @@ This repository's CI/CD environment provides authenticated access to GitHub and 
 
 The environment provides a `GITHUB_TOKEN` variable for authenticated GitHub API access.
 
-**Example: Get current repository information**
+**Example:**
 ```bash
 curl -H "Authorization: token $GITHUB_TOKEN" \
-  https://api.github.com/repos/OWNER/REPO
-```
-
-**Example: List pull requests**
-```bash
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  https://api.github.com/repos/OWNER/REPO/pulls
-```
-
-**Example: Create an issue**
-```bash
-curl -X POST \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Issue title","body":"Issue description"}' \
-  https://api.github.com/repos/OWNER/REPO/issues
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/rumor-ml/commons.systems/actions/runs
 ```
 
 ### Google Cloud Platform API Access
@@ -41,7 +81,7 @@ Use the provided helper script to obtain an OAuth2 access token:
 
 ```bash
 # Source the helper script to set GCP_ACCESS_TOKEN
-source get_gcp_token.sh
+source claudetool/get_gcp_token.sh
 
 # The script will:
 # - Create a JWT from the service account credentials
@@ -52,45 +92,18 @@ source get_gcp_token.sh
 
 **Suppress output in scripts:**
 ```bash
-source get_gcp_token.sh 2>/dev/null
+source claudetool/get_gcp_token.sh 2>/dev/null
 ```
 
 #### Using the Access Token
 
-Once you've sourced the script, use `$GCP_ACCESS_TOKEN` in your API calls:
-
-**Example: List Cloud Storage buckets**
 ```bash
-source get_gcp_token.sh 2>/dev/null
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
-```
+# Set up token
+source claudetool/get_gcp_token.sh 2>/dev/null
 
-**Example: List Compute Engine zones**
-```bash
-source get_gcp_token.sh 2>/dev/null
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
-```
-
-**Example: List Cloud Run services**
-```bash
-source get_gcp_token.sh 2>/dev/null
+# Use in API calls
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services"
-```
-
-**Example: Multiple API calls with one token:**
-```bash
-# Set up token once
-source get_gcp_token.sh 2>/dev/null
-
-# Use for multiple calls
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://storage.googleapis.com/storage/v1/b?project=$GCP_PROJECT_ID"
-
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://compute.googleapis.com/compute/v1/projects/$GCP_PROJECT_ID/zones"
 ```
 
 #### Token Caching
@@ -101,15 +114,10 @@ The token is cached in `/tmp/gcp_token_cache.json` and automatically refreshed w
 
 To verify the credentials work, run:
 ```bash
-./verify_gcp_credentials.sh
+./claudetool/verify_gcp_credentials.sh
 ```
 
-For usage examples, run:
-```bash
-./gcp_token_usage_examples.sh
-```
-
-For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentials.sh` scripts.
+For implementation details, see the scripts in the `claudetool/` directory.
 
 ## Debugging and Log Access
 
@@ -117,73 +125,80 @@ For implementation details, see the `get_gcp_token.sh` and `verify_gcp_credentia
 
 ### Accessing GitHub Actions Workflow Logs
 
-You have access to GitHub Actions workflow logs via the GitHub API. Always fetch and analyze logs directly instead of asking the user to check them.
+Always fetch and analyze logs via API instead of asking the user.
 
-**Get workflow run logs:**
 ```bash
-# List recent workflow runs
-curl -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs"
-
-# Get specific workflow run details
-curl -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID"
-
-# Get workflow run logs (download URL)
+# Get workflow logs
 curl -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github+json" \
   "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/logs"
-
-# List jobs for a workflow run
-curl -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/jobs"
 ```
 
 ### Accessing Cloud Run Logs
 
-You have access to Cloud Run logs via the GCP Logging API.
-
-**Get Cloud Run service logs:**
 ```bash
-source get_gcp_token.sh 2>/dev/null
-
-# List recent Cloud Run logs
+source claudetool/get_gcp_token.sh 2>/dev/null
 curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -X POST \
-  "https://logging.googleapis.com/v2/entries:list" \
-  -d '{
-    "resourceNames": ["projects/chalanding"],
-    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"fellspiral-site\"",
-    "orderBy": "timestamp desc",
-    "pageSize": 50
-  }'
+  -X POST "https://logging.googleapis.com/v2/entries:list" \
+  -d '{"resourceNames": ["projects/chalanding"], "filter": "resource.type=\"cloud_run_revision\"", "orderBy": "timestamp desc", "pageSize": 50}'
 ```
 
 ### Rule: Always Fetch Logs Yourself
 
-When debugging deployment issues or investigating failures:
+**DO:** Fetch logs via API, analyze them, and present findings with solutions
+**DON'T:** Ask users to check logs or investigate manually
 
-1. **DO:** Fetch and analyze logs via API directly
-2. **DO:** Present relevant log excerpts to the user with your analysis
-3. **DON'T:** Ask the user to "check the logs" or "view the GitHub Actions page"
-4. **DON'T:** Suggest the user manually investigate when you have API access
+## CI/CD Pipeline Verification Before Merge
 
-**Example of correct behavior:**
-```
-User: "The deployment failed"
-Claude: *fetches workflow logs via API*
-Claude: "The deployment failed because of X error in the build step. Here's the relevant log excerpt: [shows logs]. The issue is Y. Here's how to fix it: Z"
+**CRITICAL:** Always verify full successful execution of the CI/CD pipeline for feature branches before prompting the user to merge or create a pull request.
+
+### Rules:
+
+1. **NEVER prompt for merge** without confirming pipeline success
+2. **ALWAYS check workflow status** using the GitHub API or `check_workflows.py` tool
+3. **ALWAYS verify deployment completion** if the workflow includes deployment steps
+4. **WAIT for in-progress workflows** to complete before suggesting merge
+
+### Full Successful Execution Criteria:
+
+1. ✅ All workflow runs completed with no failed jobs
+2. ✅ All checks passed (build, test, lint)
+3. ✅ Deployment completed and healthy (if applicable)
+4. ✅ No pending workflows
+
+### Verification Process:
+
+```bash
+# 1. Check workflow status
+./claudetool/check_workflows.py --branch <branch-name>
+
+# 2. Monitor if in-progress
+./claudetool/check_workflows.py --branch <branch-name> --monitor
+
+# 3. Verify deployment health (if applicable)
+source claudetool/get_gcp_token.sh 2>/dev/null
+curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services/<service-name>"
 ```
 
-**Example of incorrect behavior:**
-```
-User: "The deployment failed"
-Claude: "Can you check the GitHub Actions logs and tell me what error you see?"  ❌ WRONG
-```
+Only after ALL checks pass, suggest merge.
+
+### Correct Workflow:
+
+✅ Check status → Monitor completion → Verify all passed → Suggest merge
+
+### Incorrect Workflow:
+
+❌ Suggest merge without verifying pipeline status
+
+### Handling In-Progress or Failed Workflows:
+
+- **In-Progress**: Wait for completion or inform user verification is pending
+- **Failed**: Fetch logs, diagnose, fix, then restart verification
+- **No Workflow**: Investigate why and ensure workflows run before merge
+
+**Remember**: Deliver fully verified, production-ready code. Never shortcut verification.
 
 ## Documentation Policy
 
@@ -206,16 +221,9 @@ The following markdown files are acceptable and should be kept:
 
 ### When User Asks for Documentation:
 
-- **Default action**: Update README.md with the new information in the appropriate section
-- **Only create separate `.md` files** if the user specifically says "create a separate markdown file" or similar explicit instruction
-- **Ask for clarification** if uncertain whether documentation should go in README or a separate file
-
-### Rationale:
-
-- Prevents documentation sprawl across the repository
-- Keeps all user-facing documentation in one place (README.md)
-- Makes documentation easier to find and maintain
-- Reduces cognitive load for contributors
+- **Default**: Update README.md in the appropriate section
+- **Only create separate `.md` files** if explicitly requested
+- **Ask for clarification** if uncertain
 
 ## General Guidelines
 
