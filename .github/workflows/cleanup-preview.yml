@@ -14,11 +14,10 @@ on:
 env:
   GCP_PROJECT_ID: chalanding
   GCP_REGION: us-central1
-  ARTIFACT_REGISTRY_REPO: fellspiral-previews
 
 jobs:
   cleanup:
-    name: Delete Preview Service
+    name: Delete Preview Services
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,7 +48,7 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Find and delete preview services
+      - name: Find and delete preview services (all sites)
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch }}"
 
@@ -57,9 +56,9 @@ jobs:
           BRANCH_NAME="${BRANCH_NAME#claude/}"
           SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
 
-          echo "Looking for services matching pattern: fb-${SANITIZED}-*"
+          echo "Looking for services matching patterns: fb-${SANITIZED}-* and vb-${SANITIZED}-*"
 
-          # List all Cloud Run services
+          # List all Cloud Run services with preview label
           SERVICES=$(gcloud run services list \
             --region=${{ env.GCP_REGION }} \
             --project=${{ env.GCP_PROJECT_ID }} \
@@ -71,10 +70,10 @@ jobs:
             exit 0
           fi
 
-          # Filter services matching this branch
+          # Filter services matching this branch (both fb- and vb- prefixes)
           DELETED_COUNT=0
           while IFS= read -r service; do
-            if [[ "$service" == fb-${SANITIZED}-* ]]; then
+            if [[ "$service" == fb-${SANITIZED}-* ]] || [[ "$service" == vb-${SANITIZED}-* ]]; then
               echo "Deleting service: $service"
               gcloud run services delete "$service" \
                 --region=${{ env.GCP_REGION }} \
@@ -89,24 +88,46 @@ jobs:
           echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
           echo "**Services deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Clean up old images (optional)
+      - name: Clean up fellspiral images (optional)
         continue-on-error: true
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch }}"
           BRANCH_NAME="${BRANCH_NAME#claude/}"
           SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
 
-          echo "Cleaning up images for fb-${SANITIZED}-*"
+          echo "Cleaning up fellspiral images for fb-${SANITIZED}-*"
 
           # List and delete old images (keep this simple to avoid errors)
           gcloud artifacts docker images list \
-            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}" \
+            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral-previews" \
             --format='value(package)' \
             --filter="package:fb-${SANITIZED}" 2>/dev/null | while read -r package; do
-              echo "Deleting image package: $package"
+              echo "Deleting fellspiral image package: $package"
               gcloud artifacts docker images delete "$package" \
                 --delete-tags \
                 --quiet 2>/dev/null || true
             done
 
-          echo "Image cleanup completed (best effort)"
+          echo "Fellspiral image cleanup completed (best effort)"
+
+      - name: Clean up videobrowser images (optional)
+        continue-on-error: true
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
+          BRANCH_NAME="${BRANCH_NAME#claude/}"
+          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+
+          echo "Cleaning up videobrowser images for vb-${SANITIZED}-*"
+
+          # List and delete old images (keep this simple to avoid errors)
+          gcloud artifacts docker images list \
+            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/videobrowser-previews" \
+            --format='value(package)' \
+            --filter="package:vb-${SANITIZED}" 2>/dev/null | while read -r package; do
+              echo "Deleting videobrowser image package: $package"
+              gcloud artifacts docker images delete "$package" \
+                --delete-tags \
+                --quiet 2>/dev/null || true
+            done
+
+          echo "Videobrowser image cleanup completed (best effort)"
