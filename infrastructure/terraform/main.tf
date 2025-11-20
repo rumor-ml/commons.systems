@@ -139,44 +139,11 @@ resource "google_compute_global_forwarding_rule" "site_http" {
   ip_address = google_compute_global_address.site_ip.address
 }
 
-# Service account for GitHub Actions deployments (created by setup.py or manually)
+# Service account for GitHub Actions deployments (created and configured by setup.py)
+# IAM permissions for this service account are managed by setup.py, not Terraform,
+# to avoid chicken-and-egg problems where Terraform would need permissions to grant itself permissions.
 data "google_service_account" "github_actions" {
   account_id = "github-actions-terraform"
-}
-
-# Grant storage admin to deployment service account
-resource "google_project_iam_member" "github_actions_storage" {
-  project = var.project_id
-  role    = "roles/storage.admin"
-  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
-}
-
-# Grant compute load balancer admin to deployment service account
-resource "google_project_iam_member" "github_actions_compute" {
-  project = var.project_id
-  role    = "roles/compute.loadBalancerAdmin"
-  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
-}
-
-# Grant Cloud Run Admin to GitHub Actions service account for deployments
-resource "google_project_iam_member" "github_actions_cloud_run" {
-  project = var.project_id
-  role    = "roles/run.admin"
-  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
-}
-
-# Grant Artifact Registry Admin to GitHub Actions for creating repos and pushing images
-resource "google_project_iam_member" "github_actions_artifact_registry" {
-  project = var.project_id
-  role    = "roles/artifactregistry.repoAdmin"
-  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
-}
-
-# Grant Service Account User so GitHub Actions can deploy as service accounts
-resource "google_project_iam_member" "github_actions_service_account_user" {
-  project = var.project_id
-  role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${data.google_service_account.github_actions.email}"
 }
 
 # Optional: HTTPS setup (requires SSL certificate)

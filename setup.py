@@ -502,6 +502,90 @@ def setup_ci_logs_proxy(config):
                     print_success("github-actions-terraform granted Service Account User role")
             else:
                 print_info("github-actions-terraform already has Service Account User permissions")
+
+            # Grant Storage Admin (for buckets and state management)
+            print_info("Granting Storage Admin permissions...")
+            has_storage_permission = False
+            if project_policy:
+                try:
+                    policy = json.loads(project_policy)
+                    member = f"serviceAccount:{terraform_sa_email}"
+                    for binding in policy.get('bindings', []):
+                        if binding.get('role') == 'roles/storage.admin':
+                            if member in binding.get('members', []):
+                                has_storage_permission = True
+                                break
+                except json.JSONDecodeError:
+                    pass
+
+            if not has_storage_permission:
+                result = run_command(
+                    f'gcloud projects add-iam-policy-binding {config["project_id"]} '
+                    f'--member="serviceAccount:{terraform_sa_email}" '
+                    f'--role="roles/storage.admin" '
+                    f'--condition=None --quiet 2>&1',
+                    check=False
+                )
+                if result and ("Updated IAM policy" in result or "bindings:" in result):
+                    print_success("github-actions-terraform granted Storage Admin role")
+            else:
+                print_info("github-actions-terraform already has Storage Admin permissions")
+
+            # Grant Compute Load Balancer Admin (for CDN and load balancing)
+            print_info("Granting Compute Load Balancer Admin permissions...")
+            has_compute_lb_permission = False
+            if project_policy:
+                try:
+                    policy = json.loads(project_policy)
+                    member = f"serviceAccount:{terraform_sa_email}"
+                    for binding in policy.get('bindings', []):
+                        if binding.get('role') == 'roles/compute.loadBalancerAdmin':
+                            if member in binding.get('members', []):
+                                has_compute_lb_permission = True
+                                break
+                except json.JSONDecodeError:
+                    pass
+
+            if not has_compute_lb_permission:
+                result = run_command(
+                    f'gcloud projects add-iam-policy-binding {config["project_id"]} '
+                    f'--member="serviceAccount:{terraform_sa_email}" '
+                    f'--role="roles/compute.loadBalancerAdmin" '
+                    f'--condition=None --quiet 2>&1',
+                    check=False
+                )
+                if result and ("Updated IAM policy" in result or "bindings:" in result):
+                    print_success("github-actions-terraform granted Compute Load Balancer Admin role")
+            else:
+                print_info("github-actions-terraform already has Compute Load Balancer Admin permissions")
+
+            # Grant Compute Network Admin (for IP addresses)
+            print_info("Granting Compute Network Admin permissions...")
+            has_compute_net_permission = False
+            if project_policy:
+                try:
+                    policy = json.loads(project_policy)
+                    member = f"serviceAccount:{terraform_sa_email}"
+                    for binding in policy.get('bindings', []):
+                        if binding.get('role') == 'roles/compute.networkAdmin':
+                            if member in binding.get('members', []):
+                                has_compute_net_permission = True
+                                break
+                except json.JSONDecodeError:
+                    pass
+
+            if not has_compute_net_permission:
+                result = run_command(
+                    f'gcloud projects add-iam-policy-binding {config["project_id"]} '
+                    f'--member="serviceAccount:{terraform_sa_email}" '
+                    f'--role="roles/compute.networkAdmin" '
+                    f'--condition=None --quiet 2>&1',
+                    check=False
+                )
+                if result and ("Updated IAM policy" in result or "bindings:" in result):
+                    print_success("github-actions-terraform granted Compute Network Admin role")
+            else:
+                print_info("github-actions-terraform already has Compute Network Admin permissions")
         else:
             print(f"\n{Colors.YELLOW}WARNING: github-actions-terraform service account not found.{Colors.NC}")
             print("This is expected if you haven't run Terraform yet.")
