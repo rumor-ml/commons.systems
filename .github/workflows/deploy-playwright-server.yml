@@ -104,8 +104,10 @@ jobs:
             --timeout 900 \
             --cpu 2 \
             --memory 4Gi \
-            --min-instances 0 \
+            --min-instances 1 \
             --max-instances 1 \
+            --cpu-throttling \
+            --concurrency 10 \
             --set-env-vars NODE_ENV=production
 
       - name: Get service URL
