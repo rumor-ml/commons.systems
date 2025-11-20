@@ -77,10 +77,7 @@
 
         # Development shell with all tools
         devShell = pkgs.mkShell {
-          buildInputs = commonTools ++ [
-            # Playwright dependencies (for running tests)
-            pkgs.playwright-driver.browsers
-          ];
+          buildInputs = commonTools;
 
           shellHook = ''
             echo "🚀 Fellspiral development environment loaded"
@@ -93,8 +90,8 @@
             echo "  - terraform v$(terraform version -json | jq -r .terraform_version)"
             echo ""
 
-            # Set up Playwright
-            export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+            # Set up Playwright - use writable cache directory
+            export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
             export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
             # Ensure npm install works properly
@@ -128,14 +125,13 @@
 
         # CI shell with same tools but no interactive features
         ciShell = pkgs.mkShell {
-          buildInputs = commonTools ++ [
-            # Playwright dependencies
-            pkgs.playwright-driver.browsers
-          ];
+          buildInputs = commonTools;
 
           shellHook = ''
-            # Set up Playwright
-            export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+            # Set up Playwright - use environment variable if set, otherwise use default writable path
+            if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+              export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+            fi
             export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
             # Ensure npm install works properly

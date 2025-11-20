@@ -21,16 +21,22 @@ test.describe('Performance', () => {
   test('should have CSS loaded', async ({ page }) => {
     await page.goto('/');
 
-    // Check that styles are applied by checking computed color
+    // Wait for CSS to be loaded
+    await page.waitForLoadState('domcontentloaded');
+
+    // Check that styles are applied by checking computed styles
     const hero = page.locator('.hero');
     await expect(hero).toBeVisible();
 
-    const bgColor = await hero.evaluate((el) => {
-      return window.getComputedStyle(el).backgroundColor;
+    // Wait a bit for styles to be applied
+    await page.waitForTimeout(100);
+
+    const bgImage = await hero.evaluate((el) => {
+      return window.getComputedStyle(el).backgroundImage;
     });
 
-    // Should have a background color set (not transparent/default)
-    expect(bgColor).not.toBe('rgba(0, 0, 0, 0)');
+    // Should have a gradient background (not none)
+    expect(bgImage).toContain('linear-gradient');
   });
 
   test('should have JavaScript loaded and functional', async ({ page }) => {

@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Equipment Section', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/#equipment');
+    // Wait for JavaScript to load and attach event listeners
+    await page.waitForLoadState('networkidle');
   });
 
   test('should display equipment tabs', async ({ page }) => {
@@ -69,7 +71,12 @@ test.describe('Equipment Section', () => {
   });
 
   test('should display skills when skills tab clicked', async ({ page }) => {
-    await page.click('text=Skills');
+    // Click the specific skills tab button
+    await page.click('.tab-btn[data-tab="skills"]');
+
+    // Wait for skills tab content to become active
+    const skillsContent = page.locator('#skills');
+    await expect(skillsContent).toHaveClass('tab-content active');
 
     // Check skill categories
     await expect(page.locator('h3', { hasText: 'Attack Skills' })).toBeVisible();
