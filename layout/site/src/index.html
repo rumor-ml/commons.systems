@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Layout Module - Digest Booklet Composer</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <h1>Layout Module</h1>
+      <p class="subtitle">Browser-based digest booklet composition</p>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-button active" data-tab="templates">Templates</button>
+      <button class="tab-button" data-tab="cards">Cards</button>
+      <button class="tab-button" data-tab="card-pairs">Card Pairs</button>
+      <button class="tab-button" data-tab="documents">Documents</button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Templates Tab -->
+      <section id="templates-tab" class="tab-content active">
+        <div class="content-header">
+          <h2>Templates</h2>
+          <button id="create-template-btn" class="btn btn-primary">+ New Template</button>
+        </div>
+        <div id="templates-list" class="items-list">
+          <p class="loading">Loading templates...</p>
+        </div>
+      </section>
+
+      <!-- Cards Tab -->
+      <section id="cards-tab" class="tab-content">
+        <div class="content-header">
+          <h2>Cards</h2>
+          <div class="header-actions">
+            <input type="text" id="cards-search" class="search-input" placeholder="Search cards...">
+            <button id="create-card-btn" class="btn btn-primary">+ New Card</button>
+          </div>
+        </div>
+        <div class="filters">
+          <div class="tag-filters">
+            <label>Tags:</label>
+            <div id="tag-filter-list" class="tag-list"></div>
+          </div>
+          <div class="filter-mode">
+            <label>
+              <input type="radio" name="filter-mode" value="or" checked> OR
+            </label>
+            <label>
+              <input type="radio" name="filter-mode" value="and"> AND
+            </label>
+          </div>
+        </div>
+        <div id="cards-list" class="items-list cards-grid">
+          <p class="loading">Loading cards...</p>
+        </div>
+      </section>
+
+      <!-- Card Pairs Tab -->
+      <section id="card-pairs-tab" class="tab-content">
+        <div class="content-header">
+          <h2>Card Pairs</h2>
+          <button id="create-pair-btn" class="btn btn-primary">+ New Card Pair</button>
+        </div>
+        <div id="pairs-list" class="items-list">
+          <p class="loading">Loading card pairs...</p>
+        </div>
+      </section>
+
+      <!-- Documents Tab -->
+      <section id="documents-tab" class="tab-content">
+        <div class="documents-layout">
+          <!-- Left Sidebar: Group Tree -->
+          <aside class="group-tree-sidebar">
+            <div class="sidebar-header">
+              <h3>Groups</h3>
+              <button id="create-group-btn" class="btn btn-sm">+ Group</button>
+            </div>
+            <div id="group-tree" class="tree-container">
+              <p class="loading">Loading groups...</p>
+            </div>
+          </aside>
+
+          <!-- Main Document Area -->
+          <div class="documents-main">
+            <div id="document-list-view" class="document-view">
+              <div class="content-header">
+                <h2>Documents</h2>
+                <button id="create-document-btn" class="btn btn-primary">+ New Document</button>
+              </div>
+              <div id="documents-list" class="items-list">
+                <p class="empty-state">Select a group or create a new document</p>
+              </div>
+            </div>
+
+            <div id="document-editor-view" class="document-view hidden">
+              <!-- Document Editor (loaded dynamically) -->
+              <div class="editor-header">
+                <button id="back-to-documents-btn" class="btn">← Back</button>
+                <h2 id="document-title">Untitled Document</h2>
+                <div class="editor-actions">
+                  <button id="save-document-btn" class="btn">Save</button>
+                  <button id="export-pdf-btn" class="btn btn-primary">Export PDF</button>
+                </div>
+              </div>
+              <div id="document-editor" class="editor-container">
+                <!-- Pages will be rendered here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Layout Module - Create, edit, and export print-ready digest booklets</p>
+    </footer>
+  </div>
+
+  <!-- Modal Container (for dialogs) -->
+  <div id="modal-container"></div>
+
+  <!-- Main Application Script -->
+  <script type="module" src="./scripts/main.js"></script>
+</body>
+</html>
