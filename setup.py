@@ -119,7 +119,7 @@ def get_project_info():
 
 def enable_apis(config):
     """Enable all required GCP APIs (idempotent - safe to run multiple times)."""
-    print_step(1, 4, "Enabling required GCP APIs...")
+    print_step(1, 5, "Enabling required GCP APIs...")
 
     # Set project
     run_command(f"gcloud config set project {config['project_id']}", capture_output=False)
@@ -145,7 +145,7 @@ def enable_apis(config):
 
 def setup_workload_identity(config):
     """Set up Workload Identity Federation for keyless auth."""
-    print_step(2, 4, "Setting up Workload Identity Federation...")
+    print_step(2, 5, "Setting up Workload Identity Federation...")
 
     # Get project number
     project_number = run_command(
@@ -209,7 +209,7 @@ def setup_workload_identity(config):
 
 def create_service_account(config):
     """Create service account and bind to Workload Identity."""
-    print_step(3, 4, "Creating GitHub Actions service account...")
+    print_step(3, 5, "Creating GitHub Actions service account...")
 
     sa_name = "github-actions-terraform"
     sa_email = f"{sa_name}@{config['project_id']}.iam.gserviceaccount.com"
@@ -279,7 +279,7 @@ def create_service_account(config):
 
 def setup_ci_logs_proxy(config):
     """Set up CI logs proxy prerequisites (Artifact Registry repo and secret)."""
-    print_step(4, 4, "Setting up CI Logs Proxy prerequisites...")
+    print_step(4, 5, "Setting up CI Logs Proxy prerequisites...")
 
     # Create Artifact Registry repository for Docker images
     print_info("Creating Artifact Registry repository...")
@@ -666,6 +666,82 @@ def setup_ci_logs_proxy(config):
             print("This is expected if you haven't run Terraform yet.")
             print("The service account will be created by your first Terraform run.")
 
+def initialize_firebase(config):
+    """Initialize Firebase on the GCP project."""
+    print_step(5, 5, "Initializing Firebase on GCP project...")
+
+    # Check if Firebase is already initialized
+    print_info("Checking if Firebase is already initialized...")
+    check_result = run_command(
+        f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'"https://firebase.googleapis.com/v1beta1/projects/{config["project_id"]}" '
+        f'-w "\\n%{{http_code}}"',
+        check=False
+    )
+
+    if check_result:
+        lines = check_result.strip().split('\n')
+        http_code = lines[-1] if lines else ""
+        response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
+
+        if http_code == "200":
+            print_info("Firebase is already initialized on this project")
+            try:
+                # Try to parse and display project info
+                import json
+                project_data = json.loads(response_body)
+                if 'projectId' in project_data:
+                    print_success(f"Firebase project: {project_data.get('projectId')}")
+            except:
+                pass
+            return
+
+    # Initialize Firebase via API
+    print_info("Firebase not initialized. Adding Firebase to project...")
+    add_result = run_command(
+        f'curl -s -X POST '
+        f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'-H "Content-Type: application/json" '
+        f'"https://firebase.googleapis.com/v1beta1/projects/{config["project_id"]}:addFirebase" '
+        f'-w "\\n%{{http_code}}"',
+        check=False
+    )
+
+    if add_result:
+        lines = add_result.strip().split('\n')
+        http_code = lines[-1] if lines else ""
+        response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
+
+        if http_code in ["200", "201"]:
+            print_success("Successfully added Firebase to project")
+            try:
+                import json
+                project_data = json.loads(response_body)
+                if 'projectId' in project_data:
+                    print_success(f"Firebase project ID: {project_data.get('projectId')}")
+            except:
+                pass
+        else:
+            # Check if error indicates Firebase already exists
+            try:
+                import json
+                error_data = json.loads(response_body)
+                error_msg = error_data.get('error', {}).get('message', '')
+
+                if 'already exists' in error_msg.lower() or 'ALREADY_EXISTS' in error_msg:
+                    print_info("Firebase is already initialized on this project")
+                else:
+                    print(f"\n{Colors.YELLOW}Warning: Could not initialize Firebase via API{Colors.NC}")
+                    print(f"{Colors.YELLOW}Error: {error_msg}{Colors.NC}")
+                    print(f"\n{Colors.YELLOW}You may need to initialize Firebase manually:{Colors.NC}")
+                    print("1. Go to: https://console.firebase.google.com/")
+                    print(f"2. Create a project and select existing GCP project: {config['project_id']}")
+                    print("")
+            except:
+                print(f"\n{Colors.YELLOW}Warning: Could not initialize Firebase via API (HTTP {http_code}){Colors.NC}")
+                print(f"{Colors.YELLOW}You may need to initialize Firebase manually at:{Colors.NC}")
+                print("https://console.firebase.google.com/")
+
 def generate_github_secrets(config):
     """Generate and display GitHub secrets."""
     print_header("Pre-Terraform Setup Complete! ✓")
@@ -818,6 +894,7 @@ def main():
         setup_workload_identity(config)
         create_service_account(config)
         setup_ci_logs_proxy(config)
+        initialize_firebase(config)
         generate_github_secrets(config)
 
     except KeyboardInterrupt:

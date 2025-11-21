@@ -34,89 +34,52 @@ User Browser → Firebase SDK (client-side)
 
 ## Setup
 
-### Automated Setup
+### One-Time Setup
 
-Firebase configuration and storage rules are **automatically deployed** via CI/CD. No manual setup required!
+Run the setup script at the repository root:
 
-**Prerequisites:**
-1. Run `python3 setup.py` at repository root (enables Firebase APIs)
-2. Ensure `rml-media` GCS bucket exists with videos in `video/` directory
-3. Enable Firebase on your GCP project (one-time, see below)
+```bash
+python3 setup.py
+```
 
-**How it works:**
-- The deployment workflow (`.github/workflows/deploy-videobrowser.yml`) automatically:
-  1. Fetches Firebase configuration via GCP API
-  2. Injects config into `firebase-config.js` during build
-  3. Deploys Firebase Storage security rules
-  4. Builds and deploys the application
+This script will:
+1. ✅ Enable all required GCP APIs (including Firebase APIs)
+2. ✅ Set up Workload Identity Federation
+3. ✅ Create service accounts
+4. ✅ Configure Artifact Registry
+5. ✅ **Initialize Firebase on your GCP project**
+6. ✅ Optionally create GitHub secrets
+
+After running `setup.py`, Firebase will be fully configured and ready to use.
+
+### Automated Deployment
+
+Firebase configuration and storage rules are **automatically deployed** via CI/CD:
+
+**The deployment workflow** (`.github/workflows/deploy-videobrowser.yml`) automatically:
+1. Fetches Firebase configuration via GCP API
+2. Injects config into `firebase-config.js` during build
+3. Deploys Firebase Storage security rules
+4. Builds and deploys the application
 
 **All logic is inline in the workflow** - no separate scripts needed.
 
-### Firebase Initialization (One-time) ⚠️ REQUIRED
+### Prerequisites
 
-**IMPORTANT:** You MUST initialize Firebase on your GCP project before deployment will work.
+- GCP project (`chalanding`)
+- `rml-media` GCS bucket exists with videos in `video/` directory
+- `gcloud` CLI installed and authenticated
 
-Running `setup.py` only enables the APIs - it doesn't initialize Firebase itself.
+### If Firebase Initialization Fails
 
-#### Option 1: Programmatic Initialization (Recommended)
-
-Use the provided script to initialize Firebase via API:
-
-```bash
-# From repository root
-./init-firebase.sh chalanding
-```
-
-The script will:
-- Check if Firebase is already initialized
-- Add Firebase to your GCP project if needed
-- Verify the initialization succeeded
-
-**This is the easiest method** and matches the infrastructure-as-code approach.
-
-#### Option 2: Firebase Console (Alternative)
-
-If you prefer the console UI or the script fails:
+If the `setup.py` script fails to initialize Firebase automatically, you can do it manually:
 
 1. **Go to:** https://console.firebase.google.com/
-2. **Click "Create a project"** (NOT "Add project")
-3. **When prompted for project name, look for the dropdown**
-4. **Select your existing GCP project** `chalanding` from the list
-5. **Accept Firebase terms and click Continue**
-6. **Disable Google Analytics** (optional for this use case)
-7. **Click "Continue"** to finish
-
-Note: The Firebase Console UI can be confusing - it says "Create" but you're actually selecting an existing project.
-
-#### What This Does:
-
-- Links your GCP project to Firebase
-- Enables Firebase to manage your GCS bucket (`rml-media`)
-- Allows the deployment workflow to fetch configuration and deploy rules
-
-#### Without This Step:
-
-- ❌ Deployment will fail with "Firebase API error"
-- ❌ Firebase config will not be injected (placeholder values remain)
-- ❌ Site will show "0 videos" even if videos exist in GCS
-
-#### Verification:
-
-After initialization, verify it worked:
-```bash
-# Check Firebase is initialized
-curl -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-  "https://firebase.googleapis.com/v1beta1/projects/chalanding" | jq '.projectId'
-```
-
-Should return: `"chalanding"`
-
-#### Prerequisites:
-
-The `setup.py` script must be run first to enable these APIs:
-- `firebase.googleapis.com`
-- `firebaserules.googleapis.com`
-- `firebasestorage.googleapis.com`
+2. **Click "Create a project"**
+3. **Select your existing GCP project** `chalanding` from the dropdown
+4. **Accept Firebase terms and click Continue**
+5. **Disable Google Analytics** (optional)
+6. **Click "Continue"** to finish
 
 ### Storage Security Rules
 
