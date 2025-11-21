@@ -238,7 +238,7 @@ def create_service_account(config):
         check=False
     )
 
-    # Check for incorrect or old bindings and remove them
+    # Check if the correct binding exists
     binding_exists = False
     if existing_bindings:
         try:
@@ -249,15 +249,9 @@ def create_service_account(config):
                         if existing_member == member:
                             binding_exists = True
                             print_info("Correct workload identity binding already exists")
-                        elif 'workloadIdentityPools' in existing_member:
-                            # Remove old/incorrect binding
-                            print_info(f"Removing old binding: {existing_member}")
-                            run_command(
-                                f'gcloud iam service-accounts remove-iam-policy-binding {sa_email} '
-                                f'--member="{existing_member}" '
-                                f'--role="roles/iam.workloadIdentityUser" --quiet 2>/dev/null',
-                                check=False
-                            )
+                            break
+                    # Note: We don't remove other bindings - they may be intentional
+                    # Multiple workload identity bindings are valid (e.g., for different repos)
         except json.JSONDecodeError:
             pass
 
