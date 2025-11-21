@@ -8,7 +8,9 @@
     "fellspiral/site",
     "fellspiral/tests",
     "videobrowser/site",
-    "videobrowser/tests"
+    "videobrowser/tests",
+    "audioupload/site",
+    "audioupload/tests"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=fellspiral/site",
@@ -21,9 +23,20 @@
     "test:videobrowser": "npm test --workspace=videobrowser/tests",
     "test:videobrowser:deployed": "npm run test:deployed --workspace=videobrowser/tests",
     "preview:videobrowser": "npm run preview --workspace=videobrowser/site",
-    "seed:firestore": "node fellspiral/scripts/seed-firestore.js"
+    "seed:firestore": "node fellspiral/scripts/seed-firestore.js",
+    "dev:audioupload": "npm run dev --workspace=audioupload/site",
+    "build:audioupload": "npm run build --workspace=audioupload/site",
+    "test:audioupload": "npm test --workspace=audioupload/tests",
+    "test:audioupload:deployed": "npm run test:deployed --workspace=audioupload/tests"
   },
-  "keywords": ["monorepo", "fellspiral", "tabletop", "rpg", "videobrowser", "gcs"],
+  "keywords": [
+    "monorepo",
+    "fellspiral",
+    "tabletop",
+    "rpg",
+    "videobrowser",
+    "gcs"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {

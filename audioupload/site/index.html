@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Upload Manager</title>
+  <link rel="stylesheet" href="/src/styles/main.css">
+  <link rel="stylesheet" href="/shared-components/upload/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Audio Upload Manager</h1>
+      <p>Upload and organize your audio files to Google Cloud Storage</p>
+    </header>
+
+    <main>
+      <section id="job-starter-section">
+        <!-- Upload job starter will be rendered here -->
+      </section>
+
+      <section id="active-jobs-section">
+        <h2>Active Jobs</h2>
+        <div id="active-jobs-list"></div>
+      </section>
+
+      <section id="job-monitor-section" style="display: none;">
+        <h2>Job Monitor</h2>
+        <div id="job-monitor-container"></div>
+        <div id="job-controls-container"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Powered by GCS Upload Library</p>
+    </footer>
+  </div>
+
+  <script type="module" src="/src/scripts/main.js"></script>
+</body>
+</html>
