@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+  push:
+    branches:
+      - claude/use-deployed-playwright-server-0191587orbaBcCpdDXYodgNQ
+    paths:
+      - '.github/workflows/deploy-playwright-server.yml'
 
 env:
   GCP_REGION: us-central1
@@ -102,7 +107,7 @@ jobs:
             --allow-unauthenticated \
             --service-account playwright-server@${{ steps.project.outputs.project_id }}.iam.gserviceaccount.com \
             --timeout 900 \
-            --cpu 4 \
+            --cpu 1 \
             --memory 8Gi \
             --min-instances 0 \
             --max-instances 1 \
@@ -149,4 +154,4 @@ jobs:
           echo "- Run Tests: \`POST ${{ steps.service.outputs.url }}/api/test\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Status: \`GET ${{ steps.service.outputs.url }}/api/test/{id}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Report: \`GET ${{ steps.service.outputs.url }}/api/reports/{id}\`" >> $GITHUB_STEP_SUMMARY
-          # Configuration: 4 CPU / 8Gi memory, scale-to-zero enabled (cost-optimized)
+          # Configuration: 1 CPU / 8Gi memory, scale-to-zero enabled (maximum cost optimization)
