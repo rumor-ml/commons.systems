@@ -27,7 +27,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 4 : undefined,
+  // CDP connections require single worker (one browser instance)
+  workers: process.env.PLAYWRIGHT_CDP_URL ? 1 : (process.env.CI ? 4 : undefined),
   timeout: 60000, // 60-second timeout per test
   reporter: [
     ['html'],

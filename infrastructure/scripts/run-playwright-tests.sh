@@ -100,6 +100,7 @@ export DEPLOYED=true
 export DEPLOYED_URL="$SITE_URL"
 export CI=true
 
-npx playwright test --project chromium --workers 4
+# Run tests (worker count determined by playwright.config.js based on CDP usage)
+npx playwright test --project chromium
 
 echo "✅ Playwright tests passed for $SITE_NAME"
