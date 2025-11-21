@@ -54,3 +54,4 @@ result-*
 .npm-cache/
 
 # Trigger CI workflow test - forcing sync
+__pycache__/
