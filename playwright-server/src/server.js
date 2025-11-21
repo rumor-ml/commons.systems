@@ -67,19 +67,17 @@ async function validateToken(authHeader) {
 
   try {
     // Verify the token with Google's OAuth2 service
-    // Skip audience validation to support both direct service account and Workload Identity Federation
-    // The token signature and issuer (Google) are still validated
+    // Accept tokens with this service's URL as audience
     const ticket = await oauth2Client.verifyIdToken({
       idToken: token,
-      // No audience specified - accept any Google-signed token
+      audience: `https://playwright-server-4yac44qrwa-uc.a.run.app`,
     });
 
     const payload = ticket.getPayload();
 
-    console.log(`[AUTH] Token payload - email: ${payload.email}, aud: ${payload.aud}`);
+    console.log(`[AUTH] Token verified - email: ${payload.email}, aud: ${payload.aud}`);
 
-    // Validate the token is from our project's service account or authorized identity
-    // For Workload Identity Federation, the email might be a service account from our project
+    // Validate the token is from our project's service account
     if (!payload.email || !payload.email.includes(GCP_PROJECT_ID)) {
       console.warn(`[AUTH] Invalid service account: ${payload.email} (expected project: ${GCP_PROJECT_ID})`);
       return null;

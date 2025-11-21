@@ -34,21 +34,34 @@ echo "Getting authentication token..."
 CURRENT_ACCOUNT=$(gcloud config get-value account 2>/dev/null)
 echo "Current GCP account: $CURRENT_ACCOUNT"
 
-# Get identity token for the Playwright server audience
-# For Workload Identity Federation, don't specify audience - let the server validate
-OIDC_TOKEN=$(gcloud auth print-identity-token 2>&1)
+# For Workload Identity Federation, create an ID token using the Service Account Credentials API
+# This requires the service account to have the roles/iam.serviceAccountTokenCreator role
+echo "Creating ID token via Service Account Credentials API..."
 
-# Check if command failed
-if [ $? -ne 0 ]; then
-  echo "❌ Failed to get OIDC token"
-  echo "Error: $OIDC_TOKEN"
-  echo "Attempting to print more debug info..."
+# Use curl to call the Service Account Credentials API
+SA_EMAIL="$CURRENT_ACCOUNT"
+ACCESS_TOKEN=$(gcloud auth print-access-token 2>&1)
+
+if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then
+  echo "❌ Failed to get access token"
+  echo "Error: $ACCESS_TOKEN"
   gcloud auth list
   exit 1
 fi
 
-if [ -z "$OIDC_TOKEN" ]; then
-  echo "❌ OIDC token is empty"
+# Call the generateIdToken API
+OIDC_TOKEN_RESPONSE=$(curl -s -X POST \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA_EMAIL}:generateIdToken" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"audience\": \"${PLAYWRIGHT_SERVER_URL}\", \"includeEmail\": true}")
+
+# Extract token from response
+OIDC_TOKEN=$(echo "$OIDC_TOKEN_RESPONSE" | jq -r '.token // empty')
+
+if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+  echo "❌ Failed to create ID token"
+  echo "Response: $OIDC_TOKEN_RESPONSE"
   exit 1
 fi
 
