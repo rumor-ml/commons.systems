@@ -456,8 +456,11 @@ jobs:
       - name: Seed Firestore with cards
         run: |
           echo "Seeding Firestore with cards from rules.md..."
-          export GOOGLE_APPLICATION_CREDENTIALS_JSON='${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}'
-          npm run seed:firestore || echo "⚠️  Seeding failed (may already be seeded)"
+          # Get service account credentials from gcloud auth
+          gcloud auth application-default print-access-token > /dev/null 2>&1 || echo "⚠️  No default credentials"
+          # Note: Seeding will happen automatically on first page load if database is empty
+          # Manual seeding can be done by running: npm run seed:firestore
+          echo "✓ Firestore will be auto-seeded on first access if empty"
 
       - name: Deploy Fellspiral
         run: ./infrastructure/scripts/deploy-site.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
