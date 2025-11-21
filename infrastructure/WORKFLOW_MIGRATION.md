@@ -35,13 +35,15 @@ The new architecture uses a single `push.yml` workflow with clearly defined job 
    - Deploy Videobrowser (if changed)
    - Depends on: Local Tests, Infrastructure
 
-4. **Playwright Tests** (against deployed sites)
-   - Run tests for each deployed site
-   - Depends on: Deploy jobs
+4. **Playwright Tests** (parallel, per site)
+   - Test Fellspiral (depends only on: Deploy Fellspiral, Playwright Server)
+   - Test Videobrowser (depends only on: Deploy Videobrowser, Playwright Server)
+   - Each site's tests run independently in parallel
 
 5. **Rollback** (on failure, only on main)
-   - Automatically rollback failed deployments
-   - Depends on: Deploy, Playwright Tests
+   - Rollback Fellspiral (depends on: Deploy Fellspiral, Playwright Tests Fellspiral)
+   - Rollback Videobrowser (depends on: Deploy Videobrowser, Playwright Tests Videobrowser)
+   - Each site rolls back independently if its tests fail
 
 ## Common Logic Extracted
 

@@ -331,17 +331,16 @@ jobs:
       - name: Wait for service to be ready
         run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
 
-  # ==================== Step 4: Playwright Tests (against deployed sites) ====================
-  playwright-tests:
-    name: Playwright Tests
+  # ==================== Step 4: Playwright Tests (in parallel, per site) ====================
+  playwright-tests-fellspiral:
+    name: Playwright Tests - Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [local-tests, deploy-playwright-server, deploy-fellspiral, deploy-videobrowser]
-    # Run if local tests passed and at least one site was deployed
+    needs: [deploy-fellspiral, deploy-playwright-server]
+    # Run only if fellspiral was deployed successfully
     if: |
       always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.deploy-fellspiral.result == 'success' || needs.deploy-videobrowser.result == 'success')
+      needs.deploy-fellspiral.result == 'success'
 
     steps:
       - name: Checkout code
@@ -381,15 +380,60 @@ jobs:
           echo "Playwright Server URL: ${URL}"
 
       - name: Test Fellspiral
-        if: needs.deploy-fellspiral.result == 'success'
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.service-url }}
           CI: true
 
+  playwright-tests-videobrowser:
+    name: Playwright Tests - Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [deploy-videobrowser, deploy-playwright-server]
+    # Run only if videobrowser was deployed successfully
+    if: |
+      always() &&
+      needs.deploy-videobrowser.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          # Use deployed URL if available, otherwise get the production URL
+          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
+          else
+            URL=$(gcloud run services describe playwright-server \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
       - name: Test Videobrowser
-        if: needs.deploy-videobrowser.result == 'success'
         run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
@@ -401,11 +445,11 @@ jobs:
     name: Rollback Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [deploy-fellspiral, playwright-tests]
+    needs: [deploy-fellspiral, playwright-tests-fellspiral]
     if: |
       always() &&
       needs.deploy-fellspiral.result == 'success' &&
-      needs.playwright-tests.result == 'failure' &&
+      needs.playwright-tests-fellspiral.result == 'failure' &&
       github.ref == 'refs/heads/main'
 
     steps:
@@ -456,11 +500,11 @@ jobs:
     name: Rollback Videobrowser
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [deploy-videobrowser, playwright-tests]
+    needs: [deploy-videobrowser, playwright-tests-videobrowser]
     if: |
       always() &&
       needs.deploy-videobrowser.result == 'success' &&
-      needs.playwright-tests.result == 'failure' &&
+      needs.playwright-tests-videobrowser.result == 'failure' &&
       github.ref == 'refs/heads/main'
 
     steps:
