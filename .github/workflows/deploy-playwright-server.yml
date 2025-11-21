@@ -107,7 +107,7 @@ jobs:
             --allow-unauthenticated \
             --service-account playwright-server@${{ steps.project.outputs.project_id }}.iam.gserviceaccount.com \
             --timeout 900 \
-            --cpu 2 \
+            --cpu 4 \
             --memory 8Gi \
             --min-instances 0 \
             --max-instances 1 \
