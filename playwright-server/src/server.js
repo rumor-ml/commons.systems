@@ -241,8 +241,6 @@ async function launchBrowser() {
   browserInstance = await chromium.launch({
     headless: true,
     args: [
-      '--remote-debugging-port=9222',
-      '--remote-debugging-address=127.0.0.1', // localhost only!
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
@@ -250,26 +248,9 @@ async function launchBrowser() {
     ]
   });
 
-  // Query Chrome's DevTools JSON endpoint to get the CDP WebSocket URL
-  try {
-    const http = await import('http');
-    const response = await new Promise((resolve, reject) => {
-      http.get('http://127.0.0.1:9222/json/version', (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-        res.on('error', reject);
-      }).on('error', reject);
-    });
-
-    cdpEndpoint = response.webSocketDebuggerUrl;
-    console.log(`[BROWSER] Chrome launched with CDP endpoint: ${cdpEndpoint}`);
-  } catch (error) {
-    console.error(`[BROWSER] Failed to get CDP endpoint from Chrome: ${error.message}`);
-    // Fallback: try to construct it
-    cdpEndpoint = 'ws://127.0.0.1:9222/devtools/browser';
-    console.log(`[BROWSER] Using fallback CDP endpoint: ${cdpEndpoint}`);
-  }
+  // Get CDP WebSocket endpoint directly from Playwright browser instance
+  cdpEndpoint = browserInstance.wsEndpoint();
+  console.log(`[BROWSER] Chrome launched with CDP endpoint: ${cdpEndpoint}`);
 
   // Handle browser close
   browserInstance.on('disconnected', () => {
