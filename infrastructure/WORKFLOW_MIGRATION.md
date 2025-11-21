@@ -33,6 +33,8 @@ The new architecture uses a single `push.yml` workflow with clearly defined job 
    - Deploy Playwright Server (if changed and on main)
    - Deploy Fellspiral (if changed)
    - Deploy Videobrowser (if changed)
+     - Includes Firebase configuration injection
+     - Deploys Firebase Storage rules
    - Depends on: Local Tests, Infrastructure
 
 4. **Playwright Tests** (parallel, per site)
