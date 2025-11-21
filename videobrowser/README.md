@@ -52,19 +52,46 @@ Firebase configuration and storage rules are **automatically deployed** via CI/C
 
 **All logic is inline in the workflow** - no separate scripts needed.
 
-### Firebase Console Setup (One-time)
+### Firebase Console Setup (One-time) ⚠️ REQUIRED
 
-If Firebase is not enabled on your GCP project:
+**IMPORTANT:** You MUST initialize Firebase on your GCP project before deployment will work.
 
-1. Go to https://console.firebase.google.com/
-2. Click "Add project"
-3. Select existing GCP project (`chalanding`)
-4. Follow setup wizard
+Running `setup.py` only enables the APIs - it doesn't initialize Firebase itself.
 
-Or run `python3 setup.py` which enables the required APIs:
+#### Steps to Initialize Firebase:
+
+1. **Go to Firebase Console:** https://console.firebase.google.com/
+2. **Click "Add project"**
+3. **Select your existing GCP project** (`chalanding`)
+4. **Complete the setup wizard:**
+   - Accept Firebase terms
+   - Disable Google Analytics (optional for this use case)
+   - Click "Continue"
+
+5. **Verify Firebase is enabled:**
+   - You should see your project in the Firebase Console
+   - The project dashboard should load successfully
+
+#### What This Does:
+
+- Links your GCP project to Firebase
+- Enables Firebase to manage your GCS bucket (`rml-media`)
+- Allows the deployment workflow to fetch configuration and deploy rules
+
+#### Without This Step:
+
+- ❌ Deployment will fail with "Firebase API error"
+- ❌ Firebase config will not be injected (placeholder values remain)
+- ❌ Site will show "0 videos" even if videos exist in GCS
+
+#### After Running `setup.py`:
+
+The `setup.py` script enables these required APIs:
 - `firebase.googleapis.com`
 - `firebaserules.googleapis.com`
 - `firebasestorage.googleapis.com`
+
+But you still need to initialize Firebase via the console (steps above).
 
 ### Storage Security Rules
 
