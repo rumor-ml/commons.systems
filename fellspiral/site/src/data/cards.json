@@ -1,0 +1,797 @@
+[
+  {
+    "title": "Bayonet",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "Can be equipped at same time as firearm."
+    ],
+    "description": "d4",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "bayonet",
+    "createdAt": "2025-11-20T19:16:03.731Z",
+    "updatedAt": "2025-11-20T19:16:03.731Z"
+  },
+  {
+    "title": "Crossbow",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "1-2 ranged",
+      "-1c",
+      "2h",
+      "precise"
+    ],
+    "description": "d8",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "crossbow",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Dagger",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "0-1 thrown",
+      "precise"
+    ],
+    "description": "d4",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "dagger",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Flintlock Pistol",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "0-1 ranged",
+      "d8r",
+      "noisy"
+    ],
+    "description": "d4",
+    "stat1": "4 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "flintlock-pistol",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Great Axe",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "2 adjacent",
+      "2h",
+      "swept",
+      "brutish",
+      "d4r"
+    ],
+    "description": "d8",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "great-axe",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Great Sword",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "swept",
+      "brutish",
+      "2h",
+      "d4r"
+    ],
+    "description": "d8",
+    "stat1": "4 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "great-sword",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Halberd",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "reach",
+      "2h"
+    ],
+    "description": "Defender cannot move adjacent for 1 round.",
+    "stat1": "d10",
+    "stat2": "2 slot",
+    "cost": "5 pt",
+    "id": "halberd",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Long Bow",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "1x",
+      "1-4 ranged",
+      "-1z2-3",
+      "-2z4",
+      "2h",
+      "precise"
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "long-bow",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Long Sword",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "2h",
+      "-1c",
+      "swept",
+      "precise"
+    ],
+    "description": "Can use with 1 hand, but cannot equip a second weapon, weapon die is d8 and ignore <chip>-1c</chip>.",
+    "stat1": "d10",
+    "stat2": "2 slot",
+    "cost": "5 pt",
+    "id": "long-sword",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Musket",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "2x",
+      "1-4 ranged",
+      "-2z2-3",
+      "-3z4",
+      "d8r",
+      "noisy",
+      "2h"
+    ],
+    "description": "d6",
+    "stat1": "4 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "musket",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Pick Hammer",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "Reduce AC by 1 per strike."
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "pick-hammer",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Scimitar",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "swept",
+      "precise",
+      "1 adjacent"
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "scimitar",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Short Bow",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "0-2 ranged",
+      "-4z1",
+      "2h",
+      "precise"
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "short-bow",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Short Sword",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "precise"
+    ],
+    "description": "d8",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "short-sword",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Spear",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "0-1 thrown",
+      "-4z1",
+      "reach",
+      "precise"
+    ],
+    "description": "d8",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "spear",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Studded Mace",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "On crit, stun for 3 phases."
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "studded-mace",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Tomahawk",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "1x",
+      "0-1 thrown"
+    ],
+    "description": "d6",
+    "stat1": "2 slot",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "tomahawk",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Walking Staff",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "2h",
+      "swept"
+    ],
+    "description": "On crit, also pin for 1 round. Handy for adventuring.",
+    "stat1": "d6",
+    "stat2": "1 slot",
+    "cost": "5 pt",
+    "id": "walking-staff",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "War Hammer",
+    "type": "Equipment",
+    "subtype": "Weapon",
+    "tags": [
+      "-2c",
+      "2h",
+      "brutish",
+      "swept",
+      "d4r"
+    ],
+    "description": "On crit, stun for 1 round.",
+    "stat1": "d8",
+    "stat2": "2 slot",
+    "cost": "5 pt",
+    "id": "war-hammer",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Balanced",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "Add +1 to weapon roll."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "balanced",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Deadly",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "On strike with this weapon deal 1 additional slot of damage."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "deadly",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Knuckle Guard",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "Foe with initiative cannot disarm you of this weapon."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "knuckle-guard",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Lucky",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "<chip>-1c</chip>"
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "lucky",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Master-Craft",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "On crit, inflict burn on primary defender."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "master-craft",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Serrated",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "On crit, inflict bleed on primary defender."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "serrated",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Sword Breaker",
+    "type": "Upgrade",
+    "subtype": "Weapon",
+    "tags": [
+      "On crit, inflict corrosion on primary defender."
+    ],
+    "description": "3 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "sword-breaker",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "All In",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If weapon is <chip>brutish</chip> and defender is adjacent: you have -5 AC for 1 round. On strike and successful skill roll, deal 2 additional slots of damage to primary defender."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "all-in",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Dual Wielding",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If 2 weapons are equipped: on success, resolve an attack with the other weapon as a second action, but use no attack skills."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "dual-wielding",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Feint",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "You may palm the die for this skill roll until after the defense roll. Ignore your weapon roll - defense roll always succeeds. On success, any defensive skill fails, player is stunned for 1 round, your next attack has initiative."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "feint",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Melee",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If weapon is swept: On strike and successful skill roll add <chip>1 adjacent</chip>."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "melee",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Pin",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If opponent has pinned condition: on success, opponent remains pinned for 1 round."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "pin",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Surgical",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If weapon is <chip>precise</chip> and defender is adjacent: on success, +1 weapon die and add +1 to weapon roll."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "surgical",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Take Aim",
+    "type": "Skill",
+    "subtype": "Attack",
+    "tags": [
+      "If attack has range > 0 and weapon is <chip>precise</chip>: attack resolves in 1d6 phases. If attack is no longer valid it fails. On successful skill roll, +1 weapon die and add +3."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "take-aim",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Brace",
+    "type": "Skill",
+    "subtype": "Defense",
+    "tags": [
+      "You skip your next action. On success, subtract the result from your defense roll and you defend with initiative no matter what."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "brace",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Counter Strike",
+    "type": "Skill",
+    "subtype": "Defense",
+    "tags": [
+      "If attacker is adjacent, on successful defense and skill roll, you take no damage and your next attack has initiative."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "counter-strike",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Moving Target",
+    "type": "Skill",
+    "subtype": "Defense",
+    "tags": [
+      "If you have no conditions, on success, subtract the result from your defense roll - min 0."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "moving-target",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Flesh Wound",
+    "type": "Skill",
+    "subtype": "Tenacity",
+    "tags": [
+      "If you have initiative: on success, 1 slot damage is directed to this skill and gain one skill slot of \"meat shield\". It does not use inventory and is lost if Flesh Wound is recovered."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "flesh-wound",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Grit",
+    "type": "Skill",
+    "subtype": "Tenacity",
+    "tags": [
+      "On success, 1 slot damage is directed to this skill, but maintain the initiative."
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "grit",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Krovnaya Striga",
+    "type": "Foe",
+    "subtype": "Vampire",
+    "tags": [
+      "Bat 12: teleport, on success pin",
+      "Fangs d4, 2 slot: resist or inflict permanent blood disease - bleed each turn unless satiated by warm blood.",
+      "- Knuckle Guard"
+    ],
+    "description": "6 AC",
+    "stat1": "23 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "krovnaya-striga",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Veteran Commander",
+    "type": "Skill",
+    "subtype": "Core",
+    "tags": [
+      "At the beginning of combat inspire one ally to fight. Their first attack is always a strike. They cannot be harmed in the first round."
+    ],
+    "description": "15 pt",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "veteran-commander",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Scale Vest",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "durable"
+    ],
+    "description": "Rare, requires expert blacksmith.",
+    "stat1": "3 AC",
+    "stat2": "5 pt",
+    "cost": "",
+    "id": "scale-vest",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Greaves",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "Can protect against some attempts to immobilize."
+    ],
+    "description": "1 AC",
+    "stat1": "2 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "greaves",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Cloak",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "+3 Stealth"
+    ],
+    "description": "1 AC",
+    "stat1": "1 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "cloak",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Skeleton",
+    "type": "Foe",
+    "subtype": "Undead",
+    "tags": [
+      "6 AC"
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "skeleton",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Chain Mail",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "Noisy."
+    ],
+    "description": "3 AC",
+    "stat1": "3 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "chain-mail",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Skeleton Commander",
+    "type": "Foe",
+    "subtype": "Undead",
+    "tags": [
+      "6 AC"
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "skeleton-commander",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Wood Shield",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "durable"
+    ],
+    "description": "1 AC",
+    "stat1": "3 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "wood-shield",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Helm",
+    "type": "Equipment",
+    "subtype": "Armor",
+    "tags": [
+      "Draws enemy attention."
+    ],
+    "description": "1 pt",
+    "stat1": "1 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "helm",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Ghoul",
+    "type": "Foe",
+    "subtype": "Vampire",
+    "tags": [
+      "Claw x2: d6, 2 slot, on crit also pin",
+      "Bite: evade or bleed until resist"
+    ],
+    "description": "6 AC",
+    "stat1": "24 pt",
+    "stat2": "",
+    "cost": "",
+    "id": "ghoul",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  },
+  {
+    "title": "Caleb",
+    "type": "Origin",
+    "subtype": "Human",
+    "tags": [
+      "AC 6"
+    ],
+    "description": "",
+    "stat1": "",
+    "stat2": "",
+    "cost": "",
+    "id": "caleb",
+    "createdAt": "2025-11-20T19:16:03.732Z",
+    "updatedAt": "2025-11-20T19:16:03.732Z"
+  }
+]
