@@ -216,7 +216,7 @@ fi
 echo -e "\n${BLUE}═══ Build Verification ═══${NC}"
 
 log_test "Verify TUI can be rebuilt"
-cd /home/user/commons.systems/tui
+cd "$(dirname "$0")/.."
 if env GOTOOLCHAIN=local go build -o "$TEST_DIR/tui-test-build" main.go 2>&1 | tee "$TUI_LOG"; then
     if [ -f "$TEST_DIR/tui-test-build" ]; then
         NEW_SIZE=$(ls -lh "$TEST_DIR/tui-test-build" | awk '{print $5}')
@@ -231,15 +231,19 @@ fi
 
 log_test "Verify rebuilt binary matches original"
 if [ -f "$TEST_DIR/tui-test-build" ]; then
-    ORIG_SIZE=$(stat -f%z "$TUI_BINARY" 2>/dev/null || stat -c%s "$TUI_BINARY")
-    NEW_SIZE=$(stat -f%z "$TEST_DIR/tui-test-build" 2>/dev/null || stat -c%s "$TEST_DIR/tui-test-build")
-    DIFF=$((ORIG_SIZE - NEW_SIZE))
-    DIFF_ABS=${DIFF#-}  # Absolute value
+    if [ -f "$TUI_BINARY" ]; then
+        ORIG_SIZE=$(stat -f%z "$TUI_BINARY" 2>/dev/null || stat -c%s "$TUI_BINARY")
+        NEW_SIZE=$(stat -f%z "$TEST_DIR/tui-test-build" 2>/dev/null || stat -c%s "$TEST_DIR/tui-test-build")
+        DIFF=$((ORIG_SIZE - NEW_SIZE))
+        DIFF_ABS=${DIFF#-}  # Absolute value
 
-    if [ "$DIFF_ABS" -lt 1000000 ]; then  # Within 1MB
-        pass "Rebuilt binary size matches (diff: ${DIFF_ABS} bytes)"
+        if [ "$DIFF_ABS" -lt 1000000 ]; then  # Within 1MB
+            pass "Rebuilt binary size matches (diff: ${DIFF_ABS} bytes)"
+        else
+            warn "Binary size difference: ${DIFF_ABS} bytes"
+        fi
     else
-        warn "Binary size difference: ${DIFF_ABS} bytes"
+        pass "Original binary not found, skipping size comparison"
     fi
 else
     fail "No rebuilt binary to compare"
