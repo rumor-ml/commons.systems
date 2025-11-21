@@ -45,6 +45,7 @@ echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely)...
 cd "${SITE_NAME}/tests"
 
 export PW_TEST_CONNECT_WS_ENDPOINT="$WS_ENDPOINT"
+export DEPLOYED=true
 export DEPLOYED_URL="$SITE_URL"
 export CI=true
 
