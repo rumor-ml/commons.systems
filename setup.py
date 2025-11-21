@@ -768,6 +768,7 @@ def initialize_firebase(config):
     print_info("Checking if Firebase is already initialized...")
     check_result = run_command(
         f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'-H "x-goog-user-project: {config["project_id"]}" '
         f'"https://firebase.googleapis.com/v1beta1/projects/{config["project_id"]}" '
         f'-w "\\n%{{http_code}}"',
         check=False
@@ -795,6 +796,7 @@ def initialize_firebase(config):
     add_result = run_command(
         f'curl -s -X POST '
         f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'-H "x-goog-user-project: {config["project_id"]}" '
         f'-H "Content-Type: application/json" '
         f'"https://firebase.googleapis.com/v1beta1/projects/{config["project_id"]}:addFirebase" '
         f'-w "\\n%{{http_code}}"',
