@@ -49,18 +49,24 @@ Deploy the to GCP with **zero local setup** and **one local command**.
    - Click "Create codespace on your-branch"
    - Wait for container to build
 
-2. **Run the initialization script**:
+2. **Enable the Service Usage API** (one-time prerequisite):
+   - Go to: https://console.developers.google.com/apis/api/serviceusage.googleapis.com/overview?project=YOUR_PROJECT_ID
+   - Click "Enable"
+   - Wait 1-2 minutes for propagation
+
+3. **Run the setup script**:
    ```bash
-   cd infrastructure/scripts
-   ./setup-workload-identity.sh
+   python3 setup.py
    ```
-   
+
    **The script handles everything**:
-   - Checks GCP authentication (prompts `gcloud auth login` if needed)
-   - Checks GitHub authentication (prompts `gh auth login` if needed)
-   - Creates Workload Identity Pool & Provider
+   - Gathers all inputs upfront (project ID defaults to gcloud config)
+   - Enables all required GCP APIs (Firebase, Cloud Run, Artifact Registry, etc.)
+   - Sets up Workload Identity Federation
    - Creates service accounts with IAM permissions
-   - Offers to create GitHub secrets automatically
+   - Configures Artifact Registry
+   - Initializes Firebase on your GCP project
+   - Optionally creates GitHub secrets automatically
 
 3. <!-- UPDATE THIS: what is the next state for a user that deploys after cloning the repo -->
 

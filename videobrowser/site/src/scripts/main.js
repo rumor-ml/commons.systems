@@ -1,12 +1,18 @@
 /**
  * Video Browser - Main Application
- * Fetches and displays videos from GCS bucket: rml-media/video
+ * Fetches and displays videos from Firebase Storage: rml-media/video
  */
 
+import { initializeApp } from 'firebase/app';
+import { getStorage, ref, listAll, getDownloadURL, getMetadata } from 'firebase/storage';
+import { firebaseConfig } from '../firebase-config.js';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const storage = getStorage(app);
+
 // Configuration
-const GCS_BUCKET = 'rml-media';
 const VIDEO_PREFIX = 'video/';
-const GCS_API_BASE = 'https://storage.googleapis.com/storage/v1/b';
 
 // State
 let allVideos = [];
@@ -54,36 +60,50 @@ function getDisplayName(name) {
 }
 
 /**
- * Fetches video list from GCS bucket
+ * Fetches video list from Firebase Storage
  */
 async function fetchVideos() {
   try {
-    const url = `${GCS_API_BASE}/${GCS_BUCKET}/o?prefix=${encodeURIComponent(VIDEO_PREFIX)}&delimiter=/`;
+    // Create reference to video directory
+    const videosRef = ref(storage, VIDEO_PREFIX);
 
-    const response = await fetch(url);
+    // List all items in the video directory
+    const result = await listAll(videosRef);
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch videos: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-
-    // Filter to only video files
+    // Filter to only video files and get metadata + signed URLs
     const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v'];
-    const videos = (data.items || [])
-      .filter(item => {
-        const name = item.name.toLowerCase();
+
+    const videoPromises = result.items
+      .filter(itemRef => {
+        const name = itemRef.name.toLowerCase();
         return videoExtensions.some(ext => name.endsWith(ext));
       })
-      .map(item => ({
-        name: item.name,
-        displayName: getDisplayName(item.name),
-        size: parseInt(item.size, 10),
-        updated: item.updated,
-        contentType: item.contentType,
-        mediaLink: item.mediaLink,
-        publicUrl: `https://storage.googleapis.com/${GCS_BUCKET}/${item.name}`
-      }))
+      .map(async (itemRef) => {
+        try {
+          // Get metadata and download URL in parallel
+          const [metadata, downloadUrl] = await Promise.all([
+            getMetadata(itemRef),
+            getDownloadURL(itemRef)
+          ]);
+
+          return {
+            name: itemRef.fullPath,
+            displayName: getDisplayName(itemRef.fullPath),
+            size: parseInt(metadata.size, 10),
+            updated: metadata.updated,
+            contentType: metadata.contentType,
+            downloadUrl: downloadUrl, // Signed URL from Firebase
+            ref: itemRef // Keep reference for future operations
+          };
+        } catch (error) {
+          console.error(`Error fetching metadata for ${itemRef.name}:`, error);
+          return null;
+        }
+      });
+
+    // Wait for all metadata fetches to complete
+    const videos = (await Promise.all(videoPromises))
+      .filter(video => video !== null)
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
     return videos;
@@ -133,8 +153,8 @@ function renderFileList(videos) {
 function playVideo(video) {
   currentVideo = video;
 
-  // Update video player
-  videoPlayer.src = video.publicUrl;
+  // Update video player with signed URL from Firebase
+  videoPlayer.src = video.downloadUrl;
   videoPlayer.load();
 
   // Update video info
@@ -198,7 +218,7 @@ async function loadVideos() {
         <div class="error__title">Failed to load videos</div>
         <p>${escapeHtml(error.message)}</p>
         <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-          Make sure the GCS bucket "${GCS_BUCKET}" exists and is publicly readable.
+          Make sure Firebase Storage is configured correctly and the storage bucket has the video/ directory.
         </p>
       </div>
     `;
