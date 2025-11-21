@@ -209,7 +209,6 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.playwright-server-changed == 'true' &&
       github.ref == 'refs/heads/main'
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
@@ -250,7 +249,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.fellspiral-changed == 'true'
+      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.fellspiral-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -295,7 +294,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.videobrowser-changed == 'true'
+      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.videobrowser-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
