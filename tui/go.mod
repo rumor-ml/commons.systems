@@ -1,8 +1,6 @@
 module github.com/natb1/tui
 
-go 1.24.0
-
-toolchain go1.24.7
+go 1.23.0
 
 // Future dependencies for planned features
 // github.com/antonmedv/expr v1.15.5       // Expression evaluation for filtering
@@ -23,7 +21,7 @@ require (
 	github.com/rumor-ml/log v0.0.0
 	github.com/rumor-ml/store v0.0.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/mod v0.30.0
+	golang.org/x/mod v0.22.0
 	golang.org/x/term v0.32.0
 )
 
