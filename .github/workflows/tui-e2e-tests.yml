@@ -32,11 +32,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
       - name: Install tmux
         run: |
           sudo apt-get update
           sudo apt-get install -y tmux
           tmux -V
+
+      - name: Build TUI binary
+        run: |
+          cd tui
+          go build -o tui-binary main.go
+          ls -lh tui-binary
+        env:
+          GOTOOLCHAIN: local
 
       - name: Run simple e2e test
         if: ${{ github.event.inputs.test_suite == 'simple' || github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
@@ -55,6 +68,20 @@ jobs:
           else
             echo "Comprehensive tests not yet implemented"
           fi
+
+      - name: Run TUI-specific tests
+        if: ${{ github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
+        run: |
+          cd tui/tests
+          chmod +x tui_specific_test.sh
+          ./tui_specific_test.sh
+
+      - name: Run integration tests
+        if: ${{ github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
+        run: |
+          cd tui/tests
+          chmod +x integration_test.sh
+          ./integration_test.sh
 
       - name: Upload test artifacts
         if: always()

@@ -63,7 +63,7 @@ main
 claude-hook
 config-manager
 project-cli
-carriercommons
+/carriercommons
 generate-claude
 coverage.html
 .direnv/project
@@ -77,4 +77,4 @@ sync-output.log
 test-port.txt
 /package.json
 /package-lock.json
-/node_modules
+/node_modulestui-binary
