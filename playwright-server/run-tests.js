@@ -55,6 +55,10 @@ const { values } = parseArgs({
     deployed: {
       type: 'boolean',
       default: false
+    },
+    site: {
+      type: 'string',
+      default: 'fellspiral'
     }
   }
 });
@@ -68,7 +72,8 @@ async function runTests() {
     project: values.project,
     headed: values.headed,
     workers: parseInt(values.workers),
-    deployed: values.deployed
+    deployed: values.deployed,
+    site: values.site
   };
 
   // Pass DEPLOYED_URL from environment if set
@@ -76,6 +81,8 @@ async function runTests() {
     requestBody.deployedUrl = process.env.DEPLOYED_URL;
     console.log(`📍 Testing against: ${process.env.DEPLOYED_URL}`);
   }
+
+  console.log(`📍 Testing site: ${values.site}`);
 
   if (values.grep) {
     requestBody.grep = values.grep;

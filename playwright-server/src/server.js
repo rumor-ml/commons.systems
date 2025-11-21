@@ -21,6 +21,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
+import { promisify } from 'util';
+import { exec as execCallback } from 'child_process';
+
+const exec = promisify(execCallback);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,10 +112,13 @@ app.post('/api/test', async (req, res) => {
     headed = false,
     workers = 1,
     deployed = false,
-    deployedUrl = null
+    deployedUrl = null,
+    site = 'fellspiral', // Default to fellspiral for backwards compatibility
+    testsArchive = null // Base64-encoded tar.gz of tests directory
   } = req.body;
 
-  console.log(`[SERVER] Creating test run: ${testId}, workers: ${workers}, project: ${project}`);
+  console.log(`[SERVER] Creating test run: ${testId}, site: ${site}, workers: ${workers}, project: ${project}`);
+  console.log(`[SERVER] Tests archive provided: ${testsArchive ? 'yes' : 'no'}`);
   console.log(`[SERVER] Current test runs in memory: ${testRuns.size}`);
 
   // Initialize test run status
@@ -134,8 +141,8 @@ app.post('/api/test', async (req, res) => {
     statusUrl: `/api/test/${testId}`
   });
 
-  // Run tests asynchronously
-  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed, deployedUrl });
+  // Run tests asynchronously (extract tests if archive provided, then run)
+  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed, deployedUrl, site, testsArchive });
 });
 
 // Get test status endpoint
@@ -202,8 +209,51 @@ app.get('/api/reports/:id', async (req, res) => {
 
 // Function to run Playwright tests
 async function runPlaywrightTests(testId, options) {
-  const { project, grep, testFile, headed, workers, deployed, deployedUrl } = options;
+  const { project, grep, testFile, headed, workers, deployed, deployedUrl, site = 'fellspiral', testsArchive = null } = options;
   const testRun = testRuns.get(testId);
+
+  let testsDir;
+
+  // If tests archive is provided, extract it
+  if (testsArchive) {
+    try {
+      console.log(`[${testId}] Extracting tests archive for site: ${site}`);
+
+      // Create unique directory for this test run
+      testsDir = path.join(__dirname, '../../tests', `${site}-${testId}`);
+      await fs.mkdir(testsDir, { recursive: true });
+
+      // Write base64-encoded archive to file
+      const archivePath = path.join('/tmp', `tests-${testId}.tar.gz`);
+      const archiveBuffer = Buffer.from(testsArchive, 'base64');
+      await fs.writeFile(archivePath, archiveBuffer);
+      console.log(`[${testId}] Archive written to: ${archivePath} (${archiveBuffer.length} bytes)`);
+
+      // Extract archive
+      console.log(`[${testId}] Extracting archive to: ${testsDir}`);
+      await exec(`tar -xzf ${archivePath} -C ${testsDir}`);
+
+      // Install dependencies
+      console.log(`[${testId}] Installing test dependencies...`);
+      const { stdout, stderr } = await exec('npm install', { cwd: testsDir });
+      if (stdout) console.log(`[${testId}] npm install stdout: ${stdout}`);
+      if (stderr) console.log(`[${testId}] npm install stderr: ${stderr}`);
+
+      // Clean up archive file
+      await fs.unlink(archivePath);
+      console.log(`[${testId}] Tests extracted and dependencies installed`);
+    } catch (error) {
+      console.error(`[${testId}] Failed to extract tests:`, error);
+      testRun.status = 'failed';
+      testRun.error = `Failed to extract tests: ${error.message}`;
+      testRun.exitCode = 1;
+      testRun.endTime = new Date().toISOString();
+      return;
+    }
+  } else {
+    // Use pre-existing tests directory (for backwards compatibility)
+    testsDir = path.join(__dirname, '../../tests', site);
+  }
 
   // Build command arguments
   const args = ['test'];
@@ -231,7 +281,15 @@ async function runPlaywrightTests(testId, options) {
   // Always use JSON reporter for programmatic access
   args.push('--reporter=json,list');
 
-  const testsDir = path.join(__dirname, '../../tests');
+  // Validate test directory exists
+  if (!existsSync(testsDir)) {
+    console.error(`[${testId}] Error: Test directory not found: ${testsDir}`);
+    testRun.status = 'failed';
+    testRun.error = `Test directory not found: ${testsDir}`;
+    testRun.exitCode = 1;
+    testRun.endTime = new Date().toISOString();
+    return;
+  }
 
   // Set environment variables
   const env = {
@@ -249,7 +307,8 @@ async function runPlaywrightTests(testId, options) {
     console.log(`[${testId}] Using deployed URL: ${deployedUrl}`);
   }
 
-  console.log(`[${testId}] Running Playwright tests in: ${testsDir}`);
+  console.log(`[${testId}] Running Playwright tests for site: ${site}`);
+  console.log(`[${testId}] Tests directory: ${testsDir}`);
   console.log(`[${testId}] Command: npx playwright ${args.join(' ')}`);
 
   const playwrightProcess = spawn('npx', ['playwright', ...args], {

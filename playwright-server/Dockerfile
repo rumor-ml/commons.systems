@@ -12,17 +12,9 @@ RUN npm install --production
 # Copy server source code
 COPY playwright-server/src ./src
 
-# Copy the site directory (tests may need to serve it)
+# Create directory for uploaded tests (will be populated at runtime)
 WORKDIR /app
-COPY fellspiral/site ./site
-WORKDIR /app/site
-RUN npm install && npm run build
-
-# Copy the tests directory and its dependencies
-WORKDIR /app
-COPY fellspiral/tests ./tests
-WORKDIR /app/tests
-RUN npm install
+RUN mkdir -p /app/tests
 
 # Install Playwright browsers (if not already in base image)
 RUN npx playwright install --with-deps chromium
