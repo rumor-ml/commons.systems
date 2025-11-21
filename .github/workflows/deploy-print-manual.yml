@@ -1,0 +1,172 @@
+name: Manual Deploy - Print
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: true
+        default: 'main'
+        type: string
+      skip_tests:
+        description: 'Skip tests (use with caution)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+  SITE_NAME: print
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  # ==================== Step 1: Local Tests ====================
+  local-tests:
+    name: Run Local Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !inputs.skip_tests }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run local tests
+        run: ./infrastructure/scripts/run-local-tests.sh ${{ env.SITE_NAME }}
+
+  # ==================== Step 2: Deploy Site ====================
+  deploy:
+    name: Deploy Print
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: local-tests
+    if: ${{ always() && (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped') }}
+    outputs:
+      service-url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Print
+        run: ./infrastructure/scripts/deploy-site.sh ${{ env.SITE_NAME }} ${{ inputs.branch }} ${{ github.sha }}
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Deployed to: ${URL}"
+
+      - name: Wait for service to be ready
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+
+  # ==================== Step 3: Playwright Tests ====================
+  playwright-tests:
+    name: Run Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: deploy
+    if: ${{ !inputs.skip_tests }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          URL=$(gcloud run services describe playwright-server \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ env.SITE_NAME }} "${{ needs.deploy.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy.outputs.service-url }}
+          CI: true
+
+  # ==================== Summary ====================
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [local-tests, deploy, playwright-tests]
+    if: always()
+
+    steps:
+      - name: Create summary
+        run: |
+          echo "# 🚀 Manual Deployment Summary - Print" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ inputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Local Tests: ${{ needs.local-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Playwright Tests: ${{ needs.playwright-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.deploy.result }}" == "success" ]; then
+            echo "**Deployed URL:** ${{ needs.deploy.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+          fi
