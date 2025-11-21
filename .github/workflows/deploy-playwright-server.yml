@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+  push:
+    branches:
+      - claude/use-deployed-playwright-server-0191587orbaBcCpdDXYodgNQ
+    paths:
+      - 'playwright-server/**'
+      - '.github/workflows/deploy-playwright-server.yml'
 
 env:
   GCP_REGION: us-central1
@@ -18,7 +24,7 @@ jobs:
   check-changes:
     name: Check for Playwright Changes
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     outputs:
       should-deploy: ${{ steps.filter.outputs.should-deploy }}
 
@@ -31,10 +37,10 @@ jobs:
       - name: Check for playwright-server changes
         id: filter
         run: |
-          # For manual dispatch, always deploy
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          # For manual dispatch or push to feature branch, always deploy
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] || [ "${{ github.event_name }}" == "push" ]; then
             echo "should-deploy=true" >> $GITHUB_OUTPUT
-            echo "Manual dispatch - deploying playwright server"
+            echo "Manual dispatch or feature branch push - deploying playwright server"
             exit 0
           fi
 
