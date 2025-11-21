@@ -107,7 +107,8 @@ app.post('/api/test', async (req, res) => {
     testFile = null,
     headed = false,
     workers = 1,
-    deployed = false
+    deployed = false,
+    deployedUrl = null
   } = req.body;
 
   console.log(`[SERVER] Creating test run: ${testId}, workers: ${workers}, project: ${project}`);
@@ -134,7 +135,7 @@ app.post('/api/test', async (req, res) => {
   });
 
   // Run tests asynchronously
-  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed });
+  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed, deployedUrl });
 });
 
 // Get test status endpoint
@@ -201,7 +202,7 @@ app.get('/api/reports/:id', async (req, res) => {
 
 // Function to run Playwright tests
 async function runPlaywrightTests(testId, options) {
-  const { project, grep, testFile, headed, workers, deployed } = options;
+  const { project, grep, testFile, headed, workers, deployed, deployedUrl } = options;
   const testRun = testRuns.get(testId);
 
   // Build command arguments
@@ -240,6 +241,12 @@ async function runPlaywrightTests(testId, options) {
 
   if (deployed) {
     env.DEPLOYED = 'true';
+  }
+
+  // Pass the deployed URL if provided
+  if (deployedUrl) {
+    env.DEPLOYED_URL = deployedUrl;
+    console.log(`[${testId}] Using deployed URL: ${deployedUrl}`);
   }
 
   console.log(`[${testId}] Running Playwright tests in: ${testsDir}`);

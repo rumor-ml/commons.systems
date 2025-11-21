@@ -71,6 +71,12 @@ async function runTests() {
     deployed: values.deployed
   };
 
+  // Pass DEPLOYED_URL from environment if set
+  if (process.env.DEPLOYED_URL) {
+    requestBody.deployedUrl = process.env.DEPLOYED_URL;
+    console.log(`📍 Testing against: ${process.env.DEPLOYED_URL}`);
+  }
+
   if (values.grep) {
     requestBody.grep = values.grep;
   }
