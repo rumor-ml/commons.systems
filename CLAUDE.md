@@ -182,6 +182,48 @@ curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
 **DO:** Fetch logs via API, analyze them, and present findings with solutions
 **DON'T:** Ask users to check logs or investigate manually
 
+### Debug Scripts Policy
+
+**IMPORTANT:** Debug scripts should be temporary and NOT committed to the repository.
+
+#### Rules:
+
+1. **Save debug scripts to `/tmp/`** - All one-off debugging scripts should be created in `/tmp/` directory
+2. **Never commit debug scripts** - Debugging scripts are temporary investigation tools, not permanent utilities
+3. **Use `claudetool/` for permanent tools only** - Only production-ready, reusable utilities belong in `claudetool/`
+
+#### Examples:
+
+**Temporary debug script (DO):**
+```bash
+# Create one-off diagnostic script in /tmp
+cat > /tmp/debug_issue_123.sh << 'EOF'
+#!/bin/bash
+# Temporary script to debug specific issue
+...
+EOF
+chmod +x /tmp/debug_issue_123.sh
+/tmp/debug_issue_123.sh
+```
+
+**Permanent utility (DO):**
+```bash
+# Production-ready tool in claudetool/ with documentation in CLAUDE.md
+./claudetool/check_workflows.py --branch main
+```
+
+**Wrong approach (DON'T):**
+```bash
+# Don't commit one-off debug scripts
+git add claudetool/debug_specific_issue.sh
+git commit -m "Add debug script"  # ❌ Wrong!
+```
+
+#### When to Use Each:
+
+- **`/tmp/` scripts**: One-off debugging, ad-hoc investigations, temporary diagnostics
+- **`claudetool/` scripts**: Reusable utilities, documented tools, production workflows
+
 ## Manual Deployment Workflows
 
 Each site in the monorepo has a dedicated manual deployment workflow for on-demand deployments.
