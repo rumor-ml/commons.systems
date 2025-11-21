@@ -108,7 +108,7 @@ jobs:
             --service-account playwright-server@${{ steps.project.outputs.project_id }}.iam.gserviceaccount.com \
             --timeout 900 \
             --cpu 1 \
-            --memory 8Gi \
+            --memory 4Gi \
             --min-instances 0 \
             --max-instances 1 \
             --concurrency 5 \
@@ -154,4 +154,4 @@ jobs:
           echo "- Run Tests: \`POST ${{ steps.service.outputs.url }}/api/test\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Status: \`GET ${{ steps.service.outputs.url }}/api/test/{id}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Report: \`GET ${{ steps.service.outputs.url }}/api/reports/{id}\`" >> $GITHUB_STEP_SUMMARY
-          # Configuration: 1 CPU / 8Gi memory, scale-to-zero enabled (maximum cost optimization)
+          # Configuration: 1 CPU / 4Gi memory, scale-to-zero enabled (maximum cost optimization)
