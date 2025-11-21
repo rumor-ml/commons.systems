@@ -1,0 +1,508 @@
+name: Push Pipeline
+
+on:
+  push:
+    branches: ['**']
+
+# Only allow one pipeline per branch at a time
+concurrency:
+  group: push-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  # ==================== Step 1: Local Tests (in series, stop on fail) ====================
+  local-tests:
+    name: Local Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
+      videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
+      playwright-server-changed: ${{ steps.check-changes.outputs.playwright-server-changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          # Check fellspiral changes
+          if git diff --name-only HEAD^ HEAD | grep -q "^fellspiral/"; then
+            echo "fellspiral-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Fellspiral changed"
+          else
+            echo "fellspiral-changed=false" >> $GITHUB_OUTPUT
+            echo "⏸️  Fellspiral unchanged"
+          fi
+
+          # Check videobrowser changes
+          if git diff --name-only HEAD^ HEAD | grep -q "^videobrowser/"; then
+            echo "videobrowser-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Videobrowser changed"
+          else
+            echo "videobrowser-changed=false" >> $GITHUB_OUTPUT
+            echo "⏸️  Videobrowser unchanged"
+          fi
+
+          # Check playwright-server changes
+          if git diff --name-only HEAD^ HEAD | grep -q "^playwright-server/"; then
+            echo "playwright-server-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Playwright server changed"
+          else
+            echo "playwright-server-changed=false" >> $GITHUB_OUTPUT
+            echo "⏸️  Playwright server unchanged"
+          fi
+
+      - name: Test Fellspiral
+        if: steps.check-changes.outputs.fellspiral-changed == 'true'
+        run: ./infrastructure/scripts/run-local-tests.sh fellspiral
+
+      - name: Test Videobrowser
+        if: steps.check-changes.outputs.videobrowser-changed == 'true'
+        run: ./infrastructure/scripts/run-local-tests.sh videobrowser
+
+  # ==================== Step 2: Infrastructure as Code ====================
+  infrastructure:
+    name: Infrastructure as Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: local-tests
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Nix store
+        uses: actions/cache@v4
+        with:
+          path: |
+            /nix/store
+            /nix/var/nix/db
+          key: ${{ runner.os }}-nix-${{ hashFiles('flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nix-
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        continue-on-error: true
+        with:
+          name: fellspiral
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: true
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: 'access_token'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache gcloud components
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/gcloud
+          key: ${{ runner.os }}-gcloud-${{ hashFiles('.github/workflows/push.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-gcloud-
+
+      - name: Create Terraform state bucket
+        run: |
+          nix develop .#ci --command bash -c "
+            if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
+              echo 'Creating Terraform state bucket...'
+              gcloud storage buckets create gs://fellspiral-terraform-state \
+                --project=${{ secrets.GCP_PROJECT_ID }} \
+                --location=us-central1 \
+                --uniform-bucket-level-access
+              gcloud storage buckets update gs://fellspiral-terraform-state --versioning
+              echo 'State bucket created successfully with versioning enabled'
+            else
+              echo 'State bucket already exists'
+            fi
+            echo 'Verifying service account access to state bucket...'
+            gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
+          "
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            infrastructure/terraform/.terraform
+            ${{ github.workspace }}/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+      - name: Create terraform.tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id  = "${{ secrets.GCP_PROJECT_ID }}"
+          region      = "us-central1"
+          environment = "production"
+          EOF
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+  # ==================== Step 3a: Deploy Playwright Server (if changed and on main) ====================
+  deploy-playwright-server:
+    name: Deploy Playwright Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [local-tests, infrastructure]
+    if: |
+      always() &&
+      needs.local-tests.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      needs.local-tests.outputs.playwright-server-changed == 'true' &&
+      github.ref == 'refs/heads/main'
+    outputs:
+      playwright-url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Playwright Server
+        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(cat /tmp/playwright-server-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+  # ==================== Step 3b: Deploy Sites (in parallel, if changed) ====================
+  deploy-fellspiral:
+    name: Deploy Fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [local-tests, infrastructure]
+    if: |
+      always() &&
+      needs.local-tests.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      needs.local-tests.outputs.fellspiral-changed == 'true'
+    outputs:
+      service-url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Fellspiral
+        run: ./infrastructure/scripts/deploy-site.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+      - name: Wait for service to be ready
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+
+  deploy-videobrowser:
+    name: Deploy Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [local-tests, infrastructure]
+    if: |
+      always() &&
+      needs.local-tests.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      needs.local-tests.outputs.videobrowser-changed == 'true'
+    outputs:
+      service-url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Videobrowser
+        run: ./infrastructure/scripts/deploy-site.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+      - name: Wait for service to be ready
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+
+  # ==================== Step 4: Playwright Tests (against deployed sites) ====================
+  playwright-tests:
+    name: Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [local-tests, deploy-playwright-server, deploy-fellspiral, deploy-videobrowser]
+    # Run if local tests passed and at least one site was deployed
+    if: |
+      always() &&
+      needs.local-tests.result == 'success' &&
+      (needs.deploy-fellspiral.result == 'success' || needs.deploy-videobrowser.result == 'success')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          # Use deployed URL if available, otherwise get the production URL
+          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
+          else
+            URL=$(gcloud run services describe playwright-server \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+      - name: Test Fellspiral
+        if: needs.deploy-fellspiral.result == 'success'
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.service-url }}
+          CI: true
+
+      - name: Test Videobrowser
+        if: needs.deploy-videobrowser.result == 'success'
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.service-url }}
+          CI: true
+
+  # ==================== Rollback on failure ====================
+  rollback-fellspiral:
+    name: Rollback Fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-fellspiral, playwright-tests]
+    if: |
+      always() &&
+      needs.deploy-fellspiral.result == 'success' &&
+      needs.playwright-tests.result == 'failure' &&
+      github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Rollback Fellspiral
+        run: |
+          # Get previous revision
+          PREVIOUS_REVISION=$(gcloud run services describe fellspiral-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic fellspiral-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+            echo "✅ Rollback completed"
+          else
+            echo "⚠️  No previous revision found, skipping rollback"
+          fi
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automatic Rollback: Fellspiral',
+              body: `Playwright tests failed for Fellspiral after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'deployment', 'rollback', 'fellspiral']
+            })
+
+  rollback-videobrowser:
+    name: Rollback Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-videobrowser, playwright-tests]
+    if: |
+      always() &&
+      needs.deploy-videobrowser.result == 'success' &&
+      needs.playwright-tests.result == 'failure' &&
+      github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Rollback Videobrowser
+        run: |
+          # Get previous revision
+          PREVIOUS_REVISION=$(gcloud run services describe videobrowser-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic videobrowser-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+            echo "✅ Rollback completed"
+          else
+            echo "⚠️  No previous revision found, skipping rollback"
+          fi
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automatic Rollback: Videobrowser',
+              body: `Playwright tests failed for Videobrowser after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'deployment', 'rollback', 'videobrowser']
+            })

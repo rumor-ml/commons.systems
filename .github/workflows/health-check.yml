@@ -5,45 +5,46 @@ on:
   # schedule:
   #   - cron: '0 */6 * * *'
   workflow_dispatch:
+    inputs:
+      site:
+        description: 'Site to check (fellspiral, videobrowser, or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - fellspiral
+          - videobrowser
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
 
 permissions:
   contents: read
-  id-token: write  # Required for Workload Identity Federation
+  id-token: write
   issues: write
 
 jobs:
-  health-check:
-    name: Check Site Health
+  # ==================== Fellspiral Health Check ====================
+  health-check-fellspiral:
+    name: Health Check - Fellspiral
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    if: github.event.inputs.site == 'fellspiral' || github.event.inputs.site == 'all' || github.event.inputs.site == ''
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: nix develop .#ci --command npm install
-
-      - name: Install Playwright
-        run: nix develop .#ci --command bash -c "cd fellspiral/tests && npx playwright install --with-deps chromium"
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
+        run: npm install
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -54,37 +55,111 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Get deployment URL
+      - name: Get service URL
         id: get-url
         run: |
-          GCP_PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          BUCKET_NAME="${GCP_PROJECT_ID}-fellspiral-site"
+          URL=$(./infrastructure/scripts/get-deployment-url.sh fellspiral-site ${{ env.GCP_REGION }} ${{ env.GCP_PROJECT_ID }} main)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Fellspiral URL: ${URL}"
 
-          # Try to get static IP
-          STATIC_IP=$(gcloud compute addresses describe fellspiral-site-ip --global --format="value(address)" 2>/dev/null || echo "")
+      - name: Check health endpoint
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 10 3
 
-          if [ -n "$STATIC_IP" ]; then
-            echo "DEPLOYED_URL=http://${STATIC_IP}" >> $GITHUB_ENV
-          else
-            echo "DEPLOYED_URL=https://storage.googleapis.com/${BUCKET_NAME}/index.html" >> $GITHUB_ENV
-          fi
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          URL=$(gcloud run services describe playwright-server \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=${URL}" >> $GITHUB_OUTPUT
 
-      - name: Run health check tests
-        run: nix develop .#ci --command npm run test:deployed --workspace=fellspiral/tests
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ steps.get-url.outputs.url }}" "${{ steps.playwright-server.outputs.url }}"
         env:
-          DEPLOYED: true
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
+          CI: true
 
       - name: Create issue on failure
         if: failure()
         uses: actions/github-script@v7
         with:
           script: |
-            const url = process.env.DEPLOYED_URL;
+            const url = '${{ steps.get-url.outputs.url }}';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '🚨 Site Health Check Failed',
-              body: `The scheduled health check failed for ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              labels: ['bug', 'health-check']
+              title: '🚨 Fellspiral Health Check Failed',
+              body: `The health check failed for Fellspiral at ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'health-check', 'fellspiral']
+            })
+
+  # ==================== Videobrowser Health Check ====================
+  health-check-videobrowser:
+    name: Health Check - Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.site == 'videobrowser' || github.event.inputs.site == 'all' || github.event.inputs.site == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(./infrastructure/scripts/get-deployment-url.sh videobrowser-site ${{ env.GCP_REGION }} ${{ env.GCP_PROJECT_ID }} main)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Videobrowser URL: ${URL}"
+
+      - name: Check health endpoint
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 10 3
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          URL=$(gcloud run services describe playwright-server \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ steps.get-url.outputs.url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
+          CI: true
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.get-url.outputs.url }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Videobrowser Health Check Failed',
+              body: `The health check failed for Videobrowser at ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'health-check', 'videobrowser']
             })
