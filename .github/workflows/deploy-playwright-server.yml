@@ -154,3 +154,4 @@ jobs:
           echo "- Run Tests: \`POST ${{ steps.service.outputs.url }}/api/test\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Status: \`GET ${{ steps.service.outputs.url }}/api/test/{id}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Test Report: \`GET ${{ steps.service.outputs.url }}/api/reports/{id}\`" >> $GITHUB_STEP_SUMMARY
+          # Deployment configuration: 4 CPU / 8Gi memory, scale-to-zero enabled
