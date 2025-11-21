@@ -104,9 +104,8 @@ jobs:
             --timeout 900 \
             --cpu 4 \
             --memory 8Gi \
-            --min-instances 1 \
+            --min-instances 0 \
             --max-instances 1 \
-            --no-cpu-throttling \
             --concurrency 5 \
             --set-env-vars NODE_ENV=production
 
