@@ -18,6 +18,7 @@ const useConfig = {
 if (process.env.PLAYWRIGHT_CDP_URL) {
   useConfig.connectOptions = {
     wsEndpoint: process.env.PLAYWRIGHT_CDP_URL,
+    timeout: 30000, // 30-second connection timeout
   };
 }
 
@@ -27,6 +28,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 4 : undefined,
+  timeout: 60000, // 60-second timeout per test
   reporter: [
     ['html'],
     ['list'],
