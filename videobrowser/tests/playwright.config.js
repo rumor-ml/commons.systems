@@ -9,10 +9,14 @@ const baseURL = isDeployed
 // Configure remote browser connection
 const useConfig = {
   baseURL,
-  headless: true,
   trace: 'on-first-retry',
   screenshot: 'only-on-failure',
 };
+
+// Add headless setting only when NOT using CDP (launching local browser)
+if (!process.env.PLAYWRIGHT_CDP_URL) {
+  useConfig.headless = true;
+}
 
 // If PLAYWRIGHT_CDP_URL is set, use connectOverCDP for secure remote browsers
 if (process.env.PLAYWRIGHT_CDP_URL) {
