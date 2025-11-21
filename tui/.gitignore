@@ -77,4 +77,5 @@ sync-output.log
 test-port.txt
 /package.json
 /package-lock.json
-/node_modulestui-binary
+/node_modules
+tui-binary

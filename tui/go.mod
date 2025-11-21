@@ -2,6 +2,8 @@ module github.com/natb1/tui
 
 go 1.24.0
 
+toolchain go1.24.7
+
 // Future dependencies for planned features
 // github.com/antonmedv/expr v1.15.5       // Expression evaluation for filtering
 // github.com/charmbracelet/x/exp/teatest v0.0.0-20231101223129-0ceb7cb2d2b // Tea testing
