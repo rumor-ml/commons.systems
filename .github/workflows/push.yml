@@ -199,7 +199,7 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
 
-  # ==================== Step 3a: Deploy Playwright Server (if changed and on main) ====================
+  # ==================== Step 3a: Deploy Playwright Server (on main branch) ====================
   deploy-playwright-server:
     name: Deploy Playwright Server
     runs-on: ubuntu-latest
@@ -239,7 +239,7 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
-  # ==================== Step 3b: Deploy Sites (in parallel, if changed) ====================
+  # ==================== Step 3b: Deploy Sites (in parallel, always on main, if changed on feature branches) ====================
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
