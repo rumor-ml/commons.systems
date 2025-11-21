@@ -8,7 +8,9 @@
     "fellspiral/site",
     "fellspiral/tests",
     "videobrowser/site",
-    "videobrowser/tests"
+    "videobrowser/tests",
+    "finance/site",
+    "finance/tests"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=fellspiral/site",
@@ -21,9 +23,20 @@
     "test:videobrowser": "npm test --workspace=videobrowser/tests",
     "test:videobrowser:deployed": "npm run test:deployed --workspace=videobrowser/tests",
     "preview:videobrowser": "npm run preview --workspace=videobrowser/site",
-    "seed:firestore": "node fellspiral/scripts/seed-firestore.js"
+    "seed:firestore": "node fellspiral/scripts/seed-firestore.js",
+    "dev:finance": "npm run dev --workspace=finance/site",
+    "build:finance": "npm run build --workspace=finance/site",
+    "test:finance": "npm test --workspace=finance/tests",
+    "test:finance:deployed": "npm run test:deployed --workspace=finance/tests"
   },
-  "keywords": ["monorepo", "fellspiral", "tabletop", "rpg", "videobrowser", "gcs"],
+  "keywords": [
+    "monorepo",
+    "fellspiral",
+    "tabletop",
+    "rpg",
+    "videobrowser",
+    "gcs"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {

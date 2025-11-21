@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Finance accounts
+    match /finance_accounts/{accountId} {
+      // Allow read/write for now (you can add authentication later)
+      allow read, write: if true;
+    }
+
+    // Finance transactions
+    match /finance_transactions/{transactionId} {
+      // Allow read/write for now (you can add authentication later)
+      allow read, write: if true;
+    }
+
+    // Default: deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

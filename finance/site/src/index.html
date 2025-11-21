@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finance Tracker</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header__container">
+        <h1 class="header__title">Finance Tracker</h1>
+        <nav class="header__nav">
+          <button class="nav-btn nav-btn--active" data-view="dashboard">Dashboard</button>
+          <button class="nav-btn" data-view="transactions">Transactions</button>
+          <button class="nav-btn" data-view="accounts">Accounts</button>
+          <button class="nav-btn" data-view="budget">Budget</button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Dashboard View -->
+      <div id="dashboard-view" class="view view--active">
+        <div class="dashboard">
+          <!-- Account Summary -->
+          <section class="card">
+            <h2 class="card__title">Account Summary</h2>
+            <div id="account-summary" class="account-summary">
+              <div class="loading">Loading accounts...</div>
+            </div>
+          </section>
+
+          <!-- Recent Transactions -->
+          <section class="card">
+            <h2 class="card__title">Recent Transactions</h2>
+            <div id="recent-transactions" class="transaction-list">
+              <div class="loading">Loading transactions...</div>
+            </div>
+          </section>
+
+          <!-- Budget Overview -->
+          <section class="card">
+            <h2 class="card__title">Monthly Budget</h2>
+            <div id="budget-overview" class="budget-overview">
+              <div class="loading">Loading budget...</div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Transactions View -->
+      <div id="transactions-view" class="view">
+        <div class="transactions">
+          <div class="transactions__header">
+            <h2>All Transactions</h2>
+            <button id="add-transaction-btn" class="btn btn--primary">+ Add Transaction</button>
+          </div>
+
+          <!-- Filters -->
+          <div class="filters">
+            <input type="text" id="transaction-search" class="filter-input" placeholder="Search transactions...">
+            <select id="category-filter" class="filter-select">
+              <option value="">All Categories</option>
+            </select>
+            <select id="account-filter" class="filter-select">
+              <option value="">All Accounts</option>
+            </select>
+            <input type="month" id="month-filter" class="filter-input">
+          </div>
+
+          <!-- Transaction List -->
+          <div id="all-transactions" class="transaction-list">
+            <div class="loading">Loading transactions...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Accounts View -->
+      <div id="accounts-view" class="view">
+        <div class="accounts">
+          <div class="accounts__header">
+            <h2>Accounts</h2>
+            <button id="add-account-btn" class="btn btn--primary">+ Add Account</button>
+          </div>
+          <div id="accounts-list" class="accounts-list">
+            <div class="loading">Loading accounts...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Budget View -->
+      <div id="budget-view" class="view">
+        <div class="budget">
+          <h2>Budget Tracking</h2>
+          <div id="budget-details" class="budget-details">
+            <div class="loading">Loading budget...</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Transaction Modal -->
+  <div id="transaction-modal" class="modal">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h3 id="transaction-modal-title">Add Transaction</h3>
+        <button class="modal__close">&times;</button>
+      </div>
+      <form id="transaction-form" class="form">
+        <input type="hidden" id="transaction-id">
+
+        <div class="form__group">
+          <label for="transaction-date">Date</label>
+          <input type="date" id="transaction-date" required>
+        </div>
+
+        <div class="form__group">
+          <label for="transaction-amount">Amount</label>
+          <input type="number" id="transaction-amount" step="0.01" required>
+        </div>
+
+        <div class="form__group">
+          <label for="transaction-description">Description</label>
+          <input type="text" id="transaction-description" required>
+        </div>
+
+        <div class="form__group">
+          <label for="transaction-category">Category</label>
+          <select id="transaction-category" required>
+            <option value="">Select category...</option>
+          </select>
+        </div>
+
+        <div class="form__group">
+          <label for="transaction-account">Account</label>
+          <select id="transaction-account" required>
+            <option value="">Select account...</option>
+          </select>
+        </div>
+
+        <div class="form__group">
+          <label for="transaction-type">Type</label>
+          <select id="transaction-type" required>
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </div>
+
+        <div class="form__actions">
+          <button type="button" class="btn btn--secondary" id="cancel-transaction-btn">Cancel</button>
+          <button type="submit" class="btn btn--primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Account Modal -->
+  <div id="account-modal" class="modal">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h3 id="account-modal-title">Add Account</h3>
+        <button class="modal__close">&times;</button>
+      </div>
+      <form id="account-form" class="form">
+        <input type="hidden" id="account-id">
+
+        <div class="form__group">
+          <label for="account-name">Account Name</label>
+          <input type="text" id="account-name" placeholder="e.g., Chase Checking" required>
+        </div>
+
+        <div class="form__group">
+          <label for="account-type">Account Type</label>
+          <select id="account-type" required>
+            <option value="checking">Checking</option>
+            <option value="savings">Savings</option>
+            <option value="credit_card">Credit Card</option>
+            <option value="investment">Investment</option>
+            <option value="retirement">Retirement</option>
+          </select>
+        </div>
+
+        <div class="form__group">
+          <label for="account-institution">Institution</label>
+          <input type="text" id="account-institution" placeholder="e.g., Chase Bank" required>
+        </div>
+
+        <div class="form__group">
+          <label for="account-balance">Current Balance</label>
+          <input type="number" id="account-balance" step="0.01" required>
+        </div>
+
+        <div class="form__actions">
+          <button type="button" class="btn btn--secondary" id="cancel-account-btn">Cancel</button>
+          <button type="submit" class="btn btn--primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="./scripts/main.js"></script>
+</body>
+</html>
