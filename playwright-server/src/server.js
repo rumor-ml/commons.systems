@@ -374,6 +374,8 @@ app.ws('/api/cdp', async (ws, req) => {
 
   // Connect to local CDP
   let cdp;
+  let cdpConnected = false;
+
   try {
     cdp = new WebSocket(session.cdpUrl);
   } catch (error) {
@@ -382,9 +384,26 @@ app.ws('/api/cdp', async (ws, req) => {
     return;
   }
 
+  // Set connection timeout
+  const connectionTimeout = setTimeout(() => {
+    if (!cdpConnected) {
+      console.error(`[PROXY] CDP connection timeout for session ${sessionId}`);
+      ws.close(1011, 'Browser connection timeout');
+      cdp.close();
+      terminateSession(sessionId);
+    }
+  }, 10000); // 10 second timeout
+
   // Store connections in session
   session.wsConnection = ws;
   session.cdpConnection = cdp;
+
+  // Handle CDP connection open
+  cdp.on('open', () => {
+    cdpConnected = true;
+    clearTimeout(connectionTimeout);
+    console.log(`[PROXY] CDP connection open for session ${sessionId}`);
+  });
 
   // Forward messages from client to CDP
   ws.on('message', (message) => {
@@ -397,6 +416,8 @@ app.ws('/api/cdp', async (ws, req) => {
 
     if (cdp.readyState === WebSocket.OPEN) {
       cdp.send(message);
+    } else {
+      console.warn(`[PROXY] CDP not ready, buffering message for session ${sessionId}`);
     }
   });
 
@@ -412,11 +433,6 @@ app.ws('/api/cdp', async (ws, req) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(message);
     }
-  });
-
-  // Handle CDP connection open
-  cdp.on('open', () => {
-    console.log(`[PROXY] CDP connection open for session ${sessionId}`);
   });
 
   // Handle CDP errors
