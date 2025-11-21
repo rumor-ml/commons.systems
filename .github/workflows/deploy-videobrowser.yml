@@ -97,6 +97,24 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install dependencies (jq)
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Inject Firebase configuration
+        run: |
+          chmod +x scripts/inject-firebase-config.sh
+          scripts/inject-firebase-config.sh \
+            videobrowser/site/src/firebase-config.js \
+            ${{ env.GCP_PROJECT_ID }}
+
+      - name: Deploy Firebase Storage rules
+        run: |
+          chmod +x scripts/deploy-firebase-storage-rules.sh
+          scripts/deploy-firebase-storage-rules.sh \
+            videobrowser/storage.rules \
+            rml-media
+
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev

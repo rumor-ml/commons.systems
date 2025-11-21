@@ -133,7 +133,10 @@ def enable_apis(config):
         'secretmanager.googleapis.com',
         'iam.googleapis.com',
         'iamcredentials.googleapis.com',
-        'sts.googleapis.com'
+        'sts.googleapis.com',
+        'firebase.googleapis.com',
+        'firebaserules.googleapis.com',
+        'firebasestorage.googleapis.com'
     ]
 
     # Note: gcloud services enable is idempotent - already enabled APIs are skipped

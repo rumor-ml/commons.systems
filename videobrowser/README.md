@@ -34,50 +34,50 @@ User Browser → Firebase SDK (client-side)
 
 ## Setup
 
-### Prerequisites
+### Automated Setup (Recommended)
 
-1. **Firebase Project**: The GCP project `chalanding` must have Firebase enabled
-2. **Firebase CLI**: Install globally via `npm install -g firebase-tools`
-3. **GCS Bucket**: The `rml-media` bucket must exist with videos in `video/` directory
+Firebase configuration and storage rules are **automatically deployed** via CI/CD. No manual setup required!
 
-### Initial Firebase Setup
+**Prerequisites:**
+1. Run `python3 setup.py` at the repository root (enables Firebase APIs)
+2. Ensure the `rml-media` GCS bucket exists with videos in `video/` directory
+
+**How it works:**
+- The deployment workflow automatically:
+  1. Fetches Firebase configuration from GCP
+  2. Injects it into `firebase-config.js` during build
+  3. Deploys Firebase Storage security rules
+  4. Builds and deploys the application
+
+See [`scripts/README.md`](../scripts/README.md) for details on the automation scripts.
+
+### Manual Setup (Development Only)
+
+For local development, inject the Firebase config once:
 
 ```bash
-# Navigate to videobrowser directory
-cd videobrowser
-
-# Login to Firebase
-firebase login
-
-# Link to your project
-firebase use chalanding
-
-# Deploy storage rules
-firebase deploy --only storage
+# From repository root
+./scripts/inject-firebase-config.sh videobrowser/site/src/firebase-config.js
+./scripts/deploy-firebase-storage-rules.sh videobrowser/storage.rules rml-media
 ```
 
-### Get Firebase Configuration
+### Firebase Console Setup (One-time)
 
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Select project `chalanding`
-3. Go to **Project Settings** > **Your apps** > **Web app**
-4. Copy the Firebase configuration
-5. Update `site/src/firebase-config.js` with the real values:
+If Firebase is not yet enabled on your GCP project:
 
-```javascript
-export const firebaseConfig = {
-  apiKey: "YOUR_ACTUAL_API_KEY",
-  authDomain: "chalanding.firebaseapp.com",
-  projectId: "chalanding",
-  storageBucket: "rml-media",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
+1. Go to https://console.firebase.google.com/
+2. Click "Add project"
+3. Select your existing GCP project (`chalanding`)
+4. Follow the setup wizard
+
+Alternatively, the `setup.py` script enables required APIs automatically:
+```bash
+python3 setup.py  # Enables firebase.googleapis.com and related APIs
 ```
 
 ### Storage Security Rules
 
-The `storage.rules` file controls access to the bucket:
+Rules are defined in `storage.rules` and deployed automatically:
 
 ```javascript
 rules_version = '2';
@@ -91,10 +91,7 @@ service firebase.storage {
 }
 ```
 
-To update rules:
-```bash
-firebase deploy --only storage
-```
+**Deployment:** Automatic via CI/CD workflow (no Firebase CLI needed)
 
 ## Development
 
@@ -234,18 +231,27 @@ Firebase Storage handles CORS automatically. If you see CORS errors, check:
 
 ## Migration from Public GCS
 
-This application was migrated from direct public GCS API access to Firebase Storage:
+This application was migrated from direct public GCS API access to Firebase Storage with automated configuration:
 
 **Before:**
 - Direct calls to `storage.googleapis.com/storage/v1/b/...`
 - Required public bucket access
 - URLs: `https://storage.googleapis.com/rml-media/video/...`
+- Manual configuration management
 
 **After:**
 - Firebase SDK client-side calls
 - Private bucket with security rules
 - Automatic signed URL generation
 - No backend required
+- **Fully automated** Firebase config injection via CI/CD
+- **Automated** security rules deployment
+
+**Infrastructure as Code:**
+- Firebase configuration fetched programmatically via GCP APIs
+- Storage rules deployed via Firebase Management API
+- No Firebase CLI required in CI/CD
+- See `scripts/` directory for automation details
 
 ## License
 
