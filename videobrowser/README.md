@@ -52,6 +52,8 @@ The script will:
 
 The script gathers all inputs upfront (project ID defaults to gcloud config), then runs all steps automatically without interruption.
 
+**Note:** Firebase initialization requires the Service Usage API to be enabled first. The script will detect this and provide a direct link if needed.
+
 After running `setup.py`, Firebase will be fully configured and ready to use.
 
 ### Automated Deployment
