@@ -6,6 +6,22 @@ const baseURL = isDeployed
   ? process.env.DEPLOYED_URL || 'https://fellspiral.commons.systems'
   : 'http://localhost:3000';
 
+// Configure remote browser connection
+const useConfig = {
+  baseURL,
+  headless: true,
+  trace: 'off',  // Disabled to reduce memory usage on server
+  screenshot: 'only-on-failure',
+  video: 'off',  // Disabled to reduce resource usage
+};
+
+// If PLAYWRIGHT_CDP_URL is set, use connectOverCDP for secure remote browsers
+if (process.env.PLAYWRIGHT_CDP_URL) {
+  useConfig.connectOptions = {
+    wsEndpoint: process.env.PLAYWRIGHT_CDP_URL,
+  };
+}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -17,13 +33,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results.json' }]  // Machine-readable results
     // HTML reporter disabled to reduce server resource usage
   ],
-  use: {
-    baseURL,
-    headless: true,
-    trace: 'off',  // Disabled to reduce memory usage on server
-    screenshot: 'only-on-failure',
-    video: 'off',  // Disabled to reduce resource usage
-  },
+  use: useConfig,
 
   projects: [
     {

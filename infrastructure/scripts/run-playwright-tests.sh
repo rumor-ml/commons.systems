@@ -27,24 +27,46 @@ curl -f "${PLAYWRIGHT_SERVER_URL}/health" || {
 }
 echo "✅ Playwright server is healthy"
 
-# Get WebSocket endpoint from browser server
-echo "Getting browser WebSocket endpoint..."
-WS_RESPONSE=$(curl -sf "${PLAYWRIGHT_SERVER_URL}/ws")
-WS_ENDPOINT=$(echo "$WS_RESPONSE" | jq -r '.wsEndpoint')
+# Get OIDC token for authentication
+echo "Getting authentication token..."
+OIDC_TOKEN=$(gcloud auth print-identity-token 2>/dev/null)
 
-if [ -z "$WS_ENDPOINT" ] || [ "$WS_ENDPOINT" = "null" ]; then
-  echo "❌ Failed to get WebSocket endpoint"
-  echo "Response: $WS_RESPONSE"
+if [ -z "$OIDC_TOKEN" ]; then
+  echo "❌ Failed to get OIDC token"
   exit 1
 fi
 
-echo "✅ Browser WebSocket endpoint: $WS_ENDPOINT"
+echo "✅ Authentication token obtained"
 
-# Run tests locally, connecting to remote browser
-echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely)..."
+# Get authenticated CDP endpoint from proxy
+echo "Getting authenticated CDP endpoint..."
+CDP_RESPONSE=$(curl -sf \
+  -H "Authorization: Bearer $OIDC_TOKEN" \
+  "${PLAYWRIGHT_SERVER_URL}/api/cdp-endpoint")
+
+if [ $? -ne 0 ]; then
+  echo "❌ Failed to get CDP endpoint"
+  echo "Response: $CDP_RESPONSE"
+  exit 1
+fi
+
+CDP_URL=$(echo "$CDP_RESPONSE" | jq -r '.cdpUrl')
+SESSION_ID=$(echo "$CDP_RESPONSE" | jq -r '.sessionId')
+
+if [ -z "$CDP_URL" ] || [ "$CDP_URL" = "null" ]; then
+  echo "❌ Failed to parse CDP URL"
+  echo "Response: $CDP_RESPONSE"
+  exit 1
+fi
+
+echo "✅ CDP endpoint: $CDP_URL"
+echo "✅ Session ID: $SESSION_ID (expires in 10 minutes)"
+
+# Run tests locally, connecting to remote browser via CDP
+echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely via secure CDP proxy)..."
 cd "${SITE_NAME}/tests"
 
-export PW_TEST_CONNECT_WS_ENDPOINT="$WS_ENDPOINT"
+export PLAYWRIGHT_CDP_URL="$CDP_URL"
 export DEPLOYED=true
 export DEPLOYED_URL="$SITE_URL"
 export CI=true

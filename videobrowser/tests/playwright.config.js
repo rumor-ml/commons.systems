@@ -6,6 +6,21 @@ const baseURL = isDeployed
   ? process.env.DEPLOYED_URL || 'https://videobrowser.commons.systems'
   : 'http://localhost:3001';
 
+// Configure remote browser connection
+const useConfig = {
+  baseURL,
+  headless: true,
+  trace: 'on-first-retry',
+  screenshot: 'only-on-failure',
+};
+
+// If PLAYWRIGHT_CDP_URL is set, use connectOverCDP for secure remote browsers
+if (process.env.PLAYWRIGHT_CDP_URL) {
+  useConfig.connectOptions = {
+    wsEndpoint: process.env.PLAYWRIGHT_CDP_URL,
+  };
+}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -17,12 +32,7 @@ export default defineConfig({
     ['list'],
     ['json', { outputFile: 'test-results.json' }]
   ],
-  use: {
-    baseURL,
-    headless: true,
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
+  use: useConfig,
 
   projects: [
     {
