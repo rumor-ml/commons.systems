@@ -1,3 +1,18 @@
+/**
+ * Fellspiral Playwright Test Server
+ * Version: 1.4.0
+ *
+ * Fixes:
+ * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
+ * - Improved Cloud Run configuration (min-instances: 1, concurrency: 10)
+ * - Added comprehensive logging for debugging 404 errors
+ * - Set max-instances: 1 to prevent distributed state issues
+ * - Added process spawn error handling and PID logging
+ * - Enhanced stdout/stderr logging with prefixes
+ * - Track server start time, process PID, and request count
+ * - Log all incoming requests to detect server restarts
+ */
+
 import express from 'express';
 import cors from 'cors';
 import { spawn } from 'child_process';
@@ -16,16 +31,36 @@ const PORT = process.env.PORT || 8080;
 // Store test runs and their results
 const testRuns = new Map();
 
+// Track server start time to detect restarts
+const serverStartTime = new Date().toISOString();
+let requestCount = 0;
+console.log(`[SERVER] ========================================`);
+console.log(`[SERVER] Server started at: ${serverStartTime}`);
+console.log(`[SERVER] Process PID: ${process.pid}`);
+console.log(`[SERVER] ========================================`);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Log all requests
+app.use((req, res, next) => {
+  requestCount++;
+  console.log(`[SERVER] Request #${requestCount}: ${req.method} ${req.path} from ${req.ip}`);
+  next();
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.4.0',
+    serverStartTime: serverStartTime,
+    processUptime: Math.floor(process.uptime()),
+    requestCount: requestCount,
+    testRunsInMemory: testRuns.size,
+    processPid: process.pid
   });
 });
 
@@ -33,13 +68,33 @@ app.get('/health', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     name: 'Fellspiral Playwright Test Server',
-    version: '1.0.0',
+    version: '1.3.0',
     endpoints: {
       health: 'GET /health',
       runTests: 'POST /api/test',
       getTestStatus: 'GET /api/test/:id',
-      getReport: 'GET /api/reports/:id'
+      getReport: 'GET /api/reports/:id',
+      debug: 'GET /api/debug'
     }
+  });
+});
+
+// Debug endpoint to see all test runs
+app.get('/api/debug', (req, res) => {
+  const testRunsArray = Array.from(testRuns.entries()).map(([id, run]) => ({
+    id,
+    status: run.status,
+    startTime: run.startTime,
+    endTime: run.endTime,
+    exitCode: run.exitCode,
+    outputLines: run.output.length,
+    lastOutput: run.output.slice(-3),
+    error: run.error
+  }));
+
+  res.json({
+    totalRuns: testRuns.size,
+    runs: testRunsArray
   });
 });
 
@@ -52,8 +107,12 @@ app.post('/api/test', async (req, res) => {
     testFile = null,
     headed = false,
     workers = 1,
-    deployed = false
+    deployed = false,
+    deployedUrl = null
   } = req.body;
+
+  console.log(`[SERVER] Creating test run: ${testId}, workers: ${workers}, project: ${project}`);
+  console.log(`[SERVER] Current test runs in memory: ${testRuns.size}`);
 
   // Initialize test run status
   testRuns.set(testId, {
@@ -65,6 +124,8 @@ app.post('/api/test', async (req, res) => {
     exitCode: null
   });
 
+  console.log(`[SERVER] Test run ${testId} stored in memory. Total runs: ${testRuns.size}`);
+
   // Respond immediately with test ID
   res.json({
     testId,
@@ -74,18 +135,25 @@ app.post('/api/test', async (req, res) => {
   });
 
   // Run tests asynchronously
-  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed });
+  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed, deployedUrl });
 });
 
 // Get test status endpoint
 app.get('/api/test/:id', (req, res) => {
   const testId = req.params.id;
+  console.log(`[SERVER] Status check for test run: ${testId}`);
+  console.log(`[SERVER] Total test runs in memory: ${testRuns.size}`);
+  console.log(`[SERVER] Test run IDs in memory: ${Array.from(testRuns.keys()).join(', ')}`);
+
   const testRun = testRuns.get(testId);
 
   if (!testRun) {
+    console.error(`[SERVER] ERROR: Test run ${testId} not found in memory!`);
+    console.error(`[SERVER] Available test runs: ${Array.from(testRuns.keys()).join(', ') || 'none'}`);
     return res.status(404).json({ error: 'Test run not found' });
   }
 
+  console.log(`[SERVER] Test run ${testId} found. Status: ${testRun.status}`);
   res.json(testRun);
 });
 
@@ -106,7 +174,7 @@ app.get('/api/reports/:id', async (req, res) => {
   }
 
   // Try to read the JSON report
-  const reportPath = path.join(__dirname, '../../fellspiral/tests/test-results/.last-run.json');
+  const reportPath = path.join(__dirname, '../../tests/test-results/.last-run.json');
 
   try {
     if (existsSync(reportPath)) {
@@ -134,7 +202,7 @@ app.get('/api/reports/:id', async (req, res) => {
 
 // Function to run Playwright tests
 async function runPlaywrightTests(testId, options) {
-  const { project, grep, testFile, headed, workers, deployed } = options;
+  const { project, grep, testFile, headed, workers, deployed, deployedUrl } = options;
   const testRun = testRuns.get(testId);
 
   // Build command arguments
@@ -163,7 +231,7 @@ async function runPlaywrightTests(testId, options) {
   // Always use JSON reporter for programmatic access
   args.push('--reporter=json,list');
 
-  const testsDir = path.join(__dirname, '../../fellspiral/tests');
+  const testsDir = path.join(__dirname, '../../tests');
 
   // Set environment variables
   const env = {
@@ -175,6 +243,12 @@ async function runPlaywrightTests(testId, options) {
     env.DEPLOYED = 'true';
   }
 
+  // Pass the deployed URL if provided
+  if (deployedUrl) {
+    env.DEPLOYED_URL = deployedUrl;
+    console.log(`[${testId}] Using deployed URL: ${deployedUrl}`);
+  }
+
   console.log(`[${testId}] Running Playwright tests in: ${testsDir}`);
   console.log(`[${testId}] Command: npx playwright ${args.join(' ')}`);
 
@@ -184,17 +258,28 @@ async function runPlaywrightTests(testId, options) {
     shell: true
   });
 
+  console.log(`[${testId}] Process spawned with PID: ${playwrightProcess.pid}`);
+
+  // Handle spawn errors
+  playwrightProcess.on('error', (err) => {
+    console.error(`[${testId}] Failed to spawn process:`, err);
+    testRun.error = err.message;
+    testRun.status = 'failed';
+    testRun.exitCode = -1;
+    testRun.endTime = new Date().toISOString();
+  });
+
   // Capture stdout
   playwrightProcess.stdout.on('data', (data) => {
     const output = data.toString();
-    console.log(`[${testId}] ${output}`);
+    console.log(`[${testId}] STDOUT: ${output}`);
     testRun.output.push(output);
   });
 
   // Capture stderr
   playwrightProcess.stderr.on('data', (data) => {
     const output = data.toString();
-    console.error(`[${testId}] ${output}`);
+    console.error(`[${testId}] STDERR: ${output}`);
     testRun.output.push(output);
   });
 
