@@ -699,6 +699,34 @@ def setup_ci_logs_proxy(config):
             else:
                 print_info("github-actions-terraform already has Firebase Admin permissions")
 
+            # Grant Service Usage Consumer (required when using x-goog-user-project header)
+            print_info("Granting Service Usage Consumer permissions...")
+            has_service_usage_permission = False
+            if project_policy:
+                try:
+                    policy = json.loads(project_policy)
+                    member = f"serviceAccount:{terraform_sa_email}"
+                    for binding in policy.get('bindings', []):
+                        if binding.get('role') == 'roles/serviceusage.serviceUsageConsumer':
+                            if member in binding.get('members', []):
+                                has_service_usage_permission = True
+                                break
+                except json.JSONDecodeError:
+                    pass
+
+            if not has_service_usage_permission:
+                result = run_command(
+                    f'gcloud projects add-iam-policy-binding {config["project_id"]} '
+                    f'--member="serviceAccount:{terraform_sa_email}" '
+                    f'--role="roles/serviceusage.serviceUsageConsumer" '
+                    f'--condition=None --quiet 2>&1',
+                    check=False
+                )
+                if result and ("Updated IAM policy" in result or "bindings:" in result):
+                    print_success("github-actions-terraform granted Service Usage Consumer role")
+            else:
+                print_info("github-actions-terraform already has Service Usage Consumer permissions")
+
             # Grant Compute Load Balancer Admin (for CDN and load balancing)
             print_info("Granting Compute Load Balancer Admin permissions...")
             has_compute_lb_permission = False
