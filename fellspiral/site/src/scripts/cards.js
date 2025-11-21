@@ -2,6 +2,9 @@
  * Card Manager - CRUD Operations and Tree Navigation
  */
 
+// Import cards data directly (Vite will include this in the build)
+import cardsData from '../data/cards.json';
+
 // State management
 const state = {
   cards: [],
@@ -33,7 +36,7 @@ async function init() {
   updateStats();
 }
 
-// Load cards from localStorage or JSON file
+// Load cards from localStorage or imported data
 async function loadCards() {
   // Try to load from localStorage first
   const storedCards = localStorage.getItem('fellspiral-cards');
@@ -41,17 +44,10 @@ async function loadCards() {
   if (storedCards) {
     state.cards = JSON.parse(storedCards);
   } else {
-    // Load from JSON file
-    try {
-      const response = await fetch('/data/cards.json');
-      if (response.ok) {
-        state.cards = await response.json();
-        saveCardsToStorage();
-      } else {
-        state.cards = [];
-      }
-    } catch (error) {
-      state.cards = [];
+    // Load from imported JSON data
+    state.cards = cardsData || [];
+    if (state.cards.length > 0) {
+      saveCardsToStorage();
     }
   }
 
@@ -551,29 +547,26 @@ window.editCard = function(cardId) {
 async function importCards() {
   if (confirm('This will import cards from the parsed rules.md file. Continue?')) {
     try {
-      const response = await fetch('/data/cards.json');
-      if (response.ok) {
-        const importedCards = await response.json();
+      const importedCards = cardsData || [];
 
-        // Merge with existing cards (avoid duplicates)
-        importedCards.forEach(importedCard => {
-          const existingIndex = state.cards.findIndex(c => c.id === importedCard.id);
-          if (existingIndex !== -1) {
-            // Update existing card
-            state.cards[existingIndex] = importedCard;
-          } else {
-            // Add new card
-            state.cards.push(importedCard);
-          }
-        });
+      // Merge with existing cards (avoid duplicates)
+      importedCards.forEach(importedCard => {
+        const existingIndex = state.cards.findIndex(c => c.id === importedCard.id);
+        if (existingIndex !== -1) {
+          // Update existing card
+          state.cards[existingIndex] = importedCard;
+        } else {
+          // Add new card
+          state.cards.push(importedCard);
+        }
+      });
 
-        saveCardsToStorage();
-        renderTree();
-        applyFilters();
-        updateStats();
+      saveCardsToStorage();
+      renderTree();
+      applyFilters();
+      updateStats();
 
-        alert(`Successfully imported ${importedCards.length} cards!`);
-      }
+      alert(`Successfully imported ${importedCards.length} cards!`);
     } catch (error) {
       console.error('Error importing cards:', error);
       alert('Error importing cards. See console for details.');
