@@ -29,6 +29,15 @@ curl -X POST \
   https://api.github.com/repos/OWNER/REPO/issues
 ```
 
+**Troubleshooting API Access**
+
+If GitHub API calls return "Bad credentials" (401 error):
+1. **DO NOT assume the token is expired** - verify the request format first
+2. Check the Authorization header format: use `Authorization: token $GITHUB_TOKEN` (not `Bearer`)
+3. Verify the token variable is set correctly
+4. Test with a simple endpoint first: `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user`
+5. Only report token expiration if the user confirms it needs renewal
+
 ### Google Cloud Platform API Access
 
 The environment provides GCP credentials via:
