@@ -1,6 +1,12 @@
 name: CI - Test Suite
 
 on:
+  workflow_run:
+    workflows: ["Deploy Feature Branch Preview", "Deploy Playwright Server"]
+    types:
+      - completed
+    branches-ignore:
+      - main
   push:
     branches: ['**']
 
@@ -8,7 +14,12 @@ jobs:
   test:
     name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    # Only run if the Playwright deployment succeeded (when triggered by workflow_run)
+    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
@@ -20,35 +31,107 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('fellspiral/tests/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
       - name: Install dependencies
         run: npm install
 
       - name: Build site
         run: npm run build --workspace=fellspiral/site
 
-      - name: Install Playwright browsers
-        run: cd fellspiral/tests && npx playwright install --with-deps chromium
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Run tests
-        run: npm test --workspace=fellspiral/tests -- --project=chromium
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Determine deployment URL
+        id: deployment-url
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            # Main branch tests the production deployment
+            SITE_URL="https://fellspiral.commons.systems"
+            echo "Testing main branch against production: $SITE_URL"
+          else
+            # Feature branch - get the preview deployment URL
+            BRANCH_NAME="${{ github.ref_name }}"
+            BRANCH_NAME="${BRANCH_NAME#claude/}"
+            SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+            SERVICE_NAME="fb-${SANITIZED}"
+            SERVICE_NAME="${SERVICE_NAME:0:63}"
+            SERVICE_NAME="${SERVICE_NAME%-}"
+
+            echo "Looking for feature branch service: $SERVICE_NAME"
+
+            SITE_URL=$(gcloud run services describe "$SERVICE_NAME" \
+              --region=us-central1 \
+              --format='value(status.url)' 2>/dev/null || echo "")
+
+            if [ -z "$SITE_URL" ]; then
+              echo "❌ Could not find feature branch deployment: $SERVICE_NAME"
+              exit 1
+            fi
+
+            echo "Testing feature branch against preview: $SITE_URL"
+          fi
+
+          echo "url=${SITE_URL}" >> $GITHUB_OUTPUT
+          echo "Site URL: ${SITE_URL}"
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          SERVICE_URL=$(gcloud run services describe playwright-server \
+            --platform managed \
+            --region us-central1 \
+            --format 'value(status.url)')
+          echo "url=${SERVICE_URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${SERVICE_URL}"
+
+      - name: Test server health
+        run: |
+          echo "Testing Playwright server health..."
+          curl -f ${{ steps.playwright-server.outputs.url }}/health || {
+            echo "❌ Playwright server is not responding"
+            exit 1
+          }
+          echo "✅ Playwright server is healthy"
+
+      - name: Wait for site to be ready
+        run: |
+          SITE_URL="${{ steps.deployment-url.outputs.url }}"
+          echo "Waiting for site to be ready: $SITE_URL"
+
+          # Wait up to 5 minutes for feature branch deployments
+          MAX_ATTEMPTS=60
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            if curl -sf "$SITE_URL" > /dev/null 2>&1; then
+              echo "✅ Site is ready after $((i*5)) seconds!"
+              break
+            fi
+            echo "Waiting for site... ($i/$MAX_ATTEMPTS)"
+            sleep 5
+          done
+
+          # Final check
+          if ! curl -sf "$SITE_URL" > /dev/null 2>&1; then
+            echo "❌ Site is not responding after $((MAX_ATTEMPTS*5)) seconds"
+            exit 1
+          fi
+
+      - name: Run tests via remote Playwright server
+        run: |
+          cd playwright-server
+          node run-tests.js --project chromium --workers 4 --deployed
         env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ steps.deployment-url.outputs.url }}
           CI: true
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: fellspiral/tests/playwright-report/
-          retention-days: 30
+      # Note: Test reports are stored on the Playwright server
+      # and printed to the console output. They can be accessed
+      # via the server's /api/reports/{id} endpoint if needed.
 
   lint:
     name: Lint Check
