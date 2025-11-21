@@ -1,15 +1,34 @@
+# Multi-stage build for efficient image size
+FROM node:20-alpine AS builder
+
+WORKDIR /build
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies (use install instead of ci for workspace compatibility)
+RUN npm install --production=false
+
+# Copy source files
+COPY . .
+
+# Build the site
+RUN npm run build
+
+# Production stage - minimal nginx alpine image
 FROM nginx:alpine
 
-# Copy built files to nginx
-COPY dist /usr/share/nginx/html
+# Copy built files from builder stage
+COPY --from=builder /build/dist /usr/share/nginx/html
 
-# Create health check endpoint
-RUN echo '<!DOCTYPE html><html><body>OK</body></html>' > /usr/share/nginx/html/health
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf.default 2>/dev/null || true
+
+# Cloud Run expects port 8080
 EXPOSE 8080
 
-# Configure nginx to listen on port 8080 (Cloud Run requirement)
-RUN sed -i 's/listen       80;/listen       8080;/' /etc/nginx/conf.d/default.conf
-
+# Run nginx in foreground
 CMD ["nginx", "-g", "daemon off;"]
