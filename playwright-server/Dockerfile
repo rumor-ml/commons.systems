@@ -12,15 +12,9 @@ RUN npm install --production
 # Copy server source code
 COPY playwright-server/src ./src
 
-# Create directory for uploaded tests (will be populated at runtime)
-WORKDIR /app
-RUN mkdir -p /app/tests
-
 # Install Playwright browsers (if not already in base image)
+WORKDIR /app
 RUN npx playwright install --with-deps chromium
-
-# Create directory for test results
-RUN mkdir -p /app/tests/test-results
 
 # Back to server directory
 WORKDIR /app/server
