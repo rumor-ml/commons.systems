@@ -41,20 +41,19 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        // Only use launchOptions when NOT connecting via CDP
-        ...(!process.env.PLAYWRIGHT_CDP_URL && {
-          launchOptions: {
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-gpu',
-            ],
+      use: process.env.PLAYWRIGHT_CDP_URL
+        ? {} // When using CDP, use minimal config - no device presets or launch options
+        : {
+            ...devices['Desktop Chrome'],
+            launchOptions: {
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+              ],
+            },
           },
-        }),
-      },
     },
     {
       name: 'firefox',
