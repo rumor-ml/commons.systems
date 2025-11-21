@@ -241,8 +241,6 @@ async function launchBrowser() {
   browserInstance = await chromium.launch({
     headless: true,
     args: [
-      '--remote-debugging-port=9222',
-      '--remote-debugging-address=0.0.0.0', // Listen on all interfaces for Docker
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
@@ -250,37 +248,10 @@ async function launchBrowser() {
     ]
   });
 
-  // Get CDP WebSocket endpoint from Chrome's debugging JSON endpoint
-  // Wait a bit for Chrome to fully start
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  try {
-    const http = await import('http');
-    const response = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
-      http.get('http://127.0.0.1:9222/json/version', (res) => {
-        clearTimeout(timeout);
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(e);
-          }
-        });
-        res.on('error', reject);
-      }).on('error', reject);
-    });
-
-    cdpEndpoint = response.webSocketDebuggerUrl;
-    console.log(`[BROWSER] Chrome launched with CDP endpoint: ${cdpEndpoint}`);
-  } catch (error) {
-    console.error(`[BROWSER] Failed to get CDP endpoint from Chrome: ${error.message}`);
-    // Fallback to Playwright's internal endpoint
-    cdpEndpoint = browserInstance.wsEndpoint();
-    console.log(`[BROWSER] Using Playwright internal endpoint as fallback: ${cdpEndpoint}`);
-  }
+  // Use Playwright's internal CDP WebSocket endpoint
+  // This is the reliable way to get the CDP endpoint when using Playwright
+  cdpEndpoint = browserInstance.wsEndpoint();
+  console.log(`[BROWSER] Chrome launched with CDP endpoint: ${cdpEndpoint}`);
 
   // Handle browser close
   browserInstance.on('disconnected', () => {
