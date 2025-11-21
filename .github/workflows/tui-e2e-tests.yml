@@ -1,0 +1,67 @@
+name: TUI E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'tui/**'
+      - '.github/workflows/tui-e2e-tests.yml'
+  pull_request:
+    paths:
+      - 'tui/**'
+      - '.github/workflows/tui-e2e-tests.yml'
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - simple
+          - comprehensive
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+
+      - name: Run simple e2e test
+        if: ${{ github.event.inputs.test_suite == 'simple' || github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
+        run: |
+          cd tui/tests
+          chmod +x simple_test.sh
+          ./simple_test.sh
+
+      - name: Run comprehensive e2e tests
+        if: ${{ github.event.inputs.test_suite == 'comprehensive' || github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
+        run: |
+          cd tui/tests
+          if [ -f comprehensive_test.sh ]; then
+            chmod +x comprehensive_test.sh
+            ./comprehensive_test.sh
+          else
+            echo "Comprehensive tests not yet implemented"
+          fi
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            tui/tests/*.log
+            tui/tests/screenshots/*.png
+          if-no-files-found: ignore

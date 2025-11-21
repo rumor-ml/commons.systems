@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "pkg/hooks/notification-handler.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "./pkg/hooks/inject-instructions.sh",
+        "hooks": [
+          {
+            "command": "pkg/hooks/inject-instructions.sh",
+            "type": "command"
+          }
+        ],
+        "type": "command"
+      }
+    ]
+  },
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "Bash(true)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(go test:*)",
+      "Bash(go run:*)",
+      "Bash(npm test:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git init:*)"
+    ],
+    "deny": []
+  }
+}

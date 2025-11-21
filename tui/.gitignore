@@ -1,0 +1,80 @@
+# DO NOT EDIT - This file is managed by the project sync process
+# To add project-specific patterns, edit cc.yaml and add to gitignore.additional_patterns
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Go coverage output
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Direnv and cache
+.direnv/
+.cache/
+
+# Node dependencies
+node_modules/
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# Build directories
+dist/
+build/
+
+# Project-specific patterns
+main
+claude-hook
+config-manager
+project-cli
+carriercommons
+generate-claude
+coverage.html
+.direnv/project
+.direnv/flake-profile-*-link
+.claude/commands/commit.md
+.claude/commands/plan.md
+.claude/commands/ready.md
+sync.db
+sync-output.log
+.icf/notifications/*.json
+test-port.txt
+/package.json
+/package-lock.json
+/node_modules
