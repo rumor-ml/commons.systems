@@ -47,12 +47,36 @@ Quick verification that GCP credentials are properly configured and working.
 ./claudetool/verify_gcp_credentials.sh
 ```
 
+#### `add-site.sh` - Add New Site to Monorepo
+Scaffolds a new site in the monorepo with all necessary boilerplate, tests, and workflows.
+
+**Usage:**
+```bash
+./claudetool/add-site.sh <site-name>
+
+# Example
+./claudetool/add-site.sh myblog
+```
+
+**What it creates:**
+- `<site-name>/site/` - Site source code with Vite, Dockerfile, basic HTML/CSS/JS
+- `<site-name>/tests/` - Playwright tests with configuration
+- `.github/workflows/deploy-<site-name>-manual.yml` - Manual deployment workflow
+- Updates `package.json` with new workspaces and scripts
+
+**After running:**
+1. Run `npm install` to install dependencies
+2. Manually update `.github/workflows/push.yml` to add the new site (follow patterns from existing sites)
+3. Test locally with `npm run dev:<site-name>`
+4. Deploy manually via GitHub Actions → Manual Deploy workflow
+
 ### When to Use These Tools
 
 - **Debugging deployment failures**: Use `check_workflows.py` to see workflow status, then fetch logs via API
 - **GCP setup issues**: Use `debug_gcp_deployment.py` to diagnose configuration problems
 - **Monitoring deployments**: Use `check_workflows.py --monitor` to watch deployment progress
 - **Verifying GCP access**: Use `verify_gcp_credentials.sh` before attempting GCP operations
+- **Adding new sites**: Use `add-site.sh` to scaffold new sites with all necessary files
 
 ## API Access in CI/CD Environment
 
@@ -157,6 +181,49 @@ curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
 
 **DO:** Fetch logs via API, analyze them, and present findings with solutions
 **DON'T:** Ask users to check logs or investigate manually
+
+## Manual Deployment Workflows
+
+Each site in the monorepo has a dedicated manual deployment workflow for on-demand deployments.
+
+### Available Workflows
+
+- **Manual Deploy - Fellspiral**: `.github/workflows/deploy-fellspiral-manual.yml`
+- **Manual Deploy - Videobrowser**: `.github/workflows/deploy-videobrowser-manual.yml`
+
+### Workflow Structure
+
+Each manual deploy workflow runs in serial (stop on error):
+1. **Local Tests** - Run site-specific local tests
+2. **Deploy** - Deploy site to Cloud Run (production or feature branch)
+3. **Playwright Tests** - Run end-to-end tests against deployed site
+
+### Parameters
+
+- **branch** (required): Branch to deploy (default: main)
+- **skip_tests** (optional): Skip tests if needed (use with caution)
+
+### When to Use
+
+- **On-demand deployments**: Deploy specific sites without triggering full pipeline
+- **Testing deployments**: Deploy and test a specific branch
+- **Hotfixes**: Quick deployments with option to skip tests (not recommended for production)
+- **Individual site updates**: Deploy one site without affecting others
+
+### Example Usage
+
+Via GitHub Actions UI:
+1. Go to Actions → Select workflow (e.g., "Manual Deploy - Fellspiral")
+2. Click "Run workflow"
+3. Select branch and options
+4. Click "Run workflow"
+
+The workflow will:
+- Run local tests (build, lint)
+- Deploy the site to Cloud Run
+- Wait for health check
+- Run Playwright tests against deployed site
+- Provide deployment summary
 
 ## CI/CD Pipeline Verification Before Merge
 
