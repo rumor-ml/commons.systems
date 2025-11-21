@@ -11,7 +11,7 @@ A web application for browsing and playing videos stored in Firebase Storage (ba
 - 📱 Responsive design (mobile & desktop)
 - 🔒 Private bucket access via Firebase signed URLs
 - 🔐 Secure access via Firebase Storage security rules
-- ✅ Auto-deployed CI/CD pipeline
+- ✅ Automated CI/CD deployment pipeline
 
 ## Architecture
 
