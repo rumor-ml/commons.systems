@@ -109,6 +109,7 @@ jobs:
 
           # List Firebase web apps
           APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
 
           # Check for errors
@@ -129,6 +130,7 @@ jobs:
             echo "No Firebase web apps found. Creating one..."
             CREATE_RESPONSE=$(curl -s -X POST \
               -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
               -H "Content-Type: application/json" \
               -d '{"displayName": "Video Browser Web App"}' \
               "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
@@ -152,6 +154,7 @@ jobs:
 
           # Get app configuration
           CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
 
           # Validate configuration
@@ -213,6 +216,7 @@ jobs:
           echo "Creating ruleset..."
           RULESET_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
             -d "{
               \"source\": {
@@ -246,6 +250,7 @@ jobs:
           RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
           RELEASE_RESPONSE=$(curl -s -X PATCH \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
             -d "{
               \"release\": {
