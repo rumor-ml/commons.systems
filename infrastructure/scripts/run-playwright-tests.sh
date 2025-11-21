@@ -29,10 +29,26 @@ echo "✅ Playwright server is healthy"
 
 # Get OIDC token for authentication
 echo "Getting authentication token..."
-OIDC_TOKEN=$(gcloud auth print-identity-token --audience="${PLAYWRIGHT_SERVER_URL}" 2>/dev/null)
+
+# When using Workload Identity Federation, we need to get the currently authenticated account
+CURRENT_ACCOUNT=$(gcloud config get-value account 2>/dev/null)
+echo "Current GCP account: $CURRENT_ACCOUNT"
+
+# Get identity token for the Playwright server audience
+# For Workload Identity Federation, don't specify audience - let the server validate
+OIDC_TOKEN=$(gcloud auth print-identity-token 2>&1)
+
+# Check if command failed
+if [ $? -ne 0 ]; then
+  echo "❌ Failed to get OIDC token"
+  echo "Error: $OIDC_TOKEN"
+  echo "Attempting to print more debug info..."
+  gcloud auth list
+  exit 1
+fi
 
 if [ -z "$OIDC_TOKEN" ]; then
-  echo "❌ Failed to get OIDC token"
+  echo "❌ OIDC token is empty"
   exit 1
 fi
 
