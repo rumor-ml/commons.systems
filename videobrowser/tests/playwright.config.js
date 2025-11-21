@@ -42,15 +42,17 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Disable sandbox for Docker/container environments
-        launchOptions: {
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-          ],
-        },
+        // Only use launchOptions when NOT connecting via CDP
+        ...(!process.env.PLAYWRIGHT_CDP_URL && {
+          launchOptions: {
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu',
+            ],
+          },
+        }),
       },
     },
     {
