@@ -29,7 +29,7 @@ echo "✅ Playwright server is healthy"
 
 # Get OIDC token for authentication
 echo "Getting authentication token..."
-OIDC_TOKEN=$(gcloud auth print-identity-token 2>/dev/null)
+OIDC_TOKEN=$(gcloud auth print-identity-token --audience="${PLAYWRIGHT_SERVER_URL}" 2>/dev/null)
 
 if [ -z "$OIDC_TOKEN" ]; then
   echo "❌ Failed to get OIDC token"
