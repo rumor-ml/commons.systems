@@ -2,7 +2,16 @@
  * Card Manager - CRUD Operations and Tree Navigation
  */
 
-// Import cards data directly (Vite will include this in the build)
+// Import Firestore operations
+import {
+  getAllCards,
+  createCard as createCardInDB,
+  updateCard as updateCardInDB,
+  deleteCard as deleteCardInDB,
+  importCards as importCardsFromData
+} from './firebase.js';
+
+// Import cards data for initial seeding
 import cardsData from '../data/cards.json';
 
 // State management
@@ -15,7 +24,9 @@ const state = {
     type: '',
     subtype: '',
     search: ''
-  }
+  },
+  loading: false,
+  error: null
 };
 
 // Subtype mappings
@@ -36,27 +47,36 @@ async function init() {
   updateStats();
 }
 
-// Load cards from localStorage or imported data
+// Load cards from Firestore
 async function loadCards() {
-  // Try to load from localStorage first
-  const storedCards = localStorage.getItem('fellspiral-cards');
+  try {
+    state.loading = true;
+    state.error = null;
 
-  if (storedCards) {
-    state.cards = JSON.parse(storedCards);
-  } else {
-    // Load from imported JSON data
-    state.cards = cardsData || [];
-    if (state.cards.length > 0) {
-      saveCardsToStorage();
+    // Try to load from Firestore
+    const cards = await getAllCards();
+
+    if (cards.length > 0) {
+      state.cards = cards;
+    } else {
+      // If no cards in Firestore, seed from JSON data
+      console.log('No cards found in Firestore, seeding from rules.md data...');
+      await importCardsFromData(cardsData);
+      state.cards = await getAllCards();
     }
+
+    state.filteredCards = [...state.cards];
+    state.loading = false;
+  } catch (error) {
+    console.error('Error loading cards:', error);
+    state.error = error.message;
+    state.loading = false;
+
+    // Fallback to static data if Firestore fails
+    console.warn('Falling back to static JSON data');
+    state.cards = cardsData || [];
+    state.filteredCards = [...state.cards];
   }
-
-  state.filteredCards = [...state.cards];
-}
-
-// Save cards to localStorage
-function saveCardsToStorage() {
-  localStorage.setItem('fellspiral-cards', JSON.stringify(state.cards));
 }
 
 // Setup event listeners
@@ -245,9 +265,22 @@ function expandCollapseAll(expand) {
   });
 }
 
-// Refresh tree
-function refreshTree() {
-  renderTree();
+// Refresh tree and reload from Firestore
+async function refreshTree() {
+  try {
+    state.loading = true;
+    state.cards = await getAllCards();
+    state.filteredCards = [...state.cards];
+    state.loading = false;
+
+    renderTree();
+    applyFilters();
+    updateStats();
+  } catch (error) {
+    console.error('Error refreshing cards:', error);
+    state.loading = false;
+    alert(`Error refreshing cards: ${error.message}`);
+  }
 }
 
 // Handle tree search
@@ -475,7 +508,7 @@ function updateSubtypeOptions() {
 }
 
 // Handle card save
-function handleCardSave(e) {
+async function handleCardSave(e) {
   e.preventDefault();
 
   const id = document.getElementById('cardId').value;
@@ -487,51 +520,58 @@ function handleCardSave(e) {
     description: document.getElementById('cardDescription').value.trim(),
     stat1: document.getElementById('cardStat1').value.trim(),
     stat2: document.getElementById('cardStat2').value.trim(),
-    cost: document.getElementById('cardCost').value.trim(),
-    updatedAt: new Date().toISOString()
+    cost: document.getElementById('cardCost').value.trim()
   };
 
-  if (id) {
-    // Update existing card
-    const index = state.cards.findIndex(c => c.id === id);
-    if (index !== -1) {
-      state.cards[index] = { ...state.cards[index], ...cardData };
+  try {
+    if (id) {
+      // Update existing card in Firestore
+      await updateCardInDB(id, cardData);
+
+      // Update local state
+      const index = state.cards.findIndex(c => c.id === id);
+      if (index !== -1) {
+        state.cards[index] = { ...state.cards[index], ...cardData };
+      }
+    } else {
+      // Create new card in Firestore
+      const newCardId = await createCardInDB(cardData);
+
+      // Add to local state
+      state.cards.push({ id: newCardId, ...cardData });
     }
-  } else {
-    // Create new card
-    cardData.id = cardData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    cardData.createdAt = new Date().toISOString();
 
-    // Ensure unique ID
-    let baseId = cardData.id;
-    let counter = 1;
-    while (state.cards.some(c => c.id === cardData.id)) {
-      cardData.id = `${baseId}-${counter}`;
-      counter++;
-    }
-
-    state.cards.push(cardData);
-  }
-
-  saveCardsToStorage();
-  closeCardEditor();
-  renderTree();
-  applyFilters();
-  updateStats();
-}
-
-// Delete card
-function deleteCard() {
-  const id = document.getElementById('cardId').value;
-  if (!id) return;
-
-  if (confirm('Are you sure you want to delete this card?')) {
-    state.cards = state.cards.filter(c => c.id !== id);
-    saveCardsToStorage();
     closeCardEditor();
     renderTree();
     applyFilters();
     updateStats();
+  } catch (error) {
+    console.error('Error saving card:', error);
+    alert(`Error saving card: ${error.message}`);
+  }
+}
+
+// Delete card
+async function deleteCard() {
+  const id = document.getElementById('cardId').value;
+  if (!id) return;
+
+  if (confirm('Are you sure you want to delete this card?')) {
+    try {
+      // Delete from Firestore
+      await deleteCardInDB(id);
+
+      // Remove from local state
+      state.cards = state.cards.filter(c => c.id !== id);
+
+      closeCardEditor();
+      renderTree();
+      applyFilters();
+      updateStats();
+    } catch (error) {
+      console.error('Error deleting card:', error);
+      alert(`Error deleting card: ${error.message}`);
+    }
   }
 }
 
@@ -545,31 +585,30 @@ window.editCard = function(cardId) {
 
 // Import cards from rules.md
 async function importCards() {
-  if (confirm('This will import cards from the parsed rules.md file. Continue?')) {
+  if (confirm('This will import cards from the parsed rules.md file to Firestore. Continue?')) {
     try {
       const importedCards = cardsData || [];
 
-      // Merge with existing cards (avoid duplicates)
-      importedCards.forEach(importedCard => {
-        const existingIndex = state.cards.findIndex(c => c.id === importedCard.id);
-        if (existingIndex !== -1) {
-          // Update existing card
-          state.cards[existingIndex] = importedCard;
-        } else {
-          // Add new card
-          state.cards.push(importedCard);
-        }
-      });
+      // Import to Firestore
+      const results = await importCardsFromData(importedCards);
 
-      saveCardsToStorage();
+      // Reload cards from Firestore
+      state.cards = await getAllCards();
+      state.filteredCards = [...state.cards];
+
       renderTree();
       applyFilters();
       updateStats();
 
-      alert(`Successfully imported ${importedCards.length} cards!`);
+      alert(
+        `Import complete!\n` +
+        `Created: ${results.created}\n` +
+        `Updated: ${results.updated}\n` +
+        `Errors: ${results.errors}`
+      );
     } catch (error) {
       console.error('Error importing cards:', error);
-      alert('Error importing cards. See console for details.');
+      alert(`Error importing cards: ${error.message}`);
     }
   }
 }

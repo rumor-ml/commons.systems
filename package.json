@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Monorepo for commons.systems projects",
   "private": true,
+  "type": "module",
   "workspaces": [
     "fellspiral/site",
     "fellspiral/tests",
@@ -19,9 +20,13 @@
     "build:videobrowser": "npm run build --workspace=videobrowser/site",
     "test:videobrowser": "npm test --workspace=videobrowser/tests",
     "test:videobrowser:deployed": "npm run test:deployed --workspace=videobrowser/tests",
-    "preview:videobrowser": "npm run preview --workspace=videobrowser/site"
+    "preview:videobrowser": "npm run preview --workspace=videobrowser/site",
+    "seed:firestore": "node fellspiral/scripts/seed-firestore.js"
   },
   "keywords": ["monorepo", "fellspiral", "tabletop", "rpg", "videobrowser", "gcs"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "firebase-admin": "^12.0.0"
+  }
 }
