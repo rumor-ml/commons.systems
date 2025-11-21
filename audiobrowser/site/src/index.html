@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Audio Browser - Navigate and play audio files from GCS with Firestore metadata">
+  <title>Audio Browser</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="header__title">Audio Browser</h1>
+      <p class="header__subtitle">Navigate audio files with metadata from Firestore</p>
+    </header>
+
+    <main class="main">
+      <div class="audio-section">
+        <div class="audio-player">
+          <audio
+            id="audioPlayer"
+            class="audio-player__element"
+            controls
+            preload="metadata">
+            <p>Your browser doesn't support HTML5 audio. Please upgrade to a modern browser.</p>
+          </audio>
+          <div class="audio-info" id="audioInfo">
+            <p class="audio-info__message">No audio selected</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="browser-section">
+        <div class="controls">
+          <button id="refreshBtn" class="btn btn--primary" aria-label="Refresh audio list">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            </svg>
+            Refresh
+          </button>
+          <input
+            type="search"
+            id="searchInput"
+            class="search-input"
+            placeholder="Search audio files..."
+            aria-label="Search audio files"
+          >
+        </div>
+
+        <div class="file-list" id="fileList">
+          <div class="loading" id="loadingIndicator">
+            <div class="loading__spinner"></div>
+            <p>Loading audio files...</p>
+          </div>
+        </div>
+
+        <div class="stats" id="stats">
+          <p class="stats__text">Total audio files: <span id="totalCount">0</span></p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p class="footer__text">
+        Audio Browser | <a href="https://github.com/rumor-ml/commons.systems" class="footer__link">Source</a>
+      </p>
+    </footer>
+  </div>
+
+  <script type="module" src="./scripts/main.js"></script>
+</body>
+</html>
