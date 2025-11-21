@@ -34,50 +34,41 @@ User Browser → Firebase SDK (client-side)
 
 ## Setup
 
-### Automated Setup (Recommended)
+### Automated Setup
 
 Firebase configuration and storage rules are **automatically deployed** via CI/CD. No manual setup required!
 
 **Prerequisites:**
-1. Run `python3 setup.py` at the repository root (enables Firebase APIs)
-2. Ensure the `rml-media` GCS bucket exists with videos in `video/` directory
+1. Run `python3 setup.py` at repository root (enables Firebase APIs)
+2. Ensure `rml-media` GCS bucket exists with videos in `video/` directory
+3. Enable Firebase on your GCP project (one-time, see below)
 
 **How it works:**
-- The deployment workflow automatically:
-  1. Fetches Firebase configuration from GCP
-  2. Injects it into `firebase-config.js` during build
+- The deployment workflow (`.github/workflows/deploy-videobrowser.yml`) automatically:
+  1. Fetches Firebase configuration via GCP API
+  2. Injects config into `firebase-config.js` during build
   3. Deploys Firebase Storage security rules
   4. Builds and deploys the application
 
-See [`scripts/README.md`](../scripts/README.md) for details on the automation scripts.
-
-### Manual Setup (Development Only)
-
-For local development, inject the Firebase config once:
-
-```bash
-# From repository root
-./scripts/inject-firebase-config.sh videobrowser/site/src/firebase-config.js
-./scripts/deploy-firebase-storage-rules.sh videobrowser/storage.rules rml-media
-```
+**All logic is inline in the workflow** - no separate scripts needed.
 
 ### Firebase Console Setup (One-time)
 
-If Firebase is not yet enabled on your GCP project:
+If Firebase is not enabled on your GCP project:
 
 1. Go to https://console.firebase.google.com/
 2. Click "Add project"
-3. Select your existing GCP project (`chalanding`)
-4. Follow the setup wizard
+3. Select existing GCP project (`chalanding`)
+4. Follow setup wizard
 
-Alternatively, the `setup.py` script enables required APIs automatically:
-```bash
-python3 setup.py  # Enables firebase.googleapis.com and related APIs
-```
+Or run `python3 setup.py` which enables the required APIs:
+- `firebase.googleapis.com`
+- `firebaserules.googleapis.com`
+- `firebasestorage.googleapis.com`
 
 ### Storage Security Rules
 
-Rules are defined in `storage.rules` and deployed automatically:
+Rules are defined in `storage.rules` and auto-deployed on each deployment:
 
 ```javascript
 rules_version = '2';
@@ -90,8 +81,6 @@ service firebase.storage {
   }
 }
 ```
-
-**Deployment:** Automatic via CI/CD workflow (no Firebase CLI needed)
 
 ## Development
 
@@ -231,7 +220,7 @@ Firebase Storage handles CORS automatically. If you see CORS errors, check:
 
 ## Migration from Public GCS
 
-This application was migrated from direct public GCS API access to Firebase Storage with automated configuration:
+This application was migrated from direct public GCS API access to Firebase Storage:
 
 **Before:**
 - Direct calls to `storage.googleapis.com/storage/v1/b/...`
@@ -248,10 +237,11 @@ This application was migrated from direct public GCS API access to Firebase Stor
 - **Automated** security rules deployment
 
 **Infrastructure as Code:**
-- Firebase configuration fetched programmatically via GCP APIs
+- All automation is inline in `.github/workflows/deploy-videobrowser.yml`
+- Firebase config fetched programmatically via GCP APIs
 - Storage rules deployed via Firebase Management API
 - No Firebase CLI required in CI/CD
-- See `scripts/` directory for automation details
+- Consistent with existing `setup.py` + workflows pattern
 
 ## License
 

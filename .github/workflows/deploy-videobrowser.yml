@@ -101,19 +101,107 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Inject Firebase configuration
+      - name: Get Firebase configuration and inject
         run: |
-          chmod +x scripts/inject-firebase-config.sh
-          scripts/inject-firebase-config.sh \
-            videobrowser/site/src/firebase-config.js \
-            ${{ env.GCP_PROJECT_ID }}
+          echo "Fetching Firebase configuration..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+
+          # List Firebase web apps
+          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
+
+          # Get or create web app
+          APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.apps[0].appId // empty')
+
+          if [ -z "$APP_ID" ]; then
+            echo "Creating Firebase web app..."
+            CREATE_RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{"displayName": "Video Browser Web App"}' \
+              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
+            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId')
+          fi
+
+          # Get app configuration
+          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
+
+          # Extract values
+          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey')
+          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
+          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
+          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
+          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
+          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
+
+          # Inject into firebase-config.js
+          cat > videobrowser/site/src/firebase-config.js <<EOF
+          /**
+           * Firebase Configuration
+           *
+           * This configuration is safe to expose publicly as it only identifies
+           * the Firebase project. Access control is managed via Firebase Storage
+           * security rules (storage.rules).
+           *
+           * Auto-generated during CI/CD deployment
+           */
+
+          export const firebaseConfig = {
+            apiKey: "${API_KEY}",
+            authDomain: "${AUTH_DOMAIN}",
+            projectId: "${PROJECT_ID}",
+            storageBucket: "${STORAGE_BUCKET}",
+            messagingSenderId: "${MESSAGING_SENDER_ID}",
+            appId: "${APP_ID_VALUE}"
+          };
+          EOF
+
+          echo "✓ Firebase configuration injected"
+          echo "  Storage Bucket: ${STORAGE_BUCKET}"
 
       - name: Deploy Firebase Storage rules
         run: |
-          chmod +x scripts/deploy-firebase-storage-rules.sh
-          scripts/deploy-firebase-storage-rules.sh \
-            videobrowser/storage.rules \
-            rml-media
+          echo "Deploying Firebase Storage rules..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          RULES_FILE="videobrowser/storage.rules"
+
+          # Read and escape rules file for JSON
+          RULES_CONTENT=$(cat "$RULES_FILE" | jq -Rs '.')
+
+          # Create ruleset
+          RULESET_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"source\": {
+                \"files\": [
+                  {
+                    \"name\": \"storage.rules\",
+                    \"content\": ${RULES_CONTENT}
+                  }
+                ]
+              }
+            }" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+
+          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name')
+
+          # Release ruleset to bucket
+          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
+          curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"release\": {
+                \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
+                \"rulesetName\": \"${RULESET_NAME}\"
+              }
+            }" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}"
+
+          echo "✓ Firebase Storage rules deployed to ${BUCKET_NAME}"
 
       - name: Configure Docker for Artifact Registry
         run: |
