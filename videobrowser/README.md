@@ -42,13 +42,15 @@ Run the setup script at the repository root:
 python3 setup.py
 ```
 
-This script will:
+The script will:
 1. ✅ Enable all required GCP APIs (including Firebase APIs)
 2. ✅ Set up Workload Identity Federation
 3. ✅ Create service accounts
 4. ✅ Configure Artifact Registry
 5. ✅ **Initialize Firebase on your GCP project**
 6. ✅ Optionally create GitHub secrets
+
+The script gathers all inputs upfront (project ID defaults to gcloud config), then runs all steps automatically without interruption.
 
 After running `setup.py`, Firebase will be fully configured and ready to use.
 
