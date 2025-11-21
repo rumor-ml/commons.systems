@@ -205,6 +205,28 @@ def enable_apis(config):
     # Set project
     run_command(f"gcloud config set project {config['project_id']}", capture_output=False)
 
+    # First, try to enable the Service Usage API (required to enable other APIs)
+    print_info("Checking Service Usage API...")
+    service_usage_check = run_command(
+        f"gcloud services enable serviceusage.googleapis.com --project={config['project_id']} 2>&1",
+        check=False
+    )
+
+    if service_usage_check and "SERVICE_DISABLED" in service_usage_check:
+        print(f"\n{Colors.RED}{'='*70}{Colors.NC}")
+        print(f"{Colors.RED}ERROR: Service Usage API is not enabled{Colors.NC}")
+        print(f"{Colors.RED}{'='*70}{Colors.NC}\n")
+        print(f"{Colors.YELLOW}The Service Usage API must be enabled before other APIs can be enabled.{Colors.NC}")
+        print(f"{Colors.YELLOW}This is a one-time manual step.{Colors.NC}\n")
+        print(f"{Colors.BLUE}Please enable it by clicking this link:{Colors.NC}")
+        print(f"https://console.developers.google.com/apis/api/serviceusage.googleapis.com/overview?project={config['project_id']}\n")
+        print(f"{Colors.YELLOW}Steps:{Colors.NC}")
+        print("1. Click the link above")
+        print("2. Click the 'Enable' button")
+        print("3. Wait 1-2 minutes for it to propagate")
+        print("4. Run this setup script again\n")
+        sys.exit(1)
+
     apis = [
         'compute.googleapis.com',
         'storage.googleapis.com',
@@ -221,7 +243,15 @@ def enable_apis(config):
     ]
 
     # Note: gcloud services enable is idempotent - already enabled APIs are skipped
-    run_command(f"gcloud services enable {' '.join(apis)} --quiet")
+    print_info("Enabling project APIs...")
+    result = run_command(f"gcloud services enable {' '.join(apis)} --quiet 2>&1", check=False)
+
+    if result and "SERVICE_DISABLED" in result and "serviceusage.googleapis.com" in result:
+        print(f"\n{Colors.YELLOW}Service Usage API was just enabled. Retrying...{Colors.NC}")
+        import time
+        time.sleep(5)
+        run_command(f"gcloud services enable {' '.join(apis)} --quiet")
+
     print_success("APIs enabled (already-enabled APIs skipped)")
 
 def setup_workload_identity(config):
