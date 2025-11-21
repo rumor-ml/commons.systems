@@ -10,6 +10,7 @@ A web application for browsing and playing videos stored in Firebase Storage (ba
 - ⌨️ Keyboard shortcuts for navigation
 - 📱 Responsive design (mobile & desktop)
 - 🔒 Private bucket access via Firebase signed URLs
+- 🔐 Secure access via Firebase Storage security rules
 
 ## Architecture
 
