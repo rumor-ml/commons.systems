@@ -57,9 +57,9 @@ Environment provides `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `GCP_PROJECT_ID=c
 ## Debugging Workflow
 
 **Policy:**
-- Fetch and analyze logs yourself via API - never ask users to check logs
-- Trust user bug reports - investigate code and logs, don't assume caching/rebuild issues
-- Fix root causes, don't suggest workarounds
+- Fetch and analyze logs yourself via API
+- Trust user bug reports - investigate code and logs thoroughly
+- Fix root causes in the implementation
 
 **Failed deployment workflow:**
 1. `./claudetool/check_workflows.py --branch <branch>` - Identify failed run
@@ -104,15 +104,15 @@ Runs: local tests → deploy → E2E tests (serial, stop on error).
 1. Check workflow status: `./claudetool/check_workflows.py --branch <branch>`
 2. Monitor to completion if in-progress: `--monitor`
 3. Verify all jobs passed, deployment healthy
-4. Only suggest merge after full pipeline success
+4. Suggest merge only after full pipeline success
 
-Do not shortcut - deliver fully verified code.
+Deliver fully verified code.
 
 ## Documentation Policy
 
-- Update `README.md` for user documentation - do not create new `.md` files
+- Update `README.md` for user documentation
 - Use inline comments/docstrings for code documentation
-- Only create `.md` files if explicitly requested
+- Create new `.md` files only when explicitly requested
 
 ## Development Guidelines
 
@@ -142,9 +142,9 @@ Do not shortcut - deliver fully verified code.
 3. Run full suite
 
 **Rules:**
-- Never claim "fixed" or "complete" without passing tests
-- Never commit with failing tests
-- Always add test coverage for bugs and features
+- Claim "fixed" or "complete" only after tests pass
+- Commit only when all tests pass
+- Add test coverage for bugs and features
 
 **Example workflow:**
 ```bash
