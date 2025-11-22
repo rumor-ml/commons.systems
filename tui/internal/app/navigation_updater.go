@@ -85,8 +85,7 @@ func (nu *NavigationUpdater) UpdateNavigationWithTmuxInfo() {
 
 // UpdateNavigationProjects converts discovered projects to model projects for navigation
 func (nu *NavigationUpdater) UpdateNavigationProjects() {
-	logger := log.Get()
-	logger.Debug("updateNavigationProjects called")
+	// Removed: High-frequency DEBUG log (called by tmux ticker every 2 seconds = 0.5/sec)
 	nu.doUpdateNavigationProjects()
 }
 

@@ -268,12 +268,12 @@ func (mh *MessageHandler) handleOtherMsg(msg tea.Msg) tea.Cmd {
 
 	case updateNavigationProjectsMsg:
 		// Update navigation with discovered projects
-		logger.Debug("Received updateNavigationProjectsMsg - updating navigation projects")
+		// Removed: High-frequency DEBUG log (can fire multiple times per second with debouncing)
 
 		// Debouncing: Check if we updated recently
 		now := time.Now()
 		if now.Sub(mh.app.lastNavigationUpdate) < 100*time.Millisecond {
-			logger.Debug("Navigation update debounced - too soon since last update")
+			// Removed: High-frequency DEBUG log (fires during rapid updates)
 			// Don't queue another update if one is already pending
 			if !mh.app.navigationUpdatePending {
 				mh.app.navigationUpdatePending = true
@@ -290,21 +290,19 @@ func (mh *MessageHandler) handleOtherMsg(msg tea.Msg) tea.Cmd {
 
 		if mh.app.projects == nil {
 			logger.Warn("Projects is nil in Update")
-		} else {
-			logger.Debug("Projects exists", "count", len(mh.app.projects.GetProjects()))
 		}
+		// Removed: High-frequency DEBUG log
 		if mh.app.uiManager == nil {
 			logger.Warn("UI Manager is nil in Update")
 		} else if nav := mh.app.uiManager.GetNavigationComponent(); nav == nil {
 			logger.Warn("Navigation component is nil in Update")
-		} else {
-			logger.Debug("Navigation component exists")
 		}
+		// Removed: High-frequency DEBUG log
 		mh.app.navigationUpdater.UpdateNavigationProjects()
 
 	case RefreshUIMsg:
 		// Refresh the UI after port management changes
-		logger.Debug("Received RefreshUIMsg - refreshing navigation")
+		// Removed: High-frequency DEBUG log (can fire frequently during UI updates)
 		mh.app.navigationUpdater.UpdateNavigationProjects()
 		mh.app.navigationUpdater.UpdateNavigationWithTmuxInfo()
 

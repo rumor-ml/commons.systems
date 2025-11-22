@@ -28,7 +28,7 @@ func NewPaneDiscovery(tmuxPath string, logger log.Logger, executor TmuxExecutor)
 
 // DiscoverAllPanes discovers and registers ALL tmux panes across all sessions
 func (pd *PaneDiscovery) DiscoverAllPanes() (map[string]*TmuxPane, string, error) {
-	pd.logger.Debug("Starting tmux pane discovery")
+	// Removed: High-frequency DEBUG log (called by tmux ticker every 2 seconds = 0.5/sec)
 
 	if pd.tmuxPath == "" {
 		pd.logger.Warn("tmux executable not found, skipping pane discovery")
@@ -111,7 +111,7 @@ func (pd *PaneDiscovery) ProcessPaneOutput(output string, oldProjectAssociations
 		panes[paneTarget] = pane
 	}
 
-	pd.logger.Debug("Completed tmux pane discovery", "totalPanes", len(panes))
+	// Removed: High-frequency DEBUG log (called by tmux ticker every 2 seconds = 0.5/sec)
 	return panes, nil
 }
 
