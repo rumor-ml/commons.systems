@@ -843,6 +843,34 @@ def initialize_firebase(config):
                 print(f"{Colors.YELLOW}You may need to initialize Firebase manually at:{Colors.NC}")
                 print("https://console.firebase.google.com/")
 
+    # Initialize Firebase Storage bucket
+    print_info("Initializing Firebase Storage bucket...")
+
+    # Get the default storage bucket name
+    storage_bucket = f"{config['project_id']}.firebasestorage.app"
+
+    # Check if bucket exists
+    bucket_check = run_command(
+        f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'"https://storage.googleapis.com/storage/v1/b/{storage_bucket}" '
+        f'-w "\\n%{{http_code}}"',
+        check=False
+    )
+
+    if bucket_check:
+        lines = bucket_check.strip().split('\n')
+        http_code = lines[-1] if lines else ""
+
+        if http_code == "200":
+            print_info(f"Firebase Storage bucket already exists: {storage_bucket}")
+        elif http_code == "404":
+            # Bucket doesn't exist, it should be created automatically when first used
+            # or we can create it via GCS API with Firebase-specific settings
+            print_info(f"Firebase Storage bucket will be created automatically on first use: {storage_bucket}")
+            print(f"{Colors.INFO}  Note: The bucket is created when you first access Firebase Storage{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}Could not check Firebase Storage bucket status (HTTP {http_code}){Colors.NC}")
+
     # Inform about Firebase security rules deployment via IaC
     print(f"\n{Colors.INFO}ℹ  Firebase Security Rules:{Colors.NC}")
     print(f"{Colors.INFO}   - firestore.rules and storage.rules will be deployed automatically{Colors.NC}")
@@ -856,7 +884,7 @@ def create_firebase_hosting_sites(project_id):
     print_info("Creating Firebase Hosting sites...")
 
     # Sites defined in firebase.json
-    sites = ["fellspiral", "videobrowser", "audiobrowser"]
+    sites = ["fellspiral", "videobrowser", "audiobrowser", "print"]
     site_mappings = {}  # Track original -> actual site names
 
     for site_id in sites:

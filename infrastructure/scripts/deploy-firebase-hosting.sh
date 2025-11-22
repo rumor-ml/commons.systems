@@ -63,8 +63,15 @@ if [ "$BRANCH_NAME" = "main" ]; then
   # Production deployment
   echo "🚀 Deploying to production..."
 
+  # Determine what to deploy (hosting and storage rules for print site)
+  DEPLOY_TARGETS="hosting:${FIREBASE_SITE_ID}"
+  if [ "$SITE_NAME" = "print" ]; then
+    DEPLOY_TARGETS="${DEPLOY_TARGETS},storage"
+    echo "📋 Deploying hosting and storage rules for print site"
+  fi
+
   firebase deploy \
-    --only hosting:${FIREBASE_SITE_ID} \
+    --only ${DEPLOY_TARGETS} \
     --project chalanding \
     --message "Deploy ${SITE_NAME} from ${BRANCH_NAME}@${COMMIT_SHA:0:7}"
 
@@ -90,6 +97,16 @@ else
     cut -c1-63)
 
   echo "Preview channel: ${CHANNEL_NAME}"
+
+  # Deploy storage rules first for print site (storage rules are global, not per-channel)
+  if [ "$SITE_NAME" = "print" ]; then
+    echo "📋 Deploying storage rules for print site..."
+    firebase deploy \
+      --only storage \
+      --project chalanding \
+      --message "Deploy storage rules from ${BRANCH_NAME}@${COMMIT_SHA:0:7}"
+    echo "✅ Storage rules deployed"
+  fi
 
   # Deploy to preview channel (creates if doesn't exist, expires after 7 days by default)
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
