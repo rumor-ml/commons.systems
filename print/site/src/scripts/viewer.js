@@ -36,8 +36,8 @@ async function init() {
     // Fetch document metadata
     const document = await getDocument(documentId);
 
-    // Get file URL
-    const fileURL = await getFileURL(document.storagePath);
+    // Get file URL (use downloadUrl if available, otherwise fetch it)
+    const fileURL = document.downloadUrl || await getFileURL(document.storagePath);
 
     // Hide loading
     viewerLoading.hidden = true;

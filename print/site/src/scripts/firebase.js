@@ -1,7 +1,7 @@
 // Firebase operations for Print site
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, getMetadata, deleteObject } from 'firebase/storage';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, getMetadata, deleteObject, listAll } from 'firebase/storage';
 import { firebaseConfig } from '../firebase-config.js';
 
 // Initialize Firebase
@@ -9,11 +9,77 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// Configuration
+const DOCUMENT_PREFIX = 'print/';
+
 /**
- * Get all documents from Firestore
- * @returns {Promise<Array>} Array of document objects with id
+ * Get all documents from Firebase Storage (GCS)
+ * Lists all files in the print/ directory
+ * @returns {Promise<Array>} Array of document objects
  */
 export async function getAllDocuments() {
+  try {
+    // Create reference to print directory
+    const documentsRef = ref(storage, DOCUMENT_PREFIX);
+
+    // List all items in the print directory
+    const result = await listAll(documentsRef);
+
+    // Supported document extensions
+    const docExtensions = ['.pdf', '.epub', '.md', '.markdown', '.cbz', '.cbr'];
+
+    // Filter to only document files and get metadata + URLs
+    const documentPromises = result.items
+      .filter(itemRef => {
+        const name = itemRef.name.toLowerCase();
+        return docExtensions.some(ext => name.endsWith(ext));
+      })
+      .map(async (itemRef) => {
+        try {
+          // Get metadata and download URL in parallel
+          const [metadata, downloadUrl] = await Promise.all([
+            getMetadata(itemRef),
+            getDownloadURL(itemRef)
+          ]);
+
+          const type = detectFileType(itemRef.name);
+
+          return {
+            id: itemRef.fullPath, // Use full path as ID
+            name: itemRef.name,
+            type: type,
+            storagePath: itemRef.fullPath,
+            size: parseInt(metadata.size, 10),
+            uploadedAt: new Date(metadata.timeCreated),
+            updated: new Date(metadata.updated),
+            downloadUrl: downloadUrl,
+            metadata: {
+              contentType: metadata.contentType
+            }
+          };
+        } catch (error) {
+          console.error(`Error fetching metadata for ${itemRef.name}:`, error);
+          return null;
+        }
+      });
+
+    // Wait for all metadata fetches to complete
+    const documents = (await Promise.all(documentPromises))
+      .filter(doc => doc !== null)
+      .sort((a, b) => b.uploadedAt - a.uploadedAt); // Sort by upload date, newest first
+
+    return documents;
+  } catch (error) {
+    console.error('Error getting documents from Storage:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all documents from Firestore (legacy, kept for compatibility)
+ * @returns {Promise<Array>} Array of document objects with id
+ */
+export async function getAllDocumentsFromFirestore() {
   try {
     const q = query(collection(db, 'documents'), orderBy('uploadedAt', 'desc'));
     const querySnapshot = await getDocs(q);
@@ -29,12 +95,39 @@ export async function getAllDocuments() {
 }
 
 /**
- * Get a single document by ID
- * @param {string} documentId - Document ID
- * @returns {Promise<Object>} Document object with id
+ * Get a single document by ID or storage path
+ * @param {string} documentId - Document ID (storage path like "print/file.pdf")
+ * @returns {Promise<Object>} Document object
  */
 export async function getDocument(documentId) {
   try {
+    // If documentId looks like a storage path (contains "/"), fetch from storage
+    if (documentId.includes('/')) {
+      const fileRef = ref(storage, documentId);
+      const [metadata, downloadUrl] = await Promise.all([
+        getMetadata(fileRef),
+        getDownloadURL(fileRef)
+      ]);
+
+      const fileName = documentId.split('/').pop();
+      const type = detectFileType(fileName);
+
+      return {
+        id: documentId,
+        name: fileName,
+        type: type,
+        storagePath: documentId,
+        size: parseInt(metadata.size, 10),
+        uploadedAt: new Date(metadata.timeCreated),
+        updated: new Date(metadata.updated),
+        downloadUrl: downloadUrl,
+        metadata: {
+          contentType: metadata.contentType
+        }
+      };
+    }
+
+    // Otherwise, try Firestore (legacy)
     const docRef = doc(db, 'documents', documentId);
     const docSnap = await getDoc(docRef);
 
