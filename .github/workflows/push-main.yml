@@ -1,0 +1,534 @@
+name: Main/PR Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: ['**']
+
+# Only allow one pipeline per ref at a time
+concurrency:
+  group: push-main-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  # ==================== Step 1: Local Tests (all modules) ====================
+  local-tests:
+    name: Local Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Test Fellspiral
+        run: ./infrastructure/scripts/run-local-tests.sh fellspiral
+
+      - name: Test Videobrowser
+        run: ./infrastructure/scripts/run-local-tests.sh videobrowser
+
+      - name: Test Audiobrowser
+        run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
+
+  # ==================== Step 2: Deploy Sites (Parallel) ====================
+
+  # Check if Playwright Server code changed
+  check-playwright-changes:
+    name: Check Playwright Changes
+    runs-on: ubuntu-latest
+    needs: local-tests
+    outputs:
+      changed: ${{ steps.filter.outputs.playwright }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Playwright changes
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            # For pushes, compare with previous commit
+            BASE_SHA="HEAD~1"
+          fi
+
+          if git diff --name-only $BASE_SHA HEAD | grep -q "^infrastructure/playwright-server/"; then
+            echo "playwright=true" >> $GITHUB_OUTPUT
+            echo "Playwright server code changed"
+          else
+            echo "playwright=false" >> $GITHUB_OUTPUT
+            echo "No Playwright server changes detected"
+          fi
+
+  deploy-playwright:
+    name: Deploy Playwright Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: check-playwright-changes
+    if: needs.check-playwright-changes.outputs.changed == 'true'
+    outputs:
+      url: ${{ steps.playwright-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Playwright Server
+        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
+
+      - name: Get Playwright Server URL
+        id: playwright-url
+        run: |
+          URL=$(cat /tmp/playwright-server-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+  deploy-sites:
+    name: Deploy ${{ matrix.site }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: local-tests
+    strategy:
+      matrix:
+        site: [fellspiral, videobrowser, audiobrowser]
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install dependencies (jq)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ========== Firebase Configuration ==========
+      - name: Get Firebase configuration and inject
+        run: |
+          set -e
+          SITE="${{ matrix.site }}"
+          echo "Fetching Firebase configuration for ${SITE}..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+
+          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
+
+          # Determine app display name
+          if [ "$SITE" = "fellspiral" ]; then
+            APP_NAME="Fellspiral Web App"
+          elif [ "$SITE" = "videobrowser" ]; then
+            APP_NAME="Video Browser Web App"
+          else
+            APP_NAME="Audio Browser Web App"
+          fi
+
+          APP_ID=$(echo "$APPS_RESPONSE" | jq -r ".apps[] | select(.displayName == \"$APP_NAME\") | .appId // empty")
+
+          if [ -z "$APP_ID" ]; then
+            echo "Creating ${APP_NAME}..."
+            CREATE_RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"displayName\": \"${APP_NAME}\"}" \
+              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
+
+            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
+            echo "✓ Created Firebase web app: $APP_ID"
+          else
+            echo "✓ Found existing Firebase web app: $APP_ID"
+          fi
+
+          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
+
+          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey // empty')
+          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
+          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
+          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
+          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
+          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
+
+          cat > ${SITE}/site/src/firebase-config.js <<EOF
+          /**
+           * Firebase Configuration
+           * Auto-generated during CI/CD deployment
+           */
+
+          export const firebaseConfig = {
+            apiKey: "${API_KEY}",
+            authDomain: "${AUTH_DOMAIN}",
+            projectId: "${PROJECT_ID}",
+            storageBucket: "${STORAGE_BUCKET}",
+            messagingSenderId: "${MESSAGING_SENDER_ID}",
+            appId: "${APP_ID_VALUE}"
+          };
+          EOF
+
+          echo "✓ Firebase configuration injected"
+
+      # ========== Deploy Firestore Rules (Fellspiral only) ==========
+      - name: Deploy Firestore rules
+        if: matrix.site == 'fellspiral'
+        run: |
+          set -e
+          echo "Deploying Firestore rules..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          RULES_CONTENT=$(cat fellspiral/firestore.rules | jq -Rs '.')
+
+          RULESET_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\": {\"files\": [{\"name\": \"firestore.rules\", \"content\": ${RULES_CONTENT}}]}}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+
+          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "❌ Failed to create ruleset"
+            exit 1
+          fi
+
+          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
+          echo "✓ Created ruleset: $RULESET_NAME"
+
+          RELEASE_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/cloud.firestore\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/cloud.firestore")
+
+          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Failed to release ruleset"
+          else
+            echo "✓ Firestore rules deployed"
+          fi
+
+      # ========== Deploy Firebase Storage Rules (Videobrowser only) ==========
+      - name: Deploy Firebase Storage rules
+        if: matrix.site == 'videobrowser'
+        run: |
+          set -e
+          echo "Deploying Firebase Storage rules..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          RULES_CONTENT=$(cat videobrowser/storage.rules | jq -Rs '.')
+
+          RULESET_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+
+          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
+          echo "✓ Created ruleset: $RULESET_NAME"
+
+          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
+          RELEASE_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
+
+          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Failed to release ruleset"
+          else
+            echo "✓ Firebase Storage rules deployed"
+          fi
+
+      # ========== Deploy Site ==========
+      - name: Deploy ${{ matrix.site }}
+        run: ./infrastructure/scripts/deploy-site.sh ${{ matrix.site }} ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Get deployment URL
+        id: site-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "${{ matrix.site }} URL: ${URL}"
+
+      - name: Wait for site to be ready
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.site-url.outputs.url }}/health" 60 5
+
+  # ==================== Collect Deployment URLs ====================
+  collect-urls:
+    name: Collect Deployment URLs
+    runs-on: ubuntu-latest
+    needs: deploy-sites
+    outputs:
+      fellspiral-url: ${{ steps.get-urls.outputs.fellspiral-url }}
+      videobrowser-url: ${{ steps.get-urls.outputs.videobrowser-url }}
+      audiobrowser-url: ${{ steps.get-urls.outputs.audiobrowser-url }}
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get deployment URLs from Cloud Run
+        id: get-urls
+        run: |
+          FELLSPIRAL_URL=$(gcloud run services describe fellspiral-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+
+          VIDEOBROWSER_URL=$(gcloud run services describe videobrowser-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+
+          AUDIOBROWSER_URL=$(gcloud run services describe audiobrowser-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+
+          echo "fellspiral-url=${FELLSPIRAL_URL}" >> $GITHUB_OUTPUT
+          echo "videobrowser-url=${VIDEOBROWSER_URL}" >> $GITHUB_OUTPUT
+          echo "audiobrowser-url=${AUDIOBROWSER_URL}" >> $GITHUB_OUTPUT
+
+          echo "Fellspiral URL: ${FELLSPIRAL_URL}"
+          echo "Videobrowser URL: ${VIDEOBROWSER_URL}"
+          echo "Audiobrowser URL: ${AUDIOBROWSER_URL}"
+
+  # ==================== Step 3: Get Playwright Server URL ====================
+  get-playwright-url:
+    name: Get Playwright Server URL
+    runs-on: ubuntu-latest
+    needs: [check-playwright-changes, deploy-playwright]
+    if: always()
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright Server URL
+        id: get-url
+        run: |
+          if [ "${{ needs.check-playwright-changes.outputs.changed }}" == "true" ]; then
+            # Use newly deployed URL
+            URL="${{ needs.deploy-playwright.outputs.url }}"
+          else
+            # Get existing service URL
+            URL=$(gcloud run services describe playwright-server \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --format='value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+  # ==================== Step 4: E2E Tests (all sites) ====================
+  e2e-tests-all:
+    name: E2E Tests - All Sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [collect-urls, get-playwright-url]
+    if: |
+      always() &&
+      needs.collect-urls.result == 'success' &&
+      needs.get-playwright-url.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Test Fellspiral
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.collect-urls.outputs.fellspiral-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.collect-urls.outputs.fellspiral-url }}
+          CI: true
+
+      - name: Test Videobrowser
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.collect-urls.outputs.videobrowser-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.collect-urls.outputs.videobrowser-url }}
+          CI: true
+
+      - name: Test Audiobrowser
+        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.collect-urls.outputs.audiobrowser-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.collect-urls.outputs.audiobrowser-url }}
+          CI: true
+
+  # ==================== Rollback on failure (main branch only) ====================
+  rollback-on-failure:
+    name: Rollback on Test Failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-sites, e2e-tests-all]
+    if: |
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      needs.deploy-sites.result == 'success' &&
+      needs.e2e-tests-all.result == 'failure'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Rollback Fellspiral
+        run: |
+          PREVIOUS_REVISION=$(gcloud run services describe fellspiral-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back Fellspiral to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic fellspiral-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+          fi
+
+      - name: Rollback Videobrowser
+        run: |
+          PREVIOUS_REVISION=$(gcloud run services describe videobrowser-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back Videobrowser to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic videobrowser-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+          fi
+
+      - name: Rollback Audiobrowser
+        run: |
+          PREVIOUS_REVISION=$(gcloud run services describe audiobrowser-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back Audiobrowser to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic audiobrowser-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+          fi
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automatic Rollback: All Sites',
+              body: `E2E tests failed after deployment to main branch.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'deployment', 'rollback']
+            })
