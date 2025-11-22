@@ -874,15 +874,14 @@ def create_firebase_hosting_sites(project_id):
                 print_info(f"  Site '{site_id}' already exists")
                 continue
 
-        # Create the site
+        # Create the site (siteId is a query parameter, not in body)
         print_info(f"  Creating site '{site_id}'...")
         create_result = run_command(
             f'curl -s -X POST '
             f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
             f'-H "x-goog-user-project: {project_id}" '
             f'-H "Content-Type: application/json" '
-            f'-d \'{{"siteId": "{site_id}"}}\' '
-            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites" '
+            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites?siteId={site_id}" '
             f'-w "\\n%{{http_code}}"',
             check=False
         )
