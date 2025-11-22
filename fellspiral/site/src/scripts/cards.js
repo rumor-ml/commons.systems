@@ -11,6 +11,9 @@ import {
   importCards as importCardsFromData
 } from './firebase.js';
 
+// Import auth initialization
+import { initializeAuth } from './auth-init.js';
+
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
 
@@ -40,6 +43,9 @@ const SUBTYPES = {
 
 // Initialize the app
 async function init() {
+  // Initialize authentication
+  initializeAuth();
+
   await loadCards();
   setupEventListeners();
   renderTree();

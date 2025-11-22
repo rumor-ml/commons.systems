@@ -1,0 +1,20 @@
+{
+  "projects": {
+    "default": "chalanding"
+  },
+  "targets": {
+    "chalanding": {
+      "hosting": {
+        "fellspiral": [
+          "fellspiral"
+        ],
+        "audiobrowser": [
+          "audiobrowser"
+        ],
+        "videobrowser-7696a": [
+          "videobrowser-7696a"
+        ]
+      }
+    }
+  }
+}

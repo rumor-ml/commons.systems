@@ -16,6 +16,7 @@ import {
   orderBy,
   serverTimestamp
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 
 // Initialize Firebase
@@ -23,6 +24,9 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore
 const db = getFirestore(app);
+
+// Get auth instance
+const auth = getAuth(app);
 
 // Collection reference
 const cardsCollection = collection(db, 'cards');
@@ -72,10 +76,18 @@ export async function getCard(cardId) {
 // Create a new card
 export async function createCard(cardData) {
   try {
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('User must be authenticated to create cards');
+    }
+
     const docRef = await addDoc(cardsCollection, {
       ...cardData,
+      createdBy: user.uid,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      lastModifiedBy: user.uid,
+      lastModifiedAt: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -87,10 +99,17 @@ export async function createCard(cardData) {
 // Update an existing card
 export async function updateCard(cardId, cardData) {
   try {
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('User must be authenticated to update cards');
+    }
+
     const cardRef = doc(db, 'cards', cardId);
     await updateDoc(cardRef, {
       ...cardData,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      lastModifiedBy: user.uid,
+      lastModifiedAt: serverTimestamp()
     });
   } catch (error) {
     console.error('Error updating card:', error);
@@ -101,6 +120,11 @@ export async function updateCard(cardId, cardData) {
 // Delete a card
 export async function deleteCard(cardId) {
   try {
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('User must be authenticated to delete cards');
+    }
+
     const cardRef = doc(db, 'cards', cardId);
     await deleteDoc(cardRef);
   } catch (error) {

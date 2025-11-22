@@ -1,0 +1,118 @@
+/**
+ * Auth Button Styles
+ * Themeable via CSS variables
+ */
+
+.auth-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--auth-button-border-radius, 6px);
+  font-size: var(--auth-button-font-size, 14px);
+  font-weight: var(--auth-button-font-weight, 500);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  background-color: var(--auth-button-bg, #24292e);
+  color: var(--auth-button-color, #ffffff);
+}
+
+.auth-button:hover:not(:disabled) {
+  background-color: var(--auth-button-bg-hover, #1a1e22);
+  transform: translateY(-1px);
+  box-shadow: var(--auth-button-shadow-hover, 0 2px 8px rgba(0, 0, 0, 0.15));
+}
+
+.auth-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.auth-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-button--authenticated {
+  background-color: var(--auth-button-authenticated-bg, #2ea44f);
+}
+
+.auth-button--authenticated:hover:not(:disabled) {
+  background-color: var(--auth-button-authenticated-bg-hover, #2c974b);
+}
+
+.auth-button--unauthenticated {
+  background-color: var(--auth-button-unauthenticated-bg, #24292e);
+}
+
+.auth-button--unauthenticated:hover:not(:disabled) {
+  background-color: var(--auth-button-unauthenticated-bg-hover, #1a1e22);
+}
+
+.auth-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.auth-button__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.auth-button__text {
+  white-space: nowrap;
+}
+
+.auth-button__spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  animation: auth-button-spin 1s linear infinite;
+  font-size: 16px;
+  line-height: 1;
+}
+
+@keyframes auth-button-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Compact variant */
+.auth-button--compact {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* Large variant */
+.auth-button--large {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+/* Icon only variant */
+.auth-button--icon-only .auth-button__text {
+  display: none;
+}
+
+/* Light theme override (optional) */
+.auth-button--light {
+  --auth-button-bg: #ffffff;
+  --auth-button-color: #24292e;
+  --auth-button-bg-hover: #f6f8fa;
+  border: 1px solid #d0d7de;
+}
+
+/* Dark theme override (optional) */
+.auth-button--dark {
+  --auth-button-bg: #21262d;
+  --auth-button-color: #c9d1d9;
+  --auth-button-bg-hover: #30363d;
+}

@@ -19,6 +19,17 @@ echo "=== Running Playwright tests for $SITE_NAME ==="
 echo "Site URL: $SITE_URL"
 echo "Playwright Server: $PLAYWRIGHT_SERVER_URL"
 
+# Verify deployed site is accessible
+echo "Verifying deployed site is accessible..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SITE_URL" || echo "000")
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "304" ]; then
+  echo "❌ Deployed site is not accessible (HTTP $HTTP_CODE)"
+  echo "URL: $SITE_URL"
+  echo "This indicates the deployment failed or the site doesn't exist"
+  exit 1
+fi
+echo "✅ Deployed site is accessible (HTTP $HTTP_CODE)"
+
 # Test Playwright server health with retry logic
 echo "Testing Playwright server health..."
 MAX_RETRIES=5

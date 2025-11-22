@@ -6,6 +6,7 @@
 import { initializeApp } from 'firebase/app';
 import { getStorage, ref, listAll, getDownloadURL, getMetadata } from 'firebase/storage';
 import { firebaseConfig } from '../firebase-config.js';
+import { initializeAuth } from './auth-init.js';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -290,6 +291,9 @@ function navigateVideoList(direction) {
  * Initialize the application
  */
 async function init() {
+  // Initialize authentication
+  initializeAuth();
+
   // Setup event listeners
   refreshBtn.addEventListener('click', loadVideos);
   searchInput.addEventListener('input', filterVideos);

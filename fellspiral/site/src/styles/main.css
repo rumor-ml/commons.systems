@@ -531,3 +531,26 @@ button:focus {
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }
+
+/* Auth Components in Navbar */
+.nav-auth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+/* Override auth button colors for Fellspiral theme */
+.auth-button {
+  --auth-button-bg: var(--primary-color);
+  --auth-button-bg-hover: #a91830;
+  --auth-button-authenticated-bg: var(--success-color, #2ea44f);
+  --auth-button-authenticated-bg-hover: #2c974b;
+  --auth-button-border-radius: 6px;
+}
+
+/* User profile in navbar */
+.user-profile {
+  --user-profile-name-color: var(--text-primary);
+  --user-profile-username-color: var(--text-secondary);
+}

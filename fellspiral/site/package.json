@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@commons/auth": "*",
     "firebase": "^10.7.1"
   },
   "devDependencies": {

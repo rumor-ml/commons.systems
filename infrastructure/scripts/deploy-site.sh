@@ -61,17 +61,24 @@ IMAGE_LATEST="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REGISTRY_REPO}/$
 
 # Build and push Docker image
 echo "Building Docker image: $IMAGE_NAME"
-cd "${SITE_NAME}/site"
 
 if [ "$IS_PRODUCTION" == "true" ]; then
   # Production: simpler build
-  docker build -t "$IMAGE_NAME" -t "$IMAGE_LATEST" .
+  # Build from repo root with Dockerfile in site directory to access workspace deps
+  docker build \
+    -f "${SITE_NAME}/site/Dockerfile" \
+    -t "$IMAGE_NAME" \
+    -t "$IMAGE_LATEST" \
+    --build-arg SITE_DIR="${SITE_NAME}/site" \
+    .
 else
   # Preview: use cache
   CACHE_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REGISTRY_REPO}/cache:latest"
   docker build \
+    -f "${SITE_NAME}/site/Dockerfile" \
     --cache-from="$CACHE_IMAGE" \
     --build-arg BUILDKIT_INLINE_CACHE=1 \
+    --build-arg SITE_DIR="${SITE_NAME}/site" \
     -t "$IMAGE_NAME" \
     -t "$IMAGE_LATEST" \
     .
@@ -82,8 +89,6 @@ fi
 echo "Pushing Docker image: $IMAGE_NAME"
 docker push "$IMAGE_NAME"
 docker push "$IMAGE_LATEST"
-
-cd -
 
 # Prepare labels
 if [ "$IS_PRODUCTION" == "true" ]; then

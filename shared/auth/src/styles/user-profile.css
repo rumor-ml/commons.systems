@@ -1,0 +1,119 @@
+/**
+ * User Profile Styles
+ * Themeable via CSS variables
+ */
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: var(--user-profile-padding, 8px 12px);
+  background-color: var(--user-profile-bg, transparent);
+  border-radius: var(--user-profile-border-radius, 8px);
+  color: var(--user-profile-color, inherit);
+}
+
+.user-profile__avatar {
+  border-radius: var(--user-profile-avatar-border-radius, 50%);
+  object-fit: cover;
+  flex-shrink: 0;
+  border: var(--user-profile-avatar-border, 2px solid rgba(255, 255, 255, 0.2));
+}
+
+.user-profile__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0; /* Allow text truncation */
+}
+
+.user-profile__name {
+  font-size: var(--user-profile-name-font-size, 14px);
+  font-weight: var(--user-profile-name-font-weight, 600);
+  color: var(--user-profile-name-color, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-profile__username {
+  font-size: var(--user-profile-username-font-size, 12px);
+  font-weight: var(--user-profile-username-font-weight, 400);
+  color: var(--user-profile-username-color, rgba(0, 0, 0, 0.6));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-profile__email {
+  font-size: var(--user-profile-email-font-size, 11px);
+  font-weight: var(--user-profile-email-font-weight, 400);
+  color: var(--user-profile-email-color, rgba(0, 0, 0, 0.5));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact variant */
+.user-profile--compact {
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.user-profile--compact .user-profile__avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.user-profile--compact .user-profile__name {
+  font-size: 12px;
+}
+
+.user-profile--compact .user-profile__username {
+  font-size: 11px;
+}
+
+/* Large variant */
+.user-profile--large {
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.user-profile--large .user-profile__avatar {
+  width: 48px;
+  height: 48px;
+}
+
+.user-profile--large .user-profile__name {
+  font-size: 16px;
+}
+
+.user-profile--large .user-profile__username {
+  font-size: 14px;
+}
+
+/* Avatar only variant */
+.user-profile--avatar-only .user-profile__info {
+  display: none;
+}
+
+/* Card style variant */
+.user-profile--card {
+  background-color: var(--user-profile-card-bg, rgba(0, 0, 0, 0.05));
+  border: var(--user-profile-card-border, 1px solid rgba(0, 0, 0, 0.1));
+  padding: 12px;
+}
+
+/* Dark theme adjustments */
+.user-profile--dark .user-profile__username {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.user-profile--dark .user-profile__email {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.user-profile--dark.user-profile--card {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}

@@ -48,120 +48,60 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Find and delete preview services (all sites)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Delete Firebase Hosting preview channels
+        continue-on-error: true
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch }}"
 
-          # Sanitize branch name (same logic as deployment)
-          BRANCH_NAME="${BRANCH_NAME#claude/}"
-          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+          # Sanitize branch name for Firebase channel (same logic as deployment)
+          CHANNEL_NAME=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
 
-          echo "Looking for services matching patterns:"
-          echo "  - fellspiral-${SANITIZED} (current)"
-          echo "  - videobrowser-${SANITIZED} (current)"
-          echo "  - audiobrowser-${SANITIZED} (current)"
-          echo "  - playwright-server-${SANITIZED} (current)"
-          echo "  - fellspiral-${SANITIZED}-* (legacy with SHA)"
-          echo "  - videobrowser-${SANITIZED}-* (legacy with SHA)"
-          echo "  - audiobrowser-${SANITIZED}-* (legacy with SHA)"
-          echo "  - fb-${SANITIZED}-* (legacy abbreviated)"
-          echo "  - vb-${SANITIZED}-* (legacy abbreviated)"
+          echo "🧹 Cleaning up Firebase Hosting preview channels"
+          echo "Branch: ${{ steps.branch.outputs.branch }}"
+          echo "Channel: ${CHANNEL_NAME}"
 
-          # List all Cloud Run services with preview label
-          SERVICES=$(gcloud run services list \
-            --region=${{ env.GCP_REGION }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --format='value(metadata.name)' \
-            --filter="metadata.labels.preview=true" 2>/dev/null || echo "")
-
-          if [ -z "$SERVICES" ]; then
-            echo "No preview services found to clean up"
-            exit 0
-          fi
-
-          # Filter services matching this branch (current naming, legacy with SHA, legacy abbreviated)
+          # Sites to clean up
+          SITES=("fellspiral" "videobrowser" "audiobrowser")
           DELETED_COUNT=0
-          while IFS= read -r service; do
-            if [[ "$service" == "fellspiral-${SANITIZED}" ]] || \
-               [[ "$service" == "videobrowser-${SANITIZED}" ]] || \
-               [[ "$service" == "audiobrowser-${SANITIZED}" ]] || \
-               [[ "$service" == "playwright-server-${SANITIZED}" ]] || \
-               [[ "$service" == fellspiral-${SANITIZED}-* ]] || \
-               [[ "$service" == videobrowser-${SANITIZED}-* ]] || \
-               [[ "$service" == audiobrowser-${SANITIZED}-* ]] || \
-               [[ "$service" == fb-${SANITIZED}-* ]] || \
-               [[ "$service" == vb-${SANITIZED}-* ]]; then
-              echo "Deleting service: $service"
-              gcloud run services delete "$service" \
-                --region=${{ env.GCP_REGION }} \
-                --project=${{ env.GCP_PROJECT_ID }} \
-                --quiet || echo "Failed to delete $service (may already be deleted)"
-              DELETED_COUNT=$((DELETED_COUNT + 1))
-            fi
-          done <<< "$SERVICES"
 
-          echo "### 🧹 Cleanup Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Services deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
-
-      - name: Clean up artifacts for all sites
-        run: |
-          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
-          BRANCH_NAME="${BRANCH_NAME#claude/}"
-          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
-
-          echo "🗑️  Cleaning up Docker images for branch: ${SANITIZED}"
-
-          IMAGES_DELETED=0
-
-          # Define repositories and their service name patterns
-          declare -A REPOS=(
-            ["fellspiral-previews"]="fellspiral-${SANITIZED}"
-            ["videobrowser-previews"]="videobrowser-${SANITIZED}"
-            ["audiobrowser-previews"]="audiobrowser-${SANITIZED}"
-            ["playwright-server"]="playwright-server-${SANITIZED}"
-          )
-
-          # Clean up each repository
-          for REPO in "${!REPOS[@]}"; do
-            SERVICE_NAME="${REPOS[$REPO]}"
-            REPO_URL="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${REPO}"
-
+          for site in "${SITES[@]}"; do
             echo ""
-            echo "Checking ${REPO} for images matching: ${SERVICE_NAME}"
+            echo "Checking ${site} for channel ${CHANNEL_NAME}..."
 
-            # List all images in this repository
-            IMAGES=$(gcloud artifacts docker images list "${REPO_URL}" \
-              --format='value(package)' 2>/dev/null || echo "")
-
-            if [ -z "$IMAGES" ]; then
-              echo "  ℹ️  No images found in ${REPO}"
-              continue
+            # Try to delete the channel
+            if firebase hosting:channel:delete "$CHANNEL_NAME" \
+              --site ${site} \
+              --project ${{ env.GCP_PROJECT_ID }} \
+              --force 2>&1; then
+              echo "✅ Deleted preview channel for ${site}"
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+              echo "ℹ️  No preview channel found for ${site} (or already deleted)"
             fi
-
-            # Delete images matching this branch's service name
-            while IFS= read -r package; do
-              IMAGE_NAME=$(basename "$package")
-
-              # Match current naming convention and legacy patterns
-              if [[ "$IMAGE_NAME" == "$SERVICE_NAME" ]] || \
-                 [[ "$IMAGE_NAME" == ${SERVICE_NAME}-* ]] || \
-                 [[ "$IMAGE_NAME" == "fb-${SANITIZED}"* ]] || \
-                 [[ "$IMAGE_NAME" == "vb-${SANITIZED}"* ]]; then
-                echo "  🗑️  Deleting: ${IMAGE_NAME}"
-                if gcloud artifacts docker images delete "$package" \
-                  --delete-tags \
-                  --quiet 2>/dev/null; then
-                  IMAGES_DELETED=$((IMAGES_DELETED + 1))
-                  echo "  ✅ Deleted successfully"
-                else
-                  echo "  ⚠️  Failed to delete (may already be deleted)"
-                fi
-              fi
-            done <<< "$IMAGES"
           done
 
           echo ""
-          echo "📊 Artifact cleanup complete: ${IMAGES_DELETED} images deleted"
-          echo "**Artifacts deleted:** ${IMAGES_DELETED}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧹 Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Channel:** ${CHANNEL_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Firebase Hosting preview channels are automatically cleaned up after expiration (7 days)." >> $GITHUB_STEP_SUMMARY
