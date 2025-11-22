@@ -13,7 +13,7 @@ resource "google_artifact_registry_repository" "fellspiral_production" {
     action = "KEEP"
 
     most_recent_versions {
-      keep_count = 10
+      keep_count = 3
     }
   }
 
@@ -23,7 +23,7 @@ resource "google_artifact_registry_repository" "fellspiral_production" {
 
     condition {
       tag_state  = "UNTAGGED"
-      older_than = "604800s"  # 7 days
+      older_than = "172800s"  # 2 days
     }
   }
 }
@@ -39,7 +39,7 @@ resource "google_artifact_registry_repository" "fellspiral_previews" {
     action = "DELETE"
 
     condition {
-      older_than = "2592000s"  # 30 days
+      older_than = "1209600s"  # 14 days
     }
   }
 
@@ -81,7 +81,7 @@ resource "google_artifact_registry_repository" "videobrowser_production" {
     action = "KEEP"
 
     most_recent_versions {
-      keep_count = 10
+      keep_count = 3
     }
   }
 
@@ -91,7 +91,7 @@ resource "google_artifact_registry_repository" "videobrowser_production" {
 
     condition {
       tag_state  = "UNTAGGED"
-      older_than = "604800s"  # 7 days
+      older_than = "172800s"  # 2 days
     }
   }
 }
@@ -107,7 +107,7 @@ resource "google_artifact_registry_repository" "videobrowser_previews" {
     action = "DELETE"
 
     condition {
-      older_than = "2592000s"  # 30 days
+      older_than = "1209600s"  # 14 days
     }
   }
 
@@ -156,4 +156,83 @@ output "videobrowser_production_registry" {
 output "videobrowser_preview_registry" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.videobrowser_previews.repository_id}"
   description = "Video Browser preview Artifact Registry URL"
+}
+
+# Audio Browser - Navigate audio files from GCS
+resource "google_artifact_registry_repository" "audiobrowser_production" {
+  location      = var.region
+  repository_id = "audiobrowser-production"
+  description   = "Production Docker images for Audio Browser site"
+  format        = "DOCKER"
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-old-untagged"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "172800s"  # 2 days
+    }
+  }
+}
+
+resource "google_artifact_registry_repository" "audiobrowser_previews" {
+  location      = var.region
+  repository_id = "audiobrowser-previews"
+  description   = "Feature branch preview Docker images for Audio Browser"
+  format        = "DOCKER"
+
+  cleanup_policies {
+    id     = "delete-old-previews"
+    action = "DELETE"
+
+    condition {
+      older_than = "1209600s"  # 14 days
+    }
+  }
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+}
+
+resource "google_artifact_registry_repository_iam_member" "audiobrowser_production_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.audiobrowser_production.location
+  repository = google_artifact_registry_repository.audiobrowser_production.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "audiobrowser_previews_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.audiobrowser_previews.location
+  repository = google_artifact_registry_repository.audiobrowser_previews.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_service_account.github_actions.email}"
+}
+
+# Outputs for all sites
+output "audiobrowser_production_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.audiobrowser_production.repository_id}"
+  description = "Audio Browser production Artifact Registry URL"
+}
+
+output "audiobrowser_preview_registry" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.audiobrowser_previews.repository_id}"
+  description = "Audio Browser preview Artifact Registry URL"
 }

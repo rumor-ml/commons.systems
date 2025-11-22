@@ -266,6 +266,31 @@ jobs:
       - name: Get Playwright server URL
         id: playwright-server
         run: |
+          BRANCH_NAME="${{ inputs.branch }}"
+
+          # Try to find feature branch playwright-server first
+          if [ "$BRANCH_NAME" != "main" ]; then
+            SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[/_]/-/g' | cut -c1-40)
+            FEATURE_SERVICE="playwright-server-${SANITIZED_BRANCH}"
+
+            echo "Looking for feature branch playwright-server: $FEATURE_SERVICE"
+            FEATURE_URL=$(gcloud run services describe "$FEATURE_SERVICE" \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)' 2>/dev/null || echo "")
+
+            if [ -n "$FEATURE_URL" ]; then
+              echo "✅ Using feature branch playwright-server: $FEATURE_SERVICE"
+              echo "url=${FEATURE_URL}" >> $GITHUB_OUTPUT
+              echo "Playwright Server URL: ${FEATURE_URL}"
+              exit 0
+            else
+              echo "⚠️  Feature branch playwright-server not found, using main"
+            fi
+          fi
+
+          # Fall back to main playwright-server
+          echo "Using main playwright-server"
           URL=$(gcloud run services describe playwright-server \
             --platform managed \
             --region ${{ env.GCP_REGION }} \

@@ -6,6 +6,7 @@
  * Uses Playwright's native browser server with WebSocket proxying for public access.
  */
 
+import crypto from 'crypto';
 import { chromium } from 'playwright';
 import { OAuth2Client } from 'google-auth-library';
 import express from 'express';
@@ -14,6 +15,7 @@ import WebSocket from 'ws';
 
 const PORT = process.env.PORT || 8080;
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'chalanding';
+const AUDIENCE = process.env.PLAYWRIGHT_SERVER_URL || `https://playwright-server-4yac44qrwa-uc.a.run.app`;
 
 // OAuth2 client for token validation
 const oauth2Client = new OAuth2Client();
@@ -23,6 +25,21 @@ const serverStartTime = new Date().toISOString();
 let requestCount = 0;
 let browserServer = null;
 let wsEndpoint = null;
+
+// Connection tokens for WebSocket authentication
+// Maps connection token -> { email, exp }
+const connectionTokens = new Map();
+const CONNECTION_TOKEN_TTL = 60000; // 60 seconds
+
+// Cleanup expired connection tokens every 30 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of connectionTokens.entries()) {
+    if (data.exp < now) {
+      connectionTokens.delete(token);
+    }
+  }
+}, 30000);
 
 console.log(`[SERVER] ========================================`);
 console.log(`[SERVER] Playwright Browser Server v3.1.0`);
@@ -45,6 +62,38 @@ app.use((req, res, next) => {
 });
 
 /**
+ * Generate a short-lived connection token for WebSocket authentication
+ */
+function generateConnectionToken(email) {
+  // Generate a random token using Node's crypto
+  const token = crypto.randomBytes(32).toString('hex');
+
+  const exp = Date.now() + CONNECTION_TOKEN_TTL;
+  connectionTokens.set(token, { email, exp });
+
+  return token;
+}
+
+/**
+ * Validate a connection token
+ */
+function validateConnectionToken(token) {
+  const data = connectionTokens.get(token);
+  if (!data) {
+    return null;
+  }
+
+  if (data.exp < Date.now()) {
+    connectionTokens.delete(token);
+    return null;
+  }
+
+  // Single use token - delete after validation
+  connectionTokens.delete(token);
+  return data;
+}
+
+/**
  * Validate Google Cloud OIDC token
  */
 async function validateToken(authHeader) {
@@ -57,13 +106,15 @@ async function validateToken(authHeader) {
   try {
     const ticket = await oauth2Client.verifyIdToken({
       idToken: token,
-      audience: `https://playwright-server-4yac44qrwa-uc.a.run.app`,
+      audience: AUDIENCE,
     });
 
     const payload = ticket.getPayload();
 
     // Validate the token is from our project's service account
-    if (!payload.email || !payload.email.includes(GCP_PROJECT_ID)) {
+    // Must match pattern: <service-account>@<project-id>.iam.gserviceaccount.com
+    const validServiceAccountPattern = new RegExp(`^[a-z0-9-]+@${GCP_PROJECT_ID}\\.iam\\.gserviceaccount\\.com$`);
+    if (!payload.email || !validServiceAccountPattern.test(payload.email)) {
       console.warn(`[AUTH] Invalid service account: ${payload.email}`);
       return null;
     }
@@ -97,6 +148,29 @@ app.get('/health', (req, res) => {
 });
 
 /**
+ * Exchange OIDC token for short-lived connection token (authenticated)
+ */
+app.post('/api/ws-token', async (req, res) => {
+  // Validate authentication
+  const authHeader = req.headers.authorization;
+  const user = await validateToken(authHeader);
+  if (!user) {
+    console.warn(`[API] Unauthorized token exchange request`);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Generate connection token
+  const connectionToken = generateConnectionToken(user.email);
+  console.log(`[API] Generated connection token for ${user.email}`);
+
+  res.json({
+    token: connectionToken,
+    expiresIn: CONNECTION_TOKEN_TTL / 1000, // seconds
+    message: 'Use this token to connect to WebSocket endpoint'
+  });
+});
+
+/**
  * Get browser server WebSocket endpoint (authenticated)
  */
 app.get('/api/browser-endpoint', async (req, res) => {
@@ -115,16 +189,18 @@ app.get('/api/browser-endpoint', async (req, res) => {
 
   console.log(`[API] Providing browser endpoint to ${user.email}`);
 
+  // Generate a connection token for WebSocket authentication
+  const connectionToken = generateConnectionToken(user.email);
+
   // Construct public WebSocket URL using Cloud Run service URL
-  // Include the auth token in the URL for WebSocket authentication
   const protocol = req.protocol === 'https' ? 'wss' : 'ws';
   const host = req.get('host');
-  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-  const publicWsEndpoint = `${protocol}://${host}/ws?token=${encodeURIComponent(token)}`;
+  const publicWsEndpoint = `${protocol}://${host}/ws?token=${encodeURIComponent(connectionToken)}`;
 
   res.json({
     wsEndpoint: publicWsEndpoint,
-    message: 'Connect using Playwright connectOptions.wsEndpoint'
+    message: 'Connect using Playwright connectOptions.wsEndpoint',
+    tokenExpiresIn: CONNECTION_TOKEN_TTL / 1000 // seconds
   });
 });
 
@@ -134,7 +210,7 @@ app.get('/api/browser-endpoint', async (req, res) => {
 app.ws('/ws', async (ws, req) => {
   console.log('[WS] New WebSocket connection request');
 
-  // Validate authentication - token is in query parameter
+  // Validate authentication - connection token is in query parameter
   const token = req.query.token;
   if (!token) {
     console.warn('[WS] No token provided in WebSocket connection');
@@ -142,9 +218,10 @@ app.ws('/ws', async (ws, req) => {
     return;
   }
 
-  const user = await validateToken(`Bearer ${token}`);
+  // Validate the connection token (short-lived, single-use)
+  const user = validateConnectionToken(token);
   if (!user) {
-    console.warn('[WS] Invalid token in WebSocket connection');
+    console.warn('[WS] Invalid or expired connection token');
     ws.close(1008, 'Unauthorized - invalid token');
     return;
   }
