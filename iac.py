@@ -249,7 +249,8 @@ def enable_apis(config):
         'firebase.googleapis.com',
         'firebaserules.googleapis.com',
         'firebasestorage.googleapis.com',
-        'identitytoolkit.googleapis.com'  # Identity Platform (Firebase Auth)
+        'firebasehosting.googleapis.com',     # Firebase Hosting
+        'identitytoolkit.googleapis.com'      # Identity Platform (Firebase Auth)
     ]
 
     # Note: gcloud services enable is idempotent - already enabled APIs are skipped
