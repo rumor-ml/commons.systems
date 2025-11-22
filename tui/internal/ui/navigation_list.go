@@ -101,7 +101,6 @@ import (
 	"github.com/natb1/tui/internal/status"
 	"github.com/natb1/tui/internal/terminal"
 	"github.com/natb1/tui/pkg/model"
-	"github.com/rumor-ml/log/pkg/log"
 )
 
 // Navigation component using delegation pattern for better organization
@@ -210,11 +209,9 @@ func (n *NavigationListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return n, nil
 
 	case tea.KeyMsg:
-		logger := log.Get()
-
 		// Check for quit keys first
 		if msg.Type == tea.KeyCtrlC || msg.String() == "ctrl+q" {
-			logger.Info("Quit key detected in navigation list")
+			// Removed: INFO log not useful in production
 			return n, tea.Quit
 		}
 
@@ -295,12 +292,11 @@ func (n *NavigationListComponent) SetLogsComponent(logs *LogsComponent) {
 
 // SetProjects updates the navigation with real discovered projects
 func (n *NavigationListComponent) SetProjects(projects []*model.Project) {
-	logger := log.Get()
-	logger.Info("SetProjects called", "count", len(projects))
+	// Removed: Verbose INFO logs not useful in production
 
 	// Delegate to project manager
 	deduplicatedProjects := n.projectManager.SetProjects(projects)
-	
+
 	// Update backward compatibility reference
 	n.projects = deduplicatedProjects
 
@@ -309,11 +305,10 @@ func (n *NavigationListComponent) SetProjects(projects []*model.Project) {
 
 	// Update sequence handler with new projects
 	n.sequenceHandler.SetProjects(deduplicatedProjects, n.projectManager.GetKeyBindingManager())
-	
+
 	// Rebuild list items with deduplicated projects
 	items := n.projectManager.BuildListItems(nil)
-	logger.Info("Setting list items", "itemCount", len(items))
-	
+
 	// Convert []interface{} back to []list.Item for the list
 	listItems := make([]list.Item, len(items))
 	for i, item := range items {
@@ -322,8 +317,6 @@ func (n *NavigationListComponent) SetProjects(projects []*model.Project) {
 	n.list.SetItems(listItems)
 
 	// Force list to refresh - sometimes needed with Bubble Tea
-	logger.Info("List items set, item count in list", "count", len(n.list.Items()))
-
 	// Reset the list to ensure it updates
 	n.list.Select(0)
 }
