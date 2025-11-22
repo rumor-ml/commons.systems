@@ -541,6 +541,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Test Fellspiral
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-all.outputs.fellspiral-url }}" "${{ needs.deploy-all.outputs.playwright-url }}"
         env:
