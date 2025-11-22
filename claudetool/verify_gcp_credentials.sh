@@ -12,7 +12,7 @@ echo ""
 
 # Step 1: Check credentials exist
 echo "[1/6] Checking GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable..."
-if env | grep -q "export GOOGLE_APPLICATION_CREDENTIALS_JSON"; then
+if env | grep -q "GOOGLE_APPLICATION_CREDENTIALS_JSON"; then
     echo "✓ GOOGLE_APPLICATION_CREDENTIALS_JSON is set"
 else
     echo "✗ GOOGLE_APPLICATION_CREDENTIALS_JSON is not set"
@@ -22,7 +22,7 @@ echo ""
 
 # Step 2: Parse and validate JSON
 echo "[2/6] Parsing and validating credentials JSON..."
-env | grep "export GOOGLE_APPLICATION_CREDENTIALS_JSON" | sed 's/export GOOGLE_APPLICATION_CREDENTIALS_JSON=//' | sed "s/^'//" | sed "s/'$//" > /tmp/gcp_creds.json
+env | grep "GOOGLE_APPLICATION_CREDENTIALS_JSON" | sed 's/GOOGLE_APPLICATION_CREDENTIALS_JSON=//' | sed "s/^'//" | sed "s/'$//" > /tmp/gcp_creds.json
 
 PROJECT_ID=$(jq -r '.project_id' /tmp/gcp_creds.json)
 CLIENT_EMAIL=$(jq -r '.client_email' /tmp/gcp_creds.json)
