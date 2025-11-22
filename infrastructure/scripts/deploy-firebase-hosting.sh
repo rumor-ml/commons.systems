@@ -21,6 +21,16 @@ if [ -z "$SITE_NAME" ] || [ -z "$BRANCH_NAME" ]; then
   exit 1
 fi
 
+# Map site names to Firebase site IDs (some sites have different IDs due to reservation)
+case "$SITE_NAME" in
+  videobrowser)
+    FIREBASE_SITE_ID="videobrowser-7696a"
+    ;;
+  *)
+    FIREBASE_SITE_ID="$SITE_NAME"
+    ;;
+esac
+
 echo "========================================="
 echo "Firebase Hosting Deployment"
 echo "========================================="
@@ -54,12 +64,12 @@ if [ "$BRANCH_NAME" = "main" ]; then
   echo "🚀 Deploying to production..."
 
   firebase deploy \
-    --only hosting:${SITE_NAME} \
+    --only hosting:${FIREBASE_SITE_ID} \
     --project chalanding \
     --message "Deploy ${SITE_NAME} from ${BRANCH_NAME}@${COMMIT_SHA:0:7}"
 
   # Get production URL
-  DEPLOYMENT_URL="https://${SITE_NAME}.web.app"
+  DEPLOYMENT_URL="https://${FIREBASE_SITE_ID}.web.app"
 
   echo ""
   echo "✅ Production deployment complete!"
@@ -82,10 +92,10 @@ else
   echo "Preview channel: ${CHANNEL_NAME}"
 
   # Deploy to preview channel (creates if doesn't exist, expires after 7 days by default)
-  echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${SITE_NAME}"
+  echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
 
   if ! firebase hosting:channel:deploy "$CHANNEL_NAME" \
-    --only ${SITE_NAME} \
+    --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
     --json > /tmp/firebase-deploy-output.json 2>&1; then
@@ -95,7 +105,7 @@ else
   fi
 
   # Extract URL from JSON output
-  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${SITE_NAME}.url // empty" 2>/dev/null)
+  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${FIREBASE_SITE_ID}.url // empty" 2>/dev/null)
 
   if [ -z "$DEPLOYMENT_URL" ]; then
     # Try alternative JSON path
@@ -104,7 +114,7 @@ else
 
   if [ -z "$DEPLOYMENT_URL" ]; then
     # Fallback: construct URL manually
-    DEPLOYMENT_URL="https://${CHANNEL_NAME}--${SITE_NAME}.web.app"
+    DEPLOYMENT_URL="https://${FIREBASE_SITE_ID}--${CHANNEL_NAME}.web.app"
     echo "⚠️  Could not extract URL from Firebase output, using constructed URL"
   fi
 
