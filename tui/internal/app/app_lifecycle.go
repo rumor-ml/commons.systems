@@ -29,7 +29,7 @@ func NewAppLifecycle(app *App) *AppLifecycle {
 // Init implements tea.Model initialization for the application
 func (al *AppLifecycle) Init() tea.Cmd {
 	logger := log.Get()
-	logger.Info("App.Init() called")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 
 	// Start with minimal initialization to ensure UI is responsive
 	var cmds []tea.Cmd

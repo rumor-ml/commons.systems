@@ -59,7 +59,7 @@ func main() {
 
 	// Initialize logging after setting environment
 	logger := log.Get().WithComponent("tui")
-	logger.Info("TUI starting", "workspace", "")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 
 	// Acquire single-instance lock BEFORE any other initialization
 	// This prevents multiple TUI processes from running and competing for marker files
@@ -119,14 +119,14 @@ func main() {
 
 	// Default: run full multiplexer with existing UI
 	// Create application controller - project discovery will use current directory automatically
-	logger.Info("Creating app controller")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 	muxApp, err := app.New("")
 	if err != nil {
 		logger.Error("Failed to create app", "error", err)
 		fmt.Fprintf(os.Stderr, "Error initializing ICF multiplexer: %v\n", err)
 		os.Exit(1)
 	}
-	logger.Info("App controller created successfully")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 
 	// Color environment already set at startup
 
@@ -134,15 +134,15 @@ func main() {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 
 	// Start Bubble Tea program with explicit input/output to force color preservation
-	logger.Info("Creating Bubble Tea program")
+	// Removed: Verbose INFO logs (startup messages, not useful in production)
 	program := tea.NewProgram(muxApp,
 		tea.WithAltScreen(),
 		tea.WithInput(os.Stdin),
 		tea.WithOutput(os.Stdout))
-	logger.Info("Bubble Tea program created")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 
 	// Run the program and handle tmux attachment if needed
-	logger.Info("Starting Bubble Tea program.Run()")
+	// Removed: Verbose INFO log (startup message, not useful in production)
 	model, err := program.Run()
 	logger.Info("Bubble Tea program.Run() returned", "error", err)
 	if err != nil {
