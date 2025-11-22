@@ -869,10 +869,19 @@ def create_firebase_hosting_sites(project_id):
         if check_result:
             lines = check_result.strip().split('\n')
             http_code = lines[-1] if lines else ""
+            response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
 
             if http_code == "200":
                 print_info(f"  Site '{site_id}' already exists")
                 continue
+            elif http_code == "404":
+                # Site doesn't exist, will create it
+                pass
+            else:
+                # Unexpected response when checking - show it
+                print_info(f"  Checking site '{site_id}' returned HTTP {http_code}")
+                if response_body and len(response_body) < 200:
+                    print_info(f"    Response: {response_body[:200]}")
 
         # Create the site (siteId is a query parameter, not in body)
         print_info(f"  Creating site '{site_id}'...")
@@ -900,13 +909,20 @@ def create_firebase_hosting_sites(project_id):
                 except:
                     pass
             else:
-                # Check if error indicates site already exists
+                # Check if error indicates site already exists or is reserved
                 try:
                     error_data = json.loads(response_body)
                     error_msg = error_data.get('error', {}).get('message', '')
 
                     if 'already exists' in error_msg.lower() or 'ALREADY_EXISTS' in error_msg:
                         print_info(f"  Site '{site_id}' already exists")
+                    elif 'reserved by another project' in error_msg.lower():
+                        print(f"{Colors.YELLOW}  Warning: Site '{site_id}' is reserved by another Firebase project{Colors.NC}")
+                        print(f"{Colors.YELLOW}  This usually means:{Colors.NC}")
+                        print(f"{Colors.YELLOW}  1. You created this site in a different Firebase project{Colors.NC}")
+                        print(f"{Colors.YELLOW}  2. You need to delete it from the other project or use it there{Colors.NC}")
+                        print(f"{Colors.YELLOW}  3. Or use a different site name in firebase.json{Colors.NC}")
+                        print(f"{Colors.YELLOW}  Check Firebase Console: https://console.firebase.google.com/{Colors.NC}")
                     else:
                         print(f"{Colors.YELLOW}  Warning: Could not create site '{site_id}' (HTTP {http_code}){Colors.NC}")
                         print(f"{Colors.YELLOW}  Error: {error_msg}{Colors.NC}")
