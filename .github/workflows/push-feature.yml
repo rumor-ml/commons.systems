@@ -859,6 +859,72 @@ jobs:
 
           echo "✓ Firebase configuration injected into source"
 
+      - name: Deploy Firebase Storage rules
+        run: |
+          set -e  # Exit on error
+          echo "Deploying Firebase Storage rules..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          RULES_FILE="print/storage.rules"
+
+          # Read and escape rules file for JSON
+          RULES_CONTENT=$(cat "$RULES_FILE" | jq -Rs '.')
+
+          # Create ruleset
+          echo "Creating Storage ruleset..."
+          RULESET_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"source\": {
+                \"files\": [
+                  {
+                    \"name\": \"storage.rules\",
+                    \"content\": ${RULES_CONTENT}
+                  }
+                ]
+              }
+            }" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+
+          # Check for errors
+          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "❌ Failed to create Storage ruleset:"
+            echo "$RULESET_RESPONSE" | jq '.error'
+            exit 1
+          fi
+
+          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name')
+
+          if [ -z "$RULESET_NAME" ] || [ "$RULESET_NAME" = "null" ]; then
+            echo "❌ Failed to get ruleset name:"
+            echo "$RULESET_RESPONSE" | jq '.'
+            exit 1
+          fi
+
+          echo "✓ Created ruleset: $RULESET_NAME"
+
+          # Deploy ruleset to default storage bucket
+          echo "Deploying ruleset to Firebase Storage..."
+          RELEASE_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"name\": \"firebase.storage/${{ env.GCP_PROJECT_ID }}.appspot.com\",
+              \"rulesetName\": \"${RULESET_NAME}\"
+            }" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases")
+
+          # Check for errors
+          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "❌ Failed to deploy Storage rules:"
+            echo "$RELEASE_RESPONSE" | jq '.error'
+            exit 1
+          fi
+
+          echo "✓ Firebase Storage rules deployed successfully"
+
       - name: Deploy Print
         run: ./infrastructure/scripts/deploy-site.sh print ${{ github.ref_name }} ${{ github.sha }}
 
