@@ -172,7 +172,7 @@ log_test "Simulate project switching workflow"
 tmux select-window -t "$TEST_SESSION:projects"
 send_keys "# Simulating project switch to Project A" Enter
 send_keys "cd $TEST_DIR && mkdir -p project-a project-b project-c" Enter
-sleep 0.5
+sleep 1.0
 
 if [ -d "$TEST_DIR/project-a" ]; then
     pass "Project directory structure created"
@@ -183,7 +183,7 @@ fi
 log_test "Test project status markers (blocked/testing simulation)"
 send_keys "# Marking project as 'testing'" Enter
 send_keys "echo 'STATUS:testing' > $TEST_DIR/project-a/status" Enter
-sleep 0.3
+sleep 0.5
 
 if [ -f "$TEST_DIR/project-a/status" ]; then
     pass "Project status marker created"

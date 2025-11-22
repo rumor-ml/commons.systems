@@ -98,8 +98,8 @@ func (ksh *KeySequenceHandler) HandleKeySequence(msg tea.KeyMsg) tea.Cmd {
 
 	case StateAwaitingAction:
 		// Second key: execute action on pending target
-		// Valid action keys: z=zsh, c=claude, x=toggle blocked, t=toggle testing
-		if char == 'z' || char == 'c' || char == 'x' || char == 't' {
+		// Valid action keys: z=zsh, c=claude, C=create worktree (claude), Z=create worktree (zsh), x=toggle blocked, t=toggle testing
+		if char == 'z' || char == 'c' || char == 'C' || char == 'Z' || char == 'x' || char == 't' {
 			cmd := ksh.executeSequenceAction(char)
 			// Reset sequence state after valid action
 			ksh.sequenceState = StateNone
@@ -214,6 +214,24 @@ func (ksh *KeySequenceHandler) executeSequenceAction(char rune) tea.Cmd {
 				Worktree: worktree,
 			}
 		}
+
+	case 'C':
+		// Create worktree with Claude shell
+		return func() tea.Msg {
+			return CreateWorktreeMsg{
+				Project:   project,
+				ShellType: model.ShellTypeClaude,
+			}
+		}
+
+	case 'Z':
+		// Create worktree with Zsh shell
+		return func() tea.Msg {
+			return CreateWorktreeMsg{
+				Project:   project,
+				ShellType: model.ShellTypeZsh,
+			}
+		}
 	}
 
 	return nil
@@ -235,7 +253,7 @@ func (ksh *KeySequenceHandler) GetSequenceStatus() (bool, string) {
 		if ksh.pendingTarget.worktree != nil {
 			targetName = ksh.pendingTarget.worktree.ID
 		}
-		return true, "Selected " + targetName + " - press c=claude, z=zsh, x=toggle blocked, t=toggle testing"
+		return true, "Selected " + targetName + " - press c=claude, z=zsh, C=new worktree(claude), Z=new worktree(zsh), x=blocked, t=testing"
 	}
 
 	return true, "Key sequence active"

@@ -60,18 +60,19 @@ import "time"
 
 // Project represents an ICF project with worktrees and shells
 type Project struct {
-	Name         string               `json:"name"`
-	Path         string               `json:"path"`
-	KeyBinding   rune                 `json:"key_binding"`
-	Dashboard    *Dashboard           `json:"dashboard,omitempty"`
-	MainShells   map[ShellType]*Shell `json:"main_shells"`
-	Worktrees    []*Worktree          `json:"worktrees"`
-	Expanded     bool                 `json:"expanded"`
-	Status       ProjectStatus        `json:"status"`
-	StatusReason string               `json:"status_reason,omitempty"`
-	HttpServer   *HttpServer          `json:"http_server,omitempty"`
-	IsWorktree   bool                 `json:"is_worktree"`
-	ParentRepo   string               `json:"parent_repo,omitempty"`
+	Name          string               `json:"name"`
+	Path          string               `json:"path"`
+	CurrentBranch string               `json:"current_branch,omitempty"` // Currently checked out branch in main repo
+	KeyBinding    rune                 `json:"key_binding"`
+	Dashboard     *Dashboard           `json:"dashboard,omitempty"`
+	MainShells    map[ShellType]*Shell `json:"main_shells"`
+	Worktrees     []*Worktree          `json:"worktrees"`
+	Expanded      bool                 `json:"expanded"`
+	Status        ProjectStatus        `json:"status"`
+	StatusReason  string               `json:"status_reason,omitempty"`
+	HttpServer    *HttpServer          `json:"http_server,omitempty"`
+	IsWorktree    bool                 `json:"is_worktree"`
+	ParentRepo    string               `json:"parent_repo,omitempty"`
 }
 
 // Worktree represents a git worktree with associated shells

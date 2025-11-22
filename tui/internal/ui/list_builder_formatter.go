@@ -31,6 +31,11 @@ func (lbf *ListBuilderFormatter) FormatProjectTitle(project *model.Project, key 
 	// For compatibility with existing tests, don't include icon in project titles
 	nameWithHotkey := addHotkeyIndicator(project.Name, key)
 
+	// Add current branch indicator if available
+	if project.CurrentBranch != "" {
+		nameWithHotkey += fmt.Sprintf(" (%s)", project.CurrentBranch)
+	}
+
 	// Add status indicator and muted color based on project status
 	// Priority: blocked > testing
 	if project.Status == model.ProjectStatusBlocked {
