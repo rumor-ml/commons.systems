@@ -848,6 +848,74 @@ def initialize_firebase(config):
     print(f"{Colors.INFO}   - firestore.rules and storage.rules will be deployed automatically{Colors.NC}")
     print(f"{Colors.INFO}   - Managed via Terraform (infrastructure/terraform/firebase.tf){Colors.NC}")
     print(f"{Colors.INFO}   - Deploys when you push changes (IaC workflow){Colors.NC}")
+
+def create_firebase_hosting_sites(project_id):
+    """Create Firebase Hosting sites for all sites in the monorepo."""
+    print_info("Creating Firebase Hosting sites...")
+
+    # Sites defined in firebase.json
+    sites = ["fellspiral", "videobrowser", "audiobrowser"]
+
+    for site_id in sites:
+        # Check if site already exists
+        check_result = run_command(
+            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+            f'-H "x-goog-user-project: {project_id}" '
+            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites/{site_id}" '
+            f'-w "\\n%{{http_code}}"',
+            check=False
+        )
+
+        if check_result:
+            lines = check_result.strip().split('\n')
+            http_code = lines[-1] if lines else ""
+
+            if http_code == "200":
+                print_info(f"  Site '{site_id}' already exists")
+                continue
+
+        # Create the site
+        print_info(f"  Creating site '{site_id}'...")
+        create_result = run_command(
+            f'curl -s -X POST '
+            f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+            f'-H "x-goog-user-project: {project_id}" '
+            f'-H "Content-Type: application/json" '
+            f'-d \'{{"siteId": "{site_id}"}}\' '
+            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites" '
+            f'-w "\\n%{{http_code}}"',
+            check=False
+        )
+
+        if create_result:
+            lines = create_result.strip().split('\n')
+            http_code = lines[-1] if lines else ""
+            response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
+
+            if http_code in ["200", "201"]:
+                print_success(f"  Created site '{site_id}'")
+                try:
+                    site_data = json.loads(response_body)
+                    if 'defaultUrl' in site_data:
+                        print_success(f"    URL: {site_data['defaultUrl']}")
+                except:
+                    pass
+            else:
+                # Check if error indicates site already exists
+                try:
+                    error_data = json.loads(response_body)
+                    error_msg = error_data.get('error', {}).get('message', '')
+
+                    if 'already exists' in error_msg.lower() or 'ALREADY_EXISTS' in error_msg:
+                        print_info(f"  Site '{site_id}' already exists")
+                    else:
+                        print(f"{Colors.YELLOW}  Warning: Could not create site '{site_id}' (HTTP {http_code}){Colors.NC}")
+                        print(f"{Colors.YELLOW}  Error: {error_msg}{Colors.NC}")
+                except:
+                    print(f"{Colors.YELLOW}  Warning: Could not create site '{site_id}' (HTTP {http_code}){Colors.NC}")
+
+    print_success("Firebase Hosting sites configured")
+
 def generate_github_secrets(config):
     """Generate and display GitHub secrets."""
     print_header("Pre-Terraform Setup Complete! ✓")
@@ -1068,6 +1136,9 @@ def main():
 
             print_info(f"Using project: {project_id}")
 
+            # Create Firebase Hosting sites (must be done before Terraform)
+            create_firebase_hosting_sites(project_id)
+
             # Create terraform state bucket
             create_terraform_state_bucket(project_id)
 
@@ -1091,6 +1162,9 @@ def main():
                 print_error("GCP_PROJECT_ID not set and no default project configured")
 
             print_info(f"Using project: {project_id}")
+
+            # Create Firebase Hosting sites (must be done before Terraform)
+            create_firebase_hosting_sites(project_id)
 
             # Create terraform state bucket
             create_terraform_state_bucket(project_id)

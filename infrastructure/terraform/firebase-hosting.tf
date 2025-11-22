@@ -1,5 +1,6 @@
 # Firebase Hosting Sites Configuration
-# Creates and manages Firebase Hosting sites for all projects in the monorepo
+# Note: Firebase Hosting sites are created via iac.py using Firebase Management API
+# The google/google Terraform provider doesn't support google_firebase_hosting_site resource
 
 # Enable Firebase Hosting API
 resource "google_project_service" "firebasehosting" {
@@ -7,37 +8,10 @@ resource "google_project_service" "firebasehosting" {
   disable_on_destroy = false
 }
 
-# Create Firebase Hosting sites for each project
-resource "google_firebase_hosting_site" "sites" {
-  for_each = toset(var.sites)
-
-  provider = google
-  project  = var.project_id
-  site_id  = each.value
-
-  depends_on = [
-    google_project_service.firebase,
-    google_project_service.firebasehosting
-  ]
-}
-
-# Outputs
-output "hosting_sites" {
-  value = {
-    for site_id, site in google_firebase_hosting_site.sites :
-    site_id => {
-      name         = site.name
-      default_url  = site.default_url
-      app_id       = site.app_id
-    }
-  }
-  description = "Firebase Hosting sites configuration"
-}
-
-output "hosting_urls" {
-  value = {
-    for site_id, site in google_firebase_hosting_site.sites :
-    site_id => site.default_url
-  }
-  description = "Default URLs for Firebase Hosting sites"
-}
+# Note: Sites defined in var.sites are created programmatically by iac.py
+# See iac.py::create_firebase_hosting_sites() for implementation
+#
+# Sites are created using Firebase Management API:
+# POST https://firebasehosting.googleapis.com/v1beta1/projects/{project}/sites
+#
+# The sites are configured in firebase.json and .firebaserc
