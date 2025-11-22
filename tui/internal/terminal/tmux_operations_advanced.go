@@ -168,13 +168,11 @@ func (ops *TmuxAdvancedOperations) DiscoverAllPanes(tm *TmuxManager) error {
 
 	// Change detection: Check if output has actually changed
 	if tm.lastPanesOutput == outputStr {
-		ops.logger.Debug("Pane discovery: no changes detected, skipping processing")
+		// Removed: Unnecessary DEBUG log (fires frequently when no changes)
 		return nil
 	}
 
-	ops.logger.Debug("Pane discovery: changes detected, processing",
-		"outputLength", len(outputStr),
-		"previousLength", len(tm.lastPanesOutput))
+	// Removed: High-frequency DEBUG log (fires whenever pane content changes)
 
 	// Save existing project associations before clearing
 	oldProjectAssociations := make(map[string]*model.Project)

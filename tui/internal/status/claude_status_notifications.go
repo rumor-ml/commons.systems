@@ -57,7 +57,7 @@ func (n *ClaudeStatusNotificationHandler) onStatusChange(paneID string, status *
 // processUpdates processes status updates and notifies subscribers
 func (n *ClaudeStatusNotificationHandler) processUpdates(ctx context.Context) {
 	logger := log.Get()
-	logger.Info("Claude status manager update processor started")
+	// Removed: Verbose INFO log (one-time startup message, not useful in production)
 
 	for {
 		select {

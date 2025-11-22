@@ -57,9 +57,8 @@ func (al *AppLifecycle) Init() tea.Cmd {
 			ctx := context.Background()
 			if err := navComp.StartClaudeMonitoring(ctx); err != nil {
 				logger.Error("Failed to start Claude monitoring", "error", err)
-			} else {
-				logger.Info("Claude monitoring started successfully")
 			}
+			// Removed: Verbose INFO log (only useful during development, not in production)
 		} else {
 			logger.Error("Navigation component not found for Claude monitoring")
 		}

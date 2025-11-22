@@ -94,8 +94,7 @@ func (pm *ExternalProjectMap) scanWorkspace() tea.Cmd {
 
 // discoverProjects performs the actual project discovery using external package
 func (pm *ExternalProjectMap) discoverProjects() error {
-	logger := log.Get()
-	logger.Info("External project discovery starting", "workspaceRoot", pm.workspaceRoot)
+	// Removed: Verbose INFO log (not useful in production, fires frequently if discovery runs often)
 
 	// Use enhanced discovery to get metadata
 	// Pass the workspace root explicitly to ensure it includes the parent repo
@@ -104,7 +103,7 @@ func (pm *ExternalProjectMap) discoverProjects() error {
 		return fmt.Errorf("project discovery failed: %w", err)
 	}
 
-	logger.Info("EnhancedDiscoverProjects returned", "projectCount", len(extProjects))
+	// Removed: Verbose INFO log (not useful, just adds noise)
 
 	// Convert enhanced projects
 	pm.mutex.Lock()
@@ -127,9 +126,7 @@ func (pm *ExternalProjectMap) discoverProjects() error {
 	pm.initialized = true
 	pm.lastScanTime = time.Now()
 
-	logger.Info("External project discovery complete",
-		"projectCount", len(pm.projects),
-		"categoryCount", len(pm.categories))
+	// Removed: Verbose INFO log (not useful, just adds noise)
 
 	return nil
 }
