@@ -90,8 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: local-tests
-    # Only run on main branch (+ temporary: cache testing branch)
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/cache-iac-workflow-011KDwiSM4NP3wySdnsZ6eko'
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
 
     defaults:
       run:
