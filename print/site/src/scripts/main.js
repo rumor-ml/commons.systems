@@ -83,12 +83,10 @@ function setupEventListeners() {
  */
 async function loadDocuments() {
   try {
-    console.log('Loading documents from Firebase Storage...');
     showLoading();
 
     // Add 5 second timeout to prevent indefinite hanging
     documents = await withTimeout(getAllDocuments(), 5000);
-    console.log(`Loaded ${documents.length} documents`);
 
     renderDocuments();
   } catch (error) {
