@@ -304,6 +304,35 @@ For implementation details, see the scripts in the `claudetool/` directory.
 
 **IMPORTANT:** Never ask the user to check logs when you have access to them via API.
 
+### Debugging Policy
+
+**CRITICAL: Never assume caching issues or user error**
+
+When investigating bugs or issues reported by the user:
+
+1. **NEVER assume the issue is due to:**
+   - Stale build artifacts or caching
+   - User running outdated code
+   - User not rebuilding after changes
+   - "Works on my machine" scenarios
+
+2. **ALWAYS investigate the actual code and logs:**
+   - Fetch and analyze logs via API
+   - Read the relevant source code
+   - Identify the root cause in the implementation
+   - Fix the actual bug, don't suggest workarounds
+
+3. **User reports are accurate:**
+   - If a user reports timestamps updating, they ARE updating
+   - If a user reports logs are verbose, they ARE verbose
+   - If a user reports a bug, there IS a bug
+   - Trust the user's observations and investigate thoroughly
+
+4. **Focus on fixing, not explaining away:**
+   - Fix the root cause, don't suggest the user rebuild
+   - Modify the code to solve the issue
+   - Never deflect with "maybe you need to..."
+
 ### Accessing GitHub Actions Workflow Logs
 
 **ALWAYS use the helper script for fetching logs:**
