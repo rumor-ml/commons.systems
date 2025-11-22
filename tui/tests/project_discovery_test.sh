@@ -80,10 +80,10 @@ OUTPUT=$(go run /tmp/test_discovery.go 2>&1)
 
 if echo "$OUTPUT" | grep -q "Found [0-9]* projects"; then
     PROJECT_COUNT=$(echo "$OUTPUT" | grep "Found" | grep -oE "[0-9]+")
-    if [ "$PROJECT_COUNT" -eq 7 ]; then
+    if [ "$PROJECT_COUNT" -eq 8 ]; then
         pass "Discovery found $PROJECT_COUNT projects (including monorepo root)"
     else
-        fail "Discovery found wrong number of projects ($PROJECT_COUNT, expected 7: monorepo root + 6 modules)"
+        fail "Discovery found wrong number of projects ($PROJECT_COUNT, expected 8: monorepo root + 7 modules)"
     fi
 else
     fail "Discovery function failed or returned no output"
