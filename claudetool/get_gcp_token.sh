@@ -16,7 +16,8 @@ create_token() {
         echo "Error: GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable not set" >&2
         return 1
     fi
-    echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$CREDS_FILE"
+    # Strip leading/trailing single quotes if present
+    echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" | sed "s/^'//" | sed "s/'$//" > "$CREDS_FILE"
 
     # Extract private key
     jq -r '.private_key' "$CREDS_FILE" > /tmp/private_key.pem
