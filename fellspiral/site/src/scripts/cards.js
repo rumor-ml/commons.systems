@@ -60,7 +60,6 @@ async function loadCards() {
       state.cards = cards;
     } else {
       // If no cards in Firestore, seed from JSON data
-      console.log('No cards found in Firestore, seeding from rules.md data...');
       await importCardsFromData(cardsData);
       state.cards = await getAllCards();
     }
