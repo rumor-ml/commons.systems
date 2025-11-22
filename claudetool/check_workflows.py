@@ -5,8 +5,10 @@ Check GitHub Actions workflow status with optional monitoring.
 Usage:
     ./check_workflows.py                    # Check recent workflows (all branches)
     ./check_workflows.py --branch <name>    # Check workflows for specific branch
-    ./check_workflows.py --monitor          # Continuously monitor latest workflow
-    ./check_workflows.py --branch <name> --monitor  # Monitor specific branch
+    ./check_workflows.py --branch <name> --monitor  # Monitor until completion (RECOMMENDED)
+
+IMPORTANT: Use --monitor to automatically wait for workflows to complete.
+           This prevents the need for manual polling loops in bash.
 """
 
 import os
@@ -93,8 +95,28 @@ def check_workflows(branch=None, count=5):
 
         print(f"\n=== Recent Workflows {'(branch: ' + branch + ')' if branch else ''} ===\n")
 
+        # Check if any workflows are in progress or queued
+        has_active = False
         for run in runs:
             print(format_workflow(run))
+            print()
+
+            status = run.get('status')
+            if status in ('in_progress', 'queued'):
+                has_active = True
+
+        # Provide helpful hint for active workflows
+        if has_active:
+            print("=" * 70)
+            print("💡 TIP: Workflow is still running!")
+            print("=" * 70)
+            print("\nTo automatically monitor until completion, use:")
+            if branch:
+                print(f"  ./claudetool/check_workflows.py --branch {branch} --monitor")
+            else:
+                print(f"  ./claudetool/check_workflows.py --monitor")
+            print("\nThis prevents bash syntax errors from manual polling loops.")
+            print("=" * 70)
             print()
 
         return True
@@ -184,17 +206,32 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                          Check recent workflows (all branches)
-  %(prog)s --branch main            Check workflows for main branch
-  %(prog)s --monitor                Monitor latest workflow continuously
-  %(prog)s --branch feat --monitor  Monitor specific branch
+  # Check recent workflows
+  %(prog)s
+  %(prog)s --branch main
+
+  # Monitor workflows until completion (RECOMMENDED - prevents manual polling)
+  %(prog)s --branch feature-branch --monitor
+  %(prog)s --branch main --monitor --interval 5
+
+IMPORTANT:
+  Always use --monitor to wait for workflows to complete.
+  This prevents bash syntax errors from manual polling loops.
+  The tool will automatically check every 10 seconds and exit when done.
         """
     )
 
-    parser.add_argument('--branch', '-b', help='Filter by branch name')
-    parser.add_argument('--monitor', '-m', action='store_true', help='Continuously monitor latest workflow')
-    parser.add_argument('--count', '-c', type=int, default=5, help='Number of workflows to show (default: 5)')
-    parser.add_argument('--interval', '-i', type=int, default=10, help='Monitoring interval in seconds (default: 10)')
+    parser.add_argument('--branch', '-b',
+                        help='Filter by branch name')
+    parser.add_argument('--monitor', '-m',
+                        action='store_true',
+                        help='Monitor workflow until completion (auto-polls every --interval seconds)')
+    parser.add_argument('--count', '-c',
+                        type=int, default=5,
+                        help='Number of workflows to show (default: 5)')
+    parser.add_argument('--interval', '-i',
+                        type=int, default=10,
+                        help='Monitoring check interval in seconds (default: 10)')
 
     args = parser.parse_args()
 
