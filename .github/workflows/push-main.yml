@@ -212,16 +212,17 @@ jobs:
       # ========== Initialize rml-media bucket for Firebase Storage ==========
       - name: Initialize rml-media bucket
         if: matrix.site == 'videobrowser'
-        continue-on-error: true
         run: |
-          echo "Ensuring rml-media GCS bucket exists..."
+          set -e
+          echo "Ensuring rml-media GCS bucket exists and is configured..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           BUCKET_NAME="rml-media"
 
           # Check if bucket exists
-          BUCKET_EXISTS=$(gcloud storage buckets describe gs://${BUCKET_NAME} --format="value(name)" 2>/dev/null || echo "")
-
-          if [ -z "$BUCKET_EXISTS" ]; then
+          echo "Checking if bucket exists..."
+          if gcloud storage buckets describe gs://${BUCKET_NAME} --format="value(name)" 2>/dev/null; then
+            echo "✓ Bucket exists"
+          else
             echo "Creating rml-media bucket..."
             gcloud storage buckets create gs://${BUCKET_NAME} \
               --project=${{ env.GCP_PROJECT_ID }} \
@@ -234,8 +235,6 @@ jobs:
             echo '[{"origin": ["*"], "method": ["GET", "HEAD", "PUT", "POST", "DELETE"], "responseHeader": ["*"], "maxAgeSeconds": 3600}]' > /tmp/cors.json
             gcloud storage buckets update gs://${BUCKET_NAME} --cors-file=/tmp/cors.json
             echo "✓ CORS configured"
-          else
-            echo "✓ Bucket already exists"
           fi
 
           # Link bucket to Firebase Storage (idempotent - safe to run multiple times)
@@ -246,16 +245,23 @@ jobs:
             -d "{\"bucket\": \"projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}\"}" \
             "https://firebasestorage.googleapis.com/v1beta/projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}:addFirebase")
 
+          echo "Link response: $LINK_RESPONSE"
+
           if echo "$LINK_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
             ERROR_STATUS=$(echo "$LINK_RESPONSE" | jq -r '.error.status // empty')
-            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$LINK_RESPONSE" | grep -qi "already"; then
+            ERROR_MESSAGE=$(echo "$LINK_RESPONSE" | jq -r '.error.message // empty')
+            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$ERROR_MESSAGE" | grep -qi "already"; then
               echo "✓ Bucket already linked to Firebase Storage"
             else
-              echo "⚠️  Could not link bucket (may already be linked or require manual setup)"
-              echo "Response: $LINK_RESPONSE"
+              echo "❌ Failed to link bucket to Firebase Storage"
+              echo "Status: $ERROR_STATUS"
+              echo "Message: $ERROR_MESSAGE"
+              echo "Full response: $LINK_RESPONSE"
+              exit 1
             fi
           else
             echo "✓ Bucket successfully linked to Firebase Storage"
+            echo "$LINK_RESPONSE" | jq -r '.name'
           fi
 
       # ========== Deploy Firebase Storage Rules (rml-media bucket, shared by videobrowser and print) ==========
