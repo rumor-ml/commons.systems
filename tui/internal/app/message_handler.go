@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/natb1/tui/internal/devserver"
+	"github.com/natb1/tui/internal/git"
 	"github.com/natb1/tui/internal/terminal"
 	"github.com/natb1/tui/internal/ui"
 	"github.com/natb1/tui/pkg/model"
@@ -356,6 +357,104 @@ func (mh *MessageHandler) handleOtherMsg(msg tea.Msg) tea.Cmd {
 
 		logger.Error("Unexpected return type from handleWorktreeTmuxAttachment",
 			"type", fmt.Sprintf("%T", attachMsg))
+
+	case ui.CreateWorktreeMsg:
+		// Handle worktree creation request
+		logger.Info("CreateWorktreeMsg received",
+			"project", msg.Project.Name,
+			"shellType", msg.ShellType)
+
+		// Use git branch service to get available remote branches
+		branchService := git.NewBranchService(msg.Project.Path)
+		remoteBranches, err := branchService.GetRemoteBranchesWithoutWorktrees()
+		if err != nil {
+			logger.Error("Failed to get remote branches", "error", err)
+			return nil
+		}
+
+		if len(remoteBranches) == 0 {
+			logger.Warn("No remote branches available for worktree creation")
+			// TODO: Show user-facing error message
+			return nil
+		}
+
+		logger.Info("Found remote branches for worktree creation",
+			"count", len(remoteBranches))
+
+		// Log all available branches
+		for i, branch := range remoteBranches {
+			logger.Info("Available remote branch",
+				"index", i,
+				"name", branch.Name,
+				"remote", branch.Remote)
+		}
+
+		// TODO: Show branch selection UI instead of auto-selecting
+		// For now, auto-select the first available branch
+		selectedBranch := remoteBranches[0]
+		logger.Info("Auto-selecting first available branch",
+			"branch", selectedBranch.Name,
+			"remote", selectedBranch.Remote)
+
+		// Trigger branch selection message
+		return func() tea.Msg {
+			return ui.RemoteBranchSelectedMsg{
+				Project:    msg.Project,
+				BranchName: selectedBranch.Name,
+				ShellType:  msg.ShellType,
+			}
+		}
+
+	case ui.RemoteBranchSelectedMsg:
+		// Handle remote branch selection
+		logger.Info("RemoteBranchSelectedMsg received",
+			"project", msg.Project.Name,
+			"branch", msg.BranchName,
+			"shellType", msg.ShellType)
+
+		// Create worktree for the selected branch
+		branchService := git.NewBranchService(msg.Project.Path)
+
+		// First get the branch info
+		branches, err := branchService.ListAllBranches()
+		if err != nil {
+			logger.Error("Failed to list branches", "error", err)
+			return nil
+		}
+
+		var selectedBranch *git.BranchInfo
+		for _, b := range branches {
+			if b.Name == msg.BranchName {
+				selectedBranch = b
+				break
+			}
+		}
+
+		if selectedBranch == nil {
+			logger.Error("Selected branch not found", "branch", msg.BranchName)
+			return nil
+		}
+
+		// Create worktree
+		worktreePath, err := branchService.CreateWorktreeForBranch(selectedBranch, msg.BranchName)
+		if err != nil {
+			logger.Error("Failed to create worktree", "error", err)
+			return nil
+		}
+
+		logger.Info("Worktree created successfully", "path", worktreePath)
+
+		// Trigger navigation update to show the new worktree
+		mh.app.navigationUpdater.UpdateNavigationProjects()
+
+		// Return success message
+		return func() tea.Msg {
+			return ui.WorktreeCreatedMsg{
+				Project:      msg.Project,
+				WorktreePath: worktreePath,
+				BranchName:   msg.BranchName,
+			}
+		}
 
 	case ui.DevServerRestartMsg:
 		// Handle dev server restart

@@ -56,3 +56,31 @@ type ClaudeStatusUpdateMsg struct {
 	Active       bool
 	DurationText string
 }
+
+// Worktree creation messages
+
+// CreateWorktreeMsg triggers the worktree creation flow
+type CreateWorktreeMsg struct {
+	Project   *model.Project
+	ShellType model.ShellType // The shell type requested (claude or zsh)
+}
+
+// SelectRemoteBranchMsg shows the remote branch selection UI
+type SelectRemoteBranchMsg struct {
+	Project   *model.Project
+	ShellType model.ShellType
+}
+
+// RemoteBranchSelectedMsg indicates a remote branch was selected
+type RemoteBranchSelectedMsg struct {
+	Project    *model.Project
+	BranchName string
+	ShellType  model.ShellType
+}
+
+// WorktreeCreatedMsg indicates a worktree was successfully created
+type WorktreeCreatedMsg struct {
+	Project      *model.Project
+	WorktreePath string
+	BranchName   string
+}
