@@ -58,12 +58,9 @@ func (sd *SessionDiscovery) processSessionOutput(output string) (map[string]*Tmu
 		}
 
 		sessionName := parts[0]
-		sessionCwd := parts[1]
+		// parts[1] is sessionCwd, not needed after removing DEBUG log
 
-		sd.logger.Debug("Discovered tmux session",
-			"session", sessionName,
-			"cwd", sessionCwd,
-			"isICF", strings.HasPrefix(sessionName, "icf-"))
+		// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds, once per session)
 
 		// Create session entry - will be mapped to projects later
 		session := &TmuxSession{

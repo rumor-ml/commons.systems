@@ -244,12 +244,7 @@ func (ops *TmuxAdvancedOperations) DiscoverSessionWindowsLocked(tm *TmuxManager,
 		if _, exists := session.Windows[window.Name]; !exists {
 			session.Windows[window.Name] = window
 
-			ops.logger.Debug("Discovered existing tmux window",
-				"session", sessionName,
-				"window", window.Name,
-				"index", window.Index,
-				"paneTitle", window.PaneTitle,
-				"command", window.Command)
+			// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds, once per window)
 		}
 	}
 
@@ -290,12 +285,7 @@ func (ops *TmuxAdvancedOperations) DiscoverSessionWindows(tm *TmuxManager, sessi
 		if _, exists := session.Windows[window.Name]; !exists {
 			session.Windows[window.Name] = window
 
-			ops.logger.Debug("Discovered existing tmux window",
-				"session", sessionName,
-				"window", window.Name,
-				"index", window.Index,
-				"paneTitle", window.PaneTitle,
-				"command", window.Command)
+			// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds, once per window)
 		}
 		session.mutex.Unlock()
 	}

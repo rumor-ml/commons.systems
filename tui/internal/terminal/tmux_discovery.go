@@ -28,7 +28,7 @@ func NewTmuxDiscovery(tmuxPath string, logger log.Logger, projectMapper *TmuxPro
 
 // MapSessionsToProjects maps tmux sessions to projects based on working directory
 func (disc *TmuxDiscovery) MapSessionsToProjects(tm *TmuxManager, projects []*model.Project) ([]*model.Project, error) {
-	disc.logger.Debug("MapSessionsToProjects called", "inputProjectCount", len(projects))
+	// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds = 0.5/sec)
 	tm.mutex.Lock()
 	defer tm.mutex.Unlock()
 
@@ -100,11 +100,7 @@ func (disc *TmuxDiscovery) mapSessionsToProjectsByPath(tm *TmuxManager, mappedPr
 
 			// Check if session CWD is within project path
 			if strings.HasPrefix(sessionCwd, project.Path) {
-				disc.logger.Debug("Mapping session to project",
-					"session", sessionName,
-					"project", project.Name,
-					"sessionCwd", sessionCwd,
-					"projectPath", project.Path)
+				// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds, once per session)
 
 				// Map session to this project
 				session.Project = project
@@ -156,8 +152,8 @@ func (disc *TmuxDiscovery) getSessionCwd(tm *TmuxManager, sessionName string) (s
 
 // RefreshPaneProjectMappings refreshes the project mappings for all panes
 func (disc *TmuxDiscovery) RefreshPaneProjectMappings(tm *TmuxManager, projects []*model.Project) {
-	disc.logger.Debug("Refreshing pane project mappings", "projects", len(projects), "panes", len(tm.panes))
-	
+	// Removed: High-frequency DEBUG log (fired by tmux ticker every 2 seconds = 0.5/sec)
+
 	tm.mutex.RLock()
 	defer tm.mutex.RUnlock()
 	
