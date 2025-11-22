@@ -26,6 +26,9 @@ case "$SITE_NAME" in
   videobrowser)
     FIREBASE_SITE_ID="videobrowser-7696a"
     ;;
+  print)
+    FIREBASE_SITE_ID="print-dfb47"
+    ;;
   *)
     FIREBASE_SITE_ID="$SITE_NAME"
     ;;

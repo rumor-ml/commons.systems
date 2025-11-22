@@ -52,6 +52,9 @@ jobs:
       - name: Test Audiobrowser
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
+      - name: Test Print
+        run: ./infrastructure/scripts/run-local-tests.sh print
+
   # ==================== Step 2: Deploy Sites (Parallel) ====================
 
   # Check if Playwright Server code changed
@@ -130,7 +133,7 @@ jobs:
     needs: local-tests
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
 
     steps:
@@ -184,8 +187,13 @@ jobs:
             APP_NAME="Fellspiral Web App"
           elif [ "$SITE" = "videobrowser" ]; then
             APP_NAME="Video Browser Web App"
-          else
+          elif [ "$SITE" = "audiobrowser" ]; then
             APP_NAME="Audio Browser Web App"
+          elif [ "$SITE" = "print" ]; then
+            APP_NAME="Print Web App"
+          else
+            echo "❌ Unknown site: $SITE"
+            exit 1
           fi
 
           APP_ID=$(echo "$APPS_RESPONSE" | jq -r ".apps[] | select(.displayName == \"$APP_NAME\") | .appId // empty")
@@ -332,6 +340,7 @@ jobs:
       fellspiral-url: ${{ steps.get-urls.outputs.fellspiral-url }}
       videobrowser-url: ${{ steps.get-urls.outputs.videobrowser-url }}
       audiobrowser-url: ${{ steps.get-urls.outputs.audiobrowser-url }}
+      print-url: ${{ steps.get-urls.outputs.print-url }}
 
     steps:
       - name: Download deployment URL artifacts
@@ -347,14 +356,17 @@ jobs:
           FELLSPIRAL_URL=$(cat deployment-url-fellspiral/deployment-url.txt)
           VIDEOBROWSER_URL=$(cat deployment-url-videobrowser/deployment-url.txt)
           AUDIOBROWSER_URL=$(cat deployment-url-audiobrowser/deployment-url.txt)
+          PRINT_URL=$(cat deployment-url-print/deployment-url.txt)
 
           echo "fellspiral-url=${FELLSPIRAL_URL}" >> $GITHUB_OUTPUT
           echo "videobrowser-url=${VIDEOBROWSER_URL}" >> $GITHUB_OUTPUT
           echo "audiobrowser-url=${AUDIOBROWSER_URL}" >> $GITHUB_OUTPUT
+          echo "print-url=${PRINT_URL}" >> $GITHUB_OUTPUT
 
           echo "Fellspiral URL: ${FELLSPIRAL_URL}"
           echo "Videobrowser URL: ${VIDEOBROWSER_URL}"
           echo "Audiobrowser URL: ${AUDIOBROWSER_URL}"
+          echo "Print URL: ${PRINT_URL}"
 
   # ==================== Step 3: Get Playwright Server URL ====================
   get-playwright-url:
@@ -445,6 +457,13 @@ jobs:
           DEPLOYED_URL: ${{ needs.collect-urls.outputs.audiobrowser-url }}
           CI: true
 
+      - name: Test Print
+        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.collect-urls.outputs.print-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.collect-urls.outputs.print-url }}
+          CI: true
+
   # ==================== Rollback on failure (main branch only) ====================
   rollback-on-failure:
     name: Rollback on Test Failure
@@ -474,7 +493,7 @@ jobs:
         run: |
           echo "⚠️  Firebase Hosting deployments don't support automatic rollback"
           echo "📝 To manually rollback, use: firebase hosting:rollback <site-id>"
-          echo "🔍 Sites: fellspiral, videobrowser-7696a, audiobrowser"
+          echo "🔍 Sites: fellspiral, videobrowser-7696a, audiobrowser, print-dfb47"
           echo ""
           echo "Previous deployments are still available in Firebase Hosting history"
 
