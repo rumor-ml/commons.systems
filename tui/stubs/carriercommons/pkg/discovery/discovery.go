@@ -166,13 +166,13 @@ func EnhancedDiscoverProjects(rootPath string) ([]*ProjectMetadata, error) {
 		isKnownProject := isKnownProjectName(name)
 
 		if hasPackageJson || hasGoMod || hasSiteDir || hasTestsDir || hasScriptsDir || hasTerraformDir || isKnownProject {
-			// Create sub-project as a worktree of the monorepo
+			// Create sub-project as a child of the monorepo
 			project := &ProjectMetadata{
 				Name:        name,
 				Path:        projectPath,
 				Description: inferDescription(name),
 				Tags:        inferTags(name, hasGoMod, hasSiteDir),
-				IsWorktree:  true,
+				IsWorktree:  false,
 				ParentRepo:  monorepoName,
 			}
 			projects = append(projects, project)
