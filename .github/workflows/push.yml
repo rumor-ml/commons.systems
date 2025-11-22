@@ -107,7 +107,7 @@ jobs:
           path: |
             /nix/store
             /nix/var/nix/db
-          key: ${{ runner.os }}-nix-${{ hashFiles('flake.lock') }}
+          key: ${{ runner.os }}-nix-${{ hashFiles('flake.nix') }}
           restore-keys: |
             ${{ runner.os }}-nix-
 
@@ -148,21 +148,19 @@ jobs:
 
       - name: Create Terraform state bucket
         run: |
-          nix develop .#ci --command bash -c "
-            if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
-              echo 'Creating Terraform state bucket...'
-              gcloud storage buckets create gs://fellspiral-terraform-state \
-                --project=${{ secrets.GCP_PROJECT_ID }} \
-                --location=us-central1 \
-                --uniform-bucket-level-access
-              gcloud storage buckets update gs://fellspiral-terraform-state --versioning
-              echo 'State bucket created successfully with versioning enabled'
-            else
-              echo 'State bucket already exists'
-            fi
-            echo 'Verifying service account access to state bucket...'
-            gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
-          "
+          if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
+            echo 'Creating Terraform state bucket...'
+            gcloud storage buckets create gs://fellspiral-terraform-state \
+              --project=${{ secrets.GCP_PROJECT_ID }} \
+              --location=us-central1 \
+              --uniform-bucket-level-access
+            gcloud storage buckets update gs://fellspiral-terraform-state --versioning
+            echo 'State bucket created successfully with versioning enabled'
+          else
+            echo 'State bucket already exists'
+          fi
+          echo 'Verifying service account access to state bucket...'
+          gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
