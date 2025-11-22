@@ -651,3 +651,94 @@ Use clear, descriptive commit messages:
 - Add tests for new features
 - Ensure all tests pass before committing
 - Use Playwright best practices for E2E tests
+
+### Test-Driven Development Discipline
+
+**CRITICAL:** Follow strict test-first discipline for all bug fixes and feature implementations.
+
+#### When Fixing Bugs:
+
+1. **Ask yourself**: "Could this bug have been detected with a test?"
+2. **If yes** (which is almost always):
+   - Write a test that reproduces the bug FIRST
+   - Verify the test fails (confirms the bug exists)
+   - Fix the bug
+   - Verify the test now passes
+   - Run the full test suite to ensure no regressions
+3. **Continue iterating** until ALL tests pass
+4. **NEVER tell the user a bug is fixed** until tests pass
+
+#### When Adding Features:
+
+1. **Write tests for the feature FIRST** or alongside implementation
+2. **Ensure the feature has test coverage** before considering it complete
+3. **Run the full test suite** to verify no regressions
+4. **NEVER tell the user a feature is implemented** until tests pass
+
+#### Non-Negotiable Rules:
+
+- ❌ **NEVER** claim a bug is fixed without passing tests
+- ❌ **NEVER** claim a feature is complete without test coverage
+- ❌ **NEVER** commit code with failing tests
+- ✅ **ALWAYS** verify tests pass before informing the user of completion
+- ✅ **ALWAYS** add test coverage when fixing bugs (if testable)
+- ✅ **ALWAYS** add test coverage when implementing features
+
+#### Testing Workflow:
+
+```bash
+# 1. Write/update tests first
+# 2. Run tests to verify they fail (for bugs) or pass (for features)
+npm test
+
+# 3. Implement fix/feature
+# 4. Run tests again
+npm test
+
+# 5. Iterate until all tests pass
+# 6. ONLY THEN inform user of completion
+```
+
+#### Examples:
+
+**Bug Fix (DO):**
+```
+1. User reports: "The video player crashes on mobile"
+2. Think: "Could this be detected with a test?" → YES
+3. Write Playwright test that reproduces the crash
+4. Verify test fails
+5. Fix the bug
+6. Verify test passes
+7. Run full test suite
+8. Tell user: "Bug fixed, all tests passing"
+```
+
+**Bug Fix (DON'T):**
+```
+1. User reports bug
+2. Make a change
+3. Tell user: "I've fixed the bug" ❌ (no test verification!)
+```
+
+**Feature Implementation (DO):**
+```
+1. User requests: "Add dark mode toggle"
+2. Write tests for dark mode functionality
+3. Implement dark mode
+4. Run tests, verify they pass
+5. Run full test suite
+6. Tell user: "Dark mode implemented, all tests passing"
+```
+
+**Feature Implementation (DON'T):**
+```
+1. User requests feature
+2. Implement feature
+3. Tell user: "Feature complete" ❌ (no tests!)
+```
+
+This discipline ensures:
+- Bugs stay fixed
+- Features work as expected
+- Regressions are caught immediately
+- Code quality remains high
