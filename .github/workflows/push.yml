@@ -998,7 +998,8 @@ jobs:
     name: Playwright Tests - Print
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [deploy-print]
+    needs: [deploy-print, deploy-playwright-server]
+    # Run only if print was deployed successfully
     if: |
       always() &&
       needs.deploy-print.result == 'success'
@@ -1014,28 +1015,38 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        working-directory: print/tests
         run: npm install
 
-      - name: Install Playwright browsers
-        working-directory: print/tests
-        run: npx playwright install --with-deps chromium
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Run Playwright tests
-        working-directory: print/tests
-        run: npx playwright test --project chromium
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          # Use deployed URL if available, otherwise get the production URL
+          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
+          else
+            URL=$(gcloud run services describe playwright-server \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+      - name: Test Print
+        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
         env:
-          DEPLOYED: 'true'
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-print.outputs.service-url }}
           CI: true
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-print
-          path: print/tests/playwright-report/
-          retention-days: 7
   rollback-fellspiral:
     name: Rollback Fellspiral
     runs-on: ubuntu-latest
