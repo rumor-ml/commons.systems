@@ -322,6 +322,33 @@ body {
   display: none !important;
 }
 
+/* Auth Components in Header */
+.header__auth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+}
+
+/* Override auth button colors for Videobrowser dark theme */
+.auth-button--dark {
+  --auth-button-bg: var(--color-primary);
+  --auth-button-bg-hover: #3a8de8;
+  --auth-button-authenticated-bg: #2ea44f;
+  --auth-button-authenticated-bg-hover: #2c974b;
+  --auth-button-border-radius: 6px;
+  --auth-button-color: var(--color-text);
+}
+
+/* User profile in header (dark theme) */
+.user-profile--dark {
+  --user-profile-name-color: var(--color-text);
+  --user-profile-username-color: var(--color-text-muted);
+  --user-profile-avatar-border: 2px solid rgba(74, 158, 255, 0.3);
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   * {

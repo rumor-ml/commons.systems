@@ -7,6 +7,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { getStorage, ref, getDownloadURL } from 'firebase/storage';
 import { firebaseConfig } from '../firebase-config.js';
+import { initializeAuth } from './auth-init.js';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -334,6 +335,9 @@ function navigateAudioList(direction) {
  * Initialize the application
  */
 async function init() {
+  // Initialize authentication
+  initializeAuth();
+
   // Setup event listeners
   refreshBtn.addEventListener('click', loadAudioFiles);
   searchInput.addEventListener('input', filterAudioFiles);
