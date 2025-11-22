@@ -230,77 +230,13 @@ After running `add-site.sh`, you must manually update both workflow files to int
 
 #### Update `.github/workflows/push-main.yml` (Main/PR Pipeline)
 
-The main/PR pipeline uses a **matrix strategy** for parallel site deployment. Adding a new site requires these steps:
-
-**a) Add local test step** (around line 53):
-```yaml
-- name: Test <sitename>
-  run: ./infrastructure/scripts/run-local-tests.sh <sitename>
+**`gcpcurl`** - Authenticated GCP API requests (RECOMMENDED)
+```bash
+./claudetool/gcpcurl <url> [curl-options]
 ```
+Handles authentication automatically. Use this instead of manual curl commands.
 
-**b) Add site to matrix array** (around line 133):
-```yaml
-strategy:
-  matrix:
-    site: [fellspiral, videobrowser, audiobrowser, <sitename>]
-```
-
-**c) Add collect-urls output** (around line 327):
-```yaml
-outputs:
-  <sitename>-url: ${{ steps.get-urls.outputs.<sitename>-url }}
-```
-
-**d) Add URL retrieval in collect-urls job** (around line 360):
-```yaml
-<SITENAME>_URL=$(gcloud run services describe <sitename>-site \
-  --region=${{ env.GCP_REGION }} \
-  --project=${{ env.GCP_PROJECT_ID }} \
-  --format='value(status.url)')
-echo "<sitename>-url=${<SITENAME>_URL}" >> $GITHUB_OUTPUT
-```
-
-**e) Add E2E test step** (around line 452):
-```yaml
-- name: Test <sitename>
-  run: ./infrastructure/scripts/run-playwright-tests.sh <sitename> "${{ needs.collect-urls.outputs.<sitename>-url }}" "${{ needs.get-playwright-url.outputs.url }}"
-  env:
-    PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
-    DEPLOYED_URL: ${{ needs.collect-urls.outputs.<sitename>-url }}
-    CI: true
-```
-
-**f) Add rollback step** (around line 522):
-```yaml
-- name: Rollback <sitename>
-  run: |
-    PREVIOUS_REVISION=$(gcloud run services describe <sitename>-site \
-      --region=${{ env.GCP_REGION }} \
-      --project=${{ env.GCP_PROJECT_ID }} \
-      --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
-    if [ -n "$PREVIOUS_REVISION" ]; then
-      echo "🔄 Rolling back <sitename> to: $PREVIOUS_REVISION"
-      gcloud run services update-traffic <sitename>-site \
-        --to-revisions="${PREVIOUS_REVISION}=100" \
-        --region=${{ env.GCP_REGION }} \
-        --project=${{ env.GCP_PROJECT_ID }}
-    fi
-```
-
-**g) (Optional) Add Firebase rules deployment** if your site needs Firestore or Storage rules:
-- See lines 235-303 in push-main.yml for examples
-- Add conditional steps using `if: matrix.site == '<sitename>'`
-
-#### Update `.github/workflows/push-feature.yml` (Feature Branch Pipeline)
-
-The feature branch pipeline uses **separate jobs per site** for conditional deployment. Adding a new site requires:
-
-**a) Add change detection output** (around line 35):
-```yaml
-<sitename>-changed: ${{ steps.check-changes.outputs.<sitename>-changed }}
-```
-
-**b) Add change check step** (around line 81):
+**`get_gcp_token.sh`** - Generate/cache GCP OAuth2 token (for advanced use)
 ```bash
 if git diff --name-only HEAD^ HEAD | grep -q "^<sitename>/"; then
   echo "<sitename>-changed=true" >> $GITHUB_OUTPUT
@@ -379,6 +315,21 @@ The environment provides GCP credentials via:
 
 Use the provided helper script to obtain an OAuth2 access token:
 
+### GCP API
+
+**Use `gcpcurl` for all GCP API requests:**
+```bash
+# List Cloud Run services
+./claudetool/gcpcurl "https://run.googleapis.com/v2/projects/chalanding/locations/us-central1/services"
+
+# Check storage bucket
+./claudetool/gcpcurl "https://storage.googleapis.com/storage/v1/b/rml-media"
+
+# With additional curl options
+./claudetool/gcpcurl "https://..." -X POST -d '{"key":"value"}'
+```
+
+**Advanced:** Manual token management (only if gcpcurl doesn't meet your needs)
 ```bash
 # Source the helper script to set GCP_ACCESS_TOKEN
 source claudetool/get_gcp_token.sh
@@ -400,10 +351,7 @@ source claudetool/get_gcp_token.sh 2>/dev/null
 ```bash
 # Set up token
 source claudetool/get_gcp_token.sh 2>/dev/null
-
-# Use in API calls
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services"
+curl -s -H "Authorization: Bearer $GCP_ACCESS_TOKEN" "https://..."
 ```
 
 #### Token Caching
