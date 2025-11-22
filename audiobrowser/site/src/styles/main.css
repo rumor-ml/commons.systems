@@ -1,4 +1,4 @@
-/* Video Browser Styles */
+/* Audio Browser Styles */
 
 :root {
   --color-bg: #0a0a0a;
@@ -80,42 +80,45 @@ body {
   }
 }
 
-/* Video Section */
-.video-section {
+/* Audio Section */
+.audio-section {
   background: var(--color-surface);
   border-radius: var(--radius);
   padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
-.video-player__element {
+.audio-player__element {
   width: 100%;
   border-radius: var(--radius);
-  background: #000;
-  max-height: 70vh;
+  background: var(--color-bg);
+  display: block;
 }
 
-.video-info {
+.audio-info {
   margin-top: var(--spacing-sm);
   padding: var(--spacing-sm);
   background: rgba(255, 255, 255, 0.05);
   border-radius: var(--radius);
+  min-height: 80px;
 }
 
-.video-info__message {
+.audio-info__message {
   color: var(--color-text-muted);
   font-size: 0.9rem;
 }
 
-.video-info__title {
+.audio-info__title {
   font-weight: 600;
   margin-bottom: var(--spacing-xs);
-  word-break: break-all;
+  word-break: break-word;
+  font-size: 1.2rem;
 }
 
-.video-info__details {
+.audio-info__details {
   font-size: 0.85rem;
   color: var(--color-text-muted);
+  line-height: 1.8;
 }
 
 /* Browser Section */
@@ -212,7 +215,6 @@ body {
   justify-content: center;
   padding: var(--spacing-lg);
   color: var(--color-text-muted);
-  min-height: 200px;
 }
 
 .loading__spinner {
@@ -253,7 +255,7 @@ body {
 .file-item__name {
   font-weight: 600;
   margin-bottom: 0.25rem;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 .file-item__meta {
@@ -261,6 +263,7 @@ body {
   color: var(--color-text-muted);
   display: flex;
   gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 /* Stats */

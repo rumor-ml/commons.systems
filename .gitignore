@@ -18,7 +18,6 @@ infrastructure/scripts/.env
 *.tfvars
 !*.tfvars.example
 .terraform/
-.terraform.lock.hcl
 
 # Testing
 playwright-report/
