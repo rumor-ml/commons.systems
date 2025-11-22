@@ -99,16 +99,26 @@ else
 
   # Run Firebase deployment and capture output to variable
   echo "Debug: Starting Firebase deployment..."
+
+  # Temporarily disable exit on error to properly capture output
+  set +e
   DEPLOY_OUTPUT=$(firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
-    --json 2>&1) || FIREBASE_EXIT_CODE=$?
+    --json 2>&1)
+  FIREBASE_EXIT_CODE=$?
+  set -e
 
-  if [ -n "$FIREBASE_EXIT_CODE" ] && [ $FIREBASE_EXIT_CODE -ne 0 ]; then
+  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
     echo "❌ Firebase deployment failed with exit code: $FIREBASE_EXIT_CODE"
     echo "Output from Firebase CLI:"
     echo "$DEPLOY_OUTPUT"
+    echo ""
+    echo "Firebase config check:"
+    echo "- Site ID: $FIREBASE_SITE_ID"
+    echo "- Channel: $CHANNEL_NAME"
+    echo "- Project: chalanding"
     exit 1
   fi
 
