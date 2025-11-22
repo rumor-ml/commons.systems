@@ -56,17 +56,38 @@ Environment provides `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `GCP_PROJECT_ID=c
 
 ## Debugging Workflow
 
+**CRITICAL - AUTONOMOUS WORKFLOW MONITORING:**
+
+**NEVER PROMPT THE USER TO MONITOR WORKFLOWS OR RETRIEVE LOGS. YOU MUST DO THIS YOURSELF.**
+
+This is an absolute requirement. When dealing with CI/CD workflows:
+- **ALWAYS** check workflow status yourself using `check_workflows.py`
+- **ALWAYS** retrieve logs yourself using `get_workflow_logs.sh`
+- **ALWAYS** monitor workflows to completion using `--monitor` flag
+- **ALWAYS** iterate on fixes until the issue is resolved
+- **NEVER** ask the user to check logs, monitor status, or manually verify
+- **NEVER** stop after one attempt - investigate, fix, verify, repeat until working
+
+The user should never touch the GitHub UI or workflow logs. Your job is to autonomously:
+1. Detect failures
+2. Retrieve and analyze logs
+3. Fix the root cause
+4. Verify the fix
+5. Repeat until all workflows pass
+
 **IMPORTANT - Policy:**
 - Fetch and analyze logs yourself via API (users should never need to check logs manually)
 - Trust user bug reports - investigate code and logs thoroughly
 - Fix root causes in the implementation (workarounds create technical debt)
+- Keep iterating until the problem is fully resolved - do not give up after one attempt
 
 **Failed deployment workflow:**
-1. `./claudetool/check_workflows.py --branch <branch>` - Identify failed run
-2. `./claudetool/get_workflow_logs.sh <run_id|--failed>` - Fetch logs
+1. `./claudetool/check_workflows.py --branch <branch>` - Identify failed run (DO THIS YOURSELF)
+2. `./claudetool/get_workflow_logs.sh <run_id|--failed>` - Fetch logs (DO THIS YOURSELF)
 3. Read source code and identify root cause from errors
 4. Fix, commit, push
-5. `./claudetool/check_workflows.py --branch <branch> --monitor` - Verify fix
+5. `./claudetool/check_workflows.py --branch <branch> --monitor` - Verify fix (DO THIS YOURSELF)
+6. If still failing, return to step 2 and iterate until resolved
 
 **Debug scripts:** Save to `/tmp/` (temporary), not `claudetool/` (permanent utilities only).
 
@@ -101,12 +122,18 @@ Runs: local tests → deploy → E2E tests (serial, stop on error).
 ## Pre-Merge Verification
 
 **MOST IMPORTANT - Before suggesting merge or PR:**
-1. Check workflow status: `./claudetool/check_workflows.py --branch <branch>`
-2. Monitor to completion if in-progress: `--monitor`
-3. Verify all jobs passed, deployment healthy
-4. Suggest merge ONLY after full pipeline success
+
+**YOU MUST AUTONOMOUSLY VERIFY ALL WORKFLOWS - NEVER ASK THE USER TO CHECK.**
+
+1. Check workflow status yourself: `./claudetool/check_workflows.py --branch <branch>`
+2. Monitor to completion yourself if in-progress: `--monitor`
+3. Retrieve and analyze logs yourself if any failures occur
+4. Fix any issues and re-verify until all workflows pass
+5. Suggest merge ONLY after full pipeline success
 
 NEVER suggest merge without verification - unverified code could break production. Deliver fully verified code.
+
+The user should never need to manually check workflow status or logs - you must do all verification autonomously.
 
 ## Documentation Policy
 
