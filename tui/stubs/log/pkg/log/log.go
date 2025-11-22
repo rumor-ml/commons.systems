@@ -1,9 +1,13 @@
 package log
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -132,18 +136,139 @@ func (l *defaultLogger) log(level, msg string, keysAndValues ...interface{}) {
 	l.logger.Println(formatted)
 }
 
-// GetRecent returns recent log entries (stub implementation)
-func (l *defaultLogger) GetRecent(count int) []Entry {
-	// Try to read from log file if it exists
+// fetchGCPLogs fetches recent logs from GCP Logging API
+func fetchGCPLogs(count int) ([]Entry, error) {
 	entries := []Entry{}
 
-	// If log file exists, read recent entries
+	// Get GCP project ID from environment
+	projectID := os.Getenv("GCP_PROJECT_ID")
+	if projectID == "" {
+		projectID = "chalanding" // Default project
+	}
+
+	// Try to get access token
+	accessToken := os.Getenv("GCP_ACCESS_TOKEN")
+	if accessToken == "" {
+		// Try to get token using the helper script
+		cmd := exec.Command("bash", "-c", "source /home/user/commons.systems/claudetool/get_gcp_token.sh 2>/dev/null && echo $GCP_ACCESS_TOKEN")
+		output, err := cmd.Output()
+		if err == nil && len(output) > 0 {
+			accessToken = strings.TrimSpace(string(output))
+		}
+	}
+
+	if accessToken == "" {
+		return entries, fmt.Errorf("no GCP access token available")
+	}
+
+	// Build request to GCP Logging API
+	requestBody := map[string]interface{}{
+		"resourceNames": []string{fmt.Sprintf("projects/%s", projectID)},
+		"filter":        "resource.type=\"cloud_run_revision\"",
+		"orderBy":       "timestamp desc",
+		"pageSize":      count,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return entries, err
+	}
+
+	req, err := http.NewRequest("POST", "https://logging.googleapis.com/v2/entries:list", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return entries, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return entries, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return entries, fmt.Errorf("GCP API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var result struct {
+		Entries []struct {
+			Timestamp   string                 `json:"timestamp"`
+			Severity    string                 `json:"severity"`
+			TextPayload string                 `json:"textPayload"`
+			JsonPayload map[string]interface{} `json:"jsonPayload"`
+			Resource    struct {
+				Labels map[string]string `json:"labels"`
+			} `json:"resource"`
+		} `json:"entries"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return entries, err
+	}
+
+	// Convert GCP log entries to our format
+	for _, gcpEntry := range result.Entries {
+		// Parse timestamp
+		timestamp, _ := time.Parse(time.RFC3339Nano, gcpEntry.Timestamp)
+
+		// Map severity to level
+		level := INFO
+		switch gcpEntry.Severity {
+		case "DEBUG":
+			level = DEBUG
+		case "WARNING":
+			level = WARN
+		case "ERROR", "CRITICAL", "ALERT", "EMERGENCY":
+			level = ERROR
+		}
+
+		// Extract message
+		message := gcpEntry.TextPayload
+		if message == "" && gcpEntry.JsonPayload != nil {
+			if msg, ok := gcpEntry.JsonPayload["message"].(string); ok {
+				message = msg
+			}
+		}
+
+		// Extract component from service name or labels
+		component := ""
+		if serviceName, ok := gcpEntry.Resource.Labels["service_name"]; ok {
+			component = serviceName
+		}
+
+		entries = append(entries, Entry{
+			Time:      timestamp,
+			Timestamp: timestamp,
+			Level:     level,
+			Message:   message,
+			Component: component,
+			KeyValues: make(map[string]interface{}),
+		})
+	}
+
+	return entries, nil
+}
+
+// GetRecent returns recent log entries
+func (l *defaultLogger) GetRecent(count int) []Entry {
+	var entries []Entry
+
+	// Try to fetch from GCP first
+	gcpEntries, err := fetchGCPLogs(count)
+	if err == nil && len(gcpEntries) > 0 {
+		return gcpEntries
+	}
+
+	// Fall back to reading from log file if GCP fetch fails
 	file, err := os.Open("/tmp/tui.log")
 	if err == nil {
 		defer file.Close()
 
-		// Read file content (simple implementation for stub)
-		// In a real implementation, this would parse structured logs
+		// Read file content
 		content, err := os.ReadFile("/tmp/tui.log")
 		if err == nil {
 			lines := strings.Split(string(content), "\n")
@@ -196,7 +321,7 @@ func (l *defaultLogger) GetRecent(count int) []Entry {
 		}
 	}
 
-	// If no entries from file, return some default sample entries
+	// If still no entries, return sample entries
 	if len(entries) == 0 {
 		now := time.Now()
 		entries = []Entry{
@@ -220,7 +345,7 @@ func (l *defaultLogger) GetRecent(count int) []Entry {
 				Time:      now.Add(-3 * time.Minute),
 				Timestamp: now.Add(-3 * time.Minute),
 				Level:     INFO,
-				Message:   "Found 6 projects in monorepo",
+				Message:   "Found 7 projects in monorepo (including root)",
 				Component: "discovery",
 				KeyValues: make(map[string]interface{}),
 			},

@@ -120,7 +120,21 @@ func EnhancedDiscoverProjects(rootPath string) ([]*ProjectMetadata, error) {
 		rootPath = root
 	}
 
-	// Walk the root directory looking for projects
+	// Get the monorepo name from the root path
+	monorepoName := filepath.Base(rootPath)
+
+	// Create the monorepo root project
+	rootProject := &ProjectMetadata{
+		Name:        monorepoName,
+		Path:        rootPath,
+		Description: "Monorepo containing multiple projects",
+		Tags:        []string{"monorepo", "root"},
+		IsWorktree:  false,
+		ParentRepo:  "",
+	}
+	projects = append(projects, rootProject)
+
+	// Walk the root directory looking for sub-projects
 	entries, err := os.ReadDir(rootPath)
 	if err != nil {
 		return projects, err
@@ -152,11 +166,14 @@ func EnhancedDiscoverProjects(rootPath string) ([]*ProjectMetadata, error) {
 		isKnownProject := isKnownProjectName(name)
 
 		if hasPackageJson || hasGoMod || hasSiteDir || hasTestsDir || hasScriptsDir || hasTerraformDir || isKnownProject {
+			// Create sub-project as a worktree of the monorepo
 			project := &ProjectMetadata{
 				Name:        name,
 				Path:        projectPath,
 				Description: inferDescription(name),
 				Tags:        inferTags(name, hasGoMod, hasSiteDir),
+				IsWorktree:  true,
+				ParentRepo:  monorepoName,
 			}
 			projects = append(projects, project)
 		}

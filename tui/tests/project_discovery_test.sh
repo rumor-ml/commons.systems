@@ -80,10 +80,10 @@ OUTPUT=$(go run /tmp/test_discovery.go 2>&1)
 
 if echo "$OUTPUT" | grep -q "Found [0-9]* projects"; then
     PROJECT_COUNT=$(echo "$OUTPUT" | grep "Found" | grep -oE "[0-9]+")
-    if [ "$PROJECT_COUNT" -ge 5 ]; then
-        pass "Discovery found $PROJECT_COUNT projects"
+    if [ "$PROJECT_COUNT" -eq 7 ]; then
+        pass "Discovery found $PROJECT_COUNT projects (including monorepo root)"
     else
-        fail "Discovery found too few projects ($PROJECT_COUNT, expected >= 5)"
+        fail "Discovery found wrong number of projects ($PROJECT_COUNT, expected 7: monorepo root + 6 modules)"
     fi
 else
     fail "Discovery function failed or returned no output"
@@ -129,7 +129,17 @@ else
     fail "infrastructure project NOT discovered"
 fi
 
-# Test 6: Verify projects have descriptions
+# Test 6: Verify monorepo root is discovered
+TESTS_RUN=$((TESTS_RUN + 1))
+log_test "Verify monorepo root (commons.systems) is discovered"
+
+if echo "$OUTPUT" | grep -q "commons.systems"; then
+    pass "Monorepo root discovered"
+else
+    fail "Monorepo root NOT discovered"
+fi
+
+# Test 7: Verify projects have descriptions
 TESTS_RUN=$((TESTS_RUN + 1))
 log_test "Verify projects have descriptions"
 
