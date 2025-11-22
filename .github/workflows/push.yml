@@ -89,15 +89,15 @@ jobs:
           fi
 
       - name: Test Fellspiral
-        if: github.event_name == 'pull_request' || steps.check-changes.outputs.fellspiral-changed == 'true'
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || steps.check-changes.outputs.fellspiral-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh fellspiral
 
       - name: Test Videobrowser
-        if: github.event_name == 'pull_request' || steps.check-changes.outputs.videobrowser-changed == 'true'
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || steps.check-changes.outputs.videobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh videobrowser
 
       - name: Test Audiobrowser
-        if: github.event_name == 'pull_request' || steps.check-changes.outputs.audiobrowser-changed == 'true'
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || steps.check-changes.outputs.audiobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
   # ==================== Step 2: Infrastructure as Code ====================
