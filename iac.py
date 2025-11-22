@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """
-Fellspiral Pre-Terraform Setup
-===============================
+Infrastructure Setup and IaC Management
+========================================
 
-One-time setup for Terraform prerequisites.
-This script ONLY handles what must be done before Terraform can run.
+Handles both prerequisites and infrastructure as code (Terraform).
+Can run interactively for one-time setup or non-interactively in CI/CD.
 
-All infrastructure (buckets, CDN, IAM roles, etc.) is managed by Terraform.
+Modes:
+  - Interactive (default): Prompts for configuration, handles pre-terraform setup
+  - CI/CD (--ci): Non-interactive mode for continuous deployment
+  - IaC only (--iac): Run only terraform operations (requires pre-setup)
 
 This script is fully idempotent - you can run it multiple times safely.
-Existing resources will be detected and skipped.
 
 Usage:
+    # Interactive pre-terraform setup
     python3 setup.py
+
+    # CI/CD mode (runs terraform automatically)
+    python3 setup.py --ci
+
+    # Run only terraform
+    python3 setup.py --iac
 """
 
 import subprocess
@@ -943,26 +952,179 @@ def generate_github_secrets(config):
     print(f"\n{Colors.GREEN}All infrastructure will be managed by Terraform!{Colors.NC}")
     print(f"{Colors.GREEN}Estimated monthly cost: ~$0.13 for typical traffic{Colors.NC}\n")
 
+def create_terraform_state_bucket(project_id):
+    """Create Terraform state bucket if it doesn't exist."""
+    print_info("Creating Terraform state bucket...")
+
+    bucket_name = "fellspiral-terraform-state"
+
+    # Check if bucket exists
+    bucket_exists = run_command(
+        f'gcloud storage buckets describe gs://{bucket_name} --project={project_id} 2>/dev/null',
+        check=False
+    )
+
+    if not bucket_exists:
+        print_info(f"Creating bucket gs://{bucket_name}...")
+        run_command(
+            f'gcloud storage buckets create gs://{bucket_name} '
+            f'--project={project_id} '
+            f'--location=us-central1 '
+            f'--uniform-bucket-level-access'
+        )
+        run_command(f'gcloud storage buckets update gs://{bucket_name} --versioning')
+        print_success("Terraform state bucket created with versioning enabled")
+    else:
+        print_info("Terraform state bucket already exists")
+
+    # Verify access
+    run_command(
+        f'gcloud storage buckets describe gs://{bucket_name} --project={project_id}',
+        check=False,
+        capture_output=False
+    )
+
+def run_terraform(project_id, terraform_dir="infrastructure/terraform"):
+    """Run Terraform to apply infrastructure."""
+    print_header("Running Terraform")
+
+    # Change to terraform directory
+    original_dir = os.getcwd()
+    try:
+        os.chdir(terraform_dir)
+
+        # Create terraform.tfvars
+        print_info("Creating terraform.tfvars...")
+        with open('terraform.tfvars', 'w') as f:
+            f.write(f'project_id  = "{project_id}"\n')
+            f.write('region      = "us-central1"\n')
+            f.write('environment = "production"\n')
+        print_success("terraform.tfvars created")
+
+        # Terraform init
+        print_info("Running terraform init...")
+        run_command("terraform init -reconfigure", capture_output=False)
+        print_success("Terraform initialized")
+
+        # Terraform validate
+        print_info("Running terraform validate...")
+        run_command("terraform validate -no-color", capture_output=False)
+        print_success("Terraform configuration valid")
+
+        # Terraform plan
+        print_info("Running terraform plan...")
+        run_command("terraform plan -no-color -out=tfplan", capture_output=False)
+        print_success("Terraform plan created")
+
+        # Terraform apply
+        print_info("Running terraform apply...")
+        run_command("terraform apply -auto-approve tfplan", capture_output=False)
+        print_success("Terraform applied successfully")
+
+    finally:
+        os.chdir(original_dir)
+
 def main():
     """Main setup function."""
-    print_header("Fellspiral Pre-Terraform Setup")
-    print("This script sets up prerequisites for Terraform.")
-    print("All infrastructure will be managed by Terraform.\n")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Infrastructure setup and IaC management"
+    )
+    parser.add_argument(
+        '--ci',
+        action='store_true',
+        help='Run in CI/CD mode (non-interactive, runs terraform)'
+    )
+    parser.add_argument(
+        '--iac',
+        action='store_true',
+        help='Run only infrastructure as code (terraform)'
+    )
+    parser.add_argument(
+        '--skip-terraform',
+        action='store_true',
+        help='Skip terraform execution (only run pre-setup)'
+    )
+
+    args = parser.parse_args()
 
     try:
-        check_prerequisites()
-        authenticate_gcp()
+        if args.ci:
+            # CI/CD mode - non-interactive
+            print_header("Infrastructure Setup (CI/CD Mode)")
 
-        # Gather all user inputs upfront
-        config = gather_user_inputs()
+            # Get project ID from environment or gcloud config
+            project_id = os.environ.get('GCP_PROJECT_ID')
+            if not project_id:
+                project_id = run_command('gcloud config get-value project 2>/dev/null', check=False)
+                if project_id:
+                    project_id = project_id.strip()
 
-        # Run automated setup steps
-        enable_apis(config)
-        setup_workload_identity(config)
-        create_service_account(config)
-        setup_ci_logs_proxy(config)
-        initialize_firebase(config)
-        generate_github_secrets(config)
+            if not project_id:
+                print_error("GCP_PROJECT_ID not set and no default project configured")
+
+            print_info(f"Using project: {project_id}")
+
+            # Create terraform state bucket
+            create_terraform_state_bucket(project_id)
+
+            # Run terraform
+            run_terraform(project_id)
+
+            print_success("Infrastructure setup complete")
+
+        elif args.iac:
+            # IaC only mode
+            print_header("Running Infrastructure as Code")
+
+            # Get project ID
+            project_id = os.environ.get('GCP_PROJECT_ID')
+            if not project_id:
+                project_id = run_command('gcloud config get-value project 2>/dev/null', check=False)
+                if project_id:
+                    project_id = project_id.strip()
+
+            if not project_id:
+                print_error("GCP_PROJECT_ID not set and no default project configured")
+
+            print_info(f"Using project: {project_id}")
+
+            # Create terraform state bucket
+            create_terraform_state_bucket(project_id)
+
+            # Run terraform
+            run_terraform(project_id)
+
+        else:
+            # Interactive mode - original setup
+            print_header("Fellspiral Pre-Terraform Setup")
+            print("This script sets up prerequisites for Terraform.")
+            print("All infrastructure will be managed by Terraform.\n")
+
+            check_prerequisites()
+            authenticate_gcp()
+
+            # Gather all user inputs upfront
+            config = gather_user_inputs()
+
+            # Run automated setup steps
+            enable_apis(config)
+            setup_workload_identity(config)
+            create_service_account(config)
+            setup_ci_logs_proxy(config)
+            initialize_firebase(config)
+            generate_github_secrets(config)
+
+            # Optionally run terraform
+            if not args.skip_terraform:
+                run_terraform_prompt = input(
+                    f"\n{Colors.YELLOW}Run Terraform now to create infrastructure? (Y/n): {Colors.NC}"
+                ).strip().lower()
+
+                if run_terraform_prompt in ['', 'y', 'yes']:
+                    create_terraform_state_bucket(config['project_id'])
+                    run_terraform(config['project_id'])
 
     except KeyboardInterrupt:
         print(f"\n\n{Colors.YELLOW}Setup cancelled by user{Colors.NC}")

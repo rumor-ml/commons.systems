@@ -57,7 +57,7 @@ Deploy the to GCP with **zero local setup** and **one local command**.
 
 3. **Run the setup script**:
    ```bash
-   python3 setup.py
+   python3 iac.py
    ```
 
    **The script handles everything**:
