@@ -97,45 +97,6 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y jq
 
-      # ========== Infrastructure Setup (main branch only) ==========
-      - name: Setup Terraform
-        if: github.ref == 'refs/heads/main'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      - name: Create Terraform state bucket
-        if: github.ref == 'refs/heads/main'
-        run: |
-          if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
-            echo 'Creating Terraform state bucket...'
-            gcloud storage buckets create gs://fellspiral-terraform-state \
-              --project=${{ secrets.GCP_PROJECT_ID }} \
-              --location=us-central1 \
-              --uniform-bucket-level-access
-            gcloud storage buckets update gs://fellspiral-terraform-state --versioning
-            echo 'State bucket created successfully'
-          else
-            echo 'Terraform state bucket already exists'
-          fi
-
-      - name: Run Terraform
-        if: github.ref == 'refs/heads/main'
-        working-directory: infrastructure/terraform
-        run: |
-          # Create terraform.tfvars
-          cat > terraform.tfvars <<EOF
-          project_id  = "${{ secrets.GCP_PROJECT_ID }}"
-          region      = "us-central1"
-          environment = "production"
-          EOF
-
-          # Initialize and apply
-          terraform init -reconfigure
-          terraform validate -no-color
-          terraform plan -no-color -out=tfplan
-          terraform apply -auto-approve tfplan
-
       # ========== Deploy Playwright Server ==========
       - name: Deploy Playwright Server
         run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
