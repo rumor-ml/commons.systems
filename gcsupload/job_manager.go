@@ -420,7 +420,7 @@ func (jm *JobManager) MoveFilesToTrash(ctx context.Context, jobID string) error 
 	}
 
 	for _, file := range files {
-		if file.Status == FileStatusCompleted || file.Status == FileSkipped {
+		if file.Status == FileStatusCompleted || file.Status == FileStatusSkipped {
 			// Move to trash (OS-specific implementation would go here)
 			// For now, we'll just log
 			log.Printf("Would move %s to trash", file.LocalPath)

@@ -2,7 +2,6 @@ package strategies
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 )
