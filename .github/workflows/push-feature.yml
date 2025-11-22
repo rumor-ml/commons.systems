@@ -151,12 +151,15 @@ jobs:
           echo "Service name: ${SERVICE_NAME}"
 
   # ==================== Step 3: Deploy Sites (in parallel, only if changed) ====================
+  # Note: Sites also deploy when playwright-server changes to enable testing
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
-    if: needs.local-tests.outputs.fellspiral-changed == 'true'
+    if: |
+      needs.local-tests.outputs.fellspiral-changed == 'true' ||
+      needs.local-tests.outputs.playwright-server-changed == 'true'
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
