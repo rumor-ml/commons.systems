@@ -1,334 +1,267 @@
 /**
- * Fellspiral Playwright Test Server
- * Version: 1.4.0
+ * Playwright Browser Server with Authentication and WebSocket Proxy
+ * Version: 3.1.0
  *
- * Fixes:
- * - Corrected test directory paths (/app/tests instead of /app/fellspiral/tests)
- * - Improved Cloud Run configuration (min-instances: 1, concurrency: 10)
- * - Added comprehensive logging for debugging 404 errors
- * - Set max-instances: 1 to prevent distributed state issues
- * - Added process spawn error handling and PID logging
- * - Enhanced stdout/stderr logging with prefixes
- * - Track server start time, process PID, and request count
- * - Log all incoming requests to detect server restarts
+ * Provides authenticated access to Playwright browsers for remote test execution.
+ * Uses Playwright's native browser server with WebSocket proxying for public access.
  */
 
+import { chromium } from 'playwright';
+import { OAuth2Client } from 'google-auth-library';
 import express from 'express';
-import cors from 'cors';
-import { spawn } from 'child_process';
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
-import { existsSync } from 'fs';
+import expressWs from 'express-ws';
+import WebSocket from 'ws';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
 const PORT = process.env.PORT || 8080;
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'chalanding';
 
-// Store test runs and their results
-const testRuns = new Map();
+// OAuth2 client for token validation
+const oauth2Client = new OAuth2Client();
 
-// Track server start time to detect restarts
+// Server state
 const serverStartTime = new Date().toISOString();
 let requestCount = 0;
+let browserServer = null;
+let wsEndpoint = null;
+
 console.log(`[SERVER] ========================================`);
-console.log(`[SERVER] Server started at: ${serverStartTime}`);
+console.log(`[SERVER] Playwright Browser Server v3.1.0`);
+console.log(`[SERVER] Started at: ${serverStartTime}`);
 console.log(`[SERVER] Process PID: ${process.pid}`);
 console.log(`[SERVER] ========================================`);
 
+// Set up Express with WebSocket support
+const app = express();
+const wsInstance = expressWs(app);
+
 // Middleware
-app.use(cors());
 app.use(express.json());
 
-// Log all requests
+// Request logging
 app.use((req, res, next) => {
   requestCount++;
-  console.log(`[SERVER] Request #${requestCount}: ${req.method} ${req.path} from ${req.ip}`);
+  console.log(`[SERVER] Request #${requestCount}: ${req.method} ${req.path}`);
   next();
 });
 
-// Health check endpoint
+/**
+ * Validate Google Cloud OIDC token
+ */
+async function validateToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.substring(7);
+
+  try {
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: token,
+      audience: `https://playwright-server-4yac44qrwa-uc.a.run.app`,
+    });
+
+    const payload = ticket.getPayload();
+
+    // Validate the token is from our project's service account
+    if (!payload.email || !payload.email.includes(GCP_PROJECT_ID)) {
+      console.warn(`[AUTH] Invalid service account: ${payload.email}`);
+      return null;
+    }
+
+    console.log(`[AUTH] Token verified - email: ${payload.email}`);
+    return {
+      email: payload.email,
+      sub: payload.sub,
+      exp: payload.exp
+    };
+  } catch (error) {
+    console.error(`[AUTH] Token validation failed: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Health check endpoint
+ */
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.4.0',
-    serverStartTime: serverStartTime,
+    version: '3.1.0',
+    serverStartTime,
     processUptime: Math.floor(process.uptime()),
-    requestCount: requestCount,
-    testRunsInMemory: testRuns.size,
+    requestCount,
+    browserActive: browserServer !== null,
     processPid: process.pid
   });
 });
 
-// API info endpoint
-app.get('/api', (req, res) => {
+/**
+ * Get browser server WebSocket endpoint (authenticated)
+ */
+app.get('/api/browser-endpoint', async (req, res) => {
+  // Validate authentication
+  const authHeader = req.headers.authorization;
+  const user = await validateToken(authHeader);
+  if (!user) {
+    console.warn(`[API] Unauthorized browser endpoint request`);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!wsEndpoint) {
+    console.error(`[API] Browser server not ready`);
+    return res.status(503).json({ error: 'Browser server not ready' });
+  }
+
+  console.log(`[API] Providing browser endpoint to ${user.email}`);
+
+  // Construct public WebSocket URL using Cloud Run service URL
+  // Include the auth token in the URL for WebSocket authentication
+  const protocol = req.protocol === 'https' ? 'wss' : 'ws';
+  const host = req.get('host');
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  const publicWsEndpoint = `${protocol}://${host}/ws?token=${encodeURIComponent(token)}`;
+
   res.json({
-    name: 'Fellspiral Playwright Test Server',
-    version: '1.3.0',
-    endpoints: {
-      health: 'GET /health',
-      runTests: 'POST /api/test',
-      getTestStatus: 'GET /api/test/:id',
-      getReport: 'GET /api/reports/:id',
-      debug: 'GET /api/debug'
+    wsEndpoint: publicWsEndpoint,
+    message: 'Connect using Playwright connectOptions.wsEndpoint'
+  });
+});
+
+/**
+ * WebSocket proxy endpoint - proxies connections to local Playwright browser server
+ */
+app.ws('/ws', async (ws, req) => {
+  console.log('[WS] New WebSocket connection request');
+
+  // Validate authentication - token is in query parameter
+  const token = req.query.token;
+  if (!token) {
+    console.warn('[WS] No token provided in WebSocket connection');
+    ws.close(1008, 'Unauthorized - no token');
+    return;
+  }
+
+  const user = await validateToken(`Bearer ${token}`);
+  if (!user) {
+    console.warn('[WS] Invalid token in WebSocket connection');
+    ws.close(1008, 'Unauthorized - invalid token');
+    return;
+  }
+
+  if (!wsEndpoint) {
+    console.error('[WS] Browser server not ready');
+    ws.close(1011, 'Browser server not ready');
+    return;
+  }
+
+  console.log(`[WS] Authenticated WebSocket connection from ${user.email}`);
+
+  // Connect to local Playwright browser server
+  const browserWs = new WebSocket(wsEndpoint);
+
+  // Forward messages from client to browser
+  ws.on('message', (data) => {
+    if (browserWs.readyState === WebSocket.OPEN) {
+      browserWs.send(data);
     }
   });
-});
 
-// Debug endpoint to see all test runs
-app.get('/api/debug', (req, res) => {
-  const testRunsArray = Array.from(testRuns.entries()).map(([id, run]) => ({
-    id,
-    status: run.status,
-    startTime: run.startTime,
-    endTime: run.endTime,
-    exitCode: run.exitCode,
-    outputLines: run.output.length,
-    lastOutput: run.output.slice(-3),
-    error: run.error
-  }));
+  // Forward messages from browser to client
+  browserWs.on('message', (data) => {
+    if (ws.readyState === 1) { // 1 = OPEN
+      ws.send(data);
+    }
+  });
 
-  res.json({
-    totalRuns: testRuns.size,
-    runs: testRunsArray
+  // Handle browser connection open
+  browserWs.on('open', () => {
+    console.log('[WS] Connected to Playwright browser server');
+  });
+
+  // Handle errors
+  browserWs.on('error', (error) => {
+    console.error(`[WS] Browser WebSocket error: ${error.message}`);
+    ws.close(1011, 'Browser connection error');
+  });
+
+  ws.on('error', (error) => {
+    console.error(`[WS] Client WebSocket error: ${error.message}`);
+    browserWs.close();
+  });
+
+  // Handle disconnections
+  browserWs.on('close', (code, reason) => {
+    console.log(`[WS] Browser WebSocket closed: ${code} - ${reason}`);
+    ws.close(code, reason);
+  });
+
+  ws.on('close', (code, reason) => {
+    console.log(`[WS] Client WebSocket closed: ${code} - ${reason}`);
+    browserWs.close();
   });
 });
 
-// Run tests endpoint
-app.post('/api/test', async (req, res) => {
-  const testId = uuidv4();
-  const {
-    project = 'chromium',
-    grep = null,
-    testFile = null,
-    headed = false,
-    workers = 1,
-    deployed = false,
-    deployedUrl = null
-  } = req.body;
-
-  console.log(`[SERVER] Creating test run: ${testId}, workers: ${workers}, project: ${project}`);
-  console.log(`[SERVER] Current test runs in memory: ${testRuns.size}`);
-
-  // Initialize test run status
-  testRuns.set(testId, {
-    id: testId,
-    status: 'running',
-    startTime: new Date().toISOString(),
-    output: [],
-    error: null,
-    exitCode: null
-  });
-
-  console.log(`[SERVER] Test run ${testId} stored in memory. Total runs: ${testRuns.size}`);
-
-  // Respond immediately with test ID
-  res.json({
-    testId,
-    status: 'running',
-    message: 'Test execution started',
-    statusUrl: `/api/test/${testId}`
-  });
-
-  // Run tests asynchronously
-  runPlaywrightTests(testId, { project, grep, testFile, headed, workers, deployed, deployedUrl });
-});
-
-// Get test status endpoint
-app.get('/api/test/:id', (req, res) => {
-  const testId = req.params.id;
-  console.log(`[SERVER] Status check for test run: ${testId}`);
-  console.log(`[SERVER] Total test runs in memory: ${testRuns.size}`);
-  console.log(`[SERVER] Test run IDs in memory: ${Array.from(testRuns.keys()).join(', ')}`);
-
-  const testRun = testRuns.get(testId);
-
-  if (!testRun) {
-    console.error(`[SERVER] ERROR: Test run ${testId} not found in memory!`);
-    console.error(`[SERVER] Available test runs: ${Array.from(testRuns.keys()).join(', ') || 'none'}`);
-    return res.status(404).json({ error: 'Test run not found' });
-  }
-
-  console.log(`[SERVER] Test run ${testId} found. Status: ${testRun.status}`);
-  res.json(testRun);
-});
-
-// Get test report endpoint
-app.get('/api/reports/:id', async (req, res) => {
-  const testId = req.params.id;
-  const testRun = testRuns.get(testId);
-
-  if (!testRun) {
-    return res.status(404).json({ error: 'Test run not found' });
-  }
-
-  if (testRun.status === 'running') {
-    return res.status(202).json({
-      message: 'Test still running',
-      status: testRun.status
-    });
-  }
-
-  // Try to read the JSON report
-  const reportPath = path.join(__dirname, '../../tests/test-results/.last-run.json');
-
+/**
+ * Start Playwright browser server
+ */
+async function startBrowserServer() {
   try {
-    if (existsSync(reportPath)) {
-      const reportData = await fs.readFile(reportPath, 'utf-8');
-      res.json({
-        testId,
-        report: JSON.parse(reportData),
-        output: testRun.output
-      });
-    } else {
-      res.json({
-        testId,
-        message: 'No report file found',
-        output: testRun.output
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to read report',
-      message: error.message,
-      output: testRun.output
+    console.log('[BROWSER] Launching Playwright browser server...');
+
+    browserServer = await chromium.launchServer({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled'
+      ]
     });
+
+    wsEndpoint = browserServer.wsEndpoint();
+    console.log(`[BROWSER] Browser server started successfully`);
+    console.log(`[BROWSER] Local WebSocket endpoint: ${wsEndpoint}`);
+    console.log(`[BROWSER] Public connections will be proxied through /ws`);
+
+  } catch (error) {
+    console.error(`[BROWSER] Failed to start browser server: ${error.message}`);
+    process.exit(1);
   }
-});
+}
 
-// Function to run Playwright tests
-async function runPlaywrightTests(testId, options) {
-  const { project, grep, testFile, headed, workers, deployed, deployedUrl } = options;
-  const testRun = testRuns.get(testId);
+/**
+ * Graceful shutdown
+ */
+async function shutdown(signal) {
+  console.log(`[SERVER] Received ${signal}, shutting down gracefully...`);
 
-  // Build command arguments
-  const args = ['test'];
-
-  if (project) {
-    args.push('--project', project);
-  }
-
-  if (grep) {
-    args.push('--grep', grep);
-  }
-
-  if (testFile) {
-    args.push(testFile);
-  }
-
-  if (headed) {
-    args.push('--headed');
+  if (browserServer) {
+    console.log('[BROWSER] Closing browser server...');
+    await browserServer.close();
   }
 
-  if (workers) {
-    args.push('--workers', workers.toString());
-  }
+  process.exit(0);
+}
 
-  // Always use JSON reporter for programmatic access
-  args.push('--reporter=json,list');
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
-  const testsDir = path.join(__dirname, '../../tests');
+/**
+ * Start server
+ */
+async function start() {
+  // Start browser server first
+  await startBrowserServer();
 
-  // Set environment variables
-  const env = {
-    ...process.env,
-    CI: 'true' // Run in CI mode for better reporting
-  };
-
-  if (deployed) {
-    env.DEPLOYED = 'true';
-  }
-
-  // Pass the deployed URL if provided
-  if (deployedUrl) {
-    env.DEPLOYED_URL = deployedUrl;
-    console.log(`[${testId}] Using deployed URL: ${deployedUrl}`);
-  }
-
-  console.log(`[${testId}] Running Playwright tests in: ${testsDir}`);
-  console.log(`[${testId}] Command: npx playwright ${args.join(' ')}`);
-
-  const playwrightProcess = spawn('npx', ['playwright', ...args], {
-    cwd: testsDir,
-    env,
-    shell: true
-  });
-
-  console.log(`[${testId}] Process spawned with PID: ${playwrightProcess.pid}`);
-
-  // Handle spawn errors
-  playwrightProcess.on('error', (err) => {
-    console.error(`[${testId}] Failed to spawn process:`, err);
-    testRun.error = err.message;
-    testRun.status = 'failed';
-    testRun.exitCode = -1;
-    testRun.endTime = new Date().toISOString();
-  });
-
-  // Capture stdout
-  playwrightProcess.stdout.on('data', (data) => {
-    const output = data.toString();
-    console.log(`[${testId}] STDOUT: ${output}`);
-    testRun.output.push(output);
-  });
-
-  // Capture stderr
-  playwrightProcess.stderr.on('data', (data) => {
-    const output = data.toString();
-    console.error(`[${testId}] STDERR: ${output}`);
-    testRun.output.push(output);
-  });
-
-  // Handle process completion
-  playwrightProcess.on('close', async (code) => {
-    console.log(`[${testId}] Tests completed with exit code: ${code}`);
-
-    testRun.status = code === 0 ? 'passed' : 'failed';
-    testRun.exitCode = code;
-    testRun.endTime = new Date().toISOString();
-
-    // Try to save the JSON report
-    try {
-      const reportPath = path.join(testsDir, 'test-results/.last-run.json');
-      const playwrightReportPath = path.join(testsDir, 'test-results/results.json');
-
-      if (existsSync(playwrightReportPath)) {
-        await fs.copyFile(playwrightReportPath, reportPath);
-        console.log(`[${testId}] Report saved to ${reportPath}`);
-      }
-    } catch (error) {
-      console.error(`[${testId}] Failed to save report:`, error);
-      testRun.error = error.message;
-    }
-
-    // Clean up old test runs (keep only last 100)
-    if (testRuns.size > 100) {
-      const oldestKey = testRuns.keys().next().value;
-      testRuns.delete(oldestKey);
-    }
-  });
-
-  playwrightProcess.on('error', (error) => {
-    console.error(`[${testId}] Failed to start tests:`, error);
-    testRun.status = 'error';
-    testRun.error = error.message;
-    testRun.endTime = new Date().toISOString();
+  // Then start HTTP server
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[SERVER] HTTP server listening on port ${PORT}`);
+    console.log(`[SERVER] Ready to accept connections`);
   });
 }
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Playwright Test Server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`API info: http://localhost:${PORT}/api`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  process.exit(0);
+start().catch(error => {
+  console.error('[SERVER] Fatal error:', error);
+  process.exit(1);
 });
