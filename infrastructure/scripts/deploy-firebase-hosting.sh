@@ -102,32 +102,22 @@ else
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
   echo "Debug: Site ID = ${FIREBASE_SITE_ID}, Channel = ${CHANNEL_NAME}"
 
-  # Run Firebase deployment with verbose logging
-  set +e  # Temporarily disable exit on error to capture output
+  # Run Firebase deployment
+  echo "Deploying..."
   firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
-    --json > /tmp/firebase-deploy-output.json 2>&1
-  FIREBASE_EXIT_CODE=$?
-  set -e  # Re-enable exit on error
+    2>&1 | tee /tmp/firebase-deploy-output.txt
 
-  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
-    echo "❌ Firebase deployment failed with exit code: $FIREBASE_EXIT_CODE"
-    echo "Output from Firebase CLI:"
-    cat /tmp/firebase-deploy-output.json
-    echo ""
-    echo "Checking if this is a site existence issue..."
-    firebase hosting:sites:list --project chalanding 2>&1 || true
+  # Check if deployment was successful by looking for success indicators
+  if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
+    DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | awk '{print $NF}')
+  else
+    echo "❌ Firebase deployment may have failed"
+    echo "Output:"
+    cat /tmp/firebase-deploy-output.txt
     exit 1
-  fi
-
-  # Extract URL from JSON output
-  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${FIREBASE_SITE_ID}.url // empty" 2>/dev/null)
-
-  if [ -z "$DEPLOYMENT_URL" ]; then
-    # Try alternative JSON path
-    DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | grep -o '"url":"[^"]*"' | cut -d'"' -f4 | head -1)
   fi
 
   if [ -z "$DEPLOYMENT_URL" ]; then
