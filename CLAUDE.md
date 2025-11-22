@@ -31,8 +31,15 @@ resource "google_firebase_hosting_site" "sites" {
 
 Then apply:
 ```bash
-python3 iac.py --iac
+python3 iac.py --iac  # Runs Terraform only (infrastructure changes)
 ```
+
+**Important**: `iac.py` has three modes:
+- `python3 iac.py` (no flags) - Interactive setup (initial project setup only)
+- `python3 iac.py --iac` - **Run Terraform only** (use this for infrastructure changes)
+- `python3 iac.py --ci` - CI/CD mode (used in workflows)
+
+For infrastructure changes, **always use `--iac` flag**.
 
 #### 2. Setup Script (Only When Terraform Can't)
 
@@ -41,6 +48,7 @@ For resources that can't be managed by Terraform (rare cases):
 ```bash
 # Add logic to iac.py setup functions
 # Only use this for chicken-and-egg scenarios or unsupported resources
+# Then run: python3 iac.py --iac
 ```
 
 #### 3. Never Use These Approaches
@@ -72,11 +80,16 @@ For resources that can't be managed by Terraform (rare cases):
 
 ### Infrastructure Files
 
-- `iac.py` - Main infrastructure setup script (APIs, workload identity, secrets)
-- `infrastructure/terraform/` - All Terraform configurations
+- **`iac.py`** - Main infrastructure setup and Terraform runner
+  - Run with `--iac` flag to apply Terraform changes
+  - Handles API enablement, Terraform init, plan, and apply
+  - Three modes: interactive (initial setup), `--iac` (Terraform only), `--ci` (workflows)
+  - **For infrastructure changes, always use: `python3 iac.py --iac`**
+
+- **`infrastructure/terraform/`** - All Terraform configurations
   - `main.tf` - Provider and backend configuration
   - `variables.tf` - Input variables
-  - `firebase-*.tf` - Firebase-related resources
+  - `firebase-*.tf` - Firebase-related resources (auth, hosting, rules)
   - `*.tf` - Other infrastructure resources
 
 ### Why This Matters
