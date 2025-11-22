@@ -210,45 +210,14 @@ jobs:
           fi
 
       # ========== Deploy Firebase Storage Rules (rml-media bucket, shared by videobrowser and print) ==========
-      - name: Deploy Firebase Storage rules (rml-media)
-        if: matrix.site == 'videobrowser'
-        continue-on-error: true
-        run: |
-          echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-          RULES_CONTENT=$(cat shared/storage.rules | jq -Rs '.')
-
-          RULESET_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
-
-          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to create ruleset"
-            echo "Response: $RULESET_RESPONSE"
-            exit 0  # Don't fail the build
-          fi
-
-          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
-          echo "✓ Created ruleset: $RULESET_NAME"
-
-          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
-
-          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset"
-            echo "Response: $RELEASE_RESPONSE"
-          else
-            echo "✓ Firebase Storage rules deployed to rml-media bucket"
-          fi
+      # TODO: Re-enable storage rules deployment after fixing the issue
+      # Temporarily disabled to isolate the deployment problem
+      # - name: Deploy Firebase Storage rules (rml-media)
+      #   if: matrix.site == 'videobrowser'
+      #   continue-on-error: true
+      #   run: |
+      #     echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
+      #     echo "⚠️  Storage rules deployment temporarily disabled for debugging"
 
       # ========== Deploy Site ==========
       - name: Deploy ${{ matrix.site }} to Firebase Hosting
