@@ -12,7 +12,8 @@ import {
   updateTransaction,
   deleteTransaction,
   getBudgetSummary,
-  CATEGORIES
+  CATEGORIES,
+  isFirebaseConfigured
 } from './firebase.js';
 
 /**
@@ -137,6 +138,12 @@ function switchView(viewName) {
  * Dashboard View
  */
 async function loadDashboard() {
+  // Check if Firebase is configured
+  if (!isFirebaseConfigured) {
+    showFirebaseConfigError();
+    return;
+  }
+
   try {
     // Load accounts
     accounts = await getAllAccounts();
@@ -152,8 +159,68 @@ async function loadDashboard() {
     renderBudgetOverview(budget);
   } catch (error) {
     console.error('Error loading dashboard:', error);
-    showError('Failed to load dashboard data');
+    showFirebaseConnectionError(error);
   }
+}
+
+/**
+ * Show Firebase configuration error
+ */
+function showFirebaseConfigError() {
+  const errorMessage = `
+    <div class="error">
+      <div class="error__title">⚠️ Firebase Not Configured</div>
+      <div class="error__message">
+        <p>The Finance Tracker requires Firebase/Firestore to store your financial data.</p>
+        <p><strong>For local development:</strong></p>
+        <ul>
+          <li>Get your Firebase config from <a href="https://console.firebase.google.com/" target="_blank">Firebase Console</a></li>
+          <li>Update <code>finance/site/src/firebase-config.js</code> with your project credentials</li>
+        </ul>
+        <p><strong>For production:</strong></p>
+        <ul>
+          <li>Firebase configuration is automatically injected during deployment</li>
+          <li>If you're seeing this in production, the deployment may have failed</li>
+        </ul>
+      </div>
+    </div>
+  `;
+
+  accountSummaryEl.innerHTML = errorMessage;
+  recentTransactionsEl.innerHTML = '<div class="error"><div class="error__title">Firebase not configured</div></div>';
+  budgetOverviewEl.innerHTML = '<div class="error"><div class="error__title">Firebase not configured</div></div>';
+}
+
+/**
+ * Show Firebase connection error
+ */
+function showFirebaseConnectionError(error) {
+  const isDummyConfig = error.message?.includes('API key not valid') ||
+                       error.code === 'auth/invalid-api-key';
+
+  const errorMessage = isDummyConfig ? `
+    <div class="error">
+      <div class="error__title">⚠️ Invalid Firebase API Key</div>
+      <div class="error__message">
+        <p>The Firebase API key appears to be invalid or not configured.</p>
+        <p>This usually means the deployment process didn't inject the real Firebase credentials.</p>
+        <p><strong>Error:</strong> ${escapeHtml(error.message || 'Unknown error')}</p>
+      </div>
+    </div>
+  ` : `
+    <div class="error">
+      <div class="error__title">❌ Failed to Load Data</div>
+      <div class="error__message">
+        <p>Could not connect to Firebase/Firestore.</p>
+        <p><strong>Error:</strong> ${escapeHtml(error.message || 'Unknown error')}</p>
+        <p>Check your browser console for more details.</p>
+      </div>
+    </div>
+  `;
+
+  accountSummaryEl.innerHTML = errorMessage;
+  recentTransactionsEl.innerHTML = '<div class="error"><div class="error__title">Connection failed</div></div>';
+  budgetOverviewEl.innerHTML = '<div class="error"><div class="error__title">Connection failed</div></div>';
 }
 
 function renderAccountSummary() {

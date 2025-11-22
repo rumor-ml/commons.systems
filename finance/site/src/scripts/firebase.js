@@ -21,15 +21,32 @@ import {
 } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
 
+// Check if Firebase is properly configured
+const isFirebaseConfigured = firebaseConfig.apiKey &&
+  !firebaseConfig.apiKey.includes('Dummy') &&
+  firebaseConfig.projectId &&
+  firebaseConfig.projectId !== 'your-project-id';
+
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app, db, accountsCollection, transactionsCollection;
 
-// Initialize Firestore
-const db = getFirestore(app);
+try {
+  if (!isFirebaseConfigured) {
+    console.warn('Firebase is not properly configured. Using dummy configuration.');
+    console.warn('For local development, update finance/site/src/firebase-config.js with your Firebase project credentials.');
+    console.warn('For production, Firebase config is automatically injected during deployment.');
+  }
 
-// Collection references
-const accountsCollection = collection(db, 'finance_accounts');
-const transactionsCollection = collection(db, 'finance_transactions');
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+
+  // Collection references
+  accountsCollection = collection(db, 'finance_accounts');
+  transactionsCollection = collection(db, 'finance_transactions');
+} catch (error) {
+  console.error('Failed to initialize Firebase:', error);
+  throw new Error('Firebase initialization failed. Please check your configuration.');
+}
 
 /**
  * Expense categories (hardcoded for now)
@@ -322,4 +339,4 @@ export async function getBudgetSummary(year, month) {
   }
 }
 
-export { db };
+export { db, isFirebaseConfigured };
