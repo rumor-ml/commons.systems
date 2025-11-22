@@ -110,6 +110,10 @@ body {
   z-index: 1000;
 }
 
+.upload-form[hidden] {
+  display: none;
+}
+
 .upload-form__content {
   background: white;
   padding: 2rem;
