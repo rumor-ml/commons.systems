@@ -59,6 +59,7 @@ jobs:
           echo "Looking for services matching patterns:"
           echo "  - fellspiral-${SANITIZED} (current)"
           echo "  - videobrowser-${SANITIZED} (current)"
+          echo "  - playwright-server-${SANITIZED} (current)"
           echo "  - fellspiral-${SANITIZED}-* (legacy with SHA)"
           echo "  - videobrowser-${SANITIZED}-* (legacy with SHA)"
           echo "  - fb-${SANITIZED}-* (legacy abbreviated)"
@@ -81,6 +82,7 @@ jobs:
           while IFS= read -r service; do
             if [[ "$service" == "fellspiral-${SANITIZED}" ]] || \
                [[ "$service" == "videobrowser-${SANITIZED}" ]] || \
+               [[ "$service" == "playwright-server-${SANITIZED}" ]] || \
                [[ "$service" == fellspiral-${SANITIZED}-* ]] || \
                [[ "$service" == videobrowser-${SANITIZED}-* ]] || \
                [[ "$service" == fb-${SANITIZED}-* ]] || \
@@ -168,3 +170,37 @@ jobs:
           done
 
           echo "Videobrowser image cleanup completed (best effort)"
+
+      - name: Clean up playwright-server images (optional)
+        continue-on-error: true
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
+          BRANCH_NAME="${BRANCH_NAME#claude/}"
+          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
+
+          echo "Cleaning up playwright-server images for playwright-server-${SANITIZED}"
+
+          # List all images in the repository
+          IMAGES=$(gcloud artifacts docker images list \
+            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/playwright-server" \
+            --format='value(package)' 2>/dev/null || echo "")
+
+          if [ -z "$IMAGES" ]; then
+            echo "No playwright-server images found to clean up"
+            return 0
+          fi
+
+          # Delete images matching the branch pattern
+          echo "$IMAGES" | while read -r package; do
+            # Extract just the image name from the full package path
+            IMAGE_NAME=$(basename "$package")
+            if [[ "$IMAGE_NAME" == "playwright-server-${SANITIZED}" ]] || \
+               [[ "$IMAGE_NAME" == playwright-server-${SANITIZED}-* ]]; then
+              echo "Deleting playwright-server image: $package"
+              gcloud artifacts docker images delete "$package" \
+                --delete-tags \
+                --quiet 2>/dev/null || true
+            fi
+          done
+
+          echo "Playwright server image cleanup completed (best effort)"
