@@ -82,7 +82,7 @@ func (bs *BranchService) GetCurrentBranch() (string, error) {
 // FetchFromRemote syncs with remote repository to get latest branch information
 func (bs *BranchService) FetchFromRemote() error {
 	logger := log.Get()
-	logger.Info("Fetching from remote", "repo", bs.repoPath)
+	logger.Debug("Fetching from remote", "repo", bs.repoPath)
 
 	// Run git fetch to sync with remote
 	cmd := exec.Command("git", "-C", bs.repoPath, "fetch", "--prune")
@@ -91,14 +91,14 @@ func (bs *BranchService) FetchFromRemote() error {
 		return fmt.Errorf("failed to fetch from remote: %w, output: %s", err, string(output))
 	}
 
-	logger.Info("Successfully fetched from remote", "repo", bs.repoPath)
+	logger.Debug("Successfully fetched from remote", "repo", bs.repoPath)
 	return nil
 }
 
 // ListAllBranches discovers all local and remote branches
 func (bs *BranchService) ListAllBranches() ([]*BranchInfo, error) {
 	logger := log.Get()
-	logger.Info("Discovering all branches", "repo", bs.repoPath)
+	logger.Debug("Discovering all branches", "repo", bs.repoPath)
 
 	// Get all local and remote branches
 	cmd := exec.Command("git", "-C", bs.repoPath, "branch", "-a", "-v", "--format=%(refname)\t%(objectname:short)\t%(HEAD)")
@@ -163,7 +163,7 @@ func (bs *BranchService) ListAllBranches() ([]*BranchInfo, error) {
 		})
 	}
 
-	logger.Info("Discovered branches", "count", len(branches))
+	logger.Debug("Discovered branches", "count", len(branches))
 	return branches, nil
 }
 
@@ -211,7 +211,7 @@ func (bs *BranchService) GetWorktreesForBranches(branches []*BranchInfo) error {
 		}
 	}
 
-	logger.Info("Mapped worktrees to branches", "worktree_count", len(worktrees))
+	logger.Debug("Mapped worktrees to branches", "worktree_count", len(worktrees))
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (bs *BranchService) ListRemoteBranchesAndWorktrees() ([]*BranchInfo, error)
 		// Skip local branches without worktrees (these are stale)
 	}
 
-	logger.Info("Filtered to remote branches and worktrees",
+	logger.Debug("Filtered to remote branches and worktrees",
 		"current_branch", currentBranch,
 		"total_branches", len(allBranches),
 		"filtered_count", len(filtered))

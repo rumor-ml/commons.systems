@@ -5,6 +5,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/natb1/tui/internal/git"
 	"github.com/natb1/tui/pkg/model"
@@ -14,7 +15,10 @@ import (
 
 // NavigationUpdater handles navigation state synchronization and project mapping
 type NavigationUpdater struct {
-	app *App
+	app                  *App
+	cachedRepository     *model.Repository
+	lastBranchDiscovery  time.Time
+	branchCacheDuration  time.Duration
 }
 
 // startsWith checks if a string starts with a prefix
@@ -25,7 +29,8 @@ func startsWith(s, prefix string) bool {
 // NewNavigationUpdater creates a new navigation updater
 func NewNavigationUpdater(app *App) *NavigationUpdater {
 	return &NavigationUpdater{
-		app: app,
+		app:                  app,
+		branchCacheDuration:  30 * time.Second, // Cache branches for 30 seconds
 	}
 }
 
@@ -235,6 +240,17 @@ func (nu *NavigationUpdater) discoverRepositoryAndBranches() (*model.Repository,
 		}
 	}
 
+	// Check if we have cached branch data that's still fresh
+	now := time.Now()
+	if nu.cachedRepository != nil &&
+	   nu.cachedRepository.Path == monorepoRoot.Path &&
+	   now.Sub(nu.lastBranchDiscovery) < nu.branchCacheDuration {
+		// Return a copy of cached repository with updated main shells (no logging to avoid verbosity)
+		cachedCopy := *nu.cachedRepository
+		cachedCopy.MainShells = monorepoRoot.MainShells
+		return &cachedCopy, nil
+	}
+
 	logger.Info("Discovering repository branches", "repo", monorepoRoot.Name, "path", monorepoRoot.Path)
 
 	// Create repository model
@@ -281,6 +297,10 @@ func (nu *NavigationUpdater) discoverRepositoryAndBranches() (*model.Repository,
 		nu.loadPersistedBranchStatus(repo)
 	}
 
+	// Cache the discovered repository
+	nu.cachedRepository = repo
+	nu.lastBranchDiscovery = time.Now()
+
 	return repo, nil
 }
 
@@ -311,8 +331,6 @@ func (nu *NavigationUpdater) loadPersistedBranchStatus(repo *model.Repository) {
 // convertRepositoryToProjects converts a Repository with Branches to Project model for UI
 // This creates a single top-level project (the repository) with each branch as a "worktree"
 func (nu *NavigationUpdater) convertRepositoryToProjects(repo *model.Repository) []*model.Project {
-	logger := log.Get()
-
 	// Create a single project representing the repository
 	repoProject := &model.Project{
 		Name:          repo.Name,
@@ -349,11 +367,6 @@ func (nu *NavigationUpdater) convertRepositoryToProjects(repo *model.Repository)
 
 		repoProject.Worktrees = append(repoProject.Worktrees, worktree)
 	}
-
-	logger.Info("Converted repository to project model",
-		"repo", repo.Name,
-		"branch_count", len(repo.Branches),
-		"worktree_count", len(repoProject.Worktrees))
 
 	return []*model.Project{repoProject}
 }
