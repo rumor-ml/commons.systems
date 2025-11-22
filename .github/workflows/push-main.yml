@@ -279,15 +279,15 @@ jobs:
             echo "✓ Firestore rules deployed"
           fi
 
-      # ========== Deploy Firebase Storage Rules (Videobrowser only) ==========
-      - name: Deploy Firebase Storage rules (videobrowser)
+      # ========== Deploy Firebase Storage Rules (rml-media bucket, shared by videobrowser and print) ==========
+      - name: Deploy Firebase Storage rules (rml-media)
         if: matrix.site == 'videobrowser'
         run: |
           set -e
-          echo "Deploying Firebase Storage rules for videobrowser..."
+          echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           BUCKET_NAME="rml-media"
-          RULES_CONTENT=$(cat videobrowser/storage.rules | jq -Rs '.')
+          RULES_CONTENT=$(cat shared/storage.rules | jq -Rs '.')
 
           RULESET_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
@@ -310,42 +310,7 @@ jobs:
           if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
             echo "⚠️  Failed to release ruleset"
           else
-            echo "✓ Firebase Storage rules deployed for videobrowser"
-          fi
-
-      # ========== Deploy Firebase Storage Rules (Print only) ==========
-      - name: Deploy Firebase Storage rules (print)
-        if: matrix.site == 'print'
-        run: |
-          set -e
-          echo "Deploying Firebase Storage rules for print..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          # Print uses the default Firebase Storage bucket
-          BUCKET_NAME="${{ env.GCP_PROJECT_ID }}.firebasestorage.app"
-          RULES_CONTENT=$(cat print/storage.rules | jq -Rs '.')
-
-          RULESET_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
-
-          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
-          echo "✓ Created ruleset: $RULESET_NAME"
-
-          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
-
-          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset"
-          else
-            echo "✓ Firebase Storage rules deployed for print"
+            echo "✓ Firebase Storage rules deployed to rml-media bucket"
           fi
 
       # ========== Deploy Site ==========

@@ -153,6 +153,6 @@
     "rules": "fellspiral/firestore.rules"
   },
   "storage": {
-    "rules": "print/storage.rules"
+    "rules": "shared/storage.rules"
   }
 }
