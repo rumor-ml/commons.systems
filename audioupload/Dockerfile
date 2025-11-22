@@ -27,7 +27,7 @@ WORKDIR /build
 RUN apk add --no-cache git
 
 # Copy Go modules
-COPY gcsupload/go.mod gcsupload/go.sum /build/gcsupload/
+COPY gcsupload/go.mod gcsupload/go.sum* /build/gcsupload/
 COPY audioupload/backend/go.mod audioupload/backend/go.sum* /build/backend/
 
 # Download dependencies
