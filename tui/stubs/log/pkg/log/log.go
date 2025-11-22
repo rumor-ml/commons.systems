@@ -285,6 +285,19 @@ func (l *defaultLogger) GetRecent(count int) []Entry {
 					continue
 				}
 
+				// Parse timestamp from log line (format: "2006/01/02 15:04:05")
+				var timestamp time.Time
+				if len(line) >= 19 {
+					// Try to parse the timestamp at the beginning of the line
+					if ts, err := time.Parse("2006/01/02 15:04:05", line[:19]); err == nil {
+						timestamp = ts
+					}
+				}
+				// If parsing failed, use a fixed fallback timestamp (not time.Now()!)
+				if timestamp.IsZero() {
+					timestamp = time.Date(2024, 1, 1, 0, 0, i-start, 0, time.UTC)
+				}
+
 				// Parse log line (simplified)
 				level := INFO
 				if strings.Contains(line, "ERROR") {
@@ -310,8 +323,8 @@ func (l *defaultLogger) GetRecent(count int) []Entry {
 				}
 
 				entries = append(entries, Entry{
-					Time:      time.Now().Add(-time.Duration(len(lines)-i) * time.Second),
-					Timestamp: time.Now().Add(-time.Duration(len(lines)-i) * time.Second),
+					Time:      timestamp,
+					Timestamp: timestamp,
 					Level:     level,
 					Message:   message,
 					Component: component,
@@ -321,45 +334,47 @@ func (l *defaultLogger) GetRecent(count int) []Entry {
 		}
 	}
 
-	// If still no entries, return sample entries
+	// If still no entries, return sample entries with FIXED timestamps
+	// (not based on time.Now() to prevent timestamps from updating on every poll)
 	if len(entries) == 0 {
-		now := time.Now()
+		// Use a fixed base time for sample logs
+		baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 		entries = []Entry{
 			{
-				Time:      now.Add(-5 * time.Minute),
-				Timestamp: now.Add(-5 * time.Minute),
+				Time:      baseTime.Add(-5 * time.Minute),
+				Timestamp: baseTime.Add(-5 * time.Minute),
 				Level:     INFO,
 				Message:   "TUI started successfully",
 				Component: "tui",
 				KeyValues: make(map[string]interface{}),
 			},
 			{
-				Time:      now.Add(-4 * time.Minute),
-				Timestamp: now.Add(-4 * time.Minute),
+				Time:      baseTime.Add(-4 * time.Minute),
+				Timestamp: baseTime.Add(-4 * time.Minute),
 				Level:     DEBUG,
 				Message:   "Project discovery completed",
 				Component: "discovery",
 				KeyValues: make(map[string]interface{}),
 			},
 			{
-				Time:      now.Add(-3 * time.Minute),
-				Timestamp: now.Add(-3 * time.Minute),
+				Time:      baseTime.Add(-3 * time.Minute),
+				Timestamp: baseTime.Add(-3 * time.Minute),
 				Level:     INFO,
-				Message:   "Found 7 projects in monorepo (including root)",
+				Message:   "Found 8 projects in monorepo (including root)",
 				Component: "discovery",
 				KeyValues: make(map[string]interface{}),
 			},
 			{
-				Time:      now.Add(-2 * time.Minute),
-				Timestamp: now.Add(-2 * time.Minute),
+				Time:      baseTime.Add(-2 * time.Minute),
+				Timestamp: baseTime.Add(-2 * time.Minute),
 				Level:     DEBUG,
 				Message:   "UI rendering initialized",
 				Component: "ui",
 				KeyValues: make(map[string]interface{}),
 			},
 			{
-				Time:      now.Add(-1 * time.Minute),
-				Timestamp: now.Add(-1 * time.Minute),
+				Time:      baseTime.Add(-1 * time.Minute),
+				Timestamp: baseTime.Add(-1 * time.Minute),
 				Level:     INFO,
 				Message:   "Ready for user interaction",
 				Component: "tui",
