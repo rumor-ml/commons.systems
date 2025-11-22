@@ -143,18 +143,9 @@ func (c *ClaudeStatusManager) UpdateClaudePanes(panes map[string]*terminal.TmuxP
 	// Check for notification events for these panes
 	go c.checkNotificationEvents()
 
-	logger := log.Get()
-	logger.Debug("Updated Claude panes for monitoring",
-		"count", len(claudePaneIDs),
-		"paneIDs", claudePaneIDs)
-
-	// Also log all panes for debugging
-	for paneID, pane := range panes {
-		logger.Debug("Pane detected",
-			"paneID", paneID,
-			"shellType", pane.ShellType,
-			"isClaude", pane.ShellType == model.ShellTypeClaude)
-	}
+	// Removed: High-frequency DEBUG logs (fire every second):
+	// - "Updated Claude panes for monitoring"
+	// - "Pane detected" (per-pane in loop)
 }
 
 // Stop stops the status manager and underlying monitor

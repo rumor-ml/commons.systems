@@ -3,13 +3,11 @@ package ui
 import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/natb1/tui/internal/terminal"
-	"github.com/rumor-ml/log/pkg/log"
 )
 
 // UpdatePanesOnly updates only the pane information without rebuilding the entire project list
 func (n *NavigationListComponent) UpdatePanesOnly(tmuxPanes map[string]*terminal.TmuxPane) {
-	logger := log.Get()
-	logger.Debug("UpdatePanesOnly called", "paneCount", len(tmuxPanes))
+	// Removed: High-frequency DEBUG log (fires every second)
 
 	// Update Claude status manager with new panes via delegation
 	if n.claudeStatus != nil && tmuxPanes != nil {

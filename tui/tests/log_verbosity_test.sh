@@ -49,22 +49,34 @@ echo -e "\n${BLUE}═══ Log Verbosity E2E Test ═══${NC}"
 TESTS_RUN=$((TESTS_RUN + 1))
 log_test "Verify no logs print repeatedly with updating timestamps"
 
-# Clear the log database to start fresh
-rm -f /tmp/tui-test-logs.db
+# Clear any previous test logs
+rm -f /tmp/tui-test-logs.txt /tmp/tui-test-logs.db
 
 # Build TUI
 echo "Building TUI..."
 go build -o tui-test main.go
 
-# Start TUI in background with log database
-echo "Starting TUI for 5 seconds..."
-TUI_LOG_DB=/tmp/tui-test-logs.db timeout 5s ./tui-test || true
+# Start TUI in background, capturing logs
+# The log package writes to the database, so we need to query it after
+echo "Starting TUI for 10 seconds to collect logs..."
+timeout 10s ./tui-test 2>&1 || true
 
-# Query the log database to check for repeated messages
+# Wait a moment for any final log writes
+sleep 1
+
+# Find the actual log database (it's in /tmp)
+LOG_DB=$(ls -t /tmp/tui*.db 2>/dev/null | head -1)
+if [ -z "$LOG_DB" ]; then
+    echo "No log database found in /tmp"
+    fail "Could not find log database"
+    exit 1
+fi
+
+echo "Found log database: $LOG_DB"
 echo "Analyzing log patterns..."
 
 # Create a simple Go script to analyze the logs
-cat > /tmp/analyze_logs.go <<'EOF'
+cat > /tmp/analyze_logs.go <<EOF
 package main
 
 import (
@@ -77,7 +89,8 @@ import (
 )
 
 func main() {
-	db, err := sql.Open("sqlite3", "/tmp/tui-test-logs.db")
+	dbPath := os.Args[1]
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -160,7 +173,7 @@ func main() {
 EOF
 
 # Run the analysis
-ANALYSIS_OUTPUT=$(go run /tmp/analyze_logs.go 2>&1)
+ANALYSIS_OUTPUT=$(go run /tmp/analyze_logs.go "$LOG_DB" 2>&1)
 ANALYSIS_EXIT=$?
 
 echo "$ANALYSIS_OUTPUT"
@@ -172,7 +185,7 @@ else
 fi
 
 # Cleanup
-rm -f tui-test /tmp/analyze_logs.go /tmp/tui-test-logs.db
+rm -f tui-test /tmp/analyze_logs.go
 
 # ============================================================================
 # SUMMARY

@@ -235,8 +235,7 @@ func (c *ClaudeMonitor) SetClaudePanes(paneIDs []string) {
 		}
 	}
 
-	logger := log.Get()
-	logger.Debug("Updated Claude panes to monitor", "count", len(paneIDs))
+	// Removed: High-frequency DEBUG log (fires every second)
 }
 
 // checkAllPanes checks all known Claude panes for activity

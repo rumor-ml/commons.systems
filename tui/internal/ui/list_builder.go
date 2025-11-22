@@ -49,6 +49,6 @@ func (lb *ListBuilder) BuildListItems(projects []*model.Project, keyMgr *model.K
 		lb.paneProcessor.AddOrphanedPanes(&items, tmuxPanes, claudeStatus)
 	}
 
-	lb.logger.Debug("BuildListItems complete", "totalItems", len(items))
+	// Removed: High-frequency DEBUG log (fires on every list build)
 	return items
 }
