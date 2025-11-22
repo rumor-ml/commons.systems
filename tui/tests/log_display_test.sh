@@ -93,8 +93,8 @@ func main() {
 }
 EOF
 
-# Run the test
-OUTPUT=$(cd /home/user/commons.systems/tui && go run /tmp/test_log_display.go 2>&1)
+# Run the test (script already cd'd to TUI directory on line 40)
+OUTPUT=$(go run /tmp/test_log_display.go 2>&1)
 
 if echo "$OUTPUT" | grep -q "SUCCESS: Timestamps remain stable"; then
     pass "Log timestamps remain stable across multiple polls"
