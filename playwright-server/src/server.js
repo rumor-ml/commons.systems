@@ -1,16 +1,17 @@
 /**
- * Playwright Browser Server with Authentication
- * Version: 3.0.0
+ * Playwright Browser Server with Authentication and WebSocket Proxy
+ * Version: 3.1.0
  *
  * Provides authenticated access to Playwright browsers for remote test execution.
- * Uses Playwright's native browser server protocol (NOT CDP).
+ * Uses Playwright's native browser server with WebSocket proxying for public access.
  */
 
 import { chromium } from 'playwright';
 import { OAuth2Client } from 'google-auth-library';
 import express from 'express';
+import expressWs from 'express-ws';
+import WebSocket from 'ws';
 
-const app = express();
 const PORT = process.env.PORT || 8080;
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'chalanding';
 
@@ -24,10 +25,14 @@ let browserServer = null;
 let wsEndpoint = null;
 
 console.log(`[SERVER] ========================================`);
-console.log(`[SERVER] Playwright Browser Server v3.0.0`);
+console.log(`[SERVER] Playwright Browser Server v3.1.0`);
 console.log(`[SERVER] Started at: ${serverStartTime}`);
 console.log(`[SERVER] Process PID: ${process.pid}`);
 console.log(`[SERVER] ========================================`);
+
+// Set up Express with WebSocket support
+const app = express();
+const wsInstance = expressWs(app);
 
 // Middleware
 app.use(express.json());
@@ -82,7 +87,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '3.0.0',
+    version: '3.1.0',
     serverStartTime,
     processUptime: Math.floor(process.uptime()),
     requestCount,
@@ -96,7 +101,8 @@ app.get('/health', (req, res) => {
  */
 app.get('/api/browser-endpoint', async (req, res) => {
   // Validate authentication
-  const user = await validateToken(req.headers.authorization);
+  const authHeader = req.headers.authorization;
+  const user = await validateToken(authHeader);
   if (!user) {
     console.warn(`[API] Unauthorized browser endpoint request`);
     return res.status(401).json({ error: 'Unauthorized' });
@@ -109,9 +115,90 @@ app.get('/api/browser-endpoint', async (req, res) => {
 
   console.log(`[API] Providing browser endpoint to ${user.email}`);
 
+  // Construct public WebSocket URL using Cloud Run service URL
+  // Include the auth token in the URL for WebSocket authentication
+  const protocol = req.protocol === 'https' ? 'wss' : 'ws';
+  const host = req.get('host');
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  const publicWsEndpoint = `${protocol}://${host}/ws?token=${encodeURIComponent(token)}`;
+
   res.json({
-    wsEndpoint,
+    wsEndpoint: publicWsEndpoint,
     message: 'Connect using Playwright connectOptions.wsEndpoint'
+  });
+});
+
+/**
+ * WebSocket proxy endpoint - proxies connections to local Playwright browser server
+ */
+app.ws('/ws', async (ws, req) => {
+  console.log('[WS] New WebSocket connection request');
+
+  // Validate authentication - token is in query parameter
+  const token = req.query.token;
+  if (!token) {
+    console.warn('[WS] No token provided in WebSocket connection');
+    ws.close(1008, 'Unauthorized - no token');
+    return;
+  }
+
+  const user = await validateToken(`Bearer ${token}`);
+  if (!user) {
+    console.warn('[WS] Invalid token in WebSocket connection');
+    ws.close(1008, 'Unauthorized - invalid token');
+    return;
+  }
+
+  if (!wsEndpoint) {
+    console.error('[WS] Browser server not ready');
+    ws.close(1011, 'Browser server not ready');
+    return;
+  }
+
+  console.log(`[WS] Authenticated WebSocket connection from ${user.email}`);
+
+  // Connect to local Playwright browser server
+  const browserWs = new WebSocket(wsEndpoint);
+
+  // Forward messages from client to browser
+  ws.on('message', (data) => {
+    if (browserWs.readyState === WebSocket.OPEN) {
+      browserWs.send(data);
+    }
+  });
+
+  // Forward messages from browser to client
+  browserWs.on('message', (data) => {
+    if (ws.readyState === 1) { // 1 = OPEN
+      ws.send(data);
+    }
+  });
+
+  // Handle browser connection open
+  browserWs.on('open', () => {
+    console.log('[WS] Connected to Playwright browser server');
+  });
+
+  // Handle errors
+  browserWs.on('error', (error) => {
+    console.error(`[WS] Browser WebSocket error: ${error.message}`);
+    ws.close(1011, 'Browser connection error');
+  });
+
+  ws.on('error', (error) => {
+    console.error(`[WS] Client WebSocket error: ${error.message}`);
+    browserWs.close();
+  });
+
+  // Handle disconnections
+  browserWs.on('close', (code, reason) => {
+    console.log(`[WS] Browser WebSocket closed: ${code} - ${reason}`);
+    ws.close(code, reason);
+  });
+
+  ws.on('close', (code, reason) => {
+    console.log(`[WS] Client WebSocket closed: ${code} - ${reason}`);
+    browserWs.close();
   });
 });
 
@@ -134,7 +221,8 @@ async function startBrowserServer() {
 
     wsEndpoint = browserServer.wsEndpoint();
     console.log(`[BROWSER] Browser server started successfully`);
-    console.log(`[BROWSER] WebSocket endpoint: ${wsEndpoint}`);
+    console.log(`[BROWSER] Local WebSocket endpoint: ${wsEndpoint}`);
+    console.log(`[BROWSER] Public connections will be proxied through /ws`);
 
   } catch (error) {
     console.error(`[BROWSER] Failed to start browser server: ${error.message}`);
