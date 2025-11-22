@@ -1,5 +1,95 @@
 # Claude Instructions for This Repository
 
+## Infrastructure as Code Policy
+
+**CRITICAL: All infrastructure changes MUST be made via `iac.py` and Terraform.**
+
+### Guiding Principles
+
+1. **Infrastructure as Code First**: Every infrastructure change must be codified
+2. **Terraform Preferred**: Use Terraform resources whenever available
+3. **No Manual Changes**: Never make infrastructure changes via Firebase Console, GCP Console, or `gcloud` commands
+4. **Reproducibility**: All infrastructure must be reproducible from code
+5. **Version Control**: All infrastructure changes must be committed to git
+
+### How to Make Infrastructure Changes
+
+#### 1. Terraform (Preferred)
+
+For any infrastructure resource that can be managed by Terraform:
+
+```bash
+# Add resource to infrastructure/terraform/*.tf
+# Example: infrastructure/terraform/firebase-hosting.tf
+
+resource "google_firebase_hosting_site" "sites" {
+  for_each = toset(var.sites)
+  project  = var.project_id
+  site_id  = each.value
+}
+```
+
+Then apply:
+```bash
+python3 iac.py --iac
+```
+
+#### 2. Setup Script (Only When Terraform Can't)
+
+For resources that can't be managed by Terraform (rare cases):
+
+```bash
+# Add logic to iac.py setup functions
+# Only use this for chicken-and-egg scenarios or unsupported resources
+```
+
+#### 3. Never Use These Approaches
+
+❌ **Don't**: Make changes via Firebase Console
+❌ **Don't**: Run `gcloud` commands directly
+❌ **Don't**: Use `firebase` CLI for infrastructure (only for deployments)
+❌ **Don't**: Manually configure APIs, permissions, or resources
+
+### Examples of Infrastructure Changes
+
+| Change | How to Implement |
+|--------|-----------------|
+| Add Firebase Hosting site | Add to `firebase-hosting.tf` + run `iac.py --iac` |
+| Configure Auth domains | Add to `firebase-auth.tf` + run `iac.py --iac` |
+| Enable new GCP API | Add to `iac.py` `apis` list + run `iac.py --iac` |
+| Create security rules | Update `firestore.rules` / `storage.rules` + run `iac.py --iac` |
+| Add new site to monorepo | Run `./claudetool/add-site.sh` + update Terraform variables |
+| Grant IAM permissions | Add to `iac.py` `setup_ci_logs_proxy()` function |
+
+### When User Requests Infrastructure Change
+
+1. **Check if it can be done in Terraform** - Search Google Cloud Provider docs
+2. **Add to appropriate .tf file** - Keep infrastructure organized by service
+3. **Add any required APIs to iac.py** - Enable APIs via `iac.py` first
+4. **Test with `python3 iac.py --iac`** - Verify Terraform plan/apply works
+5. **Commit changes** - Infrastructure changes must be version controlled
+6. **Document** - Update CLAUDE.md if process changes
+
+### Infrastructure Files
+
+- `iac.py` - Main infrastructure setup script (APIs, workload identity, secrets)
+- `infrastructure/terraform/` - All Terraform configurations
+  - `main.tf` - Provider and backend configuration
+  - `variables.tf` - Input variables
+  - `firebase-*.tf` - Firebase-related resources
+  - `*.tf` - Other infrastructure resources
+
+### Why This Matters
+
+- ✅ **Reproducible**: Anyone can recreate infrastructure from code
+- ✅ **Version Controlled**: Infrastructure changes are tracked in git
+- ✅ **Documented**: Code is documentation
+- ✅ **Testable**: Can validate infrastructure before applying
+- ✅ **Collaborative**: Changes can be reviewed like code
+- ✅ **Disaster Recovery**: Infrastructure can be restored from code
+
+**Remember: If it's not in code, it doesn't exist.**
+
 ## Claude Debugging Tools
 
 The `claudetool/` directory contains utility scripts for Claude Code debugging and operational tasks. These tools help with common debugging workflows like checking deployment status, verifying GCP credentials, and monitoring workflows.
