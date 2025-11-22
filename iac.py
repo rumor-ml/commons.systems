@@ -880,11 +880,23 @@ def initialize_firebase(config):
 def create_firebase_hosting_sites(project_id):
     """Create Firebase Hosting sites for all sites in the monorepo."""
     import re
+    import json
+    import os
 
     print_info("Creating Firebase Hosting sites...")
 
-    # Sites defined in firebase.json
-    sites = ["fellspiral", "videobrowser", "audiobrowser", "print"]
+    # Read sites from firebase.json
+    firebase_config_path = os.path.join(os.path.dirname(__file__), 'firebase.json')
+    try:
+        with open(firebase_config_path, 'r') as f:
+            firebase_config = json.load(f)
+        sites = [site['site'] for site in firebase_config.get('hosting', [])]
+        print_info(f"Found {len(sites)} sites in firebase.json: {', '.join(sites)}")
+    except Exception as e:
+        print(f"{Colors.YELLOW}Warning: Could not read firebase.json: {e}{Colors.NC}")
+        print_info("Using default site list")
+        sites = ["fellspiral", "videobrowser-7696a", "audiobrowser", "print"]
+
     site_mappings = {}  # Track original -> actual site names
 
     for site_id in sites:
