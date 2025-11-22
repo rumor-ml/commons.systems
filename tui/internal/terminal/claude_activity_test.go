@@ -5,7 +5,8 @@ import (
 )
 
 func TestClaudeActivityDetection(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	// Create a mock TmuxExecutor (nil is fine since detectClaudeActivityWithDuration doesn't use it)
+	monitor := NewClaudeMonitor(nil)
 
 	tests := []struct {
 		name           string
@@ -99,7 +100,8 @@ func TestClaudeActivityDetection(t *testing.T) {
 }
 
 func TestClaudeActivityRealWorldPatterns(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	// Create a mock TmuxExecutor (nil is fine since detectClaudeActivityWithDuration doesn't use it)
+	monitor := NewClaudeMonitor(nil)
 
 	// Test with actual patterns from screenshots
 	realPatterns := []struct {

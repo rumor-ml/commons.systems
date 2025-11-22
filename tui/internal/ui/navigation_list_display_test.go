@@ -22,13 +22,11 @@ func TestNavigationListDisplay(t *testing.T) {
 			Name:       "assistant",
 			Path:       "/test/assistant",
 			KeyBinding: 'a',
-			IsBlocked:  false,
 		},
 		{
 			Name:       "icf",
 			Path:       "/test/icf",
 			KeyBinding: 'i',
-			IsBlocked:  false,
 		},
 	}
 

@@ -7,7 +7,8 @@ import (
 
 // BenchmarkClaudeActivityDetection benchmarks the Claude activity detection performance
 func BenchmarkClaudeActivityDetection(b *testing.B) {
-	monitor := NewClaudeMonitor()
+	// Create a mock TmuxExecutor (nil is fine for activity detection benchmarks)
+	monitor := NewClaudeMonitor(nil)
 
 	// Test content that will be detected as active
 	activeContent := `Some output
@@ -83,7 +84,8 @@ func BenchmarkRegexPerformance(b *testing.B) {
 
 // BenchmarkMultiplePaneDetection simulates monitoring multiple panes
 func BenchmarkMultiplePaneDetection(b *testing.B) {
-	monitor := NewClaudeMonitor()
+	// Create a mock TmuxExecutor (nil is fine for activity detection benchmarks)
+	monitor := NewClaudeMonitor(nil)
 
 	// Simulate content from 10 different panes
 	paneContents := make([]string, 10)

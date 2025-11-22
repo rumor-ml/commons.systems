@@ -97,12 +97,10 @@ func TestNavigationXKeySequenceStates(t *testing.T) {
 		{
 			Name:      "assistant",
 			Path:      "/test/assistant",
-			IsBlocked: false,
 		},
 		{
 			Name:      "icf",
-			Path:      "/test/icf", 
-			IsBlocked: false,
+			Path:      "/test/icf",
 		},
 	}
 

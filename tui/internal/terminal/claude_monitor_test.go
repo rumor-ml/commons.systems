@@ -6,7 +6,7 @@ import (
 )
 
 func TestClaudeActivityPatterns(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	monitor := NewClaudeMonitor(nil)
 
 	testCases := []struct {
 		name     string
@@ -158,7 +158,7 @@ func TestClaudeActivityPatterns(t *testing.T) {
 
 // Test edge cases for ANSI sequences and Unicode characters
 func TestClaudeActivityEdgeCases(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	monitor := NewClaudeMonitor(nil)
 
 	testCases := []struct {
 		name     string
@@ -269,7 +269,7 @@ func TestClaudeActivityEdgeCases(t *testing.T) {
 
 // Test the actual captured content format we saw
 func TestScreenshotPatterns(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	monitor := NewClaudeMonitor(nil)
 
 	testCases := []struct {
 		name     string
@@ -344,7 +344,7 @@ func TestScreenshotPatterns(t *testing.T) {
 }
 
 func TestClaudeActivityDetectionAnywhereInContent(t *testing.T) {
-	monitor := NewClaudeMonitor()
+	monitor := NewClaudeMonitor(nil)
 
 	// Test that activity is detected regardless of position in content
 	testCases := []struct {
