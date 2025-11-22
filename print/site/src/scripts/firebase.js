@@ -1,10 +1,13 @@
-// Firebase operations for Print site
+/**
+ * Firebase operations for Print site
+ * Handles document storage and retrieval from Firebase Storage
+ */
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, getMetadata, deleteObject, listAll } from 'firebase/storage';
 import { firebaseConfig } from '../firebase-config.js';
 
-// Initialize Firebase
+// Initialize Firebase app and services
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
