@@ -75,8 +75,7 @@ func main() {
 }
 EOF
 
-# Build and run test
-cd /home/user/commons.systems/tui
+# Build and run test (already in tui directory from earlier cd)
 OUTPUT=$(go run /tmp/test_discovery.go 2>&1)
 
 if echo "$OUTPUT" | grep -q "Found [0-9]* projects"; then
