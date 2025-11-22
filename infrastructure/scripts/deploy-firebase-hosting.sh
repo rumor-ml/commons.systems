@@ -93,14 +93,25 @@ else
 
   # Deploy to preview channel (creates if doesn't exist, expires after 7 days by default)
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
+  echo "Debug: Site ID = ${FIREBASE_SITE_ID}, Channel = ${CHANNEL_NAME}"
 
-  if ! firebase hosting:channel:deploy "$CHANNEL_NAME" \
+  # Run Firebase deployment with verbose logging
+  set +e  # Temporarily disable exit on error to capture output
+  firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
-    --json > /tmp/firebase-deploy-output.json 2>&1; then
-    echo "❌ Firebase deployment failed!"
+    --json > /tmp/firebase-deploy-output.json 2>&1
+  FIREBASE_EXIT_CODE=$?
+  set -e  # Re-enable exit on error
+
+  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
+    echo "❌ Firebase deployment failed with exit code: $FIREBASE_EXIT_CODE"
+    echo "Output from Firebase CLI:"
     cat /tmp/firebase-deploy-output.json
+    echo ""
+    echo "Checking if this is a site existence issue..."
+    firebase hosting:sites:list --project chalanding 2>&1 || true
     exit 1
   fi
 
