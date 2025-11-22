@@ -127,24 +127,7 @@ export default defineConfig({
 });
 EOF
 
-# Create Dockerfile
-cat > "$SITE_NAME/site/Dockerfile" <<EOF
-FROM nginx:alpine
-
-# Copy built files to nginx
-COPY dist /usr/share/nginx/html
-
-# Create health check endpoint
-RUN echo '<!DOCTYPE html><html><body>OK</body></html>' > /usr/share/nginx/html/health
-
-# Expose port
-EXPOSE 8080
-
-# Configure nginx to listen on port 8080 (Cloud Run requirement)
-RUN sed -i 's/listen       80;/listen       8080;/' /etc/nginx/conf.d/default.conf
-
-CMD ["nginx", "-g", "daemon off;"]
-EOF
+# Note: No Dockerfile needed - Firebase Hosting serves static files directly
 
 # Create .gitignore
 cat > "$SITE_NAME/site/.gitignore" <<EOF
@@ -456,12 +439,20 @@ echo ""
 echo "⚠️  NEXT STEPS:"
 echo ""
 echo "1. Run: npm install"
-echo "2. Update Terraform variables for Firebase Auth:"
+echo ""
+echo "2. Update Firebase Hosting configuration:"
+echo "   - Edit firebase.json and add hosting configuration for '${SITE_NAME}'"
+echo "   - Edit .firebaserc and add target mapping for '${SITE_NAME}'"
+echo ""
+echo "3. Update Terraform variables for Firebase Auth:"
 echo "   - Edit infrastructure/terraform/variables.tf"
 echo "   - Add '${SITE_NAME}' to var.sites list"
 echo "   - Add '${SITE_NAME}.commons.systems' to var.site_domains list"
 echo "   - Run: GCP_PROJECT_ID=chalanding python3 iac.py --iac"
-echo "3. Update workflows - see CLAUDE.md section 'Adding a New Site to Workflows'"
-echo "4. Test locally: npm run dev:${SITE_NAME}"
-echo "5. Deploy manually via GitHub Actions → Manual Deploy - ${SITE_NAME_CAPITALIZED}"
+echo ""
+echo "4. Update workflows - see CLAUDE.md section 'Adding a New Site to Workflows'"
+echo ""
+echo "5. Test locally: npm run dev:${SITE_NAME}"
+echo ""
+echo "6. Deploy manually via GitHub Actions → Manual Deploy - ${SITE_NAME_CAPITALIZED}"
 echo ""

@@ -3,11 +3,11 @@
 #
 # IMPORTANT: When adding a new site to the monorepo:
 # 1. Add the production domain to var.site_domains in variables.tf
-# 2. OR manually add domains to the authorized_domains list below
+# 2. Add the site to firebase.json hosting configuration
 # 3. Run terraform plan/apply to update Firebase config
 #
-# Note: Cloud Run preview deployment domains must be added manually
-# via Firebase Console as they are dynamic and not managed by Terraform.
+# Firebase Hosting domains (*.web.app, *.firebaseapp.com) are automatically
+# authorized for Firebase Auth - no manual configuration needed!
 
 # Enable Identity Platform API
 resource "google_project_service" "identitytoolkit" {
@@ -19,24 +19,28 @@ resource "google_project_service" "identitytoolkit" {
 locals {
   # Base authorized domains (always required)
   base_auth_domains = [
-    "localhost",                      # Local development
-    "${var.project_id}.firebaseapp.com",  # Firebase hosting
-    "${var.project_id}.web.app",         # Firebase hosting alternate
+    "localhost",                          # Local development
+    "${var.project_id}.firebaseapp.com",  # Firebase hosting (main)
+    "${var.project_id}.web.app",          # Firebase hosting (alternate)
   ]
 
-  # Production site domains (stable, can be permanently authorized)
-  site_production_domains = var.site_domains
+  # Firebase Hosting site domains (production sites)
+  # Each site gets: <site-name>.web.app and <site-name>.firebaseapp.com
+  firebase_site_domains = flatten([
+    for site in var.sites : [
+      "${site}.web.app",
+      "${site}.firebaseapp.com"
+    ]
+  ])
 
-  # Cloud Run production service domains
-  cloud_run_production_domains = [
-    for site in var.sites : "${site}-site.run.app"
-  ]
+  # Custom production domains (for custom domain mapping)
+  custom_site_domains = var.site_domains
 
   # Combine all authorized domains
   all_auth_domains = concat(
     local.base_auth_domains,
-    local.site_production_domains,
-    local.cloud_run_production_domains
+    local.firebase_site_domains,
+    local.custom_site_domains
   )
 }
 
@@ -64,14 +68,17 @@ output "auth_config_instructions" {
   value = <<-EOT
     Firebase Authentication is configured with authorized domains.
 
-    To add preview deployment domains manually:
-    1. Go to Firebase Console: https://console.firebase.google.com/project/${var.project_id}/authentication/settings
-    2. Scroll to "Authorized domains"
-    3. Click "Add domain"
-    4. Add the Cloud Run preview domain (e.g., service-name-branch-hash.run.app)
+    ✅ All Firebase Hosting domains are automatically authorized:
+    - Production sites: <site-name>.web.app, <site-name>.firebaseapp.com
+    - Preview channels: <channel>--<site-name>.web.app
+    - Custom domains: ${join(", ", var.site_domains)}
 
-    Preview domains are dynamic and must be added per deployment for auth testing.
-    Recommendation: Test auth on production domains only.
+    No manual configuration needed for preview deployments!
+
+    To add custom domains:
+    1. Configure in Firebase Console: https://console.firebase.google.com/project/${var.project_id}/hosting/sites
+    2. Add DNS records as instructed
+    3. Custom domains are automatically authorized for OAuth
   EOT
   description = "Instructions for managing Firebase Auth authorized domains"
 }

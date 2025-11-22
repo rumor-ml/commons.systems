@@ -94,10 +94,26 @@ Scaffolds a new site in the monorepo with all necessary boilerplate, tests, and 
 ```
 
 **What it creates:**
-- `<site-name>/site/` - Site source code with Vite, Dockerfile, basic HTML/CSS/JS
+- `<site-name>/site/` - Site source code with Vite, basic HTML/CSS/JS
 - `<site-name>/tests/` - Playwright tests with configuration
 - `.github/workflows/deploy-<site-name>-manual.yml` - Manual deployment workflow
 - Updates `package.json` with new workspaces and scripts
+
+**IMPORTANT: Keeping Scaffolding in Sync**
+
+When per-site infrastructure changes (e.g., migrating from Cloud Run to Firebase Hosting, adding new auth requirements, changing build processes), you MUST update the scaffolding script to reflect these changes:
+
+1. **Review `claudetool/add-site.sh`** - Update templates to match current infrastructure
+2. **Test scaffolding** - Run the script to create a test site and verify all generated files are correct
+3. **Update instructions** - Modify the "NEXT STEPS" output to include new configuration requirements
+4. **Document changes** - Update this section of CLAUDE.md if the scaffolding workflow changes
+
+Examples of changes that require scaffolding updates:
+- ✅ Deployment platform changes (Cloud Run → Firebase Hosting)
+- ✅ New configuration files (firebase.json, .firebaserc)
+- ✅ Auth system changes (adding/removing providers)
+- ✅ Build process changes (new build tools, different output directories)
+- ✅ Infrastructure requirements (new Terraform variables, API enablements)
 
 **After running:**
 1. Run `npm install` to install dependencies

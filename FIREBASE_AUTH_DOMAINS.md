@@ -1,8 +1,25 @@
-# Firebase Authentication - Authorized Domains Setup
+# Firebase Authentication - Authorized Domains
 
-## The Issue
+## ✅ ISSUE RESOLVED
 
-The `auth/unauthorized-domain` error occurs because Firebase Authentication requires all domains where users initiate OAuth flows to be explicitly authorized in the Firebase project settings.
+**The `auth/unauthorized-domain` issue has been resolved by migrating to Firebase Hosting.**
+
+See [FIREBASE_HOSTING_MIGRATION.md](./FIREBASE_HOSTING_MIGRATION.md) for complete details.
+
+## Summary
+
+All sites now deploy to Firebase Hosting instead of Cloud Run. Firebase Hosting domains are **automatically authorized** for Firebase Authentication:
+
+- ✅ Production sites: `<site-name>.web.app`
+- ✅ Preview channels: `<branch>--<site-name>.web.app`
+- ✅ Custom domains: Automatically authorized when configured
+- ✅ **No manual configuration needed!**
+
+---
+
+## Legacy Information (Cloud Run Approach)
+
+### The Original Issue
 
 ## Why This Happens
 
