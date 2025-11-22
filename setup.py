@@ -832,6 +832,83 @@ def initialize_firebase(config):
                 print(f"{Colors.YELLOW}You may need to initialize Firebase manually at:{Colors.NC}")
                 print("https://console.firebase.google.com/")
 
+def deploy_firebase_security_rules(config):
+    """Deploy Firebase security rules for Firestore and Storage."""
+    print_step(6, 7, "Deploying Firebase security rules...")
+
+    # Check if firebase CLI is available
+    firebase_cli = subprocess.run(
+        ['which', 'firebase'],
+        capture_output=True,
+        text=True
+    )
+
+    if firebase_cli.returncode != 0:
+        print(f"\n{Colors.YELLOW}Firebase CLI not found. Skipping security rules deployment.{Colors.NC}")
+        print(f"\n{Colors.INFO}ℹ  Security rules will be deployed via Terraform instead.{Colors.NC}")
+        print(f"{Colors.INFO}   Terraform will automatically deploy firestore.rules and storage.rules{Colors.NC}")
+        print(f"{Colors.INFO}   when you run the IaC workflow (git push).{Colors.NC}")
+        return
+
+    print_info("Firebase CLI detected. Deploying security rules...")
+
+    # Check if rules files exist
+    firestore_rules = os.path.join(os.path.dirname(__file__), 'firestore.rules')
+    storage_rules = os.path.join(os.path.dirname(__file__), 'storage.rules')
+
+    if not os.path.exists(firestore_rules):
+        print(f"\n{Colors.YELLOW}Warning: firestore.rules not found at {firestore_rules}{Colors.NC}")
+        print(f"{Colors.YELLOW}Skipping Firestore rules deployment.{Colors.NC}")
+        return
+
+    if not os.path.exists(storage_rules):
+        print(f"\n{Colors.YELLOW}Warning: storage.rules not found at {storage_rules}{Colors.NC}")
+        print(f"{Colors.YELLOW}Skipping Storage rules deployment.{Colors.NC}")
+        return
+
+    # Deploy rules using Firebase CLI
+    try:
+        print_info("Deploying Firestore security rules...")
+        result = subprocess.run(
+            ['firebase', 'deploy', '--only', 'firestore:rules', '--project', config['project_id']],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode == 0:
+            print_success("Firestore security rules deployed successfully")
+        else:
+            print(f"\n{Colors.YELLOW}Warning: Could not deploy Firestore rules{Colors.NC}")
+            print(f"{Colors.YELLOW}Error: {result.stderr}{Colors.NC}")
+            print(f"\n{Colors.INFO}Don't worry! Terraform will deploy the rules automatically{Colors.NC}")
+            print(f"{Colors.INFO}when you run the IaC workflow (git push).{Colors.NC}")
+
+        print_info("Deploying Storage security rules...")
+        result = subprocess.run(
+            ['firebase', 'deploy', '--only', 'storage:rules', '--project', config['project_id']],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode == 0:
+            print_success("Storage security rules deployed successfully")
+        else:
+            print(f"\n{Colors.YELLOW}Warning: Could not deploy Storage rules{Colors.NC}")
+            print(f"{Colors.YELLOW}Error: {result.stderr}{Colors.NC}")
+            print(f"\n{Colors.INFO}Don't worry! Terraform will deploy the rules automatically{Colors.NC}")
+            print(f"{Colors.INFO}when you run the IaC workflow (git push).{Colors.NC}")
+
+    except subprocess.TimeoutExpired:
+        print(f"\n{Colors.YELLOW}Warning: Firebase rules deployment timed out{Colors.NC}")
+        print(f"\n{Colors.INFO}Don't worry! Terraform will deploy the rules automatically{Colors.NC}")
+        print(f"{Colors.INFO}when you run the IaC workflow (git push).{Colors.NC}")
+    except Exception as e:
+        print(f"\n{Colors.YELLOW}Warning: Error deploying Firebase rules: {e}{Colors.NC}")
+        print(f"\n{Colors.INFO}Don't worry! Terraform will deploy the rules automatically{Colors.NC}")
+        print(f"{Colors.INFO}when you run the IaC workflow (git push).{Colors.NC}")
+
 def generate_github_secrets(config):
     """Generate and display GitHub secrets."""
     print_header("Pre-Terraform Setup Complete! ✓")
@@ -957,6 +1034,7 @@ def main():
         create_service_account(config)
         setup_ci_logs_proxy(config)
         initialize_firebase(config)
+        deploy_firebase_security_rules(config)
         generate_github_secrets(config)
 
     except KeyboardInterrupt:

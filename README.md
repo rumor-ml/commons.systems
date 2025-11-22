@@ -123,10 +123,27 @@ This script will guide you through:
 
 #### 3. Deploy Security Rules
 
+Security rules are deployed automatically via Infrastructure as Code (Terraform):
+
+**Option A: Automatic deployment (Recommended)**
 ```bash
-# Deploy Firestore and Storage security rules
+# Rules deploy automatically when you push changes
+git push origin your-branch
+
+# The IaC workflow will deploy:
+# - firestore.rules → Firestore security rules
+# - storage.rules → Storage security rules
+```
+
+**Option B: Manual deployment (if needed)**
+```bash
+# If you need to deploy rules immediately without waiting for CI/CD
 firebase deploy --only firestore:rules,storage:rules --project chalanding
 ```
+
+**What's managed:**
+- `firestore.rules` - Firestore security rules (managed in `infrastructure/terraform/firebase.tf`)
+- `storage.rules` - Storage security rules (managed in `infrastructure/terraform/firebase.tf`)
 
 #### 4. Test Locally
 

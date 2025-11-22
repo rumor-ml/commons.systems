@@ -113,20 +113,53 @@ Security rules enforce authentication requirements for Firestore and Storage.
    }
    ```
 
-2. **Login to Firebase**
+2. **Deploy Rules**
+
+   Security rules are managed via Infrastructure as Code and deploy automatically:
+
+   **Option A: Automatic (Recommended)**
    ```bash
-   firebase login
+   # Rules deploy automatically when you push changes
+   git push origin your-branch
+
+   # The IaC workflow (Terraform) will automatically deploy:
+   # - firestore.rules → Firestore security rules
+   # - storage.rules → Storage security rules
    ```
 
-3. **Deploy Rules**
+   **Option B: Manual (Optional)**
+
+   If you need immediate deployment without waiting for CI/CD:
+
    ```bash
+   # Install Firebase CLI (if not already installed)
+   npm install -g firebase-tools
+
+   # Login
+   firebase login
+
+   # Deploy rules manually
    firebase deploy --only firestore:rules,storage:rules --project chalanding
    ```
 
-4. **Verify Deployment**
+   **Option C: Via setup.py**
+
+   Rules are also deployed during initial setup:
+
+   ```bash
+   python3 setup.py
+   # The setup script will attempt to deploy rules if Firebase CLI is available
+   ```
+
+3. **Verify Deployment**
    - Check Firebase Console → Firestore → Rules
    - Check Firebase Console → Storage → Rules
    - Both should show "Published" with recent timestamp
+
+**Note:** Security rules are defined in:
+- `firestore.rules` - Firestore security rules
+- `storage.rules` - Storage security rules
+- `infrastructure/terraform/firebase.tf` - Terraform management
 
 ### Step 4: Install Dependencies
 
