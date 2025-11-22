@@ -6,13 +6,13 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /build/frontend
 
 # Copy frontend package files
-COPY site/package*.json ./
+COPY audioupload/site/package*.json ./
 
 # Install frontend dependencies
 RUN npm install --production=false
 
 # Copy frontend source and shared components
-COPY site/ ./
+COPY audioupload/site/ ./
 COPY shared-components/ /build/shared-components/
 
 # Build frontend
@@ -28,7 +28,7 @@ RUN apk add --no-cache git
 
 # Copy Go modules
 COPY gcsupload/go.mod gcsupload/go.sum /build/gcsupload/
-COPY backend/go.mod backend/go.sum* /build/backend/
+COPY audioupload/backend/go.mod audioupload/backend/go.sum* /build/backend/
 
 # Download dependencies
 WORKDIR /build/gcsupload
@@ -39,7 +39,7 @@ RUN go mod download || true
 
 # Copy source code
 COPY gcsupload/ /build/gcsupload/
-COPY backend/ /build/backend/
+COPY audioupload/backend/ /build/backend/
 
 # Build the backend
 WORKDIR /build/backend
