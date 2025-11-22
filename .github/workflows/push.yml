@@ -3,6 +3,8 @@ name: Push Pipeline
 on:
   push:
     branches: ['**']
+  pull_request:
+    branches: ['**']
 
 # Only allow one pipeline per branch at a time
 concurrency:
@@ -87,15 +89,15 @@ jobs:
           fi
 
       - name: Test Fellspiral
-        if: steps.check-changes.outputs.fellspiral-changed == 'true'
+        if: github.event_name == 'pull_request' || steps.check-changes.outputs.fellspiral-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh fellspiral
 
       - name: Test Videobrowser
-        if: steps.check-changes.outputs.videobrowser-changed == 'true'
+        if: github.event_name == 'pull_request' || steps.check-changes.outputs.videobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh videobrowser
 
       - name: Test Audiobrowser
-        if: steps.check-changes.outputs.audiobrowser-changed == 'true'
+        if: github.event_name == 'pull_request' || steps.check-changes.outputs.audiobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
   # ==================== Step 2: Infrastructure as Code ====================
@@ -211,7 +213,7 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
 
-  # ==================== Step 3a: Deploy Playwright Server (on main branch + temp: feature branch) ====================
+  # ==================== Step 3a: Deploy Playwright Server (on main branch and PRs) ====================
   deploy-playwright-server:
     name: Deploy Playwright Server
     runs-on: ubuntu-latest
@@ -221,7 +223,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/update-push-workflow-main-011kk51GfpQ2oUsV3N4oaa6h')
+      (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
 
@@ -251,7 +253,7 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
-  # ==================== Step 3b: Deploy Sites (in parallel, always on main, if changed on feature branches) ====================
+  # ==================== Step 3b: Deploy Sites (in parallel, always on main/PRs, if changed on feature branches) ====================
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
@@ -261,7 +263,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.fellspiral-changed == 'true')
+      (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || needs.local-tests.outputs.fellspiral-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -494,7 +496,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.videobrowser-changed == 'true')
+      (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || needs.local-tests.outputs.videobrowser-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -710,7 +712,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.audiobrowser-changed == 'true')
+      (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || needs.local-tests.outputs.audiobrowser-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
