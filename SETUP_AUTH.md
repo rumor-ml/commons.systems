@@ -81,7 +81,7 @@ Security rules enforce authentication requirements for Firestore and Storage.
 
 1. **Review Security Rules**
 
-   **Firestore** (`firestore.rules`):
+   **Firestore** (`fellspiral/firestore.rules`):
    ```
    rules_version = '2';
    service cloud.firestore {
@@ -100,7 +100,7 @@ Security rules enforce authentication requirements for Firestore and Storage.
    }
    ```
 
-   **Storage** (`storage.rules`):
+   **Storage** (`videobrowser/storage.rules`):
    ```
    rules_version = '2';
    service firebase.storage {
@@ -115,17 +115,18 @@ Security rules enforce authentication requirements for Firestore and Storage.
 
 2. **Deploy Rules**
 
-   Security rules are deployed automatically via the CI/CD workflow:
+   Security rules are deployed via Terraform (IaC):
 
-   **Automatic (Recommended)**
    ```bash
-   # Rules deploy automatically when you push changes
-   git push origin your-branch
-
-   # The workflow automatically deploys:
-   # - fellspiral/firestore.rules → Firestore security rules (with fellspiral deployment)
-   # - videobrowser/storage.rules → Storage security rules (with videobrowser deployment)
+   # Deploy Firebase security rules
+   python3 iac.py --iac
    ```
+
+   This will:
+   - Enable required Firebase APIs (firebase.googleapis.com, firebaserules.googleapis.com, firebasestorage.googleapis.com)
+   - Deploy Firestore rules from `fellspiral/firestore.rules`
+   - Deploy Storage rules from `videobrowser/storage.rules`
+   - Create rulesets and releases for both services
 
 3. **Verify Deployment**
    - Check Firebase Console → Firestore → Rules
@@ -135,7 +136,7 @@ Security rules enforce authentication requirements for Firestore and Storage.
 **Note:** Security rules are site-specific:
 - `fellspiral/firestore.rules` - Firestore security rules for fellspiral
 - `videobrowser/storage.rules` - Storage security rules for videobrowser
-- Deployed automatically via GitHub Actions workflow
+- Managed via Terraform in `infrastructure/terraform/firebase.tf`
 
 ### Step 4: Install Dependencies
 
