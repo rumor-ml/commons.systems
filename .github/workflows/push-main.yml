@@ -524,6 +524,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: deploy-all
+    if: |
+      always() &&
+      needs.deploy-all.result == 'success'
 
     steps:
       - name: Checkout code
