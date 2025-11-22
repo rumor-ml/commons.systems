@@ -274,14 +274,6 @@ func (wm *TmuxWindowManager) discoverSessionWindows(sessionName string) (map[str
 			}
 
 			windows[name] = window
-			
-			wm.logger.Debug("Discovered window",
-				"session", sessionName,
-				"window", name,
-				"index", index,
-				"command", command,
-				"paneTitle", paneTitle,
-				"active", active)
 		}
 	}
 

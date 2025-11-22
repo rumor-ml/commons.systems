@@ -62,13 +62,10 @@ func (nu *NavigationUpdater) UpdateNavigationWithTmuxInfo() {
 	currentProjects := navComp.GetProjects()
 	if currentProjects == nil || len(currentProjects) == 0 {
 		// This is normal during startup before project discovery completes
-		logger.Debug("No projects available for tmux mapping yet (discovery in progress)")
 		return
 	}
-	logger.Debug("Got projects from navigation for tmux mapping", "projectCount", len(currentProjects))
 
 	// Map tmux sessions to projects based on CWD
-	logger.Debug("Calling MapSessionsToProjects")
 	mappedProjects, err := nu.app.tmuxManager.MapSessionsToProjects(currentProjects)
 	if err != nil {
 		logger.Error("Failed to map tmux sessions to projects", "error", err)
@@ -80,11 +77,9 @@ func (nu *NavigationUpdater) UpdateNavigationWithTmuxInfo() {
 
 	// Get discovered panes for navigation display
 	discoveredPanes := nu.app.tmuxManager.GetAllPanes()
-	logger.Debug("Setting panes in navigation", "paneCount", len(discoveredPanes))
 
 	// Update panes only - projects are managed by updateNavigationProjects()
 	// This prevents duplicate project entries in the UI
-	logger.Debug("Updating navigation with tmux pane information only (not setting projects)")
 	navComp.SetPanes(discoveredPanes)
 }
 

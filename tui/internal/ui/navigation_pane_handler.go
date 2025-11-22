@@ -27,12 +27,9 @@ func NewNavigationPaneHandler(hashHandler *NavigationHashHandler) *NavigationPan
 
 // ProcessPaneUpdate handles pane updates with debouncing and change detection
 func (panh *NavigationPaneHandler) ProcessPaneUpdate(panes map[string]*terminal.TmuxPane, lastPanesHash *uint64, currentPanes map[string]*terminal.TmuxPane) (shouldUpdate bool, updateType string, newHash uint64) {
-	panh.logger.Debug("NavigationPaneHandler.ProcessPaneUpdate called", "count", len(panes))
-
 	// Debounce rapid updates to prevent flashing
 	now := time.Now()
 	if now.Sub(panh.lastPaneUpdate) < 50*time.Millisecond {
-		panh.logger.Debug("Debouncing pane update")
 		return false, "", *lastPanesHash
 	}
 
@@ -41,11 +38,8 @@ func (panh *NavigationPaneHandler) ProcessPaneUpdate(panes map[string]*terminal.
 
 	// Skip update if panes haven't changed
 	if panesHash == *lastPanesHash {
-		panh.logger.Debug("Panes unchanged, skipping update")
 		return false, "", panesHash
 	}
-
-	panh.logger.Debug("Panes changed, updating navigation", "newHash", panesHash)
 
 	// Check if panes actually changed to avoid unnecessary rebuilds
 	panesStructurallyEqual := panh.panesEqual(currentPanes, panes)
@@ -56,14 +50,12 @@ func (panh *NavigationPaneHandler) ProcessPaneUpdate(panes map[string]*terminal.
 
 	// If panes are structurally equal but we have Claude panes, still update for status changes
 	if panesStructurallyEqual && hasClaudePanes {
-		panh.logger.Debug("Panes structurally unchanged but has Claude panes, updating for potential status changes")
 		panh.lastPaneUpdate = now
 		return true, "claude_status", panesHash
 	}
 
 	// If panes are structurally equal and no Claude panes, skip update
 	if panesStructurallyEqual {
-		panh.logger.Debug("Panes unchanged and no Claude panes, skipping update")
 		return false, "", panesHash
 	}
 

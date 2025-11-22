@@ -247,13 +247,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements tea.Model
 func (a *App) View() string {
 	start := time.Now()
-	logger := log.Get()
-
 	view := a.uiManager.View()
 
-	elapsed := time.Since(start)
-	if elapsed > 10*time.Millisecond {
-		logger.Debug("View render time", "duration_ms", elapsed.Milliseconds())
+	// Performance monitoring removed to reduce log verbosity
+	// Enable via TUI_DEBUG_PERFORMANCE=1 if needed
+	if os.Getenv("TUI_DEBUG_PERFORMANCE") == "1" {
+		elapsed := time.Since(start)
+		if elapsed > 10*time.Millisecond {
+			logger := log.Get()
+			logger.Debug("View render time", "duration_ms", elapsed.Milliseconds())
+		}
 	}
 
 	return view
@@ -330,10 +333,7 @@ func (a *App) findProjectByTmuxWindow(sessionName string, windowIndex int) *mode
 			"path", path,
 			"availableProjects", len(a.projects.GetModelProjects()))
 
-		// Debug: Log all available projects to help diagnose
-		for _, p := range a.projects.GetModelProjects() {
-			logger.Debug("Available project", "name", p.Name, "path", p.Path)
-		}
+		// Verbose debug logging removed - count is sufficient for diagnosis
 
 		return nil
 	}
