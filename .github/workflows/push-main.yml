@@ -214,11 +214,32 @@ jobs:
         if: matrix.site == 'videobrowser'
         continue-on-error: true
         run: |
-          echo "Ensuring rml-media bucket is linked to Firebase Storage..."
+          echo "Ensuring rml-media GCS bucket exists..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           BUCKET_NAME="rml-media"
 
-          # Try to link bucket to Firebase Storage (idempotent - safe to run multiple times)
+          # Check if bucket exists
+          BUCKET_EXISTS=$(gcloud storage buckets describe gs://${BUCKET_NAME} --format="value(name)" 2>/dev/null || echo "")
+
+          if [ -z "$BUCKET_EXISTS" ]; then
+            echo "Creating rml-media bucket..."
+            gcloud storage buckets create gs://${BUCKET_NAME} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --location=US \
+              --uniform-bucket-level-access
+            echo "✓ Bucket created"
+
+            # Set CORS configuration for web access
+            echo "Configuring CORS..."
+            echo '[{"origin": ["*"], "method": ["GET", "HEAD", "PUT", "POST", "DELETE"], "responseHeader": ["*"], "maxAgeSeconds": 3600}]' > /tmp/cors.json
+            gcloud storage buckets update gs://${BUCKET_NAME} --cors-file=/tmp/cors.json
+            echo "✓ CORS configured"
+          else
+            echo "✓ Bucket already exists"
+          fi
+
+          # Link bucket to Firebase Storage (idempotent - safe to run multiple times)
+          echo "Linking bucket to Firebase Storage..."
           LINK_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "Content-Type: application/json" \
