@@ -130,7 +130,7 @@ else
   cat /tmp/firebase-deploy-output.json
   echo ""
 
-  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${FIREBASE_SITE_ID}.url // empty" 2>/dev/null)
+  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result[\"${FIREBASE_SITE_ID}\"].url // empty" 2>/dev/null)
   echo "Debug: jq extraction result: '$DEPLOYMENT_URL'"
 
   if [ -z "$DEPLOYMENT_URL" ]; then
