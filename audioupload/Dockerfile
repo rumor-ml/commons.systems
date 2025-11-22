@@ -39,6 +39,7 @@ WORKDIR /build/audioupload/backend
 RUN go mod download || true
 
 # Copy source code
+WORKDIR /build
 COPY gcsupload/ gcsupload/
 COPY audioupload/backend/ audioupload/backend/
 
