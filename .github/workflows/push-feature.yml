@@ -786,7 +786,7 @@ jobs:
       - name: Build and push Docker image
         run: |
           set -e
-          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral/mediasync:${{ github.sha }}"
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/commons-systems/mediasync:${{ github.sha }}"
 
           echo "Building Docker image: ${IMAGE_NAME}"
           docker build -t "${IMAGE_NAME}" -f mediasync/Dockerfile .
@@ -800,7 +800,7 @@ jobs:
         run: |
           set -e
           SERVICE_NAME="mediasync-site"
-          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral/mediasync:${{ github.sha }}"
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/commons-systems/mediasync:${{ github.sha }}"
 
           # Determine revision suffix for feature branch
           BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-z0-9-]/-/g' | cut -c1-20)
