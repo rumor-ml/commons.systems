@@ -1,7 +1,7 @@
 rules_version = '2';
 
-// Firebase Storage Security Rules for rml-media bucket
-// Used by: videobrowser, print
+// Firebase Storage Security Rules for default bucket (chalanding.appspot.com)
+// Protects paths used by: videobrowser (/video/), print (/print/)
 service firebase.storage {
   match /b/{bucket}/o {
 
@@ -10,7 +10,7 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Video files in rml-media bucket (for videobrowser)
+    // Video files path (for videobrowser)
     match /video/{videoFile} {
       // Allow read access to all authenticated users
       allow read: if isAuthenticated();
@@ -20,7 +20,7 @@ service firebase.storage {
       allow write: if isAuthenticated();
     }
 
-    // Print documents in rml-media bucket (for print site)
+    // Print documents path (for print site)
     match /print/{allPaths=**} {
       allow read, list: if true;  // Public read and list access for all documents
       allow write: if false; // No public writes - only admins via console/API

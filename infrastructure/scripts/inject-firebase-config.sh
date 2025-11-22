@@ -63,12 +63,8 @@ STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
 MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
 APP_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
 
-# Override storage bucket for sites that use rml-media
-# videobrowser and print both use the rml-media bucket with shared storage rules
-if [ "$SITE_NAME" = "videobrowser" ] || [ "$SITE_NAME" = "print" ]; then
-  STORAGE_BUCKET="rml-media"
-  echo "  Using rml-media bucket for $SITE_NAME"
-fi
+# Note: All sites use the default Firebase Storage bucket (chalanding.appspot.com)
+# Storage rules protect different paths within the bucket (/video/, /print/, etc.)
 
 # Validate we got the config
 if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then

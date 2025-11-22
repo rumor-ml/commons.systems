@@ -211,13 +211,14 @@ jobs:
 
       # ========== Deploy Firebase Storage Rules (rml-media bucket, shared by videobrowser and print) ==========
       # Deploy Firebase Storage rules for rml-media bucket (shared by videobrowser and print)
-      - name: Deploy Firebase Storage rules (rml-media)
+      - name: Deploy Firebase Storage rules (default bucket)
         if: matrix.site == 'videobrowser'
         continue-on-error: true
         run: |
-          echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
+          echo "Deploying Firebase Storage rules to default bucket (protects /video/ and /print/ paths)..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
+          # Use default Firebase Storage bucket (project-id.appspot.com)
+          BUCKET_NAME="${{ env.GCP_PROJECT_ID }}.appspot.com"
           RULES_CONTENT=$(cat shared/storage.rules | jq -Rs '.')
 
           RULESET_RESPONSE=$(curl -s -X POST \
@@ -248,7 +249,7 @@ jobs:
             echo "⚠️  Failed to release ruleset"
             echo "Response: $RELEASE_RESPONSE"
           else
-            echo "✓ Firebase Storage rules deployed to rml-media bucket"
+            echo "✓ Firebase Storage rules deployed to ${BUCKET_NAME}"
           fi
 
       # ========== Deploy Site ==========
