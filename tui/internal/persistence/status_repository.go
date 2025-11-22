@@ -96,7 +96,6 @@ func (r *StatusRepository) SaveProjectStatus(projectPath, status string) error {
 		return fmt.Errorf("failed to save project status: %w", err)
 	}
 
-	r.logger.Debug("Saved project status", "path", projectPath, "status", status)
 	return nil
 }
 
@@ -114,11 +113,9 @@ func (r *StatusRepository) LoadProjectStatus(projectPath string) (string, error)
 	}
 
 	if err != nil {
-		r.logger.Debug("Failed to load project status", "path", projectPath, "error", err)
 		return "", fmt.Errorf("failed to load project status: %w", err)
 	}
 
-	r.logger.Debug("Loaded project status", "path", projectPath, "status", status)
 	return status, nil
 }
 
@@ -169,10 +166,6 @@ func (r *StatusRepository) SaveWorktreeStatus(projectPath, worktreeID, status st
 		return fmt.Errorf("failed to save worktree status: %w", err)
 	}
 
-	r.logger.Debug("Saved worktree status",
-		"project_path", projectPath,
-		"worktree_id", worktreeID,
-		"status", status)
 	return nil
 }
 
@@ -191,17 +184,9 @@ func (r *StatusRepository) LoadWorktreeStatus(projectPath, worktreeID string) (s
 	}
 
 	if err != nil {
-		r.logger.Debug("Failed to load worktree status",
-			"project_path", projectPath,
-			"worktree_id", worktreeID,
-			"error", err)
 		return "", fmt.Errorf("failed to load worktree status: %w", err)
 	}
 
-	r.logger.Debug("Loaded worktree status",
-		"project_path", projectPath,
-		"worktree_id", worktreeID,
-		"status", status)
 	return status, nil
 }
 

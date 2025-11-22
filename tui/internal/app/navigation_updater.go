@@ -107,12 +107,10 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 
 	// Get model projects directly from the external project map
 	modelProjects := nu.app.projects.GetModelProjects()
-	logger.Debug("Project discovery status", "count", len(modelProjects), "initialized", nu.app.projects.IsInitialized())
 
-	// Debug: Log all projects to check for duplicates
+	// Check for duplicates (error only)
 	projectPaths := make(map[string]bool)
-	for i, p := range modelProjects {
-		logger.Debug("Project from discovery", "index", i, "name", p.Name, "path", p.Path)
+	for _, p := range modelProjects {
 		if projectPaths[p.Path] {
 			logger.Error("DUPLICATE PROJECT DETECTED IN DISCOVERY!", "name", p.Name, "path", p.Path)
 		}
@@ -163,8 +161,6 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 
 	// Discover existing worktrees for each project
 	for _, modelProject := range modelProjects {
-		logger.Debug("Processing discovered project", "name", modelProject.Name, "path", modelProject.Path)
-
 		// Ensure shells are initialized and clear worktrees for fresh discovery
 		if modelProject.MainShells == nil {
 			modelProject.MainShells = make(map[model.ShellType]*model.Shell)
@@ -190,26 +186,9 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 
 				for _, wt := range worktrees {
 					// Skip the main working directory (not a real worktree)
-					logger.Debug("Checking worktree",
-						"project", modelProject.Name,
-						"projectPath", modelProject.Path,
-						"worktreePath", wt.Path,
-						"worktreeID", wt.Branch,
-						"worktreeBranch", wt.Branch,
-						"shouldSkip", wt.Path == modelProject.Path)
-
 					if wt.Path == modelProject.Path {
-						logger.Debug("Skipping main worktree",
-							"project", modelProject.Name,
-							"path", wt.Path)
 						continue
 					}
-
-					logger.Debug("Adding worktree to model",
-						"project", modelProject.Name,
-						"worktreeID", wt.Branch,
-						"worktreePath", wt.Path,
-						"branch", wt.Branch)
 
 					modelWorktree := &model.Worktree{
 						ID:         wt.Branch,  // Use branch as ID
@@ -225,12 +204,8 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 					"project", modelProject.Name,
 					"worktreeCount", len(modelProject.Worktrees))
 			}
-		} else if !isMonorepoRoot {
-			logger.Debug("Skipping worktree discovery for module", "project", modelProject.Name)
 		}
 	}
-
-	logger.Debug("Converted projects for navigation", "count", len(modelProjects))
 
 	// Load persisted status for all projects and worktrees
 	if nu.app.statusRepo != nil {
@@ -239,12 +214,7 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 
 	// Update navigation component with real projects
 	if navComp := nu.app.uiManager.GetNavigationComponent(); navComp != nil {
-		logger.Debug("Setting projects on navigation", "projectCount", len(modelProjects))
-		for _, p := range modelProjects {
-			logger.Debug("Project to display", "name", p.Name, "path", p.Path, "worktrees", len(p.Worktrees))
-		}
 		navComp.SetProjects(modelProjects)
-		logger.Debug("Navigation projects updated")
 
 		// Now update with tmux window information
 		nu.UpdateNavigationWithTmuxInfo()
@@ -277,10 +247,6 @@ func (nu *NavigationUpdater) loadPersistedStatus(projects []*model.Project) {
 		// Load project status
 		if status, ok := projectStatuses[project.Path]; ok && status != "" {
 			project.Status = model.ProjectStatus(status)
-			logger.Debug("Loaded persisted project status",
-				"project", project.Name,
-				"path", project.Path,
-				"status", project.Status)
 		}
 
 		// Load worktree statuses
@@ -288,10 +254,6 @@ func (nu *NavigationUpdater) loadPersistedStatus(projects []*model.Project) {
 			for _, worktree := range project.Worktrees {
 				if status, ok := wtStatuses[worktree.ID]; ok && status != "" {
 					worktree.Status = model.ProjectStatus(status)
-					logger.Debug("Loaded persisted worktree status",
-						"project", project.Name,
-						"worktree", worktree.ID,
-						"status", worktree.Status)
 				}
 			}
 		}

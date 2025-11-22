@@ -335,18 +335,13 @@ func (n *NavigationListComponent) SetProjects(projects []*model.Project) {
 
 	// Reset the list to ensure it updates
 	n.list.Select(0)
-
-	logger.Debug("Navigation projects updated successfully")
 }
 
 // SetProjectsAndPanes updates the navigation with projects and tmux panes
 func (n *NavigationListComponent) SetProjectsAndPanes(projects []*model.Project, tmuxPanes map[string]*terminal.TmuxPane) {
-	logger := log.Get()
-	logger.Debug("Setting navigation projects and panes", "projectCount", len(projects), "paneCount", len(tmuxPanes))
-
 	// Delegate to project manager
 	processedProjects := n.projectManager.SetProjectsAndPanes(projects, tmuxPanes)
-	
+
 	// Update backward compatibility reference
 	n.projects = processedProjects
 
@@ -358,8 +353,7 @@ func (n *NavigationListComponent) SetProjectsAndPanes(projects []*model.Project,
 
 	// Rebuild list items with tmux panes
 	items := n.projectManager.BuildListItems(tmuxPanes)
-	logger.Debug("Setting list items with panes", "itemCount", len(items))
-	
+
 	// Convert []interface{} back to []list.Item for the list
 	listItems := make([]list.Item, len(items))
 	for i, item := range items {
@@ -367,20 +361,12 @@ func (n *NavigationListComponent) SetProjectsAndPanes(projects []*model.Project,
 	}
 	n.list.SetItems(listItems)
 
-	// Force list to refresh - sometimes needed with Bubble Tea
-	logger.Debug("List items set with panes, item count in list", "count", len(n.list.Items()))
-
 	// Reset the list to ensure it updates
 	n.list.Select(0)
-
-	logger.Debug("Navigation projects and panes updated successfully")
 }
 
 // UpdateTmuxPanes updates only the tmux pane mappings after layout changes
 func (n *NavigationListComponent) UpdateTmuxPanes(tmuxPanes map[string]*terminal.TmuxPane) {
-	logger := log.Get()
-	logger.Debug("Updating tmux panes after layout change", "paneCount", len(tmuxPanes))
-
 	// Update panes in project manager
 	if n.projectManager != nil {
 		n.projectManager.UpdatePanes(tmuxPanes)
@@ -388,7 +374,6 @@ func (n *NavigationListComponent) UpdateTmuxPanes(tmuxPanes map[string]*terminal
 
 	// Rebuild list items with updated panes
 	items := n.projectManager.BuildListItems(tmuxPanes)
-	logger.Debug("Rebuilding list items with updated panes", "itemCount", len(items))
 
 	// Update the list
 	listItems := make([]list.Item, len(items))
@@ -399,25 +384,19 @@ func (n *NavigationListComponent) UpdateTmuxPanes(tmuxPanes map[string]*terminal
 
 	// Force refresh
 	n.list.Select(n.list.Index())
-	logger.Debug("Tmux panes updated successfully")
 }
 
 // RefreshDisplay rebuilds the list items with current project data
 func (n *NavigationListComponent) RefreshDisplay() {
-	logger := log.Get()
-	logger.Debug("Refreshing navigation display")
-
 	// Rebuild list items with current projects using project manager
 	items := n.projectManager.BuildListItems(nil)
-	
+
 	// Convert []interface{} back to []list.Item for the list
 	listItems := make([]list.Item, len(items))
 	for i, item := range items {
 		listItems[i] = item.(ListItem)
 	}
 	n.list.SetItems(listItems)
-
-	logger.Debug("Navigation display refreshed", "itemCount", len(items))
 }
 
 // GetSequenceStatus returns the current sequence status for help display
