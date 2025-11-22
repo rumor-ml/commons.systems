@@ -635,7 +635,9 @@ func stripAnsi(str string) string {
 
 // startLogPolling starts polling for log updates from database
 func (lc *LogsComponent) startLogPolling() tea.Cmd {
-	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg {
+	// Reduced polling frequency from 250ms to 2s to reduce unnecessary updates
+	// and GCP logging API calls (polling was happening 4x/sec, now 0.5x/sec)
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		// Reload logs from database - this needs to happen in Update()
 		// not here in the Tick function
 		return LogUpdateMsg{}
