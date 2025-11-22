@@ -112,7 +112,8 @@ else
 
   # Check if deployment was successful by looking for success indicators
   if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
-    DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | awk '{print $NF}')
+    # Extract URL from output like: "Channel URL (site): https://site--channel.web.app [expires ...]"
+    DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | grep -oE 'https://[^ \[]+' | head -1)
   else
     echo "❌ Firebase deployment may have failed"
     echo "Output:"
