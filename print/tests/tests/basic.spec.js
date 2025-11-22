@@ -38,11 +38,19 @@ test.describe('Print Library Homepage', () => {
   test('should show empty state when no documents exist', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for loading to finish
-    const loading = page.locator('#loading');
-    await loading.waitFor({ state: 'hidden', timeout: 15000 });
+    // Wait for one of the content states to become visible
+    // (Firebase initialization may take time)
+    await page.waitForFunction(() => {
+      const empty = document.querySelector('#emptyState');
+      const docs = document.querySelector('#documents');
+      const error = document.querySelector('#errorState');
 
-    // Either empty state, documents, or error state should be visible
+      return (empty && !empty.hidden) ||
+             (docs && !docs.hidden) ||
+             (error && !error.hidden);
+    }, { timeout: 20000 });
+
+    // Verify at least one content state is visible
     const emptyState = page.locator('#emptyState');
     const documentsContainer = page.locator('#documents');
     const errorState = page.locator('#errorState');
@@ -51,7 +59,6 @@ test.describe('Print Library Homepage', () => {
     const docsVisible = await documentsContainer.isVisible();
     const errorVisible = await errorState.isVisible();
 
-    // One of these should be visible after loading
     expect(emptyVisible || docsVisible || errorVisible).toBe(true);
   });
 
