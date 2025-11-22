@@ -859,26 +859,9 @@ jobs:
 
           echo "✓ Firebase configuration injected into source"
 
-          # Create Firebase Storage bucket if it doesn't exist
-          echo ""
-          echo "Ensuring Firebase Storage bucket exists..."
-          BUCKET_CHECK=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            "https://storage.googleapis.com/storage/v1/b/${STORAGE_BUCKET}")
-
-          if echo "$BUCKET_CHECK" | jq -e '.error.code == 404' > /dev/null 2>&1; then
-            echo "Bucket does not exist, creating it..."
-            gcloud storage buckets create "gs://${STORAGE_BUCKET}" \
-              --project=${{ env.GCP_PROJECT_ID }} \
-              --location=us-central1 \
-              --uniform-bucket-level-access
-            echo "✓ Created Firebase Storage bucket: ${STORAGE_BUCKET}"
-          else
-            echo "✓ Firebase Storage bucket already exists: ${STORAGE_BUCKET}"
-          fi
-
           # Deploy Firebase Storage rules (in same step to access STORAGE_BUCKET variable)
           echo ""
-          echo "Deploying Firebase Storage rules..."
+          echo "Deploying Firebase Storage rules to ${STORAGE_BUCKET}..."
           RULES_FILE="print/storage.rules"
 
           # Read and escape rules file for JSON
