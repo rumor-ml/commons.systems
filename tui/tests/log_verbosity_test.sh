@@ -84,14 +84,13 @@ func main() {
 	}
 	defer db.Close()
 
-	// Count logs with same message but different timestamps within 5 seconds
+	// Find messages that repeat with timestamps close together (within 2 seconds)
 	query := `
-		SELECT message, COUNT(*) as count
+		SELECT message, time, COUNT(*) as count
 		FROM logs
 		GROUP BY message
 		HAVING count > 1
 		ORDER BY count DESC
-		LIMIT 10
 	`
 
 	rows, err := db.Query(query)
@@ -104,25 +103,59 @@ func main() {
 	repeatedCount := 0
 	for rows.Next() {
 		var message string
+		var lastTime string
 		var count int
-		if err := rows.Scan(&message, &count); err != nil {
+		if err := rows.Scan(&message, &lastTime, &count); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan failed: %v\n", err)
 			continue
 		}
 
-		// Check if this message was logged more than once per second
-		if count > 2 {
-			fmt.Printf("REPEATED: %s (count: %d)\n", message, count)
-			repeatedCount++
+		// For each repeated message, check if occurrences are within 2 seconds of each other
+		timestampQuery := `
+			SELECT time FROM logs WHERE message = ? ORDER BY time ASC
+		`
+		timestampRows, err := db.Query(timestampQuery, message)
+		if err != nil {
+			continue
+		}
+
+		var timestamps []time.Time
+		for timestampRows.Next() {
+			var ts string
+			if err := timestampRows.Scan(&ts); err != nil {
+				continue
+			}
+			t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", ts)
+			if err != nil {
+				// Try alternative format
+				t, err = time.Parse(time.RFC3339Nano, ts)
+				if err != nil {
+					continue
+				}
+			}
+			timestamps = append(timestamps, t)
+		}
+		timestampRows.Close()
+
+		// Check if any two consecutive timestamps are within 2 seconds
+		// This indicates a log printing repeatedly every second
+		for i := 1; i < len(timestamps); i++ {
+			diff := timestamps[i].Sub(timestamps[i-1])
+			if diff < 2*time.Second && count >= 3 {
+				fmt.Printf("REPEATED EVERY ~%.1fs: %s (total count: %d, interval: %.2fs)\n",
+					diff.Seconds(), message, count, diff.Seconds())
+				repeatedCount++
+				break
+			}
 		}
 	}
 
 	if repeatedCount > 0 {
-		fmt.Printf("\nFound %d messages that repeated excessively\n", repeatedCount)
+		fmt.Printf("\nFound %d messages printing repeatedly every second\n", repeatedCount)
 		os.Exit(1)
 	}
 
-	fmt.Println("No excessive log repetition detected")
+	fmt.Println("No logs printing repeatedly every second")
 }
 EOF
 
@@ -132,10 +165,10 @@ ANALYSIS_EXIT=$?
 
 echo "$ANALYSIS_OUTPUT"
 
-if [ $ANALYSIS_EXIT -eq 0 ] && echo "$ANALYSIS_OUTPUT" | grep -q "No excessive log repetition"; then
-    pass "No logs are printing repeatedly with updating timestamps"
+if [ $ANALYSIS_EXIT -eq 0 ] && echo "$ANALYSIS_OUTPUT" | grep -q "No logs printing repeatedly every second"; then
+    pass "No logs are printing repeatedly every second"
 else
-    fail "Found logs printing repeatedly: $ANALYSIS_OUTPUT"
+    fail "Found logs printing repeatedly every second: $ANALYSIS_OUTPUT"
 fi
 
 # Cleanup

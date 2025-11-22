@@ -151,7 +151,7 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 			// If this project has 2+ children, it's likely the monorepo root
 			if childCount >= 2 {
 				monorepoRoot = p
-				logger.Debug("Identified monorepo root", "name", p.Name, "path", p.Path, "children", childCount)
+				// Removed: High-frequency DEBUG log (fires every navigation update = 1x/sec)
 				break
 			}
 			_ = baseName // unused for now

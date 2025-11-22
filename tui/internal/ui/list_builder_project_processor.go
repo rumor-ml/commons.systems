@@ -115,7 +115,7 @@ func (pp *ListBuilderProjectProcessor) ProcessProjectsForItems(projects []*model
 			}
 			if childCount >= 2 {
 				monorepoRoot = p
-				pp.logger.Debug("Identified monorepo root for display", "name", p.Name, "children", childCount)
+				// Removed: High-frequency DEBUG log (fires on every list build)
 				break
 			}
 		}

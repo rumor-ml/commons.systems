@@ -26,6 +26,6 @@ func (n *NavigationListComponent) UpdatePanesOnly(tmuxPanes map[string]*terminal
 			listItems[i] = item.(ListItem)
 		}
 		n.list.SetItems(listItems)
-		logger.Debug("Panes updated without modifying projects", "itemCount", len(items))
+		// Removed: High-frequency DEBUG log (fires on every pane update)
 	}
 }

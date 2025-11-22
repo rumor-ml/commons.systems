@@ -260,7 +260,7 @@ func (mh *MessageHandler) handleOtherMsg(msg tea.Msg) tea.Cmd {
 
 	case ProjectDiscoveryCompleteMsg:
 		// Handle project discovery completion
-		logger.Info("Project discovery complete", "count", len(msg.Projects))
+		// Removed: High-frequency INFO log (fires on every project discovery cycle)
 		// Trigger navigation update
 		return func() tea.Msg {
 			return updateNavigationProjectsMsg{}
