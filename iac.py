@@ -248,7 +248,9 @@ def enable_apis(config):
         'sts.googleapis.com',
         'firebase.googleapis.com',
         'firebaserules.googleapis.com',
-        'firebasestorage.googleapis.com'
+        'firebasestorage.googleapis.com',
+        'firebasehosting.googleapis.com',     # Firebase Hosting
+        'identitytoolkit.googleapis.com'      # Identity Platform (Firebase Auth)
     ]
 
     # Note: gcloud services enable is idempotent - already enabled APIs are skipped
@@ -841,6 +843,210 @@ def initialize_firebase(config):
                 print(f"{Colors.YELLOW}You may need to initialize Firebase manually at:{Colors.NC}")
                 print("https://console.firebase.google.com/")
 
+    # Inform about Firebase security rules deployment via IaC
+    print(f"\n{Colors.INFO}ℹ  Firebase Security Rules:{Colors.NC}")
+    print(f"{Colors.INFO}   - firestore.rules and storage.rules will be deployed automatically{Colors.NC}")
+    print(f"{Colors.INFO}   - Managed via Terraform (infrastructure/terraform/firebase.tf){Colors.NC}")
+    print(f"{Colors.INFO}   - Deploys when you push changes (IaC workflow){Colors.NC}")
+
+def create_firebase_hosting_sites(project_id):
+    """Create Firebase Hosting sites for all sites in the monorepo."""
+    import re
+
+    print_info("Creating Firebase Hosting sites...")
+
+    # Sites defined in firebase.json
+    sites = ["fellspiral", "videobrowser", "audiobrowser"]
+    site_mappings = {}  # Track original -> actual site names
+
+    for site_id in sites:
+        actual_site_id = site_id
+
+        # Check if site already exists
+        check_result = run_command(
+            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+            f'-H "x-goog-user-project: {project_id}" '
+            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites/{site_id}" '
+            f'-w "\\n%{{http_code}}"',
+            check=False
+        )
+
+        if check_result:
+            lines = check_result.strip().split('\n')
+            http_code = lines[-1] if lines else ""
+            response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
+
+            if http_code == "200":
+                print_info(f"  Site '{site_id}' already exists")
+                site_mappings[site_id] = site_id
+                continue
+            elif http_code == "404":
+                # Site doesn't exist, will create it
+                pass
+
+        # Create the site (siteId is a query parameter, not in body)
+        print_info(f"  Creating site '{actual_site_id}'...")
+        create_result = run_command(
+            f'curl -s -X POST '
+            f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+            f'-H "x-goog-user-project: {project_id}" '
+            f'-H "Content-Type: application/json" '
+            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites?siteId={actual_site_id}" '
+            f'-w "\\n%{{http_code}}"',
+            check=False
+        )
+
+        if create_result:
+            lines = create_result.strip().split('\n')
+            http_code = lines[-1] if lines else ""
+            response_body = '\n'.join(lines[:-1]) if len(lines) > 1 else ""
+
+            if http_code in ["200", "201"]:
+                print_success(f"  Created site '{actual_site_id}'")
+                site_mappings[site_id] = actual_site_id
+                try:
+                    site_data = json.loads(response_body)
+                    if 'defaultUrl' in site_data:
+                        print_success(f"    URL: {site_data['defaultUrl']}")
+                except:
+                    pass
+            else:
+                # Check if error indicates site already exists or is reserved
+                try:
+                    error_data = json.loads(response_body)
+                    error_msg = error_data.get('error', {}).get('message', '')
+
+                    if 'already exists' in error_msg.lower() or 'ALREADY_EXISTS' in error_msg:
+                        print_info(f"  Site '{actual_site_id}' already exists")
+                        site_mappings[site_id] = actual_site_id
+                    elif 'reserved by another project' in error_msg.lower():
+                        # Check if the "reserved" site is actually in OUR project
+                        # (initial check may have failed, or error message may be misleading)
+                        print_info(f"  Site '{actual_site_id}' is reported as reserved, verifying if it's in our project...")
+
+                        check_our_project = run_command(
+                            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                            f'-H "x-goog-user-project: {project_id}" '
+                            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites/{actual_site_id}" '
+                            f'-w "\\n%{{http_code}}"',
+                            check=False
+                        )
+
+                        if check_our_project:
+                            check_lines = check_our_project.strip().split('\n')
+                            check_code = check_lines[-1] if check_lines else ""
+
+                            if check_code == "200":
+                                # It's reserved by OUR project, use it!
+                                print_success(f"  Site '{actual_site_id}' exists in our project - using it")
+                                site_mappings[site_id] = actual_site_id
+                                continue
+
+                        # Truly reserved by another project, extract suggested alternative name
+                        # Error format: "try something like `videobrowser-6def8` instead"
+                        match = re.search(r'try something like `([^`]+)`', error_msg)
+                        if match:
+                            suggested_name = match.group(1)
+                            print_info(f"  Site '{actual_site_id}' is reserved by another project, trying '{suggested_name}'...")
+
+                            # Try to create suggested name
+                            retry_result = run_command(
+                                f'curl -s -X POST '
+                                f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                                f'-H "x-goog-user-project: {project_id}" '
+                                f'-H "Content-Type: application/json" '
+                                f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites?siteId={suggested_name}" '
+                                f'-w "\\n%{{http_code}}"',
+                                check=False
+                            )
+
+                            if retry_result:
+                                retry_lines = retry_result.strip().split('\n')
+                                retry_code = retry_lines[-1] if retry_lines else ""
+                                retry_body = '\n'.join(retry_lines[:-1]) if len(retry_lines) > 1 else ""
+
+                                if retry_code in ["200", "201"]:
+                                    print_success(f"  Created site '{suggested_name}' (alternative for '{site_id}')")
+                                    site_mappings[site_id] = suggested_name
+                                    try:
+                                        site_data = json.loads(retry_body)
+                                        if 'defaultUrl' in site_data:
+                                            print_success(f"    URL: {site_data['defaultUrl']}")
+                                    except:
+                                        pass
+                                else:
+                                    print(f"{Colors.YELLOW}  Failed to create alternative site '{suggested_name}'{Colors.NC}")
+                        else:
+                            print(f"{Colors.YELLOW}  Site '{actual_site_id}' is reserved and no alternative suggested{Colors.NC}")
+                    else:
+                        print(f"{Colors.YELLOW}  Warning: Could not create site '{actual_site_id}' (HTTP {http_code}){Colors.NC}")
+                        print(f"{Colors.YELLOW}  Error: {error_msg}{Colors.NC}")
+                except:
+                    print(f"{Colors.YELLOW}  Warning: Could not create site '{actual_site_id}' (HTTP {http_code}){Colors.NC}")
+
+    # Update firebase.json and .firebaserc if any sites have alternative names
+    update_firebase_config(site_mappings)
+
+    print_success("Firebase Hosting sites configured")
+
+def update_firebase_config(site_mappings):
+    """Update firebase.json and .firebaserc with actual site names."""
+    import os
+
+    # Check if any sites have alternative names
+    needs_update = any(orig != actual for orig, actual in site_mappings.items())
+    if not needs_update:
+        return
+
+    print_info("Updating Firebase configuration files with actual site names...")
+
+    # Update firebase.json
+    firebase_json_path = "firebase.json"
+    if os.path.exists(firebase_json_path):
+        with open(firebase_json_path, 'r') as f:
+            firebase_config = json.load(f)
+
+        # Update site names in hosting array
+        if 'hosting' in firebase_config:
+            for hosting_config in firebase_config['hosting']:
+                if 'site' in hosting_config:
+                    original_site = hosting_config['site']
+                    if original_site in site_mappings:
+                        actual_site = site_mappings[original_site]
+                        if original_site != actual_site:
+                            hosting_config['site'] = actual_site
+                            print_info(f"  Updated firebase.json: {original_site} -> {actual_site}")
+
+        with open(firebase_json_path, 'w') as f:
+            json.dump(firebase_config, f, indent=2)
+            f.write('\n')
+
+    # Update .firebaserc
+    firebaserc_path = ".firebaserc"
+    if os.path.exists(firebaserc_path):
+        with open(firebaserc_path, 'r') as f:
+            firebaserc_config = json.load(f)
+
+        # Update site targets
+        if 'targets' in firebaserc_config:
+            for project_id, targets in firebaserc_config['targets'].items():
+                if 'hosting' in targets:
+                    for original_site, site_list in list(targets['hosting'].items()):
+                        if original_site in site_mappings:
+                            actual_site = site_mappings[original_site]
+                            if original_site != actual_site:
+                                # Remove old mapping and add new one
+                                targets['hosting'][actual_site] = [actual_site]
+                                if original_site != actual_site:
+                                    del targets['hosting'][original_site]
+                                print_info(f"  Updated .firebaserc: {original_site} -> {actual_site}")
+
+        with open(firebaserc_path, 'w') as f:
+            json.dump(firebaserc_config, f, indent=2)
+            f.write('\n')
+
+    print_success("Firebase configuration files updated")
+
 def generate_github_secrets(config):
     """Generate and display GitHub secrets."""
     print_header("Pre-Terraform Setup Complete! ✓")
@@ -1061,6 +1267,9 @@ def main():
 
             print_info(f"Using project: {project_id}")
 
+            # Create Firebase Hosting sites (must be done before Terraform)
+            create_firebase_hosting_sites(project_id)
+
             # Create terraform state bucket
             create_terraform_state_bucket(project_id)
 
@@ -1084,6 +1293,9 @@ def main():
                 print_error("GCP_PROJECT_ID not set and no default project configured")
 
             print_info(f"Using project: {project_id}")
+
+            # Create Firebase Hosting sites (must be done before Terraform)
+            create_firebase_hosting_sites(project_id)
 
             # Create terraform state bucket
             create_terraform_state_bucket(project_id)
