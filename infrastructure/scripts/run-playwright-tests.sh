@@ -19,13 +19,27 @@ echo "=== Running Playwright tests for $SITE_NAME ==="
 echo "Site URL: $SITE_URL"
 echo "Playwright Server: $PLAYWRIGHT_SERVER_URL"
 
-# Test Playwright server health
+# Test Playwright server health with retry logic
 echo "Testing Playwright server health..."
-curl -f "${PLAYWRIGHT_SERVER_URL}/health" || {
-  echo "❌ Playwright server is not responding"
-  exit 1
-}
-echo "✅ Playwright server is healthy"
+MAX_RETRIES=5
+RETRY_DELAY=2
+
+for i in $(seq 1 $MAX_RETRIES); do
+  if curl -f "${PLAYWRIGHT_SERVER_URL}/health"; then
+    echo "✅ Playwright server is healthy"
+    break
+  else
+    EXIT_CODE=$?
+    if [ $i -lt $MAX_RETRIES ]; then
+      echo "⚠️  Health check failed (attempt $i/$MAX_RETRIES), retrying in ${RETRY_DELAY}s..."
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))  # Exponential backoff
+    else
+      echo "❌ Playwright server is not responding after $MAX_RETRIES attempts"
+      exit 1
+    fi
+  fi
+done
 
 # Get OIDC token for authentication
 echo "Getting authentication token..."
@@ -67,27 +81,39 @@ fi
 
 echo "✅ Authentication token obtained"
 
-# Get authenticated browser endpoint from server
+# Get authenticated browser endpoint from server with retry logic
 echo "Getting browser server endpoint..."
-BROWSER_RESPONSE=$(curl -sf \
-  -H "Authorization: Bearer $OIDC_TOKEN" \
-  "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint")
+MAX_RETRIES=5
+RETRY_DELAY=2
 
-if [ $? -ne 0 ]; then
-  echo "❌ Failed to get browser endpoint"
-  echo "Response: $BROWSER_RESPONSE"
-  exit 1
-fi
+for i in $(seq 1 $MAX_RETRIES); do
+  BROWSER_RESPONSE=$(curl -sf \
+    -H "Authorization: Bearer $OIDC_TOKEN" \
+    "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint")
 
-WS_ENDPOINT=$(echo "$BROWSER_RESPONSE" | jq -r '.wsEndpoint')
+  if [ $? -eq 0 ]; then
+    WS_ENDPOINT=$(echo "$BROWSER_RESPONSE" | jq -r '.wsEndpoint')
 
-if [ -z "$WS_ENDPOINT" ] || [ "$WS_ENDPOINT" = "null" ]; then
-  echo "❌ Failed to parse browser endpoint"
-  echo "Response: $BROWSER_RESPONSE"
-  exit 1
-fi
-
-echo "✅ Browser endpoint: $WS_ENDPOINT"
+    if [ -n "$WS_ENDPOINT" ] && [ "$WS_ENDPOINT" != "null" ]; then
+      echo "✅ Browser endpoint: $WS_ENDPOINT"
+      break
+    else
+      echo "❌ Failed to parse browser endpoint"
+      echo "Response: $BROWSER_RESPONSE"
+      exit 1
+    fi
+  else
+    if [ $i -lt $MAX_RETRIES ]; then
+      echo "⚠️  Failed to get browser endpoint (attempt $i/$MAX_RETRIES), retrying in ${RETRY_DELAY}s..."
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))  # Exponential backoff
+    else
+      echo "❌ Failed to get browser endpoint after $MAX_RETRIES attempts"
+      echo "Last response: $BROWSER_RESPONSE"
+      exit 1
+    fi
+  fi
+done
 
 # Run tests locally, connecting to remote browser via Playwright's browser server
 echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely via Playwright browser server)..."
