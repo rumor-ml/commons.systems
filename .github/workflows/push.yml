@@ -199,7 +199,7 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
 
-  # ==================== Step 3a: Deploy Playwright Server (if changed and on main) ====================
+  # ==================== Step 3a: Deploy Playwright Server (on main branch + temp: feature branch) ====================
   deploy-playwright-server:
     name: Deploy Playwright Server
     runs-on: ubuntu-latest
@@ -209,8 +209,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.playwright-server-changed == 'true' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/update-push-workflow-main-011kk51GfpQ2oUsV3N4oaa6h')
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
 
@@ -240,7 +239,7 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
-  # ==================== Step 3b: Deploy Sites (in parallel, if changed) ====================
+  # ==================== Step 3b: Deploy Sites (in parallel, always on main, if changed on feature branches) ====================
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
@@ -250,7 +249,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.fellspiral-changed == 'true'
+      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.fellspiral-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -483,7 +482,7 @@ jobs:
       always() &&
       needs.local-tests.result == 'success' &&
       (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      needs.local-tests.outputs.videobrowser-changed == 'true'
+      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.videobrowser-changed == 'true')
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
