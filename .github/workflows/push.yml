@@ -785,9 +785,21 @@ jobs:
               exit 1
             fi
 
-            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
+            # Firebase web app creation returns an async operation
+            # Wait a few seconds for the operation to complete
+            echo "Waiting for Firebase web app creation to complete..."
+            sleep 5
+
+            # Re-fetch the list of apps to get the newly created app
+            APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
+
+            APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.apps[] | select(.displayName == "Layout Module Web App") | .appId // empty')
             if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-              echo "❌ Failed to get app ID from response"
+              echo "❌ Failed to find newly created Firebase web app"
+              echo "Apps response:"
+              echo "$APPS_RESPONSE" | jq '.'
               exit 1
             fi
             echo "✓ Created Firebase web app: $APP_ID"
