@@ -52,129 +52,12 @@ jobs:
       - name: Test Audiobrowser
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
-  # ==================== Step 2: Infrastructure as Code (main branch only) ====================
-  infrastructure:
-    name: Infrastructure as Code
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: local-tests
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-
-    defaults:
-      run:
-        working-directory: infrastructure/terraform
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Cache Nix store
-        uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          key: ${{ runner.os }}-nix-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            ${{ runner.os }}-nix-
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          token_format: 'access_token'
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Cache gcloud components
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.config/gcloud
-          key: ${{ runner.os }}-gcloud-${{ hashFiles('.github/workflows/push-main.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-gcloud-
-
-      - name: Create Terraform state bucket
-        run: |
-          if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
-            echo 'Creating Terraform state bucket...'
-            gcloud storage buckets create gs://fellspiral-terraform-state \
-              --project=${{ secrets.GCP_PROJECT_ID }} \
-              --location=us-central1 \
-              --uniform-bucket-level-access
-            gcloud storage buckets update gs://fellspiral-terraform-state --versioning
-            echo 'State bucket created successfully with versioning enabled'
-          else
-            echo 'State bucket already exists'
-          fi
-          echo 'Verifying service account access to state bucket...'
-          gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      - name: Cache Terraform providers
-        uses: actions/cache@v4
-        with:
-          path: |
-            infrastructure/terraform/.terraform
-            ${{ github.workspace }}/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-terraform-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-
-
-      - name: Create terraform.tfvars
-        run: |
-          cat > terraform.tfvars <<EOF
-          project_id  = "${{ secrets.GCP_PROJECT_ID }}"
-          region      = "us-central1"
-          environment = "production"
-          EOF
-
-      - name: Terraform Init
-        run: terraform init -reconfigure
-
-      - name: Terraform Validate
-        run: terraform validate -no-color
-
-      - name: Terraform Plan
-        run: terraform plan -no-color -out=tfplan
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
-
-  # ==================== Step 3: Deploy All Sites ====================
+  # ==================== Step 2: Deploy All Sites ====================
   deploy-all:
     name: Deploy All Sites
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [local-tests, infrastructure]
-    if: |
-      always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped')
+    needs: local-tests
     outputs:
       fellspiral-url: ${{ steps.fellspiral-url.outputs.url }}
       videobrowser-url: ${{ steps.videobrowser-url.outputs.url }}
@@ -213,6 +96,19 @@ jobs:
       - name: Install dependencies (jq)
         run: |
           sudo apt-get update && sudo apt-get install -y jq
+
+      # ========== Infrastructure Setup (main branch only) ==========
+      - name: Setup Terraform
+        if: github.ref == 'refs/heads/main'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Run Infrastructure Setup
+        if: github.ref == 'refs/heads/main'
+        run: python3 setup.py --ci
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
 
       # ========== Deploy Playwright Server ==========
       - name: Deploy Playwright Server
