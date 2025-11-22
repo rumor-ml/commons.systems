@@ -47,6 +47,41 @@ Quick verification that GCP credentials are properly configured and working.
 ./claudetool/verify_gcp_credentials.sh
 ```
 
+#### `get_workflow_logs.sh` - GitHub Actions Log Fetcher
+Fetch logs for GitHub Actions workflow runs and jobs. Handles all the complexity of the GitHub API to retrieve logs reliably.
+
+**Usage:**
+```bash
+# Get logs for specific run ID
+./claudetool/get_workflow_logs.sh 12345678901
+
+# Get logs for specific job in a run
+./claudetool/get_workflow_logs.sh 12345678901 98765
+
+# Get logs for latest run on a branch
+./claudetool/get_workflow_logs.sh main
+
+# Get logs for latest run (any branch)
+./claudetool/get_workflow_logs.sh --latest
+
+# Get logs for latest failed run
+./claudetool/get_workflow_logs.sh --failed
+```
+
+**Features:**
+- Automatically resolves branch names to run IDs
+- Shows workflow information before fetching logs
+- Lists all jobs with their status
+- Interactive prompt for fetching all job logs
+- Handles GitHub API authentication correctly
+- Provides clear error messages
+
+**Why use this instead of manual curl:**
+- Correctly uses `Authorization: token` (not `Bearer`)
+- Handles multi-step process (get jobs, then fetch logs for each)
+- Provides formatted output with job names and status
+- Prevents common authentication errors
+
 #### `add-site.sh` - Add New Site to Monorepo
 Scaffolds a new site in the monorepo with all necessary boilerplate, tests, and workflows.
 
@@ -72,7 +107,8 @@ Scaffolds a new site in the monorepo with all necessary boilerplate, tests, and 
 
 ### When to Use These Tools
 
-- **Debugging deployment failures**: Use `check_workflows.py` to see workflow status, then fetch logs via API
+- **Debugging deployment failures**: Use `check_workflows.py` to see workflow status, then `get_workflow_logs.sh` to fetch logs
+- **Fetching workflow logs**: ALWAYS use `get_workflow_logs.sh` - it handles authentication correctly
 - **GCP setup issues**: Use `debug_gcp_deployment.py` to diagnose configuration problems
 - **Monitoring deployments**: Use `check_workflows.py --monitor` to watch deployment progress
 - **Verifying GCP access**: Use `verify_gcp_credentials.sh` before attempting GCP operations
@@ -163,13 +199,114 @@ For implementation details, see the scripts in the `claudetool/` directory.
 
 ### Accessing GitHub Actions Workflow Logs
 
-Always fetch and analyze logs via API instead of asking the user.
+**ALWAYS use the helper script for fetching logs:**
 
 ```bash
-# Get workflow logs
-curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+# Recommended: Use the helper script
+./claudetool/get_workflow_logs.sh <run_id_or_branch>
+```
+
+**If you must use curl directly, follow this exact pattern:**
+
+#### Step 1: Get Workflow Run Information
+
+```bash
+# CRITICAL: Use 'Authorization: token' NOT 'Authorization: Bearer'
+RUN_ID=12345678901
+
+curl -H "Authorization: token $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/RUN_ID/logs"
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/$RUN_ID"
+```
+
+#### Step 2: Get Jobs for the Workflow Run
+
+```bash
+# Get all jobs - you need job IDs to fetch logs
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/$RUN_ID/jobs"
+```
+
+#### Step 3: Get Logs for Each Job
+
+```bash
+# Use the job ID from step 2
+JOB_ID=98765
+
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/jobs/$JOB_ID/logs"
+```
+
+#### Alternative: Download All Logs as ZIP Archive
+
+```bash
+# This returns a redirect to a ZIP file with all logs
+curl -L \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/$RUN_ID/logs" \
+  -o workflow-logs.zip
+```
+
+#### Common Mistakes to Avoid
+
+**❌ WRONG - Using Bearer instead of token:**
+```bash
+# This will fail with 401 Bad credentials
+curl -H "Authorization: Bearer $GITHUB_TOKEN" ...
+```
+
+**✅ CORRECT - Using token:**
+```bash
+# This works correctly
+curl -H "Authorization: token $GITHUB_TOKEN" ...
+```
+
+**❌ WRONG - Trying to get logs directly from run ID:**
+```bash
+# This endpoint doesn't exist - will return 404
+curl "https://api.github.com/repos/.../runs/$RUN_ID/logs"
+```
+
+**✅ CORRECT - Get jobs first, then job logs:**
+```bash
+# First get jobs, then get logs for each job
+curl ".../runs/$RUN_ID/jobs"
+curl ".../jobs/$JOB_ID/logs"
+```
+
+#### Quick Reference for Common Tasks
+
+**Get latest failed workflow run ID:**
+```bash
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs?status=completed&conclusion=failure&per_page=1" \
+  | jq -r '.workflow_runs[0].id'
+```
+
+**Get latest run for specific branch:**
+```bash
+BRANCH="main"
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs?per_page=20" \
+  | jq -r ".workflow_runs[] | select(.head_branch == \"$BRANCH\") | .id" \
+  | head -1
+```
+
+**List all jobs with their status:**
+```bash
+RUN_ID=12345678901
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/$RUN_ID/jobs" \
+  | jq -r '.jobs[] | "\(.id) - \(.name) - \(.conclusion // .status)"'
 ```
 
 ### Accessing Cloud Run Logs
@@ -186,6 +323,44 @@ curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
 
 **DO:** Fetch logs via API, analyze them, and present findings with solutions
 **DON'T:** Ask users to check logs or investigate manually
+
+### Workflow for Debugging Failed Deployments
+
+When a workflow fails, follow this exact sequence:
+
+1. **Identify the failed run:**
+   ```bash
+   # Use check_workflows.py or get latest failed run
+   ./claudetool/check_workflows.py --branch <branch-name>
+   # OR
+   ./claudetool/get_workflow_logs.sh --failed
+   ```
+
+2. **Fetch and analyze logs:**
+   ```bash
+   # Get logs for the failed run
+   ./claudetool/get_workflow_logs.sh <run_id>
+   # OR for latest failed run
+   ./claudetool/get_workflow_logs.sh --failed
+   ```
+
+3. **Identify the root cause:**
+   - Look for error messages in job logs
+   - Check which step failed
+   - Identify the specific command or test that failed
+
+4. **Fix the issue:**
+   - Make necessary code changes
+   - Commit and push
+   - Verify the fix in the new workflow run
+
+5. **Verify success:**
+   ```bash
+   # Monitor the new deployment
+   ./claudetool/check_workflows.py --branch <branch-name> --monitor
+   ```
+
+**NEVER** skip fetching logs or assume the issue without seeing actual error messages.
 
 ### Debug Scripts Policy
 
