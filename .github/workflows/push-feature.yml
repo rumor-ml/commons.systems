@@ -109,6 +109,7 @@ jobs:
     if: needs.local-tests.outputs.playwright-server-changed == 'true'
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
+      service-name: ${{ steps.get-service-name.outputs.name }}
 
     steps:
       - name: Checkout code
@@ -128,7 +129,7 @@ jobs:
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Deploy Playwright Server
-        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }} ${{ github.ref_name }}
 
       - name: Get service URL
         id: get-url
@@ -136,13 +137,29 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
+      - name: Get service name
+        id: get-service-name
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [ "$BRANCH_NAME" = "main" ]; then
+            SERVICE_NAME="playwright-server"
+          else
+            SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[/_]/-/g' | cut -c1-40)
+            SERVICE_NAME="playwright-server-${SANITIZED_BRANCH}"
+          fi
+          echo "name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
+          echo "Service name: ${SERVICE_NAME}"
+
   # ==================== Step 3: Deploy Sites (in parallel, only if changed) ====================
+  # Note: Sites also deploy when playwright-server changes to enable testing
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
-    if: needs.local-tests.outputs.fellspiral-changed == 'true'
+    if: |
+      needs.local-tests.outputs.fellspiral-changed == 'true' ||
+      needs.local-tests.outputs.playwright-server-changed == 'true'
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
