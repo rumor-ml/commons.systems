@@ -906,15 +906,18 @@ jobs:
 
           # Deploy ruleset to default storage bucket
           echo "Deploying ruleset to Firebase Storage..."
-          RELEASE_RESPONSE=$(curl -s -X POST \
+          RELEASE_NAME="firebase.storage/${{ env.GCP_PROJECT_ID }}.appspot.com"
+          RELEASE_RESPONSE=$(curl -s -X PATCH \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
             -d "{
-              \"name\": \"firebase.storage/${{ env.GCP_PROJECT_ID }}.appspot.com\",
-              \"rulesetName\": \"${RULESET_NAME}\"
+              \"release\": {
+                \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
+                \"rulesetName\": \"${RULESET_NAME}\"
+              }
             }" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases")
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
 
           # Check for errors
           if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
