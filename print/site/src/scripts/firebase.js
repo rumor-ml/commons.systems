@@ -7,9 +7,7 @@ import { firebaseConfig } from '../firebase-config.js';
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-
-// Use public bucket for document listing
-const storage = getStorage(app, 'gs://rml-media-public');
+const storage = getStorage(app);
 
 // Configuration
 const DOCUMENT_PREFIX = 'print/';
