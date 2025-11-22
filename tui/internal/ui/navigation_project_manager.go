@@ -6,7 +6,6 @@ import (
 	"github.com/natb1/tui/internal/status"
 	"github.com/natb1/tui/internal/terminal"
 	"github.com/natb1/tui/pkg/model"
-	"github.com/rumor-ml/log/pkg/log"
 )
 
 // NavigationProjectManager handles project state management for navigation component
@@ -26,8 +25,7 @@ func (pm *NavigationProjectManager) GetKeyBindingManager() *model.KeyBindingMana
 func (pm *NavigationProjectManager) UpdatePanes(tmuxPanes map[string]*terminal.TmuxPane) {
 	// The listBuilder will use the updated panes when building items
 	// No need to store them here as they're passed through BuildListItems
-	logger := log.Get()
-	logger.Debug("ProjectManager updating panes", "paneCount", len(tmuxPanes))
+	// Removed: High-frequency DEBUG log (UpdatePanes called)
 }
 
 // NewNavigationProjectManager creates a new project manager
@@ -43,16 +41,8 @@ var setProjectsCallCount int
 
 // SetProjects updates the navigation with real discovered projects
 func (pm *NavigationProjectManager) SetProjects(projects []*model.Project) []*model.Project {
-	logger := log.Get()
 	setProjectsCallCount++
-	logger.Debug("SetProjects called", "count", len(projects), "callNumber", setProjectsCallCount)
-
-	// Debug: Log stack trace to see who's calling
-	for i, p := range projects {
-		if i < 3 {
-			logger.Debug("SetProjects project", "index", i, "name", p.Name, "path", p.Path)
-		}
-	}
+	// Removed: High-frequency DEBUG logs (SetProjects called, project iteration)
 
 	// Deduplicate "Other Sessions" projects - only keep the first one
 	deduplicatedProjects := make([]*model.Project, 0, len(projects))
@@ -77,38 +67,15 @@ func (pm *NavigationProjectManager) SetProjects(projects []*model.Project) []*mo
 	// Assign keybindings to deduplicated projects
 	pm.keyBindingMgr.AssignKeyBindings(deduplicatedProjects)
 
-	// Debug: Log all assigned keybindings
-	for _, project := range deduplicatedProjects {
-		logger.Debug("SetProjects: Project keybinding assigned",
-			"project", project.Name,
-			"keybinding", string(project.KeyBinding))
-	}
-
-	logger.Debug("Navigation projects updated successfully")
+	// Removed: Per-project keybinding logs (high frequency)
+	// Removed: Success log (high frequency)
 
 	return deduplicatedProjects
 }
 
 // SetProjectsAndPanes updates the navigation with projects and tmux panes
 func (pm *NavigationProjectManager) SetProjectsAndPanes(projects []*model.Project, tmuxPanes map[string]*terminal.TmuxPane) []*model.Project {
-	logger := log.Get()
-	logger.Debug("Setting navigation projects and panes", "projectCount", len(projects), "paneCount", len(tmuxPanes))
-
-	// Log Claude pane details
-	for paneID, pane := range tmuxPanes {
-		if pane.ShellType == model.ShellTypeClaude {
-			logger.Debug("Claude pane found in SetProjectsAndPanes",
-				"paneID", paneID,
-				"project", func() string {
-					if pane.Project != nil {
-						return pane.Project.Name
-					}
-					return "nil"
-				}(),
-				"paneTitle", pane.PaneTitle,
-				"currentCommand", pane.CurrentCommand)
-		}
-	}
+	// Removed: High-frequency DEBUG logs (SetProjectsAndPanes called, Claude pane iteration)
 
 	// Store projects
 	pm.projects = projects
@@ -121,14 +88,8 @@ func (pm *NavigationProjectManager) SetProjectsAndPanes(projects []*model.Projec
 	// Assign keybindings
 	pm.keyBindingMgr.AssignKeyBindings(projects)
 
-	// Debug: Log all assigned keybindings
-	for _, project := range projects {
-		logger.Debug("SetProjectsAndPanes: Project keybinding assigned",
-			"project", project.Name,
-			"keybinding", string(project.KeyBinding))
-	}
-
-	logger.Debug("Navigation projects and panes updated successfully")
+	// Removed: Per-project keybinding logs (high frequency)
+	// Removed: Success log (high frequency)
 
 	return projects
 }
@@ -140,18 +101,16 @@ func (pm *NavigationProjectManager) GetProjects() []*model.Project {
 
 // BuildListItems creates list items from current projects and tmux panes
 func (pm *NavigationProjectManager) BuildListItems(tmuxPanes map[string]*terminal.TmuxPane) []interface{} {
-	logger := log.Get()
-	logger.Debug("Building list items from project manager")
+	// Removed: High-frequency DEBUG logs (BuildListItems called, result count)
 
 	items := pm.listBuilder.BuildListItems(pm.projects, pm.keyBindingMgr, tmuxPanes, pm.claudeStatus)
-	
+
 	// Convert []list.Item to []interface{} to avoid import issues
 	result := make([]interface{}, len(items))
 	for i, item := range items {
 		result[i] = item
 	}
-	
-	logger.Debug("Built list items", "count", len(result))
+
 	return result
 }
 

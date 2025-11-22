@@ -275,18 +275,14 @@ func (c *ClaudeMonitor) checkPaneActivity(paneID string) {
 	if !existed || previousStatus == nil ||
 		previousStatus.Active != status.Active ||
 		previousStatus.DurationText != status.DurationText {
-		// Log activity changes at Debug level
+		// Log activity changes at Debug level (only when active status changes, not duration)
 		if !existed || previousStatus == nil || previousStatus.Active != status.Active {
 			logger.Debug("Claude pane activity changed",
 				"pane", paneID,
 				"active", status.Active,
 				"duration", status.DurationText)
-		} else {
-			// Just duration changed, log at debug level
-			logger.Debug("Claude pane duration updated",
-				"pane", paneID,
-				"duration", status.DurationText)
 		}
+		// Removed: High-frequency duration update log (would fire every second while Claude is active)
 
 		if callback != nil {
 			callback(paneID, status)

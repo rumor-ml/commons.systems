@@ -64,19 +64,19 @@ func (n *NavigationComponent) StartClaudeMonitoring(ctx context.Context) error {
 // SetProjects updates the navigation with real discovered projects using delegation
 func (n *NavigationComponent) SetProjects(projects []*model.Project) {
 	logger := log.Get()
-	logger.Debug("NavigationComponent.SetProjects called", "count", len(projects))
+	// Removed: High-frequency DEBUG logs (SetProjects called)
 
 	// Delegate to project handler for processing
 	shouldUpdate, newHash := n.projectHandler.ProcessProjectUpdate(projects, &n.lastProjectsHash, n.tmuxPanes)
-	
+
 	if !shouldUpdate {
 		return
 	}
-	
+
 	n.lastProjectsHash = newHash
 
 	if n.listNav != nil {
-		logger.Debug("navigation.go: Calling SetProjectsAndPanes from SetProjects", "projectCount", len(projects))
+		// Removed: High-frequency DEBUG log
 		n.listNav.SetProjectsAndPanes(projects, n.tmuxPanes)
 	} else {
 		logger.Error("listNav is nil in SetProjects")
@@ -85,26 +85,22 @@ func (n *NavigationComponent) SetProjects(projects []*model.Project) {
 
 // SetPanes updates the navigation with discovered tmux panes using delegation
 func (n *NavigationComponent) SetPanes(panes map[string]*terminal.TmuxPane) {
-	logger := log.Get()
-	logger.Debug("NavigationComponent.SetPanes called", "count", len(panes))
+	// Removed: High-frequency DEBUG logs (SetPanes called, update type)
 
 	// Delegate to pane handler for processing
 	shouldUpdate, updateType, newHash := n.paneHandler.ProcessPaneUpdate(panes, &n.lastPanesHash, n.tmuxPanes)
-	
+
 	if !shouldUpdate {
 		return
 	}
-	
+
 	n.lastPanesHash = newHash
 	n.tmuxPanes = panes
-	
+
 	// Handle different update types
 	if n.listNav != nil && n.listNav.projects != nil {
-		if updateType == "claude_status" {
-			logger.Debug("navigation.go: Updating panes only (Claude status)")
-		} else {
-			logger.Debug("navigation.go: Updating panes only (normal)")
-		}
+		// Removed: High-frequency DEBUG logs for Claude status updates
+		_ = updateType // Keep variable for future use
 		n.listNav.UpdatePanesOnly(n.tmuxPanes)
 	}
 }
@@ -170,8 +166,7 @@ type NavigationCancelMsg struct{}
 
 // View renders the navigation component
 func (n *NavigationComponent) View() string {
-	logger := log.Get()
-	// Don't log on every View() call - this happens on every render frame
+	// Removed: logger variable (no DEBUG logs in render loop)
 
 	if n.width == 0 || n.height == 0 {
 		return "Navigation Loading..."
@@ -183,9 +178,8 @@ func (n *NavigationComponent) View() string {
 	}
 
 	// Get list view
-	logger.Debug("Getting list view from listNav")
+	// Removed: High-frequency DEBUG logs in render loop (View method)
 	view := n.listNav.View()
-	logger.Debug("Got list view", "length", len(view))
 
 	// Additional cleanup in case list component missed any
 	view = strings.ReplaceAll(view, "[K", "")
@@ -210,8 +204,7 @@ func (n *NavigationComponent) SetLogsComponent(logs *LogsComponent) {
 
 // UpdatePanes updates the cached tmux panes after a layout change
 func (n *NavigationComponent) UpdatePanes(panes map[string]*terminal.TmuxPane) {
-	logger := log.Get()
-	logger.Debug("NavigationComponent updating panes", "count", len(panes))
+	// Removed: High-frequency DEBUG log (UpdatePanes called)
 
 	// Update our cached panes
 	n.tmuxPanes = panes

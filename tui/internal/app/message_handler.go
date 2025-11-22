@@ -31,16 +31,11 @@ func (mh *MessageHandler) HandleUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	logger := log.Get()
 	var cmds []tea.Cmd
 
-	// Log all message types
-	logger.Debug("UPDATE_CALLED", "msgType", fmt.Sprintf("%T", msg))
+	// Removed: High-frequency DEBUG log for every message (UPDATE_CALLED)
+	// Removed: High-frequency DEBUG log for every keypress (KEY_RECEIVED)
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		logger.Debug("KEY_RECEIVED",
-			"key", msg.String(),
-			"type", fmt.Sprintf("%d", msg.Type),
-			"runes", fmt.Sprintf("%v", msg.Runes),
-			"alt", msg.Alt)
 
 		// Check for global quit keys using key binding system
 		keyBindings := mh.app.uiManager.GetKeyBindings()
@@ -164,9 +159,7 @@ func (mh *MessageHandler) HandleUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if len(cmds) > 0 {
-		logger.Debug("Update returning with commands", "commandCount", len(cmds))
-	}
+	// Removed: High-frequency DEBUG log for command batching
 	return mh.app, tea.Batch(cmds...)
 }
 
