@@ -38,7 +38,7 @@
       "trailingSlash": false
     },
     {
-      "site": "videobrowser",
+      "site": "videobrowser-7696a",
       "public": "videobrowser/site/dist",
       "ignore": [
         "firebase.json",
