@@ -62,8 +62,39 @@ test.describe('Authentication', () => {
 
     const authButton = page.locator('.auth-button');
 
-    // Just verify button is clickable and not disabled
+    // Wait for auth initialization (button should not show "Loading...")
+    await expect(authButton.locator('.auth-button__text')).not.toContainText('Loading', { timeout: 10000 });
+
+    // Verify button is enabled after auth state initializes
+    await expect(authButton).toBeEnabled({ timeout: 5000 });
+
+    // Verify button text is "Sign in with GitHub"
+    await expect(authButton).toContainText('Sign in with GitHub');
+  });
+
+  test('auth button should not be disabled after initialization', async ({ page }) => {
+    await page.goto('/');
+
+    const authButton = page.locator('.auth-button');
+
+    // Wait for page load
+    await page.waitForLoadState('networkidle');
+
+    // Wait a bit for any async state updates
+    await page.waitForTimeout(2000);
+
+    // Button should be enabled (not stuck in disabled state)
     await expect(authButton).toBeEnabled();
+
+    // Button should not be in loading state
+    const buttonText = await authButton.locator('.auth-button__text').textContent();
+    expect(buttonText).not.toBe('Loading...');
+
+    // Verify button has correct data attribute
+    const isLoading = await authButton.evaluate((btn) => {
+      return btn.textContent.includes('Loading');
+    });
+    expect(isLoading).toBe(false);
   });
 
   test('auth styles should load correctly', async ({ page }) => {

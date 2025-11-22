@@ -11,7 +11,7 @@ const listeners = new Set();
 let currentAuthState = {
   user: null,
   isAuthenticated: false,
-  isLoading: true
+  isLoading: false  // Start as not loading - Firebase will trigger state update
 };
 
 /**
