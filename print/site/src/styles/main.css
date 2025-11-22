@@ -191,6 +191,10 @@ body {
   padding: 4rem 1rem;
 }
 
+.loading[hidden] {
+  display: none;
+}
+
 .loading__spinner {
   width: 3rem;
   height: 3rem;
@@ -215,6 +219,10 @@ body {
 .empty-state {
   text-align: center;
   padding: 4rem 1rem;
+}
+
+.empty-state[hidden] {
+  display: none;
 }
 
 .empty-state__icon {
@@ -246,6 +254,10 @@ body {
   padding: 4rem 1rem;
 }
 
+.error-state[hidden] {
+  display: none;
+}
+
 .error-state__icon {
   font-size: 4rem;
   margin-bottom: 1rem;
@@ -274,6 +286,10 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 1.5rem;
   margin-top: 2rem;
+}
+
+.documents[hidden] {
+  display: none;
 }
 
 /* Document Card */
