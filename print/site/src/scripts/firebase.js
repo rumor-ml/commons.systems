@@ -13,9 +13,9 @@ const storage = getStorage(app);
 const DOCUMENT_PREFIX = 'print/';
 
 /**
- * Get all documents from Firebase Storage (GCS)
+ * Get all documents from Firebase Storage
  * Lists all files in the print/ directory
- * @returns {Promise<Array>} Array of document objects
+ * @returns {Promise<Array>} Array of document objects with metadata
  */
 export async function getAllDocuments() {
   try {
