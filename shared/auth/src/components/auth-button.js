@@ -120,10 +120,12 @@ export function createAuthButton(options = {}) {
       button.disabled = true;
     } else if (authed) {
       text.textContent = logoutText;
+      button.disabled = false;
       button.classList.add('auth-button--authenticated');
       button.classList.remove('auth-button--unauthenticated');
     } else {
       text.textContent = loginText;
+      button.disabled = false;
       button.classList.add('auth-button--unauthenticated');
       button.classList.remove('auth-button--authenticated');
     }
