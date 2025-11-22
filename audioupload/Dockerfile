@@ -3,17 +3,18 @@
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
 
-WORKDIR /build/frontend
+WORKDIR /build
 
 # Copy frontend package files
-COPY audioupload/site/package*.json ./
-
-# Install frontend dependencies
-RUN npm install --production=false
+COPY audioupload/site/package*.json audioupload/site/
 
 # Copy frontend source and shared components
-COPY audioupload/site/ ./
-COPY shared-components/ /build/shared-components/
+COPY audioupload/site/ audioupload/site/
+COPY shared-components/ shared-components/
+
+# Install frontend dependencies
+WORKDIR /build/audioupload/site
+RUN npm install --production=false
 
 # Build frontend
 RUN npm run build
@@ -57,7 +58,7 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend-builder /build/server /app/server
 
 # Copy frontend build
-COPY --from=frontend-builder /build/frontend/dist /app/public
+COPY --from=frontend-builder /build/audioupload/site/dist /app/public
 
 # Expose port
 EXPOSE 8080
