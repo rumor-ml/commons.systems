@@ -982,7 +982,39 @@ def create_firebase_hosting_sites(project_id):
                                 site_mappings[site_id] = actual_site_id
                                 continue
 
-                        # Truly reserved by another project, extract suggested alternative name
+                        # Site not in our project - before creating new site, check if a related site exists
+                        # (e.g., if trying "videobrowser", check for "videobrowser-7696a")
+                        print_info(f"  Checking if related site exists (e.g., '{actual_site_id}-*')...")
+                        list_sites_result = run_command(
+                            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                            f'-H "x-goog-user-project: {project_id}" '
+                            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites"',
+                            check=False
+                        )
+
+                        if list_sites_result:
+                            try:
+                                sites_data = json.loads(list_sites_result)
+                                existing_sites = sites_data.get('sites', [])
+                                # Look for sites that start with our desired name
+                                related_sites = [
+                                    s for s in existing_sites
+                                    if s.get('name', '').split('/')[-1].startswith(actual_site_id + '-')
+                                ]
+
+                                if related_sites:
+                                    # Found a related site! Use it instead of creating new one
+                                    related_site_id = related_sites[0]['name'].split('/')[-1]
+                                    print_success(f"  Found existing related site '{related_site_id}' - using it instead")
+                                    site_mappings[site_id] = related_site_id
+
+                                    # Update firebase.json to use the correct site ID
+                                    print_info(f"  Note: Update firebase.json to use '{related_site_id}' instead of '{site_id}'")
+                                    continue
+                            except:
+                                pass  # If parsing fails, continue with suggested name approach
+
+                        # No related site found - extract suggested alternative name
                         # Error format: "try something like `videobrowser-6def8` instead"
                         match = re.search(r'try something like `([^`]+)`', error_msg)
                         if match:
