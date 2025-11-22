@@ -39,19 +39,18 @@ func (al *AppLifecycle) Init() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 
-	// Log TUI ready
-	logger.Info("TUI started")
+	// Removed: Verbose INFO log (startup message)
 
 	// Start Claude monitoring for navigation asynchronously
 	cmds = append(cmds, func() tea.Msg {
-		logger.Info("Attempting to start Claude monitoring")
+		// Removed: Verbose INFO log (startup message)
 		if navComp := al.app.uiManager.GetNavigationComponent(); navComp != nil {
-			logger.Info("Navigation component found, configuring Claude monitoring")
+			// Removed: Verbose INFO log (startup message)
 
 			// Set the notification handler on the ClaudeStatusManager
 			if statusMgr := navComp.GetClaudeStatusManager(); statusMgr != nil {
 				statusMgr.SetNotificationHandler(al.app.notificationHandler)
-				logger.Info("Notification handler set on ClaudeStatusManager")
+				// Removed: Verbose INFO log (startup message)
 			}
 
 			ctx := context.Background()
@@ -106,7 +105,7 @@ func (al *AppLifecycle) Init() tea.Cmd {
 		}),
 	)
 
-	logger.Info("App.Init() returning commands", "count", len(cmds))
+	// Removed: Verbose INFO log (startup message)
 	return tea.Batch(cmds...)
 }
 
@@ -114,7 +113,7 @@ func (al *AppLifecycle) Init() tea.Cmd {
 func (al *AppLifecycle) DiscoverWorktrees() tea.Cmd {
 	return func() tea.Msg {
 		logger := log.Get()
-		logger.Info("Discovering worktrees")
+		// Removed: Verbose INFO log (fires on worktree discovery)
 
 		// Get all projects
 		projects := make([]worktreeservice.ProjectInfo, 0)
