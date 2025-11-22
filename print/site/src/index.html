@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Print - Document Library</title>
+  <meta name="description" content="Document library for PDFs, EPUBs, Markdown, and Comics">
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="header__title">📚 Print</h1>
+      <div class="header__actions">
+        <button id="uploadBtn" class="btn btn--primary" aria-label="Upload document">
+          <span class="btn__icon">⬆️</span>
+          <span class="btn__text">Upload</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- Upload Form (hidden by default) -->
+      <div id="uploadForm" class="upload-form" hidden>
+        <div class="upload-form__content">
+          <h2 class="upload-form__title">Upload Document</h2>
+          <form id="uploadFormElement">
+            <div class="form-group">
+              <label for="fileInput" class="form-label">Select File</label>
+              <input
+                type="file"
+                id="fileInput"
+                class="form-input"
+                accept=".pdf,.epub,.md,.cbz,.cbr"
+                required
+              >
+              <p class="form-help">Supported formats: PDF, EPUB, Markdown, CBZ, CBR</p>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary">Upload</button>
+              <button type="button" id="cancelUploadBtn" class="btn btn--secondary">Cancel</button>
+            </div>
+            <div id="uploadProgress" class="upload-progress" hidden>
+              <div class="upload-progress__bar">
+                <div id="uploadProgressBar" class="upload-progress__fill"></div>
+              </div>
+              <p id="uploadProgressText" class="upload-progress__text">Uploading...</p>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Document Grid -->
+      <div id="documentGrid" class="document-grid">
+        <!-- Loading state -->
+        <div id="loading" class="loading">
+          <div class="loading__spinner"></div>
+          <p class="loading__text">Loading documents...</p>
+        </div>
+
+        <!-- Empty state -->
+        <div id="emptyState" class="empty-state" hidden>
+          <div class="empty-state__icon">📄</div>
+          <h2 class="empty-state__title">No Documents Found</h2>
+          <p class="empty-state__text">Upload your first document to get started.</p>
+          <p class="empty-state__hint">Supported formats: PDF, EPUB, Markdown, CBZ, CBR</p>
+        </div>
+
+        <!-- Error state -->
+        <div id="errorState" class="error-state" hidden>
+          <div class="error-state__icon">⚠️</div>
+          <h2 class="error-state__title">Error Loading Documents</h2>
+          <p id="errorMessage" class="error-state__text"></p>
+          <button id="retryBtn" class="btn btn--primary">Retry</button>
+        </div>
+
+        <!-- Documents will be inserted here -->
+        <div id="documents" class="documents"></div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./scripts/main.js"></script>
+</body>
+</html>

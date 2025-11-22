@@ -1,0 +1,18 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for Print Documents
+// Bucket: rml-media
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow public read access to print documents, no write access from clients
+    match /print/{allPaths=**} {
+      allow read: if true;  // Public read access for all documents
+      allow write: if false; // No public writes - only admins via console/API
+    }
+
+    // Deny access to all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

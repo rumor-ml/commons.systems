@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Documents collection - read access for all, write access restricted
+    match /documents/{documentId} {
+      // Anyone can read document metadata
+      allow read: if true;
+
+      // Only allow writes from authenticated users
+      // In production, you might want to restrict this further to specific users/roles
+      allow write: if request.auth != null;
+
+      // Allow creation, update, and deletion for authenticated users
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Default: deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

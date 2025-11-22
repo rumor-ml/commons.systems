@@ -110,12 +110,49 @@
       ],
       "cleanUrls": true,
       "trailingSlash": false
+    },
+    {
+      "site": "print-dfb47",
+      "public": "print/site/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|pdf|epub)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "max-age=31536000"
+            }
+          ]
+        },
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "max-age=31536000"
+            }
+          ]
+        }
+      ],
+      "cleanUrls": true,
+      "trailingSlash": false
     }
   ],
   "firestore": {
     "rules": "fellspiral/firestore.rules"
   },
   "storage": {
-    "rules": "videobrowser/storage.rules"
+    "rules": "shared/storage.rules"
   }
 }
