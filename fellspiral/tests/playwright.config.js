@@ -45,8 +45,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      // When using CDP, omit 'use' to avoid overriding parent connectOptions
-      ...(process.env.PLAYWRIGHT_CDP_URL
+      // When using remote browser, omit 'use' to avoid overriding parent connectOptions
+      ...(process.env.PLAYWRIGHT_WS_ENDPOINT
         ? {}
         : {
             use: {
