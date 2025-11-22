@@ -121,10 +121,10 @@ type App struct {
 // New creates a new TUI application
 func New(workspaceRoot string) (*App, error) {
 	logger := log.Get()
-	logger.Info("App.New() called", "workspaceRoot", workspaceRoot)
+	// Removed: Verbose INFO log (called repeatedly)
 
 	// Initialize project discovery first to get the actual workspace root
-	logger.Info("Initializing project discovery")
+	// Removed: Verbose INFO log (called repeatedly)
 	var err error
 	projects, err := NewExternalProjectMap(workspaceRoot)
 	if err != nil {

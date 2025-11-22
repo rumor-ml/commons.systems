@@ -73,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer (*lock).Close() // Auto-cleanup on exit
-	logger.Info("Acquired instance lock successfully")
+	// Removed: Verbose INFO log (called repeatedly)
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -95,11 +95,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
 		os.Exit(1)
 	}
-	logger.Info("Parsed CLI config", "help", config.Help, "tools", config.Tools)
+	// Removed: Verbose INFO log (called repeatedly)
 
 	// Handle non-multiplexer modes first
 	if config.Help || config.Tools || config.SwitchMode {
-		logger.Info("Running in non-mux mode")
+		// Removed: Verbose INFO log (called repeatedly)
 		if err := cli.Execute(config); err != nil {
 			logger.Error("CLI execute failed", "error", err)
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -108,7 +108,7 @@ func main() {
 		return
 	}
 
-	logger.Info("Running in multiplexer mode")
+	// Removed: Verbose INFO log (called repeatedly)
 
 	// Check if we need to launch inside tmux
 	if err := ensureRunningInTmux(); err != nil {
@@ -171,11 +171,11 @@ func ensureRunningInTmux() error {
 
 	// Check if we're already inside tmux
 	if os.Getenv("TMUX") != "" {
-		logger.Info("Already running inside tmux", "tmux", os.Getenv("TMUX"))
+		// Removed: Verbose INFO log (called repeatedly)
 		return nil
 	}
 
-	logger.Info("Not running inside tmux, launching tmux session")
+	// Removed: Verbose INFO log (called repeatedly)
 
 	// Find tmux executable
 	tmuxPath, err := findTmuxExecutable()
