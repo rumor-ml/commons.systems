@@ -15,7 +15,7 @@ Utility scripts for debugging and operations. All scripts are self-contained and
 ```bash
 ./claudetool/get_workflow_logs.sh <run_id|branch|--latest|--failed>
 ```
-Use this instead of manual curl - it handles multi-step API calls and authentication.
+**ALWAYS use this tool for fetching logs.** Manual curl requires multi-step API calls and is error-prone.
 
 **`add-site.sh`** - Scaffold new monorepo site
 ```bash
@@ -43,7 +43,7 @@ curl -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/rumor-ml/commons.systems/actions/runs
 ```
 
-**Auth troubleshooting:** Use `Authorization: token` not `Bearer`. Token does not expire during sessions - check header format first.
+**IMPORTANT - Auth troubleshooting:** Use `Authorization: token` not `Bearer`. Token does not expire during sessions - if auth fails, check header format first, not token validity.
 
 ### GCP API
 ```bash
@@ -56,10 +56,10 @@ Environment provides `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `GCP_PROJECT_ID=c
 
 ## Debugging Workflow
 
-**Policy:**
-- Fetch and analyze logs yourself via API
+**IMPORTANT - Policy:**
+- Fetch and analyze logs yourself via API (users should never need to check logs manually)
 - Trust user bug reports - investigate code and logs thoroughly
-- Fix root causes in the implementation
+- Fix root causes in the implementation (workarounds create technical debt)
 
 **Failed deployment workflow:**
 1. `./claudetool/check_workflows.py --branch <branch>` - Identify failed run
@@ -100,13 +100,13 @@ Runs: local tests → deploy → E2E tests (serial, stop on error).
 
 ## Pre-Merge Verification
 
-**Before suggesting merge or PR:**
+**MOST IMPORTANT - Before suggesting merge or PR:**
 1. Check workflow status: `./claudetool/check_workflows.py --branch <branch>`
 2. Monitor to completion if in-progress: `--monitor`
 3. Verify all jobs passed, deployment healthy
-4. Suggest merge only after full pipeline success
+4. Suggest merge ONLY after full pipeline success
 
-Deliver fully verified code.
+NEVER suggest merge without verification - unverified code could break production. Deliver fully verified code.
 
 ## Documentation Policy
 
@@ -129,9 +129,9 @@ Deliver fully verified code.
 
 ### Test-Driven Development
 
-**For bug fixes:**
+**IMPORTANT - For bug fixes:**
 1. Write test that reproduces the bug
-2. Verify test fails
+2. Verify test fails (confirms the bug exists)
 3. Fix bug
 4. Verify test passes
 5. Run full suite
@@ -141,10 +141,10 @@ Deliver fully verified code.
 2. Verify test coverage
 3. Run full suite
 
-**Rules:**
-- Claim "fixed" or "complete" only after tests pass
-- Commit only when all tests pass
-- Add test coverage for bugs and features
+**Absolute Rules:**
+- NEVER claim "fixed" or "complete" without passing tests
+- NEVER commit with failing tests
+- ALWAYS add test coverage for bugs and features
 
 **Example workflow:**
 ```bash
@@ -154,4 +154,4 @@ npm test          # Verify passes
 # Only then inform user of completion
 ```
 
-This ensures bugs stay fixed, features work correctly, and regressions are caught immediately.
+Without tests, bugs return and features break. Test-first development prevents this—tests are not optional.
