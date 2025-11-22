@@ -9,7 +9,6 @@ let currentMonitor = null;
 
 // Initialize the upload job starter
 const jobStarter = new UploadJobStarter(API_BASE_URL, (job) => {
-  console.log('Job created:', job);
   showJobMonitor(job.id);
 });
 
@@ -35,7 +34,6 @@ function showJobMonitor(jobId) {
 
   // Create controls
   const controls = new UploadJobControls(API_BASE_URL, jobId, (action) => {
-    console.log('Control action:', action);
     if (action === 'cancel' || action === 'trash') {
       // Refresh the monitor
       currentMonitor.fetchData();
