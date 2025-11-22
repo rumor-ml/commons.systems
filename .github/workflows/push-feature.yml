@@ -1,4 +1,4 @@
-name: Feature Branch Pipeline
+name: Feature Branch Pipeline (Firebase Hosting)
 
 on:
   push:
@@ -23,7 +23,7 @@ permissions:
   actions: read
 
 jobs:
-  # ==================== Step 1: Local Tests (in series, stop on fail) ====================
+  # ==================== Step 1: Local Tests ====================
   local-tests:
     name: Local Tests
     runs-on: ubuntu-latest
@@ -53,7 +53,7 @@ jobs:
         id: check-changes
         run: |
           # Check fellspiral changes
-          if git diff --name-only HEAD^ HEAD | grep -q "^fellspiral/"; then
+          if git diff --name-only HEAD^ HEAD | grep -qE "^(fellspiral/|shared/auth/)"; then
             echo "fellspiral-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Fellspiral changed"
           else
@@ -62,7 +62,7 @@ jobs:
           fi
 
           # Check videobrowser changes
-          if git diff --name-only HEAD^ HEAD | grep -q "^videobrowser/"; then
+          if git diff --name-only HEAD^ HEAD | grep -qE "^(videobrowser/|shared/auth/)"; then
             echo "videobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Videobrowser changed"
           else
@@ -71,7 +71,7 @@ jobs:
           fi
 
           # Check audiobrowser changes
-          if git diff --name-only HEAD^ HEAD | grep -q "^audiobrowser/"; then
+          if git diff --name-only HEAD^ HEAD | grep -qE "^(audiobrowser/|shared/auth/)"; then
             echo "audiobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Audiobrowser changed"
           else
@@ -109,7 +109,6 @@ jobs:
     if: needs.local-tests.outputs.playwright-server-changed == 'true'
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
-      service-name: ${{ steps.get-service-name.outputs.name }}
 
     steps:
       - name: Checkout code
@@ -129,7 +128,7 @@ jobs:
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Deploy Playwright Server
-        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }} ${{ github.ref_name }}
+        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
 
       - name: Get service URL
         id: get-url
@@ -137,51 +136,19 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
-      - name: Get service name
-        id: get-service-name
-        run: |
-          BRANCH_NAME="${{ github.ref_name }}"
-          if [ "$BRANCH_NAME" = "main" ]; then
-            SERVICE_NAME="playwright-server"
-          else
-            SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[/_]/-/g' | cut -c1-40)
-            SERVICE_NAME="playwright-server-${SANITIZED_BRANCH}"
-          fi
-          echo "name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
-          echo "Service name: ${SERVICE_NAME}"
-
-  # ==================== Step 3: Deploy Sites (in parallel, only if changed) ====================
-  # Note: Sites also deploy when playwright-server changes to enable testing
+  # ==================== Step 3: Deploy Sites to Firebase Hosting ====================
   deploy-fellspiral:
-    name: Deploy Fellspiral
+    name: Deploy Fellspiral (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
-    if: |
-      needs.local-tests.outputs.fellspiral-changed == 'true' ||
-      needs.local-tests.outputs.playwright-server-changed == 'true'
+    if: needs.local-tests.outputs.fellspiral-changed == 'true'
     outputs:
-      service-url: ${{ steps.get-url.outputs.url }}
+      service-url: ${{ steps.deploy.outputs.url }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -192,212 +159,47 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install dependencies (jq)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase Hosting Preview
+        id: deploy
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Get Firebase configuration and inject
-        run: |
-          set -e  # Exit on error
-          echo "Fetching Firebase configuration..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          # List Firebase web apps
-          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-          # Check for errors
-          if echo "$APPS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "❌ Firebase API error:"
-            echo "$APPS_RESPONSE" | jq '.error'
-            echo ""
-            echo "Firebase may not be enabled on this project."
-            echo "Please visit: https://console.firebase.google.com/"
-            echo "And add your GCP project to Firebase."
-            exit 1
-          fi
-
-          # Get or create web app for Fellspiral
-          APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.apps[] | select(.displayName == "Fellspiral Web App") | .appId // empty')
-
-          if [ -z "$APP_ID" ]; then
-            echo "No Firebase web app found for Fellspiral. Creating one..."
-            CREATE_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-              -H "Content-Type: application/json" \
-              -d '{"displayName": "Fellspiral Web App"}' \
-              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-            # Check for errors
-            if echo "$CREATE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-              echo "❌ Failed to create Firebase web app:"
-              echo "$CREATE_RESPONSE" | jq '.error'
-              exit 1
-            fi
-
-            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
-            if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-              echo "❌ Failed to get app ID from response"
-              exit 1
-            fi
-            echo "✓ Created Firebase web app: $APP_ID"
-          else
-            echo "✓ Found existing Firebase web app: $APP_ID"
-          fi
-
-          # Get app configuration
-          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
-
-          # Validate configuration
-          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey // empty')
-          if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-            echo "❌ Failed to get Firebase configuration:"
-            echo "$CONFIG_RESPONSE" | jq '.'
-            exit 1
-          fi
-
-          # Extract all values
-          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
-          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
-          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
-          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
-          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
-
-          echo "✓ Retrieved Firebase configuration:"
-          echo "  API Key: ${API_KEY:0:20}..."
-          echo "  Project: $PROJECT_ID"
-          echo "  Storage Bucket: $STORAGE_BUCKET"
-
-          # Inject into firebase-config.js
-          cat > fellspiral/site/src/firebase-config.js <<EOF
-          /**
-           * Firebase Configuration for Fellspiral
-           *
-           * This configuration is safe to expose publicly as it only identifies
-           * the Firebase project. Access control is managed via Firestore security
-           * rules (firestore.rules).
-           *
-           * Auto-generated during CI/CD deployment
-           */
-
-          export const firebaseConfig = {
-            apiKey: "${API_KEY}",
-            authDomain: "${AUTH_DOMAIN}",
-            projectId: "${PROJECT_ID}",
-            storageBucket: "${STORAGE_BUCKET}",
-            messagingSenderId: "${MESSAGING_SENDER_ID}",
-            appId: "${APP_ID_VALUE}"
-          };
-          EOF
-
-          echo "✓ Firebase configuration injected into source"
-
-      - name: Deploy Firestore rules
-        run: |
-          set -e  # Exit on error
-          echo "Deploying Firestore rules..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          RULES_FILE="fellspiral/firestore.rules"
-
-          # Read and escape rules file for JSON
-          RULES_CONTENT=$(cat "$RULES_FILE" | jq -Rs '.')
-
-          # Create ruleset
-          echo "Creating ruleset..."
-          RULESET_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"source\": {
-                \"files\": [
-                  {
-                    \"name\": \"firestore.rules\",
-                    \"content\": ${RULES_CONTENT}
-                  }
-                ]
-              }
-            }" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
-
-          # Check for errors
-          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "❌ Failed to create ruleset:"
-            echo "$RULESET_RESPONSE" | jq '.error'
-            exit 1
-          fi
-
-          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
-          if [ -z "$RULESET_NAME" ] || [ "$RULESET_NAME" = "null" ]; then
-            echo "❌ Failed to get ruleset name:"
-            echo "$RULESET_RESPONSE" | jq '.'
-            exit 1
-          fi
-          echo "✓ Created ruleset: $RULESET_NAME"
-
-          # Release ruleset to Firestore database
-          echo "Releasing ruleset to Firestore..."
-          RELEASE_NAME="cloud.firestore"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"release\": {
-                \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
-                \"rulesetName\": \"${RULESET_NAME}\"
-              }
-            }" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
-
-          # Check for errors
-          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset:"
-            echo "$RELEASE_RESPONSE" | jq '.error'
-          else
-            echo "✓ Firestore rules deployed"
-          fi
-
-      - name: Seed Firestore with cards
-        run: |
-          echo "Seeding Firestore with cards from rules.md..."
-          # Get service account credentials from gcloud auth
-          gcloud auth application-default print-access-token > /dev/null 2>&1 || echo "⚠️  No default credentials"
-          # Note: Seeding will happen automatically on first page load if database is empty
-          # Manual seeding can be done by running: npm run seed:firestore
-          echo "✓ Firestore will be auto-seeded on first access if empty"
-
-      - name: Deploy Fellspiral
-        run: ./infrastructure/scripts/deploy-site.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
-
-      - name: Get service URL
-        id: get-url
-        run: |
+          ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Wait for service to be ready
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+          echo "Deployed to: ${URL}"
 
   deploy-videobrowser:
-    name: Deploy Videobrowser
+    name: Deploy Videobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
     if: needs.local-tests.outputs.videobrowser-changed == 'true'
     outputs:
-      service-url: ${{ steps.get-url.outputs.url }}
+      service-url: ${{ steps.deploy.outputs.url }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -408,208 +210,38 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for Artifact Registry
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase Hosting Preview
+        id: deploy
         run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Install dependencies (jq)
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Get Firebase configuration and inject
-        run: |
-          set -e  # Exit on error
-          echo "Fetching Firebase configuration..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          # List Firebase web apps
-          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-          # Check for errors
-          if echo "$APPS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "❌ Firebase API error:"
-            echo "$APPS_RESPONSE" | jq '.error'
-            echo ""
-            echo "Firebase may not be enabled on this project."
-            echo "Please visit: https://console.firebase.google.com/"
-            echo "And add your GCP project to Firebase."
-            exit 1
-          fi
-
-          # Get or create web app
-          APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.apps[0].appId // empty')
-
-          if [ -z "$APP_ID" ]; then
-            echo "No Firebase web apps found. Creating one..."
-            CREATE_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-              -H "Content-Type: application/json" \
-              -d '{"displayName": "Video Browser Web App"}' \
-              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-            # Check for errors
-            if echo "$CREATE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-              echo "❌ Failed to create Firebase web app:"
-              echo "$CREATE_RESPONSE" | jq '.error'
-              exit 1
-            fi
-
-            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
-            if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-              echo "❌ Failed to get app ID from response"
-              exit 1
-            fi
-            echo "✓ Created Firebase web app: $APP_ID"
-          else
-            echo "✓ Found existing Firebase web app: $APP_ID"
-          fi
-
-          # Get app configuration
-          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
-
-          # Validate configuration
-          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey // empty')
-          if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-            echo "❌ Failed to get Firebase configuration:"
-            echo "$CONFIG_RESPONSE" | jq '.'
-            exit 1
-          fi
-
-          # Extract all values
-          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
-          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
-          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
-          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
-          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
-
-          echo "✓ Retrieved Firebase configuration:"
-          echo "  API Key: ${API_KEY:0:20}..."
-          echo "  Project: $PROJECT_ID"
-          echo "  Storage Bucket: $STORAGE_BUCKET"
-
-          # Inject into firebase-config.js
-          cat > videobrowser/site/src/firebase-config.js <<EOF
-          /**
-           * Firebase Configuration
-           *
-           * This configuration is safe to expose publicly as it only identifies
-           * the Firebase project. Access control is managed via Firebase Storage
-           * security rules (storage.rules).
-           *
-           * Auto-generated during CI/CD deployment
-           */
-
-          export const firebaseConfig = {
-            apiKey: "${API_KEY}",
-            authDomain: "${AUTH_DOMAIN}",
-            projectId: "${PROJECT_ID}",
-            storageBucket: "${STORAGE_BUCKET}",
-            messagingSenderId: "${MESSAGING_SENDER_ID}",
-            appId: "${APP_ID_VALUE}"
-          };
-          EOF
-
-          echo "✓ Firebase configuration injected into source"
-
-      - name: Deploy Firebase Storage rules
-        run: |
-          set -e  # Exit on error
-          echo "Deploying Firebase Storage rules..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-          RULES_FILE="videobrowser/storage.rules"
-
-          # Read and escape rules file for JSON
-          RULES_CONTENT=$(cat "$RULES_FILE" | jq -Rs '.')
-
-          # Create ruleset
-          echo "Creating ruleset..."
-          RULESET_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"source\": {
-                \"files\": [
-                  {
-                    \"name\": \"storage.rules\",
-                    \"content\": ${RULES_CONTENT}
-                  }
-                ]
-              }
-            }" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
-
-          # Check for errors
-          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "❌ Failed to create ruleset:"
-            echo "$RULESET_RESPONSE" | jq '.error'
-            exit 1
-          fi
-
-          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
-          if [ -z "$RULESET_NAME" ] || [ "$RULESET_NAME" = "null" ]; then
-            echo "❌ Failed to get ruleset name:"
-            echo "$RULESET_RESPONSE" | jq '.'
-            exit 1
-          fi
-          echo "✓ Created ruleset: $RULESET_NAME"
-
-          # Release ruleset to bucket
-          echo "Releasing ruleset to bucket $BUCKET_NAME..."
-          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"release\": {
-                \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
-                \"rulesetName\": \"${RULESET_NAME}\"
-              }
-            }" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
-
-          # Check for errors
-          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset (this may be OK if bucket isn't linked to Firebase yet):"
-            echo "$RELEASE_RESPONSE" | jq '.error'
-          else
-            echo "✓ Firebase Storage rules deployed to ${BUCKET_NAME}"
-          fi
-
-      - name: Deploy Videobrowser
-        run: ./infrastructure/scripts/deploy-site.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
-
-      - name: Get service URL
-        id: get-url
-        run: |
+          ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Wait for service to be ready
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+          echo "Deployed to: ${URL}"
 
   deploy-audiobrowser:
-    name: Deploy Audiobrowser
+    name: Deploy Audiobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
     if: needs.local-tests.outputs.audiobrowser-changed == 'true'
     outputs:
-      service-url: ${{ steps.get-url.outputs.url }}
+      service-url: ${{ steps.deploy.outputs.url }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -620,136 +252,27 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for Artifact Registry
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase Hosting Preview
+        id: deploy
         run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Install dependencies (jq)
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Get Firebase configuration and inject
-        run: |
-          set -e  # Exit on error
-          echo "Fetching Firebase configuration..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          # List Firebase web apps
-          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-          # Check for errors
-          if echo "$APPS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "❌ Firebase API error:"
-            echo "$APPS_RESPONSE" | jq '.error'
-            echo ""
-            echo "Firebase may not be enabled on this project."
-            echo "Please visit: https://console.firebase.google.com/"
-            echo "And add your GCP project to Firebase."
-            exit 1
-          fi
-
-          # Get or create web app
-          APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.apps[0].appId // empty')
-
-          if [ -z "$APP_ID" ]; then
-            echo "No Firebase web apps found. Creating one..."
-            CREATE_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-              -H "Content-Type: application/json" \
-              -d '{"displayName": "Audio Browser Web App"}' \
-              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-            # Check for errors
-            if echo "$CREATE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-              echo "❌ Failed to create Firebase web app:"
-              echo "$CREATE_RESPONSE" | jq '.error'
-              exit 1
-            fi
-
-            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
-            if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-              echo "❌ Failed to get app ID from response"
-              exit 1
-            fi
-            echo "✓ Created Firebase web app: $APP_ID"
-          else
-            echo "✓ Found existing Firebase web app: $APP_ID"
-          fi
-
-          # Get app configuration
-          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
-
-          # Validate configuration
-          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey // empty')
-          if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-            echo "❌ Failed to get Firebase configuration:"
-            echo "$CONFIG_RESPONSE" | jq '.'
-            exit 1
-          fi
-
-          # Extract all values
-          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
-          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
-          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
-          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
-          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
-
-          echo "✓ Retrieved Firebase configuration:"
-          echo "  API Key: ${API_KEY:0:20}..."
-          echo "  Project: $PROJECT_ID"
-          echo "  Storage Bucket: $STORAGE_BUCKET"
-
-          # Inject into firebase-config.js
-          cat > audiobrowser/site/src/firebase-config.js <<EOF
-          /**
-           * Firebase Configuration
-           *
-           * This configuration is safe to expose publicly as it only identifies
-           * the Firebase project. Access control is managed via Firestore
-           * security rules and Firebase Storage security rules.
-           *
-           * Auto-generated during CI/CD deployment
-           */
-
-          export const firebaseConfig = {
-            apiKey: "${API_KEY}",
-            authDomain: "${AUTH_DOMAIN}",
-            projectId: "${PROJECT_ID}",
-            storageBucket: "${STORAGE_BUCKET}",
-            messagingSenderId: "${MESSAGING_SENDER_ID}",
-            appId: "${APP_ID_VALUE}"
-          };
-          EOF
-
-          echo "✓ Firebase configuration injected into source"
-
-      - name: Deploy Audiobrowser
-        run: ./infrastructure/scripts/deploy-site.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
-
-      - name: Get service URL
-        id: get-url
-        run: |
+          ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Deployed to: ${URL}"
 
-      - name: Wait for service to be ready
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
-
-  # ==================== Step 4: Playwright Tests (in parallel, per site) ====================
+  # ==================== Step 4: E2E Tests ====================
   playwright-tests-fellspiral:
-    name: Playwright Tests - Fellspiral
+    name: E2E Tests - Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [deploy-fellspiral, deploy-playwright-server]
-    # Run only if fellspiral was deployed successfully
     if: |
       always() &&
-      needs.deploy-fellspiral.result == 'success'
+      needs.deploy-fellspiral.result == 'success' &&
+      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -774,36 +297,33 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Get Playwright server URL
-        id: playwright-server
+        id: get-playwright-url
         run: |
-          # Use deployed URL if available, otherwise get the production URL
-          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
             URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
           else
             URL=$(gcloud run services describe playwright-server \
-              --platform managed \
-              --region ${{ env.GCP_REGION }} \
-              --format 'value(status.url)')
+              --region=${{ env.GCP_REGION }} \
+              --format='value(status.url)')
           fi
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
 
-      - name: Test Fellspiral
-        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.service-url }}
           CI: true
 
   playwright-tests-videobrowser:
-    name: Playwright Tests - Videobrowser
+    name: E2E Tests - Videobrowser
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [deploy-videobrowser, deploy-playwright-server]
-    # Run only if videobrowser was deployed successfully
     if: |
       always() &&
-      needs.deploy-videobrowser.result == 'success'
+      needs.deploy-videobrowser.result == 'success' &&
+      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -828,36 +348,33 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Get Playwright server URL
-        id: playwright-server
+        id: get-playwright-url
         run: |
-          # Use deployed URL if available, otherwise get the production URL
-          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
             URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
           else
             URL=$(gcloud run services describe playwright-server \
-              --platform managed \
-              --region ${{ env.GCP_REGION }} \
-              --format 'value(status.url)')
+              --region=${{ env.GCP_REGION }} \
+              --format='value(status.url)')
           fi
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
 
-      - name: Test Videobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.service-url }}
           CI: true
 
   playwright-tests-audiobrowser:
-    name: Playwright Tests - Audiobrowser
+    name: E2E Tests - Audiobrowser
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [deploy-audiobrowser, deploy-playwright-server]
-    # Run only if audiobrowser was deployed successfully
     if: |
       always() &&
-      needs.deploy-audiobrowser.result == 'success'
+      needs.deploy-audiobrowser.result == 'success' &&
+      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -882,23 +399,62 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Get Playwright server URL
-        id: playwright-server
+        id: get-playwright-url
         run: |
-          # Use deployed URL if available, otherwise get the production URL
-          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
             URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
           else
             URL=$(gcloud run services describe playwright-server \
-              --platform managed \
-              --region ${{ env.GCP_REGION }} \
-              --format 'value(status.url)')
+              --region=${{ env.GCP_REGION }} \
+              --format='value(status.url)')
           fi
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
 
-      - name: Test Audiobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.service-url }}
           CI: true
+
+  # ==================== Summary ====================
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, playwright-tests-fellspiral, playwright-tests-videobrowser, playwright-tests-audiobrowser]
+    if: always()
+
+    steps:
+      - name: Create summary
+        run: |
+          echo "# 🚀 Feature Branch Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployments (Firebase Hosting Previews)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.deploy-fellspiral.result }}" = "success" ]; then
+            echo "- ✅ **Fellspiral**: ${{ needs.deploy-fellspiral.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.deploy-videobrowser.result }}" = "success" ]; then
+            echo "- ✅ **Videobrowser**: ${{ needs.deploy-videobrowser.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.deploy-audiobrowser.result }}" = "success" ]; then
+            echo "- ✅ **Audiobrowser**: ${{ needs.deploy-audiobrowser.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Local Tests: ${{ needs.local-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Fellspiral E2E: ${{ needs.playwright-tests-fellspiral.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Videobrowser E2E: ${{ needs.playwright-tests-videobrowser.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Audiobrowser E2E: ${{ needs.playwright-tests-audiobrowser.result }}" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔥 **Firebase Hosting**: All deployments use Firebase Hosting with automatic auth authorization" >> $GITHUB_STEP_SUMMARY
+          echo "⏰ **Preview expiration**: 7 days from deployment" >> $GITHUB_STEP_SUMMARY

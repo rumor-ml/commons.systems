@@ -957,8 +957,14 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
   }
 }
 
+// Import auth initialization
+import { initializeAuth } from './auth-init.js';
+
 // Tab switching functionality
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize authentication
+  initializeAuth();
+
   const tabButtons = document.querySelectorAll('.tab-btn');
   const tabContents = document.querySelectorAll('.tab-content');
 
