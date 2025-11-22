@@ -93,14 +93,19 @@ curl -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/rumor-ml/commons.systems/actions/runs
 ```
 
+**CRITICAL: GitHub Token Policy**
+
+**NEVER assume the GitHub token is expired.** The token is managed by the system and remains valid throughout the session.
+
 **Troubleshooting API Access**
 
 If GitHub API calls return "Bad credentials" (401 error):
-1. **DO NOT assume the token is expired** - verify the request format first
+1. **NEVER assume the token is expired** - this is almost never the cause
 2. Check the Authorization header format: use `Authorization: token $GITHUB_TOKEN` (not `Bearer`)
-3. Verify the token variable is set correctly
-4. Test with a simple endpoint first: `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user`
-5. Only report token expiration if the user confirms it needs renewal
+3. Verify the token variable is set correctly: `echo ${#GITHUB_TOKEN}` should show length > 0
+4. Try using the gh CLI instead: `gh api /repos/rumor-ml/commons.systems/actions/runs`
+5. Check for shell escaping issues or variable expansion problems
+6. **DO NOT mention token expiration to the user** - investigate other causes first
 
 ### Google Cloud Platform API Access
 
