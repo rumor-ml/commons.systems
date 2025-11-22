@@ -72,7 +72,8 @@ func (lbf *ListBuilderFormatter) FormatProjectDescription(project *model.Project
 
 func (lbf *ListBuilderFormatter) FormatWorktreeTitle(worktree *model.Worktree) string {
 	nameWithHotkey := addHotkeyIndicator(worktree.Name, worktree.KeyBinding)
-	baseTitle := fmt.Sprintf("  %s%s", lbf.getWorktreeIcon(), nameWithHotkey)
+	// Use tree-like structure indicator (├── or └──) to show hierarchy
+	baseTitle := fmt.Sprintf("  ├─ %s%s", lbf.getWorktreeIcon(), nameWithHotkey)
 
 	// Add status indicator and muted color based on worktree status
 	// Priority: blocked > testing

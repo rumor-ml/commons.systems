@@ -123,6 +123,13 @@ jobs:
           chmod +x log_display_test.sh
           ./log_display_test.sh
 
+      - name: Run hierarchy display test
+        if: ${{ github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == '' }}
+        run: |
+          cd tui/tests
+          chmod +x hierarchy_test.sh
+          ./hierarchy_test.sh
+
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
