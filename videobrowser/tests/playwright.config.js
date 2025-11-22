@@ -13,15 +13,15 @@ const useConfig = {
   screenshot: 'only-on-failure',
 };
 
-// Add headless setting only when NOT using CDP (launching local browser)
-if (!process.env.PLAYWRIGHT_CDP_URL) {
+// Add headless setting only when NOT using remote browser server
+if (!process.env.PLAYWRIGHT_WS_ENDPOINT) {
   useConfig.headless = true;
 }
 
-// If PLAYWRIGHT_CDP_URL is set, use connectOverCDP for secure remote browsers
-if (process.env.PLAYWRIGHT_CDP_URL) {
+// If PLAYWRIGHT_WS_ENDPOINT is set, use Playwright's browser server
+if (process.env.PLAYWRIGHT_WS_ENDPOINT) {
   useConfig.connectOptions = {
-    wsEndpoint: process.env.PLAYWRIGHT_CDP_URL,
+    wsEndpoint: process.env.PLAYWRIGHT_WS_ENDPOINT,
     timeout: 30000, // 30-second connection timeout
   };
 }
@@ -31,8 +31,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  // CDP connections require single worker (one browser instance)
-  workers: process.env.PLAYWRIGHT_CDP_URL ? 1 : (process.env.CI ? 4 : undefined),
+  // Remote browser connections work best with single worker
+  workers: process.env.PLAYWRIGHT_WS_ENDPOINT ? 1 : (process.env.CI ? 4 : undefined),
   timeout: 60000, // 60-second timeout per test
   reporter: [
     ['html'],
@@ -44,8 +44,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      // When using CDP, omit 'use' to avoid overriding parent connectOptions
-      ...(process.env.PLAYWRIGHT_CDP_URL
+      // When using remote browser, omit 'use' to avoid overriding parent connectOptions
+      ...(process.env.PLAYWRIGHT_WS_ENDPOINT
         ? {}
         : {
             use: {

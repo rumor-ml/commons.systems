@@ -67,40 +67,38 @@ fi
 
 echo "✅ Authentication token obtained"
 
-# Get authenticated CDP endpoint from proxy
-echo "Getting authenticated CDP endpoint..."
-CDP_RESPONSE=$(curl -sf \
+# Get authenticated browser endpoint from server
+echo "Getting browser server endpoint..."
+BROWSER_RESPONSE=$(curl -sf \
   -H "Authorization: Bearer $OIDC_TOKEN" \
-  "${PLAYWRIGHT_SERVER_URL}/api/cdp-endpoint")
+  "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint")
 
 if [ $? -ne 0 ]; then
-  echo "❌ Failed to get CDP endpoint"
-  echo "Response: $CDP_RESPONSE"
+  echo "❌ Failed to get browser endpoint"
+  echo "Response: $BROWSER_RESPONSE"
   exit 1
 fi
 
-CDP_URL=$(echo "$CDP_RESPONSE" | jq -r '.cdpUrl')
-SESSION_ID=$(echo "$CDP_RESPONSE" | jq -r '.sessionId')
+WS_ENDPOINT=$(echo "$BROWSER_RESPONSE" | jq -r '.wsEndpoint')
 
-if [ -z "$CDP_URL" ] || [ "$CDP_URL" = "null" ]; then
-  echo "❌ Failed to parse CDP URL"
-  echo "Response: $CDP_RESPONSE"
+if [ -z "$WS_ENDPOINT" ] || [ "$WS_ENDPOINT" = "null" ]; then
+  echo "❌ Failed to parse browser endpoint"
+  echo "Response: $BROWSER_RESPONSE"
   exit 1
 fi
 
-echo "✅ CDP endpoint: $CDP_URL"
-echo "✅ Session ID: $SESSION_ID (expires in 10 minutes)"
+echo "✅ Browser endpoint: $WS_ENDPOINT"
 
-# Run tests locally, connecting to remote browser via CDP
-echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely via secure CDP proxy)..."
+# Run tests locally, connecting to remote browser via Playwright's browser server
+echo "Running tests for $SITE_NAME (tests run locally, browsers run remotely via Playwright browser server)..."
 cd "${SITE_NAME}/tests"
 
-export PLAYWRIGHT_CDP_URL="$CDP_URL"
+export PLAYWRIGHT_WS_ENDPOINT="$WS_ENDPOINT"
 export DEPLOYED=true
 export DEPLOYED_URL="$SITE_URL"
 export CI=true
 
-# Run tests (worker count determined by playwright.config.js based on CDP usage)
+# Run tests
 npx playwright test --project chromium
 
 echo "✅ Playwright tests passed for $SITE_NAME"
