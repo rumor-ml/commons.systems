@@ -237,12 +237,12 @@ jobs:
           echo "✓ Created ruleset: $RULESET_NAME"
 
           RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
+          RELEASE_RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
-            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
+            -d "{\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID}}/releases/${RELEASE_NAME}")
 
           if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
             echo "⚠️  Failed to release ruleset"
