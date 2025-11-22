@@ -24,18 +24,32 @@ func NewFirestoreDuplicateDetector(client *firestore.Client, metadataFields []st
 
 // IsDuplicate checks if a file with matching metadata already exists
 func (d *FirestoreDuplicateDetector) IsDuplicate(ctx context.Context, metadata map[string]interface{}) (bool, error) {
-	// Build query based on metadata fields - using type inference
-	query := d.client.CollectionGroup("files")
+	// Build query based on metadata fields
+	// Start with collection group query
+	colGroupQuery := d.client.CollectionGroup("files")
 
+	// Apply metadata filters - convert to Query type
+	var query firestore.Query
+	hasFilters := false
 	for _, field := range d.metadataFields {
 		if val, ok := metadata[field]; ok {
 			metadataField := fmt.Sprintf("metadata.%s", field)
-			query = query.Where(metadataField, "==", val)
+			if !hasFilters {
+				query = colGroupQuery.Where(metadataField, "==", val)
+				hasFilters = true
+			} else {
+				query = query.Where(metadataField, "==", val)
+			}
 		}
 	}
 
-	// Limit to one result since we only care if any exist
-	query = query.Limit(1)
+	// If no filters were applied, convert collection group to query
+	if !hasFilters {
+		// Use a tautology filter to convert to Query type
+		query = colGroupQuery.Limit(1)
+	} else {
+		query = query.Limit(1)
+	}
 
 	iter := query.Documents(ctx)
 	defer iter.Stop()
