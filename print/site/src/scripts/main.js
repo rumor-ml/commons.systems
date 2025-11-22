@@ -1,4 +1,7 @@
-// Main library page logic
+/**
+ * Main library page logic
+ * Handles document listing, upload UI, and Firebase Storage integration
+ */
 import {
   getAllDocuments,
   createDocument,
