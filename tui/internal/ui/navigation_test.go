@@ -295,7 +295,7 @@ func TestShellStatusDisplay(t *testing.T) {
 
 		// Check worktree item
 		wtItem := items[1].(ListItem)
-		assert.Equal(t, "  🌿 [f]eature", wtItem.title)
+		assert.Equal(t, "  ├─ 🌿 [f]eature", wtItem.title)
 
 		// Check worktree shell line
 		wtShellItem := items[2].(ListItem)

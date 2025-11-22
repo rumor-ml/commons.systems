@@ -58,11 +58,11 @@ func (pp *ListBuilderProjectProcessor) AddProjectItemsWithHierarchy(items *[]lis
 		keyBinding: project.KeyBinding,
 	})
 
-	// Add worktrees
-	pp.worktreeProcessor.AddWorktreeItems(items, project, keyMgr, tmuxPanes, claudeStatus)
-
-	// Add project-level panes (not in worktrees)
+	// Add project-level panes (base repo shells) BEFORE worktrees
 	pp.paneProcessor.AddProjectPanes(items, project, tmuxPanes, claudeStatus)
+
+	// Add worktrees (and their panes) after base repo shells
+	pp.worktreeProcessor.AddWorktreeItems(items, project, keyMgr, tmuxPanes, claudeStatus)
 }
 
 // ProcessProjectsForItems handles validation and processing of all projects
