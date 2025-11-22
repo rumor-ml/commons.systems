@@ -112,7 +112,7 @@
       "trailingSlash": false
     },
     {
-      "site": "print",
+      "site": "print-dfb47",
       "public": "print/site/dist",
       "ignore": [
         "firebase.json",
