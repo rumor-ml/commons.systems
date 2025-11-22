@@ -20,22 +20,46 @@ test.describe('Print Library Homepage', () => {
     await expect(uploadBtn).toContainText('Upload');
   });
 
-  test('should show loading state initially', async ({ page }) => {
+  test('should show loading state initially then resolve', async ({ page }) => {
     await page.goto('/');
 
-    // Loading indicator should be visible briefly
+    // Loading indicator should be visible initially
     const loading = page.locator('#loading');
+    await expect(loading).toBeVisible();
 
-    // Wait for either loading to disappear or content to show
-    await expect(async () => {
-      const isLoading = await loading.isVisible();
-      const hasDocuments = await page.locator('#documents').isVisible();
-      const hasEmpty = await page.locator('#emptyState').isVisible();
-      expect(isLoading || hasDocuments || hasEmpty).toBe(true);
-    }).toPass({ timeout: 10000 });
+    // Wait for loading to disappear and content state to appear
+    await page.waitForFunction(() => {
+      const loadingEl = document.querySelector('#loading');
+      return loadingEl && loadingEl.hidden;
+    }, { timeout: 30000 });
+
+    // Verify loading is now hidden
+    await expect(loading).toBeHidden();
+
+    // Verify exactly one content state is visible
+    const emptyState = page.locator('#emptyState');
+    const documentsContainer = page.locator('#documents');
+    const errorState = page.locator('#errorState');
+
+    const emptyVisible = await emptyState.isVisible();
+    const docsVisible = await documentsContainer.isVisible();
+    const errorVisible = await errorState.isVisible();
+
+    // Exactly one state should be visible
+    const visibleCount = [emptyVisible, docsVisible, errorVisible].filter(Boolean).length;
+    expect(visibleCount).toBe(1);
+
+    // If error state is visible, log the error for debugging
+    if (errorVisible) {
+      const errorMessage = await page.locator('#errorMessage').textContent();
+      console.log('Error state shown:', errorMessage);
+      // Error state should have a meaningful message
+      expect(errorMessage).toBeTruthy();
+      expect(errorMessage.length).toBeGreaterThan(0);
+    }
   });
 
-  test('should show empty state when no documents exist', async ({ page }) => {
+  test('should eventually show content or empty state', async ({ page }) => {
     await page.goto('/');
 
     // Wait for one of the content states to become visible
@@ -48,9 +72,13 @@ test.describe('Print Library Homepage', () => {
       return (empty && !empty.hidden) ||
              (docs && !docs.hidden) ||
              (error && !error.hidden);
-    }, { timeout: 20000 });
+    }, { timeout: 30000 });
 
-    // Verify at least one content state is visible
+    // Loading should be hidden once content is shown
+    const loading = page.locator('#loading');
+    await expect(loading).toBeHidden();
+
+    // Verify exactly one content state is visible
     const emptyState = page.locator('#emptyState');
     const documentsContainer = page.locator('#documents');
     const errorState = page.locator('#errorState');
@@ -59,6 +87,37 @@ test.describe('Print Library Homepage', () => {
     const docsVisible = await documentsContainer.isVisible();
     const errorVisible = await errorState.isVisible();
 
+    const visibleCount = [emptyVisible, docsVisible, errorVisible].filter(Boolean).length;
+    expect(visibleCount).toBe(1);
+
+    // Log which state is shown for debugging
+    if (emptyVisible) console.log('Empty state shown');
+    if (docsVisible) console.log('Documents shown');
+    if (errorVisible) {
+      const errorMessage = await page.locator('#errorMessage').textContent();
+      console.log('Error state shown:', errorMessage);
+    }
+  });
+
+  test('should not hang on loading state indefinitely', async ({ page }) => {
+    await page.goto('/');
+
+    // Loading should resolve within 30 seconds
+    await page.waitForFunction(() => {
+      const loading = document.querySelector('#loading');
+      return loading && loading.hidden;
+    }, { timeout: 30000 });
+
+    // Verify a final state is reached
+    const emptyState = page.locator('#emptyState');
+    const documentsContainer = page.locator('#documents');
+    const errorState = page.locator('#errorState');
+
+    const emptyVisible = await emptyState.isVisible();
+    const docsVisible = await documentsContainer.isVisible();
+    const errorVisible = await errorState.isVisible();
+
+    // At least one final state should be visible
     expect(emptyVisible || docsVisible || errorVisible).toBe(true);
   });
 
