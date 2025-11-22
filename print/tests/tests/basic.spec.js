@@ -38,18 +38,16 @@ test.describe('Print Library Homepage', () => {
   test('should show empty state when no documents exist', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for loading to finish
-    await page.waitForTimeout(2000);
-
-    // Check if empty state is visible (likely on first deployment)
+    // Wait for loading to finish - either empty state or documents should become visible
     const emptyState = page.locator('#emptyState');
     const documentsContainer = page.locator('#documents');
 
-    // Either empty state or documents should be visible
-    const emptyVisible = await emptyState.isVisible();
-    const docsVisible = await documentsContainer.isVisible();
-
-    expect(emptyVisible || docsVisible).toBe(true);
+    // Wait for either empty state or documents to become visible
+    await expect(async () => {
+      const emptyVisible = await emptyState.isVisible();
+      const docsVisible = await documentsContainer.isVisible();
+      expect(emptyVisible || docsVisible).toBe(true);
+    }).toPass({ timeout: 10000 });
   });
 
   test('should open upload form when upload button clicked', async ({ page }) => {
