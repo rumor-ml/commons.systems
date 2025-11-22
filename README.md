@@ -24,6 +24,7 @@ A video navigation interface for exploring video files stored in GCS bucket `rml
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [GitHub Authentication](#github-authentication)
 - [Monorepo Architecture](#monorepo-architecture)
 - [Adding a New Site](#adding-a-new-site)
 - [CICD Requirements](#cicd-requirements)
@@ -69,6 +70,197 @@ Deploy the to GCP with **zero local setup** and **one local command**.
    - Optionally creates GitHub secrets automatically
 
 3. <!-- UPDATE THIS: what is the next state for a user that deploys after cloning the repo -->
+
+---
+
+## GitHub Authentication
+
+All sites in this monorepo use GitHub OAuth for authentication via Firebase Authentication. This provides secure, user-friendly sign-in with GitHub accounts.
+
+### Features
+
+- ✅ **GitHub OAuth 2.0** - Secure authentication via GitHub
+- ✅ **Shared Auth Library** - DRY authentication components (`shared/auth/`)
+- ✅ **Reusable UI Components** - Login button, user profile display
+- ✅ **Firebase Integration** - Leverages Firebase Authentication
+- ✅ **Security Rules** - Firestore and Storage rules require authentication
+- ✅ **Persistent Sessions** - Auto-login on return visits
+
+### Quick Setup
+
+Run the interactive setup script:
+
+```bash
+python3 scripts/setup-github-auth.py
+```
+
+This script will guide you through:
+1. Creating a GitHub OAuth App
+2. Configuring Firebase Authentication
+3. Deploying security rules
+4. Testing authentication locally
+
+### Manual Setup
+
+#### 1. Create GitHub OAuth App
+
+1. Go to [GitHub Settings → Developer settings → OAuth Apps](https://github.com/settings/developers)
+2. Click **"New OAuth App"**
+3. Fill in:
+   - **Application name**: Commons Systems Auth (or your choice)
+   - **Homepage URL**: `https://your-site.run.app`
+   - **Authorization callback URL**: `https://chalanding.firebaseapp.com/__/auth/handler`
+4. Click **"Register application"**
+5. Generate and copy the **Client Secret**
+
+#### 2. Configure Firebase Authentication
+
+1. Go to [Firebase Console → Authentication → Sign-in method](https://console.firebase.google.com/project/chalanding/authentication/providers)
+2. Enable **GitHub** provider
+3. Enter your **Client ID** and **Client Secret**
+4. Note the callback URL: `https://chalanding.firebaseapp.com/__/auth/handler`
+5. Save
+
+#### 3. Deploy Security Rules
+
+```bash
+# Deploy Firestore and Storage security rules
+firebase deploy --only firestore:rules,storage:rules --project chalanding
+```
+
+#### 4. Test Locally
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev              # Fellspiral
+npm run dev:videobrowser # Videobrowser
+
+# Open browser and click "Sign in with GitHub"
+```
+
+### How It Works
+
+#### Authentication Flow
+
+1. User clicks **"Sign in with GitHub"** button
+2. GitHub OAuth popup opens
+3. User authorizes the app
+4. Firebase exchanges OAuth code for auth token
+5. User is signed in across all sites
+6. Auth state persists in localStorage
+
+#### Shared Auth Library
+
+Location: `shared/auth/`
+
+The library provides:
+- **Core Auth** (`github-auth.js`) - Firebase GitHub OAuth integration
+- **State Management** (`auth-state.js`) - Persistent auth state
+- **UI Components**:
+  - `createAuthButton()` - Login/logout button
+  - `createUserProfile()` - User info display
+  - `createAuthGuard()` - Protected content wrapper
+
+#### Site Integration
+
+Each site initializes auth in its entry point:
+
+```javascript
+// fellspiral/site/src/scripts/auth-init.js
+import { initAuth, initAuthState, createAuthButton, createUserProfile } from '@commons/auth';
+
+export function initializeAuth() {
+  initAuth(firebaseConfig);
+  initAuthState();
+
+  // Add auth UI to navbar
+  const authButton = createAuthButton({ ... });
+  const userProfile = createUserProfile({ ... });
+  // ...
+}
+```
+
+#### Security Rules
+
+**Firestore** (`firestore.rules`):
+```
+// Require authentication for all operations
+allow read: if request.auth != null;
+allow create: if request.auth != null
+              && request.resource.data.createdBy == request.auth.uid;
+```
+
+**Storage** (`storage.rules`):
+```
+// Require authentication for video access
+match /video/{videoFile} {
+  allow read: if request.auth != null;
+}
+```
+
+### Production Deployment
+
+When deploying to production:
+
+1. **Update OAuth callback URLs** in GitHub OAuth App:
+   - Add production domains: `https://your-production-url.run.app/__/auth/handler`
+   - Keep development URLs for local testing
+
+2. **Deploy security rules**:
+   ```bash
+   firebase deploy --only firestore:rules,storage:rules --project chalanding
+   ```
+
+3. **Push to trigger CI/CD**:
+   ```bash
+   git add .
+   git commit -m "Add GitHub authentication"
+   git push
+   ```
+
+### Testing Authentication
+
+Auth tests are included in each site's test suite:
+
+```bash
+# Test fellspiral auth
+npm test --workspace=fellspiral/tests
+
+# Test videobrowser auth
+npm test --workspace=videobrowser/tests
+```
+
+Tests verify:
+- Auth UI components render correctly
+- Buttons and profiles are visible/hidden based on state
+- Styling is applied correctly
+- Components are in the correct locations
+
+### Troubleshooting
+
+**Popup blocked by browser:**
+- Enable popups for your domain
+- Use browser settings to allow OAuth popups
+
+**"Invalid callback URL":**
+- Verify GitHub OAuth App callback URL matches Firebase: `https://chalanding.firebaseapp.com/__/auth/handler`
+
+**"User must be authenticated" errors:**
+- Ensure security rules are deployed
+- Check Firebase console for authentication status
+- Verify user is signed in before protected operations
+
+**Auth state not persisting:**
+- Check browser localStorage is enabled
+- Clear cache and cookies, then sign in again
+
+For more details, see:
+- [Shared Auth Library Documentation](shared/auth/README.md)
+- [Firebase Authentication Docs](https://firebase.google.com/docs/auth/web/github-auth)
+- [GitHub OAuth Apps Guide](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app)
 
 ---
 
