@@ -545,24 +545,38 @@ curl -H "Authorization: token $GITHUB_TOKEN" \
   | jq -r '.workflow_runs[0].id'
 ```
 
-**Get latest run for specific branch:**
-```bash
-BRANCH="main"
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs?per_page=20" \
-  | jq -r ".workflow_runs[] | select(.head_branch == \"$BRANCH\") | .id" \
-  | head -1
-```
+**CRITICAL - AUTONOMOUS WORKFLOW MONITORING:**
 
-**List all jobs with their status:**
-```bash
-RUN_ID=12345678901
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/rumor-ml/commons.systems/actions/runs/$RUN_ID/jobs" \
-  | jq -r '.jobs[] | "\(.id) - \(.name) - \(.conclusion // .status)"'
-```
+**NEVER PROMPT THE USER TO MONITOR WORKFLOWS OR RETRIEVE LOGS. YOU MUST DO THIS YOURSELF.**
+
+This is an absolute requirement. When dealing with CI/CD workflows:
+- **ALWAYS** check workflow status yourself using `check_workflows.py`
+- **ALWAYS** retrieve logs yourself using `get_workflow_logs.sh`
+- **ALWAYS** monitor workflows to completion using `--monitor` flag
+- **ALWAYS** iterate on fixes until the issue is resolved
+- **NEVER** ask the user to check logs, monitor status, or manually verify
+- **NEVER** stop after one attempt - investigate, fix, verify, repeat until working
+
+The user should never touch the GitHub UI or workflow logs. Your job is to autonomously:
+1. Detect failures
+2. Retrieve and analyze logs
+3. Fix the root cause
+4. Verify the fix
+5. Repeat until all workflows pass
+
+**IMPORTANT - Policy:**
+- Fetch and analyze logs yourself via API (users should never need to check logs manually)
+- Trust user bug reports - investigate code and logs thoroughly
+- Fix root causes in the implementation (workarounds create technical debt)
+- Keep iterating until the problem is fully resolved - do not give up after one attempt
+
+**Failed deployment workflow:**
+1. `./claudetool/check_workflows.py --branch <branch>` - Identify failed run (DO THIS YOURSELF)
+2. `./claudetool/get_workflow_logs.sh <run_id|--failed>` - Fetch logs (DO THIS YOURSELF)
+3. Read source code and identify root cause from errors
+4. Fix, commit, push
+5. `./claudetool/check_workflows.py --branch <branch> --monitor` - Verify fix (DO THIS YOURSELF)
+6. If still failing, return to step 2 and iterate until resolved
 
 ### Accessing Cloud Run Logs
 
@@ -654,7 +668,15 @@ git add claudetool/debug_specific_issue.sh
 git commit -m "Add debug script"  # ❌ Wrong!
 ```
 
-#### When to Use Each:
+**MOST IMPORTANT - Before suggesting merge or PR:**
+
+**YOU MUST AUTONOMOUSLY VERIFY ALL WORKFLOWS - NEVER ASK THE USER TO CHECK.**
+
+1. Check workflow status yourself: `./claudetool/check_workflows.py --branch <branch>`
+2. Monitor to completion yourself if in-progress: `--monitor`
+3. Retrieve and analyze logs yourself if any failures occur
+4. Fix any issues and re-verify until all workflows pass
+5. Suggest merge ONLY after full pipeline success
 
 - **`/tmp/` scripts**: One-off debugging, ad-hoc investigations, temporary diagnostics
 - **`claudetool/` scripts**: Reusable utilities, documented tools, production workflows
@@ -752,6 +774,8 @@ Only after ALL checks pass, suggest merge.
 - **No Workflow**: Investigate why and ensure workflows run before merge
 
 **Remember**: Deliver fully verified, production-ready code. Never shortcut verification.
+
+The user should never need to manually check workflow status or logs - you must do all verification autonomously.
 
 ## Documentation Policy
 
