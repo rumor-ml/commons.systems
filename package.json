@@ -24,10 +24,12 @@
     "test:videobrowser:deployed": "npm run test:deployed --workspace=videobrowser/tests",
     "preview:videobrowser": "npm run preview --workspace=videobrowser/site",
     "seed:firestore": "node fellspiral/scripts/seed-firestore.js",
+    "seed:firestore:finance": "node finance/scripts/seed-firestore.js",
     "dev:finance": "npm run dev --workspace=finance/site",
     "build:finance": "npm run build --workspace=finance/site",
     "test:finance": "npm test --workspace=finance/tests",
-    "test:finance:deployed": "npm run test:deployed --workspace=finance/tests"
+    "test:finance:deployed": "npm run test:deployed --workspace=finance/tests",
+    "preview:finance": "npm run preview --workspace=finance/site"
   },
   "keywords": [
     "monorepo",
