@@ -908,15 +908,14 @@ jobs:
           echo "Deploying ruleset to Firebase Storage..."
           # Use the actual storage bucket name from the config
           RELEASE_NAME="firebase.storage/${STORAGE_BUCKET}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
+          echo "Deploying to bucket: ${STORAGE_BUCKET}"
+          RELEASE_RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
             -d "{
-              \"release\": {
-                \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
-                \"rulesetName\": \"${RULESET_NAME}\"
-              }
+              \"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\",
+              \"rulesetName\": \"${RULESET_NAME}\"
             }" \
             "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
 
