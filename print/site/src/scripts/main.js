@@ -42,7 +42,7 @@ const iconMap = {
 };
 
 /**
- * Wrap a promise with a timeout
+ * Wrap a promise with a timeout to prevent indefinite hanging
  * @param {Promise} promise - Promise to wrap
  * @param {number} timeoutMs - Timeout in milliseconds
  * @returns {Promise} Promise that rejects if timeout is reached
