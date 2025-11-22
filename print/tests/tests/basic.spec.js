@@ -54,10 +54,10 @@ test.describe('Print Library Homepage', () => {
 
   test('should open upload form when upload button clicked', async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
 
-    // Click upload button
+    // Wait for upload button to be ready
     const uploadBtn = page.locator('#uploadBtn');
+    await expect(uploadBtn).toBeVisible();
     await uploadBtn.click();
 
     // Check upload form is visible
@@ -74,10 +74,11 @@ test.describe('Print Library Homepage', () => {
 
   test('should close upload form when cancel clicked', async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
 
-    // Open upload form
-    await page.locator('#uploadBtn').click();
+    // Wait for upload button and click it
+    const uploadBtn = page.locator('#uploadBtn');
+    await expect(uploadBtn).toBeVisible();
+    await uploadBtn.click();
     await expect(page.locator('#uploadForm')).toBeVisible();
 
     // Click cancel
@@ -89,10 +90,10 @@ test.describe('Print Library Homepage', () => {
 
   test('should have accessible form elements', async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
 
     // Check upload button has aria-label
     const uploadBtn = page.locator('#uploadBtn');
+    await expect(uploadBtn).toBeVisible();
     await expect(uploadBtn).toHaveAttribute('aria-label');
 
     // Open upload form
