@@ -59,9 +59,11 @@ jobs:
           echo "Looking for services matching patterns:"
           echo "  - fellspiral-${SANITIZED} (current)"
           echo "  - videobrowser-${SANITIZED} (current)"
+          echo "  - audiobrowser-${SANITIZED} (current)"
           echo "  - playwright-server-${SANITIZED} (current)"
           echo "  - fellspiral-${SANITIZED}-* (legacy with SHA)"
           echo "  - videobrowser-${SANITIZED}-* (legacy with SHA)"
+          echo "  - audiobrowser-${SANITIZED}-* (legacy with SHA)"
           echo "  - fb-${SANITIZED}-* (legacy abbreviated)"
           echo "  - vb-${SANITIZED}-* (legacy abbreviated)"
 
@@ -82,9 +84,11 @@ jobs:
           while IFS= read -r service; do
             if [[ "$service" == "fellspiral-${SANITIZED}" ]] || \
                [[ "$service" == "videobrowser-${SANITIZED}" ]] || \
+               [[ "$service" == "audiobrowser-${SANITIZED}" ]] || \
                [[ "$service" == "playwright-server-${SANITIZED}" ]] || \
                [[ "$service" == fellspiral-${SANITIZED}-* ]] || \
                [[ "$service" == videobrowser-${SANITIZED}-* ]] || \
+               [[ "$service" == audiobrowser-${SANITIZED}-* ]] || \
                [[ "$service" == fb-${SANITIZED}-* ]] || \
                [[ "$service" == vb-${SANITIZED}-* ]]; then
               echo "Deleting service: $service"
@@ -101,106 +105,63 @@ jobs:
           echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
           echo "**Services deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Clean up fellspiral images (optional)
-        continue-on-error: true
+      - name: Clean up artifacts for all sites
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch }}"
           BRANCH_NAME="${BRANCH_NAME#claude/}"
           SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
 
-          echo "Cleaning up fellspiral images for fellspiral-${SANITIZED} and legacy patterns"
+          echo "🗑️  Cleaning up Docker images for branch: ${SANITIZED}"
 
-          # List all images in the repository
-          IMAGES=$(gcloud artifacts docker images list \
-            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral-previews" \
-            --format='value(package)' 2>/dev/null || echo "")
+          IMAGES_DELETED=0
 
-          if [ -z "$IMAGES" ]; then
-            echo "No fellspiral images found to clean up"
-            return 0
-          fi
+          # Define repositories and their service name patterns
+          declare -A REPOS=(
+            ["fellspiral-previews"]="fellspiral-${SANITIZED}"
+            ["videobrowser-previews"]="videobrowser-${SANITIZED}"
+            ["audiobrowser-previews"]="audiobrowser-${SANITIZED}"
+            ["playwright-server"]="playwright-server-${SANITIZED}"
+          )
 
-          # Delete images matching current naming or legacy patterns
-          echo "$IMAGES" | while read -r package; do
-            # Extract just the image name from the full package path
-            IMAGE_NAME=$(basename "$package")
-            if [[ "$IMAGE_NAME" == "fellspiral-${SANITIZED}" ]] || \
-               [[ "$IMAGE_NAME" == fellspiral-${SANITIZED}-* ]] || \
-               [[ "$IMAGE_NAME" == fb-${SANITIZED}-* ]]; then
-              echo "Deleting fellspiral image: $package"
-              gcloud artifacts docker images delete "$package" \
-                --delete-tags \
-                --quiet 2>/dev/null || true
+          # Clean up each repository
+          for REPO in "${!REPOS[@]}"; do
+            SERVICE_NAME="${REPOS[$REPO]}"
+            REPO_URL="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${REPO}"
+
+            echo ""
+            echo "Checking ${REPO} for images matching: ${SERVICE_NAME}"
+
+            # List all images in this repository
+            IMAGES=$(gcloud artifacts docker images list "${REPO_URL}" \
+              --format='value(package)' 2>/dev/null || echo "")
+
+            if [ -z "$IMAGES" ]; then
+              echo "  ℹ️  No images found in ${REPO}"
+              continue
             fi
+
+            # Delete images matching this branch's service name
+            while IFS= read -r package; do
+              IMAGE_NAME=$(basename "$package")
+
+              # Match current naming convention and legacy patterns
+              if [[ "$IMAGE_NAME" == "$SERVICE_NAME" ]] || \
+                 [[ "$IMAGE_NAME" == ${SERVICE_NAME}-* ]] || \
+                 [[ "$IMAGE_NAME" == "fb-${SANITIZED}"* ]] || \
+                 [[ "$IMAGE_NAME" == "vb-${SANITIZED}"* ]]; then
+                echo "  🗑️  Deleting: ${IMAGE_NAME}"
+                if gcloud artifacts docker images delete "$package" \
+                  --delete-tags \
+                  --quiet 2>/dev/null; then
+                  IMAGES_DELETED=$((IMAGES_DELETED + 1))
+                  echo "  ✅ Deleted successfully"
+                else
+                  echo "  ⚠️  Failed to delete (may already be deleted)"
+                fi
+              fi
+            done <<< "$IMAGES"
           done
 
-          echo "Fellspiral image cleanup completed (best effort)"
-
-      - name: Clean up videobrowser images (optional)
-        continue-on-error: true
-        run: |
-          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
-          BRANCH_NAME="${BRANCH_NAME#claude/}"
-          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
-
-          echo "Cleaning up videobrowser images for videobrowser-${SANITIZED} and legacy patterns"
-
-          # List all images in the repository
-          IMAGES=$(gcloud artifacts docker images list \
-            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/videobrowser-previews" \
-            --format='value(package)' 2>/dev/null || echo "")
-
-          if [ -z "$IMAGES" ]; then
-            echo "No videobrowser images found to clean up"
-            return 0
-          fi
-
-          # Delete images matching current naming or legacy patterns
-          echo "$IMAGES" | while read -r package; do
-            # Extract just the image name from the full package path
-            IMAGE_NAME=$(basename "$package")
-            if [[ "$IMAGE_NAME" == "videobrowser-${SANITIZED}" ]] || \
-               [[ "$IMAGE_NAME" == videobrowser-${SANITIZED}-* ]] || \
-               [[ "$IMAGE_NAME" == vb-${SANITIZED}-* ]]; then
-              echo "Deleting videobrowser image: $package"
-              gcloud artifacts docker images delete "$package" \
-                --delete-tags \
-                --quiet 2>/dev/null || true
-            fi
-          done
-
-          echo "Videobrowser image cleanup completed (best effort)"
-
-      - name: Clean up playwright-server images (optional)
-        continue-on-error: true
-        run: |
-          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
-          BRANCH_NAME="${BRANCH_NAME#claude/}"
-          SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g')
-
-          echo "Cleaning up playwright-server images for playwright-server-${SANITIZED}"
-
-          # List all images in the repository
-          IMAGES=$(gcloud artifacts docker images list \
-            "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/playwright-server" \
-            --format='value(package)' 2>/dev/null || echo "")
-
-          if [ -z "$IMAGES" ]; then
-            echo "No playwright-server images found to clean up"
-            return 0
-          fi
-
-          # Delete images matching the branch pattern
-          echo "$IMAGES" | while read -r package; do
-            # Extract just the image name from the full package path
-            IMAGE_NAME=$(basename "$package")
-            if [[ "$IMAGE_NAME" == "playwright-server-${SANITIZED}" ]] || \
-               [[ "$IMAGE_NAME" == playwright-server-${SANITIZED}-* ]]; then
-              echo "Deleting playwright-server image: $package"
-              gcloud artifacts docker images delete "$package" \
-                --delete-tags \
-                --quiet 2>/dev/null || true
-            fi
-          done
-
-          echo "Playwright server image cleanup completed (best effort)"
+          echo ""
+          echo "📊 Artifact cleanup complete: ${IMAGES_DELETED} images deleted"
+          echo "**Artifacts deleted:** ${IMAGES_DELETED}" >> $GITHUB_STEP_SUMMARY
