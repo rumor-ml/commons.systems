@@ -67,6 +67,22 @@ func NewBranchService(repoPath string) *BranchService {
 	}
 }
 
+// FetchFromRemote syncs with remote repository to get latest branch information
+func (bs *BranchService) FetchFromRemote() error {
+	logger := log.Get()
+	logger.Info("Fetching from remote", "repo", bs.repoPath)
+
+	// Run git fetch to sync with remote
+	cmd := exec.Command("git", "-C", bs.repoPath, "fetch", "--prune")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch from remote: %w, output: %s", err, string(output))
+	}
+
+	logger.Info("Successfully fetched from remote", "repo", bs.repoPath)
+	return nil
+}
+
 // ListAllBranches discovers all local and remote branches
 func (bs *BranchService) ListAllBranches() ([]*BranchInfo, error) {
 	logger := log.Get()
@@ -185,6 +201,45 @@ func (bs *BranchService) GetWorktreesForBranches(branches []*BranchInfo) error {
 
 	logger.Info("Mapped worktrees to branches", "worktree_count", len(worktrees))
 	return nil
+}
+
+// ListRemoteBranchesAndWorktrees returns only remote branches and local branches with worktrees
+// This filters out stale local branches that haven't been cleaned up
+func (bs *BranchService) ListRemoteBranchesAndWorktrees() ([]*BranchInfo, error) {
+	logger := log.Get()
+
+	// Get all branches
+	allBranches, err := bs.ListAllBranches()
+	if err != nil {
+		return nil, err
+	}
+
+	// Map worktrees to branches
+	err = bs.GetWorktreesForBranches(allBranches)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter to only include:
+	// 1. Remote branches (IsRemoteOnly = true)
+	// 2. Local branches that have worktrees (WorktreePath != "")
+	filtered := make([]*BranchInfo, 0)
+	for _, branch := range allBranches {
+		if branch.IsRemoteOnly {
+			// Include all remote branches
+			filtered = append(filtered, branch)
+		} else if branch.WorktreePath != "" && branch.WorktreePath != bs.repoPath {
+			// Include local branches with worktrees (but not the main repo)
+			filtered = append(filtered, branch)
+		}
+		// Skip local branches without worktrees (these are stale)
+	}
+
+	logger.Info("Filtered to remote branches and worktrees",
+		"total_branches", len(allBranches),
+		"filtered_count", len(filtered))
+
+	return filtered, nil
 }
 
 // GetRemoteBranchesWithoutWorktrees returns remote branches that don't have local worktrees

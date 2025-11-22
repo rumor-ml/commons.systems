@@ -293,3 +293,171 @@ func TestBranchStatusPropagation(t *testing.T) {
 		t.Error("Expected branch to be blocked")
 	}
 }
+
+func TestListRemoteBranchesAndWorktrees_Filtering(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Check if git is available
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git not available, skipping integration test")
+	}
+
+	// Create a temporary git repo
+	tmpDir, err := os.MkdirTemp("", "git-remote-filter-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	// Configure git
+	exec.Command("git", "-C", tmpDir, "config", "user.email", "test@example.com").Run()
+	exec.Command("git", "-C", tmpDir, "config", "user.name", "Test User").Run()
+	exec.Command("git", "-C", tmpDir, "config", "commit.gpgsign", "false").Run()
+
+	// Create initial commit and set up main branch
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+	exec.Command("git", "-C", tmpDir, "add", "test.txt").Run()
+
+	// Create main branch and initial commit
+	exec.Command("git", "-C", tmpDir, "config", "init.defaultBranch", "main").Run()
+	cmd = exec.Command("git", "-C", tmpDir, "commit", "-m", "initial commit")
+	if _, err := cmd.CombinedOutput(); err != nil {
+		// Try with -b main if default branch wasn't set
+		exec.Command("git", "-C", tmpDir, "checkout", "-b", "main").Run()
+		cmd = exec.Command("git", "-C", tmpDir, "commit", "-m", "initial commit")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Failed to create initial commit: %v, output: %s", err, string(output))
+		}
+	}
+
+	// Create a stale local branch (no worktree)
+	cmd = exec.Command("git", "-C", tmpDir, "branch", "stale-local")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Logf("Failed to create stale-local branch: %v, output: %s", err, string(output))
+	}
+
+	// Create a local branch with worktree
+	worktreeDir := filepath.Join(tmpDir, ".worktrees", "active-wt")
+	os.MkdirAll(filepath.Dir(worktreeDir), 0755)
+	cmd = exec.Command("git", "-C", tmpDir, "worktree", "add", "-b", "active-wt", worktreeDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to create worktree: %v, output: %s", err, string(output))
+	}
+
+	// List branches manually to see what git sees
+	cmd = exec.Command("git", "-C", tmpDir, "branch", "-a")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Logf("Git branch list error: %v", err)
+	} else {
+		t.Logf("Git branches:\n%s", string(output))
+	}
+
+	// Test ListRemoteBranchesAndWorktrees
+	service := NewBranchService(tmpDir)
+
+	// First, check what all branches look like
+	allBranches, err := service.ListAllBranches()
+	if err != nil {
+		t.Fatalf("ListAllBranches failed: %v", err)
+	}
+	service.GetWorktreesForBranches(allBranches)
+
+	t.Logf("All branches before filtering (count=%d):", len(allBranches))
+	for _, branch := range allBranches {
+		t.Logf("  Branch: %s, Remote: %s, IsRemoteOnly: %v, WorktreePath: %s",
+			branch.Name, branch.Remote, branch.IsRemoteOnly, branch.WorktreePath)
+	}
+
+	filtered, err := service.ListRemoteBranchesAndWorktrees()
+	if err != nil {
+		t.Fatalf("ListRemoteBranchesAndWorktrees failed: %v", err)
+	}
+
+	// Log filtered branches for debugging
+	t.Logf("Filtered branches (count=%d):", len(filtered))
+	for _, branch := range filtered {
+		t.Logf("  Branch: %s, Remote: %s, IsRemoteOnly: %v, WorktreePath: %s",
+			branch.Name, branch.Remote, branch.IsRemoteOnly, branch.WorktreePath)
+	}
+
+	// Check that stale local branch is NOT included
+	foundStaleLocal := false
+	for _, branch := range filtered {
+		if branch.Name == "stale-local" && !branch.IsRemoteOnly {
+			foundStaleLocal = true
+		}
+	}
+	if foundStaleLocal {
+		t.Error("Expected stale local branch to be filtered out")
+	}
+
+	// Check that active worktree branch IS included
+	foundActiveWorktree := false
+	for _, branch := range filtered {
+		if branch.Name == "active-wt" {
+			t.Logf("Found active-wt branch: IsRemoteOnly=%v, WorktreePath=%s", branch.IsRemoteOnly, branch.WorktreePath)
+			if branch.WorktreePath != "" {
+				foundActiveWorktree = true
+			}
+		}
+	}
+	if !foundActiveWorktree {
+		t.Error("Expected active worktree branch to be included")
+	}
+}
+
+func TestFetchFromRemote_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Check if git is available
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git not available, skipping integration test")
+	}
+
+	// Create a temporary git repo
+	tmpDir, err := os.MkdirTemp("", "git-fetch-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	// Configure git
+	exec.Command("git", "-C", tmpDir, "config", "user.email", "test@example.com").Run()
+	exec.Command("git", "-C", tmpDir, "config", "user.name", "Test User").Run()
+	exec.Command("git", "-C", tmpDir, "config", "commit.gpgsign", "false").Run()
+
+	// Create initial commit
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+	exec.Command("git", "-C", tmpDir, "add", "test.txt").Run()
+	exec.Command("git", "-C", tmpDir, "commit", "-m", "initial commit").Run()
+
+	// Test FetchFromRemote (will fail without remote, but shouldn't crash)
+	service := NewBranchService(tmpDir)
+	err = service.FetchFromRemote()
+
+	// It's OK if fetch fails when there's no remote configured
+	// The important thing is that it doesn't crash
+	if err != nil {
+		t.Logf("Fetch failed as expected without remote: %v", err)
+	}
+}

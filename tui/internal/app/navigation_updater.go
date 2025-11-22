@@ -240,19 +240,21 @@ func (nu *NavigationUpdater) discoverRepositoryAndBranches() (*model.Repository,
 	// Create repository model
 	repo := model.NewRepository(monorepoRoot.Name, monorepoRoot.Path)
 
-	// Use BranchService to discover all branches
+	// Use BranchService to discover branches
 	branchService := git.NewBranchService(monorepoRoot.Path)
-	branchInfos, err := branchService.ListAllBranches()
+
+	// Fetch from remote to sync with latest branches (ignore errors - work with cached data)
+	err := branchService.FetchFromRemote()
+	if err != nil {
+		logger.Warn("Failed to fetch from remote, using cached branch data", "error", err)
+		// Continue with cached data
+	}
+
+	// Get remote branches and local branches with worktrees (filters out stale local branches)
+	branchInfos, err := branchService.ListRemoteBranchesAndWorktrees()
 	if err != nil {
 		logger.Error("Failed to discover branches", "error", err)
 		return nil, err
-	}
-
-	// Map worktrees to branches
-	err = branchService.GetWorktreesForBranches(branchInfos)
-	if err != nil {
-		logger.Warn("Failed to map worktrees", "error", err)
-		// Continue anyway - not fatal
 	}
 
 	// Convert BranchInfo to model.Branch
