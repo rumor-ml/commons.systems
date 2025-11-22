@@ -76,11 +76,11 @@ log_test "Verify worktrees show tree-like hierarchy indicators"
 # Start TUI in tmux session
 tmux new-session -d -s "$TEST_SESSION" -x 120 -y 30
 
-# Launch TUI binary in the session (in background to keep it running)
+# Launch TUI binary in the session (tmux manages the process, no need for &)
 tmux send-keys -t "$TEST_SESSION" "cd $(dirname "$0")/.." Enter
 sleep 0.5
-tmux send-keys -t "$TEST_SESSION" "$TUI_BINARY 2>/dev/null &" Enter
-# Wait longer for TUI to start and discover projects
+tmux send-keys -t "$TEST_SESSION" "$TUI_BINARY 2>/dev/null" Enter
+# Wait for TUI to start, discover projects, and render
 sleep 5
 
 # Capture pane content
