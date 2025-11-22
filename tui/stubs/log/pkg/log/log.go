@@ -382,8 +382,14 @@ type Store struct{}
 
 // Query queries log entries based on options
 func (s *Store) Query(opts QueryOptions) ([]Entry, error) {
-	// Stub implementation - returns empty slice
-	return []Entry{}, nil
+	// Use GetRecent to return logs (includes GCP fallback + sample logs)
+	logger := Get()
+	limit := opts.Limit
+	if limit == 0 {
+		limit = 100
+	}
+	entries := logger.GetRecent(limit)
+	return entries, nil
 }
 
 // GetStore returns the log store (stub implementation)

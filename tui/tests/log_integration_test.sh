@@ -137,6 +137,85 @@ fi
 # Clean up test log file
 rm -f /tmp/tui.log
 
+# Test 6: Test Store.Query returns logs (used by LogsComponent)
+TESTS_RUN=$((TESTS_RUN + 1))
+log_test "Test Store.Query returns logs (critical for TUI display)"
+
+cat > /tmp/test_store_query.go <<'EOF'
+package main
+
+import (
+	"fmt"
+	"github.com/rumor-ml/log/pkg/log"
+)
+
+func main() {
+	store := log.GetStore()
+	entries, err := store.Query(log.QueryOptions{Limit: 10})
+
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Store.Query returned %d entries\n", len(entries))
+	for _, entry := range entries {
+		fmt.Printf("- [%s] %s\n", entry.Component, entry.Message)
+	}
+}
+EOF
+
+OUTPUT3=$(go run /tmp/test_store_query.go 2>&1)
+
+if echo "$OUTPUT3" | grep -q "Store.Query returned [0-9]* entries"; then
+    QUERY_COUNT=$(echo "$OUTPUT3" | grep "Store.Query returned" | grep -oE "[0-9]+")
+    if [ "$QUERY_COUNT" -gt 0 ]; then
+        pass "Store.Query returned $QUERY_COUNT entries (TUI will display logs)"
+    else
+        fail "Store.Query returned 0 entries (TUI will show 'waiting for logs')"
+    fi
+else
+    fail "Store.Query function failed"
+fi
+
+# Test 7: Verify Store.Query and GetRecent return consistent results
+TESTS_RUN=$((TESTS_RUN + 1))
+log_test "Verify Store.Query and GetRecent return same logs"
+
+cat > /tmp/test_consistency.go <<'EOF'
+package main
+
+import (
+	"fmt"
+	"github.com/rumor-ml/log/pkg/log"
+)
+
+func main() {
+	logger := log.Get()
+	recentEntries := logger.GetRecent(10)
+
+	store := log.GetStore()
+	storeEntries, _ := store.Query(log.QueryOptions{Limit: 10})
+
+	fmt.Printf("GetRecent: %d entries\n", len(recentEntries))
+	fmt.Printf("Store.Query: %d entries\n", len(storeEntries))
+
+	if len(recentEntries) == len(storeEntries) {
+		fmt.Println("CONSISTENT")
+	} else {
+		fmt.Println("MISMATCH")
+	}
+}
+EOF
+
+OUTPUT4=$(go run /tmp/test_consistency.go 2>&1)
+
+if echo "$OUTPUT4" | grep -q "CONSISTENT"; then
+    pass "Store.Query and GetRecent return consistent results"
+else
+    fail "Store.Query and GetRecent return different results"
+fi
+
 # ============================================================================
 # RESULTS SUMMARY
 # ============================================================================
