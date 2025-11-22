@@ -925,9 +925,29 @@ def create_firebase_hosting_sites(project_id):
                         match = re.search(r'try something like `([^`]+)`', error_msg)
                         if match:
                             suggested_name = match.group(1)
-                            print_info(f"  Site '{actual_site_id}' is reserved, trying '{suggested_name}'...")
+                            print_info(f"  Site '{actual_site_id}' is reserved, checking if '{suggested_name}' exists in our project...")
 
-                            # Try with suggested name
+                            # First check if suggested name already exists in our project
+                            check_suggested_result = run_command(
+                                f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                                f'-H "x-goog-user-project: {project_id}" '
+                                f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites/{suggested_name}" '
+                                f'-w "\\n%{{http_code}}"',
+                                check=False
+                            )
+
+                            if check_suggested_result:
+                                check_lines = check_suggested_result.strip().split('\n')
+                                check_code = check_lines[-1] if check_lines else ""
+
+                                if check_code == "200":
+                                    # Suggested name already exists in our project, reuse it
+                                    print_success(f"  Found existing site '{suggested_name}' in our project (alternative for '{site_id}')")
+                                    site_mappings[site_id] = suggested_name
+                                    continue
+
+                            # Suggested name doesn't exist in our project, try to create it
+                            print_info(f"  Creating site '{suggested_name}'...")
                             retry_result = run_command(
                                 f'curl -s -X POST '
                                 f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
