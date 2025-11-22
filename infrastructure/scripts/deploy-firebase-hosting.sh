@@ -97,23 +97,25 @@ else
   echo "Debug: Listing available sites first..."
   firebase hosting:sites:list --project chalanding 2>&1 || echo "Failed to list sites"
 
-  # Run Firebase deployment and capture output to variable
+  # Run Firebase deployment and write output directly to file
   echo "Debug: Starting Firebase deployment..."
 
   # Temporarily disable exit on error to properly capture output
   set +e
-  DEPLOY_OUTPUT=$(firebase hosting:channel:deploy "$CHANNEL_NAME" \
+  firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
-    --json 2>&1)
+    --json > /tmp/firebase-deploy-output.json 2>&1
   FIREBASE_EXIT_CODE=$?
   set -e
+
+  echo "Debug: Firebase exited with code: $FIREBASE_EXIT_CODE"
 
   if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
     echo "❌ Firebase deployment failed with exit code: $FIREBASE_EXIT_CODE"
     echo "Output from Firebase CLI:"
-    echo "$DEPLOY_OUTPUT"
+    cat /tmp/firebase-deploy-output.json 2>&1 || echo "(no output file generated)"
     echo ""
     echo "Firebase config check:"
     echo "- Site ID: $FIREBASE_SITE_ID"
@@ -122,11 +124,8 @@ else
     exit 1
   fi
 
-  # Save output for URL extraction
-  echo "$DEPLOY_OUTPUT" > /tmp/firebase-deploy-output.json
-
   # Extract URL from JSON output
-  DEPLOYMENT_URL=$(echo "$DEPLOY_OUTPUT" | jq -r ".result.${FIREBASE_SITE_ID}.url // empty" 2>/dev/null)
+  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${FIREBASE_SITE_ID}.url // empty" 2>/dev/null)
 
   if [ -z "$DEPLOYMENT_URL" ]; then
     # Try alternative JSON path
