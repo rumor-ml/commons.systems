@@ -52,17 +52,47 @@ jobs:
       - name: Test Audiobrowser
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
-  # ==================== Step 2: Deploy All Sites ====================
-  deploy-all:
-    name: Deploy All Sites
+  # ==================== Step 2: Deploy Sites (Parallel) ====================
+
+  # Check if Playwright Server code changed
+  check-playwright-changes:
+    name: Check Playwright Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     needs: local-tests
     outputs:
-      fellspiral-url: ${{ steps.fellspiral-url.outputs.url }}
-      videobrowser-url: ${{ steps.videobrowser-url.outputs.url }}
-      audiobrowser-url: ${{ steps.audiobrowser-url.outputs.url }}
-      playwright-url: ${{ steps.playwright-url.outputs.url }}
+      changed: ${{ steps.filter.outputs.playwright }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Playwright changes
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            # For pushes, compare with previous commit
+            BASE_SHA="HEAD~1"
+          fi
+
+          if git diff --name-only $BASE_SHA HEAD | grep -q "^infrastructure/playwright-server/"; then
+            echo "playwright=true" >> $GITHUB_OUTPUT
+            echo "Playwright server code changed"
+          else
+            echo "playwright=false" >> $GITHUB_OUTPUT
+            echo "No Playwright server changes detected"
+          fi
+
+  deploy-playwright:
+    name: Deploy Playwright Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: check-playwright-changes
+    if: needs.check-playwright-changes.outputs.changed == 'true'
+    outputs:
+      url: ${{ steps.playwright-url.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -81,8 +111,44 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Deploy Playwright Server
+        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
+
+      - name: Get Playwright Server URL
+        id: playwright-url
         run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+          URL=$(cat /tmp/playwright-server-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+  deploy-fellspiral:
+    name: Deploy Fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: local-tests
+    outputs:
+      url: ${{ steps.fellspiral-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -94,19 +160,7 @@ jobs:
         run: npm install
 
       - name: Install dependencies (jq)
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-
-      # ========== Deploy Playwright Server ==========
-      - name: Deploy Playwright Server
-        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
-
-      - name: Get Playwright Server URL
-        id: playwright-url
-        run: |
-          URL=$(cat /tmp/playwright-server-url.txt)
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       # ========== Deploy Fellspiral ==========
       - name: Get Firebase configuration and inject (Fellspiral)
@@ -229,6 +283,45 @@ jobs:
       - name: Wait for Fellspiral to be ready
         run: ./infrastructure/scripts/health-check.sh "${{ steps.fellspiral-url.outputs.url }}/health" 60 5
 
+  deploy-videobrowser:
+    name: Deploy Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: local-tests
+    outputs:
+      url: ${{ steps.videobrowser-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install dependencies (jq)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       # ========== Deploy Videobrowser ==========
       - name: Get Firebase configuration and inject (Videobrowser)
         run: |
@@ -331,6 +424,45 @@ jobs:
       - name: Wait for Videobrowser to be ready
         run: ./infrastructure/scripts/health-check.sh "${{ steps.videobrowser-url.outputs.url }}/health" 60 5
 
+  deploy-audiobrowser:
+    name: Deploy Audiobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: local-tests
+    outputs:
+      url: ${{ steps.audiobrowser-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install dependencies (jq)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       # ========== Deploy Audiobrowser ==========
       - name: Get Firebase configuration and inject (Audiobrowser)
         run: |
@@ -401,15 +533,53 @@ jobs:
       - name: Wait for Audiobrowser to be ready
         run: ./infrastructure/scripts/health-check.sh "${{ steps.audiobrowser-url.outputs.url }}/health" 60 5
 
+  # ==================== Step 3: Get Playwright Server URL ====================
+  get-playwright-url:
+    name: Get Playwright Server URL
+    runs-on: ubuntu-latest
+    needs: [check-playwright-changes, deploy-playwright]
+    if: always()
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright Server URL
+        id: get-url
+        run: |
+          if [ "${{ needs.check-playwright-changes.outputs.changed }}" == "true" ]; then
+            # Use newly deployed URL
+            URL="${{ needs.deploy-playwright.outputs.url }}"
+          else
+            # Get existing service URL
+            URL=$(gcloud run services describe playwright-server \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --format='value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
   # ==================== Step 4: E2E Tests (all sites) ====================
   e2e-tests-all:
     name: E2E Tests - All Sites
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: deploy-all
+    needs: [deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, get-playwright-url]
     if: |
       always() &&
-      needs.deploy-all.result == 'success'
+      needs.deploy-fellspiral.result == 'success' &&
+      needs.deploy-videobrowser.result == 'success' &&
+      needs.deploy-audiobrowser.result == 'success' &&
+      needs.get-playwright-url.result == 'success'
 
     steps:
       - name: Checkout code
@@ -434,24 +604,24 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Test Fellspiral
-        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-all.outputs.fellspiral-url }}" "${{ needs.deploy-all.outputs.playwright-url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.deploy-all.outputs.playwright-url }}
-          DEPLOYED_URL: ${{ needs.deploy-all.outputs.fellspiral-url }}
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
           CI: true
 
       - name: Test Videobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-all.outputs.videobrowser-url }}" "${{ needs.deploy-all.outputs.playwright-url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.deploy-all.outputs.playwright-url }}
-          DEPLOYED_URL: ${{ needs.deploy-all.outputs.videobrowser-url }}
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.url }}
           CI: true
 
       - name: Test Audiobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-all.outputs.audiobrowser-url }}" "${{ needs.deploy-all.outputs.playwright-url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.deploy-all.outputs.playwright-url }}
-          DEPLOYED_URL: ${{ needs.deploy-all.outputs.audiobrowser-url }}
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.url }}
           CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
@@ -459,11 +629,11 @@ jobs:
     name: Rollback on Test Failure
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [deploy-all, e2e-tests-all]
+    needs: [deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, e2e-tests-all]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
-      needs.deploy-all.result == 'success' &&
+      (needs.deploy-fellspiral.result == 'success' || needs.deploy-videobrowser.result == 'success' || needs.deploy-audiobrowser.result == 'success') &&
       needs.e2e-tests-all.result == 'failure'
 
     steps:
