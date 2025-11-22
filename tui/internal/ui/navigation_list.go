@@ -212,12 +212,6 @@ func (n *NavigationListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		logger := log.Get()
-		logger.Debug("Navigation received key",
-			"key", msg.String(),
-			"runes", fmt.Sprintf("%v", msg.Runes),
-			"type", int(msg.Type),
-			"alt", msg.Alt,
-			"inSequence", n.sequenceHandler.IsInSequence())
 
 		// Check for quit keys first
 		if msg.Type == tea.KeyCtrlC || msg.String() == "ctrl+q" {
@@ -228,7 +222,6 @@ func (n *NavigationListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle vim-like key sequences
 		cmd = n.sequenceHandler.HandleKeySequence(msg)
 		if cmd != nil {
-			logger.Debug("✅ KEY SEQUENCE ACTION EXECUTED - returning command")
 			return n, cmd
 		}
 
@@ -242,7 +235,6 @@ func (n *NavigationListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Escape key: clear sequence state or switch to mux mode
 			if n.sequenceHandler.IsInSequence() {
-				logger.Debug("🚫 SEQUENCE CANCELLED by ESC")
 				n.sequenceHandler.ClearSequence()
 				return n, nil // Stay in navigation mode but clear sequence
 			}

@@ -53,14 +53,11 @@ func (pd *PaneDiscovery) DiscoverAllPanes() (map[string]*TmuxPane, string, error
 func (pd *PaneDiscovery) ProcessPaneOutput(output string, oldProjectAssociations map[string]*model.Project, oldWorktreeAssociations map[string]*model.Worktree) (map[string]*TmuxPane, error) {
 	panes := make(map[string]*TmuxPane)
 	paneLines := strings.Split(strings.TrimSpace(output), "\n")
-	pd.logger.Debug("Processing tmux pane lines", "lineCount", len(paneLines))
 
-	for lineIdx, line := range paneLines {
+	for _, line := range paneLines {
 		if line == "" {
 			continue
 		}
-
-		pd.logger.Debug("Processing pane line", "lineIdx", lineIdx, "line", line)
 
 		parts := strings.Split(line, ":")
 		if len(parts) < 8 {
@@ -112,16 +109,6 @@ func (pd *PaneDiscovery) ProcessPaneOutput(output string, oldProjectAssociations
 		}
 
 		panes[paneTarget] = pane
-
-		pd.logger.Debug("Processed tmux pane",
-			"session", sessionName,
-			"window", windowIndex,
-			"pane", paneIndex,
-			"title", paneTitle,
-			"command", currentCommand,
-			"path", currentPath,
-			"active", isActive,
-			"target", paneTarget)
 	}
 
 	pd.logger.Debug("Completed tmux pane discovery", "totalPanes", len(panes))
@@ -130,8 +117,6 @@ func (pd *PaneDiscovery) ProcessPaneOutput(output string, oldProjectAssociations
 
 // MapPanesToProjects maps discovered panes to their associated projects
 func (pd *PaneDiscovery) MapPanesToProjects(panes map[string]*TmuxPane, projects []*model.Project) {
-	pd.logger.Debug("Mapping panes to projects", "paneCount", len(panes), "projectCount", len(projects))
-	
 	// Find or create "Other Sessions" project for unmapped panes
 	var otherSessionsProject *model.Project
 	for _, project := range projects {
@@ -186,16 +171,6 @@ func (pd *PaneDiscovery) mapPaneToProject(pane *TmuxPane, projects []*model.Proj
 	if bestMatch != nil {
 		pane.Project = bestMatch
 		pane.Worktree = bestWorktree
-		
-		pd.logger.Debug("Mapped pane to project",
-			"pane", pane.GetTmuxTarget(),
-			"project", bestMatch.Name,
-			"worktree", func() string {
-				if bestWorktree != nil {
-					return bestWorktree.Name
-				}
-				return "none"
-			}())
 		return true
 	}
 	

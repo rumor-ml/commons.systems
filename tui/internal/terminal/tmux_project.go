@@ -64,10 +64,8 @@ func (pm *TmuxProjectMapper) addSessionShellsToProject(session *TmuxSession, pro
 
 // mapPanesToProjects assigns tmux panes to their corresponding projects
 func (pm *TmuxProjectMapper) mapPanesToProjects(projects []*model.Project, panes map[string]*TmuxPane, paneRegistry *PaneRegistry) {
-	pm.logger.Debug("Mapping panes to projects", "projectCount", len(projects), "paneCount", len(panes))
-
 	// Register all panes with their projects
-	for target, pane := range panes {
+	for _, pane := range panes {
 		// Find the best matching project for this pane
 		bestProject := pm.findBestProjectForPane(pane, projects)
 		if bestProject != nil {
@@ -75,15 +73,6 @@ func (pm *TmuxProjectMapper) mapPanesToProjects(projects []*model.Project, panes
 			pane.Project = bestProject
 			// Also register in the registry
 			paneRegistry.Register(pane, bestProject)
-			pm.logger.Debug("Mapped pane to project",
-				"paneTarget", target,
-				"project", bestProject.Name,
-				"paneCwd", pane.CurrentPath,
-				"projectPath", bestProject.Path)
-		} else {
-			pm.logger.Debug("No project found for pane",
-				"paneTarget", target,
-				"paneCwd", pane.CurrentPath)
 		}
 	}
 }
@@ -108,10 +97,6 @@ func (pm *TmuxProjectMapper) findBestProjectForPane(pane *TmuxPane, projects []*
 
 // refreshPaneProjectMappings updates existing pane-to-project mappings
 func (pm *TmuxProjectMapper) refreshPaneProjectMappings(projects []*model.Project, panes map[string]*TmuxPane, paneRegistry *PaneRegistry) {
-	pm.logger.Debug("Refreshing pane project mappings",
-		"projectCount", len(projects),
-		"paneCount", len(panes))
-
 	// ARCHITECTURAL DECISION: Clear registry and remap all panes from scratch
 	//
 	// Why we clear rather than update in-place:
@@ -122,7 +107,6 @@ func (pm *TmuxProjectMapper) refreshPaneProjectMappings(projects []*model.Projec
 	//
 	// Trade-off: We lose the historical FirstSeen and LastActive timestamps, but gain
 	// correctness when users navigate between directories.
-	pm.logger.Debug("Clearing registry for full remapping", "registryEntries", len(paneRegistry.entries))
 	paneRegistry.entries = make(map[string]*PaneRegistryEntry)
 	pm.mapPanesToProjects(projects, panes, paneRegistry)
 }

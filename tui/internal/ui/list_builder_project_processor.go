@@ -41,8 +41,6 @@ func (pp *ListBuilderProjectProcessor) AddProjectItemsWithHierarchy(items *[]lis
 		return
 	}
 
-	pp.logger.Debug("Processing project", "name", project.Name, "path", project.Path, "isChild", isChildModule)
-
 	// Add project header
 	projectKey := pp.getProjectKey(project, keyMgr)
 	projectTitle := pp.formatter.FormatProjectTitle(project, projectKey)
@@ -71,9 +69,7 @@ func (pp *ListBuilderProjectProcessor) AddProjectItemsWithHierarchy(items *[]lis
 func (pp *ListBuilderProjectProcessor) ProcessProjectsForItems(projects []*model.Project, keyMgr *model.KeyBindingManager, tmuxPanes map[string]*terminal.TmuxPane, claudeStatus *status.ClaudeStatusManager) []list.Item {
 	var items []list.Item
 
-	pp.logger.Debug("ProcessProjectsForItems called", "projectCount", len(projects), "hasPanes", tmuxPanes != nil)
-
-	// Debug: Check for duplicate projects
+	// Check for duplicate projects (error only)
 	projectPaths := make(map[string]int)
 	for i, p := range projects {
 		if prevIndex, exists := projectPaths[p.Path]; exists {
@@ -84,7 +80,6 @@ func (pp *ListBuilderProjectProcessor) ProcessProjectsForItems(projects []*model
 				"duplicateIndex", i)
 		}
 		projectPaths[p.Path] = i
-		pp.logger.Debug("ProcessProjectsForItems project", "index", i, "name", p.Name, "path", p.Path)
 	}
 
 	// If no projects, show a placeholder
