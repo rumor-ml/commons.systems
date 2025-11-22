@@ -212,6 +212,7 @@ body {
   justify-content: center;
   padding: var(--spacing-lg);
   color: var(--color-text-muted);
+  min-height: 200px;
 }
 
 .loading__spinner {
