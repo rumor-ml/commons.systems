@@ -120,7 +120,7 @@ func (disc *TmuxDiscovery) addUnmappedSessions(tm *TmuxManager, mappedSessions m
 	hasUnmappedSessions := false
 	for sessionName, session := range tm.sessions {
 		if !mappedSessions[sessionName] {
-			disc.logger.Debug("Adding unmapped session to Other Sessions", "session", sessionName)
+			// Removed: High-frequency DEBUG log (fires every tmux discovery cycle = 1x/sec per unmapped session)
 			session.Project = otherSessionsProject
 			tm.addSessionShellsToProject(session, otherSessionsProject)
 			hasUnmappedSessions = true

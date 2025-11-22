@@ -50,130 +50,96 @@ TESTS_RUN=$((TESTS_RUN + 1))
 log_test "Verify no logs print repeatedly with updating timestamps"
 
 # Clear any previous test logs
-rm -f /tmp/tui-test-logs.txt /tmp/tui-test-logs.db
+rm -f /tmp/tui.log
 
 # Build TUI
 echo "Building TUI..."
-go build -o tui-test main.go
+go build -o tui-test .
 
 # Start TUI in background, capturing logs
-# The log package writes to the database, so we need to query it after
+# The stub log package writes to /tmp/tui.log
+# Use script to provide a pseudo-terminal
 echo "Starting TUI for 10 seconds to collect logs..."
-timeout 10s ./tui-test 2>&1 || true
+timeout 10s script -q -c "./tui-test" /dev/null 2>&1 || true
 
-# Wait a moment for any final log writes
+# Wait for any final log writes
 sleep 1
 
-# Find the actual log database (it's in /tmp)
-LOG_DB=$(ls -t /tmp/tui*.db 2>/dev/null | head -1)
-if [ -z "$LOG_DB" ]; then
-    echo "No log database found in /tmp"
-    fail "Could not find log database"
+# Check if log file exists
+if [ ! -f "/tmp/tui.log" ]; then
+    echo "No log file found at /tmp/tui.log"
+    fail "Could not find log file"
     exit 1
 fi
 
-echo "Found log database: $LOG_DB"
+echo "Found log file: /tmp/tui.log"
 echo "Analyzing log patterns..."
 
-# Create a simple Go script to analyze the logs
-cat > /tmp/analyze_logs.go <<EOF
-package main
+# Analyze logs for repeated messages with timestamps within 2 seconds
+# Create a simple analysis script
+cat > /tmp/analyze_tui_logs.sh <<'EOF'
+#!/bin/bash
 
-import (
-	"database/sql"
-	"fmt"
-	"os"
-	"time"
+LOG_FILE="/tmp/tui.log"
+REPEATED_COUNT=0
 
-	_ "github.com/mattn/go-sqlite3"
-)
+# Get all unique log messages (strip timestamps)
+MESSAGES=$(grep -E "^[0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}" "$LOG_FILE" | \
+           sed -E 's/^[0-9]{4}\/[0-9]{2}\/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} //' | \
+           sort | uniq -c | sort -rn)
 
-func main() {
-	dbPath := os.Args[1]
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
+# Check each message that appears more than once
+while IFS= read -r line; do
+    COUNT=$(echo "$line" | awk '{print $1}')
+    MESSAGE=$(echo "$line" | sed -E 's/^[[:space:]]*[0-9]+[[:space:]]*//')
 
-	// Find messages that repeat with timestamps close together (within 2 seconds)
-	query := `
-		SELECT message, time, COUNT(*) as count
-		FROM logs
-		GROUP BY message
-		HAVING count > 1
-		ORDER BY count DESC
-	`
+    # Skip if count <= 2 (a couple occurrences is okay)
+    if [ "$COUNT" -le 2 ]; then
+        continue
+    fi
 
-	rows, err := db.Query(query)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Query failed: %v\n", err)
-		os.Exit(1)
-	}
-	defer rows.Close()
+    # Get timestamps for this message
+    TIMESTAMPS=$(grep -F "$MESSAGE" "$LOG_FILE" | \
+                 grep -oE "^[0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 
-	repeatedCount := 0
-	for rows.Next() {
-		var message string
-		var lastTime string
-		var count int
-		if err := rows.Scan(&message, &lastTime, &count); err != nil {
-			fmt.Fprintf(os.Stderr, "Scan failed: %v\n", err)
-			continue
-		}
+    # Check if any two consecutive timestamps are within 2 seconds
+    PREV_TS=""
+    while IFS= read -r ts; do
+        if [ -n "$PREV_TS" ]; then
+            # Convert timestamps to seconds since epoch
+            PREV_SEC=$(date -d "$PREV_TS" +%s 2>/dev/null || echo "0")
+            CURR_SEC=$(date -d "$ts" +%s 2>/dev/null || echo "0")
 
-		// For each repeated message, check if occurrences are within 2 seconds of each other
-		timestampQuery := `
-			SELECT time FROM logs WHERE message = ? ORDER BY time ASC
-		`
-		timestampRows, err := db.Query(timestampQuery, message)
-		if err != nil {
-			continue
-		}
+            if [ "$PREV_SEC" != "0" ] && [ "$CURR_SEC" != "0" ]; then
+                DIFF=$((CURR_SEC - PREV_SEC))
 
-		var timestamps []time.Time
-		for timestampRows.Next() {
-			var ts string
-			if err := timestampRows.Scan(&ts); err != nil {
-				continue
-			}
-			t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", ts)
-			if err != nil {
-				// Try alternative format
-				t, err = time.Parse(time.RFC3339Nano, ts)
-				if err != nil {
-					continue
-				}
-			}
-			timestamps = append(timestamps, t)
-		}
-		timestampRows.Close()
+                # If difference is 0-2 seconds and we have 3+ occurrences, it's repeating too fast
+                if [ "$DIFF" -ge 0 ] && [ "$DIFF" -le 2 ] && [ "$COUNT" -ge 3 ]; then
+                    echo "REPEATED EVERY ~${DIFF}s: $MESSAGE (total count: $COUNT)"
+                    REPEATED_COUNT=$((REPEATED_COUNT + 1))
+                    break
+                fi
+            fi
+        fi
+        PREV_TS="$ts"
+    done <<< "$TIMESTAMPS"
 
-		// Check if any two consecutive timestamps are within 2 seconds
-		// This indicates a log printing repeatedly every second
-		for i := 1; i < len(timestamps); i++ {
-			diff := timestamps[i].Sub(timestamps[i-1])
-			if diff < 2*time.Second && count >= 3 {
-				fmt.Printf("REPEATED EVERY ~%.1fs: %s (total count: %d, interval: %.2fs)\n",
-					diff.Seconds(), message, count, diff.Seconds())
-				repeatedCount++
-				break
-			}
-		}
-	}
+done <<< "$MESSAGES"
 
-	if repeatedCount > 0 {
-		fmt.Printf("\nFound %d messages printing repeatedly every second\n", repeatedCount)
-		os.Exit(1)
-	}
+if [ $REPEATED_COUNT -gt 0 ]; then
+    echo ""
+    echo "Found $REPEATED_COUNT messages printing repeatedly every 1-2 seconds"
+    exit 1
+fi
 
-	fmt.Println("No logs printing repeatedly every second")
-}
+echo "No logs printing repeatedly every second"
+exit 0
 EOF
 
+chmod +x /tmp/analyze_tui_logs.sh
+
 # Run the analysis
-ANALYSIS_OUTPUT=$(go run /tmp/analyze_logs.go "$LOG_DB" 2>&1)
+ANALYSIS_OUTPUT=$(/tmp/analyze_tui_logs.sh 2>&1)
 ANALYSIS_EXIT=$?
 
 echo "$ANALYSIS_OUTPUT"
@@ -185,7 +151,7 @@ else
 fi
 
 # Cleanup
-rm -f tui-test /tmp/analyze_logs.go
+rm -f tui-test /tmp/analyze_tui_logs.sh
 
 # ============================================================================
 # SUMMARY
