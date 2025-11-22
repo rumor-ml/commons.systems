@@ -871,6 +871,30 @@ def initialize_firebase(config):
         else:
             print(f"{Colors.YELLOW}Could not check Firebase Storage bucket status (HTTP {http_code}){Colors.NC}")
 
+    # Initialize rml-media storage bucket for videobrowser and print sites
+    print_info("Initializing rml-media Firebase Storage bucket...")
+
+    rml_media_bucket = "rml-media"
+
+    # Add rml-media bucket to Firebase Storage
+    add_bucket_response = run_command(
+        f'curl -s -X POST '
+        f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'-H "Content-Type: application/json" '
+        f'-d \'{{"bucket": "projects/{config["project_id"]}/buckets/{rml_media_bucket}"}}\' '
+        f'"https://firebasestorage.googleapis.com/v1beta/projects/{config["project_id"]}/buckets/{rml_media_bucket}:addFirebase"',
+        check=False
+    )
+
+    if add_bucket_response:
+        if '"error"' in add_bucket_response:
+            if 'ALREADY_EXISTS' in add_bucket_response or 'already' in add_bucket_response.lower():
+                print_info(f"rml-media bucket already linked to Firebase Storage")
+            else:
+                print(f"{Colors.YELLOW}Note: Could not link rml-media bucket to Firebase: {add_bucket_response[:200]}{Colors.NC}")
+        else:
+            print_success(f"rml-media bucket linked to Firebase Storage")
+
     # Inform about Firebase security rules deployment via IaC
     print(f"\n{Colors.INFO}ℹ  Firebase Security Rules:{Colors.NC}")
     print(f"{Colors.INFO}   - firestore.rules and storage.rules will be deployed automatically{Colors.NC}")
