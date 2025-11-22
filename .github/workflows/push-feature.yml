@@ -311,6 +311,69 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
+      - name: Initialize rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Ensuring rml-media bucket is linked to Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Try to link bucket to Firebase Storage (idempotent - safe to run multiple times)
+          LINK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}:addFirebase")
+
+          if echo "$LINK_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_STATUS=$(echo "$LINK_RESPONSE" | jq -r '.error.status // empty')
+            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$LINK_RESPONSE" | grep -qi "already"; then
+              echo "✓ Bucket already linked to Firebase Storage"
+            else
+              echo "⚠️  Could not link bucket (may already be linked or require manual setup)"
+              echo "Response: $LINK_RESPONSE"
+            fi
+          else
+            echo "✓ Bucket successfully linked to Firebase Storage"
+          fi
+
+      - name: Deploy Firebase Storage rules (rml-media)
+        continue-on-error: true
+        run: |
+          echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          RULES_CONTENT=$(cat shared/storage.rules | jq -Rs '.')
+
+          RULESET_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
+            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+
+          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not create ruleset"
+            echo "Response: $RULESET_RESPONSE"
+          else
+            RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name')
+            echo "✓ Ruleset created: $RULESET_NAME"
+
+            RELEASE_RESPONSE=$(curl -s -X PATCH \
+              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/firebase.storage/${BUCKET_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
+              "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/firebase.storage/${BUCKET_NAME}")
+
+            if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+              echo "⚠️  Could not deploy rules"
+              echo "Response: $RELEASE_RESPONSE"
+            else
+              echo "✓ Storage rules deployed to ${BUCKET_NAME}"
+            fi
+          fi
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         run: |
