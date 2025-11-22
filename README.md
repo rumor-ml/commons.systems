@@ -258,7 +258,8 @@ Tests verify:
 - Clear cache and cookies, then sign in again
 
 For more details, see:
-- [Shared Auth Library Documentation](shared/auth/README.md)
+- **[Authentication Architecture](ARCHITECTURE_AUTH.md)** - How single OAuth app works across all sites
+- [Shared Auth Library Documentation](shared/auth/README.md) - Full API reference
 - [Firebase Authentication Docs](https://firebase.google.com/docs/auth/web/github-auth)
 - [GitHub OAuth Apps Guide](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app)
 
