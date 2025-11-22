@@ -35,6 +35,8 @@ export default defineConfig({
   // Remote browser connections work best with single worker
   workers: process.env.PLAYWRIGHT_WS_ENDPOINT ? 1 : (process.env.CI ? 4 : undefined),
   timeout: 60000, // 60-second timeout per test
+  // Global setup for authentication (optional - only runs if credentials provided)
+  globalSetup: './auth-setup.js',
   reporter: [
     ['list'],  // Console output
     ['json', { outputFile: 'test-results.json' }]  // Machine-readable results
