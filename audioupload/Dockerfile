@@ -28,22 +28,22 @@ WORKDIR /build
 RUN apk add --no-cache git
 
 # Copy Go modules
-COPY gcsupload/go.mod gcsupload/go.sum* /build/gcsupload/
-COPY audioupload/backend/go.mod audioupload/backend/go.sum* /build/backend/
+COPY gcsupload/go.mod gcsupload/go.sum* gcsupload/
+COPY audioupload/backend/go.mod audioupload/backend/go.sum* audioupload/backend/
 
 # Download dependencies
 WORKDIR /build/gcsupload
 RUN go mod download || true
 
-WORKDIR /build/backend
+WORKDIR /build/audioupload/backend
 RUN go mod download || true
 
 # Copy source code
-COPY gcsupload/ /build/gcsupload/
-COPY audioupload/backend/ /build/backend/
+COPY gcsupload/ gcsupload/
+COPY audioupload/backend/ audioupload/backend/
 
 # Build the backend
-WORKDIR /build/backend
+WORKDIR /build/audioupload/backend
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/server ./cmd/server
 
 # Stage 3: Production image
