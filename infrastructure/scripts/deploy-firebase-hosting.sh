@@ -65,7 +65,14 @@ else
   echo "🔍 Deploying to preview channel..."
 
   # Sanitize branch name for channel name (lowercase, alphanumeric, hyphens only, max 63 chars)
-  CHANNEL_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-z0-9-]/-/g' | cut -c1-63 | sed 's/-$//')
+  # Firebase channel names: lowercase letters, numbers, hyphens (no consecutive hyphens)
+  CHANNEL_NAME=$(echo "$BRANCH_NAME" | \
+    tr '[:upper:]' '[:lower:]' | \
+    sed 's/[^a-z0-9-]/-/g' | \
+    sed 's/-\+/-/g' | \
+    sed 's/^-//' | \
+    sed 's/-$//' | \
+    cut -c1-63)
 
   echo "Preview channel: ${CHANNEL_NAME}"
 
