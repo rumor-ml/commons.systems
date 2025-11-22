@@ -86,13 +86,6 @@ terraform plan -var="project_id=chalanding" -var="region=us-central1"
 terraform apply -var="project_id=chalanding" -var="region=us-central1"
 ```
 
-**Option 3: setup.py**
-```bash
-# During initial setup
-python3 setup.py
-# Will attempt to deploy rules if Firebase CLI is available
-```
-
 ## Rules Files
 
 ### firestore.rules

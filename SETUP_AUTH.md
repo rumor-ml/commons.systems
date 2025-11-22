@@ -142,15 +142,6 @@ Security rules enforce authentication requirements for Firestore and Storage.
    firebase deploy --only firestore:rules,storage:rules --project chalanding
    ```
 
-   **Option C: Via setup.py**
-
-   Rules are also deployed during initial setup:
-
-   ```bash
-   python3 setup.py
-   # The setup script will attempt to deploy rules if Firebase CLI is available
-   ```
-
 3. **Verify Deployment**
    - Check Firebase Console → Firestore → Rules
    - Check Firebase Console → Storage → Rules
