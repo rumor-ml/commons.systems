@@ -67,6 +67,18 @@ func NewBranchService(repoPath string) *BranchService {
 	}
 }
 
+// GetCurrentBranch returns the name of the currently checked out branch in the main repo
+func (bs *BranchService) GetCurrentBranch() (string, error) {
+	cmd := exec.Command("git", "-C", bs.repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w, output: %s", err, string(output))
+	}
+
+	branch := strings.TrimSpace(string(output))
+	return branch, nil
+}
+
 // FetchFromRemote syncs with remote repository to get latest branch information
 func (bs *BranchService) FetchFromRemote() error {
 	logger := log.Get()
@@ -204,9 +216,18 @@ func (bs *BranchService) GetWorktreesForBranches(branches []*BranchInfo) error {
 }
 
 // ListRemoteBranchesAndWorktrees returns only remote branches and local branches with worktrees
-// This filters out stale local branches that haven't been cleaned up
+// This filters out:
+// - Stale local branches that haven't been cleaned up
+// - The current branch of the main repository (user should work on it via main repo shell)
 func (bs *BranchService) ListRemoteBranchesAndWorktrees() ([]*BranchInfo, error) {
 	logger := log.Get()
+
+	// Get current branch of the main repo
+	currentBranch, err := bs.GetCurrentBranch()
+	if err != nil {
+		logger.Warn("Failed to get current branch", "error", err)
+		currentBranch = "" // Continue without filtering current branch
+	}
 
 	// Get all branches
 	allBranches, err := bs.ListAllBranches()
@@ -221,12 +242,16 @@ func (bs *BranchService) ListRemoteBranchesAndWorktrees() ([]*BranchInfo, error)
 	}
 
 	// Filter to only include:
-	// 1. Remote branches (IsRemoteOnly = true)
+	// 1. Remote branches (IsRemoteOnly = true), excluding current branch
 	// 2. Local branches that have worktrees (WorktreePath != "")
 	filtered := make([]*BranchInfo, 0)
 	for _, branch := range allBranches {
 		if branch.IsRemoteOnly {
-			// Include all remote branches
+			// Skip remote branches that match the current branch
+			if currentBranch != "" && branch.Name == currentBranch {
+				continue
+			}
+			// Include all other remote branches
 			filtered = append(filtered, branch)
 		} else if branch.WorktreePath != "" && branch.WorktreePath != bs.repoPath {
 			// Include local branches with worktrees (but not the main repo)
@@ -236,6 +261,7 @@ func (bs *BranchService) ListRemoteBranchesAndWorktrees() ([]*BranchInfo, error)
 	}
 
 	logger.Info("Filtered to remote branches and worktrees",
+		"current_branch", currentBranch,
 		"total_branches", len(allBranches),
 		"filtered_count", len(filtered))
 

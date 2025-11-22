@@ -46,14 +46,15 @@ import "time"
 
 // Repository represents a git repository with branches and worktrees
 type Repository struct {
-	Name         string               `json:"name"`
-	Path         string               `json:"path"`
-	KeyBinding   rune                 `json:"key_binding"`
-	Branches     []*Branch            `json:"branches"`
-	MainShells   map[ShellType]*Shell `json:"main_shells"`
-	Expanded     bool                 `json:"expanded"`
-	Status       ProjectStatus        `json:"status"`
-	StatusReason string               `json:"status_reason,omitempty"`
+	Name          string               `json:"name"`
+	Path          string               `json:"path"`
+	CurrentBranch string               `json:"current_branch"` // Currently checked out branch in main repo
+	KeyBinding    rune                 `json:"key_binding"`
+	Branches      []*Branch            `json:"branches"`
+	MainShells    map[ShellType]*Shell `json:"main_shells"`
+	Expanded      bool                 `json:"expanded"`
+	Status        ProjectStatus        `json:"status"`
+	StatusReason  string               `json:"status_reason,omitempty"`
 }
 
 // Branch represents a git branch with optional worktree

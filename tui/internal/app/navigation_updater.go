@@ -243,8 +243,17 @@ func (nu *NavigationUpdater) discoverRepositoryAndBranches() (*model.Repository,
 	// Use BranchService to discover branches
 	branchService := git.NewBranchService(monorepoRoot.Path)
 
+	// Get current branch of the main repo
+	currentBranch, err := branchService.GetCurrentBranch()
+	if err != nil {
+		logger.Warn("Failed to get current branch", "error", err)
+	} else {
+		repo.CurrentBranch = currentBranch
+		logger.Info("Main repo current branch", "branch", currentBranch)
+	}
+
 	// Fetch from remote to sync with latest branches (ignore errors - work with cached data)
-	err := branchService.FetchFromRemote()
+	err = branchService.FetchFromRemote()
 	if err != nil {
 		logger.Warn("Failed to fetch from remote, using cached branch data", "error", err)
 		// Continue with cached data
@@ -306,13 +315,14 @@ func (nu *NavigationUpdater) convertRepositoryToProjects(repo *model.Repository)
 
 	// Create a single project representing the repository
 	repoProject := &model.Project{
-		Name:       repo.Name,
-		Path:       repo.Path,
-		MainShells: repo.MainShells,
-		Worktrees:  make([]*model.Worktree, 0, len(repo.Branches)),
-		Expanded:   true, // Always show branches
-		Status:     repo.Status,
-		StatusReason: repo.StatusReason,
+		Name:          repo.Name,
+		Path:          repo.Path,
+		CurrentBranch: repo.CurrentBranch,
+		MainShells:    repo.MainShells,
+		Worktrees:     make([]*model.Worktree, 0, len(repo.Branches)),
+		Expanded:      true, // Always show branches
+		Status:        repo.Status,
+		StatusReason:  repo.StatusReason,
 	}
 
 	// Convert each branch to a worktree for display
