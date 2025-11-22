@@ -92,7 +92,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"

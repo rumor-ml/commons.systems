@@ -43,9 +43,14 @@ jobs:
           sudo apt-get install -y tmux
           tmux -V
 
-      - name: Build TUI binary
+      - name: Lint and build TUI
         run: |
           cd tui
+          # Build all packages to catch unused imports and other issues
+          go build ./...
+          # Run go vet to catch common mistakes
+          go vet ./...
+          # Build the main binary
           go build -o tui-binary main.go
           ls -lh tui-binary
         env:
