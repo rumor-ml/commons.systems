@@ -99,7 +99,7 @@ async function loadDocuments() {
 }
 
 /**
- * Render documents grid
+ * Render documents grid from loaded documents
  */
 function renderDocuments() {
   hideAllStates();
