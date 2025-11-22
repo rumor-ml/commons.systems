@@ -10,6 +10,8 @@ import { firebaseConfig } from '../firebase-config.js';
 // Initialize Firebase app and services
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// Storage bucket is configured in firebase-config.js (injected during deployment)
+// For print site, this is set to 'rml-media' by inject-firebase-config.sh
 const storage = getStorage(app);
 
 // Configuration
