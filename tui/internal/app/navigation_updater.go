@@ -175,13 +175,11 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 		isMonorepoRoot := monorepoRoot != nil && modelProject.Path == monorepoRoot.Path
 
 		if isMonorepoRoot && nu.app.worktreeService != nil {
-			logger.Debug("Discovering worktrees for monorepo root", "project", modelProject.Name)
+			// Removed: DEBUG log (fires frequently during updates)
 			wtManager := projectworktree.NewManager(modelProject.Path)
 			worktrees, err := wtManager.ListWorktrees()
 			if err == nil {
-				logger.Debug("Discovered worktrees from git",
-					"project", modelProject.Name,
-					"rawCount", len(worktrees))
+				// Removed: High-frequency DEBUG log (fires on every worktree discovery)
 
 				for _, wt := range worktrees {
 					// Skip the main working directory (not a real worktree)
@@ -199,9 +197,7 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 					}
 					modelProject.Worktrees = append(modelProject.Worktrees, modelWorktree)
 				}
-				logger.Debug("Added worktrees to project",
-					"project", modelProject.Name,
-					"worktreeCount", len(modelProject.Worktrees))
+				// Removed: High-frequency DEBUG log (fires on every worktree discovery)
 			}
 		}
 	}
@@ -258,13 +254,5 @@ func (nu *NavigationUpdater) loadPersistedStatus(projects []*model.Project) {
 		}
 	}
 
-	logger.Info("Loaded persisted status",
-		"projectStatuses", len(projectStatuses),
-		"worktreeStatuses", func() int {
-			total := 0
-			for _, wtMap := range worktreeStatuses {
-				total += len(wtMap)
-			}
-			return total
-		}())
+	// Removed: Verbose INFO log (fires on every status load)
 }

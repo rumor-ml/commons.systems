@@ -146,7 +146,7 @@ func (r *StatusRepository) LoadAllProjectStatuses() (map[string]string, error) {
 		return nil, fmt.Errorf("error iterating project status rows: %w", err)
 	}
 
-	r.logger.Debug("Loaded all project statuses", "count", len(statuses))
+	// Removed: High-frequency DEBUG log (fires on every status load)
 	return statuses, nil
 }
 
@@ -221,11 +221,7 @@ func (r *StatusRepository) LoadAllWorktreeStatuses() (map[string]map[string]stri
 		return nil, fmt.Errorf("error iterating worktree status rows: %w", err)
 	}
 
-	count := 0
-	for _, worktrees := range statuses {
-		count += len(worktrees)
-	}
-	r.logger.Debug("Loaded all worktree statuses", "count", count)
+	// Removed: High-frequency DEBUG log (fires on every status load)
 	return statuses, nil
 }
 
