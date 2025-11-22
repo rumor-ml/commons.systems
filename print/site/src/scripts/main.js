@@ -39,6 +39,21 @@ const iconMap = {
 };
 
 /**
+ * Wrap a promise with a timeout
+ * @param {Promise} promise - Promise to wrap
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise} Promise that rejects if timeout is reached
+ */
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
+/**
  * Initialize the app
  */
 async function init() {
@@ -64,12 +79,17 @@ function setupEventListeners() {
 }
 
 /**
- * Load all documents from Firestore
+ * Load all documents from Firebase Storage
  */
 async function loadDocuments() {
   try {
+    console.log('Loading documents from Firebase Storage...');
     showLoading();
-    documents = await getAllDocuments();
+
+    // Add 5 second timeout to prevent indefinite hanging
+    documents = await withTimeout(getAllDocuments(), 5000);
+    console.log(`Loaded ${documents.length} documents`);
+
     renderDocuments();
   } catch (error) {
     console.error('Error loading documents:', error);

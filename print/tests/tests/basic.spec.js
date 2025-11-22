@@ -28,10 +28,11 @@ test.describe('Print Library Homepage', () => {
     await expect(loading).toBeVisible();
 
     // Wait for loading to disappear and content state to appear
+    // Reduced timeout to 10 seconds - document loading should be fast
     await page.waitForFunction(() => {
       const loadingEl = document.querySelector('#loading');
       return loadingEl && loadingEl.hidden;
-    }, { timeout: 30000 });
+    }, { timeout: 10000 });
 
     // Verify loading is now hidden
     await expect(loading).toBeHidden();
@@ -63,7 +64,7 @@ test.describe('Print Library Homepage', () => {
     await page.goto('/');
 
     // Wait for one of the content states to become visible
-    // (Firebase initialization may take time)
+    // Reduced timeout - Firebase initialization should be quick
     await page.waitForFunction(() => {
       const empty = document.querySelector('#emptyState');
       const docs = document.querySelector('#documents');
@@ -72,7 +73,7 @@ test.describe('Print Library Homepage', () => {
       return (empty && !empty.hidden) ||
              (docs && !docs.hidden) ||
              (error && !error.hidden);
-    }, { timeout: 30000 });
+    }, { timeout: 10000 });
 
     // Loading should be hidden once content is shown
     const loading = page.locator('#loading');
@@ -102,11 +103,11 @@ test.describe('Print Library Homepage', () => {
   test('should not hang on loading state indefinitely', async ({ page }) => {
     await page.goto('/');
 
-    // Loading should resolve within 30 seconds
+    // Loading should resolve within 10 seconds
     await page.waitForFunction(() => {
       const loading = document.querySelector('#loading');
       return loading && loading.hidden;
-    }, { timeout: 30000 });
+    }, { timeout: 10000 });
 
     // Verify a final state is reached
     const emptyState = page.locator('#emptyState');

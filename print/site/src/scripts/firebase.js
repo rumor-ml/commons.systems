@@ -19,11 +19,14 @@ const DOCUMENT_PREFIX = 'print/';
  */
 export async function getAllDocuments() {
   try {
+    console.log('Firebase: Creating storage reference for:', DOCUMENT_PREFIX);
     // Create reference to print directory
     const documentsRef = ref(storage, DOCUMENT_PREFIX);
 
+    console.log('Firebase: Listing all items in storage...');
     // List all items in the print directory
     const result = await listAll(documentsRef);
+    console.log(`Firebase: Found ${result.items.length} items in storage`);
 
     // Supported document extensions
     const docExtensions = ['.pdf', '.epub', '.md', '.markdown', '.cbz', '.cbr'];
@@ -64,13 +67,15 @@ export async function getAllDocuments() {
       });
 
     // Wait for all metadata fetches to complete
+    console.log('Firebase: Fetching metadata for all items...');
     const documents = (await Promise.all(documentPromises))
       .filter(doc => doc !== null)
       .sort((a, b) => b.uploadedAt - a.uploadedAt); // Sort by upload date, newest first
 
+    console.log(`Firebase: Returning ${documents.length} documents`);
     return documents;
   } catch (error) {
-    console.error('Error getting documents from Storage:', error);
+    console.error('Firebase: Error getting documents from Storage:', error);
     throw error;
   }
 }
