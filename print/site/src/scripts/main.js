@@ -82,7 +82,7 @@ function setupEventListeners() {
 }
 
 /**
- * Load all documents from Firebase Storage
+ * Load all documents from Firebase Storage with timeout protection
  */
 async function loadDocuments() {
   try {
