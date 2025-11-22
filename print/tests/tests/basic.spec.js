@@ -50,36 +50,38 @@ test.describe('Print Library Homepage', () => {
     const visibleCount = [emptyVisible, docsVisible, errorVisible].filter(Boolean).length;
     expect(visibleCount).toBe(1);
 
-    // If error state is visible, log the error for debugging
+    // CRITICAL: Firebase should be working - fail if timeout error occurs
     if (errorVisible) {
       const errorMessage = await page.locator('#errorMessage').textContent();
       console.log('Error state shown:', errorMessage);
-      // Error state should have a meaningful message
+
+      // Fail the test if it's a timeout error - this indicates Firebase isn't working
+      expect(errorMessage).not.toContain('timed out');
+      expect(errorMessage).not.toContain('timeout');
+
+      // For other errors, just verify message exists
       expect(errorMessage).toBeTruthy();
       expect(errorMessage.length).toBeGreaterThan(0);
     }
   });
 
-  test('should eventually show content or empty state', async ({ page }) => {
+  test('should successfully load Firebase data', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for one of the content states to become visible
-    // Reduced timeout - Firebase initialization should be quick
+    // Wait for one of the SUCCESS states to become visible (docs or empty)
+    // Firebase initialization should be quick - timeout errors indicate misconfiguration
     await page.waitForFunction(() => {
       const empty = document.querySelector('#emptyState');
       const docs = document.querySelector('#documents');
-      const error = document.querySelector('#errorState');
 
-      return (empty && !empty.hidden) ||
-             (docs && !docs.hidden) ||
-             (error && !error.hidden);
+      return (empty && !empty.hidden) || (docs && !docs.hidden);
     }, { timeout: 10000 });
 
     // Loading should be hidden once content is shown
     const loading = page.locator('#loading');
     await expect(loading).toBeHidden();
 
-    // Verify exactly one content state is visible
+    // Verify exactly one SUCCESS state is visible (not error)
     const emptyState = page.locator('#emptyState');
     const documentsContainer = page.locator('#documents');
     const errorState = page.locator('#errorState');
@@ -88,16 +90,15 @@ test.describe('Print Library Homepage', () => {
     const docsVisible = await documentsContainer.isVisible();
     const errorVisible = await errorState.isVisible();
 
-    const visibleCount = [emptyVisible, docsVisible, errorVisible].filter(Boolean).length;
-    expect(visibleCount).toBe(1);
+    // Error state should NOT be visible - Firebase must work
+    expect(errorVisible).toBe(false);
+
+    // Either empty or docs should be visible
+    expect(emptyVisible || docsVisible).toBe(true);
 
     // Log which state is shown for debugging
-    if (emptyVisible) console.log('Empty state shown');
-    if (docsVisible) console.log('Documents shown');
-    if (errorVisible) {
-      const errorMessage = await page.locator('#errorMessage').textContent();
-      console.log('Error state shown:', errorMessage);
-    }
+    if (emptyVisible) console.log('Empty state shown - no documents in storage');
+    if (docsVisible) console.log('Documents shown successfully');
   });
 
   test('should not hang on loading state indefinitely', async ({ page }) => {
@@ -120,6 +121,13 @@ test.describe('Print Library Homepage', () => {
 
     // At least one final state should be visible
     expect(emptyVisible || docsVisible || errorVisible).toBe(true);
+
+    // If error state, should not be a timeout error
+    if (errorVisible) {
+      const errorMessage = await page.locator('#errorMessage').textContent();
+      expect(errorMessage).not.toContain('timed out');
+      expect(errorMessage).not.toContain('timeout');
+    }
   });
 
   test('should open upload form when upload button clicked', async ({ page }) => {
