@@ -29,6 +29,7 @@ jobs:
     outputs:
       fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
+      audioupload-changed: ${{ steps.check-changes.outputs.audioupload-changed }}
       playwright-server-changed: ${{ steps.check-changes.outputs.playwright-server-changed }}
 
     steps:
@@ -67,6 +68,15 @@ jobs:
             echo "⏸️  Videobrowser unchanged"
           fi
 
+          # Check audioupload changes
+          if git diff --name-only HEAD^ HEAD | grep -q "^audioupload/\|^gcsupload/\|^shared-components/upload/"; then
+            echo "audioupload-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Audioupload changed"
+          else
+            echo "audioupload-changed=false" >> $GITHUB_OUTPUT
+            echo "⏸️  Audioupload unchanged"
+          fi
+
           # Check playwright-server changes
           if git diff --name-only HEAD^ HEAD | grep -q "^playwright-server/"; then
             echo "playwright-server-changed=true" >> $GITHUB_OUTPUT
@@ -83,6 +93,10 @@ jobs:
       - name: Test Videobrowser
         if: steps.check-changes.outputs.videobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh videobrowser
+
+      - name: Test Audioupload
+        if: steps.check-changes.outputs.audioupload-changed == 'true'
+        run: ./infrastructure/scripts/run-local-tests.sh audioupload
 
   # ==================== Step 2: Infrastructure as Code ====================
   infrastructure:
@@ -689,6 +703,101 @@ jobs:
       - name: Wait for service to be ready
         run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
 
+  deploy-audioupload:
+    name: Deploy Audioupload
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [local-tests, infrastructure]
+    if: |
+      always() &&
+      needs.local-tests.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.audioupload-changed == 'true')
+    outputs:
+      service-url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and push Docker image
+        run: |
+          set -e
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral/audioupload:${{ github.sha }}"
+
+          echo "Building Docker image: ${IMAGE_NAME}"
+          docker build -t "${IMAGE_NAME}" -f audioupload/Dockerfile .
+
+          echo "Pushing Docker image to Artifact Registry"
+          docker push "${IMAGE_NAME}"
+
+          echo "Image pushed successfully: ${IMAGE_NAME}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          set -e
+          SERVICE_NAME="audioupload-site"
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/fellspiral/audioupload:${{ github.sha }}"
+
+          # Determine if this is main branch or feature branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            REVISION_SUFFIX="main-${{ github.sha }}"
+          else
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-z0-9-]/-/g' | cut -c1-20)
+            REVISION_SUFFIX="${BRANCH_NAME}-${{ github.sha }}"
+          fi
+
+          echo "Deploying ${SERVICE_NAME} with revision suffix: ${REVISION_SUFFIX}"
+
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image="${IMAGE_NAME}" \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --allow-unauthenticated \
+            --memory=1Gi \
+            --cpu=1 \
+            --timeout=300 \
+            --max-instances=10 \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }},GCS_BUCKET=${{ env.GCP_PROJECT_ID }}-audioupload" \
+            --revision-suffix="${REVISION_SUFFIX:0:50}" \
+            --tag="${{ github.ref_name }}"
+
+          # Get service URL
+          URL=$(gcloud run services describe "${SERVICE_NAME}" \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+
+          echo "${URL}" > /tmp/deployment-url.txt
+          echo "Deployed to: ${URL}"
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+      - name: Wait for service to be ready
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+
   # ==================== Step 4: Playwright Tests (in parallel, per site) ====================
   playwright-tests-fellspiral:
     name: Playwright Tests - Fellspiral
@@ -796,6 +905,60 @@ jobs:
         env:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.service-url }}
+          CI: true
+
+  playwright-tests-audioupload:
+    name: Playwright Tests - Audioupload
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [deploy-audioupload, deploy-playwright-server]
+    # Run only if audioupload was deployed successfully
+    if: |
+      always() &&
+      needs.deploy-audioupload.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          # Use deployed URL if available, otherwise get the production URL
+          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
+          else
+            URL=$(gcloud run services describe playwright-server \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+      - name: Test Audioupload
+        run: ./infrastructure/scripts/run-playwright-tests.sh audioupload "${{ needs.deploy-audioupload.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-audioupload.outputs.service-url }}
           CI: true
 
   # ==================== Rollback on failure ====================
@@ -907,4 +1070,59 @@ jobs:
               title: '🚨 Automatic Rollback: Videobrowser',
               body: `Playwright tests failed for Videobrowser after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               labels: ['bug', 'deployment', 'rollback', 'videobrowser']
+            })
+
+  rollback-audioupload:
+    name: Rollback Audioupload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-audioupload, playwright-tests-audioupload]
+    if: |
+      always() &&
+      needs.deploy-audioupload.result == 'success' &&
+      needs.playwright-tests-audioupload.result == 'failure' &&
+      github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Rollback Audioupload
+        run: |
+          # Get previous revision
+          PREVIOUS_REVISION=$(gcloud run services describe audioupload-site \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_REVISION" ]; then
+            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
+            gcloud run services update-traffic audioupload-site \
+              --to-revisions="${PREVIOUS_REVISION}=100" \
+              --region=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }}
+            echo "✅ Rollback completed"
+          else
+            echo "⚠️  No previous revision found, skipping rollback"
+          fi
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automatic Rollback: Audioupload',
+              body: `Playwright tests failed for Audioupload after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'deployment', 'rollback', 'audioupload']
             })
