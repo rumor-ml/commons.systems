@@ -52,7 +52,11 @@ func main() {
 	strategyRegistry.Register(strategies.NewFinanceStrategy(cfg.EnableFinance))
 
 	// Initialize job manager
-	jobManager = gcsupload.NewJobManager(firestoreClient, storageClient)
+	var err2 error
+	jobManager, err2 = gcsupload.NewJobManager(ctx, cfg.GCPProjectID)
+	if err2 != nil {
+		log.Fatalf("Failed to create JobManager: %v", err2)
+	}
 
 	// Set up HTTP routes
 	http.HandleFunc("/health", handleHealth)
@@ -165,23 +169,48 @@ func handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	discoverer := &strategyFileDiscoverer{strategy: strategy}
 	extractor := &strategyMetadataExtractor{strategy: strategy}
 	normalizer := &strategyPathNormalizer{strategy: strategy}
+
+	// Get Firestore client for duplicate detector
+	// Note: JobManager has an internal Firestore client, but we need access to it
+	// For now, create a new client (TODO: expose client from JobManager or pass it in)
+	ctx := r.Context()
+	firestoreClient, err := firestore.NewClient(ctx, cfg.GCPProjectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create Firestore client: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer firestoreClient.Close()
+
 	duplicateDetector := gcsupload.NewFirestoreDuplicateDetector(
-		jobManager.FirestoreClient,
+		firestoreClient,
 		[]string{"filename", "mediaType"},
 	)
 
-	// Create and start job
-	ctx := r.Context()
-	job, err := jobManager.CreateJob(ctx, req.Name, req.LocalPath, cfg.GCSBucket,
-		discoverer, extractor, normalizer, duplicateDetector)
+	// Create upload config
+	uploadConfig := &gcsupload.UploadConfig{
+		JobName:           req.Name,
+		BasePath:          req.LocalPath,
+		GCSBucket:         cfg.GCSBucket,
+		GCSBasePath:       "", // Use root of bucket or make this configurable
+		FileDiscoverer:    discoverer,
+		MetadataExtractor: extractor,
+		PathNormalizer:    normalizer,
+		DuplicateDetector: duplicateDetector,
+	}
 
+	// Create and start job
+	job, err := jobManager.CreateJob(ctx, uploadConfig)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create job: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Start job asynchronously
-	go jobManager.ProcessJob(context.Background(), job.ID)
+	go func() {
+		if err := jobManager.StartJob(context.Background(), job.ID, uploadConfig); err != nil {
+			log.Printf("Job %s failed: %v", job.ID, err)
+		}
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -213,8 +242,7 @@ func handleGetJobFiles(w http.ResponseWriter, r *http.Request, jobID string) {
 }
 
 func handleCancelJob(w http.ResponseWriter, r *http.Request, jobID string) {
-	ctx := r.Context()
-	if err := jobManager.CancelJob(ctx, jobID); err != nil {
+	if err := jobManager.CancelJob(jobID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to cancel job: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -225,7 +253,7 @@ func handleCancelJob(w http.ResponseWriter, r *http.Request, jobID string) {
 
 func handleTrashJob(w http.ResponseWriter, r *http.Request, jobID string) {
 	ctx := r.Context()
-	if err := jobManager.TrashJob(ctx, jobID); err != nil {
+	if err := jobManager.MoveFilesToTrash(ctx, jobID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to trash job: %v", err), http.StatusInternalServerError)
 		return
 	}
