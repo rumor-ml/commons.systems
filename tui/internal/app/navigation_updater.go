@@ -16,6 +16,11 @@ type NavigationUpdater struct {
 	app *App
 }
 
+// startsWith checks if a string starts with a prefix
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[0:len(prefix)] == prefix
+}
+
 // NewNavigationUpdater creates a new navigation updater
 func NewNavigationUpdater(app *App) *NavigationUpdater {
 	return &NavigationUpdater{
@@ -134,6 +139,33 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 		modelProjects = []*model.Project{modelProject}
 	}
 
+	// Find the monorepo root project (if any)
+	var monorepoRoot *model.Project
+	for _, p := range modelProjects {
+		// Check if this is a monorepo root by checking if it contains "monorepo" tag
+		// or if its name matches the base directory of other projects
+		if p.Path != "" {
+			baseName := filepath.Base(p.Path)
+			// Count how many other projects are subdirectories of this one
+			childCount := 0
+			for _, other := range modelProjects {
+				if other.Path != p.Path && len(other.Path) > len(p.Path) {
+					relPath, err := filepath.Rel(p.Path, other.Path)
+					if err == nil && !filepath.IsAbs(relPath) && !startsWith(relPath, "..") {
+						childCount++
+					}
+				}
+			}
+			// If this project has 2+ children, it's likely the monorepo root
+			if childCount >= 2 {
+				monorepoRoot = p
+				logger.Debug("Identified monorepo root", "name", p.Name, "path", p.Path, "children", childCount)
+				break
+			}
+			_ = baseName // unused for now
+		}
+	}
+
 	// Discover existing worktrees for each project
 	for _, modelProject := range modelProjects {
 		logger.Debug("Processing discovered project", "name", modelProject.Name, "path", modelProject.Path)
@@ -148,8 +180,12 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 		// Always show expanded to see worktrees
 		modelProject.Expanded = true
 
-		// Discover existing worktrees for this project
-		if nu.app.worktreeService != nil {
+		// ONLY discover git worktrees for the monorepo root project
+		// Modules are subdirectories, not separate git repos, so they shouldn't have worktrees
+		isMonorepoRoot := monorepoRoot != nil && modelProject.Path == monorepoRoot.Path
+
+		if isMonorepoRoot && nu.app.worktreeService != nil {
+			logger.Debug("Discovering worktrees for monorepo root", "project", modelProject.Name)
 			wtManager := projectworktree.NewManager(modelProject.Path)
 			worktrees, err := wtManager.ListWorktrees()
 			if err == nil {
@@ -166,7 +202,7 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 						"worktreeID", wt.Branch,
 						"worktreeBranch", wt.Branch,
 						"shouldSkip", wt.Path == modelProject.Path)
-					
+
 					if wt.Path == modelProject.Path {
 						logger.Debug("Skipping main worktree",
 							"project", modelProject.Name,
@@ -194,6 +230,8 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 					"project", modelProject.Name,
 					"worktreeCount", len(modelProject.Worktrees))
 			}
+		} else if !isMonorepoRoot {
+			logger.Debug("Skipping worktree discovery for module", "project", modelProject.Name)
 		}
 	}
 

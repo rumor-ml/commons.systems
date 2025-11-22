@@ -3,6 +3,8 @@
 package ui
 
 import (
+	"path/filepath"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/natb1/tui/internal/status"
 	"github.com/natb1/tui/internal/terminal"
@@ -30,16 +32,26 @@ func NewListBuilderProjectProcessor(worktreeProcessor *ListBuilderWorktreeProces
 
 // AddProjectItems adds all items for a single project (project header, worktrees, panes)
 func (pp *ListBuilderProjectProcessor) AddProjectItems(items *[]list.Item, project *model.Project, keyMgr *model.KeyBindingManager, tmuxPanes map[string]*terminal.TmuxPane, claudeStatus *status.ClaudeStatusManager) {
+	pp.AddProjectItemsWithHierarchy(items, project, false, keyMgr, tmuxPanes, claudeStatus)
+}
+
+// AddProjectItemsWithHierarchy adds all items for a single project with hierarchy indication
+func (pp *ListBuilderProjectProcessor) AddProjectItemsWithHierarchy(items *[]list.Item, project *model.Project, isChildModule bool, keyMgr *model.KeyBindingManager, tmuxPanes map[string]*terminal.TmuxPane, claudeStatus *status.ClaudeStatusManager) {
 	if project == nil {
 		return
 	}
 
-	pp.logger.Debug("Processing project", "name", project.Name, "path", project.Path)
+	pp.logger.Debug("Processing project", "name", project.Name, "path", project.Path, "isChild", isChildModule)
 
 	// Add project header
 	projectKey := pp.getProjectKey(project, keyMgr)
 	projectTitle := pp.formatter.FormatProjectTitle(project, projectKey)
-	
+
+	// Add visual hierarchy indicator for child modules
+	if isChildModule {
+		projectTitle = "  └─ " + projectTitle
+	}
+
 	*items = append(*items, ListItem{
 		title:      projectTitle,
 		description: pp.formatter.FormatProjectDescription(project),
@@ -93,14 +105,43 @@ func (pp *ListBuilderProjectProcessor) ProcessProjectsForItems(projects []*model
 		return items
 	}
 
+	// Find the monorepo root (project that contains other projects as subdirectories)
+	var monorepoRoot *model.Project
+	for _, p := range projects {
+		if p.Path != "" {
+			childCount := 0
+			for _, other := range projects {
+				if other.Path != p.Path && len(other.Path) > len(p.Path) {
+					// Check if 'other' is a subdirectory of 'p'
+					if filepath.HasPrefix(other.Path, p.Path+string(filepath.Separator)) {
+						childCount++
+					}
+				}
+			}
+			if childCount >= 2 {
+				monorepoRoot = p
+				pp.logger.Debug("Identified monorepo root for display", "name", p.Name, "children", childCount)
+				break
+			}
+		}
+	}
+
 	// Build items for each project
 	for _, project := range projects {
 		// Skip worktree projects - they should only appear nested under their parent
 		if project.IsWorktree {
 			continue
 		}
-		
-		pp.AddProjectItems(&items, project, keyMgr, tmuxPanes, claudeStatus)
+
+		// Check if this is a child module of the monorepo
+		isChildModule := false
+		if monorepoRoot != nil && project.Path != monorepoRoot.Path {
+			if filepath.HasPrefix(project.Path, monorepoRoot.Path+string(filepath.Separator)) {
+				isChildModule = true
+			}
+		}
+
+		pp.AddProjectItemsWithHierarchy(&items, project, isChildModule, keyMgr, tmuxPanes, claudeStatus)
 	}
 
 	return items
