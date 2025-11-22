@@ -77,24 +77,50 @@ else
   echo "Preview channel: ${CHANNEL_NAME}"
 
   # Deploy to preview channel (creates if doesn't exist, expires after 7 days by default)
-  firebase hosting:channel:deploy "$CHANNEL_NAME" \
+  echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${SITE_NAME}"
+
+  if ! firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${SITE_NAME} \
     --project chalanding \
     --expires 7d \
-    --json > /tmp/firebase-deploy-output.json
+    --json > /tmp/firebase-deploy-output.json 2>&1; then
+    echo "❌ Firebase deployment failed!"
+    cat /tmp/firebase-deploy-output.json
+    exit 1
+  fi
 
   # Extract URL from JSON output
-  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | grep -o '"url":"[^"]*"' | cut -d'"' -f4 | head -1)
+  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result.${SITE_NAME}.url // empty" 2>/dev/null)
+
+  if [ -z "$DEPLOYMENT_URL" ]; then
+    # Try alternative JSON path
+    DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | grep -o '"url":"[^"]*"' | cut -d'"' -f4 | head -1)
+  fi
 
   if [ -z "$DEPLOYMENT_URL" ]; then
     # Fallback: construct URL manually
     DEPLOYMENT_URL="https://${CHANNEL_NAME}--${SITE_NAME}.web.app"
+    echo "⚠️  Could not extract URL from Firebase output, using constructed URL"
   fi
 
   echo ""
   echo "✅ Preview deployment complete!"
   echo "🔍 Preview URL: ${DEPLOYMENT_URL}"
   echo "⏰ Expires: 7 days from now"
+
+  # Verify the deployment is accessible
+  echo ""
+  echo "🔍 Verifying deployment..."
+  sleep 5  # Give Firebase a moment to propagate
+
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOYMENT_URL}" || echo "000")
+  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "304" ]; then
+    echo "✅ Deployment verified (HTTP ${HTTP_CODE})"
+  else
+    echo "⚠️  Warning: Deployment may not be ready yet (HTTP ${HTTP_CODE})"
+    echo "   URL: ${DEPLOYMENT_URL}"
+    echo "   This may indicate DNS propagation delay or deployment issues"
+  fi
 fi
 
 # Save deployment URL for GitHub Actions
