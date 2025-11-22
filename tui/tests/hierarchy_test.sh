@@ -76,11 +76,12 @@ log_test "Verify worktrees show tree-like hierarchy indicators"
 # Start TUI in tmux session
 tmux new-session -d -s "$TEST_SESSION" -x 120 -y 30
 
-# Launch TUI binary in the session
+# Launch TUI binary in the session (in background to keep it running)
 tmux send-keys -t "$TEST_SESSION" "cd $(dirname "$0")/.." Enter
 sleep 0.5
-tmux send-keys -t "$TEST_SESSION" "$TUI_BINARY 2>/dev/null" Enter
-sleep 3
+tmux send-keys -t "$TEST_SESSION" "$TUI_BINARY 2>/dev/null &" Enter
+# Wait longer for TUI to start and discover projects
+sleep 5
 
 # Capture pane content
 PANE_CONTENT=$(tmux capture-pane -t "$TEST_SESSION" -p)
@@ -151,11 +152,12 @@ PANE_CONTENT=$(tmux capture-pane -t "$TEST_SESSION" -p)
 # For now, we'll just verify the basic structure exists
 
 # Count worktrees
-WORKTREE_COUNT=$(echo "$PANE_CONTENT" | grep -c "├─.*🌿" || echo "0")
+WORKTREE_COUNT=$(echo "$PANE_CONTENT" | grep -c "├─.*🌿" 2>/dev/null || echo "0")
+WORKTREE_COUNT=${WORKTREE_COUNT:-0}  # Ensure it's a number
 
-if [ "$WORKTREE_COUNT" -gt 0 ]; then
+if [ "$WORKTREE_COUNT" -gt 0 ] 2>/dev/null; then
     # If we have worktrees, verify we have shells
-    SHELL_COUNT=$(echo "$PANE_CONTENT" | grep -c "    🤖\|    ⚡\|    📝\|    💻" || echo "0")
+    SHELL_COUNT=$(echo "$PANE_CONTENT" | grep -E -c "    (🤖|⚡|📝|💻)" || echo "0")
     if [ "$SHELL_COUNT" -gt 0 ]; then
         pass "Found shells with proper nesting indentation (4 spaces)"
     else
@@ -178,11 +180,14 @@ PANE_CONTENT=$(tmux capture-pane -t "$TEST_SESSION" -p)
 # Level 1: Worktrees (  ├─ 🌿)
 # Level 2: Shells (    icon)
 
-PROJECT_COUNT=$(echo "$PANE_CONTENT" | grep -c "📂" || echo "0")
-WORKTREE_COUNT=$(echo "$PANE_CONTENT" | grep -c "├─.*🌿" || echo "0")
-SHELL_COUNT=$(echo "$PANE_CONTENT" | grep -c "    🤖\|    ⚡\|    📝\|    💻" || echo "0")
+PROJECT_COUNT=$(echo "$PANE_CONTENT" | grep -c "📂" 2>/dev/null || echo "0")
+PROJECT_COUNT=${PROJECT_COUNT:-0}  # Ensure it's a number
+WORKTREE_COUNT=$(echo "$PANE_CONTENT" | grep -c "├─.*🌿" 2>/dev/null || echo "0")
+WORKTREE_COUNT=${WORKTREE_COUNT:-0}  # Ensure it's a number
+SHELL_COUNT=$(echo "$PANE_CONTENT" | grep -E -c "    (🤖|⚡|📝|💻)" 2>/dev/null || echo "0")
+SHELL_COUNT=${SHELL_COUNT:-0}  # Ensure it's a number
 
-if [ "$PROJECT_COUNT" -gt 0 ]; then
+if [ "$PROJECT_COUNT" -gt 0 ] 2>/dev/null; then
     pass "Hierarchy displays multiple levels (Projects:$PROJECT_COUNT, Worktrees:$WORKTREE_COUNT, Shells:$SHELL_COUNT)"
 else
     fail "No projects found in hierarchy display"
