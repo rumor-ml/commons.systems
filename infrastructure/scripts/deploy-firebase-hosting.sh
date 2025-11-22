@@ -30,6 +30,11 @@ echo "Commit: $COMMIT_SHA"
 echo "========================================="
 echo ""
 
+# Inject Firebase configuration
+echo "🔐 Injecting Firebase configuration..."
+"$(dirname "$0")/inject-firebase-config.sh" "$SITE_NAME"
+echo ""
+
 # Build the site
 echo "📦 Building ${SITE_NAME}..."
 npm run build --workspace="${SITE_NAME}/site"
