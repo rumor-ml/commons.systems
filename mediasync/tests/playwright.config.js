@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Determine if testing deployed site or local dev server
 const isDeployed = process.env.DEPLOYED === 'true';
 const baseURL = isDeployed
-  ? process.env.DEPLOYED_URL || 'https://audioupload.commons.systems'
+  ? process.env.DEPLOYED_URL || 'https://mediasync.commons.systems'
   : 'http://localhost:3002';
 
 // Configure remote browser connection

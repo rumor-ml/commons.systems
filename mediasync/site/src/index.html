@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediaSync - Universal Media Sync to GCS</title>
+  <link rel="stylesheet" href="/src/styles/main.css">
+  <link rel="stylesheet" href="/@shared/upload/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>MediaSync</h1>
+      <p class="subtitle">Sync your media files to Google Cloud Storage with intelligent organization</p>
+    </header>
+
+    <main>
+      <section id="strategy-info" class="section">
+        <h2>Available Media Types</h2>
+        <div id="strategies-list" class="strategies-grid">
+          <!-- Populated by JavaScript -->
+        </div>
+      </section>
+
+      <section id="job-starter" class="section">
+        <h2>Start New Sync Job</h2>
+        <!-- UploadJobStarter component will be rendered here -->
+      </section>
+
+      <section id="job-monitor" class="section" style="display: none;">
+        <h2>Job Progress</h2>
+        <div id="job-controls">
+          <!-- UploadJobControls component will be rendered here -->
+        </div>
+        <div id="job-progress">
+          <!-- UploadJobMonitor component will be rendered here -->
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>MediaSync supports audio, video, print media, and financial documents</p>
+    </footer>
+  </div>
+
+  <script type="module" src="/src/scripts/main.js"></script>
+</body>
+</html>

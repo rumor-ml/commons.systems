@@ -1,4 +1,4 @@
-name: Manual Deploy - Audioupload
+name: Manual Deploy - MediaSync
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
 env:
   GCP_PROJECT_ID: chalanding
   GCP_REGION: us-central1
-  SITE_NAME: audioupload
+  SITE_NAME: mediasync
 
 permissions:
   contents: write
@@ -54,7 +54,7 @@ jobs:
 
   # ==================== Step 2: Deploy Site ====================
   deploy:
-    name: Deploy Audioupload
+    name: Deploy MediaSync
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: local-tests
@@ -84,7 +84,7 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
-      - name: Build and deploy Audioupload
+      - name: Build and deploy MediaSync
         run: |
           # Build the Docker image with backend and frontend
           IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/commons-systems/${{ env.SITE_NAME }}"
@@ -95,7 +95,7 @@ jobs:
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             -t "${IMAGE_NAME}:${IMAGE_TAG}" \
             -t "${IMAGE_NAME}:${{ inputs.branch }}-latest" \
-            -f audioupload/Dockerfile \
+            -f mediasync/Dockerfile \
             --push \
             .
 
@@ -195,7 +195,7 @@ jobs:
     steps:
       - name: Create summary
         run: |
-          echo "# 🚀 Manual Deployment Summary - Audioupload" >> $GITHUB_STEP_SUMMARY
+          echo "# 🚀 Manual Deployment Summary - MediaSync" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ inputs.branch }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

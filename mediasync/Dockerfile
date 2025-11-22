@@ -1,4 +1,4 @@
-# Multi-stage build for audioupload (Go backend + Vite frontend)
+# Multi-stage build for mediasync (Go backend + Vite frontend)
 
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
@@ -6,14 +6,14 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /build
 
 # Copy frontend package files
-COPY audioupload/site/package*.json audioupload/site/
+COPY mediasync/site/package*.json mediasync/site/
 
 # Copy frontend source and shared components
-COPY audioupload/site/ audioupload/site/
+COPY mediasync/site/ mediasync/site/
 COPY shared-components/ shared-components/
 
 # Install frontend dependencies
-WORKDIR /build/audioupload/site
+WORKDIR /build/mediasync/site
 RUN npm install --production=false
 
 # Build frontend
@@ -29,13 +29,13 @@ RUN apk add --no-cache git
 
 # Copy all source code
 COPY gcsupload/ gcsupload/
-COPY audioupload/backend/ audioupload/backend/
+COPY mediasync/backend/ mediasync/backend/
 
 # Download dependencies and generate go.sum files
 WORKDIR /build/gcsupload
 RUN go mod tidy
 
-WORKDIR /build/audioupload/backend
+WORKDIR /build/mediasync/backend
 RUN go mod tidy
 
 # Build the backend
@@ -53,7 +53,7 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend-builder /build/server /app/server
 
 # Copy frontend build
-COPY --from=frontend-builder /build/audioupload/site/dist /app/public
+COPY --from=frontend-builder /build/mediasync/site/dist /app/public
 
 # Expose port
 EXPOSE 8080

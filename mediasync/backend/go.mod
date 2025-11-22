@@ -1,4 +1,4 @@
-module github.com/rumor-ml/commons.systems/audioupload/backend
+module github.com/rumor-ml/commons.systems/mediasync/backend
 
 go 1.21
 

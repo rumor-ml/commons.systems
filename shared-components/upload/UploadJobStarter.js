@@ -2,9 +2,10 @@
  * UploadJobStarter - Component for starting upload jobs
  */
 export class UploadJobStarter {
-  constructor(apiBaseUrl, onJobCreated) {
+  constructor(apiBaseUrl, onJobCreated, strategies = null) {
     this.apiBaseUrl = apiBaseUrl;
     this.onJobCreated = onJobCreated;
+    this.strategies = strategies;
   }
 
   /**
@@ -12,24 +13,37 @@ export class UploadJobStarter {
    * @param {HTMLElement} container - Container element to render into
    */
   render(container) {
+    const strategySelectHtml = this.strategies && this.strategies.length > 0 ? `
+      <div class="form-group">
+        <label for="strategy-name">Media Type:</label>
+        <select id="strategy-name" name="strategyName" required>
+          <option value="">Select media type...</option>
+          ${this.strategies.map(s => `
+            <option value="${s.name}">${s.name.charAt(0).toUpperCase() + s.name.slice(1)}</option>
+          `).join('')}
+        </select>
+      </div>
+    ` : '';
+
     container.innerHTML = `
       <div class="upload-job-starter">
-        <h2>Start Upload Job</h2>
         <form id="upload-job-form">
+          ${strategySelectHtml}
+
           <div class="form-group">
             <label for="job-name">Job Name:</label>
-            <input type="text" id="job-name" name="name" required placeholder="My Audio Upload">
+            <input type="text" id="job-name" name="name" required placeholder="My Media Upload">
           </div>
 
           <div class="form-group">
             <label for="base-path">Local Path:</label>
-            <input type="text" id="base-path" name="basePath" required placeholder="/path/to/audio/files">
-            <small>Path to the directory containing audio files</small>
+            <input type="text" id="base-path" name="basePath" required placeholder="/path/to/media/files">
+            <small>Path to the directory containing media files</small>
           </div>
 
           <div class="form-group">
             <label for="gcs-base-path">GCS Base Path:</label>
-            <input type="text" id="gcs-base-path" name="gcsBasePath" value="audio-uploads" placeholder="audio-uploads">
+            <input type="text" id="gcs-base-path" name="gcsBasePath" value="media-uploads" placeholder="media-uploads">
             <small>Base path in GCS bucket (optional)</small>
           </div>
 
@@ -50,8 +64,13 @@ export class UploadJobStarter {
       const data = {
         name: formData.get('name'),
         basePath: formData.get('basePath'),
-        gcsBasePath: formData.get('gcsBasePath') || 'audio-uploads'
+        gcsBasePath: formData.get('gcsBasePath') || 'media-uploads'
       };
+
+      // Include strategy name if strategies are available
+      if (this.strategies && this.strategies.length > 0) {
+        data.strategyName = formData.get('strategyName');
+      }
 
       statusDiv.textContent = 'Creating job...';
       statusDiv.className = 'status-message info';
