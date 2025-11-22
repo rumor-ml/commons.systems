@@ -3,13 +3,20 @@ FROM node:20-alpine AS builder
 
 WORKDIR /build
 
-# Copy package files
-COPY package*.json ./
+# Copy workspace root package files first
+COPY ../../package*.json ./
 
-# Install dependencies (use install instead of ci for workspace compatibility)
+# Copy shared auth package
+COPY ../../shared/auth ./shared/auth/
+
+# Copy site package files
+COPY package*.json ./site/
+
+# Install dependencies (workspace aware)
 RUN npm install --production=false
 
-# Copy source files
+# Copy site source files
+WORKDIR /build/site
 COPY . .
 
 # Build the site
@@ -19,7 +26,7 @@ RUN npm run build
 FROM nginx:alpine
 
 # Copy built files from builder stage
-COPY --from=builder /build/dist /usr/share/nginx/html
+COPY --from=builder /build/site/dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
