@@ -859,11 +859,9 @@ jobs:
 
           echo "✓ Firebase configuration injected into source"
 
-      - name: Deploy Firebase Storage rules
-        run: |
-          set -e  # Exit on error
+          # Deploy Firebase Storage rules (in same step to access STORAGE_BUCKET variable)
+          echo ""
           echo "Deploying Firebase Storage rules..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
           RULES_FILE="print/storage.rules"
 
           # Read and escape rules file for JSON
@@ -904,11 +902,9 @@ jobs:
 
           echo "✓ Created ruleset: $RULESET_NAME"
 
-          # Deploy ruleset to default storage bucket
-          echo "Deploying ruleset to Firebase Storage..."
-          # Use the actual storage bucket name from the config
+          # Deploy ruleset to storage bucket
+          echo "Deploying ruleset to Firebase Storage bucket: ${STORAGE_BUCKET}"
           RELEASE_NAME="firebase.storage/${STORAGE_BUCKET}"
-          echo "Deploying to bucket: ${STORAGE_BUCKET}"
           RELEASE_RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
@@ -926,7 +922,7 @@ jobs:
             exit 1
           fi
 
-          echo "✓ Firebase Storage rules deployed successfully"
+          echo "✓ Firebase Storage rules deployed successfully to ${STORAGE_BUCKET}"
 
       - name: Deploy Print
         run: ./infrastructure/scripts/deploy-site.sh print ${{ github.ref_name }} ${{ github.sha }}
