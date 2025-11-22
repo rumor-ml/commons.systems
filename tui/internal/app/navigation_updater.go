@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/natb1/tui/internal/git"
 	"github.com/natb1/tui/pkg/model"
 	projectworktree "github.com/rumor-ml/carriercommons/pkg/worktree"
 	"github.com/rumor-ml/log/pkg/log"
@@ -104,21 +105,25 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 		return nil
 	}
 
-	// Get model projects directly from the external project map
-	modelProjects := nu.app.projects.GetModelProjects()
-
-	// Check for duplicates (error only)
-	projectPaths := make(map[string]bool)
-	for _, p := range modelProjects {
-		if projectPaths[p.Path] {
-			logger.Error("DUPLICATE PROJECT DETECTED IN DISCOVERY!", "name", p.Name, "path", p.Path)
-		}
-		projectPaths[p.Path] = true
+	// NEW: Discover repository and branches
+	repo, err := nu.discoverRepositoryAndBranches()
+	if err != nil {
+		logger.Error("Failed to discover repository and branches", "error", err)
+		// Fall back to old behavior on error
+		return nu.doUpdateNavigationProjectsOld()
 	}
+
+	if repo == nil {
+		logger.Debug("No repository discovered yet")
+		return nu.doUpdateNavigationProjectsOld()
+	}
+
+	// Convert repository with branches to project model for UI display
+	modelProjects := nu.convertRepositoryToProjects(repo)
 
 	// If no projects discovered yet, show at least the current project
 	if len(modelProjects) == 0 {
-		logger.Info("No projects discovered yet, using current directory")
+		logger.Info("No branches discovered yet, using current directory")
 		// Create a minimal project for the current directory
 		currentPath, _ := os.Getwd()
 		modelProject := &model.Project{
@@ -131,81 +136,7 @@ func (nu *NavigationUpdater) doUpdateNavigationProjects() error {
 		modelProjects = []*model.Project{modelProject}
 	}
 
-	// Find the monorepo root project (if any)
-	var monorepoRoot *model.Project
-	for _, p := range modelProjects {
-		// Check if this is a monorepo root by checking if it contains "monorepo" tag
-		// or if its name matches the base directory of other projects
-		if p.Path != "" {
-			baseName := filepath.Base(p.Path)
-			// Count how many other projects are subdirectories of this one
-			childCount := 0
-			for _, other := range modelProjects {
-				if other.Path != p.Path && len(other.Path) > len(p.Path) {
-					relPath, err := filepath.Rel(p.Path, other.Path)
-					if err == nil && !filepath.IsAbs(relPath) && !startsWith(relPath, "..") {
-						childCount++
-					}
-				}
-			}
-			// If this project has 2+ children, it's likely the monorepo root
-			if childCount >= 2 {
-				monorepoRoot = p
-				// Removed: High-frequency DEBUG log (fires every navigation update = 1x/sec)
-				break
-			}
-			_ = baseName // unused for now
-		}
-	}
-
-	// Discover existing worktrees for each project
-	for _, modelProject := range modelProjects {
-		// Ensure shells are initialized and clear worktrees for fresh discovery
-		if modelProject.MainShells == nil {
-			modelProject.MainShells = make(map[model.ShellType]*model.Shell)
-		}
-		// Always reset worktrees to prevent duplicates on repeated calls
-		modelProject.Worktrees = []*model.Worktree{}
-
-		// Always show expanded to see worktrees
-		modelProject.Expanded = true
-
-		// ONLY discover git worktrees for the monorepo root project
-		// Modules are subdirectories, not separate git repos, so they shouldn't have worktrees
-		isMonorepoRoot := monorepoRoot != nil && modelProject.Path == monorepoRoot.Path
-
-		if isMonorepoRoot && nu.app.worktreeService != nil {
-			// Removed: DEBUG log (fires frequently during updates)
-			wtManager := projectworktree.NewManager(modelProject.Path)
-			worktrees, err := wtManager.ListWorktrees()
-			if err == nil {
-				// Removed: High-frequency DEBUG log (fires on every worktree discovery)
-
-				for _, wt := range worktrees {
-					// Skip the main working directory (not a real worktree)
-					if wt.Path == modelProject.Path {
-						continue
-					}
-
-					modelWorktree := &model.Worktree{
-						ID:         wt.Branch,  // Use branch as ID
-						Name:       filepath.Base(wt.Path), // Use directory name from path
-						Branch:     wt.Branch,
-						Path:       wt.Path,
-						IsPrunable: wt.IsPrunable,
-						Shells:     make(map[model.ShellType]*model.Shell),
-					}
-					modelProject.Worktrees = append(modelProject.Worktrees, modelWorktree)
-				}
-				// Removed: High-frequency DEBUG log (fires on every worktree discovery)
-			}
-		}
-	}
-
-	// Load persisted status for all projects and worktrees
-	if nu.app.statusRepo != nil {
-		nu.loadPersistedStatus(modelProjects)
-	}
+	// Note: Worktree discovery is now handled in branch discovery (see discoverRepositoryAndBranches)
 
 	// Update navigation component with real projects
 	if navComp := nu.app.uiManager.GetNavigationComponent(); navComp != nil {
@@ -255,4 +186,261 @@ func (nu *NavigationUpdater) loadPersistedStatus(projects []*model.Project) {
 	}
 
 	// Removed: Verbose INFO log (fires on every status load)
+}
+
+// discoverRepositoryAndBranches discovers the monorepo and all its branches
+func (nu *NavigationUpdater) discoverRepositoryAndBranches() (*model.Repository, error) {
+	logger := log.Get()
+
+	// Get model projects to find the monorepo root
+	modelProjects := nu.app.projects.GetModelProjects()
+	if len(modelProjects) == 0 {
+		logger.Debug("No projects discovered yet")
+		return nil, nil
+	}
+
+	// Find the monorepo root project
+	var monorepoRoot *model.Project
+	for _, p := range modelProjects {
+		if p.Path != "" {
+			// Count how many other projects are subdirectories of this one
+			childCount := 0
+			for _, other := range modelProjects {
+				if other.Path != p.Path && len(other.Path) > len(p.Path) {
+					relPath, err := filepath.Rel(p.Path, other.Path)
+					if err == nil && !filepath.IsAbs(relPath) && !startsWith(relPath, "..") {
+						childCount++
+					}
+				}
+			}
+			// If this project has 2+ children, it's likely the monorepo root
+			if childCount >= 2 {
+				monorepoRoot = p
+				break
+			}
+		}
+	}
+
+	// If no monorepo root found, use workspace root
+	if monorepoRoot == nil {
+		workspaceRoot := nu.app.workspaceRoot
+		if workspaceRoot == "" {
+			workspaceRoot, _ = os.Getwd()
+		}
+		repoName := filepath.Base(workspaceRoot)
+		monorepoRoot = &model.Project{
+			Name:       repoName,
+			Path:       workspaceRoot,
+			MainShells: make(map[model.ShellType]*model.Shell),
+		}
+	}
+
+	logger.Info("Discovering repository branches", "repo", monorepoRoot.Name, "path", monorepoRoot.Path)
+
+	// Create repository model
+	repo := model.NewRepository(monorepoRoot.Name, monorepoRoot.Path)
+
+	// Use BranchService to discover all branches
+	branchService := git.NewBranchService(monorepoRoot.Path)
+	branchInfos, err := branchService.ListAllBranches()
+	if err != nil {
+		logger.Error("Failed to discover branches", "error", err)
+		return nil, err
+	}
+
+	// Map worktrees to branches
+	err = branchService.GetWorktreesForBranches(branchInfos)
+	if err != nil {
+		logger.Warn("Failed to map worktrees", "error", err)
+		// Continue anyway - not fatal
+	}
+
+	// Convert BranchInfo to model.Branch
+	for _, branchInfo := range branchInfos {
+		branch := branchService.ConvertToModelBranch(branchInfo, nu.app.worktreeService)
+		repo.Branches = append(repo.Branches, branch)
+	}
+
+	logger.Info("Discovered repository with branches",
+		"repo", repo.Name,
+		"branch_count", len(repo.Branches))
+
+	// Load persisted status for branches
+	if nu.app.statusRepo != nil {
+		nu.loadPersistedBranchStatus(repo)
+	}
+
+	return repo, nil
+}
+
+// loadPersistedBranchStatus loads persisted status from database for branches
+func (nu *NavigationUpdater) loadPersistedBranchStatus(repo *model.Repository) {
+	logger := log.Get()
+
+	// Bulk load all worktree statuses (branches share the same storage)
+	worktreeStatuses, err := nu.app.statusRepo.LoadAllWorktreeStatuses()
+	if err != nil {
+		logger.Warn("Failed to load branch statuses", "error", err)
+		return
+	}
+
+	// Apply loaded statuses to branches
+	if branchStatuses, ok := worktreeStatuses[repo.Path]; ok {
+		for _, branch := range repo.Branches {
+			if status, ok := branchStatuses[branch.Name]; ok && status != "" {
+				branch.Status = model.ProjectStatus(status)
+				if branch.Worktree != nil {
+					branch.Worktree.Status = model.ProjectStatus(status)
+				}
+			}
+		}
+	}
+}
+
+// convertRepositoryToProjects converts a Repository with Branches to Project model for UI
+// This creates a single top-level project (the repository) with each branch as a "worktree"
+func (nu *NavigationUpdater) convertRepositoryToProjects(repo *model.Repository) []*model.Project {
+	logger := log.Get()
+
+	// Create a single project representing the repository
+	repoProject := &model.Project{
+		Name:       repo.Name,
+		Path:       repo.Path,
+		MainShells: repo.MainShells,
+		Worktrees:  make([]*model.Worktree, 0, len(repo.Branches)),
+		Expanded:   true, // Always show branches
+		Status:     repo.Status,
+		StatusReason: repo.StatusReason,
+	}
+
+	// Convert each branch to a worktree for display
+	for _, branch := range repo.Branches {
+		// Each branch becomes a "worktree" in the display
+		// If the branch has an actual worktree, use it; otherwise create a virtual one
+		var worktree *model.Worktree
+
+		if branch.Worktree != nil {
+			// Use the existing worktree
+			worktree = branch.Worktree
+		} else {
+			// Create a virtual worktree for branches without actual worktrees
+			worktree = &model.Worktree{
+				ID:     branch.Name,
+				Name:   branch.GetDisplayName(),
+				Branch: branch.Name,
+				Path:   "", // No actual path since no worktree exists
+				Shells: make(map[model.ShellType]*model.Shell),
+				Status: branch.Status,
+				StatusReason: branch.StatusReason,
+			}
+		}
+
+		repoProject.Worktrees = append(repoProject.Worktrees, worktree)
+	}
+
+	logger.Info("Converted repository to project model",
+		"repo", repo.Name,
+		"branch_count", len(repo.Branches),
+		"worktree_count", len(repoProject.Worktrees))
+
+	return []*model.Project{repoProject}
+}
+
+// doUpdateNavigationProjectsOld is the fallback to the old project discovery method
+func (nu *NavigationUpdater) doUpdateNavigationProjectsOld() error {
+	logger := log.Get()
+	logger.Warn("Falling back to old project discovery method")
+
+	// Get model projects directly from the external project map
+	modelProjects := nu.app.projects.GetModelProjects()
+
+	// If no projects discovered yet, show at least the current project
+	if len(modelProjects) == 0 {
+		logger.Info("No projects discovered yet, using current directory")
+		currentPath, _ := os.Getwd()
+		modelProject := &model.Project{
+			Name:       "assistant",
+			Path:       currentPath,
+			MainShells: make(map[model.ShellType]*model.Shell),
+			Worktrees:  []*model.Worktree{},
+			Expanded:   true,
+		}
+		modelProjects = []*model.Project{modelProject}
+	}
+
+	// Find the monorepo root project (if any)
+	var monorepoRoot *model.Project
+	for _, p := range modelProjects {
+		if p.Path != "" {
+			// Count how many other projects are subdirectories of this one
+			childCount := 0
+			for _, other := range modelProjects {
+				if other.Path != p.Path && len(other.Path) > len(p.Path) {
+					relPath, err := filepath.Rel(p.Path, other.Path)
+					if err == nil && !filepath.IsAbs(relPath) && !startsWith(relPath, "..") {
+						childCount++
+					}
+				}
+			}
+			// If this project has 2+ children, it's likely the monorepo root
+			if childCount >= 2 {
+				monorepoRoot = p
+				break
+			}
+		}
+	}
+
+	// Discover existing worktrees for each project
+	for _, modelProject := range modelProjects {
+		// Ensure shells are initialized and clear worktrees for fresh discovery
+		if modelProject.MainShells == nil {
+			modelProject.MainShells = make(map[model.ShellType]*model.Shell)
+		}
+		// Always reset worktrees to prevent duplicates on repeated calls
+		modelProject.Worktrees = []*model.Worktree{}
+
+		// Always show expanded to see worktrees
+		modelProject.Expanded = true
+
+		// ONLY discover git worktrees for the monorepo root project
+		isMonorepoRoot := monorepoRoot != nil && modelProject.Path == monorepoRoot.Path
+
+		if isMonorepoRoot && nu.app.worktreeService != nil {
+			wtManager := projectworktree.NewManager(modelProject.Path)
+			worktrees, err := wtManager.ListWorktrees()
+			if err == nil {
+				for _, wt := range worktrees {
+					// Skip the main working directory (not a real worktree)
+					if wt.Path == modelProject.Path {
+						continue
+					}
+
+					modelWorktree := &model.Worktree{
+						ID:         wt.Branch,
+						Name:       filepath.Base(wt.Path),
+						Branch:     wt.Branch,
+						Path:       wt.Path,
+						IsPrunable: wt.IsPrunable,
+						Shells:     make(map[model.ShellType]*model.Shell),
+					}
+					modelProject.Worktrees = append(modelProject.Worktrees, modelWorktree)
+				}
+			}
+		}
+	}
+
+	// Load persisted status for all projects and worktrees
+	if nu.app.statusRepo != nil {
+		nu.loadPersistedStatus(modelProjects)
+	}
+
+	// Update navigation component with real projects
+	if navComp := nu.app.uiManager.GetNavigationComponent(); navComp != nil {
+		navComp.SetProjects(modelProjects)
+		nu.UpdateNavigationWithTmuxInfo()
+	} else {
+		logger.Warn("Navigation component not found")
+	}
+
+	return nil
 }
