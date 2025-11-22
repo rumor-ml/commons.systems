@@ -101,9 +101,116 @@ Scaffolds a new site in the monorepo with all necessary boilerplate, tests, and 
 
 **After running:**
 1. Run `npm install` to install dependencies
-2. Manually update `.github/workflows/push.yml` to add the new site (follow patterns from existing sites)
+2. Manually update workflows (see "Adding a New Site to Workflows" section below)
 3. Test locally with `npm run dev:<site-name>`
 4. Deploy manually via GitHub Actions → Manual Deploy workflow
+
+### Adding a New Site to Workflows
+
+After running `add-site.sh`, you must manually update both workflow files to integrate the new site into the CI/CD pipeline.
+
+#### Update `.github/workflows/push-main.yml` (Main/PR Pipeline)
+
+The main/PR pipeline uses a **matrix strategy** for parallel site deployment. Adding a new site requires these steps:
+
+**a) Add local test step** (around line 53):
+```yaml
+- name: Test <sitename>
+  run: ./infrastructure/scripts/run-local-tests.sh <sitename>
+```
+
+**b) Add site to matrix array** (around line 133):
+```yaml
+strategy:
+  matrix:
+    site: [fellspiral, videobrowser, audiobrowser, <sitename>]
+```
+
+**c) Add collect-urls output** (around line 327):
+```yaml
+outputs:
+  <sitename>-url: ${{ steps.get-urls.outputs.<sitename>-url }}
+```
+
+**d) Add URL retrieval in collect-urls job** (around line 360):
+```yaml
+<SITENAME>_URL=$(gcloud run services describe <sitename>-site \
+  --region=${{ env.GCP_REGION }} \
+  --project=${{ env.GCP_PROJECT_ID }} \
+  --format='value(status.url)')
+echo "<sitename>-url=${<SITENAME>_URL}" >> $GITHUB_OUTPUT
+```
+
+**e) Add E2E test step** (around line 452):
+```yaml
+- name: Test <sitename>
+  run: ./infrastructure/scripts/run-playwright-tests.sh <sitename> "${{ needs.collect-urls.outputs.<sitename>-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+  env:
+    PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+    DEPLOYED_URL: ${{ needs.collect-urls.outputs.<sitename>-url }}
+    CI: true
+```
+
+**f) Add rollback step** (around line 522):
+```yaml
+- name: Rollback <sitename>
+  run: |
+    PREVIOUS_REVISION=$(gcloud run services describe <sitename>-site \
+      --region=${{ env.GCP_REGION }} \
+      --project=${{ env.GCP_PROJECT_ID }} \
+      --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
+    if [ -n "$PREVIOUS_REVISION" ]; then
+      echo "🔄 Rolling back <sitename> to: $PREVIOUS_REVISION"
+      gcloud run services update-traffic <sitename>-site \
+        --to-revisions="${PREVIOUS_REVISION}=100" \
+        --region=${{ env.GCP_REGION }} \
+        --project=${{ env.GCP_PROJECT_ID }}
+    fi
+```
+
+**g) (Optional) Add Firebase rules deployment** if your site needs Firestore or Storage rules:
+- See lines 235-303 in push-main.yml for examples
+- Add conditional steps using `if: matrix.site == '<sitename>'`
+
+#### Update `.github/workflows/push-feature.yml` (Feature Branch Pipeline)
+
+The feature branch pipeline uses **separate jobs per site** for conditional deployment. Adding a new site requires:
+
+**a) Add change detection output** (around line 35):
+```yaml
+<sitename>-changed: ${{ steps.check-changes.outputs.<sitename>-changed }}
+```
+
+**b) Add change check step** (around line 81):
+```bash
+if git diff --name-only HEAD^ HEAD | grep -q "^<sitename>/"; then
+  echo "<sitename>-changed=true" >> $GITHUB_OUTPUT
+else
+  echo "<sitename>-changed=false" >> $GITHUB_OUTPUT
+fi
+```
+
+**c) Add local test step** (around line 101):
+```yaml
+- name: Test <sitename>
+  if: steps.check-changes.outputs.<sitename>-changed == 'true'
+  run: ./infrastructure/scripts/run-local-tests.sh <sitename>
+```
+
+**d) Add complete `deploy-<sitename>` job**:
+- Copy an existing deploy job (e.g., `deploy-fellspiral`)
+- Update job name to `deploy-<sitename>`
+- Update condition: `if: needs.local-tests.outputs.<sitename>-changed == 'true'`
+- Update all references to site name
+- Include Firebase configuration step
+- Remove Firebase rules deployment unless your site needs it
+
+**e) Add complete `playwright-tests-<sitename>` job**:
+- Copy an existing playwright test job (e.g., `playwright-tests-fellspiral`)
+- Update job name to `playwright-tests-<sitename>`
+- Update dependencies: `needs: [deploy-<sitename>, deploy-playwright-server]`
+- Update condition to check `deploy-<sitename>` result
+- Update all site references
 
 ### When to Use These Tools
 

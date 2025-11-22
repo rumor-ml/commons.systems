@@ -1,12 +1,14 @@
-name: Push Pipeline
+name: Feature Branch Pipeline
 
 on:
   push:
-    branches: ['**']
+    branches:
+      - '**'
+      - '!main'
 
 # Only allow one pipeline per branch at a time
 concurrency:
-  group: push-${{ github.ref }}
+  group: push-feature-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -98,130 +100,13 @@ jobs:
         if: steps.check-changes.outputs.audiobrowser-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
 
-  # ==================== Step 2: Infrastructure as Code ====================
-  infrastructure:
-    name: Infrastructure as Code
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: local-tests
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-
-    defaults:
-      run:
-        working-directory: infrastructure/terraform
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Cache Nix store
-        uses: actions/cache@v4
-        with:
-          path: |
-            /nix/store
-            /nix/var/nix/db
-          key: ${{ runner.os }}-nix-${{ hashFiles('flake.nix') }}
-          restore-keys: |
-            ${{ runner.os }}-nix-
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Setup Nix cache
-        uses: cachix/cachix-action@v14
-        continue-on-error: true
-        with:
-          name: fellspiral
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: true
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          token_format: 'access_token'
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Cache gcloud components
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.config/gcloud
-          key: ${{ runner.os }}-gcloud-${{ hashFiles('.github/workflows/push.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-gcloud-
-
-      - name: Create Terraform state bucket
-        run: |
-          if ! gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} &>/dev/null; then
-            echo 'Creating Terraform state bucket...'
-            gcloud storage buckets create gs://fellspiral-terraform-state \
-              --project=${{ secrets.GCP_PROJECT_ID }} \
-              --location=us-central1 \
-              --uniform-bucket-level-access
-            gcloud storage buckets update gs://fellspiral-terraform-state --versioning
-            echo 'State bucket created successfully with versioning enabled'
-          else
-            echo 'State bucket already exists'
-          fi
-          echo 'Verifying service account access to state bucket...'
-          gcloud storage buckets describe gs://fellspiral-terraform-state --project=${{ secrets.GCP_PROJECT_ID }} || echo 'Cannot access bucket'
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      - name: Cache Terraform providers
-        uses: actions/cache@v4
-        with:
-          path: |
-            infrastructure/terraform/.terraform
-            ${{ github.workspace }}/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-terraform-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-
-
-      - name: Create terraform.tfvars
-        run: |
-          cat > terraform.tfvars <<EOF
-          project_id  = "${{ secrets.GCP_PROJECT_ID }}"
-          region      = "us-central1"
-          environment = "production"
-          EOF
-
-      - name: Terraform Init
-        run: terraform init -reconfigure
-
-      - name: Terraform Validate
-        run: terraform validate -no-color
-
-      - name: Terraform Plan
-        run: terraform plan -no-color -out=tfplan
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
-
-  # ==================== Step 3a: Deploy Playwright Server (on main branch + temp: feature branch) ====================
+  # ==================== Step 2: Deploy Playwright Server (if changed) ====================
   deploy-playwright-server:
     name: Deploy Playwright Server
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [local-tests, infrastructure]
-    if: |
-      always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/update-push-workflow-main-011kk51GfpQ2oUsV3N4oaa6h')
+    needs: local-tests
+    if: needs.local-tests.outputs.playwright-server-changed == 'true'
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
 
@@ -251,17 +136,13 @@ jobs:
           URL=$(cat /tmp/playwright-server-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
 
-  # ==================== Step 3b: Deploy Sites (in parallel, always on main, if changed on feature branches) ====================
+  # ==================== Step 3: Deploy Sites (in parallel, only if changed) ====================
   deploy-fellspiral:
     name: Deploy Fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [local-tests, infrastructure]
-    if: |
-      always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.fellspiral-changed == 'true')
+    needs: local-tests
+    if: needs.local-tests.outputs.fellspiral-changed == 'true'
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -489,12 +370,8 @@ jobs:
     name: Deploy Videobrowser
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [local-tests, infrastructure]
-    if: |
-      always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.videobrowser-changed == 'true')
+    needs: local-tests
+    if: needs.local-tests.outputs.videobrowser-changed == 'true'
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -705,12 +582,8 @@ jobs:
     name: Deploy Audiobrowser
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [local-tests, infrastructure]
-    if: |
-      always() &&
-      needs.local-tests.result == 'success' &&
-      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
-      (github.ref == 'refs/heads/main' || needs.local-tests.outputs.audiobrowser-changed == 'true')
+    needs: local-tests
+    if: needs.local-tests.outputs.audiobrowser-changed == 'true'
     outputs:
       service-url: ${{ steps.get-url.outputs.url }}
 
@@ -1012,169 +885,3 @@ jobs:
           PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.service-url }}
           CI: true
-
-  # ==================== Rollback on failure ====================
-  rollback-fellspiral:
-    name: Rollback Fellspiral
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [deploy-fellspiral, playwright-tests-fellspiral]
-    if: |
-      always() &&
-      needs.deploy-fellspiral.result == 'success' &&
-      needs.playwright-tests-fellspiral.result == 'failure' &&
-      github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Rollback Fellspiral
-        run: |
-          # Get previous revision
-          PREVIOUS_REVISION=$(gcloud run services describe fellspiral-site \
-            --region=${{ env.GCP_REGION }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
-
-          if [ -n "$PREVIOUS_REVISION" ]; then
-            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
-            gcloud run services update-traffic fellspiral-site \
-              --to-revisions="${PREVIOUS_REVISION}=100" \
-              --region=${{ env.GCP_REGION }} \
-              --project=${{ env.GCP_PROJECT_ID }}
-            echo "✅ Rollback completed"
-          else
-            echo "⚠️  No previous revision found, skipping rollback"
-          fi
-
-      - name: Create rollback issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Automatic Rollback: Fellspiral',
-              body: `Playwright tests failed for Fellspiral after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              labels: ['bug', 'deployment', 'rollback', 'fellspiral']
-            })
-
-  rollback-videobrowser:
-    name: Rollback Videobrowser
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [deploy-videobrowser, playwright-tests-videobrowser]
-    if: |
-      always() &&
-      needs.deploy-videobrowser.result == 'success' &&
-      needs.playwright-tests-videobrowser.result == 'failure' &&
-      github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Rollback Videobrowser
-        run: |
-          # Get previous revision
-          PREVIOUS_REVISION=$(gcloud run services describe videobrowser-site \
-            --region=${{ env.GCP_REGION }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
-
-          if [ -n "$PREVIOUS_REVISION" ]; then
-            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
-            gcloud run services update-traffic videobrowser-site \
-              --to-revisions="${PREVIOUS_REVISION}=100" \
-              --region=${{ env.GCP_REGION }} \
-              --project=${{ env.GCP_PROJECT_ID }}
-            echo "✅ Rollback completed"
-          else
-            echo "⚠️  No previous revision found, skipping rollback"
-          fi
-
-      - name: Create rollback issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Automatic Rollback: Videobrowser',
-              body: `Playwright tests failed for Videobrowser after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              labels: ['bug', 'deployment', 'rollback', 'videobrowser']
-            })
-
-  rollback-audiobrowser:
-    name: Rollback Audiobrowser
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [deploy-audiobrowser, playwright-tests-audiobrowser]
-    if: |
-      always() &&
-      needs.deploy-audiobrowser.result == 'success' &&
-      needs.playwright-tests-audiobrowser.result == 'failure' &&
-      github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Rollback Audiobrowser
-        run: |
-          # Get previous revision
-          PREVIOUS_REVISION=$(gcloud run services describe audiobrowser-site \
-            --region=${{ env.GCP_REGION }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --format='value(status.traffic[1].revisionName)' 2>/dev/null || echo "")
-
-          if [ -n "$PREVIOUS_REVISION" ]; then
-            echo "🔄 Rolling back to: $PREVIOUS_REVISION"
-            gcloud run services update-traffic audiobrowser-site \
-              --to-revisions="${PREVIOUS_REVISION}=100" \
-              --region=${{ env.GCP_REGION }} \
-              --project=${{ env.GCP_PROJECT_ID }}
-            echo "✅ Rollback completed"
-          else
-            echo "⚠️  No previous revision found, skipping rollback"
-          fi
-
-      - name: Create rollback issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Automatic Rollback: Audiobrowser',
-              body: `Playwright tests failed for Audiobrowser after deployment.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              labels: ['bug', 'deployment', 'rollback', 'audiobrowser']
-            })
