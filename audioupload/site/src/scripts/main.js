@@ -1,6 +1,6 @@
-import { UploadJobStarter } from '../../../../shared-components/upload/UploadJobStarter.js';
-import { UploadJobMonitor } from '../../../../shared-components/upload/UploadJobMonitor.js';
-import { UploadJobControls } from '../../../../shared-components/upload/UploadJobControls.js';
+import { UploadJobStarter } from '@shared/upload/UploadJobStarter.js';
+import { UploadJobMonitor } from '@shared/upload/UploadJobMonitor.js';
+import { UploadJobControls } from '@shared/upload/UploadJobControls.js';
 
 // Get API base URL from environment or use relative path
 const API_BASE_URL = window.location.origin;
