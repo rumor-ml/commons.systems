@@ -53,11 +53,11 @@ export function initializeAuth() {
     loginText: 'Sign in with GitHub',
     logoutText: 'Sign out',
     className: 'auth-button--compact auth-button--dark',
-    onSignIn: (result) => {
-      console.log('User signed in:', result.user.email);
+    onSignIn: () => {
+      // User successfully signed in
     },
     onSignOut: () => {
-      console.log('User signed out');
+      // User signed out
     },
     onError: (error) => {
       console.error('Auth error:', error);
