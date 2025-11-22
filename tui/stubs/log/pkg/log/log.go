@@ -54,9 +54,21 @@ type defaultLogger struct {
 	logger    *log.Logger
 }
 
-var globalLogger = &defaultLogger{
-	logger: log.New(os.Stderr, "", log.LstdFlags),
+func initLogger() *defaultLogger {
+	// Open log file in /tmp to avoid interfering with TUI display
+	logFile, err := os.OpenFile("/tmp/tui.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fallback to stderr if file can't be opened
+		return &defaultLogger{
+			logger: log.New(os.Stderr, "", log.LstdFlags),
+		}
+	}
+	return &defaultLogger{
+		logger: log.New(logFile, "", log.LstdFlags),
+	}
 }
+
+var globalLogger = initLogger()
 
 // Get returns the global logger instance
 func Get() Logger {
