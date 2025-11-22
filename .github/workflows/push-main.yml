@@ -316,6 +316,13 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "${{ matrix.site }} URL: ${URL}"
 
+      - name: Upload deployment URL as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-url-${{ matrix.site }}
+          path: /tmp/deployment-url.txt
+          retention-days: 1
+
   # ==================== Collect Deployment URLs ====================
   collect-urls:
     name: Collect Deployment URLs
@@ -327,13 +334,19 @@ jobs:
       audiobrowser-url: ${{ steps.get-urls.outputs.audiobrowser-url }}
 
     steps:
-      - name: Get deployment URLs from Firebase Hosting
+      - name: Download deployment URL artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deployment-url-*
+          merge-multiple: false
+
+      - name: Get deployment URLs from artifacts
         id: get-urls
         run: |
-          # Firebase Hosting production URLs (based on site IDs in firebase.json)
-          FELLSPIRAL_URL="https://fellspiral.web.app"
-          VIDEOBROWSER_URL="https://videobrowser-7696a.web.app"
-          AUDIOBROWSER_URL="https://audiobrowser.web.app"
+          # Read URLs from artifacts created by deploy jobs
+          FELLSPIRAL_URL=$(cat deployment-url-fellspiral/deployment-url.txt)
+          VIDEOBROWSER_URL=$(cat deployment-url-videobrowser/deployment-url.txt)
+          AUDIOBROWSER_URL=$(cat deployment-url-audiobrowser/deployment-url.txt)
 
           echo "fellspiral-url=${FELLSPIRAL_URL}" >> $GITHUB_OUTPUT
           echo "videobrowser-url=${VIDEOBROWSER_URL}" >> $GITHUB_OUTPUT

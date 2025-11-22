@@ -948,14 +948,36 @@ def create_firebase_hosting_sites(project_id):
                         print_info(f"  Site '{actual_site_id}' already exists")
                         site_mappings[site_id] = actual_site_id
                     elif 'reserved by another project' in error_msg.lower():
-                        # Extract suggested alternative name from error message
+                        # Check if the "reserved" site is actually in OUR project
+                        # (initial check may have failed, or error message may be misleading)
+                        print_info(f"  Site '{actual_site_id}' is reported as reserved, verifying if it's in our project...")
+
+                        check_our_project = run_command(
+                            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                            f'-H "x-goog-user-project: {project_id}" '
+                            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites/{actual_site_id}" '
+                            f'-w "\\n%{{http_code}}"',
+                            check=False
+                        )
+
+                        if check_our_project:
+                            check_lines = check_our_project.strip().split('\n')
+                            check_code = check_lines[-1] if check_lines else ""
+
+                            if check_code == "200":
+                                # It's reserved by OUR project, use it!
+                                print_success(f"  Site '{actual_site_id}' exists in our project - using it")
+                                site_mappings[site_id] = actual_site_id
+                                continue
+
+                        # Truly reserved by another project, extract suggested alternative name
                         # Error format: "try something like `videobrowser-6def8` instead"
                         match = re.search(r'try something like `([^`]+)`', error_msg)
                         if match:
                             suggested_name = match.group(1)
-                            print_info(f"  Site '{actual_site_id}' is reserved, trying '{suggested_name}'...")
+                            print_info(f"  Site '{actual_site_id}' is reserved by another project, trying '{suggested_name}'...")
 
-                            # Try with suggested name
+                            # Try to create suggested name
                             retry_result = run_command(
                                 f'curl -s -X POST '
                                 f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
