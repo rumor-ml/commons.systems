@@ -1,6 +1,7 @@
 /**
  * Firebase operations for Print site
  * Handles document storage and retrieval from Firebase Storage
+ * Storage uses rml-media bucket with public read access via storage rules
  */
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
