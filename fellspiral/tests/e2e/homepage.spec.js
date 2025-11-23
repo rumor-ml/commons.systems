@@ -31,11 +31,20 @@ test.describe('Homepage', () => {
     await expect(siteTitle).toBeVisible();
     await expect(siteTitle).toContainText('Fellspiral');
 
-    // Check nav links exist
-    const navLinks = ['Introduction', 'Initiative', 'Weapons', 'Armor', 'Skills', 'Combat Simulator', 'Examples'];
-    for (const linkText of navLinks) {
-      const link = page.locator('.sidebar-nav a', { hasText: linkText });
+    // Check nav links exist using href selectors to avoid ambiguity
+    const navLinks = [
+      { href: '#introduction', text: 'Introduction' },
+      { href: '#initiative', text: 'Initiative' },
+      { href: '#weapons', text: 'Weapons' },
+      { href: '#armor', text: 'Armor' },
+      { href: '#skills', text: 'Skills' },
+      { href: '#simulator', text: 'Combat Simulator' },
+      { href: '#examples', text: 'Examples' }
+    ];
+    for (const navLink of navLinks) {
+      const link = page.locator(`.sidebar-nav a[href="${navLink.href}"]`);
       await expect(link).toBeVisible();
+      await expect(link).toContainText(navLink.text);
     }
 
     // Test navigation clicking

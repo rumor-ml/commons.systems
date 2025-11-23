@@ -14,7 +14,8 @@ import '@commons/auth/styles/user-profile.css';
 import { firebaseConfig } from '../firebase-config.js';
 
 /**
- * Initialize authentication and inject UI components into sidebar
+ * Initialize authentication and inject UI components
+ * Supports both new sidebar layout and old navbar layout
  */
 export function initializeAuth() {
   // Initialize Firebase Auth with GitHub provider
@@ -23,20 +24,42 @@ export function initializeAuth() {
   // Initialize auth state management
   initAuthState();
 
-  // Find auth container in sidebar
-  const authContainer = document.querySelector('.nav-auth');
+  // Try new sidebar layout first (.nav-auth in sidebar)
+  let authContainer = document.querySelector('.nav-auth');
+  let isNewLayout = true;
+
+  // Fall back to old navbar layout (.nav-menu)
   if (!authContainer) {
-    console.warn('Auth container not found in sidebar, skipping auth UI injection');
+    const navMenu = document.querySelector('.nav-menu');
+    if (navMenu) {
+      authContainer = document.createElement('li');
+      authContainer.className = 'nav-auth';
+      navMenu.appendChild(authContainer);
+      isNewLayout = false;
+    }
+  }
+
+  if (!authContainer) {
+    console.warn('Auth container not found, skipping auth UI injection');
     return;
   }
 
-  // Style auth container
-  authContainer.style.display = 'flex';
-  authContainer.style.flexDirection = 'column';
-  authContainer.style.gap = '12px';
-  authContainer.style.padding = '16px';
-  authContainer.style.borderTop = '1px solid var(--border-color, #e0e0e0)';
-  authContainer.style.marginTop = 'auto';
+  // Style auth container based on layout
+  if (isNewLayout) {
+    // Sidebar layout styling
+    authContainer.style.display = 'flex';
+    authContainer.style.flexDirection = 'column';
+    authContainer.style.gap = '12px';
+    authContainer.style.padding = '16px';
+    authContainer.style.borderTop = '1px solid var(--border-color, #e0e0e0)';
+    authContainer.style.marginTop = 'auto';
+  } else {
+    // Navbar layout styling
+    authContainer.style.marginLeft = 'auto';
+    authContainer.style.display = 'flex';
+    authContainer.style.alignItems = 'center';
+    authContainer.style.gap = '12px';
+  }
 
   // Create user profile component
   const userProfile = createUserProfile({
