@@ -88,8 +88,9 @@ async function loadDocuments() {
   try {
     showLoading();
 
-    // Add 5 second timeout to prevent indefinite hanging
-    documents = await withTimeout(getAllDocuments(), 5000);
+    // Add 15 second timeout to prevent indefinite hanging
+    // Increased from 5s to allow for slower Firebase Storage initialization
+    documents = await withTimeout(getAllDocuments(), 15000);
 
     renderDocuments();
   } catch (error) {
