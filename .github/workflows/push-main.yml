@@ -209,6 +209,34 @@ jobs:
             echo "✓ CORS configured successfully"
           fi
 
+      - name: Initialize rml-media bucket for Firebase Storage
+        continue-on-error: true
+        run: |
+          echo "Initializing rml-media bucket for Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+
+          # Link the GCS bucket to Firebase Storage
+          # This is required for the Firebase SDK to access the bucket
+          INIT_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${PROJECT_ID}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET_NAME}:addFirebase")
+
+          if echo "$INIT_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_CODE=$(echo "$INIT_RESPONSE" | jq -r '.error.code')
+            if [ "$ERROR_CODE" = "409" ]; then
+              echo "✓ Bucket already initialized for Firebase Storage (expected)"
+            else
+              echo "⚠️  Could not initialize bucket for Firebase Storage"
+              echo "Response: $INIT_RESPONSE"
+            fi
+          else
+            echo "✓ Bucket successfully initialized for Firebase Storage"
+          fi
+
       - name: Configure public access for rml-media bucket
         continue-on-error: true
         run: |
