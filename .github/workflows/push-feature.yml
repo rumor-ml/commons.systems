@@ -90,11 +90,15 @@ jobs:
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser]
+        include:
+          - site: fellspiral
+            changed: ${{ needs.detect-changes.outputs.fellspiral-changed }}
+          - site: videobrowser
+            changed: ${{ needs.detect-changes.outputs.videobrowser-changed }}
+          - site: audiobrowser
+            changed: ${{ needs.detect-changes.outputs.audiobrowser-changed }}
       fail-fast: false
-    if: |
-      (matrix.site == 'fellspiral' && needs.detect-changes.outputs.fellspiral-changed == 'true') ||
-      (matrix.site == 'videobrowser' && needs.detect-changes.outputs.videobrowser-changed == 'true') ||
-      (matrix.site == 'audiobrowser' && needs.detect-changes.outputs.audiobrowser-changed == 'true')
+    if: matrix.changed == 'true'
 
     steps:
       - name: Checkout code
