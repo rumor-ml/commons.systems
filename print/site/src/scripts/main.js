@@ -3,6 +3,7 @@
  * Handles document listing, upload UI, and Firebase Storage integration
  */
 import {
+  initializeFirebase,
   getAllDocuments,
   createDocument,
   deleteDocument,
@@ -87,6 +88,9 @@ function setupEventListeners() {
 async function loadDocuments() {
   try {
     showLoading();
+
+    // Initialize Firebase Auth (anonymous) for storage access
+    await initializeFirebase();
 
     // Add 5 second timeout to prevent indefinite hanging
     documents = await withTimeout(getAllDocuments(), 5000);
