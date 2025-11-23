@@ -25,7 +25,13 @@ Creates site structure, tests, and manual deploy workflow. See "Adding Sites to 
 
 ### GCP Tools
 
-**`get_gcp_token.sh`** - Generate/cache GCP OAuth2 token
+**`gcpcurl`** - Authenticated GCP API requests (RECOMMENDED)
+```bash
+./claudetool/gcpcurl <url> [curl-options]
+```
+Handles authentication automatically. Use this instead of manual curl commands.
+
+**`get_gcp_token.sh`** - Generate/cache GCP OAuth2 token (for advanced use)
 ```bash
 source claudetool/get_gcp_token.sh 2>/dev/null  # Sets $GCP_ACCESS_TOKEN
 ```
@@ -46,10 +52,23 @@ curl -H "Authorization: token $GITHUB_TOKEN" \
 **IMPORTANT - Auth troubleshooting:** Use `Authorization: token` not `Bearer`. Token does not expire during sessions - if auth fails, check header format first, not token validity.
 
 ### GCP API
+
+**Use `gcpcurl` for all GCP API requests:**
+```bash
+# List Cloud Run services
+./claudetool/gcpcurl "https://run.googleapis.com/v2/projects/chalanding/locations/us-central1/services"
+
+# Check storage bucket
+./claudetool/gcpcurl "https://storage.googleapis.com/storage/v1/b/rml-media"
+
+# With additional curl options
+./claudetool/gcpcurl "https://..." -X POST -d '{"key":"value"}'
+```
+
+**Advanced:** Manual token management (only if gcpcurl doesn't meet your needs)
 ```bash
 source claudetool/get_gcp_token.sh 2>/dev/null
-curl -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
-  "https://run.googleapis.com/v2/projects/$GCP_PROJECT_ID/locations/us-central1/services"
+curl -s -H "Authorization: Bearer $GCP_ACCESS_TOKEN" "https://..."
 ```
 
 Environment provides `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `GCP_PROJECT_ID=chalanding`.
