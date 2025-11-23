@@ -448,42 +448,66 @@ jobs:
             echo "✓ CORS configured successfully"
           fi
 
-      - name: Deploy Firebase Storage rules (rml-media)
+      - name: Configure public access for rml-media bucket
         continue-on-error: true
         run: |
-          echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
+          echo "Configuring public access for rml-media bucket (shared by videobrowser and print)..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           BUCKET_NAME="rml-media"
-          RULES_CONTENT=$(cat shared/storage.rules | jq -Rs '.')
 
-          RULESET_RESPONSE=$(curl -s -X POST \
+          # Non-default buckets can't use Firebase Storage security rules
+          # Instead, we disable public access prevention and use IAM policies
+
+          # Step 1: Disable public access prevention
+          echo "Disabling public access prevention..."
+          PAP_RESPONSE=$(curl -s -X PATCH \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
             -H "Content-Type: application/json" \
-            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
+            -d '{"iamConfiguration": {"publicAccessPrevention": "inherited"}}' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
 
-          if echo "$RULESET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Could not create ruleset"
-            echo "Response: $RULESET_RESPONSE"
+          if echo "$PAP_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not disable public access prevention"
+            echo "Response: $PAP_RESPONSE"
           else
-            RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name')
-            echo "✓ Ruleset created: $RULESET_NAME"
-
-            RELEASE_RESPONSE=$(curl -s -X PUT \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-              -H "Content-Type: application/json" \
-              -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/firebase.storage/${BUCKET_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
-              "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/firebase.storage/${BUCKET_NAME}")
-
-            if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-              echo "⚠️  Could not deploy rules"
-              echo "Response: $RELEASE_RESPONSE"
-            else
-              echo "✓ Storage rules deployed to ${BUCKET_NAME}"
-            fi
+            echo "✓ Public access prevention disabled (set to inherited)"
           fi
+
+          # Step 2: Grant public read access via IAM
+          echo "Granting public read access via IAM..."
+
+          # Get current IAM policy
+          IAM_POLICY=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          # Add allUsers objectViewer binding if not already present
+          UPDATED_POLICY=$(echo "$IAM_POLICY" | jq '
+            .bindings |= (
+              if any(.role == "roles/storage.objectViewer" and (.members // [] | contains(["allUsers"]))) then
+                .
+              else
+                . + [{
+                  "role": "roles/storage.objectViewer",
+                  "members": ["allUsers"]
+                }]
+              end
+            )
+          ')
+
+          IAM_RESPONSE=$(curl -s -X PUT \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATED_POLICY" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          if echo "$IAM_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not grant public read access"
+            echo "Response: $IAM_RESPONSE"
+          else
+            echo "✓ Public read access granted via IAM (allUsers can read objects)"
+          fi
+
+          echo "✓ rml-media bucket configured for public read access"
 
       - name: Deploy to Firebase Hosting Preview
         id: deploy
