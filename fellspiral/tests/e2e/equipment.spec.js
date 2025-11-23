@@ -2,52 +2,32 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Equipment Section', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#equipment');
-    // Wait for JavaScript to load and attach event listeners
+    await page.goto('/#weapons');
+    // Wait for JavaScript to load
     await page.waitForLoadState('networkidle');
   });
 
-  test('should display equipment tabs', async ({ page }) => {
-    const tabs = ['Weapons', 'Armor', 'Skills', 'Upgrades'];
+  test('should display all equipment sections', async ({ page }) => {
+    // All sections should be visible (no tabs in new design)
+    const sections = ['#weapons', '#armor', '#skills', '#upgrades'];
 
-    for (const tabName of tabs) {
-      const tab = page.locator('.tab-btn', { hasText: tabName });
-      await expect(tab).toBeVisible();
+    for (const sectionId of sections) {
+      const section = page.locator(sectionId);
+      await expect(section).toBeVisible();
     }
-
-    // Weapons tab should be active by default
-    const weaponsTab = page.locator('.tab-btn', { hasText: 'Weapons' });
-    await expect(weaponsTab).toHaveClass(/active/);
-  });
-
-  test('should switch between tabs', async ({ page }) => {
-    // Click armor tab
-    await page.click('text=Armor');
-
-    // Armor tab should be active
-    const armorTab = page.locator('.tab-btn[data-tab="armor"]');
-    await expect(armorTab).toHaveClass(/active/);
-
-    // Armor content should be visible
-    const armorContent = page.locator('#armor');
-    await expect(armorContent).toHaveClass(/active/);
-
-    // Weapons content should not be visible
-    const weaponsContent = page.locator('#weapons');
-    await expect(weaponsContent).not.toHaveClass(/active/);
   });
 
   test('should display weapons', async ({ page }) => {
     const weapons = ['Long Sword', 'Long Bow', 'Dagger', 'Scimitar', 'Spear', 'Musket'];
 
     for (const weapon of weapons) {
-      const weaponCard = page.locator('.equipment-card', { hasText: weapon });
-      await expect(weaponCard).toBeVisible();
+      const weaponItem = page.locator('.equipment-item', { hasText: weapon });
+      await expect(weaponItem).toBeVisible();
     }
   });
 
   test('should display weapon details', async ({ page }) => {
-    const longSword = page.locator('.equipment-card', { hasText: 'Long Sword' }).first();
+    const longSword = page.locator('.equipment-item', { hasText: 'Long Sword' }).first();
 
     // Check for tags
     await expect(longSword).toContainText('2h');
@@ -59,50 +39,42 @@ test.describe('Equipment Section', () => {
     await expect(longSword).toContainText('2 slots');
   });
 
-  test('should display armor when armor tab clicked', async ({ page }) => {
-    await page.click('text=Armor');
+  test('should display armor', async ({ page }) => {
+    await page.goto('/#armor');
 
     const armorPieces = ['Chain Mail', 'Scale Vest', 'Helm', 'Greaves', 'Cloak'];
 
     for (const armor of armorPieces) {
-      const armorCard = page.locator('.equipment-card', { hasText: armor });
-      await expect(armorCard).toBeVisible();
+      const armorItem = page.locator('.equipment-item', { hasText: armor });
+      await expect(armorItem).toBeVisible();
     }
   });
 
-  test('should display skills when skills tab clicked', async ({ page }) => {
-    // Click the specific skills tab button
-    await page.click('.tab-btn[data-tab="skills"]');
-
-    // Wait for skills tab content to become active
-    const skillsContent = page.locator('#skills');
-    await expect(skillsContent).toHaveClass('tab-content active');
-
-    // Wait for skills content to be visible
-    await page.locator('.skill-card').first().waitFor({ state: 'visible' });
+  test('should display skills', async ({ page }) => {
+    await page.goto('/#skills');
 
     // Check skill categories
     await expect(page.locator('h3', { hasText: 'Attack Skills' })).toBeVisible();
     await expect(page.locator('h3', { hasText: 'Defense Skills' })).toBeVisible();
     await expect(page.locator('h3', { hasText: 'Tenacity Skills' })).toBeVisible();
 
-    // Check some specific skills
+    // Check some specific skills in definition lists
     const skills = ['Surgical', 'Dual Wielding', 'Counter Strike', 'Moving Target', 'Grit'];
 
     for (const skill of skills) {
-      const skillCard = page.locator('.skill-card', { hasText: skill });
-      await expect(skillCard).toBeVisible();
+      const skillItem = page.locator('.skill-list dt', { hasText: skill });
+      await expect(skillItem).toBeVisible();
     }
   });
 
-  test('should display upgrades when upgrades tab clicked', async ({ page }) => {
-    await page.click('text=Upgrades');
+  test('should display upgrades', async ({ page }) => {
+    await page.goto('/#upgrades');
 
     const upgrades = ['Master-Craft', 'Serrated', 'Sword Breaker', 'Lucky', 'Balanced', 'Deadly'];
 
     for (const upgrade of upgrades) {
-      const upgradeCard = page.locator('.equipment-card', { hasText: upgrade });
-      await expect(upgradeCard).toBeVisible();
+      const upgradeItem = page.locator('.equipment-item', { hasText: upgrade });
+      await expect(upgradeItem).toBeVisible();
     }
   });
 });

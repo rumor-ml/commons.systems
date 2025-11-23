@@ -2,45 +2,45 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Combat Rules Section', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#combat');
+    await page.goto('/#zones');
   });
 
-  test('should display combat rule cards', async ({ page }) => {
-    const ruleTitles = ['Zones', 'Actions', 'Trading Initiative', 'Conditions'];
+  test('should display combat rule sections', async ({ page }) => {
+    const ruleSections = ['#zones', '#actions', '#trading-initiative', '#conditions'];
 
-    for (const title of ruleTitles) {
-      const card = page.locator('.rule-card', { hasText: title });
-      await expect(card).toBeVisible();
+    for (const sectionId of ruleSections) {
+      const section = page.locator(sectionId);
+      await expect(section).toBeVisible();
     }
   });
 
   test('should explain zones', async ({ page }) => {
-    const zonesCard = page.locator('.rule-card', { hasText: 'Zones' });
-    await expect(zonesCard).toContainText('10 paces');
-    await expect(zonesCard).toContainText('adjacent');
+    const zonesSection = page.locator('#zones');
+    await expect(zonesSection).toContainText('10 paces');
+    await expect(zonesSection).toContainText('adjacent');
   });
 
   test('should list action types', async ({ page }) => {
-    const actionsCard = page.locator('.rule-card', { hasText: 'Actions' });
-    await expect(actionsCard).toContainText('Move');
-    await expect(actionsCard).toContainText('Attack');
-    await expect(actionsCard).toContainText('Equip');
-    await expect(actionsCard).toContainText('Hold');
-    await expect(actionsCard).toContainText('Hurry');
+    const actionsSection = page.locator('#actions');
+    await expect(actionsSection).toContainText('Move');
+    await expect(actionsSection).toContainText('Attack');
+    await expect(actionsSection).toContainText('Equip');
+    await expect(actionsSection).toContainText('Hold');
+    await expect(actionsSection).toContainText('Hurry');
   });
 
   test('should explain initiative trading', async ({ page }) => {
-    const initiativeCard = page.locator('.rule-card', { hasText: 'Trading Initiative' });
-    await expect(initiativeCard).toContainText('Defender has initiative by default');
-    await expect(initiativeCard).toContainText('crit');
+    const initiativeSection = page.locator('#trading-initiative');
+    await expect(initiativeSection).toContainText('Defender has initiative by default');
+    await expect(initiativeSection).toContainText('crit');
   });
 
   test('should list all conditions', async ({ page }) => {
-    const conditionsCard = page.locator('.rule-card', { hasText: 'Conditions' });
+    const conditionsSection = page.locator('#conditions');
     const conditions = ['Pinned', 'Stunned', 'Exhausted', 'Afraid', 'Immobilized', 'Bleeding'];
 
     for (const condition of conditions) {
-      await expect(conditionsCard).toContainText(condition);
+      await expect(conditionsSection).toContainText(condition);
     }
   });
 });

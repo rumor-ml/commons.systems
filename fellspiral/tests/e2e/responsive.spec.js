@@ -13,11 +13,11 @@ test.describe('Responsive Design', () => {
       await page.goto('/');
 
       // Check that key elements are visible
-      const hero = page.locator('.hero');
-      await expect(hero).toBeVisible();
+      const introduction = page.locator('#introduction');
+      await expect(introduction).toBeVisible();
 
-      const nav = page.locator('.navbar');
-      await expect(nav).toBeVisible();
+      const sidebar = page.locator('.sidebar');
+      await expect(sidebar).toBeAttached();
 
       // Check that content doesn't overflow
       const body = page.locator('body');
@@ -26,22 +26,34 @@ test.describe('Responsive Design', () => {
     });
   }
 
-  test('should have working navigation on mobile', async ({ page }) => {
+  test('should have mobile menu toggle on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/');
 
-    // Navigation should be visible
-    const navMenu = page.locator('.nav-menu');
-    await expect(navMenu).toBeVisible();
+    // Mobile menu toggle should be visible
+    const menuToggle = page.locator('.mobile-menu-toggle');
+    await expect(menuToggle).toBeVisible();
+
+    // Sidebar should be hidden initially on mobile
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar).not.toHaveClass(/active/);
+
+    // Click toggle to show sidebar
+    await menuToggle.click();
+    await page.waitForTimeout(300); // Wait for animation
+    await expect(sidebar).toHaveClass(/active/);
 
     // Should be able to click nav links
-    const conceptsLink = page.locator('.nav-menu a', { hasText: 'Concepts' });
-    await conceptsLink.click();
+    const initiativeLink = page.locator('.sidebar-nav a[href="#initiative"]');
+    await initiativeLink.click();
 
     // Should scroll to section
     await page.waitForTimeout(500);
-    const conceptsSection = page.locator('#concepts');
-    await expect(conceptsSection).toBeInViewport();
+    const initiativeSection = page.locator('#initiative');
+    await expect(initiativeSection).toBeInViewport();
+
+    // Sidebar should close after clicking link on mobile
+    await expect(sidebar).not.toHaveClass(/active/);
   });
 
   test('should have readable text on all viewport sizes', async ({ page }) => {
@@ -50,8 +62,8 @@ test.describe('Responsive Design', () => {
       await page.goto('/');
 
       // Check font sizes are readable
-      const heroHeading = page.locator('.hero h1');
-      const fontSize = await heroHeading.evaluate((el) => {
+      const mainHeading = page.locator('#introduction h1');
+      const fontSize = await mainHeading.evaluate((el) => {
         return window.getComputedStyle(el).fontSize;
       });
 

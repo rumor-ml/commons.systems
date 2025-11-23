@@ -9,7 +9,7 @@ test.describe('Combat Example Section', () => {
     const exampleSection = page.locator('#examples');
     await expect(exampleSection).toBeVisible();
 
-    const storyTitle = page.locator('.example-story h3');
+    const storyTitle = page.locator('#examples h2');
     await expect(storyTitle).toContainText('The Hungry Goblin');
   });
 
@@ -28,7 +28,7 @@ test.describe('Combat Example Section', () => {
   });
 
   test('should demonstrate initiative mechanics', async ({ page }) => {
-    const example = page.locator('.example-story');
+    const example = page.locator('#examples');
 
     // Check that initiative changes are shown
     await expect(example).toContainText('with initiative');
@@ -36,7 +36,7 @@ test.describe('Combat Example Section', () => {
   });
 
   test('should demonstrate conditions', async ({ page }) => {
-    const example = page.locator('.example-story');
+    const example = page.locator('#examples');
 
     // Check that conditions are demonstrated
     await expect(example).toContainText('Afraid');

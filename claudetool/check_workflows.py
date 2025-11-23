@@ -169,16 +169,29 @@ def monitor_workflows(branch=None, interval=10):
                     status = latest.get('status')
                     conclusion = latest.get('conclusion')
 
-                    if conclusion == 'success':
-                        print("\n\n🎉 DEPLOYMENT SUCCESSFUL!\n")
-                        print(format_workflow(latest))
-                        print("\n✅ Monitoring complete - workflow succeeded")
-                        return True
-                    elif conclusion == 'failure':
-                        print("\n\n❌ DEPLOYMENT FAILED\n")
-                        print(format_workflow(latest))
-                        print("\n⚠️  Check the workflow URL above for details")
-                        return False
+                    # Check if workflow is completed (any conclusion)
+                    if status == 'completed':
+                        if conclusion == 'success':
+                            print("\n\n🎉 DEPLOYMENT SUCCESSFUL!\n")
+                            print(format_workflow(latest))
+                            print("\n✅ Monitoring complete - workflow succeeded")
+                            return True
+                        elif conclusion == 'failure':
+                            print("\n\n❌ DEPLOYMENT FAILED\n")
+                            print(format_workflow(latest))
+                            print("\n⚠️  Check the workflow URL above for details")
+                            return False
+                        elif conclusion == 'cancelled':
+                            print("\n\n⚠️  WORKFLOW CANCELLED\n")
+                            print(format_workflow(latest))
+                            print("\n⏹  Monitoring complete - workflow was cancelled")
+                            return False
+                        else:
+                            # Handle other conclusions: skipped, timed_out, action_required, neutral, etc.
+                            print(f"\n\n⚠️  WORKFLOW COMPLETED: {conclusion.upper()}\n")
+                            print(format_workflow(latest))
+                            print(f"\n⚠️  Monitoring complete - workflow conclusion: {conclusion}")
+                            return False
                     elif status == 'in_progress':
                         print(f"\n\n🔄 DEPLOYMENT IN PROGRESS...\n")
                         print(format_workflow(latest))

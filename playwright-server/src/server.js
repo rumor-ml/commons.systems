@@ -29,7 +29,7 @@ let wsEndpoint = null;
 // Connection tokens for WebSocket authentication
 // Maps connection token -> { email, exp }
 const connectionTokens = new Map();
-const CONNECTION_TOKEN_TTL = 60000; // 60 seconds
+const CONNECTION_TOKEN_TTL = 600000; // 10 minutes (increased from 60 seconds to accommodate long test suites)
 
 // Cleanup expired connection tokens every 30 seconds
 setInterval(() => {
@@ -88,8 +88,8 @@ function validateConnectionToken(token) {
     return null;
   }
 
-  // Single use token - delete after validation
-  connectionTokens.delete(token);
+  // Allow token reuse within TTL to support WebSocket reconnections
+  // Token will be cleaned up when it expires via the periodic cleanup interval
   return data;
 }
 
