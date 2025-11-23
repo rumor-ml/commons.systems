@@ -17,18 +17,19 @@ export async function initializeAuth(app) {
   // Sign in anonymously to enable Firebase Storage access
   try {
     await signInAnonymously(auth);
-    console.log('Anonymous auth initialized for Firebase Storage access');
   } catch (error) {
-    console.error('Failed to initialize anonymous auth:', error);
+    // Auth initialization failed - this will prevent Firebase Storage access
     throw error;
   }
 
   // Monitor auth state
   onAuthStateChanged(auth, (user) => {
-    if (user) {
-      console.log('Anonymous user signed in:', user.uid);
-    } else {
-      console.log('No user signed in');
+    // Auth state changed
+    if (!user) {
+      // No user signed in - re-authenticate
+      signInAnonymously(auth).catch(() => {
+        // Silent fail - page may not load properly but won't crash
+      });
     }
   });
 }
