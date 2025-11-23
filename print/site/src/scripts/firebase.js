@@ -6,14 +6,18 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, getMetadata, deleteObject, listAll } from 'firebase/storage';
+import { getAuth } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 
 // Initialize Firebase app and services
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// Initialize Auth (required for Firebase SDK even though bucket has public access)
+// This ensures the SDK can properly access GCS buckets
+const auth = getAuth(app);
 // Storage bucket is configured in firebase-config.js (injected during deployment)
 // For print site, this is set to 'rml-media' by inject-firebase-config.sh
-// Public read access is enabled via storage rules - no auth required
+// Public read access is enabled via IAM policies - no auth required for bucket access
 // Use default bucket from config (SDK automatically uses storageBucket property)
 const storage = getStorage(app);
 
