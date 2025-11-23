@@ -1,4 +1,5 @@
 # Use official Playwright image with pre-installed browsers
+# Updated: 2025-11-23 - Concurrency set to 80 in deploy script
 FROM mcr.microsoft.com/playwright:v1.40.0-jammy
 
 # Set working directory
