@@ -2,46 +2,42 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Core Concepts Section', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#concepts');
+    await page.goto('/#initiative');
   });
 
-  test('should display all concept cards', async ({ page }) => {
-    // Wait for first card to ensure content is loaded
-    await page.locator('.concept-card').first().waitFor({ state: 'visible' });
-
-    const conceptTitles = [
-      'Initiative',
-      'Referee & Antagonist Roles',
-      'Damage System',
-      'Combat Rounds'
+  test('should display all concept sections', async ({ page }) => {
+    // Check all concept sections are visible
+    const conceptSections = [
+      '#initiative',
+      '#roles',
+      '#damage',
+      '#rounds'
     ];
 
-    for (const title of conceptTitles) {
-      // Use h3 locator to avoid matching title in card body text
-      const cardHeading = page.locator('.concept-card h3', { hasText: title });
-      await expect(cardHeading).toBeVisible();
+    for (const sectionId of conceptSections) {
+      const section = page.locator(sectionId);
+      await expect(section).toBeVisible();
     }
   });
 
   test('should explain initiative concept', async ({ page }) => {
-    // Use .first() since 'Initiative' appears in multiple cards
-    const initiativeCard = page.locator('.concept-card', { hasText: 'Initiative' }).first();
-    await initiativeCard.waitFor({ state: 'visible' });
-    await expect(initiativeCard).toContainText('narrative control');
-    await expect(initiativeCard).toContainText('tempo of battle');
+    const initiativeSection = page.locator('#initiative');
+    await expect(initiativeSection).toBeVisible();
+    await expect(initiativeSection).toContainText('narrative control');
+    await expect(initiativeSection).toContainText('tempo of battle');
   });
 
   test('should explain damage system', async ({ page }) => {
-    const damageCard = page.locator('.concept-card', { hasText: 'Damage System' });
-    await expect(damageCard).toContainText('slots');
-    await expect(damageCard).toContainText('conditions');
-    await expect(damageCard).toContainText('10 equipment slots');
-    await expect(damageCard).toContainText('10 skill slots');
+    const damageSection = page.locator('#damage');
+    await expect(damageSection).toContainText('slots');
+    await expect(damageSection).toContainText('conditions');
+    await expect(damageSection).toContainText('10 equipment slots');
+    await expect(damageSection).toContainText('10 skill slots');
   });
 
   test('should explain combat rounds', async ({ page }) => {
-    const roundsCard = page.locator('.concept-card', { hasText: 'Combat Rounds' });
-    await expect(roundsCard).toContainText('5 phases');
-    await expect(roundsCard).toContainText('d20');
+    const roundsSection = page.locator('#rounds');
+    await expect(roundsSection).toContainText('5 phases');
+    await expect(roundsSection).toContainText('d20');
   });
 });

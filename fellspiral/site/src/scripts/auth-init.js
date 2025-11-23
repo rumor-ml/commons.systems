@@ -14,7 +14,7 @@ import '@commons/auth/styles/user-profile.css';
 import { firebaseConfig } from '../firebase-config.js';
 
 /**
- * Initialize authentication and inject UI components into navbar
+ * Initialize authentication and inject UI components into sidebar
  */
 export function initializeAuth() {
   // Initialize Firebase Auth with GitHub provider
@@ -23,20 +23,20 @@ export function initializeAuth() {
   // Initialize auth state management
   initAuthState();
 
-  // Find navbar menu
-  const navMenu = document.querySelector('.nav-menu');
-  if (!navMenu) {
-    console.warn('Navbar not found, skipping auth UI injection');
+  // Find auth container in sidebar
+  const authContainer = document.querySelector('.nav-auth');
+  if (!authContainer) {
+    console.warn('Auth container not found in sidebar, skipping auth UI injection');
     return;
   }
 
-  // Create auth UI container in navbar
-  const authContainer = document.createElement('li');
-  authContainer.className = 'nav-auth';
-  authContainer.style.marginLeft = 'auto';
+  // Style auth container
   authContainer.style.display = 'flex';
-  authContainer.style.alignItems = 'center';
+  authContainer.style.flexDirection = 'column';
   authContainer.style.gap = '12px';
+  authContainer.style.padding = '16px';
+  authContainer.style.borderTop = '1px solid var(--border-color, #e0e0e0)';
+  authContainer.style.marginTop = 'auto';
 
   // Create user profile component
   const userProfile = createUserProfile({
@@ -70,9 +70,6 @@ export function initializeAuth() {
   // Add components to container
   authContainer.appendChild(userProfile);
   authContainer.appendChild(authButton);
-
-  // Add to navbar
-  navMenu.appendChild(authContainer);
 }
 
 /**

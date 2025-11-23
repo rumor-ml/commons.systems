@@ -55,7 +55,7 @@ test.describe('Accessibility', () => {
     await expect(body).toBeVisible();
 
     // Check that navigation is readable
-    const nav = page.locator('.navbar');
+    const nav = page.locator('.sidebar');
     await expect(nav).toBeVisible();
   });
 
