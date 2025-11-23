@@ -960,27 +960,64 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
 // Import auth initialization
 import { initializeAuth } from './auth-init.js';
 
-// Tab switching functionality
+// Navigation and UI functionality
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
 
-  const tabButtons = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
+  // Mobile menu toggle
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  const sidebar = document.getElementById('sidebar');
 
-  tabButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      const targetTab = button.dataset.tab;
-
-      // Remove active class from all buttons and contents
-      tabButtons.forEach(btn => btn.classList.remove('active'));
-      tabContents.forEach(content => content.classList.remove('active'));
-
-      // Add active class to clicked button and corresponding content
-      button.classList.add('active');
-      document.getElementById(targetTab).classList.add('active');
+  if (mobileMenuToggle && sidebar) {
+    mobileMenuToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('active');
     });
-  });
+
+    // Close sidebar when clicking a nav link on mobile
+    const navItems = sidebar.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('active');
+        }
+      });
+    });
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768 &&
+          !sidebar.contains(e.target) &&
+          !mobileMenuToggle.contains(e.target) &&
+          sidebar.classList.contains('active')) {
+        sidebar.classList.remove('active');
+      }
+    });
+  }
+
+  // Active navigation highlighting
+  const navItems = document.querySelectorAll('.nav-item');
+  const sections = document.querySelectorAll('.content-section');
+
+  function highlightNavigation() {
+    let currentSection = '';
+
+    sections.forEach(section => {
+      const sectionTop = section.offsetTop;
+      const sectionHeight = section.clientHeight;
+
+      if (window.scrollY >= sectionTop - 100) {
+        currentSection = section.getAttribute('id');
+      }
+    });
+
+    navItems.forEach(item => {
+      item.classList.remove('active');
+      if (item.getAttribute('href') === `#${currentSection}`) {
+        item.classList.add('active');
+      }
+    });
+  }
 
   // Smooth scroll for navigation links
   document.querySelectorAll('a[href^="#"]').forEach(anchor => {
@@ -995,25 +1032,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         // Update URL hash
         history.pushState(null, null, href);
+        highlightNavigation();
       }
     });
   });
 
-  // Add scroll-based header shadow
-  const navbar = document.querySelector('.navbar');
-  let lastScroll = 0;
-
-  window.addEventListener('scroll', () => {
-    const currentScroll = window.pageYOffset;
-
-    if (currentScroll > 50) {
-      navbar.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-    } else {
-      navbar.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
-    }
-
-    lastScroll = currentScroll;
-  });
+  // Highlight navigation on scroll
+  window.addEventListener('scroll', highlightNavigation);
+  highlightNavigation(); // Initial highlight
 
   // Combat Simulator functionality
   const simulateBtn = document.getElementById('simulateBtn');

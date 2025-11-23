@@ -6,55 +6,62 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/Fellspiral/);
   });
 
-  test('should display hero section', async ({ page }) => {
+  test('should display introduction section', async ({ page }) => {
     await page.goto('/');
 
-    // Check hero content
-    const heroHeading = page.locator('.hero h1');
-    await expect(heroHeading).toBeVisible();
-    await expect(heroHeading).toContainText('Welcome to Fellspiral');
+    // Check introduction content
+    const introHeading = page.locator('#introduction h1');
+    await expect(introHeading).toBeVisible();
+    await expect(introHeading).toContainText('Fellspiral');
 
-    // Check hero description
-    const heroDescription = page.locator('.hero-description');
-    await expect(heroDescription).toBeVisible();
-    await expect(heroDescription).toContainText('tactical tabletop RPG');
-
-    // Check hero buttons (use .first() since .btn-primary appears in multiple sections)
-    const primaryButton = page.locator('.hero .btn-primary');
-    await expect(primaryButton).toBeVisible();
-
-    const secondaryButton = page.locator('.hero .btn-secondary');
-    await expect(secondaryButton).toBeVisible();
+    // Check introduction description (lead paragraph)
+    const introDescription = page.locator('#introduction .lead');
+    await expect(introDescription).toBeVisible();
+    await expect(introDescription).toContainText('tactical tabletop RPG');
   });
 
-  test('should have working navigation', async ({ page }) => {
+  test('should have working sidebar navigation', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for navigation to be ready
-    await page.locator('.nav-menu').waitFor({ state: 'visible' });
+    // Wait for sidebar navigation to be ready
+    await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
 
-    // Check nav links exist
-    const navLinks = ['Concepts', 'Combat', 'Equipment', 'Simulator', 'Examples'];
-    for (const linkText of navLinks) {
-      const link = page.locator('.nav-menu a', { hasText: linkText });
+    // Check sidebar header
+    const siteTitle = page.locator('.site-title');
+    await expect(siteTitle).toBeVisible();
+    await expect(siteTitle).toContainText('Fellspiral');
+
+    // Check nav links exist using href selectors to avoid ambiguity
+    const navLinks = [
+      { href: '#introduction', text: 'Introduction' },
+      { href: '#initiative', text: 'Initiative' },
+      { href: '#weapons', text: 'Weapons' },
+      { href: '#armor', text: 'Armor' },
+      { href: '#skills', text: 'Skills' },
+      { href: '#simulator', text: 'Combat Simulator' },
+      { href: '#examples', text: 'Examples' }
+    ];
+    for (const navLink of navLinks) {
+      const link = page.locator(`.sidebar-nav a[href="${navLink.href}"]`);
       await expect(link).toBeVisible();
+      await expect(link).toContainText(navLink.text);
     }
 
     // Test navigation clicking
-    await page.click('text=Concepts');
-    await expect(page.url()).toContain('#concepts');
+    await page.click('.sidebar-nav a[href="#initiative"]');
+    await expect(page.url()).toContain('#initiative');
 
     // Wait for section to scroll into view
-    const conceptsSection = page.locator('#concepts');
+    const initiativeSection = page.locator('#initiative');
     await page.waitForTimeout(300); // Small delay for scroll animation
-    await expect(conceptsSection).toBeInViewport();
+    await expect(initiativeSection).toBeInViewport();
   });
 
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 
     // Check all major sections are present
-    const sections = ['#concepts', '#combat', '#equipment', '#simulator', '#examples'];
+    const sections = ['#introduction', '#initiative', '#weapons', '#armor', '#skills', '#simulator', '#examples'];
     for (const sectionId of sections) {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();

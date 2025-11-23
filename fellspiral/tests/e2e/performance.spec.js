@@ -25,18 +25,18 @@ test.describe('Performance', () => {
     await page.waitForLoadState('domcontentloaded');
 
     // Check that styles are applied by checking computed styles
-    const hero = page.locator('.hero');
-    await expect(hero).toBeVisible();
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar).toBeVisible();
 
     // Wait a bit for styles to be applied
     await page.waitForTimeout(100);
 
-    const bgImage = await hero.evaluate((el) => {
-      return window.getComputedStyle(el).backgroundImage;
+    const bgColor = await sidebar.evaluate((el) => {
+      return window.getComputedStyle(el).backgroundColor;
     });
 
-    // Should have a gradient background (not none)
-    expect(bgImage).toContain('linear-gradient');
+    // Should have a background color set (not transparent)
+    expect(bgColor).not.toBe('rgba(0, 0, 0, 0)');
   });
 
   test('should have JavaScript loaded and functional', async ({ page }) => {
@@ -45,12 +45,12 @@ test.describe('Performance', () => {
     // Wait for JavaScript to execute
     await page.waitForLoadState('networkidle');
 
-    // Test that tab functionality works (requires JS)
-    const armorTab = page.locator('.tab-btn[data-tab="armor"]');
-    await armorTab.click();
+    // Test that navigation highlighting works (requires JS)
+    await page.goto('/#weapons');
+    await page.waitForTimeout(500);
 
-    const armorContent = page.locator('#armor');
-    await expect(armorContent).toHaveClass(/active/);
+    const weaponsLink = page.locator('.sidebar-nav a[href="#weapons"]');
+    await expect(weaponsLink).toHaveClass(/active/);
   });
 
   test('should be responsive on mobile', async ({ page }) => {
@@ -59,10 +59,10 @@ test.describe('Performance', () => {
     await page.goto('/');
 
     // Check that content is visible and readable
-    const hero = page.locator('.hero');
-    await expect(hero).toBeVisible();
+    const introduction = page.locator('#introduction');
+    await expect(introduction).toBeVisible();
 
-    const heading = page.locator('.hero h1');
+    const heading = page.locator('#introduction h1');
     await expect(heading).toBeVisible();
   });
 
