@@ -193,7 +193,7 @@ jobs:
             RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name')
             echo "✓ Ruleset created: $RULESET_NAME"
 
-            RELEASE_RESPONSE=$(curl -s -X PATCH \
+            RELEASE_RESPONSE=$(curl -s -X PUT \
               -H "Authorization: Bearer ${ACCESS_TOKEN}" \
               -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
               -H "Content-Type: application/json" \

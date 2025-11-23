@@ -402,14 +402,44 @@ When investigating bugs or issues reported by the user:
 
 ### Accessing GitHub Actions Workflow Logs
 
-**ALWAYS use the helper script for fetching logs:**
+**CRITICAL: ALWAYS use the helper script - do NOT use curl directly unless absolutely necessary**
+
+The `get_workflow_logs.sh` script handles all the complexity of GitHub's log API including:
+- Correct authentication headers
+- Following redirects (logs endpoint returns 302 redirects)
+- Formatting output clearly
+- Supporting multiple input formats (run ID, branch name, --latest, --failed)
 
 ```bash
-# Recommended: Use the helper script
-./claudetool/get_workflow_logs.sh <run_id_or_branch>
+# Get logs for a specific workflow run
+./claudetool/get_workflow_logs.sh 19602986134
+
+# Get logs for specific job in a run
+./claudetool/get_workflow_logs.sh 19602986134 56137975208
+
+# Get logs for latest run on a branch
+./claudetool/get_workflow_logs.sh main
+
+# Get logs for latest run (any branch)
+./claudetool/get_workflow_logs.sh --latest
+
+# Get logs for latest failed run
+./claudetool/get_workflow_logs.sh --failed
 ```
 
-**If you must use curl directly, follow this exact pattern:**
+**Why you should use the script:**
+- Handles the `-L` flag automatically (REQUIRED for log endpoints)
+- Uses correct authentication format (`Authorization: token` not `Bearer`)
+- Properly chains API calls (get run → get jobs → get logs)
+- Provides formatted, readable output
+
+**DO NOT attempt to fetch logs with curl directly** - you will likely encounter authentication errors or empty responses due to missing redirect handling.
+
+---
+
+**Advanced: Manual curl approach (NOT RECOMMENDED)**
+
+Only use this if the helper script doesn't meet your needs. The log endpoint returns redirects that must be followed:
 
 #### Step 1: Get Workflow Run Information
 
