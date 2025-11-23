@@ -88,8 +88,8 @@ function validateConnectionToken(token) {
     return null;
   }
 
-  // Single use token - delete after validation
-  connectionTokens.delete(token);
+  // Allow token reuse within TTL to support WebSocket reconnections
+  // Token will be cleaned up when it expires via the periodic cleanup interval
   return data;
 }
 
