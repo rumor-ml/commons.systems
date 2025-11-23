@@ -417,7 +417,7 @@ jobs:
     needs: [collect-urls, get-playwright-url]
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
     if: |
       always() &&
@@ -469,6 +469,9 @@ jobs:
             audiobrowser)
               echo "url=${{ needs.collect-urls.outputs.audiobrowser-url }}" >> $GITHUB_OUTPUT
               ;;
+            print)
+              echo "url=${{ needs.collect-urls.outputs.print-url }}" >> $GITHUB_OUTPUT
+              ;;
           esac
 
       - name: Test ${{ matrix.site }}
@@ -476,13 +479,6 @@ jobs:
         env:
           PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
-          CI: true
-
-      - name: Test Print
-        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.collect-urls.outputs.print-url }}" "${{ needs.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.collect-urls.outputs.print-url }}
           CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
