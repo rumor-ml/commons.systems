@@ -60,6 +60,9 @@ jobs:
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
+      - name: Test Print
+        run: ./infrastructure/scripts/run-local-tests.sh print
+
   # ==================== Step 2: Deploy Sites (Parallel) ====================
 
   # Check if Playwright Server code changed
@@ -131,14 +134,181 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Playwright Server URL: ${URL}"
 
+  initialize-rml-media:
+    name: Initialize rml-media Firebase Storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: local-tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Initialize rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Ensuring rml-media bucket is linked to Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Try to link bucket to Firebase Storage (idempotent - safe to run multiple times)
+          LINK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}:addFirebase")
+
+          if echo "$LINK_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_STATUS=$(echo "$LINK_RESPONSE" | jq -r '.error.status // empty')
+            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$LINK_RESPONSE" | grep -qi "already"; then
+              echo "✓ Bucket already linked to Firebase Storage"
+            else
+              echo "⚠️  Could not link bucket (may already be linked or require manual setup)"
+              echo "Response: $LINK_RESPONSE"
+            fi
+          else
+            echo "✓ Bucket successfully linked to Firebase Storage"
+          fi
+
+      - name: Configure CORS for rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Configuring CORS for rml-media bucket..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Configure CORS to allow web access from any origin
+          CORS_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "cors": [
+                {
+                  "origin": ["*"],
+                  "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+                  "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
+                  "maxAgeSeconds": 3600
+                }
+              ]
+            }' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
+
+          if echo "$CORS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not configure CORS"
+            echo "Response: $CORS_RESPONSE"
+          else
+            echo "✓ CORS configured successfully"
+          fi
+
+      - name: Initialize rml-media bucket for Firebase Storage
+        continue-on-error: true
+        run: |
+          echo "Initializing rml-media bucket for Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+
+          # Link the GCS bucket to Firebase Storage
+          # This is required for the Firebase SDK to access the bucket
+          INIT_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${PROJECT_ID}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET_NAME}:addFirebase")
+
+          echo "API Response:"
+          echo "$INIT_RESPONSE" | jq '.' || echo "$INIT_RESPONSE"
+          echo ""
+
+          if echo "$INIT_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_CODE=$(echo "$INIT_RESPONSE" | jq -r '.error.code')
+            if [ "$ERROR_CODE" = "409" ]; then
+              echo "✓ Bucket already initialized for Firebase Storage (expected)"
+            else
+              echo "⚠️  Could not initialize bucket for Firebase Storage"
+            fi
+          else
+            echo "✓ Bucket successfully initialized for Firebase Storage"
+          fi
+
+      - name: Configure public access for rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Configuring public access for rml-media bucket (shared by videobrowser and print)..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Non-default buckets can't use Firebase Storage security rules
+          # Instead, we disable public access prevention and use IAM policies
+
+          # Step 1: Disable public access prevention
+          echo "Disabling public access prevention..."
+          PAP_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"iamConfiguration": {"publicAccessPrevention": "inherited"}}' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
+
+          if echo "$PAP_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not disable public access prevention"
+            echo "Response: $PAP_RESPONSE"
+          else
+            echo "✓ Public access prevention disabled (set to inherited)"
+          fi
+
+          # Step 2: Grant public read access via IAM
+          echo "Granting public read access via IAM..."
+
+          # Get current IAM policy
+          IAM_POLICY=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          # Add allUsers objectViewer binding if not already present
+          UPDATED_POLICY=$(echo "$IAM_POLICY" | jq '
+            .bindings |= (
+              if any(.role == "roles/storage.objectViewer" and (.members // [] | contains(["allUsers"]))) then
+                .
+              else
+                . + [{
+                  "role": "roles/storage.objectViewer",
+                  "members": ["allUsers"]
+                }]
+              end
+            )
+          ')
+
+          IAM_RESPONSE=$(curl -s -X PUT \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATED_POLICY" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          if echo "$IAM_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not grant public read access"
+            echo "Response: $IAM_RESPONSE"
+          else
+            echo "✓ Public read access granted via IAM (allUsers can read objects)"
+          fi
+
+          echo "✓ rml-media bucket configured for public read access"
+
   deploy-sites:
     name: Deploy ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: local-tests
+    needs: [local-tests, initialize-rml-media]
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
 
     steps:
@@ -193,72 +363,7 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      # ========== Firebase Configuration ==========
-      - name: Get Firebase configuration and inject
-        run: |
-          set -e
-          SITE="${{ matrix.site }}"
-          echo "Fetching Firebase configuration for ${SITE}..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          APPS_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-          # Determine app display name
-          if [ "$SITE" = "fellspiral" ]; then
-            APP_NAME="Fellspiral Web App"
-          elif [ "$SITE" = "videobrowser" ]; then
-            APP_NAME="Video Browser Web App"
-          else
-            APP_NAME="Audio Browser Web App"
-          fi
-
-          APP_ID=$(echo "$APPS_RESPONSE" | jq -r ".apps[] | select(.displayName == \"$APP_NAME\") | .appId // empty")
-
-          if [ -z "$APP_ID" ]; then
-            echo "Creating ${APP_NAME}..."
-            CREATE_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-              -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-              -H "Content-Type: application/json" \
-              -d "{\"displayName\": \"${APP_NAME}\"}" \
-              "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps")
-
-            APP_ID=$(echo "$CREATE_RESPONSE" | jq -r '.appId // empty')
-            echo "✓ Created Firebase web app: $APP_ID"
-          else
-            echo "✓ Found existing Firebase web app: $APP_ID"
-          fi
-
-          CONFIG_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            "https://firebase.googleapis.com/v1beta1/projects/${{ env.GCP_PROJECT_ID }}/webApps/${APP_ID}/config")
-
-          API_KEY=$(echo "$CONFIG_RESPONSE" | jq -r '.apiKey // empty')
-          AUTH_DOMAIN=$(echo "$CONFIG_RESPONSE" | jq -r '.authDomain')
-          PROJECT_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.projectId')
-          STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
-          MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
-          APP_ID_VALUE=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
-
-          cat > ${SITE}/site/src/firebase-config.js <<EOF
-          /**
-           * Firebase Configuration
-           * Auto-generated during CI/CD deployment
-           */
-
-          export const firebaseConfig = {
-            apiKey: "${API_KEY}",
-            authDomain: "${AUTH_DOMAIN}",
-            projectId: "${PROJECT_ID}",
-            storageBucket: "${STORAGE_BUCKET}",
-            messagingSenderId: "${MESSAGING_SENDER_ID}",
-            appId: "${APP_ID_VALUE}"
-          };
-          EOF
-
-          echo "✓ Firebase configuration injected"
+      # Note: Firebase configuration is injected by deploy-firebase-hosting.sh script
 
       # ========== Deploy Firestore Rules (Fellspiral only) ==========
       - name: Deploy Firestore rules
@@ -297,39 +402,7 @@ jobs:
             echo "✓ Firestore rules deployed"
           fi
 
-      # ========== Deploy Firebase Storage Rules (Videobrowser only) ==========
-      - name: Deploy Firebase Storage rules
-        if: matrix.site == 'videobrowser'
-        run: |
-          set -e
-          echo "Deploying Firebase Storage rules..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-          RULES_CONTENT=$(cat videobrowser/storage.rules | jq -Rs '.')
-
-          RULESET_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"source\": {\"files\": [{\"name\": \"storage.rules\", \"content\": ${RULES_CONTENT}}]}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/rulesets")
-
-          RULESET_NAME=$(echo "$RULESET_RESPONSE" | jq -r '.name // empty')
-          echo "✓ Created ruleset: $RULESET_NAME"
-
-          RELEASE_NAME="firebase.storage/${BUCKET_NAME}"
-          RELEASE_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "x-goog-user-project: ${{ env.GCP_PROJECT_ID }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"release\": {\"name\": \"projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}\", \"rulesetName\": \"${RULESET_NAME}\"}}" \
-            "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/${RELEASE_NAME}")
-
-          if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset"
-          else
-            echo "✓ Firebase Storage rules deployed"
-          fi
+      # Note: rml-media bucket initialization and rules deployment now handled by initialize-rml-media job
 
       # ========== Deploy Site ==========
       - name: Deploy ${{ matrix.site }} to Firebase Hosting
@@ -358,6 +431,7 @@ jobs:
       fellspiral-url: ${{ steps.get-urls.outputs.fellspiral-url }}
       videobrowser-url: ${{ steps.get-urls.outputs.videobrowser-url }}
       audiobrowser-url: ${{ steps.get-urls.outputs.audiobrowser-url }}
+      print-url: ${{ steps.get-urls.outputs.print-url }}
 
     steps:
       - name: Download deployment URL artifacts
@@ -373,14 +447,17 @@ jobs:
           FELLSPIRAL_URL=$(cat deployment-url-fellspiral/deployment-url.txt)
           VIDEOBROWSER_URL=$(cat deployment-url-videobrowser/deployment-url.txt)
           AUDIOBROWSER_URL=$(cat deployment-url-audiobrowser/deployment-url.txt)
+          PRINT_URL=$(cat deployment-url-print/deployment-url.txt)
 
           echo "fellspiral-url=${FELLSPIRAL_URL}" >> $GITHUB_OUTPUT
           echo "videobrowser-url=${VIDEOBROWSER_URL}" >> $GITHUB_OUTPUT
           echo "audiobrowser-url=${AUDIOBROWSER_URL}" >> $GITHUB_OUTPUT
+          echo "print-url=${PRINT_URL}" >> $GITHUB_OUTPUT
 
           echo "Fellspiral URL: ${FELLSPIRAL_URL}"
           echo "Videobrowser URL: ${VIDEOBROWSER_URL}"
           echo "Audiobrowser URL: ${AUDIOBROWSER_URL}"
+          echo "Print URL: ${PRINT_URL}"
 
   # ==================== Step 3: Get Playwright Server URL ====================
   get-playwright-url:
@@ -425,7 +502,7 @@ jobs:
     needs: [collect-urls, get-playwright-url]
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
     if: |
       always() &&
@@ -477,6 +554,9 @@ jobs:
             audiobrowser)
               echo "url=${{ needs.collect-urls.outputs.audiobrowser-url }}" >> $GITHUB_OUTPUT
               ;;
+            print)
+              echo "url=${{ needs.collect-urls.outputs.print-url }}" >> $GITHUB_OUTPUT
+              ;;
           esac
 
       - name: Test ${{ matrix.site }}
@@ -515,7 +595,7 @@ jobs:
         run: |
           echo "⚠️  Firebase Hosting deployments don't support automatic rollback"
           echo "📝 To manually rollback, use: firebase hosting:rollback <site-id>"
-          echo "🔍 Sites: fellspiral, videobrowser-7696a, audiobrowser"
+          echo "🔍 Sites: fellspiral, videobrowser-7696a, audiobrowser, print-dfb47"
           echo ""
           echo "Previous deployments are still available in Firebase Hosting history"
 

@@ -98,7 +98,7 @@ MAX_RETRIES=5
 RETRY_DELAY=2
 
 for i in $(seq 1 $MAX_RETRIES); do
-  BROWSER_RESPONSE=$(curl -sf \
+  BROWSER_RESPONSE=$(curl -sf --max-time 30 \
     -H "Authorization: Bearer $OIDC_TOKEN" \
     "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint")
 

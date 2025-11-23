@@ -843,6 +843,58 @@ def initialize_firebase(config):
                 print(f"{Colors.YELLOW}You may need to initialize Firebase manually at:{Colors.NC}")
                 print("https://console.firebase.google.com/")
 
+    # Initialize Firebase Storage bucket
+    print_info("Initializing Firebase Storage bucket...")
+
+    # Get the default storage bucket name
+    storage_bucket = f"{config['project_id']}.firebasestorage.app"
+
+    # Check if bucket exists
+    bucket_check = run_command(
+        f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'"https://storage.googleapis.com/storage/v1/b/{storage_bucket}" '
+        f'-w "\\n%{{http_code}}"',
+        check=False
+    )
+
+    if bucket_check:
+        lines = bucket_check.strip().split('\n')
+        http_code = lines[-1] if lines else ""
+
+        if http_code == "200":
+            print_info(f"Firebase Storage bucket already exists: {storage_bucket}")
+        elif http_code == "404":
+            # Bucket doesn't exist, it should be created automatically when first used
+            # or we can create it via GCS API with Firebase-specific settings
+            print_info(f"Firebase Storage bucket will be created automatically on first use: {storage_bucket}")
+            print(f"{Colors.INFO}  Note: The bucket is created when you first access Firebase Storage{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}Could not check Firebase Storage bucket status (HTTP {http_code}){Colors.NC}")
+
+    # Initialize rml-media storage bucket for videobrowser and print sites
+    print_info("Initializing rml-media Firebase Storage bucket...")
+
+    rml_media_bucket = "rml-media"
+
+    # Add rml-media bucket to Firebase Storage
+    add_bucket_response = run_command(
+        f'curl -s -X POST '
+        f'-H "Authorization: Bearer $(gcloud auth print-access-token)" '
+        f'-H "Content-Type: application/json" '
+        f'-d \'{{"bucket": "projects/{config["project_id"]}/buckets/{rml_media_bucket}"}}\' '
+        f'"https://firebasestorage.googleapis.com/v1beta/projects/{config["project_id"]}/buckets/{rml_media_bucket}:addFirebase"',
+        check=False
+    )
+
+    if add_bucket_response:
+        if '"error"' in add_bucket_response:
+            if 'ALREADY_EXISTS' in add_bucket_response or 'already' in add_bucket_response.lower():
+                print_info(f"rml-media bucket already linked to Firebase Storage")
+            else:
+                print(f"{Colors.YELLOW}Note: Could not link rml-media bucket to Firebase: {add_bucket_response[:200]}{Colors.NC}")
+        else:
+            print_success(f"rml-media bucket linked to Firebase Storage")
+
     # Inform about Firebase security rules deployment via IaC
     print(f"\n{Colors.INFO}ℹ  Firebase Security Rules:{Colors.NC}")
     print(f"{Colors.INFO}   - firestore.rules and storage.rules will be deployed automatically{Colors.NC}")
@@ -852,11 +904,23 @@ def initialize_firebase(config):
 def create_firebase_hosting_sites(project_id):
     """Create Firebase Hosting sites for all sites in the monorepo."""
     import re
+    import json
+    import os
 
     print_info("Creating Firebase Hosting sites...")
 
-    # Sites defined in firebase.json
-    sites = ["fellspiral", "videobrowser", "audiobrowser"]
+    # Read sites from firebase.json
+    firebase_config_path = os.path.join(os.path.dirname(__file__), 'firebase.json')
+    try:
+        with open(firebase_config_path, 'r') as f:
+            firebase_config = json.load(f)
+        sites = [site['site'] for site in firebase_config.get('hosting', [])]
+        print_info(f"Found {len(sites)} sites in firebase.json: {', '.join(sites)}")
+    except Exception as e:
+        print(f"{Colors.YELLOW}Warning: Could not read firebase.json: {e}{Colors.NC}")
+        print_info("Using default site list")
+        sites = ["fellspiral", "videobrowser-7696a", "audiobrowser", "print"]
+
     site_mappings = {}  # Track original -> actual site names
 
     for site_id in sites:
@@ -942,7 +1006,39 @@ def create_firebase_hosting_sites(project_id):
                                 site_mappings[site_id] = actual_site_id
                                 continue
 
-                        # Truly reserved by another project, extract suggested alternative name
+                        # Site not in our project - before creating new site, check if a related site exists
+                        # (e.g., if trying "videobrowser", check for "videobrowser-7696a")
+                        print_info(f"  Checking if related site exists (e.g., '{actual_site_id}-*')...")
+                        list_sites_result = run_command(
+                            f'curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" '
+                            f'-H "x-goog-user-project: {project_id}" '
+                            f'"https://firebasehosting.googleapis.com/v1beta1/projects/{project_id}/sites"',
+                            check=False
+                        )
+
+                        if list_sites_result:
+                            try:
+                                sites_data = json.loads(list_sites_result)
+                                existing_sites = sites_data.get('sites', [])
+                                # Look for sites that start with our desired name
+                                related_sites = [
+                                    s for s in existing_sites
+                                    if s.get('name', '').split('/')[-1].startswith(actual_site_id + '-')
+                                ]
+
+                                if related_sites:
+                                    # Found a related site! Use it instead of creating new one
+                                    related_site_id = related_sites[0]['name'].split('/')[-1]
+                                    print_success(f"  Found existing related site '{related_site_id}' - using it instead")
+                                    site_mappings[site_id] = related_site_id
+
+                                    # Update firebase.json to use the correct site ID
+                                    print_info(f"  Note: Update firebase.json to use '{related_site_id}' instead of '{site_id}'")
+                                    continue
+                            except:
+                                pass  # If parsing fails, continue with suggested name approach
+
+                        # No related site found - extract suggested alternative name
                         # Error format: "try something like `videobrowser-6def8` instead"
                         match = re.search(r'try something like `([^`]+)`', error_msg)
                         if match:

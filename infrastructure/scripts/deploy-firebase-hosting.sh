@@ -26,6 +26,9 @@ case "$SITE_NAME" in
   videobrowser)
     FIREBASE_SITE_ID="videobrowser-7696a"
     ;;
+  print)
+    FIREBASE_SITE_ID="print-dfb47"
+    ;;
   *)
     FIREBASE_SITE_ID="$SITE_NAME"
     ;;
@@ -63,6 +66,7 @@ if [ "$BRANCH_NAME" = "main" ]; then
   # Production deployment
   echo "🚀 Deploying to production..."
 
+  # Deploy only hosting (storage rules are deployed separately in the workflow)
   firebase deploy \
     --only hosting:${FIREBASE_SITE_ID} \
     --project chalanding \
@@ -91,63 +95,37 @@ else
 
   echo "Preview channel: ${CHANNEL_NAME}"
 
+  # Note: Storage rules are deployed separately in the Main/PR Pipeline workflow
+  # for sites that need them (videobrowser, print)
+
   # Deploy to preview channel (creates if doesn't exist, expires after 7 days by default)
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
   echo "Debug: Site ID = ${FIREBASE_SITE_ID}, Channel = ${CHANNEL_NAME}"
-  echo "Debug: Listing available sites first..."
-  firebase hosting:sites:list --project chalanding 2>&1 || echo "Failed to list sites"
 
-  # Run Firebase deployment and write output directly to file
-  echo "Debug: Starting Firebase deployment..."
-
-  # Temporarily disable exit on error to properly capture output
-  set +e
+  # Run Firebase deployment
+  echo "Deploying..."
   firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
-    --json > /tmp/firebase-deploy-output.json 2>&1
-  FIREBASE_EXIT_CODE=$?
-  set -e
+    2>&1 | tee /tmp/firebase-deploy-output.txt
 
-  echo "Debug: Firebase exited with code: $FIREBASE_EXIT_CODE"
-
-  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
-    echo "❌ Firebase deployment failed with exit code: $FIREBASE_EXIT_CODE"
-    echo "Output from Firebase CLI:"
-    cat /tmp/firebase-deploy-output.json 2>&1 || echo "(no output file generated)"
-    echo ""
-    echo "Firebase config check:"
-    echo "- Site ID: $FIREBASE_SITE_ID"
-    echo "- Channel: $CHANNEL_NAME"
-    echo "- Project: chalanding"
+  # Check if deployment was successful by looking for success indicators
+  if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
+    # Extract URL from output like: "Channel URL (site): https://site--channel.web.app [expires ...]"
+    DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | grep -oE 'https://[^ \[]+' | head -1)
+  else
+    echo "❌ Firebase deployment may have failed"
+    echo "Output:"
+    cat /tmp/firebase-deploy-output.txt
     exit 1
-  fi
-
-  # Extract URL from JSON output
-  echo "Debug: Extracting URL from Firebase output..."
-  echo "Debug: Output file contents:"
-  cat /tmp/firebase-deploy-output.json
-  echo ""
-
-  DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | jq -r ".result[\"${FIREBASE_SITE_ID}\"].url // empty" 2>/dev/null)
-  echo "Debug: jq extraction result: '$DEPLOYMENT_URL'"
-
-  if [ -z "$DEPLOYMENT_URL" ]; then
-    # Try alternative JSON path
-    echo "Debug: jq extraction failed, trying grep/cut..."
-    DEPLOYMENT_URL=$(cat /tmp/firebase-deploy-output.json | grep -o '"url":"[^"]*"' | cut -d'"' -f4 | head -1)
-    echo "Debug: grep/cut extraction result: '$DEPLOYMENT_URL'"
   fi
 
   if [ -z "$DEPLOYMENT_URL" ]; then
     # Fallback: construct URL manually
-    echo "Debug: Both extractions failed, constructing URL manually..."
     DEPLOYMENT_URL="https://${FIREBASE_SITE_ID}--${CHANNEL_NAME}.web.app"
     echo "⚠️  Could not extract URL from Firebase output, using constructed URL"
   fi
-
-  echo "Debug: Final DEPLOYMENT_URL: '$DEPLOYMENT_URL'"
 
   echo ""
   echo "✅ Preview deployment complete!"
@@ -160,10 +138,7 @@ else
   echo "Debug: Waiting 2 seconds for DNS propagation..."
   sleep 2  # Give Firebase a moment to propagate
 
-  echo "Debug: Checking URL: ${DEPLOYMENT_URL}"
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOYMENT_URL}" || echo "000")
-  echo "Debug: curl returned HTTP code: ${HTTP_CODE}"
-
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "304" ]; then
     echo "✅ Deployment verified (HTTP ${HTTP_CODE})"
   else
@@ -171,14 +146,10 @@ else
     echo "   URL: ${DEPLOYMENT_URL}"
     echo "   This may indicate DNS propagation delay or deployment issues"
   fi
-
-  echo "Debug: Verification complete"
 fi
 
 # Save deployment URL for GitHub Actions
-echo "Debug: Saving deployment URL to /tmp/deployment-url.txt"
 echo "$DEPLOYMENT_URL" > /tmp/deployment-url.txt
-echo "Debug: Deployment URL saved"
 
 echo ""
 echo "========================================="
@@ -188,4 +159,3 @@ echo "Site: $SITE_NAME"
 echo "Type: $([ "$BRANCH_NAME" = "main" ] && echo "Production" || echo "Preview")"
 echo "URL: $DEPLOYMENT_URL"
 echo "========================================="
-echo "Debug: Script completed successfully"

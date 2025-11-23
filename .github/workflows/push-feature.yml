@@ -32,6 +32,7 @@ jobs:
       fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
       audiobrowser-changed: ${{ steps.check-changes.outputs.audiobrowser-changed }}
+      print-changed: ${{ steps.check-changes.outputs.print-changed }}
       playwright-server-changed: ${{ steps.check-changes.outputs.playwright-server-changed }}
 
     steps:
@@ -70,6 +71,15 @@ jobs:
           else
             echo "audiobrowser-changed=false" >> $GITHUB_OUTPUT
             echo "⏸️  Audiobrowser unchanged"
+          fi
+
+          # Check print changes
+          if git diff --name-only HEAD^ HEAD | grep -q "^print/"; then
+            echo "print-changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Print changed"
+          else
+            echo "print-changed=false" >> $GITHUB_OUTPUT
+            echo "⏸️  Print unchanged"
           fi
 
           # Check playwright-server changes
@@ -117,6 +127,10 @@ jobs:
 
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
+
+      - name: Test Print
+        if: steps.check-changes.outputs.print-changed == 'true'
+        run: ./infrastructure/scripts/run-local-tests.sh print
 
   # ==================== Step 2: Deploy Playwright Server (if changed) ====================
   deploy-playwright-server:
@@ -344,6 +358,196 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
+  deploy-print:
+    name: Deploy Print (Preview)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: local-tests
+    if: needs.local-tests.outputs.print-changed == 'true'
+    outputs:
+      service-url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Initialize rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Ensuring rml-media bucket is linked to Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Try to link bucket to Firebase Storage (idempotent - safe to run multiple times)
+          LINK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}:addFirebase")
+
+          if echo "$LINK_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_STATUS=$(echo "$LINK_RESPONSE" | jq -r '.error.status // empty')
+            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$LINK_RESPONSE" | grep -qi "already"; then
+              echo "✓ Bucket already linked to Firebase Storage"
+            else
+              echo "⚠️  Could not link bucket (may already be linked or require manual setup)"
+              echo "Response: $LINK_RESPONSE"
+            fi
+          else
+            echo "✓ Bucket successfully linked to Firebase Storage"
+          fi
+
+      - name: Configure CORS for rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Configuring CORS for rml-media bucket..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Configure CORS to allow web access from any origin
+          CORS_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "cors": [
+                {
+                  "origin": ["*"],
+                  "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+                  "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
+                  "maxAgeSeconds": 3600
+                }
+              ]
+            }' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
+
+          if echo "$CORS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not configure CORS"
+            echo "Response: $CORS_RESPONSE"
+          else
+            echo "✓ CORS configured successfully"
+          fi
+
+      - name: Initialize rml-media bucket for Firebase Storage
+        continue-on-error: true
+        run: |
+          echo "Initializing rml-media bucket for Firebase Storage..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+          PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+
+          # Link the GCS bucket to Firebase Storage
+          # This is required for the Firebase SDK to access the bucket
+          INIT_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"bucket\": \"projects/${PROJECT_ID}/buckets/${BUCKET_NAME}\"}" \
+            "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET_NAME}:addFirebase")
+
+          echo "API Response:"
+          echo "$INIT_RESPONSE" | jq '.' || echo "$INIT_RESPONSE"
+          echo ""
+
+          if echo "$INIT_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR_CODE=$(echo "$INIT_RESPONSE" | jq -r '.error.code')
+            if [ "$ERROR_CODE" = "409" ]; then
+              echo "✓ Bucket already initialized for Firebase Storage (expected)"
+            else
+              echo "⚠️  Could not initialize bucket for Firebase Storage"
+            fi
+          else
+            echo "✓ Bucket successfully initialized for Firebase Storage"
+          fi
+
+      - name: Configure public access for rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Configuring public access for rml-media bucket (shared by videobrowser and print)..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Non-default buckets can't use Firebase Storage security rules
+          # Instead, we disable public access prevention and use IAM policies
+
+          # Step 1: Disable public access prevention
+          echo "Disabling public access prevention..."
+          PAP_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"iamConfiguration": {"publicAccessPrevention": "inherited"}}' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
+
+          if echo "$PAP_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not disable public access prevention"
+            echo "Response: $PAP_RESPONSE"
+          else
+            echo "✓ Public access prevention disabled (set to inherited)"
+          fi
+
+          # Step 2: Grant public read access via IAM
+          echo "Granting public read access via IAM..."
+
+          # Get current IAM policy
+          IAM_POLICY=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          # Add allUsers objectViewer binding if not already present
+          UPDATED_POLICY=$(echo "$IAM_POLICY" | jq '
+            .bindings |= (
+              if any(.role == "roles/storage.objectViewer" and (.members // [] | contains(["allUsers"]))) then
+                .
+              else
+                . + [{
+                  "role": "roles/storage.objectViewer",
+                  "members": ["allUsers"]
+                }]
+              end
+            )
+          ')
+
+          IAM_RESPONSE=$(curl -s -X PUT \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATED_POLICY" \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/iam")
+
+          if echo "$IAM_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not grant public read access"
+            echo "Response: $IAM_RESPONSE"
+          else
+            echo "✓ Public read access granted via IAM (allUsers can read objects)"
+          fi
+
+          echo "✓ rml-media bucket configured for public read access"
+
+      - name: Deploy to Firebase Hosting Preview
+        id: deploy
+        run: |
+          ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Deployed to: ${URL}"
+
   # ==================== Step 4: E2E Tests ====================
   playwright-tests-fellspiral:
     name: E2E Tests - Fellspiral
@@ -528,11 +732,65 @@ jobs:
           DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.service-url }}
           CI: true
 
+  playwright-tests-print:
+    name: Playwright Tests - Print
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [deploy-print, deploy-playwright-server]
+    # Run only if print was deployed successfully
+    if: |
+      always() &&
+      needs.deploy-print.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Playwright server URL
+        id: playwright-server
+        run: |
+          # Use deployed URL if available, otherwise get the production URL
+          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
+            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
+          else
+            URL=$(gcloud run services describe playwright-server \
+              --platform managed \
+              --region ${{ env.GCP_REGION }} \
+              --format 'value(status.url)')
+          fi
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Playwright Server URL: ${URL}"
+
+      - name: Test Print
+        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+        env:
+          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-print.outputs.service-url }}
+          CI: true
+
   # ==================== Summary ====================
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, playwright-tests-fellspiral, playwright-tests-videobrowser, playwright-tests-audiobrowser]
+    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests-fellspiral, playwright-tests-videobrowser, playwright-tests-audiobrowser, playwright-tests-print]
     if: always()
 
     steps:
@@ -558,6 +816,10 @@ jobs:
             echo "- ✅ **Audiobrowser**: ${{ needs.deploy-audiobrowser.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
           fi
 
+          if [ "${{ needs.deploy-print.result }}" = "success" ]; then
+            echo "- ✅ **Print**: ${{ needs.deploy-print.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -565,6 +827,7 @@ jobs:
           echo "- Fellspiral E2E: ${{ needs.playwright-tests-fellspiral.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Videobrowser E2E: ${{ needs.playwright-tests-videobrowser.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Audiobrowser E2E: ${{ needs.playwright-tests-audiobrowser.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Print E2E: ${{ needs.playwright-tests-print.result }}" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🔥 **Firebase Hosting**: All deployments use Firebase Hosting with automatic auth authorization" >> $GITHUB_STEP_SUMMARY

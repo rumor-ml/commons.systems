@@ -46,43 +46,12 @@ resource "google_firebaserules_release" "firestore" {
   }
 }
 
-# Storage security rules for videobrowser
-resource "google_firebaserules_ruleset" "storage" {
-  source {
-    files {
-      name    = "storage.rules"
-      content = file("../../videobrowser/storage.rules")
-    }
-  }
-
-  project = var.project_id
-
-  depends_on = [
-    google_project_service.firebase,
-    google_project_service.firebaserules,
-    google_project_service.firebasestorage
-  ]
-}
-
-resource "google_firebaserules_release" "storage" {
-  name         = "firebase.storage/${var.project_id}.appspot.com"
-  ruleset_name = google_firebaserules_ruleset.storage.name
-  project      = var.project_id
-
-  lifecycle {
-    replace_triggered_by = [
-      google_firebaserules_ruleset.storage
-    ]
-  }
-}
+# Note: Firebase Storage rules for rml-media bucket are now managed in storage-bucket.tf
+# This provides proper separation of concerns and supports the shared bucket used by
+# videobrowser and print sites
 
 # Outputs
 output "firestore_ruleset_name" {
   value       = google_firebaserules_ruleset.firestore.name
   description = "Name of the deployed Firestore ruleset"
-}
-
-output "storage_ruleset_name" {
-  value       = google_firebaserules_ruleset.storage.name
-  description = "Name of the deployed Storage ruleset"
 }

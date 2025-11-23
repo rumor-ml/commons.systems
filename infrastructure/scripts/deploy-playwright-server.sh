@@ -68,7 +68,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --memory=4Gi \
   --min-instances=0 \
   --max-instances=1 \
-  --concurrency=5 \
+  --concurrency=80 \
   --set-env-vars=NODE_ENV=production,GCP_PROJECT_ID="$PROJECT_ID"
 
 # Get service URL

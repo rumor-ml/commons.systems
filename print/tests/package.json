@@ -1,0 +1,12 @@
+{
+  "name": "@commons/print-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:deployed": "DEPLOYED=true playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
