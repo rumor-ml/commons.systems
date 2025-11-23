@@ -14,8 +14,8 @@ const db = getFirestore(app);
 // Storage bucket is configured in firebase-config.js (injected during deployment)
 // For print site, this is set to 'rml-media' by inject-firebase-config.sh
 // Public read access is enabled via storage rules - no auth required
-// Explicitly specify bucket URL for non-default buckets
-const storage = getStorage(app, `gs://${firebaseConfig.storageBucket}`);
+// Use default bucket from config (SDK automatically uses storageBucket property)
+const storage = getStorage(app);
 
 // Configuration
 const DOCUMENT_PREFIX = 'print/';
