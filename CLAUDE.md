@@ -437,13 +437,17 @@ curl -H "Authorization: token $GITHUB_TOKEN" \
 
 ```bash
 # Use the job ID from step 2
+# CRITICAL: Must use -L to follow redirects - logs endpoint returns a redirect
 JOB_ID=98765
 
-curl -H "Authorization: token $GITHUB_TOKEN" \
+curl -sS -L \
+  -H "Authorization: token $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   "https://api.github.com/repos/rumor-ml/commons.systems/actions/jobs/$JOB_ID/logs"
 ```
+
+**IMPORTANT:** The logs endpoint returns a redirect (302) to the actual log content. You MUST use the `-L` flag with curl to follow this redirect, otherwise you'll get "Bad credentials" or empty responses.
 
 #### Alternative: Download All Logs as ZIP Archive
 
