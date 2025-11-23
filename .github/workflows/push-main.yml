@@ -225,13 +225,16 @@ jobs:
             -d "{\"bucket\": \"projects/${PROJECT_ID}/buckets/${BUCKET_NAME}\"}" \
             "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET_NAME}:addFirebase")
 
+          echo "API Response:"
+          echo "$INIT_RESPONSE" | jq '.' || echo "$INIT_RESPONSE"
+          echo ""
+
           if echo "$INIT_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
             ERROR_CODE=$(echo "$INIT_RESPONSE" | jq -r '.error.code')
             if [ "$ERROR_CODE" = "409" ]; then
               echo "✓ Bucket already initialized for Firebase Storage (expected)"
             else
               echo "⚠️  Could not initialize bucket for Firebase Storage"
-              echo "Response: $INIT_RESPONSE"
             fi
           else
             echo "✓ Bucket successfully initialized for Firebase Storage"
