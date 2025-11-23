@@ -24,11 +24,15 @@ permissions:
   actions: read
 
 jobs:
-  # ==================== Step 1: Local Tests (all modules) ====================
+  # ==================== Step 1: Local Tests (parallel per site) ====================
   local-tests:
-    name: Local Tests
+    name: Local Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        site: [fellspiral, videobrowser, audiobrowser]
+      fail-fast: false
 
     steps:
       - name: Checkout code
@@ -40,17 +44,21 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
-      - name: Test Fellspiral
-        run: ./infrastructure/scripts/run-local-tests.sh fellspiral
-
-      - name: Test Videobrowser
-        run: ./infrastructure/scripts/run-local-tests.sh videobrowser
-
-      - name: Test Audiobrowser
-        run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
+      - name: Test ${{ matrix.site }}
+        run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
   # ==================== Step 2: Deploy Sites (Parallel) ====================
 
@@ -158,11 +166,29 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-firebase-cli
+          restore-keys: |
+            ${{ runner.os }}-firebase-cli
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -391,12 +417,16 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Playwright Server URL: ${URL}"
 
-  # ==================== Step 4: E2E Tests (all sites) ====================
-  e2e-tests-all:
-    name: E2E Tests - All Sites
+  # ==================== Step 4: E2E Tests (parallel per site) ====================
+  e2e-tests:
+    name: E2E Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: [collect-urls, get-playwright-url]
+    strategy:
+      matrix:
+        site: [fellspiral, videobrowser, audiobrowser]
+      fail-fast: false
     if: |
       always() &&
       needs.collect-urls.result == 'success' &&
@@ -412,6 +442,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
@@ -424,25 +464,26 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Test Fellspiral
-        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.collect-urls.outputs.fellspiral-url }}" "${{ needs.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.collect-urls.outputs.fellspiral-url }}
-          CI: true
+      - name: Get site URL
+        id: site-url
+        run: |
+          case "${{ matrix.site }}" in
+            fellspiral)
+              echo "url=${{ needs.collect-urls.outputs.fellspiral-url }}" >> $GITHUB_OUTPUT
+              ;;
+            videobrowser)
+              echo "url=${{ needs.collect-urls.outputs.videobrowser-url }}" >> $GITHUB_OUTPUT
+              ;;
+            audiobrowser)
+              echo "url=${{ needs.collect-urls.outputs.audiobrowser-url }}" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
-      - name: Test Videobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.collect-urls.outputs.videobrowser-url }}" "${{ needs.get-playwright-url.outputs.url }}"
+      - name: Test ${{ matrix.site }}
+        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
         env:
           PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.collect-urls.outputs.videobrowser-url }}
-          CI: true
-
-      - name: Test Audiobrowser
-        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.collect-urls.outputs.audiobrowser-url }}" "${{ needs.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.collect-urls.outputs.audiobrowser-url }}
+          DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
           CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
@@ -450,12 +491,12 @@ jobs:
     name: Rollback on Test Failure
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [deploy-sites, e2e-tests-all]
+    needs: [deploy-sites, e2e-tests]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
       needs.deploy-sites.result == 'success' &&
-      needs.e2e-tests-all.result == 'failure'
+      contains(needs.e2e-tests.result, 'failure')
 
     steps:
       - name: Checkout code
@@ -489,3 +530,36 @@ jobs:
               body: `E2E tests failed after deployment to main branch.\n\nCommit: ${context.sha}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               labels: ['bug', 'deployment', 'rollback']
             })
+
+  # ==================== Merge Check (Required Status Check) ====================
+  merge-check:
+    name: Merge Check - All Tests Passed
+    runs-on: ubuntu-latest
+    needs: [local-tests, deploy-sites, e2e-tests]
+    if: always()
+
+    steps:
+      - name: Check all jobs succeeded
+        run: |
+          echo "Checking job results..."
+          echo "Local Tests: ${{ needs.local-tests.result }}"
+          echo "Deploy Sites: ${{ needs.deploy-sites.result }}"
+          echo "E2E Tests: ${{ needs.e2e-tests.result }}"
+
+          # All jobs must succeed for merge check to pass
+          if [ "${{ needs.local-tests.result }}" != "success" ]; then
+            echo "❌ Local tests failed or were skipped"
+            exit 1
+          fi
+
+          if [ "${{ needs.deploy-sites.result }}" != "success" ]; then
+            echo "❌ Site deployments failed or were skipped"
+            exit 1
+          fi
+
+          if [ "${{ needs.e2e-tests.result }}" != "success" ]; then
+            echo "❌ E2E tests failed or were skipped"
+            exit 1
+          fi
+
+          echo "✅ All required jobs succeeded - merge check passed!"

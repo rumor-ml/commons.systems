@@ -157,8 +157,8 @@ else
   # Verify the deployment is accessible
   echo ""
   echo "🔍 Verifying deployment..."
-  echo "Debug: Waiting 5 seconds for DNS propagation..."
-  sleep 5  # Give Firebase a moment to propagate
+  echo "Debug: Waiting 2 seconds for DNS propagation..."
+  sleep 2  # Give Firebase a moment to propagate
 
   echo "Debug: Checking URL: ${DEPLOYMENT_URL}"
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOYMENT_URL}" || echo "000")
