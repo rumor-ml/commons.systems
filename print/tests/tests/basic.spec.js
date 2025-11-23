@@ -66,16 +66,29 @@ test.describe('Print Library Homepage', () => {
   });
 
   test('should successfully load Firebase data', async ({ page }) => {
+    // Capture console errors for debugging Firebase issues
+    const consoleMessages = [];
+    page.on('console', msg => {
+      consoleMessages.push(`${msg.type()}: ${msg.text()}`);
+    });
+
     await page.goto('/');
 
     // Wait for one of the SUCCESS states to become visible (docs or empty)
     // Firebase initialization should be quick - timeout errors indicate misconfiguration
-    await page.waitForFunction(() => {
-      const empty = document.querySelector('#emptyState');
-      const docs = document.querySelector('#documents');
+    try {
+      await page.waitForFunction(() => {
+        const empty = document.querySelector('#emptyState');
+        const docs = document.querySelector('#documents');
 
-      return (empty && !empty.hidden) || (docs && !docs.hidden);
-    }, { timeout: 10000 });
+        return (empty && !empty.hidden) || (docs && !docs.hidden);
+      }, { timeout: 10000 });
+    } catch (e) {
+      // Print console messages to help debug Firebase errors
+      console.log('Browser console output:');
+      consoleMessages.forEach(msg => console.log('  ', msg));
+      throw e;
+    }
 
     // Loading should be hidden once content is shown
     const loading = page.locator('#loading');
