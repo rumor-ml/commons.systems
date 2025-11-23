@@ -23,11 +23,11 @@ permissions:
   actions: read
 
 jobs:
-  # ==================== Step 1: Local Tests ====================
-  local-tests:
-    name: Local Tests
+  # ==================== Step 0: Change Detection ====================
+  detect-changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     outputs:
       fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
@@ -40,20 +40,13 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install
-
       - name: Check for changes
         id: check-changes
         run: |
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+
           # Check fellspiral changes
-          if git diff --name-only HEAD^ HEAD | grep -qE "^(fellspiral/|shared/auth/)"; then
+          if echo "$CHANGED_FILES" | grep -qE "^(fellspiral/|shared/auth/)"; then
             echo "fellspiral-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Fellspiral changed"
           else
@@ -62,7 +55,7 @@ jobs:
           fi
 
           # Check videobrowser changes
-          if git diff --name-only HEAD^ HEAD | grep -qE "^(videobrowser/|shared/auth/)"; then
+          if echo "$CHANGED_FILES" | grep -qE "^(videobrowser/|shared/auth/)"; then
             echo "videobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Videobrowser changed"
           else
@@ -71,7 +64,7 @@ jobs:
           fi
 
           # Check audiobrowser changes
-          if git diff --name-only HEAD^ HEAD | grep -qE "^(audiobrowser/|shared/auth/)"; then
+          if echo "$CHANGED_FILES" | grep -qE "^(audiobrowser/|shared/auth/)"; then
             echo "audiobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Audiobrowser changed"
           else
@@ -80,7 +73,7 @@ jobs:
           fi
 
           # Check playwright-server changes
-          if git diff --name-only HEAD^ HEAD | grep -q "^playwright-server/"; then
+          if echo "$CHANGED_FILES" | grep -q "^infrastructure/playwright-server/"; then
             echo "playwright-server-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Playwright server changed"
           else
@@ -88,25 +81,54 @@ jobs:
             echo "⏸️  Playwright server unchanged"
           fi
 
-      - name: Test Fellspiral
-        if: steps.check-changes.outputs.fellspiral-changed == 'true'
-        run: ./infrastructure/scripts/run-local-tests.sh fellspiral
+  # ==================== Step 1: Local Tests (parallel per site) ====================
+  local-tests:
+    name: Local Tests - ${{ matrix.site }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: detect-changes
+    strategy:
+      matrix:
+        site: [fellspiral, videobrowser, audiobrowser]
+      fail-fast: false
+    if: |
+      (matrix.site == 'fellspiral' && needs.detect-changes.outputs.fellspiral-changed == 'true') ||
+      (matrix.site == 'videobrowser' && needs.detect-changes.outputs.videobrowser-changed == 'true') ||
+      (matrix.site == 'audiobrowser' && needs.detect-changes.outputs.audiobrowser-changed == 'true')
 
-      - name: Test Videobrowser
-        if: steps.check-changes.outputs.videobrowser-changed == 'true'
-        run: ./infrastructure/scripts/run-local-tests.sh videobrowser
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Test Audiobrowser
-        if: steps.check-changes.outputs.audiobrowser-changed == 'true'
-        run: ./infrastructure/scripts/run-local-tests.sh audiobrowser
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Test ${{ matrix.site }}
+        run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
   # ==================== Step 2: Deploy Playwright Server (if changed) ====================
   deploy-playwright-server:
     name: Deploy Playwright Server
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: local-tests
-    if: needs.local-tests.outputs.playwright-server-changed == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.playwright-server-changed == 'true'
     outputs:
       playwright-url: ${{ steps.get-url.outputs.url }}
 
@@ -141,8 +163,11 @@ jobs:
     name: Deploy Fellspiral (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: local-tests
-    if: needs.local-tests.outputs.fellspiral-changed == 'true'
+    needs: [detect-changes, local-tests]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.fellspiral-changed == 'true' &&
+      (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
       service-url: ${{ steps.deploy.outputs.url }}
 
@@ -156,6 +181,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
@@ -167,6 +202,14 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-firebase-cli
+          restore-keys: |
+            ${{ runner.os }}-firebase-cli
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -183,8 +226,11 @@ jobs:
     name: Deploy Videobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: local-tests
-    if: needs.local-tests.outputs.videobrowser-changed == 'true'
+    needs: [detect-changes, local-tests]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.videobrowser-changed == 'true' &&
+      (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
       service-url: ${{ steps.deploy.outputs.url }}
 
@@ -198,6 +244,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
@@ -209,6 +265,14 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-firebase-cli
+          restore-keys: |
+            ${{ runner.os }}-firebase-cli
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -225,8 +289,11 @@ jobs:
     name: Deploy Audiobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: local-tests
-    if: needs.local-tests.outputs.audiobrowser-changed == 'true'
+    needs: [detect-changes, local-tests]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.audiobrowser-changed == 'true' &&
+      (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
       service-url: ${{ steps.deploy.outputs.url }}
 
@@ -240,6 +307,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: npm install
 
@@ -251,6 +328,14 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-firebase-cli
+          restore-keys: |
+            ${{ runner.os }}-firebase-cli
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -267,7 +352,7 @@ jobs:
   playwright-tests-fellspiral:
     name: E2E Tests - Fellspiral
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     needs: [deploy-fellspiral, deploy-playwright-server]
     if: |
       always() &&
@@ -283,6 +368,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
 
       - name: Install dependencies
         run: npm install
@@ -318,7 +413,7 @@ jobs:
   playwright-tests-videobrowser:
     name: E2E Tests - Videobrowser
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     needs: [deploy-videobrowser, deploy-playwright-server]
     if: |
       always() &&
@@ -334,6 +429,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
 
       - name: Install dependencies
         run: npm install
@@ -369,7 +474,7 @@ jobs:
   playwright-tests-audiobrowser:
     name: E2E Tests - Audiobrowser
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     needs: [deploy-audiobrowser, deploy-playwright-server]
     if: |
       always() &&
@@ -385,6 +490,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
 
       - name: Install dependencies
         run: npm install
