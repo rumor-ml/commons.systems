@@ -211,7 +211,7 @@ jobs:
 
       # ========== Initialize rml-media bucket for Firebase Storage ==========
       - name: Initialize rml-media bucket
-        if: matrix.site == 'videobrowser'
+        if: matrix.site == 'videobrowser' || matrix.site == 'print'
         continue-on-error: true
         run: |
           echo "Ensuring rml-media bucket is linked to Firebase Storage..."
@@ -240,7 +240,7 @@ jobs:
       # ========== Deploy Firebase Storage Rules (rml-media bucket, shared by videobrowser and print) ==========
       # Deploy Firebase Storage rules for rml-media bucket (shared by videobrowser and print)
       - name: Deploy Firebase Storage rules (rml-media)
-        if: matrix.site == 'videobrowser'
+        if: matrix.site == 'videobrowser' || matrix.site == 'print'
         continue-on-error: true
         run: |
           echo "Deploying Firebase Storage rules for rml-media bucket (shared by videobrowser and print)..."
