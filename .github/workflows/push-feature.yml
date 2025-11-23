@@ -418,6 +418,36 @@ jobs:
             echo "✓ Bucket successfully linked to Firebase Storage"
           fi
 
+      - name: Configure CORS for rml-media bucket
+        continue-on-error: true
+        run: |
+          echo "Configuring CORS for rml-media bucket..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          BUCKET_NAME="rml-media"
+
+          # Configure CORS to allow web access from any origin
+          CORS_RESPONSE=$(curl -s -X PATCH \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "cors": [
+                {
+                  "origin": ["*"],
+                  "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+                  "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
+                  "maxAgeSeconds": 3600
+                }
+              ]
+            }' \
+            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
+
+          if echo "$CORS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "⚠️  Could not configure CORS"
+            echo "Response: $CORS_RESPONSE"
+          else
+            echo "✓ CORS configured successfully"
+          fi
+
       - name: Deploy Firebase Storage rules (rml-media)
         continue-on-error: true
         run: |
