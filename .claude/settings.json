@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec >> /tmp/claude-bell.log 2>&1; echo \"$(date): TMUX_PANE=$TMUX_PANE\"; TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}' 2>&1); echo \"TTY=$TTY\"; printf '\\a' > \"$TTY\" && echo 'Bell sent' || echo 'Bell failed'"
+            "command": "TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}'); printf '\\a' > \"$TTY\"; afplay /System/Library/Sounds/Tink.aiff &"
           }
         ]
       }
