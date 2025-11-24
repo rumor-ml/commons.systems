@@ -1,0 +1,15 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": ["git"]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git log:*)",
+      "Bash(git worktree list)",
+      "Bash(git worktree add:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}

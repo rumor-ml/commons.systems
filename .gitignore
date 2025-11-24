@@ -54,3 +54,11 @@ result-*
 
 # Trigger CI workflow test - forcing sync
 __pycache__/
+
+# Git worktree files
+HEAD
+ORIG_HEAD
+commondir
+gitdir
+index
+index.lock
