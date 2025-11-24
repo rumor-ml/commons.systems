@@ -15,9 +15,7 @@ resource "google_storage_bucket" "rml_media" {
   force_destroy = false
 
   # Enable uniform bucket-level access
-  uniform_bucket_level_access {
-    enabled = true
-  }
+  uniform_bucket_level_access = true
 
   # CORS configuration for web access
   cors {
@@ -39,17 +37,6 @@ resource "google_storage_bucket" "rml_media" {
 
   depends_on = [
     google_project_service.storage
-  ]
-}
-
-# Make bucket publicly readable (controlled by Firebase Storage rules)
-resource "google_storage_bucket_iam_member" "rml_media_public_read" {
-  bucket = google_storage_bucket.rml_media.name
-  role   = "roles/storage.objectViewer"
-  member = "allUsers"
-
-  depends_on = [
-    google_storage_bucket.rml_media
   ]
 }
 

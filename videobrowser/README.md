@@ -89,15 +89,15 @@ If the `setup.py` script fails to initialize Firebase automatically, you can do 
 
 ### Storage Security Rules
 
-Rules are defined in `storage.rules` and auto-deployed on each deployment:
+Rules are defined in `shared/storage.rules` and auto-deployed on each deployment:
 
 ```javascript
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /video/{allPaths=**} {
-      allow read: if true;  // Public read access
-      allow write: if false; // No public writes
+    match /video/{videoFile} {
+      allow read: if request.auth != null;  // Requires authentication
+      allow write: if request.auth != null; // Authenticated writes only
     }
   }
 }
