@@ -2,7 +2,7 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "gcloud"]
+    "excludedCommands": ["git", "gh", "gcloud", "nix"]
   },
   "permissions": {
     "defaultMode": "plan",
@@ -11,14 +11,30 @@
       "Bash(git worktree list)",
       "Bash(git worktree add:*)",
       "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh pr list:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
       "Bash(gh workflow list:*)",
       "Bash(cat:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
+      "Bash(find:*)",
       "Bash(done:*)",
       "Bash(echo:*)"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec >> /tmp/claude-bell.log 2>&1; echo \"$(date): TMUX_PANE=$TMUX_PANE\"; TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}' 2>&1); echo \"TTY=$TTY\"; printf '\\a' > \"$TTY\" && echo 'Bell sent' || echo 'Bell failed'"
+          }
+        ]
+      }
     ]
   }
 }
