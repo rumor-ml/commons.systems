@@ -2,13 +2,17 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git"]
+    "excludedCommands": ["git", "gh"]
   },
   "permissions": {
+    "defaultMode": "plan",
     "allow": [
       "Bash(git log:*)",
       "Bash(git worktree list)",
       "Bash(git worktree add:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
       "Bash(cat:*)"
     ]
   }

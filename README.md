@@ -4,23 +4,6 @@ A monorepo for commons.systems projects.
 
 ---
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [GitHub Authentication](#github-authentication)
-- [Monorepo Architecture](#monorepo-architecture)
-- [Adding a New Site](#adding-a-new-site)
-- [CICD Requirements](#cicd-requirements)
-- [Code Standards](#code-standards)
-- [CI/CD Pipeline](#cicd-pipeline)
-- [Architecture](#architecture)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [Cost](#cost)
-- [Troubleshooting](#troubleshooting)
-
----
-
 ## Quick Start
 
 Deploy the to GCP with **zero local setup** and **one local command**.
@@ -52,23 +35,21 @@ Deploy the to GCP with **zero local setup** and **one local command**.
 
 ## Monorepo Architecture
 
-This repository is structured as a monorepo hosting multiple static sites with shared infrastructure.
+This repository is structured as a monorepo hosting multiple apps with shared infrastructure.
 
-### Key Principles
+### App Infrastructure
 
-1. **Each site is independent** - Sites can be developed, tested, and deployed separately
-2. **Shared infrastructure**
+- App Frameworks
+    - Firebase
+    - Native go
+    - go server
+- Shared infrastructure
+    - nix system configuration
+    - single script iac
+    - gcp project
     - Terraform state backend (GCS)
     - Service accounts for deployment
     - Playwright browser server for testing
-4. **Path-based CI/CD** - Workflows only trigger when relevant files change
-
-## CI/CD Requirements
-
-- All workflows use Nix for consistent environments across local development and CI/CD.
-- Single script IAC.
-- Infrastucture hosted on GCP.
-- CI completes < 15 minutes.
 
 ## Code Standards
 
