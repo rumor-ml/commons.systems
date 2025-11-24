@@ -1,7 +1,7 @@
 /**
  * Firebase operations for Print site
  * Handles document storage and retrieval from Firebase Storage
- * Storage uses rml-media bucket with public read access via storage rules
+ * Storage uses private rml-media bucket with access controlled via Firebase Storage rules
  */
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
@@ -12,12 +12,12 @@ import { firebaseConfig } from '../firebase-config.js';
 // Initialize Firebase app and services
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-// Initialize Auth (required for Firebase SDK even though bucket has public access)
-// This ensures the SDK can properly access GCS buckets
+// Initialize Auth (required for Firebase SDK to generate signed URLs for bucket access)
+// This ensures the SDK can properly access private GCS buckets
 const auth = getAuth(app);
 // Storage bucket is configured in firebase-config.js (injected during deployment)
 // For print site, this is set to 'rml-media' by inject-firebase-config.sh
-// Public read access is enabled via IAM policies - no auth required for bucket access
+// Access is controlled by Firebase Storage rules - SDK generates signed URLs for access
 // Use default bucket from config (SDK automatically uses storageBucket property)
 const storage = getStorage(app);
 
