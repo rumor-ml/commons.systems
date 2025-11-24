@@ -2,7 +2,7 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh"]
+    "excludedCommands": ["git", "gh", "gcloud"]
   },
   "permissions": {
     "defaultMode": "plan",
@@ -13,7 +13,12 @@
       "Bash(gh issue view:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
-      "Bash(cat:*)"
+      "Bash(gh workflow list:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(done:*)",
+      "Bash(echo:*)"
     ]
   }
 }

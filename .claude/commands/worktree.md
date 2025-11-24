@@ -3,7 +3,10 @@ description: Create a new git worktree with a branch name based on task descript
 model: haiku
 ---
 
-1. First check if the checked out branch in the current directory is main and verify that it has no changes. If not main, or if there are changes return an error, do not proceed to step 2.
-2. Generate a concise, descriptive branch name based on the task description: "{{args}}"
-3. Create the worktree in ~/worktrees with this branch name - branch off main.
-4. After creating the worktree, set the upstream branch to origin/<branch-name> (but don't push).
+1. Check that current branch is main with no changes. If not, return error and do not proceed.
+2. Determine source for branch name from argument: "{{args}}"
+   - If argument starts with `#` (e.g., `#66`): This is a gh issue number. Source is issue body.
+   - Otherwise: source is argument
+3. Generate concise, descriptive branch name from the source.
+4. Create worktree in ~/worktrees with this branch name, branching off main.
+5. Set upstream to origin/<branch-name> (don't push).
