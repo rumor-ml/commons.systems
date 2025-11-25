@@ -7,4 +7,4 @@ model: haiku
 2. Create and execute each commit.
 3. Invoke the merge subagent with input `origin/main`. Wait for successful merge before proceeding.
 4. Push to remote.
-5. Monitor the triggered CICD workflows for the branch, wait for it to complete and report on results.
+5. Monitor the triggered CICD workflows for the branch using `gh run watch` (not sleep/poll), wait for it to complete and report on results.
