@@ -1,4 +1,4 @@
-**CRITICAL: always run git/gh/nix/gcloud commands with dangerouslyDisableSandbox: true**
+**CRITICAL: always run git/gh/nix/gcloud/`go mod tidy` commands with dangerouslyDisableSandbox: true**
 
 Trust user bug reports. Do not assume caching errors or user error while building.
 

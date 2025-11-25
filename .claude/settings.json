@@ -2,7 +2,13 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "gcloud", "nix"]
+    "excludedCommands": [
+      "git", 
+      "gh", 
+      "gcloud", 
+      "nix", 
+      "go mod tidy"
+    ]
   },
   "permissions": {
     "defaultMode": "plan",
@@ -17,6 +23,7 @@
       "Bash(gh run view:*)",
       "Bash(gh workflow list:*)",
       "Bash(nix flake check:*)",
+      "Bash(go mod tidy:*)",
       "Bash(cat:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
