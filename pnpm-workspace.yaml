@@ -1,0 +1,6 @@
+packages:
+  - 'shared/*'
+  - 'fellspiral/*'
+  - 'videobrowser/*'
+  - 'audiobrowser/*'
+  - 'print/*'
