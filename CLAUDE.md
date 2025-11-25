@@ -1,6 +1,6 @@
 **CRITICAL: always run git/gh/nix/gcloud commands with dangerouslyDisableSandbox: true**
 
-After exiting plan mode, use the `implementation-manager` subagent to execute the plan.
+**CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="Implementation Manager"` to execute the plan.
 
 Trust user bug reports. Do not assume caching errors or user error while building.
 

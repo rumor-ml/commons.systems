@@ -5,11 +5,11 @@ model: sonnet
 
 Decompose gh issue {{args}} into implementation tasks for local execution.
 
-## Agents
-- **plan-implementation Parallel Decomposer** (opus): Find parallelization seams, define file allowlists
-- **plan-implementation Serial Decomposer** (opus): Break oversized tasks into sequential phases
-- **plan-implementation Task Validator** (sonnet): Validate isolation, estimate tokens
-- **plan-implementation Developer** (sonnet): Execute individual tasks (post-approval only)
+## Agents (invoke via Task tool with `subagent_type`)
+- `"plan-implementation Parallel Decomposer"`: Find parallelization seams, define file allowlists
+- `"plan-implementation Serial Decomposer"`: Break oversized tasks into sequential phases
+- `"plan-implementation Task Validator"`: Validate isolation, estimate tokens
+- `"plan-implementation Developer"`: Execute individual tasks (post-approval only)
 
 ## During Planning Mode
 

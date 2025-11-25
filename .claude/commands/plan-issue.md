@@ -5,10 +5,10 @@ model: sonnet
 
 Decompose gh issue {{args}} into parallel-friendly subissues.
 
-## Agents
-- **plan-issue Parallel Decomposer** (opus): Find parallelization seams for independent work streams
-- **plan-issue Serial Decomposer** (opus): Break oversized subissues into sequential phases
-- **plan-issue Token Estimator** (haiku): Estimate tokens per subissue, flag any >50k
+## Agents (invoke via Task tool with `subagent_type`)
+- `"plan-issue Parallel Decomposer"`: Find parallelization seams for independent work streams
+- `"plan-issue Serial Decomposer"`: Break oversized subissues into sequential phases
+- `"plan-issue Token Estimator"`: Estimate tokens per subissue, flag any >50k
 
 ## Steps
 
