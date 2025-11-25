@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@commons/auth": "*",
+    "@commons/auth": "workspace:*",
     "firebase": "^10.7.1"
   },
   "devDependencies": {
