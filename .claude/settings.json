@@ -21,6 +21,7 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(done:*)",
+      "Bash(tree:*)",
       "Bash(echo:*)"
     ]
   },
