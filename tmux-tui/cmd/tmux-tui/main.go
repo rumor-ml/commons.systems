@@ -12,6 +12,7 @@ type model struct {
 	windowID  string
 	sessionID string
 	width     int
+	height    int
 }
 
 func initialModel() model {
@@ -40,6 +41,10 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
@@ -50,21 +55,62 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	// Build the TUI output (fixed 38 characters wide)
-	lines := []string{
-		"╭─ tmux-tui ─╮",
-		"│            │",
-		"│   Hello!   │",
-		"│            │",
-		"│  Ctrl+C    │",
-		"│  to quit   │",
-		"│            │",
-		fmt.Sprintf("│ Sess: %-4s │", m.sessionID[:min(4, len(m.sessionID))]),
-		"│            │",
-		"╰────────────╯",
+	// Use terminal dimensions, with sensible defaults
+	width := m.width
+	if width < 14 {
+		width = 14 // Minimum width for content
+	}
+	height := m.height
+	if height < 5 {
+		height = 5 // Minimum height
 	}
 
-	return strings.Join(lines, "\n") + "\n"
+	// Inner width (excluding borders)
+	innerWidth := width - 2
+
+	// Helper to create a line with borders
+	emptyLine := "│" + strings.Repeat(" ", innerWidth) + "│"
+	centerText := func(text string) string {
+		padding := innerWidth - len(text)
+		left := padding / 2
+		right := padding - left
+		return "│" + strings.Repeat(" ", left) + text + strings.Repeat(" ", right) + "│"
+	}
+
+	// Build header
+	titleText := " tmux-tui "
+	headerPadding := innerWidth - len(titleText) - 2 // -2 for corner chars
+	headerLine := "╭─" + titleText + strings.Repeat("─", headerPadding) + "╮"
+
+	// Build footer
+	footerLine := "╰" + strings.Repeat("─", innerWidth) + "╯"
+
+	// Content lines (fixed content)
+	contentLines := []string{
+		emptyLine,
+		centerText("Hello!"),
+		emptyLine,
+		centerText("Ctrl+C to quit"),
+		emptyLine,
+		centerText(fmt.Sprintf("Sess: %s", m.sessionID[:min(4, len(m.sessionID))])),
+	}
+
+	// Calculate remaining lines to fill
+	usedLines := 1 + len(contentLines) + 1 // header + content + footer
+	remainingLines := height - usedLines
+
+	// Build final output
+	lines := []string{headerLine}
+	lines = append(lines, contentLines...)
+
+	// Fill remaining space with empty lines
+	for i := 0; i < remainingLines; i++ {
+		lines = append(lines, emptyLine)
+	}
+
+	lines = append(lines, footerLine)
+
+	return strings.Join(lines, "\n")
 }
 
 func min(a, b int) int {
