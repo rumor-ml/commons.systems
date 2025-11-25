@@ -13,11 +13,12 @@ WINDOW_ID=$(tmux display-message -p "#{window_id}")
 # Check for existing TUI pane
 EXISTING_TUI_PANE=$(tmux show-window-option -t "$WINDOW_ID" @tui-pane 2>/dev/null | cut -d' ' -f2 | tr -d '"')
 
-# If pane exists, kill it to restart (rebuild and respawn)
+# If pane exists and is valid, kill it and exit (toggle off)
 if [ -n "$EXISTING_TUI_PANE" ]; then
   if tmux display-message -p -t "$EXISTING_TUI_PANE" "#{pane_id}" >/dev/null 2>&1; then
     tmux kill-pane -t "$EXISTING_TUI_PANE" >/dev/null 2>&1
     tmux set-window-option -t "$WINDOW_ID" -u @tui-pane >/dev/null 2>&1
+    exit 0  # Toggle off - don't recreate
   fi
 fi
 
