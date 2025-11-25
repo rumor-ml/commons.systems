@@ -10,6 +10,7 @@
     "allow": [
       "Bash(git log:*)",
       "Bash(git fetch:*)",
+      "Bash(git rev-parse:*)",
       "Bash(git worktree list)",
       "Bash(git worktree add:*)",
       "Bash(gh issue view:*)",
