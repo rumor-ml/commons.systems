@@ -132,19 +132,26 @@ else
   echo "🔍 Preview URL: ${DEPLOYMENT_URL}"
   echo "⏰ Expires: 7 days from now"
 
-  # Verify the deployment is accessible
+  # Verify the deployment is accessible with exponential backoff
   echo ""
-  echo "🔍 Verifying deployment..."
-  echo "Debug: Waiting 2 seconds for DNS propagation..."
-  sleep 2  # Give Firebase a moment to propagate
+  echo "🔍 Verifying deployment readiness..."
 
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOYMENT_URL}" || echo "000")
-  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "304" ]; then
-    echo "✅ Deployment verified (HTTP ${HTTP_CODE})"
-  else
-    echo "⚠️  Warning: Deployment may not be ready yet (HTTP ${HTTP_CODE})"
+  SCRIPT_DIR="$(dirname "$0")"
+  if ! "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
+    --exponential \
+    --max-wait 60 \
+    --content "</html>" \
+    --verbose; then
+    echo ""
+    echo "❌ Deployment verification failed!"
+    echo "   The preview URL is not responding with valid content."
     echo "   URL: ${DEPLOYMENT_URL}"
-    echo "   This may indicate DNS propagation delay or deployment issues"
+    echo ""
+    echo "   Possible causes:"
+    echo "   - DNS propagation delay (usually resolves within 60s)"
+    echo "   - Firebase deployment still processing"
+    echo "   - Invalid deployment configuration"
+    exit 1
   fi
 fi
 
