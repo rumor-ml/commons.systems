@@ -43,8 +43,37 @@ if [ "$APP_COUNT" -eq 0 ]; then
 
   echo "✅ Created web app: $APP_NAME"
 
-  # Wait a moment for the app to be ready
-  sleep 2
+  # Wait for the app to be ready with exponential backoff
+  echo "⏳ Waiting for web app to be ready..."
+  MAX_WAIT=15
+  DELAY=1
+  START_TIME=$(date +%s)
+
+  while true; do
+    ELAPSED=$(($(date +%s) - START_TIME))
+    if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+      echo "❌ Web app not ready after ${MAX_WAIT}s"
+      exit 1
+    fi
+
+    # Try to fetch the config - if it works, the app is ready
+    TEST_CONFIG=$(curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+      "https://firebase.googleapis.com/v1beta1/${APP_NAME}/config" 2>/dev/null || echo "{}")
+    TEST_API_KEY=$(echo "$TEST_CONFIG" | jq -r '.apiKey // empty')
+
+    if [ -n "$TEST_API_KEY" ]; then
+      echo "✅ Web app is ready (${ELAPSED}s)"
+      break
+    fi
+
+    echo "  Waiting for web app... (${ELAPSED}s/${MAX_WAIT}s)"
+    sleep "$DELAY"
+
+    # Exponential backoff (cap at 4s)
+    if [ "$DELAY" -lt 4 ]; then
+      DELAY=$((DELAY * 2))
+    fi
+  done
 else
   # Use the first web app
   APP_NAME=$(echo "$WEB_APPS" | jq -r '.apps[0].name')
