@@ -1,5 +1,5 @@
 ---
-name: "Task Validator"
+name: "plan-implementation Task Validator"
 description: "Validates task decomposition, ensures file isolation, estimates token usage"
 model: sonnet
 ---

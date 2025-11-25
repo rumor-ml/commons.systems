@@ -1,5 +1,5 @@
 ---
-name: "Parallel Decomposer"
+name: "plan-issue Parallel Decomposer"
 description: "Finds parallelization seams to maximize independent work streams"
 model: opus
 ---

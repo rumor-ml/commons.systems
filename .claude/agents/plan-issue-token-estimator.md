@@ -1,5 +1,5 @@
 ---
-name: "Token Estimator"
+name: "plan-issue Token Estimator"
 description: "Estimates token usage per subissue, flags those exceeding 50k"
 model: haiku
 ---

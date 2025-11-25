@@ -6,10 +6,10 @@ model: sonnet
 Decompose gh issue {{args}} into implementation tasks for local execution.
 
 ## Agents
-- **Parallel Decomposer** (opus): Find parallelization seams, define file allowlists
-- **Serial Decomposer** (opus): Break oversized tasks into sequential phases
-- **Task Validator** (sonnet): Validate isolation, estimate tokens
-- **Developer** (sonnet): Execute individual tasks (post-approval only)
+- **plan-implementation Parallel Decomposer** (opus): Find parallelization seams, define file allowlists
+- **plan-implementation Serial Decomposer** (opus): Break oversized tasks into sequential phases
+- **plan-implementation Task Validator** (sonnet): Validate isolation, estimate tokens
+- **plan-implementation Developer** (sonnet): Execute individual tasks (post-approval only)
 
 ## During Planning Mode
 
@@ -21,14 +21,14 @@ Explore the codebase to understand:
 - Test patterns in use
 
 ### 2. Initial Decomposition
-Run Parallel Decomposer to identify:
+Run plan-implementation Parallel Decomposer to identify:
 - Refactoring prerequisites (serial)
 - Independent implementation tasks (parallel)
 - Test tasks (parallel where possible)
 - File allowlists for each task
 
 ### 3. Validation Pass
-Run Task Validator:
+Run plan-implementation Task Validator:
 - Check file isolation (no conflicts between parallel tasks)
 - Estimate tokens per task
 - Verify full scope coverage
@@ -36,9 +36,9 @@ Run Task Validator:
 
 ### 4. Recursive Refinement
 While any tasks exceed 50k tokens or have conflicts:
-- Serial Decomposer for oversized tasks
-- Parallel Decomposer to re-partition conflicting tasks
-- Task Validator to re-validate
+- plan-implementation Serial Decomposer for oversized tasks
+- plan-implementation Parallel Decomposer to re-partition conflicting tasks
+- plan-implementation Task Validator to re-validate
 
 ### 5. Generate Plan
 Write implementation plan to `tmp/implementation-plans/<issue>-<timestamp>.md`
@@ -52,7 +52,7 @@ User reviews plan and approves by exiting planning mode.
 ### Execute Serial Prerequisites
 For each prerequisite task (in order):
 1. Update plan file: status = "in_progress"
-2. Launch Developer agent with task context and file allowlist
+2. Launch plan-implementation Developer agent with task context and file allowlist
 3. Wait for completion
 4. Update plan file: status = "completed" or "failed"
 5. Proceed to next prerequisite
@@ -75,7 +75,7 @@ After all tasks complete:
 While verification failures exist:
 1. Analyze failures (test errors, linting issues, type errors)
 2. Create new fix tasks with file allowlists
-3. Run Task Validator on fix tasks
+3. Run plan-implementation Task Validator on fix tasks
 4. Execute fix tasks (serial or parallel as appropriate)
 5. Re-run verification
 6. Repeat until all tests pass.

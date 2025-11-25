@@ -6,9 +6,9 @@ model: sonnet
 Decompose gh issue {{args}} into parallel-friendly subissues.
 
 ## Agents
-- **Parallel Decomposer** (opus): Find parallelization seams for independent work streams
-- **Serial Decomposer** (opus): Break oversized subissues into sequential phases
-- **Token Estimator** (haiku): Estimate tokens per subissue, flag any >50k
+- **plan-issue Parallel Decomposer** (opus): Find parallelization seams for independent work streams
+- **plan-issue Serial Decomposer** (opus): Break oversized subissues into sequential phases
+- **plan-issue Token Estimator** (haiku): Estimate tokens per subissue, flag any >50k
 
 ## Steps
 
@@ -16,10 +16,10 @@ Decompose gh issue {{args}} into parallel-friendly subissues.
 Read the issue. Extract: scope, requirements, acceptance criteria, linked issues/PRs/docs.
 
 ### 2. Parallel Decomposition → Token Estimation
-Run Parallel Decomposer to find independent work streams, then Token Estimator to validate sizes.
+Run plan-issue Parallel Decomposer to find independent work streams, then plan-issue Token Estimator to validate sizes.
 
 ### 3. Recursive Refinement
-While any subissues >50k tokens: Serial Decomposer → Parallel Decomposer → Token Estimator
+While any subissues >50k tokens: plan-issue Serial Decomposer → plan-issue Parallel Decomposer → plan-issue Token Estimator
 
 ### 4. Create Subissues
 For each subissue, create with:

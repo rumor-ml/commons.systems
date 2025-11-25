@@ -1,5 +1,5 @@
 ---
-name: "Developer"
+name: "plan-implementation Developer"
 description: "Executes a single implementation task with file-level isolation"
 model: sonnet
 ---
