@@ -22,27 +22,15 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          config = {
-            allowUnfree = true;
-          };
+          config = { allowUnfree = true; };
         };
 
-        # Common tools used across development and CI
         commonTools = with pkgs; [
-          # GCP tools
           google-cloud-sdk
-
-          # GitHub CLI
           gh
-
-          # Node.js and package managers
-          nodejs  # Standard nodejs package with good binary cache coverage
-          nodePackages.npm
-
-          # Infrastructure as Code
+          nodejs
+          pnpm
           terraform
-
-          # Shell utilities
           bash
           coreutils
           git
@@ -50,115 +38,72 @@
           curl
         ];
 
-        # Fellspiral site package
-        fellspiral-site = pkgs.buildNpmPackage rec {
-          pname = "fellspiral-site";
-          version = "1.0.0";
-
-          src = ./.;
-
-          npmDepsHash = pkgs.lib.fakeSha256;  # Replace with actual hash after first build
-
-          # Build only the site workspace
-          buildPhase = ''
-            npm run build --workspace=fellspiral/site
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            cp -r fellspiral/site/dist/* $out/
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Fellspiral static website";
-            license = licenses.mit;
-          };
-        };
-
-        # Development shell with all tools
         devShell = pkgs.mkShell {
           buildInputs = commonTools;
 
           shellHook = ''
-            echo "🚀 Fellspiral development environment loaded"
-            echo ""
-            echo "Available tools:"
-            echo "  - gcloud (Google Cloud SDK)"
-            echo "  - gh (GitHub CLI)"
-            echo "  - node v$(node --version)"
-            echo "  - npm v$(npm --version)"
-            echo "  - terraform v$(terraform version -json | jq -r .terraform_version)"
+            echo "Fellspiral development environment loaded"
             echo ""
 
-            # Set up Playwright - use writable cache directory
+            # Playwright config
             export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
             export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
-            # Ensure npm install works properly
-            export npm_config_cache="$PWD/.npm-cache"
+            # pnpm uses global store by default (~/.pnpm-store)
+            # This is shared across all worktrees automatically
 
-            # Make scripts executable if they aren't already
+            # Smart pnpm install - only when lockfile changes
+            if [ ! -d "node_modules" ]; then
+              echo "Installing pnpm dependencies..."
+              pnpm install
+              echo "Dependencies installed"
+            elif [ "pnpm-lock.yaml" -nt "node_modules/.modules.yaml" ]; then
+              echo "pnpm-lock.yaml changed, reinstalling..."
+              pnpm install
+              echo "Dependencies updated"
+            fi
+
+            # Add node_modules/.bin to PATH
+            export PATH="$PWD/node_modules/.bin:$PATH"
+
             if [ -f infrastructure/scripts/setup-workload-identity.sh ]; then
               chmod +x infrastructure/scripts/*.sh
             fi
 
-            # Auto-install npm dependencies if needed
-            # Note: In future, this will be replaced by Nix-managed dependencies
-            if [ ! -d "node_modules" ]; then
-              echo "📦 Installing npm dependencies..."
-              npm install
-              echo "✅ Dependencies installed"
-              echo ""
-            fi
-
+            echo ""
             echo "Quick start:"
-            echo "  1. Run setup: cd infrastructure/scripts && ./setup-workload-identity.sh"
-            echo "  2. Run dev server: npm run dev"
-            echo "  3. Run tests: npm test"
-            echo "  4. Build with Nix: nix build .#fellspiral-site"
+            echo "  1. Run dev server: pnpm dev"
+            echo "  2. Run tests: pnpm test"
+            echo "  3. Add packages: pnpm add <pkg>"
             echo ""
           '';
 
-          # Environment variables
           NIXPKGS_ALLOW_UNFREE = "1";
         };
 
-        # CI shell with same tools but no interactive features
         ciShell = pkgs.mkShell {
           buildInputs = commonTools;
 
           shellHook = ''
-            # Set up Playwright - use environment variable if set, otherwise use default writable path
             if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
               export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
             fi
             export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
-            # Ensure npm install works properly
-            export npm_config_cache="$PWD/.npm-cache"
+            if [ ! -d "node_modules" ]; then
+              pnpm install --frozen-lockfile
+            fi
+
+            export PATH="$PWD/node_modules/.bin:$PATH"
           '';
 
           NIXPKGS_ALLOW_UNFREE = "1";
         };
 
-      in
-      {
-        packages = {
-          default = fellspiral-site;
-          fellspiral-site = fellspiral-site;
-        };
-
+      in {
         devShells = {
           default = devShell;
           ci = ciShell;
-        };
-
-        # Make common tools available as app
-        apps.build = {
-          type = "app";
-          program = "${pkgs.writeShellScript "build" ''
-            ${pkgs.nodejs}/bin/npm run build
-          ''}";
         };
       }
     );
