@@ -16,6 +16,7 @@
       "Bash(gh pr list:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
       "Bash(gh workflow list:*)",
       "Bash(cat:*)",
       "Bash(wc:*)",
