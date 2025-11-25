@@ -1,4 +1,5 @@
 {
+  "model": "opus",
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
@@ -8,13 +9,18 @@
     "defaultMode": "plan",
     "allow": [
       "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rev-parse:*)",
       "Bash(git worktree list)",
       "Bash(git worktree add:*)",
       "Bash(gh issue view:*)",
       "Bash(gh issue list:*)",
       "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
       "Bash(gh workflow list:*)",
       "Bash(nix flake check:*)",
       "Bash(cat:*)",

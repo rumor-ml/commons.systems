@@ -5,9 +5,9 @@ model: opus
 
 # Phase 1: Parallel Analysis
 
-Launch 4 subagents simultaneously using the Task tool. Each agent is independent - no shared context needed.
+Launch 4 subagents simultaneously using the **Task tool** (with `subagent_type` as shown below). Each agent is independent - no shared context needed.
 
-## Agent 1: File Scanner (haiku)
+## Agent 1 — subagent_type: "File Scanner"
 
 Enumerate all code files and their sizes. Exclude node_modules, dist, build, .git.
 
@@ -18,7 +18,7 @@ Enumerate all code files and their sizes. Exclude node_modules, dist, build, .gi
 
 **Return:** Structured list of files with metrics, highlighting >20k token files.
 
-## Agent 2: Pattern Detector (sonnet)
+## Agent 2 — subagent_type: "Pattern Detector"
 
 Find duplication and dead code across the codebase.
 
@@ -36,7 +36,7 @@ Find duplication and dead code across the codebase.
 
 **Return:** Duplication clusters with file locations and extraction strategy (shared module / local utility / config consolidation). Dead code list with file:line references.
 
-## Agent 3: Security & Quality Auditor (opus)
+## Agent 3 — subagent_type: "Security & Quality Auditor"
 
 Deep analysis of security, performance, accessibility, and API patterns.
 
@@ -67,7 +67,7 @@ Deep analysis of security, performance, accessibility, and API patterns.
 
 **Return:** Severity-ranked findings (critical/high/medium/low) with specific file:line references.
 
-## Agent 4: Architecture Analyzer (opus)
+## Agent 4 — subagent_type: "Architecture Analyzer"
 
 Structural analysis, decomposition opportunities, and tooling assessment.
 
