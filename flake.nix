@@ -36,8 +36,11 @@
           git
           jq
           curl
-          go
+          # Go toolchain for tmux-tui and Go fullstack scaffolding
+          go_1_22
           gopls
+          gotools
+          tmux
           air
           templ
         ];
@@ -76,6 +79,26 @@
 
             if [ -f infrastructure/scripts/setup-workload-identity.sh ]; then
               chmod +x infrastructure/scripts/*.sh
+            fi
+
+            # Build tmux-tui if needed
+            if [ -d "tmux-tui" ]; then
+              if [ ! -f "tmux-tui/build/tmux-tui" ] || [ "tmux-tui/cmd/tmux-tui/main.go" -nt "tmux-tui/build/tmux-tui" ]; then
+                echo "Building tmux-tui..."
+                (cd tmux-tui && go build -ldflags "-s -w" -o build/tmux-tui ./cmd/tmux-tui 2>&1 | grep -v "^#" || true)
+              fi
+            fi
+
+            # Auto-source tmux-tui configuration if in tmux
+            if [ -n "$TMUX" ] && [ -f "tmux-tui/tmux-tui.conf" ]; then
+              # Always set/update the spawn script path
+              tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$PWD/tmux-tui/scripts/spawn.sh"
+
+              # Check if hooks are already loaded
+              if ! tmux show-hooks -g 2>/dev/null | grep -q "run-shell.*spawn.sh"; then
+                echo "Loading tmux-tui configuration..."
+                tmux source-file "$PWD/tmux-tui/tmux-tui.conf"
+              fi
             fi
 
             echo ""

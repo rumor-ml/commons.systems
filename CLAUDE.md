@@ -1,4 +1,4 @@
-**CRITICAL: always run git/gh/nix/gcloud commands with dangerouslyDisableSandbox: true**
+**CRITICAL: always run git/gh/nix/gcloud/`go mod tidy` commands with dangerouslyDisableSandbox: true**
 
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="Implementation Manager"` to execute the plan.
 
