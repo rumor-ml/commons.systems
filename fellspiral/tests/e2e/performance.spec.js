@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Performance', () => {
   test('should load page within acceptable time', async ({ page }) => {

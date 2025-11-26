@@ -110,3 +110,37 @@ jobs:
           echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Firebase Hosting preview channels are automatically cleaned up after expiration (7 days)." >> $GITHUB_STEP_SUMMARY
+
+      - name: Delete Artifact Registry packages for branch
+        continue-on-error: true
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
+
+          # Skip main branch
+          if [ "$BRANCH_NAME" = "main" ]; then
+            echo "Skipping cleanup for main branch"
+            exit 0
+          fi
+
+          # Sanitize branch name
+          SANITIZED=$(echo "$BRANCH_NAME" | sed 's|^claude/||' | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g' | cut -c1-63 | sed 's/-$//')
+
+          echo "Cleaning up packages for: $SANITIZED"
+
+          # Delete from playwright-server repo
+          PACKAGE="playwright-server-${SANITIZED}"
+          gcloud artifacts packages delete "$PACKAGE" \
+            --repository=playwright-server \
+            --location=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --quiet 2>/dev/null && echo "Deleted: $PACKAGE" || echo "Not found: $PACKAGE"
+
+          # Delete from site preview repos
+          for site in fellspiral videobrowser audiobrowser print; do
+            PACKAGE="${site}-${SANITIZED}"
+            gcloud artifacts packages delete "$PACKAGE" \
+              --repository="${site}-previews" \
+              --location=${{ env.GCP_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
+              --quiet 2>/dev/null && echo "Deleted: $PACKAGE" || echo "Not found: $PACKAGE"
+          done

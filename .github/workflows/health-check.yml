@@ -68,7 +68,7 @@ jobs:
           echo "Fellspiral URL: ${URL}"
 
       - name: Check health endpoint
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 10 3
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
 
       - name: Get Playwright server URL
         id: playwright-server
@@ -142,7 +142,7 @@ jobs:
           echo "Videobrowser URL: ${URL}"
 
       - name: Check health endpoint
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 10 3
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
 
       - name: Get Playwright server URL
         id: playwright-server
