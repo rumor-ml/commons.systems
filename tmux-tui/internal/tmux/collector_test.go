@@ -52,3 +52,27 @@ func TestCollectorGetTree(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectorExcludesPane(t *testing.T) {
+	// Skip if not in tmux
+	if os.Getenv("TMUX") == "" {
+		t.Skip("Not running inside tmux, skipping test")
+	}
+
+	collector := NewCollector()
+	tree, err := collector.GetTree()
+	if err != nil {
+		t.Fatalf("GetTree() returned error: %v", err)
+	}
+
+	// Verify that no pane with command "tmux-tui" is present in the tree
+	for _, branches := range tree {
+		for _, panes := range branches {
+			for _, pane := range panes {
+				if pane.Command == "tmux-tui" {
+					t.Errorf("Found pane with command 'tmux-tui' (ID: %s) in the tree, should be excluded", pane.ID)
+				}
+			}
+		}
+	}
+}

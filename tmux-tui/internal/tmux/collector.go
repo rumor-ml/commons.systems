@@ -55,6 +55,11 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		panePath := parts[6]
 		command := parts[7]
 
+		// Skip any pane running tmux-tui
+		if command == "tmux-tui" {
+			continue
+		}
+
 		windowIndex, _ := strconv.Atoi(windowIndexStr)
 		windowActive := windowActiveStr == "1"
 		windowBell := windowBellStr == "1"
