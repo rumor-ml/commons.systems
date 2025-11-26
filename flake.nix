@@ -43,6 +43,7 @@
           tmux
           air
           templ
+          firebase-tools  # For Firebase Emulator Suite
         ];
 
         devShell = pkgs.mkShell {

@@ -57,6 +57,7 @@
       "Bash(gcloud artifacts docker tags list:*)",
       "Bash(gcloud artifacts packages list:*)",
       "Bash(cat:*)",
+      "Bash(head:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
