@@ -10,6 +10,7 @@ type Pane struct {
 	WindowBell   bool
 	Command      string
 	Title        string
+	IsClaudePane bool
 }
 
 // Window represents a tmux window

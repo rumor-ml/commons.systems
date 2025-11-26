@@ -65,7 +65,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}'); printf '\\a' > \"$TTY\"; afplay /System/Library/Sounds/Tink.aiff &"
+            "command": "CLAUDE_TTY=$(ps -o tty= -p $PPID 2>/dev/null | tr -d ' '); PANE=$(tmux list-panes -a -F '#{pane_id} #{pane_tty}' 2>/dev/null | grep \"/dev/$CLAUDE_TTY\" | awk '{print $1}'); [ -n \"$PANE\" ] && touch \"/tmp/claude/tui-alert-$PANE\"; [ -n \"$CLAUDE_TTY\" ] && printf '\\a' > \"/dev/$CLAUDE_TTY\"; afplay /System/Library/Sounds/Tink.aiff &"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_TTY=$(ps -o tty= -p $PPID 2>/dev/null | tr -d ' '); PANE=$(tmux list-panes -a -F '#{pane_id} #{pane_tty}' 2>/dev/null | grep \"/dev/$CLAUDE_TTY\" | awk '{print $1}'); [ -n \"$PANE\" ] && rm -f \"/tmp/claude/tui-alert-$PANE\""
           }
         ]
       }
