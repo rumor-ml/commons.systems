@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
@@ -14,6 +15,11 @@ const (
 	Pipe     = "│   "
 	Space    = "    "
 )
+
+var bellStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("0")).
+	Background(lipgloss.Color("1")).
+	Bold(true)
 
 // TreeRenderer renders a tmux.RepoTree as a hierarchical tree
 type TreeRenderer struct {
@@ -112,7 +118,13 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string) []string {
 			displayName += "*"
 		}
 
-		lines = append(lines, prefix+panePrefix+displayName)
+		// Apply bell style if window has bell notification
+		line := prefix + panePrefix + displayName
+		if pane.WindowBell {
+			line = bellStyle.Render(line)
+		}
+
+		lines = append(lines, line)
 	}
 
 	return lines

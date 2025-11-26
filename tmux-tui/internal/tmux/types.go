@@ -7,6 +7,7 @@ type Pane struct {
 	WindowID     string
 	WindowIndex  int
 	WindowActive bool
+	WindowBell   bool
 	Command      string
 }
 

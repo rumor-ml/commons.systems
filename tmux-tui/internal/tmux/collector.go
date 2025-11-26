@@ -26,8 +26,8 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	}
 
 	// Query all panes in the current session
-	// Format: pane_id|window_id|window_index|window_name|window_active|pane_current_path|pane_current_command
-	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{pane_current_path}|#{pane_current_command}")
+	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command
+	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list panes: %w", err)
@@ -42,7 +42,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		}
 
 		parts := strings.Split(line, "|")
-		if len(parts) != 7 {
+		if len(parts) != 8 {
 			continue
 		}
 
@@ -51,11 +51,13 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		windowIndexStr := parts[2]
 		// windowName is parts[3] but we don't use it anymore
 		windowActiveStr := parts[4]
-		panePath := parts[5]
-		command := parts[6]
+		windowBellStr := parts[5]
+		panePath := parts[6]
+		command := parts[7]
 
 		windowIndex, _ := strconv.Atoi(windowIndexStr)
 		windowActive := windowActiveStr == "1"
+		windowBell := windowBellStr == "1"
 
 		// Get git info for this path
 		repo, branch := c.getGitInfo(panePath)
@@ -80,6 +82,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 			WindowID:     windowID,
 			WindowIndex:  windowIndex,
 			WindowActive: windowActive,
+			WindowBell:   windowBell,
 			Command:      command,
 		}
 		tree[repo][branch] = append(tree[repo][branch], pane)
