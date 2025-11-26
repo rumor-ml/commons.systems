@@ -61,6 +61,7 @@
       "Bash(head:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
+      "Bash(ls:*)",
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",
