@@ -3,40 +3,43 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/commons-systems/tmux-tui/internal/tmux"
+	"github.com/commons-systems/tmux-tui/internal/ui"
 )
 
+type tickMsg time.Time
+
 type model struct {
-	windowID  string
-	sessionID string
+	collector *tmux.Collector
+	renderer  *ui.TreeRenderer
+	tree      tmux.RepoTree
 	width     int
 	height    int
+	err       error
 }
 
 func initialModel() model {
-	// Parse TMUX environment variable to extract session and window info
-	tmuxEnv := os.Getenv("TMUX")
-	sessionID := "unknown"
+	collector := tmux.NewCollector()
+	renderer := ui.NewTreeRenderer(80) // Default width
 
-	if tmuxEnv != "" {
-		// TMUX format: /tmp/tmux-501/default,12345,0
-		parts := strings.Split(tmuxEnv, ",")
-		if len(parts) >= 2 {
-			sessionID = parts[1]
-		}
-	}
+	// Initial tree load
+	tree, err := collector.GetTree()
 
 	return model{
-		windowID:  "current",
-		sessionID: sessionID,
-		width:     38, // 40-column pane minus padding
+		collector: collector,
+		renderer:  renderer,
+		tree:      tree,
+		width:     80,
+		height:    24,
+		err:       err,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tickCmd()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -44,80 +47,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.renderer.SetWidth(msg.Width)
+		m.renderer.SetHeight(msg.Height)
 		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		}
+
+	case tickMsg:
+		// Refresh tree data
+		tree, err := m.collector.GetTree()
+		if err == nil {
+			m.tree = tree
+			m.err = nil
+		} else {
+			m.err = err
+		}
+		return m, tickCmd()
 	}
+
 	return m, nil
 }
 
 func (m model) View() string {
-	// Use terminal dimensions, with sensible defaults
-	width := m.width
-	if width < 14 {
-		width = 14 // Minimum width for content
-	}
-	height := m.height
-	if height < 5 {
-		height = 5 // Minimum height
+	if m.err != nil {
+		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", m.err)
 	}
 
-	// Inner width (excluding borders)
-	innerWidth := width - 2
-
-	// Helper to create a line with borders
-	emptyLine := "│" + strings.Repeat(" ", innerWidth) + "│"
-	centerText := func(text string) string {
-		padding := innerWidth - len(text)
-		left := padding / 2
-		right := padding - left
-		return "│" + strings.Repeat(" ", left) + text + strings.Repeat(" ", right) + "│"
+	if m.tree == nil {
+		return "Loading..."
 	}
 
-	// Build header
-	titleText := " tmux-tui "
-	headerPadding := innerWidth - len(titleText) - 2 // -2 for corner chars
-	headerLine := "╭─" + titleText + strings.Repeat("─", headerPadding) + "╮"
-
-	// Build footer
-	footerLine := "╰" + strings.Repeat("─", innerWidth) + "╯"
-
-	// Content lines (fixed content)
-	contentLines := []string{
-		emptyLine,
-		centerText("Hello!"),
-		emptyLine,
-		centerText("Ctrl+C to quit"),
-		emptyLine,
-		centerText(fmt.Sprintf("Sess: %s", m.sessionID[:min(4, len(m.sessionID))])),
-	}
-
-	// Calculate remaining lines to fill
-	usedLines := 1 + len(contentLines) + 1 // header + content + footer
-	remainingLines := height - usedLines
-
-	// Build final output
-	lines := []string{headerLine}
-	lines = append(lines, contentLines...)
-
-	// Fill remaining space with empty lines
-	for i := 0; i < remainingLines; i++ {
-		lines = append(lines, emptyLine)
-	}
-
-	lines = append(lines, footerLine)
-
-	return strings.Join(lines, "\n")
+	return m.renderer.Render(m.tree)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+func tickCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func main() {
