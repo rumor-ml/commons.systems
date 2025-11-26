@@ -4,4 +4,5 @@ packages:
   - 'videobrowser/*'
   - 'audiobrowser/*'
   - 'print/*'
+  - 'printsync/*'
   - 'test-go-app/tests'
