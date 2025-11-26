@@ -39,17 +39,15 @@ This repository is structured as a monorepo hosting multiple apps with shared in
 
 ### App Infrastructure
 
-- App Frameworks
+- Scaffolding
     - Firebase
     - Native go
     - go server
 - Shared infrastructure
     - nix system configuration
-    - single script iac
-    - gcp project
-    - Terraform state backend (GCS)
-    - Service accounts for deployment
-    - Playwright browser server for testing
+    - single script gcp iac
+    - GitHub CI/CD workflows
+    - Playwright browser server for CI/CD testing
 
 ## Code Standards
 
