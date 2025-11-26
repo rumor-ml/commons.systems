@@ -13,7 +13,8 @@
     "audiobrowser/site",
     "audiobrowser/tests",
     "print/site",
-    "print/tests"
+    "print/tests",
+    "printsync/tests"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=fellspiral/site",
@@ -34,7 +35,11 @@
     "dev:print": "npm run dev --workspace=print/site",
     "build:print": "npm run build --workspace=print/site",
     "test:print": "npm test --workspace=print/tests",
-    "test:print:deployed": "npm run test:deployed --workspace=print/tests"
+    "test:print:deployed": "npm run test:deployed --workspace=print/tests",
+    "dev:printsync": "cd printsync/site && make dev",
+    "build:printsync": "cd printsync/site && make build",
+    "test:printsync": "npm test --workspace=printsync/tests",
+    "test:printsync:deployed": "npm run test:deployed --workspace=printsync/tests"
   },
   "keywords": [
     "monorepo",
