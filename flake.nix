@@ -36,6 +36,10 @@
           git
           jq
           curl
+          go
+          gopls
+          air
+          templ
         ];
 
         devShell = pkgs.mkShell {
@@ -44,6 +48,10 @@
           shellHook = ''
             echo "Fellspiral development environment loaded"
             echo ""
+
+            # Go config
+            export GOPATH="$HOME/go"
+            export PATH="$GOPATH/bin:$PATH"
 
             # Playwright config
             export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
