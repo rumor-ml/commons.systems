@@ -50,13 +50,23 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
       - name: Test Print
         run: ./infrastructure/scripts/run-local-tests.sh print
+
+      - name: Build ${{ matrix.site }}
+        run: npm run build --workspace=${{ matrix.site }}/site
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.site }}
+          path: ${{ matrix.site }}/site/dist
+          retention-days: 1
 
   # ==================== Step 2: Deploy Sites (Parallel) ====================
 
@@ -276,10 +286,25 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Download build artifact
+        if: matrix.site != 'print'
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.site }}
+          path: ${{ matrix.site }}/site/dist
 
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: firebase-cli-${{ runner.os }}-v1
+          restore-keys: |
+            firebase-cli-${{ runner.os }}-
 
       - name: Install Firebase CLI
         run: pnpm add -g firebase-tools
@@ -446,7 +471,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
