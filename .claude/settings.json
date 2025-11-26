@@ -24,6 +24,7 @@
       "Bash(gh workflow list:*)",
       "Bash(nix flake check:*)",
       "Bash(cat:*)",
+      "Bash(head:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
