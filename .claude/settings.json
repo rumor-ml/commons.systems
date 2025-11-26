@@ -42,6 +42,8 @@
       "Bash(go mod tidy:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx playwright test:*)",
       "Bash(gcloud artifacts repositories list:*)",
       "Bash(gcloud artifacts docker images list:*)",
       "Bash(gcloud artifacts docker tags list:*)",

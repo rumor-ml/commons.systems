@@ -36,11 +36,13 @@
           git
           jq
           curl
-          # Go toolchain for tmux-tui
+          # Go toolchain for tmux-tui and Go fullstack scaffolding
           go_1_22
           gopls
           gotools
           tmux
+          air
+          templ
         ];
 
         devShell = pkgs.mkShell {
@@ -49,6 +51,10 @@
           shellHook = ''
             echo "Fellspiral development environment loaded"
             echo ""
+
+            # Go config
+            export GOPATH="$HOME/go"
+            export PATH="$GOPATH/bin:$PATH"
 
             # Playwright config
             export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"

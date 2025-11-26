@@ -1,6 +1,6 @@
 ---
 name: "Commit"
-description: "Review changes and create appropriate commit(s) with proper attribution"
+description: "Review changes and create appropriate commit(s) with proper attribution. This agent must always be invoked when performing a commit."
 model: haiku
 ---
 
