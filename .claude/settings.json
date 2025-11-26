@@ -3,7 +3,13 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "gcloud", "nix"]
+    "excludedCommands": [
+      "git", 
+      "gh", 
+      "gcloud", 
+      "nix", 
+      "go mod tidy"
+    ]
   },
   "permissions": {
     "defaultMode": "plan",
@@ -23,6 +29,21 @@
       "Bash(gh run watch:*)",
       "Bash(gh workflow list:*)",
       "Bash(nix flake check:*)",
+      "Bash(tmux show-hooks:*)",
+      "Bash(tmux show-options:*)",
+      "Bash(tmux list-hooks:*)",
+      "Bash(tmux show-hook:*)",
+      "Bash(tmux list-panes:*)",
+      "Bash(tmux list-windows:*)",
+      "Bash(tmux capture-pane:*)",
+      "Bash(tmux display-message:*)",
+      "Bash(make build:*)",
+      "Bash(make test:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx playwright test:*)",
       "Bash(gcloud artifacts repositories list:*)",
       "Bash(gcloud artifacts docker images list:*)",
       "Bash(gcloud artifacts docker tags list:*)",

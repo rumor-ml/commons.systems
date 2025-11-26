@@ -52,6 +52,12 @@ result
 result-*
 .npm-cache/
 
+# Go build artifacts
+tmux-tui/build/
+tmux-tui/tmux-tui
+*.test
+*.out
+
 # Trigger CI workflow test - forcing sync
 __pycache__/
 

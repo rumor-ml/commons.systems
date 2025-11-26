@@ -3,7 +3,7 @@
  * Tests GitHub OAuth integration and auth UI components
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Authentication', () => {
   test('should display sign in button when not authenticated', async ({ page }) => {
