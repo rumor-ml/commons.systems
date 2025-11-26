@@ -9,5 +9,6 @@ model: haiku
    - If argument starts with `#` (e.g., `#66`): This is a gh issue number. Source is issue body.
    - Otherwise: source is argument
 4. Generate concise, descriptive branch name from the source.
+   - If argument was a GitHub issue number: prefix the branch name with the issue number (e.g., `#23` → `23-fix-some-issue`)
 5. Create worktree in ~/worktrees with this branch name, branching off main.
 6. Set upstream to origin/<branch-name> (don't push).
