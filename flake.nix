@@ -37,7 +37,7 @@
           jq
           curl
           # Go toolchain for tmux-tui and Go fullstack scaffolding
-          go_1_22
+          go
           gopls
           gotools
           tmux
