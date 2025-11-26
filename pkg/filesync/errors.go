@@ -21,6 +21,9 @@ var (
 
 	// ErrCancelled is returned when an operation is cancelled
 	ErrCancelled = errors.New("operation cancelled")
+
+	// ErrConflict is returned when a path conflict occurs (different hash at target path)
+	ErrConflict = errors.New("path conflict: different hash at target path")
 )
 
 // DiscoveryError represents an error during file discovery
