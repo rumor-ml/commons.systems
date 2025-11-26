@@ -47,24 +47,24 @@ type UploadResult struct {
 	Error         error
 }
 
-// SessionStatus represents the state of a sync session
-type SessionStatus string
+// PipelineSessionStatus represents the state of a sync session (pipeline view)
+type PipelineSessionStatus string
 
 const (
-	SessionStatusPending     SessionStatus = "pending"
-	SessionStatusDiscovering SessionStatus = "discovering"
-	SessionStatusProcessing  SessionStatus = "processing"
-	SessionStatusCompleted   SessionStatus = "completed"
-	SessionStatusFailed      SessionStatus = "failed"
-	SessionStatusCancelled   SessionStatus = "cancelled"
+	PipelineSessionStatusPending     PipelineSessionStatus = "pending"
+	PipelineSessionStatusDiscovering PipelineSessionStatus = "discovering"
+	PipelineSessionStatusProcessing  PipelineSessionStatus = "processing"
+	PipelineSessionStatusCompleted   PipelineSessionStatus = "completed"
+	PipelineSessionStatusFailed      PipelineSessionStatus = "failed"
+	PipelineSessionStatusCancelled   PipelineSessionStatus = "cancelled"
 )
 
-// SyncSession represents a complete sync operation
-type SyncSession struct {
+// PipelineSession represents a complete sync operation (pipeline view)
+type PipelineSession struct {
 	ID             string
 	RootDir        string
 	StartedAt      time.Time
-	Status         SessionStatus
+	Status         PipelineSessionStatus
 	TotalFiles     int64
 	ProcessedFiles int64
 	TotalBytes     int64
@@ -84,8 +84,8 @@ const (
 	FileProcessingStatusFailed     FileProcessingStatus = "failed"
 )
 
-// FileStatus represents the status of a file in the sync session
-type FileStatus struct {
+// FileProcessingState represents the status of a file in the sync session (pipeline view)
+type FileProcessingState struct {
 	File         FileInfo
 	Status       FileProcessingStatus
 	Error        error
