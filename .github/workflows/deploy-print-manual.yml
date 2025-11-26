@@ -100,7 +100,7 @@ jobs:
           echo "Deployed to: ${URL}"
 
       - name: Wait for service to be ready
-        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" 60 5
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 60
 
   # ==================== Step 3: Playwright Tests ====================
   playwright-tests:
