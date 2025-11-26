@@ -23,12 +23,17 @@
       "Bash(gh run watch:*)",
       "Bash(gh workflow list:*)",
       "Bash(nix flake check:*)",
+      "Bash(gcloud artifacts repositories list:*)",
+      "Bash(gcloud artifacts docker images list:*)",
+      "Bash(gcloud artifacts docker tags list:*)",
+      "Bash(gcloud artifacts packages list:*)",
       "Bash(cat:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",
+      "Bash(sort:*)",
       "Bash(echo:*)"
     ]
   },
