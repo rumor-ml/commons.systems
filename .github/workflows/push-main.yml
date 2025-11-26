@@ -58,13 +58,6 @@ jobs:
       - name: Test Print
         run: ./infrastructure/scripts/run-local-tests.sh print
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.site }}
-          path: ${{ matrix.site }}/site/dist
-          retention-days: 1
-
   # ==================== Step 2: Deploy Sites (Parallel) ====================
 
   # Check if Playwright Server code changed
@@ -284,13 +277,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Download build artifact
-        if: matrix.site != 'print'
-        uses: actions/download-artifact@v4
-        with:
-          name: build-${{ matrix.site }}
-          path: ${{ matrix.site }}/site/dist
 
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq

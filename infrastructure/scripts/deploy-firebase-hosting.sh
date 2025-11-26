@@ -48,20 +48,17 @@ echo "🔐 Injecting Firebase configuration..."
 "$(dirname "$0")/inject-firebase-config.sh" "$SITE_NAME"
 echo ""
 
-# Build the site (skip if dist already exists from artifact)
-if [ -d "${SITE_NAME}/site/dist" ]; then
-  echo "📦 Using pre-built artifacts from CI..."
-  echo "✅ Build complete"
-else
-  echo "📦 Building ${SITE_NAME}..."
-  npm run build --workspace="${SITE_NAME}/site"
+# Build the site
+echo "📦 Building ${SITE_NAME}..."
+npm run build --workspace="${SITE_NAME}/site"
 
-  if [ ! -d "${SITE_NAME}/site/dist" ]; then
-    echo "❌ Build failed: dist directory not found"
-    exit 1
-  fi
-  echo "✅ Build complete"
+# Check if build succeeded
+if [ ! -d "${SITE_NAME}/site/dist" ]; then
+  echo "❌ Build failed: dist directory not found"
+  exit 1
 fi
+
+echo "✅ Build complete"
 echo ""
 
 # Determine deployment type (production vs preview)
