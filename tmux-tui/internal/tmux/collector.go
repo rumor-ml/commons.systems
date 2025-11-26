@@ -26,8 +26,8 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	}
 
 	// Query all panes in the current session
-	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command
-	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}")
+	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command|pane_title
+	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}|#{pane_title}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list panes: %w", err)
@@ -42,7 +42,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		}
 
 		parts := strings.Split(line, "|")
-		if len(parts) != 8 {
+		if len(parts) != 9 {
 			continue
 		}
 
@@ -54,6 +54,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		windowBellStr := parts[5]
 		panePath := parts[6]
 		command := parts[7]
+		paneTitle := parts[8]
 
 		// Skip any pane running tmux-tui
 		if command == "tmux-tui" {
@@ -89,6 +90,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 			WindowActive: windowActive,
 			WindowBell:   windowBell,
 			Command:      command,
+			Title:        paneTitle,
 		}
 		tree[repo][branch] = append(tree[repo][branch], pane)
 	}

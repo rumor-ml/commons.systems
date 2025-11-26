@@ -9,6 +9,7 @@ type Pane struct {
 	WindowActive bool
 	WindowBell   bool
 	Command      string
+	Title        string
 }
 
 // Window represents a tmux window

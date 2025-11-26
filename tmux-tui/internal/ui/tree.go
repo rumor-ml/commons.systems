@@ -117,6 +117,10 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string) []string {
 		if pane.WindowActive {
 			displayName += "*"
 		}
+		// Append pane title if present
+		if pane.Title != "" {
+			displayName += " " + pane.Title
+		}
 
 		// Apply bell style if window has bell notification
 		line := prefix + panePrefix + displayName
