@@ -1,6 +1,6 @@
 ---
 name: "Push"
-description: "Push current branch to remote and monitor CI/CD workflows"
+description: "Push current branch to remote and monitor CI/CD workflows. This agent must always be invoked when pushing to remote."
 model: haiku
 ---
 
