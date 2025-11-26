@@ -42,6 +42,7 @@
       "Bash(go mod tidy:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
+      "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
       "Bash(gcloud artifacts repositories list:*)",
