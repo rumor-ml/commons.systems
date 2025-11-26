@@ -30,7 +30,7 @@ func TestTreeRenderer(t *testing.T) {
 		"0:zsh",
 		"1:nvim",
 		"2:zsh",
-		"3:tmux-tui*",
+		"3:tmux-tui",
 		"├──",
 		"└──",
 	}

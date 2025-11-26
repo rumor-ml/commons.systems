@@ -21,6 +21,9 @@ var bellStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("1")).
 	Bold(true)
 
+var activeStyle = lipgloss.NewStyle().
+	Background(lipgloss.Color("240"))
+
 // TreeRenderer renders a tmux.RepoTree as a hierarchical tree
 type TreeRenderer struct {
 	width  int
@@ -112,20 +115,26 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string) []string {
 			panePrefix = LastItem
 		}
 
-		// Format: window#:command with * for active window
-		displayName := fmt.Sprintf("%d:%s", pane.WindowIndex, pane.Command)
-		if pane.WindowActive {
-			displayName += "*"
-		}
-		// Append pane title if present
-		if pane.Title != "" {
-			displayName += " " + pane.Title
+		// Build window number portion separately
+		windowNumber := fmt.Sprintf("%d:", pane.WindowIndex)
+
+		// Apply bell style ONLY to window number if bell is active
+		if pane.WindowBell {
+			windowNumber = bellStyle.Render(windowNumber)
 		}
 
-		// Apply bell style if window has bell notification
-		line := prefix + panePrefix + displayName
-		if pane.WindowBell {
-			line = bellStyle.Render(line)
+		// Build command + title portion
+		commandTitle := pane.Command
+		if pane.Title != "" {
+			commandTitle += " " + pane.Title
+		}
+
+		// Assemble the line from parts
+		line := prefix + panePrefix + windowNumber + commandTitle
+
+		// For active panes: apply activeStyle with full width
+		if pane.WindowActive {
+			line = activeStyle.Width(r.width).Render(line)
 		}
 
 		lines = append(lines, line)
