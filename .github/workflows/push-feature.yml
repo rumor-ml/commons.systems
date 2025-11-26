@@ -448,35 +448,41 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
-  # ==================== Step 4: E2E Tests ====================
-  playwright-tests-fellspiral:
-    name: E2E Tests - Fellspiral
+  # ==================== Step 4: Collect All Deployment URLs ====================
+  collect-deployment-urls:
+    name: Collect Deployment URLs
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [deploy-fellspiral, deploy-playwright-server]
+    needs: [deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print]
     if: |
       always() &&
-      needs.deploy-fellspiral.result == 'success' &&
-      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
+      (needs.deploy-fellspiral.result == 'success' ||
+       needs.deploy-videobrowser.result == 'success' ||
+       needs.deploy-audiobrowser.result == 'success' ||
+       needs.deploy-print.result == 'success')
+    outputs:
+      fellspiral-url: ${{ needs.deploy-fellspiral.outputs.service-url }}
+      videobrowser-url: ${{ needs.deploy-videobrowser.outputs.service-url }}
+      audiobrowser-url: ${{ needs.deploy-audiobrowser.outputs.service-url }}
+      print-url: ${{ needs.deploy-print.outputs.service-url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Echo deployment URLs
+        run: |
+          echo "Fellspiral: ${{ needs.deploy-fellspiral.outputs.service-url }}"
+          echo "Videobrowser: ${{ needs.deploy-videobrowser.outputs.service-url }}"
+          echo "Audiobrowser: ${{ needs.deploy-audiobrowser.outputs.service-url }}"
+          echo "Print: ${{ needs.deploy-print.outputs.service-url }}"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
+  # ==================== Step 5: Get Playwright Server URL ====================
+  get-playwright-url:
+    name: Get Playwright Server URL
+    runs-on: ubuntu-latest
+    needs: [deploy-playwright-server]
+    if: always()
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
+    steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -486,201 +492,102 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Get Playwright server URL
-        id: get-playwright-url
+      - name: Get Playwright Server URL
+        id: get-url
         run: |
-          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
+          if [ "${{ needs.deploy-playwright-server.result }}" == "success" ]; then
+            # Use newly deployed URL
             URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
           else
+            # Get existing service URL
             URL=$(gcloud run services describe playwright-server \
               --region=${{ env.GCP_REGION }} \
               --format='value(status.url)')
-          fi
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Run Playwright tests
-        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.service-url }}
-          CI: true
-
-  playwright-tests-videobrowser:
-    name: E2E Tests - Videobrowser
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [deploy-videobrowser, deploy-playwright-server]
-    if: |
-      always() &&
-      needs.deploy-videobrowser.result == 'success' &&
-      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get Playwright server URL
-        id: get-playwright-url
-        run: |
-          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
-            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
-          else
-            URL=$(gcloud run services describe playwright-server \
-              --region=${{ env.GCP_REGION }} \
-              --format='value(status.url)')
-          fi
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Run Playwright tests
-        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.service-url }}
-          CI: true
-
-  playwright-tests-audiobrowser:
-    name: E2E Tests - Audiobrowser
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [deploy-audiobrowser, deploy-playwright-server]
-    if: |
-      always() &&
-      needs.deploy-audiobrowser.result == 'success' &&
-      (needs.deploy-playwright-server.result == 'success' || needs.deploy-playwright-server.result == 'skipped')
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get Playwright server URL
-        id: get-playwright-url
-        run: |
-          if [ "${{ needs.deploy-playwright-server.result }}" = "success" ]; then
-            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
-          else
-            URL=$(gcloud run services describe playwright-server \
-              --region=${{ env.GCP_REGION }} \
-              --format='value(status.url)')
-          fi
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Run Playwright tests
-        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.service-url }}" "${{ steps.get-playwright-url.outputs.url }}"
-        env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.get-playwright-url.outputs.url }}
-          DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.service-url }}
-          CI: true
-
-  playwright-tests-print:
-    name: Playwright Tests - Print
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [deploy-print, deploy-playwright-server]
-    # Run only if print was deployed successfully
-    if: |
-      always() &&
-      needs.deploy-print.result == 'success'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get Playwright server URL
-        id: playwright-server
-        run: |
-          # Use deployed URL if available, otherwise get the production URL
-          if [ -n "${{ needs.deploy-playwright-server.outputs.playwright-url }}" ]; then
-            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
-          else
-            URL=$(gcloud run services describe playwright-server \
-              --platform managed \
-              --region ${{ env.GCP_REGION }} \
-              --format 'value(status.url)')
           fi
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Playwright Server URL: ${URL}"
 
-      - name: Test Print
-        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.service-url }}" "${{ steps.playwright-server.outputs.url }}"
+  # ==================== Step 6: E2E Tests (Matrix Strategy) ====================
+  playwright-tests:
+    name: E2E Tests - ${{ matrix.site }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [collect-deployment-urls, get-playwright-url]
+    strategy:
+      matrix:
+        site: [fellspiral, videobrowser, audiobrowser, print]
+      fail-fast: false
+    if: |
+      always() &&
+      needs.collect-deployment-urls.result == 'success' &&
+      needs.get-playwright-url.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get site URL
+        id: site-url
+        run: |
+          case "${{ matrix.site }}" in
+            fellspiral)
+              URL="${{ needs.collect-deployment-urls.outputs.fellspiral-url }}"
+              ;;
+            videobrowser)
+              URL="${{ needs.collect-deployment-urls.outputs.videobrowser-url }}"
+              ;;
+            audiobrowser)
+              URL="${{ needs.collect-deployment-urls.outputs.audiobrowser-url }}"
+              ;;
+            print)
+              URL="${{ needs.collect-deployment-urls.outputs.print-url }}"
+              ;;
+          esac
+
+          if [ -z "$URL" ]; then
+            echo "No deployment URL for ${{ matrix.site }}, skipping tests"
+            exit 0
+          fi
+
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "${{ matrix.site }} URL: ${URL}"
+
+      - name: Run Playwright tests
+        if: steps.site-url.outputs.url != ''
+        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
-          DEPLOYED_URL: ${{ needs.deploy-print.outputs.service-url }}
+          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
+          DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
           CI: true
 
   # ==================== Summary ====================
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests-fellspiral, playwright-tests-videobrowser, playwright-tests-audiobrowser, playwright-tests-print]
+    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests]
     if: always()
 
     steps:
@@ -714,10 +621,7 @@ jobs:
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Local Tests: ${{ needs.local-tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Fellspiral E2E: ${{ needs.playwright-tests-fellspiral.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Videobrowser E2E: ${{ needs.playwright-tests-videobrowser.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Audiobrowser E2E: ${{ needs.playwright-tests-audiobrowser.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Print E2E: ${{ needs.playwright-tests-print.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- E2E Tests: ${{ needs.playwright-tests.result }}" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🔥 **Firebase Hosting**: All deployments use Firebase Hosting with automatic auth authorization" >> $GITHUB_STEP_SUMMARY

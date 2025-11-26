@@ -4,3 +4,4 @@ packages:
   - 'videobrowser/*'
   - 'audiobrowser/*'
   - 'print/*'
+  - 'test-go-app/tests'
