@@ -49,15 +49,52 @@ if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
 fi
 echo "✅ OIDC token obtained"
 
-# --- Get browser WebSocket endpoint ---
+# --- Get browser WebSocket endpoint (with retry for Cloud Run cold start) ---
 echo "Getting browser endpoint..."
-BROWSER_RESPONSE=$(curl -sf --max-time 30 \
-  -H "Authorization: Bearer $OIDC_TOKEN" \
-  "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint")
+MAX_RETRIES=5
+RETRY_DELAY=2
+BROWSER_RESPONSE=""
+
+for attempt in $(seq 1 $MAX_RETRIES); do
+  HTTP_STATUS=$(curl -s -o /tmp/browser-response.txt -w "%{http_code}" \
+    -H "Authorization: Bearer $OIDC_TOKEN" \
+    --max-time 30 \
+    "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint" 2>/dev/null || echo "000")
+
+  if [ "$HTTP_STATUS" = "200" ]; then
+    BROWSER_RESPONSE=$(cat /tmp/browser-response.txt)
+    break
+  elif [ "$HTTP_STATUS" = "429" ] || [ "$HTTP_STATUS" = "503" ] || [ "$HTTP_STATUS" = "000" ]; then
+    # Retry on: 429 (Rate Limited), 503 (Service Unavailable), 000 (Connection Error)
+    if [ $attempt -lt $MAX_RETRIES ]; then
+      reason="Server busy"
+      [ "$HTTP_STATUS" = "429" ] && reason="Rate limited (HTTP 429)"
+      [ "$HTTP_STATUS" = "503" ] && reason="Service unavailable (HTTP 503)"
+      [ "$HTTP_STATUS" = "000" ] && reason="Connection error"
+      echo "⏳ $reason, retrying in ${RETRY_DELAY}s... (attempt $attempt/$MAX_RETRIES)"
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))
+    else
+      echo "❌ Failed to get browser endpoint after $MAX_RETRIES attempts (HTTP $HTTP_STATUS)"
+      if [ "$HTTP_STATUS" = "429" ]; then
+        echo "   Check Cloud Run scaling settings: maxScale/minScale"
+      elif [ "$HTTP_STATUS" = "503" ]; then
+        echo "   Browser server failed to start. Check Cloud Run logs."
+      elif [ "$HTTP_STATUS" = "000" ]; then
+        echo "   Connection error. Check network and server availability."
+      fi
+      exit 1
+    fi
+  else
+    echo "❌ Failed to get browser endpoint (HTTP $HTTP_STATUS)"
+    cat /tmp/browser-response.txt 2>/dev/null
+    exit 1
+  fi
+done
 
 WS_ENDPOINT=$(echo "$BROWSER_RESPONSE" | jq -r '.wsEndpoint')
 if [ -z "$WS_ENDPOINT" ] || [ "$WS_ENDPOINT" = "null" ]; then
-  echo "❌ Failed to get browser endpoint"
+  echo "❌ Failed to parse browser endpoint from response"
   echo "$BROWSER_RESPONSE"
   exit 1
 fi
