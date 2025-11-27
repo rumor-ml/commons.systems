@@ -72,4 +72,21 @@ test.describe('Responsive Design', () => {
       expect(fontSizeValue).toBeGreaterThanOrEqual(16);
     }
   });
+
+  test('should show/hide mobile menu toggle based on viewport', async ({ page }) => {
+    const toggle = page.locator('#mobileMenuToggle');
+
+    // Desktop - toggle should be hidden
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/');
+    await expect(toggle).toBeHidden();
+
+    // Tablet - toggle should be visible
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await expect(toggle).toBeVisible();
+
+    // Mobile - toggle should be visible
+    await page.setViewportSize({ width: 375, height: 667 });
+    await expect(toggle).toBeVisible();
+  });
 });

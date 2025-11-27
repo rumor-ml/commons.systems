@@ -185,6 +185,36 @@ test.describe('Card Manager Page', () => {
       // Should navigate to homepage with hash
       await page.waitForURL(/\/#introduction/);
     });
+
+    test('should close sidebar when clicking outside on mobile', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto('/cards.html');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/active/);
+
+      await page.locator('.card-toolbar h1').click();
+      await expect(sidebar).not.toHaveClass(/active/);
+    });
+
+    test('should handle rapid toggle clicks', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto('/cards.html');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      // Click toggle 5 times rapidly
+      for (let i = 0; i < 5; i++) {
+        await toggle.click();
+      }
+
+      // Final state should be open (odd number of clicks)
+      await expect(sidebar).toHaveClass(/active/);
+    });
   });
 
   test('should display view mode controls', async ({ page }) => {
@@ -215,5 +245,40 @@ test.describe('Card Manager Page', () => {
     await expect(typeFilter).toBeVisible();
     await expect(subtypeFilter).toBeVisible();
     await expect(searchInput).toBeVisible();
+  });
+
+  test('should navigate to external links on desktop', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/cards.html');
+
+    const introLink = page.locator('.sidebar-nav a[href="/#introduction"]');
+    await expect(introLink).toBeVisible();
+
+    await introLink.click();
+    await page.waitForURL(/\/#introduction/);
+    await expect(page).toHaveURL(/\/#introduction/);
+  });
+
+  test('should handle missing elements gracefully', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Remove some elements via JavaScript to test error handling
+    await page.evaluate(() => {
+      const toggle = document.getElementById('mobileMenuToggle');
+      if (toggle) toggle.remove();
+    });
+
+    // Page should still function without console errors
+    const consoleErrors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+
+    // Try to interact with page
+    await page.locator('.card-toolbar h1').click();
+
+    // Should see warnings but not errors
+    const hasErrors = consoleErrors.some(err => !err.includes('Warning'));
+    expect(hasErrors).toBeFalsy();
   });
 });

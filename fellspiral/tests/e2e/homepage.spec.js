@@ -86,4 +86,42 @@ test.describe('Homepage', () => {
       await expect(section).toBeVisible();
     }
   });
+
+  test.describe('Mobile menu functionality', () => {
+    test('should toggle mobile menu on homepage', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto('/');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      await expect(toggle).toBeVisible();
+
+      // Initially closed
+      await expect(sidebar).not.toHaveClass(/active/);
+
+      // Open menu
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/active/);
+
+      // Close menu
+      await toggle.click();
+      await expect(sidebar).not.toHaveClass(/active/);
+    });
+
+    test('should close sidebar when clicking outside on mobile', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto('/');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/active/);
+
+      // Click on main content area
+      await page.locator('#introduction h1').click();
+      await expect(sidebar).not.toHaveClass(/active/);
+    });
+  });
 });
