@@ -4,10 +4,16 @@ on:
   delete:
     branches:
       - '**'
+  pull_request:
+    types: [closed]
   workflow_dispatch:
     inputs:
       branch_name:
         description: 'Branch name to clean up (optional - auto-detected on delete)'
+        required: false
+        type: string
+      pr_number:
+        description: 'PR number to clean up (optional - auto-detected on PR close)'
         required: false
         type: string
 
@@ -24,20 +30,53 @@ jobs:
       id-token: write
 
     steps:
-      - name: Determine branch name
-        id: branch
+      - name: Determine cleanup targets
+        id: targets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.event.ref }}
+          INPUT_BRANCH_NAME: ${{ inputs.branch_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          if [ "${{ github.event_name }}" = "delete" ]; then
-            BRANCH_NAME="${{ github.event.ref }}"
-          elif [ -n "${{ inputs.branch_name }}" ]; then
-            BRANCH_NAME="${{ inputs.branch_name }}"
+          # Determine branch name
+          if [ "$EVENT_NAME" = "delete" ]; then
+            BRANCH_NAME="$EVENT_REF"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            BRANCH_NAME="$PR_HEAD_REF"
+          elif [ -n "$INPUT_BRANCH_NAME" ]; then
+            BRANCH_NAME="$INPUT_BRANCH_NAME"
           else
-            echo "Error: Could not determine branch name"
-            exit 1
+            BRANCH_NAME=""
           fi
 
+          # Determine PR number
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PR_NUM="$PR_NUMBER"
+          elif [ -n "$INPUT_PR_NUMBER" ]; then
+            PR_NUM="$INPUT_PR_NUMBER"
+          else
+            PR_NUM=""
+          fi
+
+          # Output values
           echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-          echo "Cleaning up branch: ${BRANCH_NAME}"
+          echo "pr_number=${PR_NUM}" >> $GITHUB_OUTPUT
+
+          # Log what we're cleaning up
+          if [ -n "$BRANCH_NAME" ]; then
+            echo "Cleaning up branch: ${BRANCH_NAME}"
+          fi
+          if [ -n "$PR_NUM" ]; then
+            echo "Cleaning up PR: ${PR_NUM}"
+          fi
+
+          # Ensure we have something to clean up
+          if [ -z "$BRANCH_NAME" ] && [ -z "$PR_NUM" ]; then
+            echo "Error: Could not determine branch name or PR number"
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -66,55 +105,80 @@ jobs:
 
       - name: Delete Firebase Hosting preview channels
         continue-on-error: true
+        env:
+          BRANCH_NAME: ${{ steps.targets.outputs.branch }}
+          PR_NUMBER: ${{ steps.targets.outputs.pr_number }}
         run: |
-          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
-
-          # Sanitize branch name for Firebase channel (same logic as deployment)
-          CHANNEL_NAME=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-
           echo "🧹 Cleaning up Firebase Hosting preview channels"
-          echo "Branch: ${{ steps.branch.outputs.branch }}"
-          echo "Channel: ${CHANNEL_NAME}"
+
+          # Build list of channels to clean up
+          CHANNELS_TO_DELETE=()
+
+          # If we have a branch name, add sanitized branch channel
+          if [ -n "$BRANCH_NAME" ]; then
+            BRANCH_CHANNEL=$(echo "$BRANCH_NAME" | \
+              tr '[:upper:]' '[:lower:]' | \
+              sed 's/[^a-z0-9-]/-/g' | \
+              sed 's/-\+/-/g' | \
+              sed 's/^-//' | \
+              sed 's/-$//' | \
+              cut -c1-63)
+            CHANNELS_TO_DELETE+=("$BRANCH_CHANNEL")
+            echo "Branch: $BRANCH_NAME"
+            echo "Branch channel: $BRANCH_CHANNEL"
+          fi
+
+          # If we have a PR number, add PR channel ({PR_NUMBER}-merge pattern)
+          if [ -n "$PR_NUMBER" ]; then
+            PR_CHANNEL="${PR_NUMBER}-merge"
+            CHANNELS_TO_DELETE+=("$PR_CHANNEL")
+            echo "PR: $PR_NUMBER"
+            echo "PR channel: $PR_CHANNEL"
+          fi
 
           # Sites to clean up
-          SITES=("fellspiral" "videobrowser" "audiobrowser")
+          SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
           DELETED_COUNT=0
 
-          for site in "${SITES[@]}"; do
+          # Delete each channel from each site
+          for channel in "${CHANNELS_TO_DELETE[@]}"; do
             echo ""
-            echo "Checking ${site} for channel ${CHANNEL_NAME}..."
+            echo "Deleting channel: ${channel}"
+            for site in "${SITES[@]}"; do
+              echo "  Checking ${site}..."
 
-            # Try to delete the channel
-            if firebase hosting:channel:delete "$CHANNEL_NAME" \
-              --site ${site} \
-              --project ${{ env.GCP_PROJECT_ID }} \
-              --force 2>&1; then
-              echo "✅ Deleted preview channel for ${site}"
-              DELETED_COUNT=$((DELETED_COUNT + 1))
-            else
-              echo "ℹ️  No preview channel found for ${site} (or already deleted)"
-            fi
+              # Try to delete the channel
+              if firebase hosting:channel:delete "$channel" \
+                --site ${site} \
+                --project ${{ env.GCP_PROJECT_ID }} \
+                --force 2>&1; then
+                echo "  ✅ Deleted preview channel for ${site}"
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+              else
+                echo "  ℹ️  No preview channel found for ${site} (or already deleted)"
+              fi
+            done
           done
 
           echo ""
           echo "### 🧹 Cleanup Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ steps.branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Channel:** ${CHANNEL_NAME}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$BRANCH_NAME" ]; then
+            echo "**Branch:** $BRANCH_NAME" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            echo "**PR:** #$PR_NUMBER" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "**Channels cleaned:** ${#CHANNELS_TO_DELETE[@]}" >> $GITHUB_STEP_SUMMARY
           echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Firebase Hosting preview channels are automatically cleaned up after expiration (7 days)." >> $GITHUB_STEP_SUMMARY
 
       - name: Delete Artifact Registry packages for branch
         continue-on-error: true
+        env:
+          BRANCH_NAME: ${{ steps.targets.outputs.branch }}
         run: |
-          BRANCH_NAME="${{ steps.branch.outputs.branch }}"
 
           # Skip main branch
           if [ "$BRANCH_NAME" = "main" ]; then
