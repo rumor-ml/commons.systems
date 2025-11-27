@@ -51,6 +51,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -70,19 +82,9 @@ jobs:
       - name: Check health endpoint
         run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
 
-      - name: Get Playwright server URL
-        id: playwright-server
-        run: |
-          URL=$(gcloud run services describe playwright-server \
-            --platform managed \
-            --region ${{ env.GCP_REGION }} \
-            --format 'value(status.url)')
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
       - name: Run Playwright tests
-        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ steps.get-url.outputs.url }}" "${{ steps.playwright-server.outputs.url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ steps.get-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
           CI: true
 
@@ -125,6 +127,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -144,19 +158,9 @@ jobs:
       - name: Check health endpoint
         run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
 
-      - name: Get Playwright server URL
-        id: playwright-server
-        run: |
-          URL=$(gcloud run services describe playwright-server \
-            --platform managed \
-            --region ${{ env.GCP_REGION }} \
-            --format 'value(status.url)')
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
       - name: Run Playwright tests
-        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ steps.get-url.outputs.url }}" "${{ steps.playwright-server.outputs.url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ steps.get-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ steps.playwright-server.outputs.url }}
           DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
           CI: true
 
