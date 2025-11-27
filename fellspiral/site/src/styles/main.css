@@ -464,8 +464,8 @@
    Responsive Design
    ========================================================================== */
 
-/* Mobile (below 768px) */
-@media (max-width: 767px) {
+/* Mobile and Tablet (below 1024px) - show hamburger menu */
+@media (max-width: 1023px) {
   .mobile-menu-toggle {
     display: flex;
   }
