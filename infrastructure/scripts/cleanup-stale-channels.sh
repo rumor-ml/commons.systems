@@ -31,7 +31,10 @@ if [ "$CHANNELS" = "[]" ]; then
 fi
 
 # Parse channel names and check if corresponding PR is closed
-echo "$CHANNELS" | jq -r '.result.channels[].name' | while read -r channel; do
+echo "$CHANNELS" | jq -r '.result.channels[].name' | while read -r channel_path; do
+    # Extract channel name from full path (projects/.../channels/138-merge -> 138-merge)
+    channel=$(basename "$channel_path")
+
     # Extract PR number from channel name (e.g., "138-merge" -> "138")
     PR_NUM=$(echo "$channel" | grep -oE '^[0-9]+' || echo "")
 
