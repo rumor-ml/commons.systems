@@ -526,7 +526,7 @@ func TestNotificationHookSimulation(t *testing.T) {
 
 	// Simulate Notification hook
 	// Note: We need to run this from within the tmux session context
-	hookCmd := fmt.Sprintf("PANE=$(tmux display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && touch \"/tmp/claude/tui-alert-$PANE\"", sessionName)
+	hookCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && touch \"/tmp/claude/tui-alert-$PANE\"", testSocketName, sessionName)
 	cmd = exec.Command("sh", "-c", hookCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run notification hook command: %v", err)
@@ -546,7 +546,7 @@ func TestNotificationHookSimulation(t *testing.T) {
 	}
 
 	// Simulate UserPromptSubmit hook (cleanup)
-	cleanupCmd := fmt.Sprintf("PANE=$(tmux display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && rm -f \"/tmp/claude/tui-alert-$PANE\"", sessionName)
+	cleanupCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && rm -f \"/tmp/claude/tui-alert-$PANE\"", testSocketName, sessionName)
 	cmd = exec.Command("sh", "-c", cleanupCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run cleanup hook command: %v", err)
