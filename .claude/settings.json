@@ -73,13 +73,24 @@
     ]
   },
   "hooks": {
-    "Notification": [
+    "Stop": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}'); printf '\\a' > \"$TTY\"; afplay /System/Library/Sounds/Tink.aiff &"
+            "command": "[ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"; afplay /System/Library/Sounds/Tink.aiff &"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\""
           }
         ]
       }

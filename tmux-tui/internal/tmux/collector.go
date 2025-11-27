@@ -26,8 +26,8 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	}
 
 	// Query all panes in the current session
-	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command
-	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}")
+	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command|pane_title|pane_pid
+	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}|#{pane_title}|#{pane_pid}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list panes: %w", err)
@@ -42,7 +42,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		}
 
 		parts := strings.Split(line, "|")
-		if len(parts) != 8 {
+		if len(parts) != 10 {
 			continue
 		}
 
@@ -54,6 +54,8 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		windowBellStr := parts[5]
 		panePath := parts[6]
 		command := parts[7]
+		paneTitle := parts[8]
+		panePID := parts[9]
 
 		// Skip any pane running tmux-tui
 		if command == "tmux-tui" {
@@ -89,11 +91,50 @@ func (c *Collector) GetTree() (RepoTree, error) {
 			WindowActive: windowActive,
 			WindowBell:   windowBell,
 			Command:      command,
+			Title:        paneTitle,
+			IsClaudePane: c.isClaudePane(panePID),
 		}
 		tree[repo][branch] = append(tree[repo][branch], pane)
 	}
 
 	return tree, nil
+}
+
+// isClaudePane checks if the pane is running Claude by inspecting child processes
+func (c *Collector) isClaudePane(panePID string) bool {
+	if panePID == "" {
+		return false
+	}
+
+	// Use pgrep to find child processes of the shell
+	cmd := exec.Command("pgrep", "-P", panePID)
+	output, err := cmd.Output()
+	if err != nil {
+		// No children found or error - not a Claude pane
+		return false
+	}
+
+	// Check each child PID for "claude" in the command
+	childPIDs := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, childPID := range childPIDs {
+		if childPID == "" {
+			continue
+		}
+
+		// Get the command for this child PID
+		cmd = exec.Command("ps", "-o", "command=", "-p", childPID)
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		command := strings.ToLower(strings.TrimSpace(string(output)))
+		if strings.Contains(command, "claude") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getGitInfo returns the repository name and branch for a given path

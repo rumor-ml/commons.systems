@@ -21,7 +21,8 @@ func TestTreeRenderer(t *testing.T) {
 	}
 
 	renderer := NewTreeRenderer(80)
-	output := renderer.Render(tree)
+	claudeAlerts := make(map[string]bool)
+	output := renderer.Render(tree, claudeAlerts)
 
 	// Verify output contains expected elements
 	expectedElements := []string{
@@ -30,7 +31,7 @@ func TestTreeRenderer(t *testing.T) {
 		"0:zsh",
 		"1:nvim",
 		"2:zsh",
-		"3:tmux-tui*",
+		"3:tmux-tui",
 		"├──",
 		"└──",
 	}
@@ -52,16 +53,17 @@ func TestTreeRenderer(t *testing.T) {
 
 func TestTreeRendererEmpty(t *testing.T) {
 	renderer := NewTreeRenderer(80)
+	claudeAlerts := make(map[string]bool)
 
 	// Test with nil tree
-	output := renderer.Render(nil)
+	output := renderer.Render(nil, claudeAlerts)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for nil tree")
 	}
 
 	// Test with empty tree
 	emptyTree := make(tmux.RepoTree)
-	output = renderer.Render(emptyTree)
+	output = renderer.Render(emptyTree, claudeAlerts)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for empty tree")
 	}
@@ -80,7 +82,8 @@ func TestTreeRendererFullHeight(t *testing.T) {
 
 	renderer := NewTreeRenderer(80)
 	renderer.SetHeight(20)
-	output := renderer.Render(tree)
+	claudeAlerts := make(map[string]bool)
+	output := renderer.Render(tree, claudeAlerts)
 
 	// Count the number of lines
 	lines := strings.Split(output, "\n")

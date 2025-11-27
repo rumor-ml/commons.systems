@@ -21,6 +21,9 @@ var bellStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("1")).
 	Bold(true)
 
+var activeStyle = lipgloss.NewStyle().
+	Background(lipgloss.Color("240"))
+
 // TreeRenderer renders a tmux.RepoTree as a hierarchical tree
 type TreeRenderer struct {
 	width  int
@@ -43,7 +46,7 @@ func (r *TreeRenderer) SetHeight(height int) {
 }
 
 // Render converts a RepoTree into a formatted tree string
-func (r *TreeRenderer) Render(tree tmux.RepoTree) string {
+func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]bool) string {
 	if tree == nil || len(tree) == 0 {
 		return "No panes found in current tmux session"
 	}
@@ -59,7 +62,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree) string {
 
 	for i, repo := range repos {
 		isLastRepo := i == len(repos)-1
-		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo)...)
+		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts)...)
 	}
 
 	// Pad output to fill height
@@ -70,7 +73,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree) string {
 	return strings.Join(lines, "\n")
 }
 
-func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool) []string {
+func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]bool) []string {
 	var lines []string
 	lines = append(lines, repoName)
 
@@ -91,13 +94,13 @@ func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pa
 		}
 
 		lines = append(lines, branchPrefix+branch)
-		lines = append(lines, r.renderPanes(branches[branch], childPrefix)...)
+		lines = append(lines, r.renderPanes(branches[branch], childPrefix, claudeAlerts)...)
 	}
 
 	return lines
 }
 
-func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string) []string {
+func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]bool) []string {
 	var lines []string
 
 	// Sort panes by window index for consistent output
@@ -112,16 +115,36 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string) []string {
 			panePrefix = LastItem
 		}
 
-		// Format: window#:command with * for active window
-		displayName := fmt.Sprintf("%d:%s", pane.WindowIndex, pane.Command)
-		if pane.WindowActive {
-			displayName += "*"
+		// Build window number portion separately
+		windowNumber := fmt.Sprintf("%d:", pane.WindowIndex)
+
+		// Determine if bell should be shown
+		showBell := false
+		if pane.IsClaudePane {
+			// For Claude panes, use persistent alert state
+			showBell = claudeAlerts[pane.ID]
+		} else {
+			// For non-Claude panes, use default tmux bell behavior
+			showBell = pane.WindowBell
 		}
 
-		// Apply bell style if window has bell notification
-		line := prefix + panePrefix + displayName
-		if pane.WindowBell {
-			line = bellStyle.Render(line)
+		// Apply bell style ONLY to window number if bell is active
+		if showBell {
+			windowNumber = bellStyle.Render(windowNumber)
+		}
+
+		// Build command + title portion
+		commandTitle := pane.Command
+		if pane.Title != "" {
+			commandTitle += " " + pane.Title
+		}
+
+		// Assemble the line from parts
+		line := prefix + panePrefix + windowNumber + commandTitle
+
+		// For active panes: apply activeStyle with full width
+		if pane.WindowActive {
+			line = activeStyle.Width(r.width).Render(line)
 		}
 
 		lines = append(lines, line)

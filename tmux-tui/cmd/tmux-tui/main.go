@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -81,7 +84,35 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	return m.renderer.Render(m.tree)
+	alerts := getActiveAlerts()
+	return m.renderer.Render(m.tree, alerts)
+}
+
+// getActiveAlerts reads alert files from filesystem and validates against existing panes
+func getActiveAlerts() map[string]bool {
+	alerts := make(map[string]bool)
+
+	// Get list of all current pane IDs
+	validPanes := make(map[string]bool)
+	output, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{pane_id}").Output()
+	if err == nil {
+		for _, paneID := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			if paneID != "" {
+				validPanes[paneID] = true
+			}
+		}
+	}
+
+	pattern := "/tmp/claude/tui-alert-*"
+	matches, _ := filepath.Glob(pattern)
+	for _, file := range matches {
+		paneID := strings.TrimPrefix(filepath.Base(file), "tui-alert-")
+		// Only include if pane currently exists (validates format implicitly)
+		if validPanes[paneID] {
+			alerts[paneID] = true
+		}
+	}
+	return alerts
 }
 
 func tickCmd() tea.Cmd {
