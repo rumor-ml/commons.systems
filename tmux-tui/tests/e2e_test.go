@@ -318,7 +318,7 @@ func TestDirectAlertFileSystem(t *testing.T) {
 	sessionName := fmt.Sprintf("test-direct-alert-%d", time.Now().Unix())
 	cmd := tmuxCmd("new-session", "-d", "-s", sessionName)
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to create tmux session: %v", err)
+		t.Skipf("Could not create tmux session (may be running outside tmux server): %v", err)
 	}
 	defer tmuxCmd("kill-session", "-t", sessionName).Run()
 	time.Sleep(100 * time.Millisecond)
