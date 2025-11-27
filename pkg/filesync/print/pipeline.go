@@ -40,7 +40,7 @@ func NewPrintPipeline(
 	fileStore := filesync.NewFirestoreFileStore(firestoreClient)
 
 	// Create pipeline with all components
-	pipeline := filesync.NewPipeline(
+	pipeline, err := filesync.NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -49,6 +49,9 @@ func NewPrintPipeline(
 		fileStore,
 		opts...,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return pipeline, nil
 }

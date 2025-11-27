@@ -1,3 +1,9 @@
+// Package filesync provides a pipeline orchestrator for synchronizing files to cloud storage.
+// The workflow is two-phase:
+//   1. Extraction: Files are discovered and metadata extracted. Files stop at "extracted" status.
+//   2. Upload: Users review extracted files and approve/reject. Approved files are uploaded.
+//
+// This design allows user review of metadata before files are uploaded to permanent storage.
 package filesync
 
 import (
@@ -10,7 +16,9 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// Pipeline orchestrates the file sync pipeline: discovery → extraction → normalization → upload
+// Pipeline orchestrates file synchronization in two phases:
+// Phase 1 (Extraction): discovery -> metadata extraction (files stop at FileStatusExtracted awaiting approval)
+// Phase 2 (Upload): approval -> normalization -> upload (triggered by ApproveAndUpload or ApproveAllAndUpload)
 type Pipeline struct {
 	discoverer   Discoverer
 	extractor    MetadataExtractor
@@ -39,22 +47,40 @@ func DefaultPipelineConfig() PipelineConfig {
 	}
 }
 
+// Validate validates the pipeline configuration
+func (c PipelineConfig) Validate() error {
+	if c.ConcurrentJobs < 1 {
+		return fmt.Errorf("ConcurrentJobs must be >= 1, got %d", c.ConcurrentJobs)
+	}
+	if c.StatsBatchInterval <= 0 {
+		return fmt.Errorf("StatsBatchInterval must be > 0, got %v", c.StatsBatchInterval)
+	}
+	if c.ProgressBufferSize < 0 {
+		return fmt.Errorf("ProgressBufferSize must be >= 0, got %d", c.ProgressBufferSize)
+	}
+	if c.StatsBatchSize < 1 {
+		return fmt.Errorf("StatsBatchSize must be >= 1, got %d", c.StatsBatchSize)
+	}
+	return nil
+}
+
 // PipelineResult represents the outcome of a pipeline execution
 type PipelineResult struct {
-	SessionID      string
-	TotalFiles     int
-	ProcessedFiles int
-	SkippedFiles   int
-	FailedFiles    int
-	Errors         []FileError
-	Duration       time.Duration
+	SessionID       string
+	TotalFiles      int
+	ProcessedFiles  int
+	SkippedFiles    int
+	FailedFiles     int
+	Errors          []FileError
+	SecondaryErrors []error // Non-fatal errors (e.g., store update failures)
+	Duration        time.Duration
 }
 
 // FileError represents an error that occurred while processing a file
 type FileError struct {
 	File  FileInfo
 	Stage string
-	Error error
+	Err   error // The underlying error
 }
 
 // PipelineOption is a functional option for configuring a Pipeline
@@ -104,7 +130,26 @@ func NewPipeline(
 	sessionStore SessionStore,
 	fileStore FileStore,
 	opts ...PipelineOption,
-) *Pipeline {
+) (*Pipeline, error) {
+	if discoverer == nil {
+		return nil, fmt.Errorf("discoverer is required")
+	}
+	if extractor == nil {
+		return nil, fmt.Errorf("extractor is required")
+	}
+	if normalizer == nil {
+		return nil, fmt.Errorf("normalizer is required")
+	}
+	if uploader == nil {
+		return nil, fmt.Errorf("uploader is required")
+	}
+	if fileStore == nil {
+		return nil, fmt.Errorf("fileStore is required")
+	}
+	if sessionStore == nil {
+		return nil, fmt.Errorf("sessionStore is required")
+	}
+
 	p := &Pipeline{
 		discoverer:   discoverer,
 		extractor:    extractor,
@@ -119,7 +164,12 @@ func NewPipeline(
 		opt(p)
 	}
 
-	return p
+	// Validate configuration after applying options
+	if err := p.config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid pipeline configuration: %w", err)
+	}
+
+	return p, nil
 }
 
 // Run is deprecated. Use RunExtraction instead.
@@ -208,7 +258,7 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	if err := stats.flush(ctx); err != nil {
 		result.Errors = append(result.Errors, FileError{
 			Stage: "stats_flush",
-			Error: fmt.Errorf("failed to flush final stats: %w", err),
+			Err:   fmt.Errorf("failed to flush final stats: %w", err),
 		})
 	}
 
@@ -225,7 +275,7 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	if err := p.sessionStore.Update(ctx, session); err != nil {
 		result.Errors = append(result.Errors, FileError{
 			Stage: "session_update",
-			Error: fmt.Errorf("failed to update session: %w", err),
+			Err:   fmt.Errorf("failed to update session: %w", err),
 		})
 	}
 
@@ -266,7 +316,7 @@ func (p *Pipeline) processFiles(
 			resultMu.Lock()
 			result.Errors = append(result.Errors, FileError{
 				Stage: "pipeline",
-				Error: ctx.Err(),
+				Err:   ctx.Err(),
 			})
 			resultMu.Unlock()
 			return result
@@ -285,7 +335,7 @@ func (p *Pipeline) processFiles(
 			result.Errors = append(result.Errors, FileError{
 				File:  file,
 				Stage: "semaphore",
-				Error: err,
+				Err:   err,
 			})
 			resultMu.Unlock()
 			continue
@@ -305,7 +355,7 @@ func (p *Pipeline) processFiles(
 				result.Errors = append(result.Errors, FileError{
 					File:  f,
 					Stage: "processing",
-					Error: err,
+					Err:   err,
 				})
 				resultMu.Unlock()
 			} else {
@@ -320,7 +370,7 @@ func (p *Pipeline) processFiles(
 					resultMu.Lock()
 					result.Errors = append(result.Errors, FileError{
 						Stage: "stats_flush",
-						Error: err,
+						Err:   err,
 					})
 					resultMu.Unlock()
 				}
@@ -333,7 +383,7 @@ func (p *Pipeline) processFiles(
 		resultMu.Lock()
 		result.Errors = append(result.Errors, FileError{
 			Stage: "discovery",
-			Error: err,
+			Err:   err,
 		})
 		resultMu.Unlock()
 	}
@@ -379,7 +429,9 @@ func (p *Pipeline) processFile(
 		syncFile.Status = FileStatusError
 		syncFile.Error = err.Error()
 		syncFile.UpdatedAt = time.Now()
-		_ = p.fileStore.Update(ctx, syncFile)
+		if updateErr := p.fileStore.Update(ctx, syncFile); updateErr != nil {
+			return fmt.Errorf("extraction failed: %w (additionally, failed to update file status: %v)", err, updateErr)
+		}
 		return fmt.Errorf("failed to extract metadata: %w", err)
 	}
 
@@ -454,7 +506,9 @@ func (p *Pipeline) approveAndUploadFile(ctx context.Context, syncFile *SyncFile,
 		syncFile.Status = FileStatusError
 		syncFile.Error = err.Error()
 		syncFile.UpdatedAt = time.Now()
-		_ = p.fileStore.Update(ctx, syncFile)
+		if updateErr := p.fileStore.Update(ctx, syncFile); updateErr != nil {
+			return fmt.Errorf("normalization failed: %w (additionally, failed to update file status: %v)", err, updateErr)
+		}
 		return fmt.Errorf("failed to normalize path: %w", err)
 	}
 
@@ -471,7 +525,9 @@ func (p *Pipeline) approveAndUploadFile(ctx context.Context, syncFile *SyncFile,
 		syncFile.Status = FileStatusError
 		syncFile.Error = err.Error()
 		syncFile.UpdatedAt = time.Now()
-		_ = p.fileStore.Update(ctx, syncFile)
+		if updateErr := p.fileStore.Update(ctx, syncFile); updateErr != nil {
+			return fmt.Errorf("upload failed: %w (additionally, failed to update file status: %v)", err, updateErr)
+		}
 		return fmt.Errorf("failed to upload: %w", err)
 	}
 
@@ -496,6 +552,7 @@ func (p *Pipeline) approveAndUploadFile(ctx context.Context, syncFile *SyncFile,
 }
 
 // periodicStatsFlush periodically flushes stats to Firestore
+// Note: Flush errors are logged but not returned since this runs in a background goroutine
 func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulator) {
 	ticker := time.NewTicker(p.config.StatsBatchInterval)
 	defer ticker.Stop()
@@ -506,6 +563,8 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 			return
 		case <-ticker.C:
 			if stats.shouldFlush() {
+				// Flush errors in periodic background flush are non-fatal
+				// They will be retried on next flush cycle
 				_ = stats.flush(ctx)
 			}
 		}
@@ -514,16 +573,18 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 
 // ApprovalResult represents the outcome of an approval operation
 type ApprovalResult struct {
-	SessionID string
-	Approved  int
-	Uploaded  int
-	Skipped   int
-	Failed    int
-	Errors    []FileError
+	SessionID       string
+	Approved        int
+	Uploaded        int
+	Skipped         int
+	Failed          int
+	Errors          []FileError
+	SecondaryErrors []error // Non-fatal errors (e.g., store update failures)
 }
 
 // ApproveAndUpload approves specific files and uploads them.
 // Files must be in FileStatusExtracted state. This method normalizes paths and uploads to GCS.
+// Note: Files are processed sequentially, not concurrently.
 func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileIDs []string) (*ApprovalResult, error) {
 	result := &ApprovalResult{
 		SessionID: sessionID,
@@ -547,7 +608,7 @@ func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileI
 			result.Failed++
 			result.Errors = append(result.Errors, FileError{
 				Stage: "get_file",
-				Error: fmt.Errorf("failed to get file %s: %w", fileID, err),
+				Err:   fmt.Errorf("failed to get file %s: %w", fileID, err),
 			})
 			continue
 		}
@@ -561,7 +622,7 @@ func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileI
 					Hash: syncFile.Hash,
 				},
 				Stage: "approve_upload",
-				Error: err,
+				Err:   err,
 			})
 			continue
 		}
@@ -570,7 +631,10 @@ func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileI
 
 		// Check final status to determine uploaded vs skipped
 		updatedFile, err := p.fileStore.Get(ctx, fileID)
-		if err == nil {
+		if err != nil {
+			result.SecondaryErrors = append(result.SecondaryErrors,
+				fmt.Errorf("failed to get file %s status after upload: %w", fileID, err))
+		} else {
 			if updatedFile.Status == FileStatusUploaded {
 				result.Uploaded++
 			} else if updatedFile.Status == FileStatusSkipped {
@@ -583,7 +647,7 @@ func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileI
 	if err := stats.flush(ctx); err != nil {
 		result.Errors = append(result.Errors, FileError{
 			Stage: "stats_flush",
-			Error: fmt.Errorf("failed to flush stats: %w", err),
+			Err:   fmt.Errorf("failed to flush stats: %w", err),
 		})
 	}
 

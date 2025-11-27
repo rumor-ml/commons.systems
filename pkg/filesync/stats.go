@@ -8,7 +8,13 @@ import (
 )
 
 // statsAccumulator accumulates file processing statistics with batched updates
-// to reduce Firestore write frequency
+// to reduce Firestore write frequency.
+//
+// Thread Safety:
+//   - All increment* methods are safe for concurrent use via atomic operations
+//   - shouldFlush and flush acquire a mutex; multiple concurrent flush calls are serialized
+//   - The session.Stats field is mutated during flush while holding the mutex
+//   - getSnapshot is lock-free and provides a point-in-time view
 type statsAccumulator struct {
 	// Atomic counters for lock-free increments from concurrent workers
 	discovered int64
@@ -22,6 +28,7 @@ type statsAccumulator struct {
 	// Batching control
 	mu            sync.Mutex
 	lastFlush     time.Time
+	lastFlushOps  int64         // Total operations at last flush
 	batchInterval time.Duration
 	batchSize     int64
 
@@ -86,8 +93,8 @@ func (s *statsAccumulator) shouldFlush() bool {
 		return true
 	}
 
-	// Check batch size-based flush (total operations across all counters)
-	totalOps := atomic.LoadInt64(&s.discovered) +
+	// Check batch size-based flush (operations since last flush)
+	currentOps := atomic.LoadInt64(&s.discovered) +
 		atomic.LoadInt64(&s.extracted) +
 		atomic.LoadInt64(&s.approved) +
 		atomic.LoadInt64(&s.rejected) +
@@ -95,7 +102,8 @@ func (s *statsAccumulator) shouldFlush() bool {
 		atomic.LoadInt64(&s.skipped) +
 		atomic.LoadInt64(&s.errors)
 
-	return totalOps >= s.batchSize
+	opsSinceFlush := currentOps - s.lastFlushOps
+	return opsSinceFlush >= s.batchSize
 }
 
 // flush writes accumulated stats to Firestore
@@ -117,6 +125,15 @@ func (s *statsAccumulator) flush(ctx context.Context) error {
 		return err
 	}
 
+	// Update tracking for batch size reset
+	totalOps := int64(s.session.Stats.Discovered +
+		s.session.Stats.Extracted +
+		s.session.Stats.Approved +
+		s.session.Stats.Rejected +
+		s.session.Stats.Uploaded +
+		s.session.Stats.Skipped +
+		s.session.Stats.Errors)
+	s.lastFlushOps = totalOps
 	s.lastFlush = time.Now()
 	return nil
 }

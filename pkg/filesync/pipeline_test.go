@@ -277,7 +277,7 @@ func TestPipeline_Run_ProcessesAllFiles(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -286,6 +286,9 @@ func TestPipeline_Run_ProcessesAllFiles(t *testing.T) {
 		fileStore,
 		WithConcurrentJobs(2),
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run pipeline
 	result, err := pipeline.Run(ctx, "/test", "user123")
@@ -360,7 +363,7 @@ func TestPipeline_Run_ConcurrentProcessing(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline with 4 concurrent jobs
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -369,12 +372,15 @@ func TestPipeline_Run_ConcurrentProcessing(t *testing.T) {
 		fileStore,
 		WithConcurrentJobs(4),
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	start := time.Now()
-	result, err := pipeline.Run(ctx, "/test", "user123")
+	result, runErr := pipeline.Run(ctx, "/test", "user123")
 	duration := time.Since(start)
 
-	if err != nil {
+	if runErr != nil {
 		t.Fatalf("pipeline.Run() failed: %v", err)
 	}
 
@@ -409,7 +415,7 @@ func TestPipeline_Run_ContinuesOnFileError(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -417,6 +423,9 @@ func TestPipeline_Run_ContinuesOnFileError(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run pipeline
 	result, err := pipeline.Run(ctx, "/test", "user123")
@@ -477,7 +486,7 @@ func TestPipeline_Run_ContextCancellation(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -486,6 +495,9 @@ func TestPipeline_Run_ContextCancellation(t *testing.T) {
 		fileStore,
 		WithConcurrentJobs(2),
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Cancel context after a short delay
 	go func() {
@@ -507,7 +519,7 @@ func TestPipeline_Run_ContextCancellation(t *testing.T) {
 	// Verify that context cancellation error was captured
 	hasContextError := false
 	for _, fileErr := range result.Errors {
-		if errors.Is(fileErr.Error, context.Canceled) {
+		if errors.Is(fileErr.Err, context.Canceled) {
 			hasContextError = true
 			break
 		}
@@ -536,7 +548,7 @@ func TestPipeline_RunAsync_ReturnsImmediately(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -544,13 +556,16 @@ func TestPipeline_RunAsync_ReturnsImmediately(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// RunAsync should return immediately
 	start := time.Now()
-	resultCh, progressCh, err := pipeline.RunAsync(ctx, "/test", "user123")
+	resultCh, progressCh, runErr := pipeline.RunAsync(ctx, "/test", "user123")
 	callDuration := time.Since(start)
 
-	if err != nil {
+	if runErr != nil {
 		t.Fatalf("pipeline.RunAsync() failed: %v", err)
 	}
 
@@ -646,7 +661,7 @@ func TestPipeline_Run_SkippedFiles(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -654,6 +669,9 @@ func TestPipeline_Run_SkippedFiles(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run pipeline (extraction only)
 	result, err := pipeline.Run(ctx, "/test", "user123")
@@ -703,7 +721,7 @@ func TestPipeline_RunExtraction_StopsAfterExtract(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -711,6 +729,9 @@ func TestPipeline_RunExtraction_StopsAfterExtract(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run extraction
 	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
@@ -762,7 +783,7 @@ func TestPipeline_ApproveAndUpload_SingleFile(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -770,6 +791,9 @@ func TestPipeline_ApproveAndUpload_SingleFile(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run extraction
 	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
@@ -844,7 +868,7 @@ func TestPipeline_ApproveAllAndUpload(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -852,6 +876,9 @@ func TestPipeline_ApproveAllAndUpload(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run extraction
 	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
@@ -925,7 +952,7 @@ func TestPipeline_RejectFiles(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -933,6 +960,9 @@ func TestPipeline_RejectFiles(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run extraction
 	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
@@ -1003,7 +1033,7 @@ func TestPipeline_ApproveAndUpload_WrongStatus(t *testing.T) {
 	fileStore := newMockFileStore()
 
 	// Create pipeline
-	pipeline := NewPipeline(
+	pipeline, err := NewPipeline(
 		discoverer,
 		extractor,
 		normalizer,
@@ -1011,6 +1041,9 @@ func TestPipeline_ApproveAndUpload_WrongStatus(t *testing.T) {
 		sessionStore,
 		fileStore,
 	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
 
 	// Run extraction
 	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
@@ -1042,5 +1075,370 @@ func TestPipeline_ApproveAndUpload_WrongStatus(t *testing.T) {
 	}
 	if approvalResult.Approved != 0 {
 		t.Errorf("expected 0 approved files, got %d", approvalResult.Approved)
+	}
+}
+
+// Additional tests for PR review fixes
+
+func TestPipeline_FileStoreUpdateFailure(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+	}
+
+	// Setup mocks - extractor will fail
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true, extractErr: errors.New("extraction failed")}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	// Create a mock file store that fails on Update
+	fileStore := &mockFileStore{files: make(map[string]*SyncFile)}
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Run pipeline
+	result, err := pipeline.Run(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.Run() failed: %v", err)
+	}
+
+	// Verify that errors were captured
+	if len(result.Errors) == 0 {
+		t.Error("expected errors to be captured")
+	}
+}
+
+func TestPipeline_NormalizerFailure(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{normalizeErr: errors.New("normalization failed")}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Get files
+	extractedFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	// Try to approve and upload - should fail at normalization
+	approvalResult, err := pipeline.ApproveAndUpload(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("pipeline.ApproveAndUpload() failed: %v", err)
+	}
+
+	// Verify failure was captured
+	if approvalResult.Failed != 1 {
+		t.Errorf("expected 1 failed file, got %d", approvalResult.Failed)
+	}
+	if len(approvalResult.Errors) != 1 {
+		t.Errorf("expected 1 error, got %d", len(approvalResult.Errors))
+	}
+
+	// Verify file status was updated to error
+	file, err := fileStore.Get(ctx, extractedFiles[0].ID)
+	if err != nil {
+		t.Fatalf("failed to get file: %v", err)
+	}
+	if file.Status != FileStatusError {
+		t.Errorf("expected file status to be error, got %s", file.Status)
+	}
+}
+
+func TestPipeline_UploadFailure(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+	}
+
+	// Setup mocks - uploader will fail
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{uploadErr: errors.New("upload failed")}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Get files
+	extractedFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	// Try to approve and upload - should fail at upload
+	approvalResult, err := pipeline.ApproveAndUpload(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("pipeline.ApproveAndUpload() failed: %v", err)
+	}
+
+	// Verify failure was captured
+	if approvalResult.Failed != 1 {
+		t.Errorf("expected 1 failed file, got %d", approvalResult.Failed)
+	}
+	if len(approvalResult.Errors) != 1 {
+		t.Errorf("expected 1 error, got %d", len(approvalResult.Errors))
+	}
+}
+
+func TestPipeline_EmptyFileIDs(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: []FileInfo{}}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Create a session manually
+	session := &SyncSession{
+		ID:     "test-session",
+		UserID: "user123",
+		Status: SessionStatusRunning,
+	}
+	sessionStore.Create(ctx, session)
+
+	// Try to approve with empty file IDs
+	approvalResult, err := pipeline.ApproveAndUpload(ctx, "test-session", []string{})
+	if err != nil {
+		t.Fatalf("pipeline.ApproveAndUpload() failed: %v", err)
+	}
+
+	// Verify result is valid but empty
+	if approvalResult.Approved != 0 {
+		t.Errorf("expected 0 approved files, got %d", approvalResult.Approved)
+	}
+	if approvalResult.Failed != 0 {
+		t.Errorf("expected 0 failed files, got %d", approvalResult.Failed)
+	}
+}
+
+func TestPipeline_InvalidSessionID(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: []FileInfo{}}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Try to approve with non-existent session
+	_, err = pipeline.ApproveAndUpload(ctx, "non-existent-session", []string{})
+	if err == nil {
+		t.Error("expected error for non-existent session, got nil")
+	}
+}
+
+func TestStatsAccumulator_ConcurrentAccuracy(t *testing.T) {
+	ctx := context.Background()
+
+	const numGoroutines = 100
+	const opsPerGoroutine = 100
+
+	sessionStore := newMockSessionStore()
+	session := &SyncSession{
+		ID:     "test-session",
+		UserID: "user123",
+		Status: SessionStatusRunning,
+	}
+	sessionStore.Create(ctx, session)
+
+	// Create stats accumulator
+	stats := newStatsAccumulator(sessionStore, session, 10*time.Second, 1000000)
+
+	// Launch goroutines doing concurrent increments
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < opsPerGoroutine; j++ {
+				stats.incrementDiscovered()
+			}
+		}()
+	}
+
+	// Wait for completion
+	wg.Wait()
+
+	// Flush stats
+	if err := stats.flush(ctx); err != nil {
+		t.Fatalf("flush failed: %v", err)
+	}
+
+	// Verify final count matches expected
+	expectedCount := numGoroutines * opsPerGoroutine
+	updatedSession, err := sessionStore.Get(ctx, "test-session")
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	if updatedSession.Stats.Discovered != expectedCount {
+		t.Errorf("expected %d discovered, got %d", expectedCount, updatedSession.Stats.Discovered)
+	}
+}
+
+func TestStatsAccumulator_BatchSizeResets(t *testing.T) {
+	ctx := context.Background()
+
+	sessionStore := newMockSessionStore()
+	session := &SyncSession{
+		ID:     "test-session",
+		UserID: "user123",
+		Status: SessionStatusRunning,
+	}
+	sessionStore.Create(ctx, session)
+
+	// Create stats accumulator with batch size of 5
+	stats := newStatsAccumulator(sessionStore, session, 10*time.Second, 5)
+
+	// Add 5 operations (should trigger flush)
+	for i := 0; i < 5; i++ {
+		stats.incrementDiscovered()
+	}
+
+	// Should need flush
+	if !stats.shouldFlush() {
+		t.Error("expected shouldFlush to return true after 5 operations")
+	}
+
+	// Flush
+	if err := stats.flush(ctx); err != nil {
+		t.Fatalf("first flush failed: %v", err)
+	}
+
+	// Should not need flush immediately after
+	if stats.shouldFlush() {
+		t.Error("expected shouldFlush to return false immediately after flush")
+	}
+
+	// Add 3 more operations (should not trigger flush yet)
+	for i := 0; i < 3; i++ {
+		stats.incrementUploaded()
+	}
+
+	// Should not need flush yet
+	if stats.shouldFlush() {
+		t.Error("expected shouldFlush to return false after only 3 new operations")
+	}
+
+	// Add 2 more operations (total 5 new operations since last flush)
+	for i := 0; i < 2; i++ {
+		stats.incrementUploaded()
+	}
+
+	// Should need flush now
+	if !stats.shouldFlush() {
+		t.Error("expected shouldFlush to return true after 5 new operations")
+	}
+
+	// Verify counts
+	if err := stats.flush(ctx); err != nil {
+		t.Fatalf("second flush failed: %v", err)
+	}
+
+	updatedSession, err := sessionStore.Get(ctx, "test-session")
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	if updatedSession.Stats.Discovered != 5 {
+		t.Errorf("expected 5 discovered, got %d", updatedSession.Stats.Discovered)
+	}
+	if updatedSession.Stats.Uploaded != 5 {
+		t.Errorf("expected 5 uploaded, got %d", updatedSession.Stats.Uploaded)
 	}
 }

@@ -179,7 +179,7 @@ func TestPrintPipeline_Integration_ProcessFiles(t *testing.T) {
 	if len(result.Errors) > 0 {
 		t.Logf("processing errors: %d", len(result.Errors))
 		for _, fileErr := range result.Errors {
-			t.Logf("  - %s: %v", fileErr.Stage, fileErr.Error)
+			t.Logf("  - %s: %v", fileErr.Stage, fileErr.Err)
 		}
 	}
 

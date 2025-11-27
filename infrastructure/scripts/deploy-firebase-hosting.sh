@@ -138,27 +138,11 @@ else
   echo "🔍 Verifying deployment readiness..."
 
   SCRIPT_DIR="$(dirname "$0")"
-  # Use set +e to allow health-check to fail without exiting the script
-  set +e
   "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
     --exponential \
     --max-wait 120 \
     --content "</html>" \
     --verbose
-  HEALTH_CHECK_RESULT=$?
-  set -e
-
-  if [ $HEALTH_CHECK_RESULT -ne 0 ]; then
-    echo ""
-    echo "⚠️  Deployment verification timed out after 120s"
-    echo "   The preview URL may still be propagating."
-    echo "   URL: ${DEPLOYMENT_URL}"
-    echo ""
-    echo "   This is usually a DNS propagation delay for new preview channels."
-    echo "   The deployment itself succeeded - the URL should be accessible shortly."
-    echo ""
-    echo "   Continuing with deployment (non-blocking verification)..."
-  fi
 fi
 
 # Save deployment URL for GitHub Actions
