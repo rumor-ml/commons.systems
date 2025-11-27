@@ -140,10 +140,10 @@
     --color-border-strong: rgba(0, 0, 0, 0.16);
     --color-border-focus: var(--color-primary);
 
-    /* Overlays */
-    --color-overlay-light: rgba(255, 255, 255, 0.5);
-    --color-overlay-medium: rgba(255, 255, 255, 0.7);
-    --color-overlay-heavy: rgba(255, 255, 255, 0.9);
+    /* Overlays - dark overlays for contrast on light backgrounds */
+    --color-overlay-light: rgba(0, 0, 0, 0.3);
+    --color-overlay-medium: rgba(0, 0, 0, 0.5);
+    --color-overlay-heavy: rgba(0, 0, 0, 0.7);
 
     /* Interactive states */
     --color-surface-interactive: var(--color-bg-surface);

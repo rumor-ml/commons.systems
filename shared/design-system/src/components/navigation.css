@@ -108,13 +108,12 @@
   justify-content: space-between;
   height: 4rem;
   padding: 0 var(--spacing-6);
-  background-color: var(--color-bg-surface);
+  background-color: color-mix(in srgb, var(--color-bg-surface) 80%, transparent);
   border-bottom: var(--border-subtle);
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
   backdrop-filter: blur(8px);
-  background-color: rgba(24, 24, 28, 0.8);
 }
 
 .topbar__logo {

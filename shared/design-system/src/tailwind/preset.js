@@ -129,9 +129,11 @@ export default {
         '2xl': '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
         inner: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.3)',
         // Primary glow effects - use CSS variables for theme switching
-        glow: '0 0 20px var(--color-primary-glow)',
-        'glow-subtle': '0 0 10px var(--color-primary-glow-subtle)',
-        'glow-intense': '0 0 30px var(--color-primary-glow-intense)',
+        glow: 'var(--shadow-glow)',
+        'glow-subtle': 'var(--shadow-glow-subtle)',
+        'glow-sm': 'var(--shadow-glow-sm)',
+        'glow-md': 'var(--shadow-glow-md)',
+        'glow-intense': 'var(--shadow-glow-intense)',
       },
 
       transitionTimingFunction: {

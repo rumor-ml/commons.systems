@@ -40,7 +40,8 @@
 }
 
 /* Modal container */
-.modal {
+.modal,
+.dialog {
   position: relative;
   width: 100%;
   max-width: 32rem;
@@ -168,10 +169,7 @@
   justify-content: space-between;
 }
 
-/* Dialog (semantic variant) */
-.dialog {
-  composes: modal;
-}
+/* Dialog (semantic variant) - styles inherited from .modal selector above */
 
 /* Alert dialog with semantic colors */
 .dialog--warning {
