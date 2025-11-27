@@ -22,6 +22,7 @@ const (
 	FileStatusExtracting FileStatus = "extracting"
 	FileStatusExtracted  FileStatus = "extracted" // Awaiting approval
 	FileStatusRejected   FileStatus = "rejected"  // User rejected
+	FileStatusTrashed    FileStatus = "trashed"   // User trashed (soft delete)
 	FileStatusUploading  FileStatus = "uploading"
 	FileStatusUploaded   FileStatus = "uploaded"
 	FileStatusSkipped    FileStatus = "skipped"

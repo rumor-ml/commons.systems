@@ -713,3 +713,41 @@ func (p *Pipeline) RejectFiles(ctx context.Context, sessionID string, fileIDs []
 
 	return nil
 }
+
+// TrashFiles marks files as trashed (soft delete). Files can be in uploaded or skipped state.
+func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []string) error {
+	// Get session for stats updates
+	session, err := p.sessionStore.Get(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+
+	for _, fileID := range fileIDs {
+		// Get file
+		syncFile, err := p.fileStore.Get(ctx, fileID)
+		if err != nil {
+			return fmt.Errorf("failed to get file %s: %w", fileID, err)
+		}
+
+		// Verify file is in uploaded or skipped state
+		if syncFile.Status != FileStatusUploaded && syncFile.Status != FileStatusSkipped {
+			return fmt.Errorf("file %s is not in uploaded or skipped state (current: %s)", fileID, syncFile.Status)
+		}
+
+		// Update status to trashed
+		syncFile.Status = FileStatusTrashed
+		syncFile.UpdatedAt = time.Now()
+		if err := p.fileStore.Update(ctx, syncFile); err != nil {
+			return fmt.Errorf("failed to update file %s to trashed: %w", fileID, err)
+		}
+	}
+
+	// Flush stats
+	if err := stats.flush(ctx); err != nil {
+		return fmt.Errorf("failed to flush stats: %w", err)
+	}
+
+	return nil
+}
