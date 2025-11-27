@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@commons/auth": "workspace:*",
+    "@commons/design-system": "workspace:*",
     "firebase": "^10.7.1"
   },
   "devDependencies": {

@@ -29,6 +29,9 @@ importers:
       '@commons/auth':
         specifier: workspace:*
         version: link:../../shared/auth
+      '@commons/design-system':
+        specifier: workspace:*
+        version: link:../../shared/design-system
       firebase:
         specifier: ^10.7.1
         version: 10.14.1
@@ -51,6 +54,9 @@ importers:
       '@commons/auth':
         specifier: workspace:*
         version: link:../../shared/auth
+      '@commons/design-system':
+        specifier: workspace:*
+        version: link:../../shared/design-system
       firebase:
         specifier: ^10.7.1
         version: 10.14.1
@@ -70,6 +76,9 @@ importers:
 
   print/site:
     dependencies:
+      '@commons/design-system':
+        specifier: workspace:*
+        version: link:../../shared/design-system
       epubjs:
         specifier: ^0.3.93
         version: 0.3.93
@@ -101,6 +110,9 @@ importers:
 
   printsync/site:
     dependencies:
+      '@commons/design-system':
+        specifier: file:../../shared/design-system
+        version: link:../../shared/design-system
       react:
         specifier: ^18.3.0
         version: 18.3.1
@@ -132,15 +144,23 @@ importers:
 
   shared/auth:
     dependencies:
+      '@commons/design-system':
+        specifier: workspace:*
+        version: link:../design-system
       firebase:
         specifier: ^10.7.1
         version: 10.14.1
+
+  shared/design-system: {}
 
   videobrowser/site:
     dependencies:
       '@commons/auth':
         specifier: workspace:*
         version: link:../../shared/auth
+      '@commons/design-system':
+        specifier: workspace:*
+        version: link:../../shared/design-system
       firebase:
         specifier: ^10.7.1
         version: 10.14.1

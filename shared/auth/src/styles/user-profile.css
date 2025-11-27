@@ -1,54 +1,70 @@
 /**
  * User Profile Styles
  * Themeable via CSS variables
+ * Integrated with @commons/design-system tokens
  */
+
+/* Import design system tokens */
+@import '@commons/design-system/tokens';
 
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: var(--user-profile-padding, 8px 12px);
+  gap: var(--spacing-3);
+  padding: var(--user-profile-padding, var(--spacing-2) var(--spacing-3));
   background-color: var(--user-profile-bg, transparent);
-  border-radius: var(--user-profile-border-radius, 8px);
-  color: var(--user-profile-color, inherit);
+  border-radius: var(--user-profile-border-radius, var(--radius-lg));
+  color: var(--user-profile-color, var(--color-text-primary));
+  font-family: var(--font-sans);
+  transition: all var(--duration-normal) var(--ease-out-expo);
+}
+
+.user-profile:hover {
+  background-color: var(--user-profile-bg-hover, var(--color-bg-surface));
 }
 
 .user-profile__avatar {
-  border-radius: var(--user-profile-avatar-border-radius, 50%);
+  border-radius: var(--user-profile-avatar-border-radius, var(--radius-full));
   object-fit: cover;
   flex-shrink: 0;
-  border: var(--user-profile-avatar-border, 2px solid rgba(255, 255, 255, 0.2));
+  border: var(--user-profile-avatar-border, var(--border-width-2) solid var(--color-border-default));
+  transition: border-color var(--duration-normal) var(--ease-out-expo);
+}
+
+.user-profile:hover .user-profile__avatar {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow-subtle);
 }
 
 .user-profile__info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-0-5);
   min-width: 0; /* Allow text truncation */
 }
 
 .user-profile__name {
-  font-size: var(--user-profile-name-font-size, 14px);
-  font-weight: var(--user-profile-name-font-weight, 600);
-  color: var(--user-profile-name-color, inherit);
+  font-size: var(--user-profile-name-font-size, var(--font-size-sm));
+  font-weight: var(--user-profile-name-font-weight, var(--font-weight-semibold));
+  color: var(--user-profile-name-color, var(--color-text-primary));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .user-profile__username {
-  font-size: var(--user-profile-username-font-size, 12px);
-  font-weight: var(--user-profile-username-font-weight, 400);
-  color: var(--user-profile-username-color, rgba(0, 0, 0, 0.6));
+  font-size: var(--user-profile-username-font-size, var(--font-size-xs));
+  font-weight: var(--user-profile-username-font-weight, var(--font-weight-normal));
+  color: var(--user-profile-username-color, var(--color-text-secondary));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .user-profile__email {
-  font-size: var(--user-profile-email-font-size, 11px);
-  font-weight: var(--user-profile-email-font-weight, 400);
-  color: var(--user-profile-email-color, rgba(0, 0, 0, 0.5));
+  font-size: var(--user-profile-email-font-size, var(--font-size-xs));
+  font-weight: var(--user-profile-email-font-weight, var(--font-weight-normal));
+  color: var(--user-profile-email-color, var(--color-text-tertiary));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -56,8 +72,8 @@
 
 /* Compact variant */
 .user-profile--compact {
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
 }
 
 .user-profile--compact .user-profile__avatar {
@@ -66,17 +82,17 @@
 }
 
 .user-profile--compact .user-profile__name {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .user-profile--compact .user-profile__username {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 /* Large variant */
 .user-profile--large {
-  gap: 16px;
-  padding: 12px 16px;
+  gap: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
 }
 
 .user-profile--large .user-profile__avatar {
@@ -85,11 +101,11 @@
 }
 
 .user-profile--large .user-profile__name {
-  font-size: 16px;
+  font-size: var(--font-size-base);
 }
 
 .user-profile--large .user-profile__username {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 /* Avatar only variant */
@@ -99,21 +115,42 @@
 
 /* Card style variant */
 .user-profile--card {
-  background-color: var(--user-profile-card-bg, rgba(0, 0, 0, 0.05));
-  border: var(--user-profile-card-border, 1px solid rgba(0, 0, 0, 0.1));
-  padding: 12px;
+  background-color: var(--user-profile-card-bg, var(--color-bg-surface));
+  border: var(--user-profile-card-border, var(--border-default));
+  padding: var(--spacing-3);
+  box-shadow: var(--shadow-sm);
+}
+
+.user-profile--card:hover {
+  background-color: var(--color-bg-elevated);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow-sm);
+  transform: translateY(-1px);
+}
+
+/* Interactive variant with full hover effects */
+.user-profile--interactive {
+  cursor: pointer;
+}
+
+.user-profile--interactive:hover {
+  background-color: var(--color-bg-elevated);
+}
+
+.user-profile--interactive:active {
+  transform: scale(0.98);
 }
 
 /* Dark theme adjustments */
 .user-profile--dark .user-profile__username {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--color-text-secondary);
 }
 
 .user-profile--dark .user-profile__email {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-tertiary);
 }
 
 .user-profile--dark.user-profile--card {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--color-bg-surface);
+  border-color: var(--color-border-default);
 }

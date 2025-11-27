@@ -9,6 +9,7 @@
     "watch:css": "tailwindcss -i web/static/css/input.css -o web/dist/css/styles.css --watch"
   },
   "dependencies": {
+    "@commons/design-system": "file:../../shared/design-system",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },

@@ -1,0 +1,110 @@
+/**
+ * Body and HTML defaults
+ * Sets Geist fonts and base styling
+ */
+
+html {
+  font-size: 16px;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-base);
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
+}
+
+/* Headings */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+}
+
+h1 {
+  font-size: var(--font-size-3xl);
+}
+
+h2 {
+  font-size: var(--font-size-2xl);
+}
+
+h3 {
+  font-size: var(--font-size-xl);
+}
+
+h4 {
+  font-size: var(--font-size-lg);
+}
+
+h5 {
+  font-size: var(--font-size-md);
+}
+
+h6 {
+  font-size: var(--font-size-base);
+}
+
+/* Links */
+a {
+  color: var(--color-primary);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Code */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Strong and emphasis */
+strong,
+b {
+  font-weight: var(--font-weight-semibold);
+}
+
+em,
+i {
+  font-style: italic;
+}
+
+/* Small text */
+small {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Horizontal rule */
+hr {
+  border: none;
+  border-top: var(--border-default);
+  margin: var(--spacing-6) 0;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--color-primary-muted);
+  color: var(--color-text-primary);
+}
