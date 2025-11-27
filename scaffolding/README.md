@@ -2,6 +2,106 @@
 
 This directory contains templates and generators for creating new applications in the monorepo.
 
+All scaffolded apps are automatically discovered by the test framework via convention-based markers.
+
+## Available Generators
+
+| Generator | Command | App Type |
+|-----------|---------|----------|
+| Firebase | `./scaffolding/firebase/create.sh <name>` | Static site with Firebase |
+| Go/Bubbletea TUI | `./scaffolding/go-bubbletea/create.sh <name>` | Terminal UI with Bubbletea |
+| Go Full-Stack | `./scaffolding/go-fullstack/create.sh <name>` | Web app with Go + HTMX + React islands |
+
+---
+
+## Firebase App Generator
+
+Creates a static website with:
+- Vite build system
+- Firebase integration ready
+- Playwright E2E tests
+- Auto-detected by test framework
+
+### Usage
+
+```bash
+./scaffolding/firebase/create.sh <app-name>
+```
+
+Example:
+```bash
+./scaffolding/firebase/create.sh my-landing-page
+```
+
+### After Creating
+
+1. Run `pnpm install` from repo root
+2. `cd my-landing-page/site && pnpm dev`
+3. Open http://localhost:3000
+
+### Directory Structure
+
+```
+my-landing-page/
+├── site/
+│   ├── src/
+│   │   ├── index.html
+│   │   ├── styles/main.css
+│   │   └── scripts/main.js
+│   ├── package.json
+│   └── vite.config.js
+└── tests/
+    ├── e2e/homepage.spec.ts
+    ├── playwright.config.ts
+    └── package.json
+```
+
+---
+
+## Go/Bubbletea TUI Generator
+
+Creates a terminal user interface with:
+- Bubbletea framework
+- Lipgloss styling
+- Unit and E2E tests
+- Auto-detected by test framework
+
+### Usage
+
+```bash
+./scaffolding/go-bubbletea/create.sh <app-name>
+```
+
+Example:
+```bash
+./scaffolding/go-bubbletea/create.sh my-tui-app
+```
+
+### After Creating
+
+1. `cd my-tui-app`
+2. `make dev`
+
+### Directory Structure
+
+```
+my-tui-app/
+├── cmd/my-tui-app/main.go
+├── internal/
+│   ├── model/
+│   │   ├── model.go
+│   │   └── model_test.go
+│   └── ui/
+│       ├── renderer.go
+│       └── renderer_test.go
+├── tests/e2e_test.go
+├── go.mod
+├── Makefile
+└── README.md
+```
+
+---
+
 ## Go Full-Stack App Generator
 
 Creates a complete Go web application with:
