@@ -108,7 +108,7 @@ func HomeContent(data HomeData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</section><nav class=\"mt-8\"><a href=\"/dashboard\" class=\"text-blue-600 hover:underline\">Go to Dashboard</a></nav></main>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</section><nav class=\"mt-8\"><a href=\"/dashboard\" class=\"text-primary hover:text-primary-hover transition-colors\">Go to Dashboard</a></nav></main>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

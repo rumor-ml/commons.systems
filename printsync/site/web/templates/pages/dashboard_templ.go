@@ -95,7 +95,7 @@ func DashboardContent(data DashboardData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</h1><p class=\"mb-4\">This is the dashboard page.</p><nav><a href=\"/\" class=\"text-blue-600 hover:underline\">Back to Home</a></nav></main>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</h1><p class=\"mb-4\">This is the dashboard page.</p><nav><a href=\"/\" class=\"text-primary hover:text-primary-hover transition-colors\">Back to Home</a></nav></main>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
