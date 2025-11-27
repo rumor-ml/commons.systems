@@ -25,7 +25,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
-    workers: isRemoteBrowser ? 4 : (process.env.CI ? 4 : undefined),
+    workers: isRemoteBrowser ? 1 : (process.env.CI ? 4 : undefined),
     timeout: 60000,
 
     reporter: [
