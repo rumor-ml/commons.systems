@@ -24,7 +24,7 @@ echo "No console.log statements found"
 
 echo ""
 echo "--- Building ---"
-pnpm --filter "${APP_NAME}/site" build
+pnpm --dir "${APP_PATH}/site" build
 
 echo ""
 echo "--- E2E Tests ---"
