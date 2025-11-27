@@ -32,7 +32,7 @@ Report test results and push status.
 
 ## Monitor Workflows
 
-After successful push, invoke the "Monitor Workflow" agent to monitor all triggered CI/CD workflows and report their results.
+After successful push, invoke the "Monitor" agent to monitor all triggered CI/CD workflows and report their results.
 
 ## Important Notes
 - If tests fail, DO NOT push
