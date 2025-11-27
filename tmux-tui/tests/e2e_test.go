@@ -929,3 +929,237 @@ func containsHighlightedWindow(output, windowNum string) bool {
 			strings.Contains(output, ";1m"+windowNum)) // Bold + window (simplified check)
 }
 
+// TestHookCommandCreateAlert tests that the Notification hook command creates alert files
+func TestHookCommandCreateAlert(t *testing.T) {
+	// Skip if tmux not available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found, skipping tmux integration tests")
+	}
+
+	// Create unique session name
+	sessionName := fmt.Sprintf("test-hook-create-%d", time.Now().Unix())
+
+	// Create background tmux session
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Get pane ID
+	output, err := exec.Command("tmux", "display-message", "-t", sessionName, "-p", "#{pane_id}").Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+	paneID := strings.TrimSpace(string(output))
+
+	// Ensure /tmp/claude directory exists
+	os.MkdirAll("/tmp/claude", 0755)
+
+	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	defer os.Remove(alertFile)
+
+	// Ensure file doesn't exist before test
+	os.Remove(alertFile)
+
+	// Run the Notification hook command from .claude/settings.json
+	// [ -n "$TMUX_PANE" ] && touch "/tmp/claude/tui-alert-$TMUX_PANE"
+	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"", paneID)
+	cmd = exec.Command("sh", "-c", hookCmd)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to run notification hook command: %v", err)
+	}
+
+	// Verify alert file was created
+	if _, err := os.Stat(alertFile); os.IsNotExist(err) {
+		t.Errorf("Hook command should create alert file at %s", alertFile)
+	}
+
+	// Verify getActiveAlerts detects it
+	alerts := getActiveAlerts()
+	if !alerts[paneID] {
+		t.Errorf("Alert for pane %s should be detected after hook command", paneID)
+	}
+}
+
+// TestHookCommandRemoveAlert tests that the UserPromptSubmit hook command removes alert files
+func TestHookCommandRemoveAlert(t *testing.T) {
+	// Skip if tmux not available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found, skipping tmux integration tests")
+	}
+
+	// Create unique session name
+	sessionName := fmt.Sprintf("test-hook-remove-%d", time.Now().Unix())
+
+	// Create background tmux session
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Get pane ID
+	output, err := exec.Command("tmux", "display-message", "-t", sessionName, "-p", "#{pane_id}").Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+	paneID := strings.TrimSpace(string(output))
+
+	// Ensure /tmp/claude directory exists
+	os.MkdirAll("/tmp/claude", 0755)
+
+	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	defer os.Remove(alertFile)
+
+	// Create alert file first
+	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+		t.Fatalf("Failed to create alert file: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(alertFile); os.IsNotExist(err) {
+		t.Fatal("Alert file should exist before running cleanup hook")
+	}
+
+	// Run the UserPromptSubmit hook command from .claude/settings.json
+	// [ -n "$TMUX_PANE" ] && rm -f "/tmp/claude/tui-alert-$TMUX_PANE"
+	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\"", paneID)
+	cmd = exec.Command("sh", "-c", hookCmd)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to run cleanup hook command: %v", err)
+	}
+
+	// Verify alert file was removed
+	if _, err := os.Stat(alertFile); !os.IsNotExist(err) {
+		t.Error("Hook command should remove alert file")
+	}
+
+	// Verify getActiveAlerts no longer detects it
+	alerts := getActiveAlerts()
+	if alerts[paneID] {
+		t.Error("Alert should be cleared after cleanup hook command")
+	}
+}
+
+// TestHookCommandTMUXPaneUnset tests that hooks handle TMUX_PANE being unset gracefully
+func TestHookCommandTMUXPaneUnset(t *testing.T) {
+	// Ensure /tmp/claude directory exists
+	os.MkdirAll("/tmp/claude", 0755)
+
+	// Run Notification hook with TMUX_PANE unset (should not create any file)
+	// Add 'true' at the end to ensure exit status 0 (the [ -n ... ] test will fail but that's ok)
+	hookCmd := "unset TMUX_PANE; [ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"; true"
+	cmd := exec.Command("sh", "-c", hookCmd)
+	if err := cmd.Run(); err != nil {
+		t.Errorf("Hook command should not fail when TMUX_PANE is unset: %v", err)
+	}
+
+	// Verify no bogus file was created
+	matches, _ := filepath.Glob("/tmp/claude/tui-alert-")
+	if len(matches) > 0 {
+		t.Errorf("Hook should not create file with empty pane ID: %v", matches)
+	}
+
+	// Run UserPromptSubmit hook with TMUX_PANE unset (should not fail)
+	// Add 'true' at the end to ensure exit status 0
+	hookCmd = "unset TMUX_PANE; [ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\"; true"
+	cmd = exec.Command("sh", "-c", hookCmd)
+	if err := cmd.Run(); err != nil {
+		t.Errorf("Cleanup hook command should not fail when TMUX_PANE is unset: %v", err)
+	}
+}
+
+// TestHookCommandFileDoesNotExist tests that UserPromptSubmit hook doesn't fail if file doesn't exist
+func TestHookCommandFileDoesNotExist(t *testing.T) {
+	// Skip if tmux not available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found, skipping tmux integration tests")
+	}
+
+	// Create unique session name
+	sessionName := fmt.Sprintf("test-hook-nofile-%d", time.Now().Unix())
+
+	// Create background tmux session
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Get pane ID
+	output, err := exec.Command("tmux", "display-message", "-t", sessionName, "-p", "#{pane_id}").Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+	paneID := strings.TrimSpace(string(output))
+
+	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+
+	// Ensure file does NOT exist
+	os.Remove(alertFile)
+
+	// Run UserPromptSubmit hook (rm -f should not fail even if file doesn't exist)
+	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\"", paneID)
+	cmd = exec.Command("sh", "-c", hookCmd)
+	if err := cmd.Run(); err != nil {
+		t.Errorf("Cleanup hook should not fail when file doesn't exist: %v", err)
+	}
+}
+
+// TestHookCommandVariousPaneIDFormats tests hooks work with different pane ID formats
+func TestHookCommandVariousPaneIDFormats(t *testing.T) {
+	// Ensure /tmp/claude directory exists
+	os.MkdirAll("/tmp/claude", 0755)
+
+	testCases := []struct {
+		name   string
+		paneID string
+	}{
+		{"Single digit", "%0"},
+		{"Small number", "%1"},
+		{"Larger number", "%123"},
+		{"Very large number", "%9999"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", tc.paneID)
+			defer os.Remove(alertFile)
+
+			// Clean up first
+			os.Remove(alertFile)
+
+			// Create alert
+			hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"", tc.paneID)
+			cmd := exec.Command("sh", "-c", hookCmd)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Create hook failed for pane %s: %v", tc.paneID, err)
+			}
+
+			// Verify file created
+			if _, err := os.Stat(alertFile); os.IsNotExist(err) {
+				t.Errorf("Alert file should exist for pane %s", tc.paneID)
+			}
+
+			// Remove alert
+			hookCmd = fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\"", tc.paneID)
+			cmd = exec.Command("sh", "-c", hookCmd)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Remove hook failed for pane %s: %v", tc.paneID, err)
+			}
+
+			// Verify file removed
+			if _, err := os.Stat(alertFile); !os.IsNotExist(err) {
+				t.Errorf("Alert file should be removed for pane %s", tc.paneID)
+			}
+		})
+	}
+}
+
