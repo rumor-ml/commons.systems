@@ -138,11 +138,17 @@ else
   echo "🔍 Verifying deployment readiness..."
 
   SCRIPT_DIR="$(dirname "$0")"
-  if ! "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
+  # Use set +e to allow health-check to fail without exiting the script
+  set +e
+  "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
     --exponential \
     --max-wait 120 \
     --content "</html>" \
-    --verbose; then
+    --verbose
+  HEALTH_CHECK_RESULT=$?
+  set -e
+
+  if [ $HEALTH_CHECK_RESULT -ne 0 ]; then
     echo ""
     echo "⚠️  Deployment verification timed out after 120s"
     echo "   The preview URL may still be propagating."
