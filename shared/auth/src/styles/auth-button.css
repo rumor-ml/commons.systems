@@ -1,28 +1,37 @@
 /**
  * Auth Button Styles
  * Themeable via CSS variables
+ * Integrated with @commons/design-system tokens
  */
+
+/* Import design system tokens */
+@import '@commons/design-system/tokens';
 
 .auth-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
   border: none;
-  border-radius: var(--auth-button-border-radius, 6px);
-  font-size: var(--auth-button-font-size, 14px);
-  font-weight: var(--auth-button-font-weight, 500);
+  border-radius: var(--auth-button-border-radius, var(--radius-md));
+  font-size: var(--auth-button-font-size, var(--font-size-sm));
+  font-weight: var(--auth-button-font-weight, var(--font-weight-medium));
+  font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
-  background-color: var(--auth-button-bg, #24292e);
-  color: var(--auth-button-color, #ffffff);
+  transition: all var(--duration-normal) var(--ease-out-expo);
+  background-color: var(--auth-button-bg, var(--color-bg-elevated));
+  color: var(--auth-button-color, var(--color-text-primary));
 }
 
 .auth-button:hover:not(:disabled) {
-  background-color: var(--auth-button-bg-hover, #1a1e22);
+  background-color: var(--auth-button-bg-hover, var(--color-bg-hover));
   transform: translateY(-1px);
-  box-shadow: var(--auth-button-shadow-hover, 0 2px 8px rgba(0, 0, 0, 0.15));
+  box-shadow: var(--auth-button-shadow-hover, var(--shadow-glow-sm));
+}
+
+.auth-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .auth-button:active:not(:disabled) {
@@ -35,19 +44,20 @@
 }
 
 .auth-button--authenticated {
-  background-color: var(--auth-button-authenticated-bg, #2ea44f);
+  background-color: var(--auth-button-authenticated-bg, var(--color-success));
 }
 
 .auth-button--authenticated:hover:not(:disabled) {
-  background-color: var(--auth-button-authenticated-bg-hover, #2c974b);
+  background-color: var(--auth-button-authenticated-bg-hover, var(--color-success-hover));
+  box-shadow: var(--shadow-glow-md);
 }
 
 .auth-button--unauthenticated {
-  background-color: var(--auth-button-unauthenticated-bg, #24292e);
+  background-color: var(--auth-button-unauthenticated-bg, var(--color-bg-elevated));
 }
 
 .auth-button--unauthenticated:hover:not(:disabled) {
-  background-color: var(--auth-button-unauthenticated-bg-hover, #1a1e22);
+  background-color: var(--auth-button-unauthenticated-bg-hover, var(--color-bg-hover));
 }
 
 .auth-button__icon {
@@ -87,14 +97,14 @@
 
 /* Compact variant */
 .auth-button--compact {
-  padding: 6px 12px;
-  font-size: 13px;
+  padding: var(--spacing-1-5, 6px) var(--spacing-3);
+  font-size: var(--font-size-xs);
 }
 
 /* Large variant */
 .auth-button--large {
-  padding: 12px 24px;
-  font-size: 16px;
+  padding: var(--spacing-3) var(--spacing-6);
+  font-size: var(--font-size-base);
 }
 
 /* Icon only variant */
@@ -102,17 +112,28 @@
   display: none;
 }
 
+/* Primary variant with cyan accent */
+.auth-button--primary {
+  --auth-button-bg: var(--color-primary);
+  --auth-button-color: var(--color-primary-text);
+  --auth-button-bg-hover: var(--color-primary-hover);
+}
+
+.auth-button--primary:hover:not(:disabled) {
+  box-shadow: var(--shadow-glow-md);
+}
+
 /* Light theme override (optional) */
 .auth-button--light {
-  --auth-button-bg: #ffffff;
-  --auth-button-color: #24292e;
-  --auth-button-bg-hover: #f6f8fa;
-  border: 1px solid #d0d7de;
+  --auth-button-bg: var(--color-text-primary);
+  --auth-button-color: var(--color-bg-base);
+  --auth-button-bg-hover: var(--color-text-secondary);
+  border: var(--border-width-1) solid var(--color-border-default);
 }
 
 /* Dark theme override (optional) */
 .auth-button--dark {
-  --auth-button-bg: #21262d;
-  --auth-button-color: #c9d1d9;
-  --auth-button-bg-hover: #30363d;
+  --auth-button-bg: var(--color-bg-surface);
+  --auth-button-color: var(--color-text-primary);
+  --auth-button-bg-hover: var(--color-bg-elevated);
 }

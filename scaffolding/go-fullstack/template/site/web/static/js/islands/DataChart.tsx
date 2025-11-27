@@ -15,16 +15,22 @@ export function DataChart({ endpoint }: DataChartProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(endpoint)
+    const controller = new AbortController();
+
+    fetch(endpoint, { signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         setData(data);
         setLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
-        setLoading(false);
+        if (err.name !== 'AbortError') {
+          setError(err.message);
+          setLoading(false);
+        }
       });
+
+    return () => controller.abort();
   }, [endpoint]);
 
   if (loading) {

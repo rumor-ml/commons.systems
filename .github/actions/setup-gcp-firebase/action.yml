@@ -1,0 +1,45 @@
+name: Setup GCP and Firebase
+description: Consolidates GCP authentication and Firebase CLI setup for deploy jobs
+
+inputs:
+  workload_identity_provider:
+    description: GCP Workload Identity Provider
+    required: true
+  service_account:
+    description: GCP Service Account
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Configure Docker for Artifact Registry
+      shell: bash
+      run: gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev
+
+    - name: Install dependencies (jq)
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Cache Firebase CLI
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: firebase-cli-${{ runner.os }}-v1
+        restore-keys: |
+          firebase-cli-${{ runner.os }}-
+
+    - name: Install Firebase CLI
+      shell: bash
+      run: pnpm add -g firebase-tools

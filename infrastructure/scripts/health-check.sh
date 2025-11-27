@@ -105,6 +105,10 @@ while true; do
     echo "❌ Service not ready after ${ELAPSED}s (timeout: ${MAX_WAIT}s)"
     echo "   URL: $URL"
     [ -n "$CONTENT_PATTERN" ] && echo "   Expected content: '$CONTENT_PATTERN'"
+    echo ""
+    echo "Last response details:"
+    LAST_HTTP_CODE=$(curl -sf -w "%{http_code}" "$URL" 2>/dev/null || echo "Connection failed")
+    echo "   HTTP Code: $LAST_HTTP_CODE"
     exit 1
   fi
 

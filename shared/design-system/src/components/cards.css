@@ -1,0 +1,195 @@
+/**
+ * Cards
+ * Card surfaces with hover lift effect (signature)
+ */
+
+.card {
+  /* Structure */
+  display: flex;
+  flex-direction: column;
+
+  /* Spacing */
+  padding: var(--spacing-card);
+
+  /* Visual */
+  background-color: var(--color-bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+
+  /* Effects */
+  transition: all var(--duration-normal) var(--ease-out-expo);
+}
+
+/* Interactive card with hover lift (signature) */
+.card--interactive {
+  cursor: pointer;
+}
+
+.card--interactive:hover {
+  background-color: var(--color-bg-elevated);
+  border-color: var(--color-border-default);
+  box-shadow: var(--shadow-lift); /* Signature lift effect */
+  transform: translateY(-4px); /* Signature 4px lift */
+}
+
+.card--interactive:active {
+  transform: translateY(-2px);
+}
+
+/* Card with cyan border glow */
+.card--primary {
+  border-color: var(--color-primary);
+}
+
+.card--primary:hover {
+  box-shadow: var(--shadow-lift), var(--shadow-glow-subtle);
+}
+
+/* Elevated card */
+.card--elevated {
+  background-color: var(--color-bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.card--elevated:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+/* Flat card */
+.card--flat {
+  border: none;
+  box-shadow: none;
+}
+
+/* Card header */
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--spacing-4);
+  border-bottom: var(--border-subtle);
+  margin-bottom: var(--spacing-4);
+}
+
+.card__header:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+/* Card title */
+.card__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+}
+
+/* Card subtitle */
+.card__subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-1);
+}
+
+/* Card body */
+.card__body {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-secondary);
+}
+
+/* Card footer */
+.card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--spacing-4);
+  border-top: var(--border-subtle);
+  margin-top: var(--spacing-4);
+}
+
+.card__footer:first-child {
+  padding-top: 0;
+  border-top: none;
+  margin-top: 0;
+}
+
+/* Card image */
+.card__image {
+  width: calc(100% + var(--spacing-card) * 2);
+  margin: calc(var(--spacing-card) * -1);
+  margin-bottom: var(--spacing-4);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  object-fit: cover;
+}
+
+.card__image--bottom {
+  margin-top: var(--spacing-4);
+  margin-bottom: calc(var(--spacing-card) * -1);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+
+/* Card sizes */
+.card--sm {
+  padding: var(--spacing-4);
+}
+
+.card--lg {
+  padding: var(--spacing-8);
+}
+
+/* Card grid */
+.card-grid {
+  display: grid;
+  gap: var(--spacing-4);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.card-grid--2 {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.card-grid--3 {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.card-grid--4 {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+/* Card list */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+/* Card with badge */
+.card__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  background-color: var(--color-primary-muted);
+  color: var(--color-primary);
+  border-radius: var(--radius-full);
+}
+
+.card__badge--success {
+  background-color: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.card__badge--warning {
+  background-color: var(--color-warning-muted);
+  color: var(--color-warning);
+}
+
+.card__badge--error {
+  background-color: var(--color-error-muted);
+  color: var(--color-error);
+}

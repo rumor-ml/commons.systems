@@ -28,33 +28,33 @@ export function DataChart({ endpoint }: DataChartProps) {
   }, [endpoint]);
 
   if (loading) {
-    return <div className="p-4 bg-white rounded shadow">Loading chart...</div>;
+    return <div className="p-4 bg-bg-elevated rounded shadow-lg">Loading chart...</div>;
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 text-red-700 rounded">
+      <div className="p-4 bg-error-muted text-error rounded border border-error">
         Error loading chart: {error}
       </div>
     );
   }
 
   if (!data) {
-    return <div className="p-4 bg-white rounded shadow">No data available</div>;
+    return <div className="p-4 bg-bg-elevated rounded shadow-lg">No data available</div>;
   }
 
   const maxValue = Math.max(...data.values);
 
   return (
-    <div className="p-4 bg-white rounded shadow">
+    <div className="p-4 bg-bg-elevated rounded shadow-lg">
       <h3 className="text-lg font-semibold mb-4">Data Visualization</h3>
       <div className="space-y-2">
         {data.labels.map((label, i) => (
           <div key={i} className="flex items-center gap-2">
-            <div className="w-16 text-sm text-gray-600">{label}</div>
-            <div className="flex-1 bg-gray-200 rounded h-8 relative">
+            <div className="w-16 text-sm text-text-secondary font-mono">{label}</div>
+            <div className="flex-1 bg-bg-surface rounded h-8 relative">
               <div
-                className="bg-blue-600 h-full rounded flex items-center justify-end pr-2 text-white text-sm"
+                className="bg-primary h-full rounded flex items-center justify-end pr-2 text-bg-base font-medium text-sm transition-all shadow-glow-subtle"
                 style={{ width: `${(data.values[i] / maxValue) * 100}%` }}
               >
                 {data.values[i]}

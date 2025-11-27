@@ -16,7 +16,15 @@ export function hydrateIslands(container: Element = document.body) {
     if (element.dataset.islandHydrated === 'true') return;
 
     const name = element.dataset.islandComponent!;
-    const props = JSON.parse(element.dataset.islandProps || '{}');
+
+    let props = {};
+    try {
+      props = JSON.parse(element.dataset.islandProps || '{}');
+    } catch (e) {
+      console.error(`Failed to parse props for island "${name}":`, e);
+      return;
+    }
+
     const Component = COMPONENTS[name];
 
     if (!Component) {

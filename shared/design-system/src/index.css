@@ -1,0 +1,42 @@
+/**
+ * @commons/design-system
+ * Unified design system with refined minimalism + retro-futuristic aesthetic
+ *
+ * Signature features:
+ * - Electric cyan (#00d4ed) accent with glow effects (dark theme)
+ * - Softer cyan (#0891b2) accent for light theme
+ * - Automatic theme switching via prefers-color-scheme
+ * - Manual theme control via .theme-dark, .theme-light, or [data-theme]
+ * - Warm near-black backgrounds (dark) / Clean whites (light)
+ * - Geist Sans/Mono fonts from Vercel
+ * - Cyan glow on focus and interactive elements
+ * - 4px hover lift on cards
+ * - Button glow effects
+ *
+ * Import this file to get the complete design system:
+ *   @import '@commons/design-system';
+ *
+ * Or import individual layers:
+ *   @import '@commons/design-system/tokens';
+ *   @import '@commons/design-system/base';
+ *   @import '@commons/design-system/components';
+ */
+
+/* Design Tokens */
+@import './tokens/index.css';
+
+/* Base Styles */
+@import './base/index.css';
+
+/* Components */
+@import './components/index.css';
+
+/* Layouts */
+@import './layouts/index.css';
+
+/* Utilities */
+@import './utilities/index.css';
+
+/* Themes */
+@import './themes/dark.css';
+@import './themes/light.css';

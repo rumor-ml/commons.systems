@@ -78,124 +78,131 @@ jobs:
           echo "go-package=$go_package" >> $GITHUB_OUTPUT
 
   # ==================== Firebase App Tests ====================
-  test-firebase:
-    name: Test Firebase - ${{ matrix.app }}
+  test-firebase-fellspiral:
+    name: Test Firebase - fellspiral
     runs-on: ubuntu-latest
     needs: discover-apps
-    if: needs.discover-apps.outputs.firebase-apps != '[]'
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'fellspiral')
     timeout-minutes: 15
-    strategy:
-      matrix:
-        app: ${{ fromJson(needs.discover-apps.outputs.firebase-apps) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
       - name: Run tests
-        run: ./infrastructure/scripts/test-firebase-app.sh ${{ matrix.app }}
+        run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
+
+  test-firebase-videobrowser:
+    name: Test Firebase - videobrowser
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'videobrowser')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-firebase-app.sh videobrowser
+
+  test-firebase-audiobrowser:
+    name: Test Firebase - audiobrowser
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'audiobrowser')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-firebase-app.sh audiobrowser
+
+  test-firebase-print:
+    name: Test Firebase - print
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'print')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-firebase-app.sh print
 
   # ==================== Go TUI App Tests ====================
-  test-go-tui:
-    name: Test Go TUI - ${{ matrix.app }}
+  test-go-tui-tmux-tui:
+    name: Test Go TUI - tmux-tui
     runs-on: ubuntu-latest
     needs: discover-apps
-    if: needs.discover-apps.outputs.go-tui-apps != '[]'
+    if: contains(fromJson(needs.discover-apps.outputs.go-tui-apps), 'tmux-tui')
     timeout-minutes: 10
-    strategy:
-      matrix:
-        app: ${{ fromJson(needs.discover-apps.outputs.go-tui-apps) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
       - name: Run tests
-        run: ./infrastructure/scripts/test-go-tui-app.sh ${{ matrix.app }}
+        run: ./infrastructure/scripts/test-go-tui-app.sh tmux-tui
 
   # ==================== Go Fullstack App Tests ====================
-  test-go-fullstack:
-    name: Test Go Fullstack - ${{ matrix.app }}
+  test-go-fullstack-printsync:
+    name: Test Go Fullstack - printsync
     runs-on: ubuntu-latest
     needs: discover-apps
-    if: needs.discover-apps.outputs.go-fullstack-apps != '[]'
+    if: contains(fromJson(needs.discover-apps.outputs.go-fullstack-apps), 'printsync')
     timeout-minutes: 15
-    strategy:
-      matrix:
-        app: ${{ fromJson(needs.discover-apps.outputs.go-fullstack-apps) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Install dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y make
-          go install github.com/a-h/templ/cmd/templ@latest
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y make
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
       - name: Run tests
-        run: ./infrastructure/scripts/test-go-fullstack-app.sh ${{ matrix.app }}
+        run: ./infrastructure/scripts/test-go-fullstack-app.sh printsync
 
   # ==================== Go Package Tests ====================
-  test-go-packages:
-    name: Test Go Pkg - ${{ matrix.pkg }}
+  test-go-packages-filesync:
+    name: Test Go Pkg - filesync
     runs-on: ubuntu-latest
     needs: discover-apps
-    if: needs.discover-apps.outputs.go-packages != '[]'
+    if: contains(fromJson(needs.discover-apps.outputs.go-packages), 'filesync')
     timeout-minutes: 10
-    strategy:
-      matrix:
-        pkg: ${{ fromJson(needs.discover-apps.outputs.go-packages) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
       - name: Run tests
-        run: ./infrastructure/scripts/test-go-package.sh pkg/${{ matrix.pkg }}
+        run: ./infrastructure/scripts/test-go-package.sh pkg/filesync
 
-  # ==================== Step 2: Deploy Sites (Parallel) ====================
-
-  initialize-rml-media:
-    name: Initialize rml-media Firebase Storage
+  # ==================== Deploy Firestore Rules ====================
+  deploy-firestore-rules:
+    name: Deploy Firestore Rules
     runs-on: ubuntu-latest
+    needs: [test-firebase-fellspiral]
+    if: needs.test-firebase-fellspiral.result == 'success'
     timeout-minutes: 10
-    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages]
-    if: |
-      always() && !cancelled() &&
-      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
-      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
-      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
-      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -209,176 +216,11 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-
-      - name: Initialize rml-media bucket
-        id: link-bucket
-        continue-on-error: true
-        run: |
-          echo "Ensuring rml-media bucket is linked to Firebase Storage..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-
-          # Try to link bucket to Firebase Storage (idempotent - safe to run multiple times)
-          LINK_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"bucket\": \"projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}\"}" \
-            "https://firebasestorage.googleapis.com/v1beta/projects/${{ env.GCP_PROJECT_ID }}/buckets/${BUCKET_NAME}:addFirebase")
-
-          if echo "$LINK_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            ERROR_STATUS=$(echo "$LINK_RESPONSE" | jq -r '.error.status // empty')
-            if [ "$ERROR_STATUS" = "ALREADY_EXISTS" ] || echo "$LINK_RESPONSE" | grep -qi "already"; then
-              echo "✓ Bucket already linked to Firebase Storage"
-            else
-              echo "⚠️  Could not link bucket (may already be linked or require manual setup)"
-              echo "Response: $LINK_RESPONSE"
-            fi
-          else
-            echo "✓ Bucket successfully linked to Firebase Storage"
-          fi
-
-      - name: Configure CORS for rml-media bucket
-        id: configure-cors
-        continue-on-error: true
-        run: |
-          echo "Configuring CORS for rml-media bucket..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-
-          # Configure CORS to allow web access from any origin
-          CORS_RESPONSE=$(curl -s -X PATCH \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "cors": [
-                {
-                  "origin": ["*"],
-                  "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
-                  "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
-                  "maxAgeSeconds": 3600
-                }
-              ]
-            }' \
-            "https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}")
-
-          if echo "$CORS_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Could not configure CORS"
-            echo "Response: $CORS_RESPONSE"
-          else
-            echo "✓ CORS configured successfully"
-          fi
-
-      - name: Initialize rml-media bucket for Firebase Storage
-        id: init-storage
-        continue-on-error: true
-        run: |
-          echo "Initializing rml-media bucket for Firebase Storage..."
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          BUCKET_NAME="rml-media"
-          PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
-
-          # Link the GCS bucket to Firebase Storage
-          # This is required for the Firebase SDK to access the bucket
-          INIT_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"bucket\": \"projects/${PROJECT_ID}/buckets/${BUCKET_NAME}\"}" \
-            "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET_NAME}:addFirebase")
-
-          echo "API Response:"
-          echo "$INIT_RESPONSE" | jq '.' || echo "$INIT_RESPONSE"
-          echo ""
-
-          if echo "$INIT_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            ERROR_CODE=$(echo "$INIT_RESPONSE" | jq -r '.error.code')
-            if [ "$ERROR_CODE" = "409" ]; then
-              echo "✓ Bucket already initialized for Firebase Storage (expected)"
-            else
-              echo "⚠️  Could not initialize bucket for Firebase Storage"
-            fi
-          else
-            echo "✓ Bucket successfully initialized for Firebase Storage"
-          fi
-
-      - name: Verify Firebase Storage initialization
-        run: |
-          if [ "${{ steps.link-bucket.outcome }}" == "failure" ] && \
-             [ "${{ steps.configure-cors.outcome }}" == "failure" ] && \
-             [ "${{ steps.init-storage.outcome }}" == "failure" ]; then
-            echo "Warning: All Firebase Storage initialization steps failed"
-            echo "Storage may already be configured, or manual setup may be required"
-          fi
-
-  deploy-sites:
-    name: Deploy ${{ matrix.site }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages, initialize-rml-media]
-    if: |
-      always() &&
-      needs.initialize-rml-media.result == 'success' &&
-      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
-      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
-      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
-      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
-    # Container removed - pnpm cache (2s) is faster than container pull (38s)
-    strategy:
-      matrix:
-        site: [fellspiral, videobrowser, audiobrowser, print]
-      fail-fast: false
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Cache Firebase CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: firebase-cli-${{ runner.os }}-v1
-          restore-keys: |
-            firebase-cli-${{ runner.os }}-
-
-      - name: Install Firebase CLI
-        run: pnpm add -g firebase-tools
-
-      # Note: Firebase configuration is injected by deploy-firebase-hosting.sh script
-
-      # ========== Deploy Firestore Rules (Fellspiral only) ==========
       - name: Deploy Firestore rules
-        if: matrix.site == 'fellspiral'
         run: |
           set -e
           echo "Deploying Firestore rules..."
@@ -408,143 +250,240 @@ jobs:
             "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/cloud.firestore")
 
           if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset"
-          else
-            echo "✓ Firestore rules deployed"
+            echo "❌ CRITICAL: Failed to release Firestore ruleset"
+            echo "Error details:"
+            echo "$RELEASE_RESPONSE" | jq '.error'
+            exit 1
           fi
 
-      # Note: rml-media bucket initialization and rules deployment now handled by initialize-rml-media job
+          RELEASE_NAME=$(echo "$RELEASE_RESPONSE" | jq -r '.name // empty')
+          if [ -z "$RELEASE_NAME" ]; then
+            echo "❌ CRITICAL: Firestore rules release missing 'name' field"
+            exit 1
+          fi
 
-      # ========== Deploy Site ==========
-      - name: Deploy ${{ matrix.site }} to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh ${{ matrix.site }} ${{ github.ref_name }} ${{ github.sha }}
+          echo "✓ Firestore rules deployed: $RELEASE_NAME"
+
+  # ==================== Step 2: Deploy Sites (Parallel) ====================
+  deploy-fellspiral:
+    name: Deploy fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-firebase-fellspiral]
+    if: needs.test-firebase-fellspiral.result == 'success'
+    outputs:
+      url: ${{ steps.site-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
+      - uses: ./.github/actions/setup-gcp-firebase
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy fellspiral to Firebase Hosting
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
         run: |
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "${{ matrix.site }} URL: ${URL}"
+          echo "Fellspiral URL: ${URL}"
 
-      - name: Upload deployment URL as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-url-${{ matrix.site }}
-          path: /tmp/deployment-url.txt
-          retention-days: 1
-
-  # ==================== Collect Deployment URLs ====================
-  collect-urls:
-    name: Collect Deployment URLs
+  deploy-videobrowser:
+    name: Deploy videobrowser
     runs-on: ubuntu-latest
-    needs: deploy-sites
+    timeout-minutes: 20
+    needs: [test-firebase-videobrowser]
+    if: needs.test-firebase-videobrowser.result == 'success'
     outputs:
-      fellspiral-url: ${{ steps.get-urls.outputs.fellspiral-url }}
-      videobrowser-url: ${{ steps.get-urls.outputs.videobrowser-url }}
-      audiobrowser-url: ${{ steps.get-urls.outputs.audiobrowser-url }}
-      print-url: ${{ steps.get-urls.outputs.print-url }}
+      url: ${{ steps.site-url.outputs.url }}
 
     steps:
-      - name: Download deployment URL artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          pattern: deployment-url-*
-          merge-multiple: false
+          install-playwright: 'false'
 
-      - name: Get deployment URLs from artifacts
-        id: get-urls
-        run: |
-          # Read URLs from artifacts created by deploy jobs
-          FELLSPIRAL_URL=$(cat deployment-url-fellspiral/deployment-url.txt)
-          VIDEOBROWSER_URL=$(cat deployment-url-videobrowser/deployment-url.txt)
-          AUDIOBROWSER_URL=$(cat deployment-url-audiobrowser/deployment-url.txt)
-          PRINT_URL=$(cat deployment-url-print/deployment-url.txt)
-
-          echo "fellspiral-url=${FELLSPIRAL_URL}" >> $GITHUB_OUTPUT
-          echo "videobrowser-url=${VIDEOBROWSER_URL}" >> $GITHUB_OUTPUT
-          echo "audiobrowser-url=${AUDIOBROWSER_URL}" >> $GITHUB_OUTPUT
-          echo "print-url=${PRINT_URL}" >> $GITHUB_OUTPUT
-
-          echo "Fellspiral URL: ${FELLSPIRAL_URL}"
-          echo "Videobrowser URL: ${VIDEOBROWSER_URL}"
-          echo "Audiobrowser URL: ${AUDIOBROWSER_URL}"
-          echo "Print URL: ${PRINT_URL}"
-
-  # ==================== Step 3: E2E Tests (parallel per site) ====================
-  e2e-tests:
-    name: E2E Tests - ${{ matrix.site }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [collect-urls]
-    strategy:
-      matrix:
-        site: [fellspiral, videobrowser, audiobrowser, print]
-      fail-fast: false
-    if: |
-      always() &&
-      needs.collect-urls.result == 'success'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy videobrowser to Firebase Hosting
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
 
-      - name: Get site URL
+      - name: Get deployment URL
         id: site-url
         run: |
-          case "${{ matrix.site }}" in
-            fellspiral)
-              echo "url=${{ needs.collect-urls.outputs.fellspiral-url }}" >> $GITHUB_OUTPUT
-              ;;
-            videobrowser)
-              echo "url=${{ needs.collect-urls.outputs.videobrowser-url }}" >> $GITHUB_OUTPUT
-              ;;
-            audiobrowser)
-              echo "url=${{ needs.collect-urls.outputs.audiobrowser-url }}" >> $GITHUB_OUTPUT
-              ;;
-            print)
-              echo "url=${{ needs.collect-urls.outputs.print-url }}" >> $GITHUB_OUTPUT
-              ;;
-          esac
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Videobrowser URL: ${URL}"
 
-      - name: Test ${{ matrix.site }}
-        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}"
+  deploy-audiobrowser:
+    name: Deploy audiobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-firebase-audiobrowser]
+    if: needs.test-firebase-audiobrowser.result == 'success'
+    outputs:
+      url: ${{ steps.site-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
+      - uses: ./.github/actions/setup-gcp-firebase
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy audiobrowser to Firebase Hosting
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Get deployment URL
+        id: site-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Audiobrowser URL: ${URL}"
+
+  deploy-print:
+    name: Deploy print
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-firebase-print]
+    if: needs.test-firebase-print.result == 'success'
+    outputs:
+      url: ${{ steps.site-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
+      - uses: ./.github/actions/setup-gcp-firebase
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy print to Firebase Hosting
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Get deployment URL
+        id: site-url
+        run: |
+          URL=$(cat /tmp/deployment-url.txt)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Print URL: ${URL}"
+
+  # ==================== Step 3: E2E Tests (parallel per site) ====================
+  e2e-fellspiral:
+    name: E2E Tests - fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-fellspiral]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+
+      - uses: ./.github/actions/setup-gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Test fellspiral
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
         env:
-          DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
+          DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
+          CI: true
+
+  e2e-videobrowser:
+    name: E2E Tests - videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-videobrowser]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+
+      - uses: ./.github/actions/setup-gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Test videobrowser
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.url }}
+          CI: true
+
+  e2e-audiobrowser:
+    name: E2E Tests - audiobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-audiobrowser]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+
+      - uses: ./.github/actions/setup-gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Test audiobrowser
+        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.url }}
+          CI: true
+
+  e2e-print:
+    name: E2E Tests - print
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-print]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+
+      - uses: ./.github/actions/setup-gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Test print
+        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ needs.deploy-print.outputs.url }}
           CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
@@ -552,12 +491,17 @@ jobs:
     name: Rollback on Test Failure
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [deploy-sites, e2e-tests]
+    needs: [
+      deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print,
+      e2e-fellspiral, e2e-videobrowser, e2e-audiobrowser, e2e-print
+    ]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
-      needs.deploy-sites.result == 'success' &&
-      contains(needs.e2e-tests.result, 'failure')
+      (needs.e2e-fellspiral.result == 'failure' ||
+       needs.e2e-videobrowser.result == 'failure' ||
+       needs.e2e-audiobrowser.result == 'failure' ||
+       needs.e2e-print.result == 'failure')
 
     steps:
       - name: Checkout code
@@ -596,50 +540,65 @@ jobs:
   merge-check:
     name: Merge Check - All Tests Passed
     runs-on: ubuntu-latest
-    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages, deploy-sites, e2e-tests]
+    needs: [
+      test-firebase-fellspiral, test-firebase-videobrowser,
+      test-firebase-audiobrowser, test-firebase-print,
+      test-go-fullstack-printsync,
+      test-go-tui-tmux-tui,
+      test-go-packages-filesync,
+      deploy-firestore-rules,
+      deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print,
+      e2e-fellspiral, e2e-videobrowser, e2e-audiobrowser, e2e-print
+    ]
     if: always()
 
     steps:
       - name: Check all jobs succeeded
-        run: |
-          echo "Checking job results..."
-          echo "Firebase Tests: ${{ needs.test-firebase.result }}"
-          echo "Go TUI Tests: ${{ needs.test-go-tui.result }}"
-          echo "Go Fullstack Tests: ${{ needs.test-go-fullstack.result }}"
-          echo "Go Package Tests: ${{ needs.test-go-packages.result }}"
-          echo "Deploy Sites: ${{ needs.deploy-sites.result }}"
-          echo "E2E Tests: ${{ needs.e2e-tests.result }}"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const testJobs = [
+              'test-firebase-fellspiral', 'test-firebase-videobrowser',
+              'test-firebase-audiobrowser', 'test-firebase-print',
+              'test-go-fullstack-printsync', 'test-go-tui-tmux-tui',
+              'test-go-packages-filesync'
+            ];
+            const deployJobs = [
+              'deploy-fellspiral', 'deploy-videobrowser',
+              'deploy-audiobrowser', 'deploy-print',
+              'deploy-firestore-rules'
+            ];
+            const e2eJobs = [
+              'e2e-fellspiral', 'e2e-videobrowser',
+              'e2e-audiobrowser', 'e2e-print'
+            ];
 
-          # All jobs must succeed or be skipped for merge check to pass
-          # Skipped jobs (when no apps of that type exist) are okay
-          if [[ "${{ needs.test-firebase.result }}" != "success" && "${{ needs.test-firebase.result }}" != "skipped" ]]; then
-            echo "❌ Firebase tests failed"
-            exit 1
-          fi
+            const needs = ${{ toJson(needs) }};
+            let failed = false;
 
-          if [[ "${{ needs.test-go-tui.result }}" != "success" && "${{ needs.test-go-tui.result }}" != "skipped" ]]; then
-            echo "❌ Go TUI tests failed"
-            exit 1
-          fi
+            // Test jobs can be skipped (if app doesn't exist)
+            for (const job of testJobs) {
+              const result = needs[job]?.result;
+              if (result !== 'success' && result !== 'skipped') {
+                console.log(`❌ ${job} failed with result: ${result}`);
+                failed = true;
+              }
+            }
 
-          if [[ "${{ needs.test-go-fullstack.result }}" != "success" && "${{ needs.test-go-fullstack.result }}" != "skipped" ]]; then
-            echo "❌ Go fullstack tests failed"
-            exit 1
-          fi
+            // Deploy/E2E jobs should NEVER skip
+            for (const job of [...deployJobs, ...e2eJobs]) {
+              const result = needs[job]?.result;
+              if (result === 'skipped') {
+                console.log(`❌ CRITICAL: ${job} was skipped (workflow bug)`);
+                failed = true;
+              } else if (result !== 'success') {
+                console.log(`❌ ${job} failed with result: ${result}`);
+                failed = true;
+              }
+            }
 
-          if [[ "${{ needs.test-go-packages.result }}" != "success" && "${{ needs.test-go-packages.result }}" != "skipped" ]]; then
-            echo "❌ Go package tests failed"
-            exit 1
-          fi
-
-          if [ "${{ needs.deploy-sites.result }}" != "success" ]; then
-            echo "❌ Site deployments failed or were skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.e2e-tests.result }}" != "success" ]; then
-            echo "❌ E2E tests failed or were skipped"
-            exit 1
-          fi
-
-          echo "✅ All required jobs succeeded - merge check passed!"
+            if (failed) {
+              core.setFailed('Required jobs did not pass');
+            } else {
+              console.log('✅ All required jobs succeeded');
+            }
