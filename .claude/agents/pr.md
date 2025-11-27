@@ -45,11 +45,20 @@ After PR is created (or if PR already exists from step 2), use the Task tool to 
    - Invoke the Monitor Workflow agent
    - This will track CI/CD workflow status
 
-**IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding to step 6.
+**IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding.
 
-### 6. Report Combined Results
-After both tasks complete:
+### 6. Approve PR
+**Only if the PR Review Task completed successfully**, approve the PR:
+```bash
+gh pr review --approve
+```
+
+If the PR Review Task failed or reported critical issues, do NOT approve the PR. Report the issues instead.
+
+### 7. Report Combined Results
+After all tasks complete:
 - Report results from the PR review task
 - Report workflow status from the Monitor Workflow task
+- Report whether PR was approved
 - Include PR URL for user reference
 - If any checks failed, report which checks failed (do not attempt to fix them)
