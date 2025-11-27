@@ -1,6 +1,6 @@
 ---
 name: "PR"
-description: "Create a PR to main for the current branch. This agent must always be invoked when creating a pull request or when user explicity requests pr."
+description: "Create a PR to main for the current branch. This agent must always be invoked when creating a pull request or when user explicitly requests pr."
 model: haiku
 ---
 

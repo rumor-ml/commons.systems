@@ -984,6 +984,21 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+    // Ensure external links (like /cards.html) navigate immediately
+    document.querySelectorAll('.nav-item:not([href^="#"])').forEach(link => {
+      link.addEventListener('click', (e) => {
+        // Allow default navigation behavior for external links
+        // Just close mobile menu if needed
+        if (window.innerWidth <= 768) {
+          const sidebar = document.querySelector('.sidebar-nav');
+          if (sidebar) {
+            sidebar.classList.remove('active');
+          }
+        }
+        // Don't preventDefault - let the link navigate naturally
+      });
+    });
+
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
       if (window.innerWidth <= 768 &&
