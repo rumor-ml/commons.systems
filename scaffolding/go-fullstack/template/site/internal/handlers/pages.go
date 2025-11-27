@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"{{APP_NAME}}/internal/firestore"
@@ -25,10 +26,14 @@ func (h *PageHandlers) Home(w http.ResponseWriter, r *http.Request) {
 
 	if htmx.IsHTMX && !htmx.HistoryRestore {
 		// Return just the content for HTMX requests
-		pages.HomeContent(data).Render(r.Context(), w)
+		if err := pages.HomeContent(data).Render(r.Context(), w); err != nil {
+			log.Printf("Render error: %v", err)
+		}
 	} else {
 		// Return full page for normal requests
-		pages.Home(data).Render(r.Context(), w)
+		if err := pages.Home(data).Render(r.Context(), w); err != nil {
+			log.Printf("Render error: %v", err)
+		}
 	}
 }
 
@@ -40,8 +45,12 @@ func (h *PageHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if htmx.IsHTMX && !htmx.HistoryRestore {
-		pages.DashboardContent(data).Render(r.Context(), w)
+		if err := pages.DashboardContent(data).Render(r.Context(), w); err != nil {
+			log.Printf("Render error: %v", err)
+		}
 	} else {
-		pages.Dashboard(data).Render(r.Context(), w)
+		if err := pages.Dashboard(data).Render(r.Context(), w); err != nil {
+			log.Printf("Render error: %v", err)
+		}
 	}
 }

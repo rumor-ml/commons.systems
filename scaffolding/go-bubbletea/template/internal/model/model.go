@@ -5,19 +5,22 @@ import (
 	"github.com/commons-systems/{{APP_NAME}}/internal/ui"
 )
 
+const (
+	DefaultWidth  = 80
+	DefaultHeight = 24
+)
+
 // Model represents the application state
 type Model struct {
-	width    int
-	height   int
-	renderer *ui.Renderer
+	width  int
+	height int
 }
 
 // New creates a new Model instance
 func New() Model {
 	return Model{
-		width:    80,
-		height:   24,
-		renderer: ui.NewRenderer(80),
+		width:  DefaultWidth,
+		height: DefaultHeight,
 	}
 }
 
@@ -32,7 +35,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.renderer.SetWidth(msg.Width)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -47,5 +49,5 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the model
 func (m Model) View() string {
-	return m.renderer.Render()
+	return ui.Render(m.width)
 }

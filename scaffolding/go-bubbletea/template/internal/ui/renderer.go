@@ -6,37 +6,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	ColorTitle   = lipgloss.Color("205") // Pink
+	ColorContent = lipgloss.Color("252") // Light gray
+	ColorHelp    = lipgloss.Color("241") // Dim gray
+)
+
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("205")).
+			Foreground(ColorTitle).
 			MarginBottom(1)
 
 	contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252"))
+			Foreground(ColorContent)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(ColorHelp).
 			MarginTop(1)
 )
 
-// Renderer handles UI rendering
-type Renderer struct {
-	width int
-}
-
-// NewRenderer creates a new Renderer instance
-func NewRenderer(width int) *Renderer {
-	return &Renderer{width: width}
-}
-
-// SetWidth updates the renderer width
-func (r *Renderer) SetWidth(width int) {
-	r.width = width
-}
-
 // Render renders the UI
-func (r *Renderer) Render() string {
+func Render(width int) string {
 	var b strings.Builder
 
 	title := titleStyle.Render("{{APP_NAME_TITLE}}")

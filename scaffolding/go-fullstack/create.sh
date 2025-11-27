@@ -9,6 +9,28 @@ if [ -z "$1" ]; then
 fi
 
 APP_NAME="$1"
+
+# Validate app name format
+if [[ ! "$APP_NAME" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  echo "Error: App name must start with lowercase letter, contain only a-z, 0-9, hyphens"
+  exit 1
+fi
+
+# Check we're in the repository root
+if [ ! -f "pnpm-workspace.yaml" ]; then
+  echo "Error: Must run from repository root"
+  exit 1
+fi
+
+# Check target doesn't exist
+if [ -d "$APP_NAME" ]; then
+  echo "Error: Directory '$APP_NAME' already exists"
+  exit 1
+fi
+
+# Setup cleanup on failure
+trap 'rm -rf "$APP_NAME"' ERR
+
 APP_NAME_TITLE=$(echo "$APP_NAME" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
 
 echo "Creating Go full-stack app: $APP_NAME"
@@ -20,16 +42,16 @@ cp -r scaffolding/go-fullstack/template "$APP_NAME"
 
 # 2. Replace placeholders in all files
 echo "Replacing placeholders..."
-find "$APP_NAME" -type f \( -name "*.go" -o -name "*.mod" -o -name "*.templ" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.toml" -o -name "Dockerfile" -o -name "Makefile" \) | while read -r file; do
+find "$APP_NAME" -type f \( -name "*.go" -o -name "*.mod" -o -name "*.templ" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.toml" -o -name "Dockerfile" -o -name "Makefile" -o -name "*.yaml" -o -name "*.yml" -o -name "*.css" -o -name "*.html" \) | while read -r file; do
   if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
-    sed -i.bak "s/{{APP_NAME}}/$APP_NAME/g" "$file"
-    sed -i.bak "s/{{APP_NAME_TITLE}}/$APP_NAME_TITLE/g" "$file"
+    sed -i.bak "s|{{APP_NAME}}|$APP_NAME|g" "$file"
+    sed -i.bak "s|{{APP_NAME_TITLE}}|$APP_NAME_TITLE|g" "$file"
     rm -f "${file}.bak"
   else
     # Linux
-    sed -i "s/{{APP_NAME}}/$APP_NAME/g" "$file"
-    sed -i "s/{{APP_NAME_TITLE}}/$APP_NAME_TITLE/g" "$file"
+    sed -i "s|{{APP_NAME}}|$APP_NAME|g" "$file"
+    sed -i "s|{{APP_NAME_TITLE}}|$APP_NAME_TITLE|g" "$file"
   fi
 done
 

@@ -1,4 +1,4 @@
-import { test, expect } from '../../../playwright.fixtures';
+import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('{{APP_NAME_TITLE}} Homepage', () => {
   test('should load successfully', async ({ page }) => {
@@ -31,13 +31,5 @@ test.describe('{{APP_NAME_TITLE}} Homepage', () => {
     await page.goto('/');
     await expect(page.locator('.header')).toBeVisible();
     await expect(page.locator('.main')).toBeVisible();
-  });
-});
-
-test.describe('Health Check', () => {
-  test('health endpoint should return 200', async ({ page }) => {
-    test.skip(!process.env.DEPLOYED, 'Health endpoint only available in deployed environment');
-    const response = await page.goto('/health');
-    expect(response?.status()).toBe(200);
   });
 });

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"{{APP_NAME}}/web/templates/partials"
@@ -10,7 +11,9 @@ func (h *PageHandlers) ItemsPartial(w http.ResponseWriter, r *http.Request) {
 	// Example: fetch items from Firestore
 	items := []string{"Item 1", "Item 2", "Item 3"}
 
-	partials.ItemsList(items).Render(r.Context(), w)
+	if err := partials.ItemsList(items).Render(r.Context(), w); err != nil {
+		log.Printf("Render error: %v", err)
+	}
 }
 
 func (h *PageHandlers) CreateItem(w http.ResponseWriter, r *http.Request) {
@@ -25,5 +28,7 @@ func (h *PageHandlers) CreateItem(w http.ResponseWriter, r *http.Request) {
 
 	// Return updated list
 	items := []string{"Item 1", "Item 2", "Item 3", itemName}
-	partials.ItemsList(items).Render(r.Context(), w)
+	if err := partials.ItemsList(items).Render(r.Context(), w); err != nil {
+		log.Printf("Render error: %v", err)
+	}
 }
