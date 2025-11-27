@@ -17,20 +17,39 @@ echo "Site: $SITE_URL"
 
 # --- Verify site is accessible ---
 echo "Checking site availability..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SITE_URL" || echo "000")
+if ! HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$SITE_URL" 2>&1); then
+  echo "❌ Network error reaching $SITE_URL"
+  echo "   Possible causes: DNS failure, connection timeout, SSL error, or network unreachable"
+  exit 1
+fi
 if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "304" ]; then
-  echo "❌ Site not accessible (HTTP $HTTP_CODE): $SITE_URL"
+  if [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+    echo "❌ Site returned redirect (HTTP $HTTP_CODE). Expected direct response: $SITE_URL"
+  elif [ "$HTTP_CODE" -ge "400" ] && [ "$HTTP_CODE" -lt "500" ]; then
+    echo "❌ Client error (HTTP $HTTP_CODE): $SITE_URL"
+  elif [ "$HTTP_CODE" -ge "500" ]; then
+    echo "❌ Server error (HTTP $HTTP_CODE): $SITE_URL"
+  else
+    echo "❌ Unexpected response (HTTP $HTTP_CODE): $SITE_URL"
+  fi
   exit 1
 fi
 echo "✅ Site accessible"
 
 # --- Run tests ---
 echo "Running tests..."
-cd "${SITE_NAME}/tests"
+TEST_DIR="${SITE_NAME}/tests"
+if [ ! -d "$TEST_DIR" ]; then
+  echo "❌ Test directory not found: $TEST_DIR"
+  echo "   Valid sites: fellspiral, videobrowser, audiobrowser, print, printsync"
+  exit 1
+fi
+cd "$TEST_DIR"
 
-DEPLOYED=true \
-DEPLOYED_URL="$SITE_URL" \
-CI=true \
-npx playwright test --project chromium
-
-echo "✅ Tests passed: $SITE_NAME"
+if DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --project chromium; then
+  echo "✅ Tests passed: $SITE_NAME"
+else
+  TEST_EXIT_CODE=$?
+  echo "❌ Playwright tests failed for $SITE_NAME (exit code: $TEST_EXIT_CODE)"
+  exit $TEST_EXIT_CODE
+fi
