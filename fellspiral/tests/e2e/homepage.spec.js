@@ -72,9 +72,9 @@ test.describe('Homepage', () => {
     // Click Card Manager link
     await cardManagerLink.click();
 
-    // Should navigate to cards page
-    await page.waitForURL(/\/cards\.html/);
-    await expect(page.url()).toContain('/cards.html');
+    // Should navigate to cards page (Firebase cleanUrls strips .html extension in deployed environment)
+    await page.waitForURL(/\/cards(\.html)?/);
+    await expect(page.url()).toMatch(/\/cards(\.html)?$/);
   });
 
   test('should display all main sections', async ({ page }) => {
