@@ -990,7 +990,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Allow default navigation behavior for external links
         // Just close mobile menu if needed
         if (window.innerWidth <= 768) {
-          const sidebar = document.querySelector('.sidebar-nav');
+          const sidebar = document.getElementById('sidebar');
           if (sidebar) {
             sidebar.classList.remove('active');
           }

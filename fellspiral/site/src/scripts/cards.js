@@ -353,13 +353,13 @@ function setViewMode(mode) {
 }
 
 // Handle filter changes
-function handleFilterChange() {
+function handleFilterChange(e) {
   state.filters.type = document.getElementById('filterType').value;
   state.filters.subtype = document.getElementById('filterSubtype').value;
   state.filters.search = document.getElementById('searchCards').value.toLowerCase();
 
   // Update subtype options when type changes
-  if (event.target.id === 'filterType') {
+  if (e.target.id === 'filterType') {
     updateSubtypeFilterOptions(state.filters.type);
   }
 
@@ -672,16 +672,15 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
-// Initialize on page load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    // Setup mobile menu first (sync, doesn't depend on async data)
-    setupMobileMenu();
-    // Then run async init
-    init();
-  });
-} else {
-  // DOM already loaded - setup mobile menu first
+// Initialize application
+function initializeApp() {
   setupMobileMenu();
   init();
+}
+
+// Initialize on page load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+  initializeApp();
 }
