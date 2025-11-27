@@ -114,10 +114,13 @@
 
               tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$SPAWN_SCRIPT"
 
-              # Load hooks if not already loaded
+              # Load config from selected spawn script location (may differ from local tmux-tui/)
               if ! tmux show-hooks -g 2>/dev/null | grep -q "run-shell.*spawn.sh"; then
-                echo "Loading tmux-tui configuration..."
-                tmux source-file "''${SPAWN_SCRIPT%/scripts/spawn.sh}/tmux-tui.conf"
+                TMUX_TUI_CONFIG="''${SPAWN_SCRIPT%/scripts/spawn.sh}/tmux-tui.conf"
+                if [ -f "$TMUX_TUI_CONFIG" ]; then
+                  echo "Loading tmux-tui configuration..."
+                  tmux source-file "$TMUX_TUI_CONFIG"
+                fi
               fi
             fi
 
