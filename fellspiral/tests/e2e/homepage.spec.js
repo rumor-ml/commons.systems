@@ -1,4 +1,5 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { setupMobileViewport } from './test-helpers.js';
 
 test.describe('Homepage', () => {
   test('should load successfully', async ({ page }) => {
@@ -89,7 +90,7 @@ test.describe('Homepage', () => {
 
   test.describe('Mobile menu functionality', () => {
     test('should toggle mobile menu on homepage', async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/');
 
       const sidebar = page.locator('#sidebar');
@@ -110,7 +111,7 @@ test.describe('Homepage', () => {
     });
 
     test('should close sidebar when clicking outside on mobile', async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/');
 
       const sidebar = page.locator('#sidebar');

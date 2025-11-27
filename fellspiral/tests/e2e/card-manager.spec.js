@@ -1,4 +1,5 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { VIEWPORTS, setupMobileViewport, setupDesktopViewport } from './test-helpers.js';
 
 test.describe('Card Manager Page', () => {
   test('should load successfully', async ({ page }) => {
@@ -138,8 +139,7 @@ test.describe('Card Manager Page', () => {
 
   test.describe('Mobile menu functionality', () => {
     test('should toggle sidebar on mobile', async ({ page }) => {
-      // Set mobile viewport
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/cards.html');
 
       const sidebar = page.locator('#sidebar');
@@ -164,8 +164,7 @@ test.describe('Card Manager Page', () => {
     });
 
     test('should close sidebar when clicking nav link on mobile', async ({ page }) => {
-      // Set mobile viewport
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/cards.html');
 
       const sidebar = page.locator('#sidebar');
@@ -187,7 +186,7 @@ test.describe('Card Manager Page', () => {
     });
 
     test('should close sidebar when clicking outside on mobile', async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/cards.html');
 
       const sidebar = page.locator('#sidebar');
@@ -201,7 +200,7 @@ test.describe('Card Manager Page', () => {
     });
 
     test('should handle rapid toggle clicks', async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 667 });
+      await setupMobileViewport(page);
       await page.goto('/cards.html');
 
       const sidebar = page.locator('#sidebar');
@@ -248,7 +247,7 @@ test.describe('Card Manager Page', () => {
   });
 
   test('should navigate to external links on desktop', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 720 });
+    await setupDesktopViewport(page);
     await page.goto('/cards.html');
 
     const introLink = page.locator('.sidebar-nav a[href="/#introduction"]');

@@ -961,6 +961,14 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
 import { initializeAuth } from './auth-init.js';
 
 // Navigation and UI functionality
+// Helper function to close mobile sidebar
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar && window.innerWidth <= 768) {
+    sidebar.classList.remove('active');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
@@ -977,26 +985,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
     navItems.forEach(item => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
-          sidebar.classList.remove('active');
-        }
-      });
+      item.addEventListener('click', closeMobileSidebar);
     });
 
-    // Ensure external links (like /cards.html) navigate immediately
+    // Close mobile menu for external links
     document.querySelectorAll('.nav-item:not([href^="#"])').forEach(link => {
-      link.addEventListener('click', (e) => {
-        // Allow default navigation behavior for external links
-        // Just close mobile menu if needed
-        if (window.innerWidth <= 768) {
-          const sidebar = document.getElementById('sidebar');
-          if (sidebar) {
-            sidebar.classList.remove('active');
-          }
-        }
-        // Don't preventDefault - let the link navigate naturally
-      });
+      link.addEventListener('click', closeMobileSidebar);
     });
 
     // Close sidebar when clicking outside on mobile
