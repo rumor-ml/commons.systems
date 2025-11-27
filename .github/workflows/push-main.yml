@@ -190,7 +190,12 @@ jobs:
     name: Check Playwright Changes
     runs-on: ubuntu-latest
     needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages]
-    if: always()
+    if: |
+      always() && !cancelled() &&
+      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
+      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
+      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
+      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
     outputs:
       changed: ${{ steps.filter.outputs.playwright }}
     steps:
@@ -260,7 +265,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages]
-    if: always()
+    if: |
+      always() && !cancelled() &&
+      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
+      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
+      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
+      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -276,6 +286,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Initialize rml-media bucket
+        id: link-bucket
         continue-on-error: true
         run: |
           echo "Ensuring rml-media bucket is linked to Firebase Storage..."
@@ -302,6 +313,7 @@ jobs:
           fi
 
       - name: Configure CORS for rml-media bucket
+        id: configure-cors
         continue-on-error: true
         run: |
           echo "Configuring CORS for rml-media bucket..."
@@ -332,6 +344,7 @@ jobs:
           fi
 
       - name: Initialize rml-media bucket for Firebase Storage
+        id: init-storage
         continue-on-error: true
         run: |
           echo "Initializing rml-media bucket for Firebase Storage..."
@@ -362,12 +375,27 @@ jobs:
             echo "✓ Bucket successfully initialized for Firebase Storage"
           fi
 
+      - name: Verify Firebase Storage initialization
+        run: |
+          if [ "${{ steps.link-bucket.outcome }}" == "failure" ] && \
+             [ "${{ steps.configure-cors.outcome }}" == "failure" ] && \
+             [ "${{ steps.init-storage.outcome }}" == "failure" ]; then
+            echo "Warning: All Firebase Storage initialization steps failed"
+            echo "Storage may already be configured, or manual setup may be required"
+          fi
+
   deploy-sites:
     name: Deploy ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages, initialize-rml-media]
-    if: always() && needs.initialize-rml-media.result == 'success'
+    if: |
+      always() &&
+      needs.initialize-rml-media.result == 'success' &&
+      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
+      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
+      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
+      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
     # Container removed - pnpm cache (2s) is faster than container pull (38s)
     strategy:
       matrix:

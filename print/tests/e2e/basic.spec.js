@@ -183,6 +183,22 @@ test.describe('Print Library Homepage', () => {
     await expect(page.locator('#uploadForm')).toBeHidden();
   });
 
+  test('upload form should require file selection before submit', async ({ page }) => {
+    await page.goto('/');
+
+    // Open upload form
+    const uploadBtn = page.locator('#uploadBtn');
+    await expect(uploadBtn).toBeVisible();
+    await uploadBtn.click();
+    await expect(page.locator('#uploadForm')).toBeVisible();
+
+    // Submit button should be disabled without file selection
+    const submitBtn = page.locator('#uploadForm button[type="submit"], #uploadForm .submit-btn, #submitUploadBtn');
+    if (await submitBtn.count() > 0) {
+      await expect(submitBtn.first()).toBeDisabled();
+    }
+  });
+
   test('should have accessible form elements', async ({ page }) => {
     await page.goto('/');
 

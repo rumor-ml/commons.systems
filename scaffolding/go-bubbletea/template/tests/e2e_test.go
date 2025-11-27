@@ -45,3 +45,16 @@ func TestAppViewRendering(t *testing.T) {
 		t.Error("expected non-empty view")
 	}
 }
+
+func TestWindowResize(t *testing.T) {
+	m := model.New()
+	tm := teatest.NewTestModel(t, m)
+
+	// Send a window resize message
+	tm.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	time.Sleep(100 * time.Millisecond)
+
+	// Quit the app cleanly
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+}
