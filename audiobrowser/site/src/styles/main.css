@@ -1,39 +1,25 @@
-/* Audio Browser Styles */
+/**
+ * Audio Browser Styles
+ * Built with @commons/design-system
+ * Refined minimalism + retro-futuristic aesthetic with electric cyan accents
+ */
 
-:root {
-  --color-bg: #0a0a0a;
-  --color-surface: #1a1a1a;
-  --color-surface-hover: #2a2a2a;
-  --color-border: #333;
-  --color-text: #e0e0e0;
-  --color-text-muted: #999;
-  --color-primary: #4a9eff;
-  --color-primary-hover: #357abd;
-  --color-success: #4ade80;
-  --color-danger: #ef4444;
-  --spacing-xs: 0.5rem;
-  --spacing-sm: 1rem;
-  --spacing-md: 1.5rem;
-  --spacing-lg: 2rem;
-  --radius: 0.5rem;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
+/* Import the complete design system */
+@import '@commons/design-system';
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* ============================================
+   Application-Specific Overrides
+   ============================================ */
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  line-height: 1.6;
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
 }
+
+/* ============================================
+   Container & Layout
+   ============================================ */
 
 .container {
   max-width: 1400px;
@@ -45,28 +31,62 @@ body {
   width: 100%;
 }
 
-/* Header */
+/* ============================================
+   Header
+   ============================================ */
+
 .header {
   margin-bottom: var(--spacing-lg);
   text-align: center;
 }
 
 .header__title {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-4xl);
+  font-weight: var(--font-weight-bold);
+  margin-bottom: var(--spacing-2);
   background: linear-gradient(135deg, var(--color-primary), var(--color-success));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .header__subtitle {
-  color: var(--color-text-muted);
-  font-size: 1rem;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
 }
 
-/* Main Layout */
+/* Auth Components in Header */
+.header__auth {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: var(--border-subtle);
+}
+
+/* Override auth button colors for Audiobrowser dark theme */
+.auth-button--dark {
+  --auth-button-bg: var(--color-primary);
+  --auth-button-bg-hover: var(--color-primary-hover);
+  --auth-button-authenticated-bg: var(--color-success);
+  --auth-button-authenticated-bg-hover: var(--color-success-hover);
+  --auth-button-border-radius: var(--radius-button);
+  --auth-button-color: var(--color-text-primary);
+}
+
+/* User profile in header (dark theme) */
+.user-profile--dark {
+  --user-profile-name-color: var(--color-text-primary);
+  --user-profile-username-color: var(--color-text-secondary);
+  --user-profile-avatar-border: 2px solid var(--color-primary-muted);
+}
+
+/* ============================================
+   Main Layout Grid
+   ============================================ */
+
 .main {
   display: grid;
   grid-template-columns: 1fr 400px;
@@ -80,283 +100,323 @@ body {
   }
 }
 
-/* Audio Section */
+/* ============================================
+   Audio Section
+   ============================================ */
+
 .audio-section {
-  background: var(--color-surface);
-  border-radius: var(--radius);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-card);
   padding: var(--spacing-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
+  border: var(--border-subtle);
+}
+
+.audio-player {
+  display: flex;
+  flex-direction: column;
 }
 
 .audio-player__element {
   width: 100%;
-  border-radius: var(--radius);
-  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
   display: block;
 }
 
 .audio-info {
   margin-top: var(--spacing-sm);
   padding: var(--spacing-sm);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius);
+  background: var(--color-primary-muted);
+  border-radius: var(--radius-md);
   min-height: 80px;
+  border: var(--border-subtle);
 }
 
 .audio-info__message {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .audio-info__title {
-  font-weight: 600;
-  margin-bottom: var(--spacing-xs);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--spacing-2);
   word-break: break-word;
-  font-size: 1.2rem;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-primary);
 }
 
 .audio-info__details {
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  line-height: 1.8;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
 }
 
-/* Browser Section */
+/* ============================================
+   Browser Section
+   ============================================ */
+
 .browser-section {
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border-radius: var(--radius);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-card);
   padding: var(--spacing-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
+  border: var(--border-subtle);
   max-height: 85vh;
 }
 
-/* Controls */
+/* ============================================
+   Controls
+   ============================================ */
+
 .controls {
   display: flex;
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-md);
 }
 
-.btn {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: none;
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+/* Use design system button styles (already imported) */
+/* Additional button hover effects for audio browser */
+.btn--primary:hover:not(:disabled) {
+  /* Enhanced cyan glow for audio browser */
+  box-shadow: var(--shadow-glow-md);
 }
 
-.btn--primary {
-  background: var(--color-primary);
-  color: white;
-}
-
-.btn--primary:hover {
-  background: var(--color-primary-hover);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* Search input - using design system input base + custom styling */
 .search-input {
   flex: 1;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text);
-  font-size: 0.9rem;
+  padding: var(--spacing-input-y) var(--spacing-input-x);
+  background: var(--color-bg-base);
+  border: var(--border-default);
+  border-radius: var(--radius-input);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--color-text-tertiary);
 }
 
 .search-input:focus {
-  outline: none;
   border-color: var(--color-primary);
+  background-color: var(--color-bg-elevated);
+  box-shadow: var(--shadow-focus);
 }
 
-/* File List */
+.search-input:hover:not(:focus) {
+  border-color: var(--color-border-strong);
+}
+
+/* ============================================
+   File List
+   ============================================ */
+
 .file-list {
   flex: 1;
   overflow-y: auto;
   margin-bottom: var(--spacing-md);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 
+/* Custom scrollbar with cyan accents */
 .file-list::-webkit-scrollbar {
   width: 8px;
 }
 
 .file-list::-webkit-scrollbar-track {
-  background: var(--color-bg);
-  border-radius: var(--radius);
+  background: var(--color-bg-base);
+  border-radius: var(--radius-md);
 }
 
 .file-list::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: var(--radius);
+  background: var(--color-border-default);
+  border-radius: var(--radius-md);
+  transition: background 0.2s ease;
 }
 
 .file-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--color-border-strong);
+  box-shadow: var(--shadow-glow-subtle);
 }
 
-/* Loading */
+/* ============================================
+   Loading State
+   ============================================ */
+
 .loading {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-lg);
-  color: var(--color-text-muted);
+  padding: var(--spacing-xl);
+  color: var(--color-text-secondary);
 }
 
 .loading__spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--color-border);
+  border: 4px solid var(--color-border-default);
   border-top-color: var(--color-primary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
   margin-bottom: var(--spacing-sm);
+  /* Cyan glow on spinner */
+  filter: drop-shadow(var(--shadow-glow-subtle));
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* File Item */
+/* ============================================
+   File Item - with signature cyan glow
+   ============================================ */
+
 .file-item {
   padding: var(--spacing-sm);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  margin-bottom: var(--spacing-xs);
+  background: var(--color-bg-base);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-2);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
+/* Signature cyan glow on hover */
 .file-item:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-bg-elevated);
   border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow-sm);
+  transform: translateY(-1px);
 }
 
+/* Active state with intense cyan glow */
 .file-item--active {
-  background: var(--color-surface-hover);
+  background: var(--color-bg-elevated);
   border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow-md);
+  position: relative;
+}
+
+.file-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  box-shadow: var(--shadow-glow);
 }
 
 .file-item__name {
-  font-weight: 600;
-  margin-bottom: 0.25rem;
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--spacing-1);
   word-break: break-word;
+  color: var(--color-text-primary);
 }
 
 .file-item__meta {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
   display: flex;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
 
-/* Stats */
+/* ============================================
+   Stats
+   ============================================ */
+
 .stats {
   padding-top: var(--spacing-sm);
-  border-top: 1px solid var(--color-border);
+  border-top: var(--border-default);
 }
 
 .stats__text {
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
-/* Error */
+/* ============================================
+   Error State
+   ============================================ */
+
 .error {
   padding: var(--spacing-md);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius);
-  color: var(--color-danger);
+  background: var(--color-error-muted);
+  border: var(--border-width-1) solid var(--color-error);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
   margin-bottom: var(--spacing-sm);
 }
 
 .error__title {
-  font-weight: 600;
-  margin-bottom: var(--spacing-xs);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--spacing-2);
 }
+
+/* ============================================
+   Empty State
+   ============================================ */
 
 .empty-state {
   text-align: center;
-  padding: var(--spacing-lg);
-  color: var(--color-text-muted);
+  padding: var(--spacing-xl);
+  color: var(--color-text-secondary);
 }
 
-/* Footer */
+/* ============================================
+   Footer
+   ============================================ */
+
 .footer {
   margin-top: var(--spacing-lg);
   padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border);
+  border-top: var(--border-default);
   text-align: center;
 }
 
 .footer__text {
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
 .footer__link {
   color: var(--color-primary);
   text-decoration: none;
+  transition: all 0.2s ease;
 }
 
 .footer__link:hover {
   text-decoration: underline;
+  text-shadow: var(--shadow-glow-subtle);
 }
 
-/* Utilities */
+/* ============================================
+   Utilities
+   ============================================ */
+
 .hidden {
   display: none !important;
 }
 
-/* Accessibility */
+/* ============================================
+   Accessibility
+   ============================================ */
+
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Auth Components in Header */
-.header__auth {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-}
-
-/* Override auth button colors for Audiobrowser dark theme */
-.auth-button--dark {
-  --auth-button-bg: var(--color-primary);
-  --auth-button-bg-hover: #3a8de8;
-  --auth-button-authenticated-bg: #2ea44f;
-  --auth-button-authenticated-bg-hover: #2c974b;
-  --auth-button-border-radius: 6px;
-  --auth-button-color: var(--color-text);
-}
-
-/* User profile in header (dark theme) */
-.user-profile--dark {
-  --user-profile-name-color: var(--color-text);
-  --user-profile-username-color: var(--color-text-muted);
-  --user-profile-avatar-border: 2px solid rgba(74, 158, 255, 0.3);
 }

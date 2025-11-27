@@ -3,16 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
   <title>{{APP_NAME_TITLE}}</title>
   <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
-  <header class="header">
-    <h1>{{APP_NAME_TITLE}}</h1>
-    <div id="auth-container"></div>
+  <header class="topbar">
+    <a href="/" class="topbar__logo">
+      <span style="color: var(--color-primary);">⚡</span>
+      {{APP_NAME_TITLE}}
+    </a>
+    <div class="topbar__actions">
+      <div id="auth-container"></div>
+    </div>
   </header>
 
-  <main class="main">
+  <main class="container">
     <section class="hero">
       <h2>Welcome to {{APP_NAME_TITLE}}</h2>
       <p>Your new Firebase-powered application is ready.</p>
