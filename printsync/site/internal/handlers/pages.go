@@ -6,6 +6,7 @@ import (
 	"printsync/internal/firestore"
 	"printsync/internal/middleware"
 	"printsync/web/templates/pages"
+	"printsync/web/templates/partials"
 )
 
 type PageHandlers struct {
@@ -44,4 +45,22 @@ func (h *PageHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	} else {
 		pages.Dashboard(data).Render(r.Context(), w)
 	}
+}
+
+func (h *PageHandlers) Sync(w http.ResponseWriter, r *http.Request) {
+	htmx := middleware.GetHTMX(r)
+
+	data := pages.SyncPageData{
+		Title: "Sync Files",
+	}
+
+	if htmx.IsHTMX && !htmx.HistoryRestore {
+		pages.SyncContent(data).Render(r.Context(), w)
+	} else {
+		pages.Sync(data).Render(r.Context(), w)
+	}
+}
+
+func (h *PageHandlers) SyncFormPartial(w http.ResponseWriter, r *http.Request) {
+	partials.SyncForm().Render(r.Context(), w)
 }
