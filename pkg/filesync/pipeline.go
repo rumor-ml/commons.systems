@@ -122,9 +122,23 @@ func NewPipeline(
 	return p
 }
 
-// Run executes the pipeline synchronously and returns the result
+// Run is deprecated. Use RunExtraction instead.
+// Run executes the extraction pipeline synchronously and returns the result.
 func (p *Pipeline) Run(ctx context.Context, rootDir, userID string) (*PipelineResult, error) {
-	resultCh, progressCh, err := p.RunAsync(ctx, rootDir, userID)
+	return p.RunExtraction(ctx, rootDir, userID)
+}
+
+// RunAsync is deprecated. Use RunExtractionAsync instead.
+// RunAsync executes the extraction pipeline asynchronously and returns result and progress channels.
+func (p *Pipeline) RunAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
+	return p.RunExtractionAsync(ctx, rootDir, userID)
+}
+
+// RunExtraction executes the extraction pipeline synchronously and returns the result.
+// This method discovers files and extracts metadata, stopping at FileStatusExtracted.
+// Files must be explicitly approved via ApproveAndUpload or ApproveAllAndUpload before upload.
+func (p *Pipeline) RunExtraction(ctx context.Context, rootDir, userID string) (*PipelineResult, error) {
+	resultCh, progressCh, err := p.RunExtractionAsync(ctx, rootDir, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +155,10 @@ func (p *Pipeline) Run(ctx context.Context, rootDir, userID string) (*PipelineRe
 	return result, nil
 }
 
-// RunAsync executes the pipeline asynchronously and returns result and progress channels
-func (p *Pipeline) RunAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
+// RunExtractionAsync executes the extraction pipeline asynchronously and returns result and progress channels.
+// This method discovers files and extracts metadata, stopping at FileStatusExtracted.
+// Files must be explicitly approved via ApproveAndUpload or ApproveAllAndUpload before upload.
+func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
 	// Create session
 	session := &SyncSession{
 		ID:        uuid.New().String(),
@@ -366,45 +382,8 @@ func (p *Pipeline) processFile(
 		_ = p.fileStore.Update(ctx, syncFile)
 		return fmt.Errorf("failed to extract metadata: %w", err)
 	}
-	stats.incrementExtracted()
 
-	// Stage 2: Normalize path
-	normalizedPath, err := p.normalizer.Normalize(file, metadata)
-	if err != nil {
-		syncFile.Status = FileStatusError
-		syncFile.Error = err.Error()
-		syncFile.UpdatedAt = time.Now()
-		_ = p.fileStore.Update(ctx, syncFile)
-		return fmt.Errorf("failed to normalize path: %w", err)
-	}
-
-	// Stage 3: Upload
-	syncFile.Status = FileStatusUploading
-	syncFile.GCSPath = normalizedPath.GCSPath
-	syncFile.UpdatedAt = time.Now()
-	if err := p.fileStore.Update(ctx, syncFile); err != nil {
-		return fmt.Errorf("failed to update file status to uploading: %w", err)
-	}
-
-	uploadResult, err := p.uploader.Upload(ctx, file, normalizedPath.GCSPath, metadata, progressCh)
-	if err != nil {
-		syncFile.Status = FileStatusError
-		syncFile.Error = err.Error()
-		syncFile.UpdatedAt = time.Time{}
-		_ = p.fileStore.Update(ctx, syncFile)
-		return fmt.Errorf("failed to upload: %w", err)
-	}
-
-	// Update file record with final status
-	if uploadResult.Deduplicated {
-		syncFile.Status = FileStatusSkipped
-		stats.incrementSkipped()
-	} else {
-		syncFile.Status = FileStatusUploaded
-		stats.incrementUploaded()
-	}
-
-	// Store metadata
+	// Store extracted metadata immediately (for UI display)
 	syncFile.Metadata = FileMetadata{
 		Title: metadata.Title,
 		Extra: make(map[string]string),
@@ -423,6 +402,90 @@ func (p *Pipeline) processFile(
 			syncFile.Metadata.PublishDate = publishDate
 		}
 	}
+
+	// Set status to extracted - awaiting user approval
+	syncFile.Status = FileStatusExtracted
+	syncFile.UpdatedAt = time.Now()
+	if err := p.fileStore.Update(ctx, syncFile); err != nil {
+		return fmt.Errorf("failed to update file status to extracted: %w", err)
+	}
+
+	stats.incrementExtracted()
+	return nil
+}
+
+// approveAndUploadFile approves a single file and uploads it.
+// The file must be in FileStatusExtracted state with metadata already stored.
+func (p *Pipeline) approveAndUploadFile(ctx context.Context, syncFile *SyncFile, stats *statsAccumulator, progressCh chan<- Progress) error {
+	// Verify file is in extracted state
+	if syncFile.Status != FileStatusExtracted {
+		return fmt.Errorf("file %s not in extracted state (current: %s)", syncFile.ID, syncFile.Status)
+	}
+
+	// Reconstruct FileInfo from SyncFile
+	fileInfo := FileInfo{
+		Path:         syncFile.LocalPath,
+		RelativePath: syncFile.LocalPath, // We don't have the original relative path, use local path
+		Hash:         syncFile.Hash,
+		// Size and other fields are not critical for normalization/upload
+	}
+
+	// Reconstruct ExtractedMetadata from stored metadata
+	metadata := &ExtractedMetadata{
+		Title: syncFile.Metadata.Title,
+		Raw:   make(map[string]interface{}),
+	}
+	if syncFile.Metadata.Author != "" {
+		metadata.Raw["author"] = syncFile.Metadata.Author
+	}
+	if syncFile.Metadata.ISBN != "" {
+		metadata.Raw["isbn"] = syncFile.Metadata.ISBN
+	}
+	if syncFile.Metadata.Publisher != "" {
+		metadata.Raw["publisher"] = syncFile.Metadata.Publisher
+	}
+	if syncFile.Metadata.PublishDate != "" {
+		metadata.Raw["publishDate"] = syncFile.Metadata.PublishDate
+	}
+
+	// Stage 1: Normalize path
+	normalizedPath, err := p.normalizer.Normalize(fileInfo, metadata)
+	if err != nil {
+		syncFile.Status = FileStatusError
+		syncFile.Error = err.Error()
+		syncFile.UpdatedAt = time.Now()
+		_ = p.fileStore.Update(ctx, syncFile)
+		return fmt.Errorf("failed to normalize path: %w", err)
+	}
+
+	// Stage 2: Upload
+	syncFile.Status = FileStatusUploading
+	syncFile.GCSPath = normalizedPath.GCSPath
+	syncFile.UpdatedAt = time.Now()
+	if err := p.fileStore.Update(ctx, syncFile); err != nil {
+		return fmt.Errorf("failed to update file status to uploading: %w", err)
+	}
+
+	uploadResult, err := p.uploader.Upload(ctx, fileInfo, normalizedPath.GCSPath, metadata, progressCh)
+	if err != nil {
+		syncFile.Status = FileStatusError
+		syncFile.Error = err.Error()
+		syncFile.UpdatedAt = time.Now()
+		_ = p.fileStore.Update(ctx, syncFile)
+		return fmt.Errorf("failed to upload: %w", err)
+	}
+
+	// Update file record with final status
+	if uploadResult.Deduplicated {
+		syncFile.Status = FileStatusSkipped
+		stats.incrementSkipped()
+	} else {
+		syncFile.Status = FileStatusUploaded
+		stats.incrementUploaded()
+	}
+
+	// Mark as approved
+	stats.incrementApproved()
 
 	syncFile.UpdatedAt = time.Now()
 	if err := p.fileStore.Update(ctx, syncFile); err != nil {
@@ -447,4 +510,142 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 			}
 		}
 	}
+}
+
+// ApprovalResult represents the outcome of an approval operation
+type ApprovalResult struct {
+	SessionID string
+	Approved  int
+	Uploaded  int
+	Skipped   int
+	Failed    int
+	Errors    []FileError
+}
+
+// ApproveAndUpload approves specific files and uploads them.
+// Files must be in FileStatusExtracted state. This method normalizes paths and uploads to GCS.
+func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileIDs []string) (*ApprovalResult, error) {
+	result := &ApprovalResult{
+		SessionID: sessionID,
+		Errors:    make([]FileError, 0),
+	}
+
+	// Get session for stats updates
+	session, err := p.sessionStore.Get(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Initialize stats accumulator for this approval operation
+	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+
+	// Process each file
+	for _, fileID := range fileIDs {
+		// Get file
+		syncFile, err := p.fileStore.Get(ctx, fileID)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, FileError{
+				Stage: "get_file",
+				Error: fmt.Errorf("failed to get file %s: %w", fileID, err),
+			})
+			continue
+		}
+
+		// Approve and upload
+		if err := p.approveAndUploadFile(ctx, syncFile, stats, nil); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, FileError{
+				File: FileInfo{
+					Path: syncFile.LocalPath,
+					Hash: syncFile.Hash,
+				},
+				Stage: "approve_upload",
+				Error: err,
+			})
+			continue
+		}
+
+		result.Approved++
+
+		// Check final status to determine uploaded vs skipped
+		updatedFile, err := p.fileStore.Get(ctx, fileID)
+		if err == nil {
+			if updatedFile.Status == FileStatusUploaded {
+				result.Uploaded++
+			} else if updatedFile.Status == FileStatusSkipped {
+				result.Skipped++
+			}
+		}
+	}
+
+	// Flush final stats
+	if err := stats.flush(ctx); err != nil {
+		result.Errors = append(result.Errors, FileError{
+			Stage: "stats_flush",
+			Error: fmt.Errorf("failed to flush stats: %w", err),
+		})
+	}
+
+	return result, nil
+}
+
+// ApproveAllAndUpload approves all extracted files in a session and uploads them.
+func (p *Pipeline) ApproveAllAndUpload(ctx context.Context, sessionID string) (*ApprovalResult, error) {
+	// Get all files in session
+	files, err := p.fileStore.ListBySession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	// Filter to only extracted files
+	var extractedFileIDs []string
+	for _, file := range files {
+		if file.Status == FileStatusExtracted {
+			extractedFileIDs = append(extractedFileIDs, file.ID)
+		}
+	}
+
+	// Use ApproveAndUpload to process them
+	return p.ApproveAndUpload(ctx, sessionID, extractedFileIDs)
+}
+
+// RejectFiles marks files as rejected. They stay in the list with FileStatusRejected.
+func (p *Pipeline) RejectFiles(ctx context.Context, sessionID string, fileIDs []string) error {
+	// Get session for stats updates
+	session, err := p.sessionStore.Get(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+
+	for _, fileID := range fileIDs {
+		// Get file
+		syncFile, err := p.fileStore.Get(ctx, fileID)
+		if err != nil {
+			return fmt.Errorf("failed to get file %s: %w", fileID, err)
+		}
+
+		// Verify file is in extracted state
+		if syncFile.Status != FileStatusExtracted {
+			return fmt.Errorf("file %s is not in extracted state (current: %s)", fileID, syncFile.Status)
+		}
+
+		// Update status to rejected
+		syncFile.Status = FileStatusRejected
+		syncFile.UpdatedAt = time.Now()
+		if err := p.fileStore.Update(ctx, syncFile); err != nil {
+			return fmt.Errorf("failed to update file %s to rejected: %w", fileID, err)
+		}
+
+		stats.incrementRejected()
+	}
+
+	// Flush stats
+	if err := stats.flush(ctx); err != nil {
+		return fmt.Errorf("failed to flush stats: %w", err)
+	}
+
+	return nil
 }

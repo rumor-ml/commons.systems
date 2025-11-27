@@ -304,10 +304,10 @@ func TestPipeline_Run_ProcessesAllFiles(t *testing.T) {
 		t.Errorf("expected 0 failed files, got %d", result.FailedFiles)
 	}
 
-	// Verify all files were uploaded
+	// Verify NO files were uploaded (extraction stops before upload)
 	uploadedFiles := uploader.getUploadedFiles()
-	if len(uploadedFiles) != 3 {
-		t.Errorf("expected 3 uploaded files, got %d", len(uploadedFiles))
+	if len(uploadedFiles) != 0 {
+		t.Errorf("expected 0 uploaded files (extraction only), got %d", len(uploadedFiles))
 	}
 
 	// Verify session was completed
@@ -321,8 +321,22 @@ func TestPipeline_Run_ProcessesAllFiles(t *testing.T) {
 	if session.Stats.Discovered != 3 {
 		t.Errorf("expected 3 discovered files in stats, got %d", session.Stats.Discovered)
 	}
-	if session.Stats.Uploaded != 3 {
-		t.Errorf("expected 3 uploaded files in stats, got %d", session.Stats.Uploaded)
+	if session.Stats.Extracted != 3 {
+		t.Errorf("expected 3 extracted files in stats, got %d", session.Stats.Extracted)
+	}
+	if session.Stats.Uploaded != 0 {
+		t.Errorf("expected 0 uploaded files in stats (extraction only), got %d", session.Stats.Uploaded)
+	}
+
+	// Verify files are in extracted status
+	sessionFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+	for _, file := range sessionFiles {
+		if file.Status != FileStatusExtracted {
+			t.Errorf("expected file %s to be in extracted status, got %s", file.LocalPath, file.Status)
+		}
 	}
 }
 
@@ -410,7 +424,7 @@ func TestPipeline_Run_ContinuesOnFileError(t *testing.T) {
 		t.Fatalf("pipeline.Run() failed: %v", err)
 	}
 
-	// Verify that all files were attempted but all failed
+	// Verify that all files were attempted but all failed at extraction
 	if result.TotalFiles != 3 {
 		t.Errorf("expected 3 total files, got %d", result.TotalFiles)
 	}
@@ -424,7 +438,7 @@ func TestPipeline_Run_ContinuesOnFileError(t *testing.T) {
 		t.Errorf("expected 3 errors, got %d", len(result.Errors))
 	}
 
-	// Verify no files were uploaded
+	// Verify no files were uploaded (extraction failed before upload stage)
 	uploadedFiles := uploader.getUploadedFiles()
 	if len(uploadedFiles) != 0 {
 		t.Errorf("expected 0 uploaded files, got %d", len(uploadedFiles))
@@ -623,7 +637,7 @@ func TestPipeline_Run_SkippedFiles(t *testing.T) {
 		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
 	}
 
-	// Setup mocks - uploader returns deduplicated
+	// Setup mocks - uploader returns deduplicated (but won't be called in extraction-only mode)
 	discoverer := &mockDiscoverer{files: files}
 	extractor := &mockExtractor{canExtract: true}
 	normalizer := &mockNormalizer{}
@@ -641,13 +655,13 @@ func TestPipeline_Run_SkippedFiles(t *testing.T) {
 		fileStore,
 	)
 
-	// Run pipeline
+	// Run pipeline (extraction only)
 	result, err := pipeline.Run(ctx, "/test", "user123")
 	if err != nil {
 		t.Fatalf("pipeline.Run() failed: %v", err)
 	}
 
-	// Verify results - deduplicated files count as processed
+	// Verify results - files are extracted but not uploaded
 	if result.TotalFiles != 2 {
 		t.Errorf("expected 2 total files, got %d", result.TotalFiles)
 	}
@@ -655,15 +669,378 @@ func TestPipeline_Run_SkippedFiles(t *testing.T) {
 		t.Errorf("expected 2 processed files, got %d", result.ProcessedFiles)
 	}
 
-	// Verify session stats show skipped files
+	// Verify session stats show extracted but not uploaded
 	session, err := sessionStore.Get(ctx, result.SessionID)
 	if err != nil {
 		t.Fatalf("failed to get session: %v", err)
 	}
-	if session.Stats.Skipped != 2 {
-		t.Errorf("expected 2 skipped files in stats, got %d", session.Stats.Skipped)
+	if session.Stats.Extracted != 2 {
+		t.Errorf("expected 2 extracted files in stats, got %d", session.Stats.Extracted)
 	}
 	if session.Stats.Uploaded != 0 {
-		t.Errorf("expected 0 uploaded files in stats (all deduplicated), got %d", session.Stats.Uploaded)
+		t.Errorf("expected 0 uploaded files in stats (extraction only), got %d", session.Stats.Uploaded)
+	}
+	if session.Stats.Skipped != 0 {
+		t.Errorf("expected 0 skipped files in stats (extraction only), got %d", session.Stats.Skipped)
+	}
+}
+
+func TestPipeline_RunExtraction_StopsAfterExtract(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Verify files stopped at extracted status
+	files_in_session, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	if len(files_in_session) != 2 {
+		t.Errorf("expected 2 files, got %d", len(files_in_session))
+	}
+
+	for _, file := range files_in_session {
+		if file.Status != FileStatusExtracted {
+			t.Errorf("expected file %s to be in extracted status, got %s", file.LocalPath, file.Status)
+		}
+		if file.Metadata.Title == "" {
+			t.Errorf("expected file %s to have metadata stored", file.LocalPath)
+		}
+	}
+
+	// Verify no uploads occurred
+	uploadedFiles := uploader.getUploadedFiles()
+	if len(uploadedFiles) != 0 {
+		t.Errorf("expected 0 uploaded files, got %d", len(uploadedFiles))
+	}
+}
+
+func TestPipeline_ApproveAndUpload_SingleFile(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Get files to approve
+	extractedFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	// Approve first file only
+	approvalResult, err := pipeline.ApproveAndUpload(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("pipeline.ApproveAndUpload() failed: %v", err)
+	}
+
+	// Verify approval result
+	if approvalResult.Approved != 1 {
+		t.Errorf("expected 1 approved file, got %d", approvalResult.Approved)
+	}
+	if approvalResult.Uploaded != 1 {
+		t.Errorf("expected 1 uploaded file, got %d", approvalResult.Uploaded)
+	}
+	if approvalResult.Failed != 0 {
+		t.Errorf("expected 0 failed files, got %d", approvalResult.Failed)
+	}
+
+	// Verify first file is uploaded
+	file1, err := fileStore.Get(ctx, extractedFiles[0].ID)
+	if err != nil {
+		t.Fatalf("failed to get file: %v", err)
+	}
+	if file1.Status != FileStatusUploaded {
+		t.Errorf("expected file to be uploaded, got status %s", file1.Status)
+	}
+
+	// Verify second file is still extracted
+	file2, err := fileStore.Get(ctx, extractedFiles[1].ID)
+	if err != nil {
+		t.Fatalf("failed to get file: %v", err)
+	}
+	if file2.Status != FileStatusExtracted {
+		t.Errorf("expected file to be extracted, got status %s", file2.Status)
+	}
+
+	// Verify upload occurred
+	uploadedFiles := uploader.getUploadedFiles()
+	if len(uploadedFiles) != 1 {
+		t.Errorf("expected 1 uploaded file, got %d", len(uploadedFiles))
+	}
+}
+
+func TestPipeline_ApproveAllAndUpload(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
+		{Path: "/test/file3.pdf", RelativePath: "file3.pdf", Size: 300, Hash: "hash3"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Approve all files
+	approvalResult, err := pipeline.ApproveAllAndUpload(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("pipeline.ApproveAllAndUpload() failed: %v", err)
+	}
+
+	// Verify approval result
+	if approvalResult.Approved != 3 {
+		t.Errorf("expected 3 approved files, got %d", approvalResult.Approved)
+	}
+	if approvalResult.Uploaded != 3 {
+		t.Errorf("expected 3 uploaded files, got %d", approvalResult.Uploaded)
+	}
+	if approvalResult.Failed != 0 {
+		t.Errorf("expected 0 failed files, got %d", approvalResult.Failed)
+	}
+
+	// Verify all files are uploaded
+	allFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	for _, file := range allFiles {
+		if file.Status != FileStatusUploaded {
+			t.Errorf("expected file %s to be uploaded, got status %s", file.LocalPath, file.Status)
+		}
+	}
+
+	// Verify uploads occurred
+	uploadedFiles := uploader.getUploadedFiles()
+	if len(uploadedFiles) != 3 {
+		t.Errorf("expected 3 uploaded files, got %d", len(uploadedFiles))
+	}
+
+	// Verify session stats
+	session, err := sessionStore.Get(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+	if session.Stats.Approved != 3 {
+		t.Errorf("expected 3 approved in stats, got %d", session.Stats.Approved)
+	}
+	if session.Stats.Uploaded != 3 {
+		t.Errorf("expected 3 uploaded in stats, got %d", session.Stats.Uploaded)
+	}
+}
+
+func TestPipeline_RejectFiles(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Get files
+	extractedFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	// Reject first file
+	err = pipeline.RejectFiles(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("pipeline.RejectFiles() failed: %v", err)
+	}
+
+	// Verify first file is rejected
+	file1, err := fileStore.Get(ctx, extractedFiles[0].ID)
+	if err != nil {
+		t.Fatalf("failed to get file: %v", err)
+	}
+	if file1.Status != FileStatusRejected {
+		t.Errorf("expected file to be rejected, got status %s", file1.Status)
+	}
+
+	// Verify second file is still extracted
+	file2, err := fileStore.Get(ctx, extractedFiles[1].ID)
+	if err != nil {
+		t.Fatalf("failed to get file: %v", err)
+	}
+	if file2.Status != FileStatusExtracted {
+		t.Errorf("expected file to be extracted, got status %s", file2.Status)
+	}
+
+	// Verify no uploads occurred
+	uploadedFiles := uploader.getUploadedFiles()
+	if len(uploadedFiles) != 0 {
+		t.Errorf("expected 0 uploaded files, got %d", len(uploadedFiles))
+	}
+
+	// Verify session stats
+	session, err := sessionStore.Get(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+	if session.Stats.Rejected != 1 {
+		t.Errorf("expected 1 rejected in stats, got %d", session.Stats.Rejected)
+	}
+}
+
+func TestPipeline_ApproveAndUpload_WrongStatus(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+
+	// Run extraction
+	result, err := pipeline.RunExtraction(ctx, "/test", "user123")
+	if err != nil {
+		t.Fatalf("pipeline.RunExtraction() failed: %v", err)
+	}
+
+	// Get file
+	extractedFiles, err := fileStore.ListBySession(ctx, result.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+
+	// Approve and upload the file
+	_, err = pipeline.ApproveAndUpload(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("first ApproveAndUpload() failed: %v", err)
+	}
+
+	// Try to approve again (should fail - file is now uploaded, not extracted)
+	approvalResult, err := pipeline.ApproveAndUpload(ctx, result.SessionID, []string{extractedFiles[0].ID})
+	if err != nil {
+		t.Fatalf("second ApproveAndUpload() failed: %v", err)
+	}
+
+	// Should have 1 failed file
+	if approvalResult.Failed != 1 {
+		t.Errorf("expected 1 failed file, got %d", approvalResult.Failed)
+	}
+	if approvalResult.Approved != 0 {
+		t.Errorf("expected 0 approved files, got %d", approvalResult.Approved)
 	}
 }
