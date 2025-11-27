@@ -145,9 +145,8 @@ test.describe('Card Manager Page', () => {
       const sidebar = page.locator('#sidebar');
       const mobileMenuToggle = page.locator('#mobileMenuToggle');
 
-      // Wait for mobile menu toggle to be visible and page to be fully loaded
+      // Wait for mobile menu toggle to be visible
       await expect(mobileMenuToggle).toBeVisible();
-      await page.waitForLoadState('networkidle');
 
       // Sidebar should not have active class initially
       await expect(sidebar).not.toHaveClass(/active/);
@@ -172,8 +171,8 @@ test.describe('Card Manager Page', () => {
       const sidebar = page.locator('#sidebar');
       const mobileMenuToggle = page.locator('#mobileMenuToggle');
 
-      // Wait for page to be fully loaded
-      await page.waitForLoadState('networkidle');
+      // Wait for mobile menu toggle to be visible
+      await expect(mobileMenuToggle).toBeVisible();
 
       // Open sidebar by clicking mobile menu toggle
       await mobileMenuToggle.click();

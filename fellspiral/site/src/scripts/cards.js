@@ -43,15 +43,21 @@ const SUBTYPES = {
 
 // Initialize the app
 async function init() {
-  // Initialize authentication
-  initializeAuth();
+  try {
+    // Initialize authentication
+    initializeAuth();
 
-  await loadCards();
-  setupEventListeners();
-  setupMobileMenu();
-  renderTree();
-  renderCards();
-  updateStats();
+    await loadCards();
+    setupEventListeners();
+    // Note: setupMobileMenu is called separately before init() to ensure
+    // it runs synchronously before any async operations
+    renderTree();
+    renderCards();
+    updateStats();
+  } catch (error) {
+    // Log initialization errors for debugging
+    console.error('Card Manager init error:', error);
+  }
 }
 
 // Load cards from Firestore
@@ -127,7 +133,8 @@ function setupMobileMenu() {
   const sidebar = document.getElementById('sidebar');
 
   if (mobileMenuToggle && sidebar) {
-    mobileMenuToggle.addEventListener('click', () => {
+    mobileMenuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
       sidebar.classList.toggle('active');
     });
 
@@ -667,8 +674,14 @@ function exportCards() {
 
 // Initialize on page load
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => {
+    // Setup mobile menu first (sync, doesn't depend on async data)
+    setupMobileMenu();
+    // Then run async init
+    init();
+  });
 } else {
-  // DOM already loaded
+  // DOM already loaded - setup mobile menu first
+  setupMobileMenu();
   init();
 }
