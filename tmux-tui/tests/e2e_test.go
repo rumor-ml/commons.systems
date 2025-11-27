@@ -1240,12 +1240,12 @@ func createWindowWithClaude(t *testing.T, session, windowName string) string {
 	paneID := getPaneID(t, session, windowName)
 
 	// Get project root to pick up .claude/settings.json hooks
-	// From tmux-tui/tmux-tui/tests (where tests run), go up two levels to repo root
+	// From tmux-tui/tests (where tests run), go up two levels to repo root
 	projectDir, _ := filepath.Abs("../..")
 
 	// Start Claude with haiku model and default permission mode
 	// CRITICAL: Set TMUX_PANE env var so hooks can use it
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s %s --permission-mode default", projectDir, paneID, claudeCommand)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, paneID, claudeCommand)
 	cmd = tmuxCmd("send-keys", "-t", windowTarget, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in window %s: %v", windowName, err)
@@ -1520,7 +1520,7 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 	// Start Claude in second pane (use session-qualified target)
 	// CRITICAL: Set TMUX_PANE env var so hooks can use it
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s %s --permission-mode default", projectDir, pane2, claudeCommand)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, pane2, claudeCommand)
 	cmd = tmuxCmd("send-keys", "-t", sessionName+"."+pane2, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in pane2: %v", err)

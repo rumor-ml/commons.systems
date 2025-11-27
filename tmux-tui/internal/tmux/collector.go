@@ -7,14 +7,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Collector collects tmux and git information
-type Collector struct{}
+type Collector struct {
+	claudeCache *ClaudePaneCache
+}
 
 // NewCollector creates a new Collector instance
 func NewCollector() *Collector {
-	return &Collector{}
+	return &Collector{
+		claudeCache: NewClaudePaneCache(30 * time.Second),
+	}
 }
 
 // GetTree collects all panes from the current tmux session and organizes them into a RepoTree
@@ -35,6 +40,9 @@ func (c *Collector) GetTree() (RepoTree, error) {
 
 	tree := make(RepoTree)
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// Track valid pane PIDs for cache cleanup
+	validPIDs := make(map[string]bool)
 
 	for _, line := range lines {
 		if line == "" {
@@ -60,6 +68,11 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		// Skip any pane running tmux-tui
 		if command == "tmux-tui" {
 			continue
+		}
+
+		// Track this PID as valid
+		if panePID != "" {
+			validPIDs[panePID] = true
 		}
 
 		windowIndex, _ := strconv.Atoi(windowIndexStr)
@@ -97,11 +110,31 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		tree[repo][branch] = append(tree[repo][branch], pane)
 	}
 
+	// Clean up cache entries for panes that no longer exist
+	c.claudeCache.CleanupExcept(validPIDs)
+
 	return tree, nil
 }
 
 // isClaudePane checks if the pane is running Claude by inspecting child processes
+// This version uses caching to prevent expensive process checks on every tick
 func (c *Collector) isClaudePane(panePID string) bool {
+	// Check cache first
+	if result, found := c.claudeCache.Get(panePID); found {
+		return result
+	}
+
+	// Cache miss - do the expensive check
+	result := c.isClaudePaneUncached(panePID)
+
+	// Store in cache
+	c.claudeCache.Set(panePID, result)
+
+	return result
+}
+
+// isClaudePaneUncached performs the actual process inspection without caching
+func (c *Collector) isClaudePaneUncached(panePID string) bool {
 	if panePID == "" {
 		return false
 	}

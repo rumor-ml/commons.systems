@@ -79,7 +79,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"; afplay /System/Library/Sounds/Tink.aiff &"
+            "command": "[ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"; [ -z \"$CLAUDE_E2E_TEST\" ] && afplay /System/Library/Sounds/Tink.aiff &"
           }
         ]
       }

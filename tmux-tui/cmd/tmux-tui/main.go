@@ -3,25 +3,37 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
+	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
 type tickMsg time.Time
 
+type alertChangedMsg struct {
+	paneID  string
+	created bool
+}
+
+type treeRefreshMsg struct {
+	tree tmux.RepoTree
+	err  error
+}
+
 type model struct {
-	collector *tmux.Collector
-	renderer  *ui.TreeRenderer
-	tree      tmux.RepoTree
-	width     int
-	height    int
-	err       error
+	collector    *tmux.Collector
+	renderer     *ui.TreeRenderer
+	alertWatcher *watcher.AlertWatcher
+	tree         tmux.RepoTree
+	alerts       map[string]bool // Persistent alert state
+	alertsMu     sync.RWMutex    // Protects alerts map from race conditions
+	width        int
+	height       int
+	err          error
 }
 
 func initialModel() model {
@@ -31,18 +43,41 @@ func initialModel() model {
 	// Initial tree load
 	tree, err := collector.GetTree()
 
+	// Initialize alert watcher
+	alertWatcher, watcherErr := watcher.NewAlertWatcher()
+	if watcherErr != nil {
+		// If watcher fails to initialize, we'll continue without it
+		// This prevents the app from failing completely
+		alertWatcher = nil
+	}
+
+	// Load existing alerts
+	alerts := watcher.GetExistingAlerts()
+
 	return model{
-		collector: collector,
-		renderer:  renderer,
-		tree:      tree,
-		width:     80,
-		height:    24,
-		err:       err,
+		collector:    collector,
+		renderer:     renderer,
+		alertWatcher: alertWatcher,
+		tree:         tree,
+		alerts:       alerts,
+		width:        80,
+		height:       24,
+		err:          err,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tickCmd()
+	cmds := []tea.Cmd{
+		tickCmd(),
+		refreshTreeCmd(m.collector),
+	}
+
+	// Start alert watcher if available
+	if m.alertWatcher != nil {
+		cmds = append(cmds, watchAlertsCmd(m.alertWatcher))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -57,19 +92,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			// Clean up watcher on quit
+			if m.alertWatcher != nil {
+				m.alertWatcher.Close()
+			}
 			return m, tea.Quit
 		}
 
-	case tickMsg:
-		// Refresh tree data
-		tree, err := m.collector.GetTree()
-		if err == nil {
-			m.tree = tree
+	case alertChangedMsg:
+		// FAST PATH: Update alert immediately with mutex protection
+		m.alertsMu.Lock()
+		if msg.created {
+			m.alerts[msg.paneID] = true
+		} else {
+			delete(m.alerts, msg.paneID)
+		}
+		m.alertsMu.Unlock()
+		// Continue watching for more alert events
+		if m.alertWatcher != nil {
+			return m, watchAlertsCmd(m.alertWatcher)
+		}
+		return m, nil
+
+	case treeRefreshMsg:
+		// Background tree refresh completed
+		if msg.err == nil {
+			m.tree = msg.tree
+			// Reconcile alerts with lock held to prevent race with fast path
+			m.alertsMu.Lock()
+			m.alerts = reconcileAlerts(m.tree, m.alerts)
+			m.alertsMu.Unlock()
 			m.err = nil
 		} else {
-			m.err = err
+			m.err = msg.err
 		}
-		return m, tickCmd()
+		return m, nil
+
+	case tickMsg:
+		// Periodic refresh (30s)
+		return m, tea.Batch(
+			refreshTreeCmd(m.collector),
+			tickCmd(),
+		)
 	}
 
 	return m, nil
@@ -84,41 +148,75 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	alerts := getActiveAlerts()
-	return m.renderer.Render(m.tree, alerts)
+	// Copy alerts map with read lock for safe concurrent access
+	// We copy to prevent the renderer from accessing the map after lock release
+	m.alertsMu.RLock()
+	alertsCopy := make(map[string]bool)
+	for k, v := range m.alerts {
+		alertsCopy[k] = v
+	}
+	m.alertsMu.RUnlock()
+
+	return m.renderer.Render(m.tree, alertsCopy)
 }
 
-// getActiveAlerts reads alert files from filesystem and validates against existing panes
-func getActiveAlerts() map[string]bool {
-	alerts := make(map[string]bool)
+// watchAlertsCmd watches for alert file changes
+func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
+	return func() tea.Msg {
+		event := <-w.Start()
+		return alertChangedMsg{
+			paneID:  event.PaneID,
+			created: event.Created,
+		}
+	}
+}
 
-	// Get list of all current pane IDs
+// refreshTreeCmd refreshes the tree in the background
+func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
+	return func() tea.Msg {
+		tree, err := c.GetTree()
+		return treeRefreshMsg{tree: tree, err: err}
+	}
+}
+
+// reconcileAlerts removes alerts for panes that no longer exist
+func reconcileAlerts(tree tmux.RepoTree, alerts map[string]bool) map[string]bool {
+	// Build set of valid pane IDs from tree
 	validPanes := make(map[string]bool)
-	output, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{pane_id}").Output()
-	if err == nil {
-		for _, paneID := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-			if paneID != "" {
-				validPanes[paneID] = true
+	for _, branches := range tree {
+		for _, panes := range branches {
+			for _, pane := range panes {
+				validPanes[pane.ID] = true
 			}
 		}
 	}
 
-	pattern := "/tmp/claude/tui-alert-*"
-	matches, _ := filepath.Glob(pattern)
-	for _, file := range matches {
-		paneID := strings.TrimPrefix(filepath.Base(file), "tui-alert-")
-		// Only include if pane currently exists (validates format implicitly)
-		if validPanes[paneID] {
-			alerts[paneID] = true
+	// Remove alerts for deleted panes
+	for paneID := range alerts {
+		if !validPanes[paneID] {
+			delete(alerts, paneID)
 		}
 	}
 	return alerts
 }
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// GetAlertsForTesting returns a copy of current alert state (testing only)
+func (m model) GetAlertsForTesting() map[string]bool {
+	m.alertsMu.RLock()
+	defer m.alertsMu.RUnlock()
+
+	// Return copy to prevent races with caller
+	alerts := make(map[string]bool, len(m.alerts))
+	for k, v := range m.alerts {
+		alerts[k] = v
+	}
+	return alerts
 }
 
 func main() {
