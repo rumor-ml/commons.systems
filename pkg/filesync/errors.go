@@ -82,3 +82,9 @@ func (e *UploadError) Error() string {
 func (e *UploadError) Unwrap() error {
 	return e.Err
 }
+
+// IsError checks if err is of the type that target points to
+// This is a helper function for testing error types
+func IsError(err error, target interface{}) bool {
+	return errors.As(err, target)
+}
