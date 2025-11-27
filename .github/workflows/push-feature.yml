@@ -33,7 +33,6 @@ jobs:
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
       audiobrowser-changed: ${{ steps.check-changes.outputs.audiobrowser-changed }}
       print-changed: ${{ steps.check-changes.outputs.print-changed }}
-      playwright-server-changed: ${{ steps.check-changes.outputs.playwright-server-changed }}
 
     steps:
       - name: Checkout code
@@ -82,15 +81,6 @@ jobs:
             echo "⏸️  Print unchanged"
           fi
 
-          # Check playwright-server changes
-          if echo "$CHANGED_FILES" | grep -q "^infrastructure/playwright-server/"; then
-            echo "playwright-server-changed=true" >> $GITHUB_OUTPUT
-            echo "✅ Playwright server changed"
-          else
-            echo "playwright-server-changed=false" >> $GITHUB_OUTPUT
-            echo "⏸️  Playwright server unchanged"
-          fi
-
   # ==================== Step 1: Local Tests (parallel per site) ====================
   local-tests:
     name: Local Tests - ${{ matrix.site }}
@@ -127,43 +117,7 @@ jobs:
         if: steps.check-changes.outputs.print-changed == 'true'
         run: ./infrastructure/scripts/run-local-tests.sh print
 
-  # ==================== Step 2: Deploy Playwright Server (if changed) ====================
-  deploy-playwright-server:
-    name: Deploy Playwright Server
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: detect-changes
-    if: needs.detect-changes.outputs.playwright-server-changed == 'true'
-    outputs:
-      playwright-url: ${{ steps.get-url.outputs.url }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Deploy Playwright Server
-        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
-
-      - name: Get service URL
-        id: get-url
-        run: |
-          URL=$(cat /tmp/playwright-server-url.txt)
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-
-  # ==================== Step 3: Deploy Sites to Firebase Hosting ====================
+  # ==================== Step 2: Deploy Sites to Firebase Hosting ====================
   deploy-fellspiral:
     name: Deploy Fellspiral (Preview)
     runs-on: ubuntu-latest
@@ -448,7 +402,7 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
-  # ==================== Step 4: Collect All Deployment URLs ====================
+  # ==================== Step 3: Collect All Deployment URLs ====================
   collect-deployment-urls:
     name: Collect Deployment URLs
     runs-on: ubuntu-latest
@@ -473,54 +427,19 @@ jobs:
           echo "Audiobrowser: ${{ needs.deploy-audiobrowser.outputs.service-url }}"
           echo "Print: ${{ needs.deploy-print.outputs.service-url }}"
 
-  # ==================== Step 5: Get Playwright Server URL ====================
-  get-playwright-url:
-    name: Get Playwright Server URL
-    runs-on: ubuntu-latest
-    needs: [deploy-playwright-server]
-    if: always()
-    outputs:
-      url: ${{ steps.get-url.outputs.url }}
-
-    steps:
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get Playwright Server URL
-        id: get-url
-        run: |
-          if [ "${{ needs.deploy-playwright-server.result }}" == "success" ]; then
-            # Use newly deployed URL
-            URL="${{ needs.deploy-playwright-server.outputs.playwright-url }}"
-          else
-            # Get existing service URL
-            URL=$(gcloud run services describe playwright-server \
-              --region=${{ env.GCP_REGION }} \
-              --format='value(status.url)')
-          fi
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
-
-  # ==================== Step 6: E2E Tests (Matrix Strategy) ====================
+  # ==================== Step 4: E2E Tests (Matrix Strategy) ====================
   playwright-tests:
     name: E2E Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [collect-deployment-urls, get-playwright-url]
+    needs: [collect-deployment-urls]
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
     if: |
       always() &&
-      needs.collect-deployment-urls.result == 'success' &&
-      needs.get-playwright-url.result == 'success'
+      needs.collect-deployment-urls.result == 'success'
 
     steps:
       - name: Checkout code
@@ -539,6 +458,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -577,9 +508,8 @@ jobs:
 
       - name: Run Playwright tests
         if: steps.site-url.outputs.url != ''
-        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
           CI: true
 
