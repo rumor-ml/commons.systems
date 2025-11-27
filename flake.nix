@@ -97,15 +97,27 @@
               fi
             fi
 
-            # Auto-source tmux-tui configuration if in tmux
+            # tmux-tui configuration with stable default + dev override
             if [ -n "$TMUX" ] && [ -f "tmux-tui/tmux-tui.conf" ]; then
-              # Always set/update the spawn script path
-              tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$PWD/tmux-tui/scripts/spawn.sh"
+              # Default: use stable ~/commons.systems installation
+              DEFAULT_TUI="$HOME/commons.systems/tmux-tui/scripts/spawn.sh"
 
-              # Check if hooks are already loaded
+              # Dev override: use local version if TMUX_TUI_DEV is set
+              if [ -n "$TMUX_TUI_DEV" ] && [ -f "$PWD/tmux-tui/scripts/spawn.sh" ]; then
+                SPAWN_SCRIPT="$PWD/tmux-tui/scripts/spawn.sh"
+                echo "Using dev tmux-tui from: $PWD"
+              elif [ -f "$DEFAULT_TUI" ]; then
+                SPAWN_SCRIPT="$DEFAULT_TUI"
+              else
+                SPAWN_SCRIPT="$PWD/tmux-tui/scripts/spawn.sh"  # Fallback
+              fi
+
+              tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$SPAWN_SCRIPT"
+
+              # Load hooks if not already loaded
               if ! tmux show-hooks -g 2>/dev/null | grep -q "run-shell.*spawn.sh"; then
                 echo "Loading tmux-tui configuration..."
-                tmux source-file "$PWD/tmux-tui/tmux-tui.conf"
+                tmux source-file "''${SPAWN_SCRIPT%/scripts/spawn.sh}/tmux-tui.conf"
               fi
             fi
 
