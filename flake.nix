@@ -82,6 +82,13 @@
               chmod +x infrastructure/scripts/*.sh
             fi
 
+            # Install Playwright browsers if needed (after pnpm install has made npx available)
+            PLAYWRIGHT_CHROMIUM_DIR=$(find "$PLAYWRIGHT_BROWSERS_PATH" -maxdepth 1 -type d -name "chromium-*" 2>/dev/null | head -1)
+            if [ -z "$PLAYWRIGHT_CHROMIUM_DIR" ]; then
+              echo "Installing Playwright browsers..."
+              npx playwright install chromium
+            fi
+
             # Build tmux-tui if needed
             if [ -d "tmux-tui" ]; then
               if [ ! -f "tmux-tui/build/tmux-tui" ] || [ "tmux-tui/cmd/tmux-tui/main.go" -nt "tmux-tui/build/tmux-tui" ]; then

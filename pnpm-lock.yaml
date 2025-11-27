@@ -39,6 +39,9 @@ importers:
       '@playwright/test':
         specifier: ^1.40.0
         version: 1.57.0
+      http-server:
+        specifier: ^14.1.1
+        version: 14.1.1
 
   fellspiral/site:
     dependencies:
@@ -89,6 +92,9 @@ importers:
       '@playwright/test':
         specifier: ^1.40.0
         version: 1.57.0
+      http-server:
+        specifier: ^14.1.1
+        version: 14.1.1
 
   printsync/site:
     dependencies:

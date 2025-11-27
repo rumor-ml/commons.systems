@@ -20,7 +20,9 @@ test.describe('Print Library Homepage', () => {
     await expect(uploadBtn).toContainText('Upload');
   });
 
+  // Firebase-dependent tests only run when deployed (local uses static http-server without Firebase)
   test('should show loading state initially then resolve', async ({ page }) => {
+    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
     await page.goto('/');
 
     // Loading indicator should be visible initially
@@ -66,6 +68,7 @@ test.describe('Print Library Homepage', () => {
   });
 
   test('should successfully load Firebase data', async ({ page }) => {
+    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
     // Capture console errors for debugging Firebase issues
     const consoleMessages = [];
     page.on('console', msg => {
@@ -115,6 +118,7 @@ test.describe('Print Library Homepage', () => {
   });
 
   test('should not hang on loading state indefinitely', async ({ page }) => {
+    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
     await page.goto('/');
 
     // Loading should resolve within 10 seconds
@@ -206,8 +210,10 @@ test.describe('Print Library Homepage', () => {
   });
 });
 
+// Health endpoint only exists in deployed Cloud Run service, not in static http-server
 test.describe('Health Check', () => {
   test('health endpoint should return 200', async ({ page }) => {
+    test.skip(!process.env.DEPLOYED, 'Health endpoint only available in deployed environment');
     const response = await page.goto('/health');
     expect(response.status()).toBe(200);
   });
