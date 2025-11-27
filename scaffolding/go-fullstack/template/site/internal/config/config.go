@@ -11,7 +11,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Port:         getEnv("PORT", "8080"),
-		GCPProjectID: getEnv("GCP_PROJECT_ID", "chalanding"),
+		GCPProjectID: getEnv("GCP_PROJECT_ID", "{{APP_NAME}}-project"),
 		Environment:  getEnv("GO_ENV", "production"),
 	}
 }

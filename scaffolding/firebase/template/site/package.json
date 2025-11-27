@@ -2,6 +2,7 @@
   "name": "@commons/{{APP_NAME}}-site",
   "version": "1.0.0",
   "description": "{{APP_NAME_TITLE}} static website",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,9 +12,9 @@
   "dependencies": {
     "@commons/auth": "workspace:*",
     "@commons/design-system": "workspace:*",
-    "firebase": "^10.7.1"
+    "firebase": "^10.14.0"
   },
   "devDependencies": {
-    "vite": "^5.0.0"
+    "vite": "^5.4.0"
   }
 }

@@ -1,0 +1,9 @@
+/bin/
+/tmp/
+/web/dist/
+.idea/
+.vscode/
+*.exe
+*.test
+*.out
+node_modules/

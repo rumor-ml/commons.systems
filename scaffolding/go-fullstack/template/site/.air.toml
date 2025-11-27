@@ -7,7 +7,7 @@ bin = "./tmp/main"
 include_ext = ["go", "templ", "ts", "tsx"]
 exclude_regex = ["_templ\\.go$"]
 exclude_dir = ["tmp", "node_modules", "web/dist"]
-delay = 1000
+delay = 500
 
 [misc]
 clean_on_exit = true
