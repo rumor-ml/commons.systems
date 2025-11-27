@@ -23,28 +23,92 @@ permissions:
   actions: read
 
 jobs:
+  # Prevent feature workflow from running when PR exists for this branch,
+  # since PR workflow (push-main.yml) handles CI/CD for branches with open PRs.
+  # This avoids duplicate deployments and wasted CI resources.
   check-pr-exists:
     name: Check PR Status
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    outputs:
+      should-continue: ${{ steps.check.outputs.should-continue }}
     steps:
-      - name: Cancel workflow if PR exists
+      - name: Check for PR and skip if exists
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -e          # Exit immediately if a command fails
+          set -o pipefail # Catch failures in pipes
+          set -u          # Treat unset variables as errors
+
+          echo "=== Checking for existing PR ==="
+
+          # Validate GITHUB_REF is set and has expected format
+          if [ -z "${GITHUB_REF:-}" ]; then
+            echo "::error::GITHUB_REF environment variable is empty or unset"
+            exit 1
+          fi
+
+          # Extract and validate branch name
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          PR_COUNT=$(gh pr list \
+          if [ -z "$BRANCH_NAME" ] || [ "$BRANCH_NAME" = "$GITHUB_REF" ]; then
+            echo "::error::Failed to extract branch name from GITHUB_REF='$GITHUB_REF'"
+            echo "::error::Expected format: refs/heads/<branch-name>"
+            exit 1
+          fi
+
+          echo "Branch: $BRANCH_NAME"
+          echo "Repository: $GITHUB_REPOSITORY"
+
+          # Query GitHub API for open PRs with timeout
+          # Check if there are any open PRs FROM this branch (--head)
+          echo "Querying GitHub API for open PRs..."
+          if ! PR_LIST_OUTPUT=$(timeout 30s gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --head "$BRANCH_NAME" \
             --state open \
-            --json number \
-            --jq 'length')
+            --json number 2>&1); then
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "::error::GitHub API query timed out after 30 seconds"
+              echo "::error::This may indicate GitHub API slowness or network issues"
+            else
+              echo "::error::Failed to query GitHub API for PR status"
+              echo "::error::Repository: $GITHUB_REPOSITORY"
+              echo "::error::Branch: $BRANCH_NAME"
+              echo "::error::Output: $PR_LIST_OUTPUT"
+            fi
+            echo "::error::Cannot determine PR status - failing workflow to prevent duplicate operations"
+            exit 1
+          fi
 
+          # Parse PR count from JSON with validation
+          if ! PR_COUNT=$(echo "$PR_LIST_OUTPUT" | jq -e 'length' 2>&1); then
+            echo "::error::Failed to parse GitHub API response as JSON"
+            echo "::error::jq error: $PR_COUNT"
+            echo "::error::Raw output: $PR_LIST_OUTPUT"
+            exit 1
+          fi
+
+          # Validate PR_COUNT is a non-negative integer
+          if ! [[ "$PR_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "::error::PR count is not a valid non-negative integer: '$PR_COUNT'"
+            echo "::error::This indicates unexpected GitHub API response format"
+            exit 1
+          fi
+
+          echo "Found $PR_COUNT open PR(s) for branch '$BRANCH_NAME'"
+
+          # Set output to control downstream jobs
           if [ "$PR_COUNT" -gt 0 ]; then
-            echo "::notice::PR exists for '$BRANCH_NAME'. Cancelling feature workflow."
-            gh run cancel ${{ github.run_id }} --repo "$GITHUB_REPOSITORY"
+            echo "::notice::Open PR exists for branch '$BRANCH_NAME'"
+            echo "::notice::Feature workflow will skip - PR workflow handles this branch"
+            echo "should-continue=false" >> $GITHUB_OUTPUT
           else
-            echo "::notice::No PR found for '$BRANCH_NAME'. Continuing feature workflow."
+            echo "::notice::No open PR found for branch '$BRANCH_NAME'"
+            echo "::notice::Continuing with feature workflow"
+            echo "should-continue=true" >> $GITHUB_OUTPUT
           fi
 
   # ==================== Step 0: Change Detection ====================
@@ -53,6 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: check-pr-exists
+    if: needs.check-pr-exists.outputs.should-continue == 'true'
     outputs:
       fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
@@ -111,7 +176,7 @@ jobs:
     name: Local Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [check-pr-exists, detect-changes]
+    needs: detect-changes
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser]
@@ -147,7 +212,7 @@ jobs:
     name: Deploy Fellspiral (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-pr-exists, detect-changes, local-tests]
+    needs: [detect-changes, local-tests]
     if: |
       always() &&
       needs.detect-changes.outputs.fellspiral-changed == 'true' &&
@@ -197,7 +262,7 @@ jobs:
     name: Deploy Videobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-pr-exists, detect-changes, local-tests]
+    needs: [detect-changes, local-tests]
     if: |
       always() &&
       needs.detect-changes.outputs.videobrowser-changed == 'true' &&
@@ -247,7 +312,7 @@ jobs:
     name: Deploy Audiobrowser (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-pr-exists, detect-changes, local-tests]
+    needs: [detect-changes, local-tests]
     if: |
       always() &&
       needs.detect-changes.outputs.audiobrowser-changed == 'true' &&
@@ -297,7 +362,7 @@ jobs:
     name: Deploy Print (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-pr-exists, local-tests]
+    needs: local-tests
     if: needs.local-tests.outputs.print-changed == 'true'
     outputs:
       service-url: ${{ steps.deploy.outputs.url }}
@@ -344,7 +409,7 @@ jobs:
   collect-deployment-urls:
     name: Collect Deployment URLs
     runs-on: ubuntu-latest
-    needs: [check-pr-exists, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print]
+    needs: [deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print]
     if: |
       always() &&
       (needs.deploy-fellspiral.result == 'success' ||
@@ -370,7 +435,7 @@ jobs:
     name: E2E Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [check-pr-exists, collect-deployment-urls]
+    needs: collect-deployment-urls
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser, print]
@@ -455,7 +520,7 @@ jobs:
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [check-pr-exists, local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests]
+    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests]
     if: always()
 
     steps:
