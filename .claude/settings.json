@@ -45,6 +45,8 @@
       "Bash(make test-integration:*)",
       "Bash(make test-unit:*)",
       "Bash(go mod tidy:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(go tool cover:*)",
@@ -77,6 +79,17 @@
           {
             "type": "command",
             "command": "TTY=$(tmux display-message -p -t \"$TMUX_PANE\" '#{pane_tty}'); printf '\\a' > \"$TTY\"; afplay /System/Library/Sounds/Tink.aiff &"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/sandbox-reminder.sh"
           }
         ]
       }
