@@ -153,6 +153,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y make
+          go install github.com/a-h/templ/cmd/templ@latest
           pnpm install --frozen-lockfile
           npx playwright install chromium --with-deps
       - name: Run tests
