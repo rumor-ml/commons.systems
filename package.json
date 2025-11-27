@@ -6,6 +6,7 @@
   "type": "module",
   "workspaces": [
     "shared/auth",
+    "shared/design-system",
     "fellspiral/site",
     "fellspiral/tests",
     "videobrowser/site",
