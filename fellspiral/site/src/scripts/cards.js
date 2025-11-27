@@ -93,13 +93,25 @@ async function init() {
     // Initialize authentication
     initializeAuth();
 
-    await loadCards();
+    // Setup UI components - these don't need data
     setupEventListeners();
     // Note: setupMobileMenu is called separately before init() to ensure
     // it runs synchronously before any async operations
-    renderTree();
-    renderCards();
-    updateStats();
+    renderTree(); // Will show "no cards" initially
+    renderCards(); // Will show empty state
+
+    // Load data asynchronously WITHOUT blocking page load
+    loadCards()
+      .then(() => {
+        // Update UI with loaded data
+        renderTree();
+        renderCards();
+        updateStats();
+      })
+      .catch(error => {
+        console.error('Failed to load cards:', error);
+        showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      });
   } catch (error) {
     // Log initialization errors for debugging
     console.error('Card Manager init error:', error);
