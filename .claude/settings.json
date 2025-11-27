@@ -69,6 +69,7 @@
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",
+      "Bash(tee:*)",
       "Bash(sort:*)",
       "Bash(echo:*)"
     ]
