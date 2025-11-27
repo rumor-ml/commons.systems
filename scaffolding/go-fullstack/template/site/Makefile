@@ -1,4 +1,4 @@
-.PHONY: dev build clean
+.PHONY: dev build clean install test
 
 dev:
 	@make -j3 dev/templ dev/tailwind dev/server
@@ -20,3 +20,11 @@ build:
 
 clean:
 	rm -rf tmp web/dist bin
+
+install:
+	go install github.com/a-h/templ/cmd/templ@v0.2.543
+	go install github.com/cosmtrek/air@latest
+	pnpm install
+
+test:
+	go test ./...

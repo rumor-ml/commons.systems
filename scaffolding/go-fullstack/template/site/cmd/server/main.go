@@ -12,6 +12,7 @@ import (
 	"{{APP_NAME}}/internal/config"
 	"{{APP_NAME}}/internal/firestore"
 	"{{APP_NAME}}/internal/server"
+	"{{APP_NAME}}/web"
 )
 
 func main() {
@@ -24,11 +25,14 @@ func main() {
 	}
 	defer fsClient.Close()
 
-	router := server.NewRouter(fsClient)
+	router := server.NewRouter(fsClient, web.DistFS)
 
 	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Addr:         ":" + cfg.Port,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Graceful shutdown

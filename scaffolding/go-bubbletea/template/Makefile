@@ -1,7 +1,7 @@
 # Makefile for {{APP_NAME}}
 # Follows commons.systems monorepo build patterns
 
-.PHONY: build test test-unit test-e2e clean dev
+.PHONY: build test test-unit test-e2e clean dev lint fmt cover
 
 # Binary output location
 BINARY_NAME={{APP_NAME}}
@@ -35,5 +35,15 @@ clean:
 dev:
 	@echo "Starting {{APP_NAME}} in development mode..."
 	$(GO) run ./cmd/{{APP_NAME}}
+
+lint:
+	@$(GO) vet ./...
+
+fmt:
+	@$(GO) fmt ./...
+
+cover:
+	@$(GO) test -coverprofile=coverage.out ./...
+	@$(GO) tool cover -html=coverage.out -o coverage.html
 
 .DEFAULT_GOAL := build
