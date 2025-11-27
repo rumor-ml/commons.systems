@@ -110,6 +110,9 @@ importers:
 
   printsync/site:
     dependencies:
+      '@commons/design-system':
+        specifier: file:../../shared/design-system
+        version: link:../../shared/design-system
       react:
         specifier: ^18.3.0
         version: 18.3.1
