@@ -7,7 +7,9 @@ toolchain go1.24.10
 require (
 	cloud.google.com/go/firestore v1.17.0
 	cloud.google.com/go/storage v1.43.0
+	github.com/google/uuid v1.6.0
 	github.com/pdfcpu/pdfcpu v0.8.0
+	golang.org/x/sync v0.10.0
 	google.golang.org/api v0.214.0
 )
 
@@ -23,7 +25,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.0 // indirect
 	github.com/hhrutter/lzw v1.0.0 // indirect
@@ -41,7 +42,6 @@ require (
 	golang.org/x/image v0.15.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.24.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.8.0 // indirect

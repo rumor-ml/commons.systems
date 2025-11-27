@@ -133,26 +133,16 @@ else
   echo "⏰ Expires: 7 days from now"
 
   # Verify the deployment is accessible with exponential backoff
+  # Use 120s timeout for new preview channels (DNS propagation can take longer)
   echo ""
   echo "🔍 Verifying deployment readiness..."
 
   SCRIPT_DIR="$(dirname "$0")"
-  if ! "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
+  "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
     --exponential \
-    --max-wait 60 \
+    --max-wait 120 \
     --content "</html>" \
-    --verbose; then
-    echo ""
-    echo "❌ Deployment verification failed!"
-    echo "   The preview URL is not responding with valid content."
-    echo "   URL: ${DEPLOYMENT_URL}"
-    echo ""
-    echo "   Possible causes:"
-    echo "   - DNS propagation delay (usually resolves within 60s)"
-    echo "   - Firebase deployment still processing"
-    echo "   - Invalid deployment configuration"
-    exit 1
-  fi
+    --verbose
 fi
 
 # Save deployment URL for GitHub Actions
