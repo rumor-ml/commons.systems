@@ -53,6 +53,7 @@
       "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
+      "Bash(npm test:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",
       "Bash(gcloud artifacts repositories list:*)",
