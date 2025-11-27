@@ -16,11 +16,15 @@ APP_PATH="$1"
 APP_NAME=$(basename "$APP_PATH")
 
 echo "--- Lint Checks ---"
-if grep -r "console\.log" "${APP_PATH}/site/src/" 2>/dev/null; then
-  echo "Error: Found console.log statements"
+CONSOLE_LOGS=$(grep -rn "console\.log" "${APP_PATH}/site/src/" 2>/dev/null || true)
+if [ -n "$CONSOLE_LOGS" ]; then
+  echo "❌ Error: Found console.log statements:"
+  echo "$CONSOLE_LOGS" | while read -r line; do
+    echo "  - $line"
+  done
   exit 1
 fi
-echo "No console.log statements found"
+echo "✓ No console.log statements found"
 
 echo ""
 echo "--- Building ---"
