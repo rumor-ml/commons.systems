@@ -277,14 +277,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
       - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: ./.github/actions/setup-node-pnpm
-        with:
-          install-playwright: 'false'
 
       - name: Deploy fellspiral to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
@@ -308,14 +308,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
       - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: ./.github/actions/setup-node-pnpm
-        with:
-          install-playwright: 'false'
 
       - name: Deploy videobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
@@ -339,14 +339,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
       - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: ./.github/actions/setup-node-pnpm
-        with:
-          install-playwright: 'false'
 
       - name: Deploy audiobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
@@ -370,14 +370,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
       - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: ./.github/actions/setup-node-pnpm
-        with:
-          install-playwright: 'false'
 
       - name: Deploy print to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
