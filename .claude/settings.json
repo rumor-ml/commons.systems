@@ -45,6 +45,8 @@
       "Bash(make test-integration:*)",
       "Bash(make test-unit:*)",
       "Bash(go mod tidy:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(go tool cover:*)",
