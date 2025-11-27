@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -89,5 +90,19 @@ func TestView(t *testing.T) {
 func containsText(view, text string) bool {
 	// Simple check - in a real scenario you might want to strip ANSI codes
 	// but for template variables this should work
-	return len(view) > 0 && view != ""
+	return strings.Contains(view, text)
+}
+
+func TestUpdateWindowSize_HandlesZeroDimensions(t *testing.T) {
+	m := New()
+	msg := tea.WindowSizeMsg{Width: 0, Height: 0}
+	newModel, _ := m.Update(msg)
+	model, ok := newModel.(Model)
+	if !ok {
+		t.Fatal("Update did not return Model type")
+	}
+	// Should handle gracefully - dimensions should not be negative
+	if model.width < 0 || model.height < 0 {
+		t.Error("Model should not have negative dimensions")
+	}
 }

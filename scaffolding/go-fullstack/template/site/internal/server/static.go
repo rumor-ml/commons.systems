@@ -18,8 +18,7 @@ func StaticHandler(distFS embed.FS) http.Handler {
 	// Production: serve from embedded FS
 	subFS, err := fs.Sub(distFS, "dist")
 	if err != nil {
-		log.Printf("Warning: failed to create static file sub-filesystem: %v", err)
-		return nil
+		log.Fatalf("CRITICAL: Failed to create static file sub-filesystem: %v", err)
 	}
 	return http.StripPrefix("/static/",
 		http.FileServer(http.FS(subFS)))

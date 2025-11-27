@@ -8,6 +8,15 @@ const firebaseConfig = {
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
 };
 
+// Validate required configuration
+const requiredKeys = ['apiKey', 'projectId'];
+const missingKeys = requiredKeys.filter(key => !firebaseConfig[key]);
+
+if (missingKeys.length > 0) {
+  console.error(`Firebase config incomplete. Missing: ${missingKeys.join(', ')}. Check .env.local file.`);
+  throw new Error('Firebase configuration missing required values');
+}
+
 // Initialize Firebase
 export const app = initializeApp(firebaseConfig);
 

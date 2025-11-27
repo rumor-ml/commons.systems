@@ -27,7 +27,7 @@ var (
 )
 
 // Render renders the UI
-func Render(width int) string {
+func Render() string {
 	var b strings.Builder
 
 	title := titleStyle.Render("{{APP_NAME_TITLE}}")

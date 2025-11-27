@@ -32,4 +32,15 @@ test.describe('{{APP_NAME_TITLE}} Homepage', () => {
     await expect(page.locator('.header')).toBeVisible();
     await expect(page.locator('.main')).toBeVisible();
   });
+
+  test('should initialize Firebase without errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    const firebaseErrors = errors.filter(e => e.includes('Firebase'));
+    expect(firebaseErrors).toHaveLength(0);
+  });
 });

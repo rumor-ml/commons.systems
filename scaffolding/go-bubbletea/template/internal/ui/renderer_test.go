@@ -5,27 +5,8 @@ import (
 	"testing"
 )
 
-func TestNewRenderer(t *testing.T) {
-	r := NewRenderer(80)
-	if r == nil {
-		t.Fatal("expected renderer to be non-nil")
-	}
-	if r.width != 80 {
-		t.Errorf("expected width 80, got %d", r.width)
-	}
-}
-
-func TestSetWidth(t *testing.T) {
-	r := NewRenderer(80)
-	r.SetWidth(120)
-	if r.width != 120 {
-		t.Errorf("expected width 120, got %d", r.width)
-	}
-}
-
 func TestRender(t *testing.T) {
-	r := NewRenderer(80)
-	output := r.Render()
+	output := Render()
 
 	if output == "" {
 		t.Error("expected non-empty output")
@@ -38,5 +19,23 @@ func TestRender(t *testing.T) {
 
 	if !strings.Contains(output, "quit") {
 		t.Error("expected output to contain quit instructions")
+	}
+}
+
+func TestRender_ContainsTitle(t *testing.T) {
+	output := Render()
+
+	// The title contains the app name placeholder which will be replaced
+	// during scaffolding, so just check output is structured
+	if !strings.Contains(output, "\n") {
+		t.Error("expected output to contain multiple lines")
+	}
+}
+
+func TestRender_ContainsHelpText(t *testing.T) {
+	output := Render()
+
+	if !strings.Contains(output, "Ctrl+C") && !strings.Contains(output, "Esc") {
+		t.Error("expected output to contain quit instructions with Ctrl+C or Esc")
 	}
 }

@@ -13,6 +13,8 @@ func (h *PageHandlers) ItemsPartial(w http.ResponseWriter, r *http.Request) {
 
 	if err := partials.ItemsList(items).Render(r.Context(), w); err != nil {
 		log.Printf("Render error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -30,5 +32,7 @@ func (h *PageHandlers) CreateItem(w http.ResponseWriter, r *http.Request) {
 	items := []string{"Item 1", "Item 2", "Item 3", itemName}
 	if err := partials.ItemsList(items).Render(r.Context(), w); err != nil {
 		log.Printf("Render error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 }

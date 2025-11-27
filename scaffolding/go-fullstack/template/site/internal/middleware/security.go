@@ -11,7 +11,8 @@ func RecoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("Panic recovered: %v\n%s", err, debug.Stack())
+				log.Printf("PANIC: %v | Method: %s | URL: %s | RemoteAddr: %s\n%s",
+					err, r.Method, r.URL.String(), r.RemoteAddr, debug.Stack())
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()

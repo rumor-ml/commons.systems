@@ -28,8 +28,15 @@ if [ -d "$APP_NAME" ]; then
   exit 1
 fi
 
-# Setup cleanup on failure
-trap 'rm -rf "$APP_NAME"' ERR
+# Setup cleanup on failure or interrupt
+cleanup() {
+  local exit_code=$?
+  if [ $exit_code -ne 0 ] && [ -d "$APP_NAME" ]; then
+    echo "Cleaning up partially created app..."
+    rm -rf "$APP_NAME"
+  fi
+}
+trap cleanup EXIT
 
 APP_NAME_TITLE=$(echo "$APP_NAME" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
 

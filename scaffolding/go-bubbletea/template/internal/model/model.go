@@ -49,5 +49,5 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the model
 func (m Model) View() string {
-	return ui.Render(m.width)
+	return ui.Render()
 }
