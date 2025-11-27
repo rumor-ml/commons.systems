@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@commons/design-system": "workspace:*",
     "epubjs": "^0.3.93",
     "firebase": "^10.7.1",
     "jszip": "^3.10.1",

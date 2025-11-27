@@ -1,0 +1,57 @@
+/* ==========================================================================
+   Breakpoints - Responsive Design System
+   ==========================================================================
+
+   Target Screen Sizes:
+   - Small (sm):  375x812  - Mobile portrait (iPhone X/11/12/13)
+   - Medium (md): 768px+   - Tablet portrait
+   - Large (lg):  1024px+  - Tablet landscape / Small desktop
+   - XL (xl):     1440px+  - Desktop
+
+   Approach: Mobile-first (min-width media queries)
+   ========================================================================== */
+
+/* Responsive visibility utilities */
+.hide-sm { display: none; }
+.hide-md { display: none; }
+.hide-lg { display: none; }
+.hide-xl { display: none; }
+
+@media (min-width: 768px) {
+  .hide-sm { display: initial; }
+  .show-md-only { display: initial; }
+}
+
+@media (min-width: 1024px) {
+  .hide-md { display: initial; }
+  .show-lg-only { display: initial; }
+  .hide-below-lg { display: initial; }
+}
+
+@media (min-width: 1440px) {
+  .hide-lg { display: initial; }
+  .show-xl-only { display: initial; }
+}
+
+/* Show only at specific breakpoints */
+.show-sm-only { display: initial; }
+@media (min-width: 768px) { .show-sm-only { display: none; } }
+
+.show-md-only { display: none; }
+@media (min-width: 768px) and (max-width: 1023px) { .show-md-only { display: initial; } }
+
+.show-lg-only { display: none; }
+@media (min-width: 1024px) and (max-width: 1439px) { .show-lg-only { display: initial; } }
+
+.show-xl-only { display: none; }
+@media (min-width: 1440px) { .show-xl-only { display: initial; } }
+
+/* Hide below breakpoint */
+.hide-below-md { display: none; }
+@media (min-width: 768px) { .hide-below-md { display: initial; } }
+
+.hide-below-lg { display: none; }
+@media (min-width: 1024px) { .hide-below-lg { display: initial; } }
+
+.hide-below-xl { display: none; }
+@media (min-width: 1440px) { .hide-below-xl { display: initial; } }

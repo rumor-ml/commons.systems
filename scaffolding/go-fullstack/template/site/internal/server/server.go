@@ -1,6 +1,7 @@
 package server
 
 import (
+	"embed"
 	"net/http"
 
 	"{{APP_NAME}}/internal/firestore"
@@ -8,11 +9,11 @@ import (
 	"{{APP_NAME}}/internal/middleware"
 )
 
-func NewRouter(fs *firestore.Client) http.Handler {
+func NewRouter(fs *firestore.Client, distFS embed.FS) http.Handler {
 	mux := http.NewServeMux()
 
 	// Static assets
-	mux.Handle("GET /static/", StaticHandler())
+	mux.Handle("GET /static/", StaticHandler(distFS))
 
 	// Health check for Cloud Run
 	mux.HandleFunc("GET /health", handlers.HealthHandler)

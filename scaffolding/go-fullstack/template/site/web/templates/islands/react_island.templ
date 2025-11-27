@@ -1,6 +1,9 @@
 package islands
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 templ ReactIsland(component string, props any) {
 	<div
@@ -13,6 +16,10 @@ templ ReactIsland(component string, props any) {
 }
 
 func mustJSON(v any) string {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("JSON marshal error: %v", err)
+		return "{}"
+	}
 	return string(b)
 }

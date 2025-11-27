@@ -22,6 +22,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@commons/design-system": "workspace:*",
     "firebase": "^10.7.1"
   }
 }

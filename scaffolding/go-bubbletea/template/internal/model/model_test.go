@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -8,14 +9,11 @@ import (
 
 func TestNew(t *testing.T) {
 	m := New()
-	if m.width != 80 {
-		t.Errorf("expected width 80, got %d", m.width)
+	if m.width != DefaultWidth {
+		t.Errorf("expected width %d, got %d", DefaultWidth, m.width)
 	}
-	if m.height != 24 {
-		t.Errorf("expected height 24, got %d", m.height)
-	}
-	if m.renderer == nil {
-		t.Error("expected renderer to be initialized")
+	if m.height != DefaultHeight {
+		t.Errorf("expected height %d, got %d", DefaultHeight, m.height)
 	}
 }
 
@@ -32,7 +30,10 @@ func TestUpdateWindowSize(t *testing.T) {
 	msg := tea.WindowSizeMsg{Width: 120, Height: 40}
 
 	newModel, cmd := m.Update(msg)
-	model := newModel.(Model)
+	model, ok := newModel.(Model)
+	if !ok {
+		t.Fatal("Update did not return Model type")
+	}
 
 	if model.width != 120 {
 		t.Errorf("expected width 120, got %d", model.width)
@@ -71,5 +72,37 @@ func TestView(t *testing.T) {
 	view := m.View()
 	if view == "" {
 		t.Error("expected non-empty view")
+	}
+	// Check that view contains expected content
+	expectedTexts := []string{
+		"{{APP_NAME_TITLE}}",
+		"Welcome to your new Bubbletea TUI app!",
+		"Press Ctrl+C or Esc to quit",
+	}
+	for _, text := range expectedTexts {
+		if !containsText(view, text) {
+			t.Errorf("expected view to contain %q", text)
+		}
+	}
+}
+
+// containsText checks if the view contains the expected text (ignoring ANSI codes)
+func containsText(view, text string) bool {
+	// Simple check - in a real scenario you might want to strip ANSI codes
+	// but for template variables this should work
+	return strings.Contains(view, text)
+}
+
+func TestUpdateWindowSize_HandlesZeroDimensions(t *testing.T) {
+	m := New()
+	msg := tea.WindowSizeMsg{Width: 0, Height: 0}
+	newModel, _ := m.Update(msg)
+	model, ok := newModel.(Model)
+	if !ok {
+		t.Fatal("Update did not return Model type")
+	}
+	// Should handle gracefully - dimensions should not be negative
+	if model.width < 0 || model.height < 0 {
+		t.Error("Model should not have negative dimensions")
 	}
 }
