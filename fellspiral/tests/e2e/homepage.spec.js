@@ -57,6 +57,25 @@ test.describe('Homepage', () => {
     await expect(initiativeSection).toBeInViewport();
   });
 
+  test('should have Card Manager link in sidebar', async ({ page }) => {
+    await page.goto('/');
+
+    // Wait for sidebar navigation to be ready
+    await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
+
+    // Check Card Manager link exists
+    const cardManagerLink = page.locator('.sidebar-nav a[href="/cards.html"]');
+    await expect(cardManagerLink).toBeVisible();
+    await expect(cardManagerLink).toContainText('Card Manager');
+
+    // Click Card Manager link
+    await cardManagerLink.click();
+
+    // Should navigate to cards page
+    await page.waitForURL(/\/cards\.html/);
+    await expect(page.url()).toContain('/cards.html');
+  });
+
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 

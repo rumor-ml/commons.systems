@@ -48,6 +48,7 @@ async function init() {
 
   await loadCards();
   setupEventListeners();
+  setupMobileMenu();
   renderTree();
   renderCards();
   updateStats();
@@ -118,6 +119,38 @@ function setupEventListeners() {
 
   // Close modal on backdrop click
   document.querySelector('.modal-backdrop').addEventListener('click', closeCardEditor);
+}
+
+// Setup mobile menu toggle functionality
+function setupMobileMenu() {
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  const sidebar = document.getElementById('sidebar');
+
+  if (mobileMenuToggle && sidebar) {
+    mobileMenuToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('active');
+    });
+
+    // Close sidebar when clicking a nav link on mobile
+    const navItems = sidebar.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('active');
+        }
+      });
+    });
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768 &&
+          !sidebar.contains(e.target) &&
+          !mobileMenuToggle.contains(e.target) &&
+          sidebar.classList.contains('active')) {
+        sidebar.classList.remove('active');
+      }
+    });
+  }
 }
 
 // Build and render tree
@@ -633,4 +666,9 @@ function exportCards() {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  // DOM already loaded
+  init();
+}
