@@ -16,6 +16,11 @@ on:
         description: 'PR number to clean up (optional - auto-detected on PR close)'
         required: false
         type: string
+      cleanup_all:
+        description: 'Clean up ALL preview channels (ignores other inputs)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GCP_PROJECT_ID: chalanding
@@ -37,9 +42,19 @@ jobs:
           EVENT_REF: ${{ github.event.ref }}
           INPUT_BRANCH_NAME: ${{ inputs.branch_name }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_CLEANUP_ALL: ${{ inputs.cleanup_all }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # Check for cleanup_all first
+          if [ "$INPUT_CLEANUP_ALL" = "true" ]; then
+            echo "type=all" >> $GITHUB_OUTPUT
+            echo "branch=" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+            echo "🧹 Cleaning up ALL preview channels"
+            exit 0
+          fi
+
           # Determine branch name
           if [ "$EVENT_NAME" = "delete" ]; then
             BRANCH_NAME="$EVENT_REF"
@@ -61,6 +76,7 @@ jobs:
           fi
 
           # Output values
+          echo "type=specific" >> $GITHUB_OUTPUT
           echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
           echo "pr_number=${PR_NUM}" >> $GITHUB_OUTPUT
 
@@ -106,11 +122,58 @@ jobs:
       - name: Delete Firebase Hosting preview channels
         continue-on-error: true
         env:
+          CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
           BRANCH_NAME: ${{ steps.targets.outputs.branch }}
           PR_NUMBER: ${{ steps.targets.outputs.pr_number }}
         run: |
           echo "🧹 Cleaning up Firebase Hosting preview channels"
 
+          # Sites to clean up
+          SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
+          DELETED_COUNT=0
+
+          # Handle cleanup_all mode
+          if [ "$CLEANUP_TYPE" = "all" ]; then
+            echo "Mode: Clean up ALL preview channels"
+            echo ""
+
+            for site in "${SITES[@]}"; do
+              echo "Processing site: ${site}"
+
+              # List all channels for this site
+              CHANNELS=$(firebase hosting:channel:list --site ${site} --project ${{ env.GCP_PROJECT_ID }} --json 2>/dev/null | jq -r '.result.channels[].name' 2>/dev/null || echo "")
+
+              if [ -z "$CHANNELS" ]; then
+                echo "  No channels found for ${site}"
+                continue
+              fi
+
+              # Delete each channel
+              while IFS= read -r channel; do
+                if [ -n "$channel" ] && [ "$channel" != "live" ]; then
+                  echo "  Deleting channel: ${channel}"
+                  if firebase hosting:channel:delete "$channel" \
+                    --site ${site} \
+                    --project ${{ env.GCP_PROJECT_ID }} \
+                    --force 2>&1; then
+                    echo "  ✅ Deleted"
+                    DELETED_COUNT=$((DELETED_COUNT + 1))
+                  else
+                    echo "  ⚠️  Failed to delete"
+                  fi
+                fi
+              done <<< "$CHANNELS"
+              echo ""
+            done
+
+            echo "### 🧹 Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Mode:** Clean up ALL preview channels" >> $GITHUB_STEP_SUMMARY
+            echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          # Original specific cleanup logic
           # Build list of channels to clean up
           CHANNELS_TO_DELETE=()
 
@@ -135,10 +198,6 @@ jobs:
             echo "PR: $PR_NUMBER"
             echo "PR channel: $PR_CHANNEL"
           fi
-
-          # Sites to clean up
-          SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
-          DELETED_COUNT=0
 
           # Delete each channel from each site
           for channel in "${CHANNELS_TO_DELETE[@]}"; do
