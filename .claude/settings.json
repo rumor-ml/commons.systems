@@ -93,6 +93,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/exit-plan-mode-reminder.sh"
+          }
+        ]
+      }
     ]
   }
 }
