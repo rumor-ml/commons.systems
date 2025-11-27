@@ -9,6 +9,12 @@
 export default {
   darkMode: 'media',
   theme: {
+    screens: {
+      'sm': '375px',
+      'md': '768px',
+      'lg': '1024px',
+      'xl': '1440px',
+    },
     extend: {
       colors: {
         // Backgrounds - use CSS variables for theme switching

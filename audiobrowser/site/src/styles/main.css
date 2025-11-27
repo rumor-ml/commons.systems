@@ -89,14 +89,14 @@ body {
 
 .main {
   display: grid;
-  grid-template-columns: 1fr 400px;
+  grid-template-columns: 1fr;
   gap: var(--spacing-md);
   flex: 1;
 }
 
-@media (max-width: 1024px) {
+@media (min-width: 1024px) {
   .main {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 400px;
   }
 }
 

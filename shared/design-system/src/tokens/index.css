@@ -44,3 +44,30 @@
   --container-xl: 80rem;    /* 1280px */
   --container-2xl: 96rem;   /* 1536px */
 }
+
+/* ==========================================================================
+   Viewport & Chrome Allowances
+   ========================================================================== */
+
+:root {
+  /* Browser/OS Chrome Allowances - easily configurable */
+  --chrome-allowance-horizontal: 200px;   /* Horizontal (dock, taskbar) - landscape only */
+  --chrome-allowance-vertical: 80px;      /* Vertical (browser toolbar, tabs) */
+
+  /* Effective viewport calculations */
+  --viewport-width: calc(100vw - var(--chrome-allowance-horizontal));
+  --viewport-height: calc(100vh - var(--chrome-allowance-vertical));
+
+  /* Breakpoint values */
+  --breakpoint-sm: 375px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+}
+
+/* No horizontal allowance in portrait mode */
+@media (orientation: portrait) {
+  :root {
+    --chrome-allowance-horizontal: 0px;
+  }
+}

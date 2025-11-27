@@ -5,10 +5,9 @@
 
 .container {
   width: 100%;
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: var(--spacing-4);
-  padding-right: var(--spacing-4);
+  max-width: var(--viewport-width);
+  margin-inline: auto;
+  padding-inline: var(--spacing-4);
 }
 
 /* Container sizes */
@@ -37,33 +36,26 @@
 }
 
 /* Responsive breakpoints */
-@media (min-width: 640px) {
-  .container {
-    max-width: var(--container-sm);
-  }
-}
-
+/* Tablet portrait (768px+) */
 @media (min-width: 768px) {
   .container {
-    max-width: var(--container-md);
+    max-width: min(720px, var(--viewport-width));
+    padding-inline: var(--spacing-6);
   }
 }
 
+/* Tablet landscape / Small desktop (1024px+) */
 @media (min-width: 1024px) {
   .container {
-    max-width: var(--container-lg);
+    max-width: min(960px, var(--viewport-width));
+    padding-inline: var(--spacing-8);
   }
 }
 
-@media (min-width: 1280px) {
+/* Desktop (1440px+) */
+@media (min-width: 1440px) {
   .container {
-    max-width: var(--container-xl);
-  }
-}
-
-@media (min-width: 1536px) {
-  .container {
-    max-width: var(--container-2xl);
+    max-width: min(1240px, var(--viewport-width));
   }
 }
 
