@@ -1,0 +1,22 @@
+name: Setup GCP Authentication
+description: Simplified GCP auth for E2E jobs (no Firebase needed)
+
+inputs:
+  workload_identity_provider:
+    description: GCP Workload Identity Provider
+    required: true
+  service_account:
+    description: GCP Service Account
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2

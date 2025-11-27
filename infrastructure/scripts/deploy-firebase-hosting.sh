@@ -122,9 +122,11 @@ else
   fi
 
   if [ -z "$DEPLOYMENT_URL" ]; then
-    # Fallback: construct URL manually
-    DEPLOYMENT_URL="https://${FIREBASE_SITE_ID}--${CHANNEL_NAME}.web.app"
-    echo "⚠️  Could not extract URL from Firebase output, using constructed URL"
+    echo "❌ CRITICAL: Could not extract deployment URL from Firebase output"
+    echo "This indicates deployment may have failed or CLI format changed."
+    echo "Firebase output:"
+    cat /tmp/firebase-deploy-output.txt
+    exit 1
   fi
 
   echo ""
