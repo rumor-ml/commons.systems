@@ -244,6 +244,13 @@ func TestGetExistingAlerts(t *testing.T) {
 }
 
 func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
+	// Clean up any stale alert files first
+	pattern := filepath.Join(alertDir, alertPrefix+"*")
+	matches, _ := filepath.Glob(pattern)
+	for _, file := range matches {
+		os.Remove(file)
+	}
+
 	watcher, err := NewAlertWatcher()
 	if err != nil {
 		t.Fatalf("NewAlertWatcher failed: %v", err)
@@ -251,6 +258,9 @@ func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+
+	// Small delay to ensure watcher is ready
+	time.Sleep(100 * time.Millisecond)
 
 	// Create a non-alert file
 	nonAlertFile := filepath.Join(alertDir, "not-an-alert.txt")
