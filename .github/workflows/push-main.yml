@@ -86,25 +86,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
@@ -116,25 +100,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh videobrowser
 
@@ -146,25 +114,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh audiobrowser
 
@@ -176,25 +128,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh print
 
@@ -222,35 +158,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y make
-          go install github.com/a-h/templ/cmd/templ@latest
-          pnpm install --frozen-lockfile
-          npx playwright install chromium --with-deps
+          install-playwright: 'true'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y make
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
       - name: Run tests
         run: ./infrastructure/scripts/test-go-fullstack-app.sh printsync
 
@@ -269,22 +196,17 @@ jobs:
       - name: Run tests
         run: ./infrastructure/scripts/test-go-package.sh pkg/filesync
 
-  # ==================== Step 2: Deploy Sites (Parallel) ====================
-  deploy-fellspiral:
-    name: Deploy fellspiral
+  # ==================== Deploy Firestore Rules ====================
+  deploy-firestore-rules:
+    name: Deploy Firestore Rules
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     needs: [test-firebase-fellspiral]
     if: needs.test-firebase-fellspiral.result == 'success'
-    outputs:
-      url: ${{ steps.site-url.outputs.url }}
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -295,40 +217,9 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Cache Firebase CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: firebase-cli-${{ runner.os }}-v1
-          restore-keys: |
-            firebase-cli-${{ runner.os }}-
-
-      - name: Install Firebase CLI
-        run: pnpm add -g firebase-tools
-
-      # Note: Firebase configuration is injected by deploy-firebase-hosting.sh script
-
-      # ========== Deploy Firestore Rules (Fellspiral only) ==========
       - name: Deploy Firestore rules
         run: |
           set -e
@@ -359,12 +250,42 @@ jobs:
             "https://firebaserules.googleapis.com/v1/projects/${{ env.GCP_PROJECT_ID }}/releases/cloud.firestore")
 
           if echo "$RELEASE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
-            echo "⚠️  Failed to release ruleset"
-          else
-            echo "✓ Firestore rules deployed"
+            echo "❌ CRITICAL: Failed to release Firestore ruleset"
+            echo "Error details:"
+            echo "$RELEASE_RESPONSE" | jq '.error'
+            exit 1
           fi
 
-      # ========== Deploy Site ==========
+          RELEASE_NAME=$(echo "$RELEASE_RESPONSE" | jq -r '.name // empty')
+          if [ -z "$RELEASE_NAME" ]; then
+            echo "❌ CRITICAL: Firestore rules release missing 'name' field"
+            exit 1
+          fi
+
+          echo "✓ Firestore rules deployed: $RELEASE_NAME"
+
+  # ==================== Step 2: Deploy Sites (Parallel) ====================
+  deploy-fellspiral:
+    name: Deploy fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-firebase-fellspiral]
+    if: needs.test-firebase-fellspiral.result == 'success'
+    outputs:
+      url: ${{ steps.site-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-gcp-firebase
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+
       - name: Deploy fellspiral to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
 
@@ -385,53 +306,17 @@ jobs:
       url: ${{ steps.site-url.outputs.url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'false'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install dependencies (jq)
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Cache Firebase CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: firebase-cli-${{ runner.os }}-v1
-          restore-keys: |
-            firebase-cli-${{ runner.os }}-
-
-      - name: Install Firebase CLI
-        run: pnpm add -g firebase-tools
-
-      # ========== Deploy Site ==========
       - name: Deploy videobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
 
@@ -452,53 +337,17 @@ jobs:
       url: ${{ steps.site-url.outputs.url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'false'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install dependencies (jq)
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Cache Firebase CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: firebase-cli-${{ runner.os }}-v1
-          restore-keys: |
-            firebase-cli-${{ runner.os }}-
-
-      - name: Install Firebase CLI
-        run: pnpm add -g firebase-tools
-
-      # ========== Deploy Site ==========
       - name: Deploy audiobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
 
@@ -519,53 +368,17 @@ jobs:
       url: ${{ steps.site-url.outputs.url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-firebase
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'false'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install dependencies (jq)
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Cache Firebase CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: firebase-cli-${{ runner.os }}-v1
-          restore-keys: |
-            firebase-cli-${{ runner.os }}-
-
-      - name: Install Firebase CLI
-        run: pnpm add -g firebase-tools
-
-      # ========== Deploy Site ==========
       - name: Deploy print to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
 
@@ -584,43 +397,16 @@ jobs:
     needs: [deploy-fellspiral]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'true'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - name: Test fellspiral
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
@@ -635,43 +421,16 @@ jobs:
     needs: [deploy-videobrowser]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'true'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - name: Test videobrowser
         run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.url }}"
@@ -686,43 +445,16 @@ jobs:
     needs: [deploy-audiobrowser]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'true'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - name: Test audiobrowser
         run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.url }}"
@@ -737,43 +469,16 @@ jobs:
     needs: [deploy-print]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-node-pnpm
         with:
-          version: 9
+          install-playwright: 'true'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: ./.github/actions/setup-gcp-auth
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - name: Test print
         run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.url }}"
@@ -841,6 +546,7 @@ jobs:
       test-go-fullstack-printsync,
       test-go-tui-tmux-tui,
       test-go-packages-filesync,
+      deploy-firestore-rules,
       deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print,
       e2e-fellspiral, e2e-videobrowser, e2e-audiobrowser, e2e-print
     ]
@@ -848,99 +554,51 @@ jobs:
 
     steps:
       - name: Check all jobs succeeded
-        run: |
-          echo "Checking job results..."
-          echo "Test Firebase Fellspiral: ${{ needs.test-firebase-fellspiral.result }}"
-          echo "Test Firebase Videobrowser: ${{ needs.test-firebase-videobrowser.result }}"
-          echo "Test Firebase Audiobrowser: ${{ needs.test-firebase-audiobrowser.result }}"
-          echo "Test Firebase Print: ${{ needs.test-firebase-print.result }}"
-          echo "Test Go Fullstack Printsync: ${{ needs.test-go-fullstack-printsync.result }}"
-          echo "Test Go TUI Tmux-Tui: ${{ needs.test-go-tui-tmux-tui.result }}"
-          echo "Test Go Packages Filesync: ${{ needs.test-go-packages-filesync.result }}"
-          echo "Deploy Fellspiral: ${{ needs.deploy-fellspiral.result }}"
-          echo "Deploy Videobrowser: ${{ needs.deploy-videobrowser.result }}"
-          echo "Deploy Audiobrowser: ${{ needs.deploy-audiobrowser.result }}"
-          echo "Deploy Print: ${{ needs.deploy-print.result }}"
-          echo "E2E Fellspiral: ${{ needs.e2e-fellspiral.result }}"
-          echo "E2E Videobrowser: ${{ needs.e2e-videobrowser.result }}"
-          echo "E2E Audiobrowser: ${{ needs.e2e-audiobrowser.result }}"
-          echo "E2E Print: ${{ needs.e2e-print.result }}"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const testJobs = [
+              'test-firebase-fellspiral', 'test-firebase-videobrowser',
+              'test-firebase-audiobrowser', 'test-firebase-print',
+              'test-go-fullstack-printsync', 'test-go-tui-tmux-tui',
+              'test-go-packages-filesync'
+            ];
+            const deployJobs = [
+              'deploy-fellspiral', 'deploy-videobrowser',
+              'deploy-audiobrowser', 'deploy-print',
+              'deploy-firestore-rules'
+            ];
+            const e2eJobs = [
+              'e2e-fellspiral', 'e2e-videobrowser',
+              'e2e-audiobrowser', 'e2e-print'
+            ];
 
-          # All jobs must succeed or be skipped for merge check to pass
-          # Skipped jobs (when no apps of that type exist) are okay
-          if [[ "${{ needs.test-firebase-fellspiral.result }}" != "success" && "${{ needs.test-firebase-fellspiral.result }}" != "skipped" ]]; then
-            echo "❌ Firebase Fellspiral tests failed"
-            exit 1
-          fi
+            const needs = ${{ toJson(needs) }};
+            let failed = false;
 
-          if [[ "${{ needs.test-firebase-videobrowser.result }}" != "success" && "${{ needs.test-firebase-videobrowser.result }}" != "skipped" ]]; then
-            echo "❌ Firebase Videobrowser tests failed"
-            exit 1
-          fi
+            // Test jobs can be skipped (if app doesn't exist)
+            for (const job of testJobs) {
+              const result = needs[job]?.result;
+              if (result !== 'success' && result !== 'skipped') {
+                console.log(`❌ ${job} failed with result: ${result}`);
+                failed = true;
+              }
+            }
 
-          if [[ "${{ needs.test-firebase-audiobrowser.result }}" != "success" && "${{ needs.test-firebase-audiobrowser.result }}" != "skipped" ]]; then
-            echo "❌ Firebase Audiobrowser tests failed"
-            exit 1
-          fi
+            // Deploy/E2E jobs should NEVER skip
+            for (const job of [...deployJobs, ...e2eJobs]) {
+              const result = needs[job]?.result;
+              if (result === 'skipped') {
+                console.log(`❌ CRITICAL: ${job} was skipped (workflow bug)`);
+                failed = true;
+              } else if (result !== 'success') {
+                console.log(`❌ ${job} failed with result: ${result}`);
+                failed = true;
+              }
+            }
 
-          if [[ "${{ needs.test-firebase-print.result }}" != "success" && "${{ needs.test-firebase-print.result }}" != "skipped" ]]; then
-            echo "❌ Firebase Print tests failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.test-go-fullstack-printsync.result }}" != "success" && "${{ needs.test-go-fullstack-printsync.result }}" != "skipped" ]]; then
-            echo "❌ Go Fullstack Printsync tests failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.test-go-tui-tmux-tui.result }}" != "success" && "${{ needs.test-go-tui-tmux-tui.result }}" != "skipped" ]]; then
-            echo "❌ Go TUI Tmux-Tui tests failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.test-go-packages-filesync.result }}" != "success" && "${{ needs.test-go-packages-filesync.result }}" != "skipped" ]]; then
-            echo "❌ Go Packages Filesync tests failed"
-            exit 1
-          fi
-
-          if [ "${{ needs.deploy-fellspiral.result }}" != "success" ]; then
-            echo "❌ Fellspiral deployment failed or was skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.deploy-videobrowser.result }}" != "success" ]; then
-            echo "❌ Videobrowser deployment failed or was skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.deploy-audiobrowser.result }}" != "success" ]; then
-            echo "❌ Audiobrowser deployment failed or was skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.deploy-print.result }}" != "success" ]; then
-            echo "❌ Print deployment failed or was skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.e2e-fellspiral.result }}" != "success" ]; then
-            echo "❌ Fellspiral E2E tests failed or were skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.e2e-videobrowser.result }}" != "success" ]; then
-            echo "❌ Videobrowser E2E tests failed or were skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.e2e-audiobrowser.result }}" != "success" ]; then
-            echo "❌ Audiobrowser E2E tests failed or were skipped"
-            exit 1
-          fi
-
-          if [ "${{ needs.e2e-print.result }}" != "success" ]; then
-            echo "❌ Print E2E tests failed or were skipped"
-            exit 1
-          fi
-
-          echo "✅ All required jobs succeeded - merge check passed!"
+            if (failed) {
+              core.setFailed('Required jobs did not pass');
+            } else {
+              console.log('✅ All required jobs succeeded');
+            }
