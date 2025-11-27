@@ -83,6 +83,12 @@ else
   # Preview channel deployment
   echo "🔍 Deploying to preview channel..."
 
+  # Clean up stale channels first to avoid quota errors
+  echo "🧹 Running cleanup to avoid quota issues..."
+  "$(dirname "$0")/cleanup-stale-channels.sh" "$SITE_NAME" || {
+    echo "⚠️  Cleanup failed but continuing with deployment"
+  }
+
   # Sanitize branch name for channel name (lowercase, alphanumeric, hyphens only, max 63 chars)
   # Firebase channel names: lowercase letters, numbers, hyphens (no consecutive hyphens)
   CHANNEL_NAME=$(echo "$BRANCH_NAME" | \

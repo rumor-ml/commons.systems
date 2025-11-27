@@ -113,9 +113,9 @@ func (w *AlertWatcher) watch() {
 				continue
 			}
 
-			// Send event (blocking to ensure no events are dropped)
-			// This is safe because fsnotify events are rate-limited by filesystem operations
-			// and the event loop processes them quickly
+			// Attempt to send event. May drop if watcher is shutting down,
+			// which is acceptable since we're terminating anyway.
+			// This is safe because fsnotify events are rate-limited by filesystem operations.
 			select {
 			case w.alertCh <- alertEvent:
 			case <-w.done:
@@ -126,9 +126,8 @@ func (w *AlertWatcher) watch() {
 			if !ok {
 				return
 			}
-			// Log error but continue watching
-			// In production, you might want to send errors to a logging channel
-			_ = err
+			// Log critical filesystem errors
+			fmt.Fprintf(os.Stderr, "Alert watcher error: %v\n", err)
 		}
 	}
 }
@@ -163,13 +162,13 @@ func (w *AlertWatcher) Close() error {
 
 // GetExistingAlerts returns a map of currently active alert files
 // This is useful for initializing state when the watcher starts
-func GetExistingAlerts() map[string]bool {
+func GetExistingAlerts() (map[string]bool, error) {
 	alerts := make(map[string]bool)
 
 	pattern := filepath.Join(alertDir, alertPrefix+"*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return alerts
+		return nil, fmt.Errorf("failed to glob alert files: %w", err)
 	}
 
 	for _, file := range matches {
@@ -180,5 +179,5 @@ func GetExistingAlerts() map[string]bool {
 		}
 	}
 
-	return alerts
+	return alerts, nil
 }

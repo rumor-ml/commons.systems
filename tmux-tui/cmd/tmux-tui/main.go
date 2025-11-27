@@ -46,13 +46,17 @@ func initialModel() model {
 	// Initialize alert watcher
 	alertWatcher, watcherErr := watcher.NewAlertWatcher()
 	if watcherErr != nil {
-		// If watcher fails to initialize, we'll continue without it
-		// This prevents the app from failing completely
+		fmt.Fprintf(os.Stderr, "Warning: Alert watcher failed to initialize: %v\n", watcherErr)
+		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
 		alertWatcher = nil
 	}
 
 	// Load existing alerts
-	alerts := watcher.GetExistingAlerts()
+	alerts, alertsErr := watcher.GetExistingAlerts()
+	if alertsErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load existing alerts: %v\n", alertsErr)
+		alerts = make(map[string]bool)
+	}
 
 	return model{
 		collector:    collector,
@@ -163,7 +167,10 @@ func (m model) View() string {
 // watchAlertsCmd watches for alert file changes
 func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
 	return func() tea.Msg {
-		event := <-w.Start()
+		event, ok := <-w.Start()
+		if !ok {
+			return nil // Channel closed, no more events
+		}
 		return alertChangedMsg{
 			paneID:  event.PaneID,
 			created: event.Created,
@@ -179,7 +186,8 @@ func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
 	}
 }
 
-// reconcileAlerts removes alerts for panes that no longer exist
+// reconcileAlerts removes alerts for panes that no longer exist.
+// It modifies the alerts map in-place and returns the same map.
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]bool) map[string]bool {
 	// Build set of valid pane IDs from tree
 	validPanes := make(map[string]bool)

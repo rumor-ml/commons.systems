@@ -265,3 +265,21 @@ func TestClaudePaneCache_Size(t *testing.T) {
 		t.Errorf("Expected size 1 after invalidate, got %d", cache.Size())
 	}
 }
+
+func TestClaudePaneCache_CleanupExceptEmpty(t *testing.T) {
+	cache := NewClaudePaneCache(30 * time.Second)
+	cache.Set("1234", true)
+	cache.Set("5678", false)
+
+	// Verify entries exist
+	if cache.Size() != 2 {
+		t.Errorf("Expected 2 entries, got %d", cache.Size())
+	}
+
+	// Clean up with empty valid PIDs map - should remove everything
+	cache.CleanupExcept(map[string]bool{})
+
+	if cache.Size() != 0 {
+		t.Errorf("Expected cache to be empty after CleanupExcept with empty map, got %d entries", cache.Size())
+	}
+}

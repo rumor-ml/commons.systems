@@ -55,7 +55,10 @@ func realInitialModel() realModel {
 		alertWatcher = nil
 	}
 
-	alerts := watcher.GetExistingAlerts()
+	alerts, alertsErr := watcher.GetExistingAlerts()
+	if alertsErr != nil {
+		alerts = make(map[string]bool)
+	}
 
 	return realModel{
 		collector:    collector,
@@ -168,7 +171,10 @@ func (m realModel) GetAlertsForTesting() map[string]bool {
 
 func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
 	return func() tea.Msg {
-		event := <-w.Start()
+		event, ok := <-w.Start()
+		if !ok {
+			return nil // Channel closed, no more events
+		}
 		return alertChangedMsg{
 			paneID:  event.PaneID,
 			created: event.Created,
@@ -621,7 +627,10 @@ func TestIntegration_MultipleAlertsSameTime(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Verify all files exist
-	existingAlerts := watcher.GetExistingAlerts()
+	existingAlerts, err := watcher.GetExistingAlerts()
+	if err != nil {
+		t.Fatalf("Failed to get existing alerts: %v", err)
+	}
 	if len(existingAlerts) < numAlerts {
 		t.Logf("Warning: Expected at least %d alerts, got %d", numAlerts, len(existingAlerts))
 	}
@@ -672,4 +681,99 @@ func TestIntegration_ViewOutputContainsAlerts(t *testing.T) {
 	}
 
 	t.Logf("View output length: %d characters", len(output))
+}
+
+// TestIntegration_InitializationFailureGracefulDegradation verifies the app continues
+// functioning when alert watcher initialization fails
+func TestIntegration_InitializationFailureGracefulDegradation(t *testing.T) {
+	// Make alert directory unreadable to force initialization failure
+	// Save original permissions
+	dirInfo, err := os.Stat(testAlertDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("Failed to stat alert directory: %v", err)
+	}
+
+	// Create directory if it doesn't exist
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(testAlertDir, 0755); err != nil {
+			t.Fatalf("Failed to create alert directory: %v", err)
+		}
+		dirInfo, err = os.Stat(testAlertDir)
+		if err != nil {
+			t.Fatalf("Failed to stat newly created alert directory: %v", err)
+		}
+	}
+
+	originalMode := dirInfo.Mode()
+	defer os.Chmod(testAlertDir, originalMode) // Restore permissions
+
+	// Make directory unreadable/unwritable
+	if err := os.Chmod(testAlertDir, 0000); err != nil {
+		t.Fatalf("Failed to change alert directory permissions: %v", err)
+	}
+
+	// Ensure permissions are restored even if test fails
+	defer func() {
+		os.Chmod(testAlertDir, originalMode)
+	}()
+
+	// Try to initialize the model - should handle failure gracefully
+	m := realInitialModel()
+
+	// AlertWatcher should be nil due to initialization failure
+	if m.alertWatcher != nil {
+		t.Error("Expected alertWatcher to be nil after initialization failure")
+	}
+
+	// Restore permissions for the rest of the test
+	if err := os.Chmod(testAlertDir, originalMode); err != nil {
+		t.Fatalf("Failed to restore alert directory permissions: %v", err)
+	}
+
+	// Start the TUI - should work without alert watcher
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	defer tm.Quit()
+
+	// Wait for initialization
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify app still functions (can quit)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	t.Log("App functioned correctly despite alert watcher initialization failure")
+}
+
+// TestIntegration_ReconcileAlertsWithEmptyTree verifies that stale alerts are
+// cleaned up when all panes disappear
+func TestIntegration_ReconcileAlertsWithEmptyTree(t *testing.T) {
+	m := realInitialModel()
+
+	// Add multiple alerts manually
+	m.alertsMu.Lock()
+	m.alerts["%100"] = true
+	m.alerts["%101"] = true
+	m.alerts["%102"] = true
+	initialAlertCount := len(m.alerts)
+	m.alertsMu.Unlock()
+
+	if initialAlertCount != 3 {
+		t.Fatalf("Expected 3 initial alerts, got %d", initialAlertCount)
+	}
+
+	// Create an empty tree (no repos, no branches, no panes)
+	emptyTree := make(tmux.RepoTree)
+
+	// Call reconcileAlerts with empty tree
+	m.alertsMu.Lock()
+	m.alerts = reconcileAlerts(emptyTree, m.alerts)
+	finalAlertCount := len(m.alerts)
+	m.alertsMu.Unlock()
+
+	// All alerts should be removed
+	if finalAlertCount != 0 {
+		t.Errorf("Expected 0 alerts after reconciling with empty tree, got %d", finalAlertCount)
+	}
+
+	t.Log("All stale alerts were successfully cleaned up when tree became empty")
 }

@@ -20,6 +20,9 @@ type ClaudePaneCache struct {
 
 // NewClaudePaneCache creates a new cache with the specified TTL
 func NewClaudePaneCache(ttl time.Duration) *ClaudePaneCache {
+	if ttl <= 0 {
+		panic("ClaudePaneCache: ttl must be positive")
+	}
 	return &ClaudePaneCache{
 		cache: make(map[string]cacheEntry),
 		ttl:   ttl,
@@ -39,9 +42,9 @@ func (c *ClaudePaneCache) Get(panePID string) (bool, bool) {
 
 	// Check if expired
 	if time.Now().After(entry.expiresAt) {
-		// Expired - don't return it
-		// We don't clean up here to keep Get() fast
-		// Cleanup happens in Set() or explicit Cleanup()
+		// Expired entries remain in cache until CleanupExcept() is called.
+		// This keeps Get() lock-free and fast, trading memory for performance.
+		// Cleanup is guaranteed at each GetTree() call via CleanupExcept().
 		return false, false
 	}
 

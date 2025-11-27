@@ -110,7 +110,9 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		tree[repo][branch] = append(tree[repo][branch], pane)
 	}
 
-	// Clean up cache entries for panes that no longer exist
+	// Clean up cache entries for panes that no longer exist.
+	// This is the primary mechanism preventing unbounded cache growth,
+	// called on every GetTree() invocation (typically every 30s).
 	c.claudeCache.CleanupExcept(validPIDs)
 
 	return tree, nil

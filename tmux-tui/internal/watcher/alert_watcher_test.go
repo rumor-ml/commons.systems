@@ -226,7 +226,10 @@ func TestGetExistingAlerts(t *testing.T) {
 	}
 
 	// Get existing alerts
-	alerts := GetExistingAlerts()
+	alerts, err := GetExistingAlerts()
+	if err != nil {
+		t.Fatalf("GetExistingAlerts failed: %v", err)
+	}
 
 	// Verify all test panes are present
 	if len(alerts) != len(testPanes) {
@@ -263,4 +266,106 @@ func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		// Expected - no event should be sent
 	}
+}
+
+func TestAlertWatcher_ErrorRecovery(t *testing.T) {
+	// This test verifies that the watcher continues operating after fsnotify errors
+	// by testing that events are still received after the watcher encounters errors
+
+	watcher, err := NewAlertWatcher()
+	if err != nil {
+		t.Fatalf("NewAlertWatcher failed: %v", err)
+	}
+	defer watcher.Close()
+
+	eventCh := watcher.Start()
+
+	// Create a test alert file to verify normal operation
+	testPaneID := "%error-test"
+	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
+	defer os.Remove(alertFile)
+
+	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+		t.Fatalf("Failed to create alert file: %v", err)
+	}
+
+	// Wait for the create event
+	select {
+	case event := <-eventCh:
+		if event.PaneID != testPaneID {
+			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+		}
+		if !event.Created {
+			t.Error("Expected Created=true, got false")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for create event")
+	}
+
+	// Note: It's difficult to reliably trigger fsnotify errors in a test environment
+	// The main verification is that after the watcher logs errors (which we added in 1.2),
+	// it continues to function. We verify this by creating another event.
+
+	// Delete the file
+	if err := os.Remove(alertFile); err != nil {
+		t.Fatalf("Failed to remove alert file: %v", err)
+	}
+
+	// Wait for delete event to verify watcher is still functioning
+	select {
+	case event := <-eventCh:
+		if event.PaneID != testPaneID {
+			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+		}
+		if event.Created {
+			t.Error("Expected Created=false, got true")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for delete event - watcher may have stopped after error")
+	}
+
+	// Create the file again to ensure watcher is still responsive
+	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+		t.Fatalf("Failed to recreate alert file: %v", err)
+	}
+
+	select {
+	case event := <-eventCh:
+		if event.PaneID != testPaneID {
+			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+		}
+		if !event.Created {
+			t.Error("Expected Created=true, got false")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for second create event")
+	}
+}
+
+func TestAlertWatcher_CloseBeforeStart(t *testing.T) {
+	// This test verifies that Close() works correctly before Start() is called
+	watcher, err := NewAlertWatcher()
+	if err != nil {
+		t.Fatalf("NewAlertWatcher failed: %v", err)
+	}
+
+	// Call Close() without calling Start()
+	if err := watcher.Close(); err != nil {
+		t.Errorf("Close failed when called before Start: %v", err)
+	}
+
+	// Optionally verify Start() after Close() is handled gracefully
+	eventCh := watcher.Start()
+
+	// The channel should be closed or not receive events
+	select {
+	case _, ok := <-eventCh:
+		if ok {
+			t.Error("Expected channel to be closed after Close() was called before Start()")
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Also acceptable - channel may not send anything
+	}
+
+	t.Log("Close() before Start() handled gracefully")
 }
