@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 
 	"cloud.google.com/go/storage"
@@ -44,10 +45,16 @@ func NewRouter(
 
 	// Initialize sync infrastructure
 	registry := handlers.NewSessionRegistry()
-	hub := streaming.NewStreamHub(sessionStore, fileStore)
+	hub, err := streaming.NewStreamHub(sessionStore, fileStore)
+	if err != nil {
+		log.Fatalf("Failed to create stream hub: %v", err)
+	}
 
 	// Sync handlers
-	syncH := handlers.NewSyncHandlers(gcsClient, bucket, fs, sessionStore, fileStore, registry, hub)
+	syncH, err := handlers.NewSyncHandlers(gcsClient, bucket, fs, sessionStore, fileStore, registry, hub)
+	if err != nil {
+		log.Fatalf("Failed to create sync handlers: %v", err)
+	}
 
 	// Protected sync API routes (require Firebase Auth)
 	authMiddleware := middleware.FirebaseAuth(firebaseApp)

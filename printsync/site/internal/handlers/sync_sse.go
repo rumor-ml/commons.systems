@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
+	"printsync/internal/middleware"
 	"printsync/internal/streaming"
 )
 
@@ -13,10 +15,25 @@ import (
 func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 
-	// Verify session exists
+	// Get authenticated user
+	authInfo, ok := middleware.GetAuth(r)
+	if !ok {
+		log.Printf("ERROR: StreamSession for session %s - unauthorized access attempt", sessionID)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify session exists and ownership
 	session, err := h.sessionStore.Get(r.Context(), sessionID)
 	if err != nil {
+		log.Printf("ERROR: StreamSession for user %s, session %s - session not found: %v", authInfo.UserID, sessionID, err)
 		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	if session.UserID != authInfo.UserID {
+		log.Printf("ERROR: StreamSession - user %s attempted to stream session %s owned by %s", authInfo.UserID, sessionID, session.UserID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -28,6 +45,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		log.Printf("ERROR: StreamSession for user %s, session %s - streaming not supported", authInfo.UserID, sessionID)
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}

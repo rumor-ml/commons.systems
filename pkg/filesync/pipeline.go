@@ -181,14 +181,15 @@ func (p *Pipeline) Run(ctx context.Context, rootDir, userID string) (*PipelineRe
 // RunAsync is deprecated. Use RunExtractionAsync instead.
 // RunAsync executes the extraction pipeline asynchronously and returns result and progress channels.
 func (p *Pipeline) RunAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
-	return p.RunExtractionAsync(ctx, rootDir, userID)
+	_, resultCh, progressCh, err := p.RunExtractionAsync(ctx, rootDir, userID)
+	return resultCh, progressCh, err
 }
 
 // RunExtraction executes the extraction pipeline synchronously and returns the result.
 // This method discovers files and extracts metadata, stopping at FileStatusExtracted.
 // Files must be explicitly approved via ApproveAndUpload or ApproveAllAndUpload before upload.
 func (p *Pipeline) RunExtraction(ctx context.Context, rootDir, userID string) (*PipelineResult, error) {
-	resultCh, progressCh, err := p.RunExtractionAsync(ctx, rootDir, userID)
+	_, resultCh, progressCh, err := p.RunExtractionAsync(ctx, rootDir, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,10 +206,10 @@ func (p *Pipeline) RunExtraction(ctx context.Context, rootDir, userID string) (*
 	return result, nil
 }
 
-// RunExtractionAsync executes the extraction pipeline asynchronously and returns result and progress channels.
+// RunExtractionAsync executes the extraction pipeline asynchronously and returns session ID, result and progress channels.
 // This method discovers files and extracts metadata, stopping at FileStatusExtracted.
 // Files must be explicitly approved via ApproveAndUpload or ApproveAllAndUpload before upload.
-func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
+func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID string) (string, <-chan *PipelineResult, <-chan Progress, error) {
 	// Create session
 	session := &SyncSession{
 		ID:        uuid.New().String(),
@@ -220,7 +221,7 @@ func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID strin
 	}
 
 	if err := p.sessionStore.Create(ctx, session); err != nil {
-		return nil, nil, fmt.Errorf("failed to create session: %w", err)
+		return "", nil, nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	// Create channels
@@ -230,7 +231,7 @@ func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID strin
 	// Start pipeline in background
 	go p.execute(ctx, session, rootDir, resultCh, progressCh)
 
-	return resultCh, progressCh, nil
+	return session.ID, resultCh, progressCh, nil
 }
 
 // execute runs the pipeline orchestration logic

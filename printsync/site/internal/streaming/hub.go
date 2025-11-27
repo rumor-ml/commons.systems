@@ -2,7 +2,9 @@ package streaming
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/commons-systems/filesync"
 )
@@ -24,13 +26,18 @@ type SessionBroadcaster struct {
 	mu      sync.RWMutex
 	clients map[*Client]bool
 	merger  *StreamMerger
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewSessionBroadcaster creates a new session broadcaster
-func NewSessionBroadcaster(merger *StreamMerger) *SessionBroadcaster {
+func NewSessionBroadcaster(ctx context.Context, merger *StreamMerger) *SessionBroadcaster {
+	ctx, cancel := context.WithCancel(ctx)
 	return &SessionBroadcaster{
 		clients: make(map[*Client]bool),
 		merger:  merger,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
@@ -51,18 +58,39 @@ func (b *SessionBroadcaster) Unregister(client *Client) {
 	}
 }
 
+// ClientCount returns the number of connected clients
+func (b *SessionBroadcaster) ClientCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.clients)
+}
+
+// Stop stops the broadcaster and cleans up resources
+func (b *SessionBroadcaster) Stop() {
+	b.cancel()
+	b.merger.Stop()
+}
+
 // Start starts broadcasting events from the merger to all clients
-func (b *SessionBroadcaster) Start(ctx context.Context) {
+func (b *SessionBroadcaster) Start() {
 	go func() {
+		defer b.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-b.ctx.Done():
 				return
 			case event, ok := <-b.merger.Events():
 				if !ok {
 					return
 				}
 				b.broadcast(event)
+
+				// If this is a complete event, stop the broadcaster after a short delay
+				// to allow final events to be sent
+				if event.Type == EventTypeComplete {
+					time.Sleep(100 * time.Millisecond)
+					return
+				}
 			}
 		}
 	}()
@@ -90,12 +118,19 @@ type StreamHub struct {
 }
 
 // NewStreamHub creates a new stream hub
-func NewStreamHub(sessionStore filesync.SessionStore, fileStore filesync.FileStore) *StreamHub {
+func NewStreamHub(sessionStore filesync.SessionStore, fileStore filesync.FileStore) (*StreamHub, error) {
+	if sessionStore == nil {
+		return nil, fmt.Errorf("sessionStore is required")
+	}
+	if fileStore == nil {
+		return nil, fmt.Errorf("fileStore is required")
+	}
+
 	return &StreamHub{
 		broadcasters: make(map[string]*SessionBroadcaster),
 		sessionStore: sessionStore,
 		fileStore:    fileStore,
-	}
+	}, nil
 }
 
 // Register registers a client for a session and returns the client
@@ -109,8 +144,13 @@ func (h *StreamHub) Register(sessionID string) *Client {
 	broadcaster, exists := h.broadcasters[sessionID]
 	if !exists {
 		// Broadcaster will be started when StartSession is called
-		merger := NewStreamMerger(h.sessionStore, h.fileStore)
-		broadcaster = NewSessionBroadcaster(merger)
+		merger, err := NewStreamMerger(h.sessionStore, h.fileStore)
+		if err != nil {
+			// This should never happen since we validate stores in NewStreamHub
+			// But we return nil to prevent panic
+			return nil
+		}
+		broadcaster = NewSessionBroadcaster(context.Background(), merger)
 		h.broadcasters[sessionID] = broadcaster
 	}
 
@@ -120,11 +160,20 @@ func (h *StreamHub) Register(sessionID string) *Client {
 
 // Unregister removes a client from a session
 func (h *StreamHub) Unregister(sessionID string, client *Client) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	if broadcaster, exists := h.broadcasters[sessionID]; exists {
-		broadcaster.Unregister(client)
+	broadcaster, exists := h.broadcasters[sessionID]
+	if !exists {
+		return
+	}
+
+	broadcaster.Unregister(client)
+
+	// If this was the last client, clean up the broadcaster
+	if broadcaster.ClientCount() == 0 {
+		broadcaster.Stop()
+		delete(h.broadcasters, sessionID)
 	}
 }
 
@@ -136,25 +185,28 @@ func (h *StreamHub) StartSession(ctx context.Context, sessionID string, progress
 	broadcaster, exists := h.broadcasters[sessionID]
 	if !exists {
 		// Create new broadcaster if it doesn't exist
-		merger := NewStreamMerger(h.sessionStore, h.fileStore)
-		broadcaster = NewSessionBroadcaster(merger)
+		merger, err := NewStreamMerger(h.sessionStore, h.fileStore)
+		if err != nil {
+			return err
+		}
+		broadcaster = NewSessionBroadcaster(ctx, merger)
 		h.broadcasters[sessionID] = broadcaster
 	}
 
 	// Start subscriptions
-	if err := broadcaster.merger.StartSessionSubscription(ctx, sessionID); err != nil {
+	if err := broadcaster.merger.StartSessionSubscription(broadcaster.ctx, sessionID); err != nil {
 		return err
 	}
 
-	if err := broadcaster.merger.StartFileSubscription(ctx, sessionID); err != nil {
+	if err := broadcaster.merger.StartFileSubscription(broadcaster.ctx, sessionID); err != nil {
 		return err
 	}
 
 	// Forward pipeline progress
-	broadcaster.merger.StartProgressForwarder(ctx, progressCh)
+	broadcaster.merger.StartProgressForwarder(broadcaster.ctx, progressCh)
 
 	// Start broadcasting
-	broadcaster.Start(ctx)
+	broadcaster.Start()
 
 	return nil
 }

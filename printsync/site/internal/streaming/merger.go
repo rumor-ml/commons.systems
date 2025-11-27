@@ -2,6 +2,8 @@ package streaming
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/commons-systems/filesync"
@@ -13,16 +15,25 @@ type StreamMerger struct {
 	fileStore    filesync.FileStore
 	eventsCh     chan SSEEvent
 	done         chan struct{}
+	mu           sync.Mutex
+	stopped      bool
 }
 
 // NewStreamMerger creates a new stream merger
-func NewStreamMerger(sessionStore filesync.SessionStore, fileStore filesync.FileStore) *StreamMerger {
+func NewStreamMerger(sessionStore filesync.SessionStore, fileStore filesync.FileStore) (*StreamMerger, error) {
+	if sessionStore == nil {
+		return nil, fmt.Errorf("sessionStore is required")
+	}
+	if fileStore == nil {
+		return nil, fmt.Errorf("fileStore is required")
+	}
+
 	return &StreamMerger{
 		sessionStore: sessionStore,
 		fileStore:    fileStore,
 		eventsCh:     make(chan SSEEvent, 100),
 		done:         make(chan struct{}),
-	}
+	}, nil
 }
 
 // StartProgressForwarder forwards pipeline progress events to the events channel
@@ -127,6 +138,14 @@ func (m *StreamMerger) Events() <-chan SSEEvent {
 
 // Stop stops the stream merger and closes the events channel
 func (m *StreamMerger) Stop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.stopped {
+		return
+	}
+	m.stopped = true
+
 	close(m.done)
 	close(m.eventsCh)
 }
