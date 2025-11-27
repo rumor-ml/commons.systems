@@ -13,4 +13,4 @@ model: haiku
 5. Create worktree in ~/worktrees with this branch name, branching off main.
 6. Set upstream to origin/<branch-name> (don't push).
 7. Run `direnv allow` in the new worktree directory to enable the environment.
-8. Open a new tmux window running claude: `tmux new-window -n "<branch-name>" -c "<worktree-path>" claude`
+8. Open a new tmux window running claude in nix dev shell: `tmux new-window -n "<branch-name>" -c "<worktree-path>" "nix develop -c claude"`
