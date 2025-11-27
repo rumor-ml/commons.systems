@@ -11,7 +11,6 @@ This document describes the refactoring of GitHub Actions workflows to manage st
 The previous architecture used `workflow_run` triggers to chain workflows together:
 - `ci.yml` → triggered by `deploy-feature-branch.yml` OR `push`
 - `infrastructure.yml` → triggered by `ci.yml`
-- `deploy-playwright-server.yml` → triggered by `infrastructure.yml`
 - `deploy.yml` (fellspiral) → triggered by `infrastructure.yml`
 - `deploy-videobrowser.yml` → triggered by `infrastructure.yml`
 
@@ -30,21 +29,21 @@ The new architecture uses a single `push.yml` workflow with clearly defined job 
    - Depends on: Local Tests
 
 3. **Deploy** (parallel, only if changed)
-   - Deploy Playwright Server (if changed and on main)
    - Deploy Fellspiral (if changed)
    - Deploy Videobrowser (if changed)
      - Includes Firebase configuration injection
      - Deploys Firebase Storage rules
    - Depends on: Local Tests, Infrastructure
 
-4. **Playwright Tests** (parallel, per site)
-   - Test Fellspiral (depends only on: Deploy Fellspiral, Playwright Server)
-   - Test Videobrowser (depends only on: Deploy Videobrowser, Playwright Server)
+4. **E2E Tests** (parallel, per site)
+   - Test Fellspiral (depends only on: Deploy Fellspiral)
+   - Test Videobrowser (depends only on: Deploy Videobrowser)
    - Each site's tests run independently in parallel
+   - Uses local Playwright browser installation on GitHub runners
 
 5. **Rollback** (on failure, only on main)
-   - Rollback Fellspiral (depends on: Deploy Fellspiral, Playwright Tests Fellspiral)
-   - Rollback Videobrowser (depends on: Deploy Videobrowser, Playwright Tests Videobrowser)
+   - Rollback Fellspiral (depends on: Deploy Fellspiral, E2E Tests Fellspiral)
+   - Rollback Videobrowser (depends on: Deploy Videobrowser, E2E Tests Videobrowser)
    - Each site rolls back independently if its tests fail
 
 ## Common Logic Extracted
@@ -56,9 +55,8 @@ Created reusable scripts in `infrastructure/scripts/`:
 - `health-check.sh` - Wait for services to be healthy
 - `get-deployment-url.sh` - Get deployment URLs
 - `deploy-site.sh` - Deploy sites to Cloud Run
-- `deploy-playwright-server.sh` - Deploy Playwright server
 - `run-local-tests.sh` - Run local tests
-- `run-playwright-tests.sh` - Run Playwright tests
+- `run-playwright-tests.sh` - Run E2E tests with local browsers
 
 ## Workflows Updated
 
@@ -75,7 +73,6 @@ Created reusable scripts in `infrastructure/scripts/`:
 - ❌ `ci.yml` - Replaced by `push.yml` local tests
 - ❌ `ci-videobrowser.yml` - Replaced by `push.yml` local tests
 - ❌ `infrastructure.yml` - Integrated into `push.yml`
-- ❌ `deploy-playwright-server.yml` - Integrated into `push.yml`
 - ❌ `deploy.yml` - Replaced by `push.yml` deploy jobs
 - ❌ `deploy-videobrowser.yml` - Replaced by `push.yml` deploy jobs
 - ❌ `deploy-feature-branch.yml` - Replaced by `push.yml` deploy jobs
@@ -100,7 +97,6 @@ Created reusable scripts in `infrastructure/scripts/`:
    rm .github/workflows/ci.yml
    rm .github/workflows/ci-videobrowser.yml
    rm .github/workflows/infrastructure.yml
-   rm .github/workflows/deploy-playwright-server.yml
    rm .github/workflows/deploy.yml
    rm .github/workflows/deploy-videobrowser.yml
    rm .github/workflows/deploy-feature-branch.yml
