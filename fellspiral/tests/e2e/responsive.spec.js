@@ -1,10 +1,11 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { VIEWPORTS, setupMobileViewport, setupTabletViewport, setupDesktopViewport } from './test-helpers.js';
 
 test.describe('Responsive Design', () => {
   const viewports = [
-    { name: 'mobile', width: 375, height: 667 },
-    { name: 'tablet', width: 768, height: 1024 },
-    { name: 'desktop', width: 1920, height: 1080 },
+    { name: 'mobile', ...VIEWPORTS.mobile },
+    { name: 'tablet', ...VIEWPORTS.tablet },
+    { name: 'desktop', ...VIEWPORTS.desktopLarge },
   ];
 
   for (const viewport of viewports) {
@@ -27,7 +28,7 @@ test.describe('Responsive Design', () => {
   }
 
   test('should have mobile menu toggle on mobile', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
+    await setupMobileViewport(page);
     await page.goto('/');
 
     // Mobile menu toggle should be visible
@@ -71,5 +72,22 @@ test.describe('Responsive Design', () => {
       // Font size should be at least 16px (or equivalent)
       expect(fontSizeValue).toBeGreaterThanOrEqual(16);
     }
+  });
+
+  test('should show/hide mobile menu toggle based on viewport', async ({ page }) => {
+    const toggle = page.locator('#mobileMenuToggle');
+
+    // Desktop - toggle should be hidden
+    await setupDesktopViewport(page);
+    await page.goto('/');
+    await expect(toggle).toBeHidden();
+
+    // Tablet - toggle should be visible
+    await setupTabletViewport(page);
+    await expect(toggle).toBeVisible();
+
+    // Mobile - toggle should be visible
+    await setupMobileViewport(page);
+    await expect(toggle).toBeVisible();
   });
 });

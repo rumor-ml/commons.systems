@@ -1,6 +1,6 @@
 ---
-name: "Monitor Workflow"
-description: "Monitor workflows on push to remote. This agent must always be invoked when pushing to remote."
+name: "Monitor"
+description: "Monitor CI/CD workflows. This agent must always be invoked after pushing to remote, or when user explicitly requests monitoring."
 model: haiku
 ---
 
