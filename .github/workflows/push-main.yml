@@ -81,9 +81,8 @@ jobs:
   test-firebase:
     name: Test Firebase - ${{ matrix.app }}
     runs-on: ubuntu-latest
-    needs: [check-ci-image, discover-apps]
+    needs: discover-apps
     if: needs.discover-apps.outputs.firebase-apps != '[]'
-    container: ${{ needs.check-ci-image.outputs.exists == 'true' && format('ghcr.io/{0}/ci-base:latest', github.repository) || '' }}
     timeout-minutes: 15
     strategy:
       matrix:
@@ -91,8 +90,16 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
-      - name: Setup (if no container)
-        if: needs.check-ci-image.outputs.exists != 'true'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - name: Install dependencies
         run: |
           pnpm install --frozen-lockfile
           npx playwright install chromium --with-deps
@@ -122,9 +129,8 @@ jobs:
   test-go-fullstack:
     name: Test Go Fullstack - ${{ matrix.app }}
     runs-on: ubuntu-latest
-    needs: [check-ci-image, discover-apps]
+    needs: discover-apps
     if: needs.discover-apps.outputs.go-fullstack-apps != '[]'
-    container: ${{ needs.check-ci-image.outputs.exists == 'true' && format('ghcr.io/{0}/ci-base:latest', github.repository) || '' }}
     timeout-minutes: 15
     strategy:
       matrix:
@@ -135,9 +141,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Setup (if no container)
-        if: needs.check-ci-image.outputs.exists != 'true'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - name: Install dependencies
         run: |
+          sudo apt-get update && sudo apt-get install -y make
           pnpm install --frozen-lockfile
           npx playwright install chromium --with-deps
       - name: Run tests
