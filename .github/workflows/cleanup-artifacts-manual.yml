@@ -43,10 +43,8 @@ jobs:
 
           # Generate expected service names from branches
           > /tmp/expected.txt
-          echo "playwright-server" >> /tmp/expected.txt
           while read branch; do
             sanitized=$(echo "$branch" | sed 's|^claude/||' | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g' | cut -c1-63 | sed 's/-$//')
-            [ "$branch" != "main" ] && echo "playwright-server-${sanitized}" >> /tmp/expected.txt
             for site in fellspiral videobrowser audiobrowser print; do
               [ "$branch" = "main" ] && echo "${site}-site" >> /tmp/expected.txt
               [ "$branch" != "main" ] && echo "${site}-${sanitized}" >> /tmp/expected.txt
@@ -55,7 +53,7 @@ jobs:
           sort -u /tmp/expected.txt > /tmp/expected-sorted.txt
 
           # Check each repository
-          for repo in playwright-server fellspiral-previews videobrowser-previews audiobrowser-previews print-previews; do
+          for repo in fellspiral-previews videobrowser-previews audiobrowser-previews print-previews; do
             echo "=== $repo ==="
             gcloud artifacts packages list --repository="$repo" --location=${{ env.GCP_REGION }} --project=${{ env.GCP_PROJECT_ID }} --format="value(name)" 2>/dev/null | while read pkg; do
               if ! grep -qx "$pkg" /tmp/expected-sorted.txt; then
