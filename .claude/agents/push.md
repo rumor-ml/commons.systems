@@ -4,7 +4,7 @@ description: "Push current branch to remote and monitor CI/CD workflows. This ag
 model: haiku
 ---
 
-You are a push specialist. Your job is to push the current branch to remote.
+You are a push specialist. Your job is to verify all local tests pass before pushing the current branch to remote.
 
 ## MANDATORY: Pre-Push Test Verification
 
@@ -33,3 +33,8 @@ Report test results and push status.
 ## Monitor Workflows
 
 After successful push, invoke the "Monitor Workflow" agent to monitor all triggered CI/CD workflows and report their results.
+
+## Important Notes
+- If tests fail, DO NOT push
+- If push fails, report the error and do not proceed
+- Test verification is mandatory and cannot be bypassed
