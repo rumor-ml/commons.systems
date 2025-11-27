@@ -9,6 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"cloud.google.com/go/storage"
+	firebase "firebase.google.com/go/v4"
+	"github.com/commons-systems/filesync"
 	"printsync/internal/config"
 	"printsync/internal/firestore"
 	"printsync/internal/server"
@@ -18,13 +21,33 @@ func main() {
 	cfg := config.Load()
 
 	ctx := context.Background()
+
+	// Initialize Firestore client
 	fsClient, err := firestore.NewClient(ctx, cfg.GCPProjectID)
 	if err != nil {
 		log.Fatalf("Failed to create Firestore client: %v", err)
 	}
 	defer fsClient.Close()
 
-	router := server.NewRouter(fsClient)
+	// Initialize GCS client
+	gcsClient, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create GCS client: %v", err)
+	}
+	defer gcsClient.Close()
+
+	// Initialize Firebase app for auth
+	firebaseApp, err := firebase.NewApp(ctx, nil)
+	if err != nil {
+		log.Fatalf("Failed to create Firebase app: %v", err)
+	}
+
+	// Create session and file stores
+	sessionStore := filesync.NewFirestoreSessionStore(fsClient.Client)
+	fileStore := filesync.NewFirestoreFileStore(fsClient.Client)
+
+	// Create router with all dependencies
+	router := server.NewRouter(fsClient, gcsClient, cfg.GCSBucketName, firebaseApp, sessionStore, fileStore)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

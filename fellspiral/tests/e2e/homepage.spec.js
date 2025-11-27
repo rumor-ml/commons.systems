@@ -1,4 +1,5 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { setupMobileViewport } from './test-helpers.js';
 
 test.describe('Homepage', () => {
   test('should load successfully', async ({ page }) => {
@@ -57,6 +58,25 @@ test.describe('Homepage', () => {
     await expect(initiativeSection).toBeInViewport();
   });
 
+  test('should have Card Manager link in sidebar', async ({ page }) => {
+    await page.goto('/');
+
+    // Wait for sidebar navigation to be ready
+    await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
+
+    // Check Card Manager link exists
+    const cardManagerLink = page.locator('.sidebar-nav a[href="/cards.html"]');
+    await expect(cardManagerLink).toBeVisible();
+    await expect(cardManagerLink).toContainText('Card Manager');
+
+    // Click Card Manager link
+    await cardManagerLink.click();
+
+    // Should navigate to cards page (Firebase cleanUrls strips .html extension in deployed environment)
+    await page.waitForURL(/\/cards(\.html)?/);
+    await expect(page.url()).toMatch(/\/cards(\.html)?$/);
+  });
+
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 
@@ -66,5 +86,43 @@ test.describe('Homepage', () => {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();
     }
+  });
+
+  test.describe('Mobile menu functionality', () => {
+    test('should toggle mobile menu on homepage', async ({ page }) => {
+      await setupMobileViewport(page);
+      await page.goto('/');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      await expect(toggle).toBeVisible();
+
+      // Initially closed
+      await expect(sidebar).not.toHaveClass(/active/);
+
+      // Open menu
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/active/);
+
+      // Close menu
+      await toggle.click();
+      await expect(sidebar).not.toHaveClass(/active/);
+    });
+
+    test('should close sidebar when clicking outside on mobile', async ({ page }) => {
+      await setupMobileViewport(page);
+      await page.goto('/');
+
+      const sidebar = page.locator('#sidebar');
+      const toggle = page.locator('#mobileMenuToggle');
+
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/active/);
+
+      // Click on main content area
+      await page.locator('#introduction h1').click();
+      await expect(sidebar).not.toHaveClass(/active/);
+    });
   });
 });

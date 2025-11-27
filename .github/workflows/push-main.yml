@@ -22,6 +22,7 @@ permissions:
   pull-requests: write
   issues: write
   actions: read
+  packages: read
 
 jobs:
   # ==================== Check CI Image Availability ====================
@@ -31,6 +32,13 @@ jobs:
     outputs:
       exists: ${{ steps.check.outputs.exists }}
     steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Check if CI image exists
         id: check
         run: |
@@ -42,121 +50,152 @@ jobs:
             echo "CI image not found, will use fallback"
           fi
 
-  # ==================== Step 1: Local Tests (parallel per site) ====================
-  local-tests:
-    name: Local Tests - ${{ matrix.site }}
+  # ==================== Step 1: Discover Apps ====================
+  discover-apps:
+    name: Discover Apps
     runs-on: ubuntu-latest
-    needs: check-ci-image
-    container: ${{ needs.check-ci-image.outputs.exists == 'true' && format('ghcr.io/{0}/ci-base:latest', github.repository) || '' }}
-    timeout-minutes: 10
+    outputs:
+      firebase-apps: ${{ steps.discover.outputs.firebase }}
+      go-tui-apps: ${{ steps.discover.outputs.go-tui }}
+      go-fullstack-apps: ${{ steps.discover.outputs.go-fullstack }}
+      go-packages: ${{ steps.discover.outputs.go-package }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover apps
+        id: discover
+        run: |
+          source ./infrastructure/scripts/discover-apps.sh
+
+          # Output as JSON arrays for matrix
+          firebase=$(discover_apps . firebase | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_tui=$(discover_apps . go-tui | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_fullstack=$(discover_apps . go-fullstack | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_package=$(discover_apps . go-package | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "firebase=$firebase" >> $GITHUB_OUTPUT
+          echo "go-tui=$go_tui" >> $GITHUB_OUTPUT
+          echo "go-fullstack=$go_fullstack" >> $GITHUB_OUTPUT
+          echo "go-package=$go_package" >> $GITHUB_OUTPUT
+
+  # ==================== Firebase App Tests ====================
+  test-firebase:
+    name: Test Firebase - ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: needs.discover-apps.outputs.firebase-apps != '[]'
+    timeout-minutes: 15
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        app: ${{ fromJson(needs.discover-apps.outputs.firebase-apps) }}
       fail-fast: false
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup pnpm
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - name: Setup Node.js
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
-
       - name: Install dependencies
-        if: needs.check-ci-image.outputs.exists != 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: Test ${{ matrix.site }}
-        run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
-
-      - name: Test Print
-        run: ./infrastructure/scripts/run-local-tests.sh print
-
-  # ==================== Step 2: Deploy Sites (Parallel) ====================
-
-  # Check if Playwright Server code changed
-  check-playwright-changes:
-    name: Check Playwright Changes
-    runs-on: ubuntu-latest
-    needs: local-tests
-    outputs:
-      changed: ${{ steps.filter.outputs.playwright }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check for Playwright changes
-        id: filter
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          else
-            # For pushes, compare with previous commit
-            BASE_SHA="HEAD~1"
-          fi
+          pnpm install --frozen-lockfile
+          npx playwright install chromium --with-deps
+      - name: Run tests
+        run: ./infrastructure/scripts/test-firebase-app.sh ${{ matrix.app }}
 
-          if git diff --name-only $BASE_SHA HEAD | grep -q "^infrastructure/playwright-server/"; then
-            echo "playwright=true" >> $GITHUB_OUTPUT
-            echo "Playwright server code changed"
-          else
-            echo "playwright=false" >> $GITHUB_OUTPUT
-            echo "No Playwright server changes detected"
-          fi
-
-  deploy-playwright:
-    name: Deploy Playwright Server
+  # ==================== Go TUI App Tests ====================
+  test-go-tui:
+    name: Test Go TUI - ${{ matrix.app }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: check-playwright-changes
-    if: needs.check-playwright-changes.outputs.changed == 'true'
-    outputs:
-      url: ${{ steps.playwright-url.outputs.url }}
-
+    needs: discover-apps
+    if: needs.discover-apps.outputs.go-tui-apps != '[]'
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.discover-apps.outputs.go-tui-apps) }}
+      fail-fast: false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-go-tui-app.sh ${{ matrix.app }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+  # ==================== Go Fullstack App Tests ====================
+  test-go-fullstack:
+    name: Test Go Fullstack - ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: needs.discover-apps.outputs.go-fullstack-apps != '[]'
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.discover-apps.outputs.go-fullstack-apps) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Deploy Playwright Server
-        run: ./infrastructure/scripts/deploy-playwright-server.sh ${{ github.sha }}
-
-      - name: Get Playwright Server URL
-        id: playwright-url
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - name: Install dependencies
         run: |
-          URL=$(cat /tmp/playwright-server-url.txt)
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
+          sudo apt-get update && sudo apt-get install -y make
+          go install github.com/a-h/templ/cmd/templ@latest
+          pnpm install --frozen-lockfile
+          npx playwright install chromium --with-deps
+      - name: Run tests
+        run: ./infrastructure/scripts/test-go-fullstack-app.sh ${{ matrix.app }}
+
+  # ==================== Go Package Tests ====================
+  test-go-packages:
+    name: Test Go Pkg - ${{ matrix.pkg }}
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: needs.discover-apps.outputs.go-packages != '[]'
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.discover-apps.outputs.go-packages) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-go-package.sh pkg/${{ matrix.pkg }}
+
+  # ==================== Step 2: Deploy Sites (Parallel) ====================
 
   initialize-rml-media:
     name: Initialize rml-media Firebase Storage
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: local-tests
+    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages]
+    if: |
+      always() && !cancelled() &&
+      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
+      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
+      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
+      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
 
     steps:
       - name: Checkout code
@@ -172,6 +211,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Initialize rml-media bucket
+        id: link-bucket
         continue-on-error: true
         run: |
           echo "Ensuring rml-media bucket is linked to Firebase Storage..."
@@ -198,6 +238,7 @@ jobs:
           fi
 
       - name: Configure CORS for rml-media bucket
+        id: configure-cors
         continue-on-error: true
         run: |
           echo "Configuring CORS for rml-media bucket..."
@@ -228,6 +269,7 @@ jobs:
           fi
 
       - name: Initialize rml-media bucket for Firebase Storage
+        id: init-storage
         continue-on-error: true
         run: |
           echo "Initializing rml-media bucket for Firebase Storage..."
@@ -258,12 +300,28 @@ jobs:
             echo "✓ Bucket successfully initialized for Firebase Storage"
           fi
 
+      - name: Verify Firebase Storage initialization
+        run: |
+          if [ "${{ steps.link-bucket.outcome }}" == "failure" ] && \
+             [ "${{ steps.configure-cors.outcome }}" == "failure" ] && \
+             [ "${{ steps.init-storage.outcome }}" == "failure" ]; then
+            echo "Warning: All Firebase Storage initialization steps failed"
+            echo "Storage may already be configured, or manual setup may be required"
+          fi
+
   deploy-sites:
     name: Deploy ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [check-ci-image, local-tests, initialize-rml-media]
-    container: ${{ needs.check-ci-image.outputs.exists == 'true' && format('ghcr.io/{0}/ci-base:latest', github.repository) || '' }}
+    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages, initialize-rml-media]
+    if: |
+      always() &&
+      needs.initialize-rml-media.result == 'success' &&
+      (needs.test-firebase.result == 'success' || needs.test-firebase.result == 'skipped') &&
+      (needs.test-go-tui.result == 'success' || needs.test-go-tui.result == 'skipped') &&
+      (needs.test-go-fullstack.result == 'success' || needs.test-go-fullstack.result == 'skipped') &&
+      (needs.test-go-packages.result == 'success' || needs.test-go-packages.result == 'skipped')
+    # Container removed - pnpm cache (2s) is faster than container pull (38s)
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser, print]
@@ -289,28 +347,23 @@ jobs:
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
       - name: Setup pnpm
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - name: Install dependencies
-        if: needs.check-ci-image.outputs.exists != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install dependencies (jq)
-        if: needs.check-ci-image.outputs.exists != 'true'
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Cache Firebase CLI
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -319,7 +372,6 @@ jobs:
             firebase-cli-${{ runner.os }}-
 
       - name: Install Firebase CLI
-        if: needs.check-ci-image.outputs.exists != 'true'
         run: pnpm add -g firebase-tools
 
       # Note: Firebase configuration is injected by deploy-firebase-hosting.sh script
@@ -418,77 +470,49 @@ jobs:
           echo "Audiobrowser URL: ${AUDIOBROWSER_URL}"
           echo "Print URL: ${PRINT_URL}"
 
-  # ==================== Step 3: Get Playwright Server URL ====================
-  get-playwright-url:
-    name: Get Playwright Server URL
-    runs-on: ubuntu-latest
-    needs: [check-playwright-changes, deploy-playwright]
-    if: always()
-    outputs:
-      url: ${{ steps.get-url.outputs.url }}
-
-    steps:
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Get Playwright Server URL
-        id: get-url
-        run: |
-          if [ "${{ needs.check-playwright-changes.outputs.changed }}" == "true" ]; then
-            # Use newly deployed URL
-            URL="${{ needs.deploy-playwright.outputs.url }}"
-          else
-            # Get existing service URL
-            URL=$(gcloud run services describe playwright-server \
-              --region=${{ env.GCP_REGION }} \
-              --project=${{ env.GCP_PROJECT_ID }} \
-              --format='value(status.url)')
-          fi
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Playwright Server URL: ${URL}"
-
-  # ==================== Step 4: E2E Tests (parallel per site) ====================
+  # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-tests:
     name: E2E Tests - ${{ matrix.site }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [check-ci-image, collect-urls, get-playwright-url]
-    container: ${{ needs.check-ci-image.outputs.exists == 'true' && format('ghcr.io/{0}/ci-base:latest', github.repository) || '' }}
+    needs: [collect-urls]
     strategy:
       matrix:
         site: [fellspiral, videobrowser, audiobrowser, print]
       fail-fast: false
     if: |
       always() &&
-      needs.collect-urls.result == 'success' &&
-      needs.get-playwright-url.result == 'success'
+      needs.collect-urls.result == 'success'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup pnpm
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js
-        if: needs.check-ci-image.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - name: Install dependencies
-        if: needs.check-ci-image.outputs.exists != 'true'
         run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -518,9 +542,8 @@ jobs:
           esac
 
       - name: Test ${{ matrix.site }}
-        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}" "${{ needs.get-playwright-url.outputs.url }}"
+        run: ./infrastructure/scripts/run-playwright-tests.sh ${{ matrix.site }} "${{ steps.site-url.outputs.url }}"
         env:
-          PLAYWRIGHT_SERVER_URL: ${{ needs.get-playwright-url.outputs.url }}
           DEPLOYED_URL: ${{ steps.site-url.outputs.url }}
           CI: true
 
@@ -573,20 +596,39 @@ jobs:
   merge-check:
     name: Merge Check - All Tests Passed
     runs-on: ubuntu-latest
-    needs: [local-tests, deploy-sites, e2e-tests]
+    needs: [test-firebase, test-go-tui, test-go-fullstack, test-go-packages, deploy-sites, e2e-tests]
     if: always()
 
     steps:
       - name: Check all jobs succeeded
         run: |
           echo "Checking job results..."
-          echo "Local Tests: ${{ needs.local-tests.result }}"
+          echo "Firebase Tests: ${{ needs.test-firebase.result }}"
+          echo "Go TUI Tests: ${{ needs.test-go-tui.result }}"
+          echo "Go Fullstack Tests: ${{ needs.test-go-fullstack.result }}"
+          echo "Go Package Tests: ${{ needs.test-go-packages.result }}"
           echo "Deploy Sites: ${{ needs.deploy-sites.result }}"
           echo "E2E Tests: ${{ needs.e2e-tests.result }}"
 
-          # All jobs must succeed for merge check to pass
-          if [ "${{ needs.local-tests.result }}" != "success" ]; then
-            echo "❌ Local tests failed or were skipped"
+          # All jobs must succeed or be skipped for merge check to pass
+          # Skipped jobs (when no apps of that type exist) are okay
+          if [[ "${{ needs.test-firebase.result }}" != "success" && "${{ needs.test-firebase.result }}" != "skipped" ]]; then
+            echo "❌ Firebase tests failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.test-go-tui.result }}" != "success" && "${{ needs.test-go-tui.result }}" != "skipped" ]]; then
+            echo "❌ Go TUI tests failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.test-go-fullstack.result }}" != "success" && "${{ needs.test-go-fullstack.result }}" != "skipped" ]]; then
+            echo "❌ Go fullstack tests failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.test-go-packages.result }}" != "success" && "${{ needs.test-go-packages.result }}" != "skipped" ]]; then
+            echo "❌ Go package tests failed"
             exit 1
           fi
 

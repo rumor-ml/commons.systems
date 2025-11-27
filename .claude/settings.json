@@ -45,12 +45,15 @@
       "Bash(make test-integration:*)",
       "Bash(make test-unit:*)",
       "Bash(go mod tidy:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(go tool cover:*)",
       "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
+      "Bash(npm test:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",
       "Bash(gcloud artifacts repositories list:*)",
@@ -88,6 +91,28 @@
           {
             "type": "command",
             "command": "[ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/sandbox-reminder.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/exit-plan-mode-reminder.sh"
           }
         ]
       }

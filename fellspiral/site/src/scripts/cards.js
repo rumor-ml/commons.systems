@@ -41,16 +41,90 @@ const SUBTYPES = {
   Origin: ['Human', 'Elf', 'Dwarf', 'Orc']
 };
 
+// Show error UI with retry option
+function showErrorUI(message, onRetry) {
+  const container = document.querySelector('.card-container');
+  if (!container) return;
+
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error-banner';
+
+  const errorContent = document.createElement('div');
+  errorContent.className = 'error-content';
+
+  const errorText = document.createElement('p');
+  errorText.textContent = message;
+  errorContent.appendChild(errorText);
+
+  if (onRetry) {
+    const retryButton = document.createElement('button');
+    retryButton.className = 'retry-button';
+    retryButton.textContent = 'Retry';
+    retryButton.addEventListener('click', onRetry);
+    errorContent.appendChild(retryButton);
+  }
+
+  errorDiv.appendChild(errorContent);
+  container.insertBefore(errorDiv, container.firstChild);
+}
+
+// Show warning banner
+function showWarningBanner(message) {
+  const container = document.querySelector('.card-container');
+  if (!container) return;
+
+  const warningDiv = document.createElement('div');
+  warningDiv.className = 'warning-banner';
+
+  const warningContent = document.createElement('div');
+  warningContent.className = 'warning-content';
+
+  const warningText = document.createElement('p');
+  warningText.textContent = message;
+  warningContent.appendChild(warningText);
+
+  warningDiv.appendChild(warningContent);
+  container.insertBefore(warningDiv, container.firstChild);
+}
+
 // Initialize the app
 async function init() {
-  // Initialize authentication
-  initializeAuth();
+  try {
+    // Initialize authentication
+    initializeAuth();
 
-  await loadCards();
-  setupEventListeners();
-  renderTree();
-  renderCards();
-  updateStats();
+    // Setup UI components - these don't need data
+    setupEventListeners();
+    // Note: setupMobileMenu is called separately before init() to ensure
+    // it runs synchronously before any async operations
+    renderTree(); // Will show "no cards" initially
+    renderCards(); // Will show empty state
+
+    // Load data asynchronously WITHOUT blocking page load
+    loadCards()
+      .then(() => {
+        // Update UI with loaded data
+        renderTree();
+        renderCards();
+        updateStats();
+      })
+      .catch(error => {
+        console.error('Failed to load cards:', error);
+        showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      });
+  } catch (error) {
+    // Log initialization errors for debugging
+    console.error('Card Manager init error:', error);
+
+    // Show user-friendly error UI
+    showErrorUI(
+      'Failed to initialize Card Manager. Please try again.',
+      () => {
+        document.querySelector('.error-banner')?.remove();
+        init();
+      }
+    );
+  }
 }
 
 // Load cards from Firestore
@@ -81,55 +155,137 @@ async function loadCards() {
     console.warn('Falling back to static JSON data');
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
+
+    // Show warning to user
+    showWarningBanner('Unable to connect to Firestore. Using local data only. Changes will not be saved.');
   }
 }
 
 // Setup event listeners
 function setupEventListeners() {
-  // Toolbar buttons
-  document.getElementById('addCardBtn').addEventListener('click', () => openCardEditor());
-  document.getElementById('importCardsBtn').addEventListener('click', importCards);
-  document.getElementById('exportCardsBtn').addEventListener('click', exportCards);
+  try {
+    // Toolbar buttons
+    const addCardBtn = document.getElementById('addCardBtn');
+    const importCardsBtn = document.getElementById('importCardsBtn');
+    const exportCardsBtn = document.getElementById('exportCardsBtn');
 
-  // Tree controls
-  document.getElementById('expandAllBtn').addEventListener('click', () => expandCollapseAll(true));
-  document.getElementById('collapseAllBtn').addEventListener('click', () => expandCollapseAll(false));
-  document.getElementById('refreshTreeBtn').addEventListener('click', refreshTree);
-  document.getElementById('treeSearch').addEventListener('input', handleTreeSearch);
+    if (!addCardBtn || !importCardsBtn || !exportCardsBtn) {
+      console.error('Missing toolbar buttons');
+      return;
+    }
 
-  // View mode
-  document.querySelectorAll('.view-mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
-  });
+    addCardBtn.addEventListener('click', () => openCardEditor());
+    importCardsBtn.addEventListener('click', importCards);
+    exportCardsBtn.addEventListener('click', exportCards);
 
-  // Filters
-  document.getElementById('filterType').addEventListener('change', handleFilterChange);
-  document.getElementById('filterSubtype').addEventListener('change', handleFilterChange);
-  document.getElementById('searchCards').addEventListener('input', handleFilterChange);
+    // Tree controls
+    const expandAllBtn = document.getElementById('expandAllBtn');
+    const collapseAllBtn = document.getElementById('collapseAllBtn');
+    const refreshTreeBtn = document.getElementById('refreshTreeBtn');
+    const treeSearch = document.getElementById('treeSearch');
 
-  // Modal
-  document.getElementById('closeModalBtn').addEventListener('click', closeCardEditor);
-  document.getElementById('cancelModalBtn').addEventListener('click', closeCardEditor);
-  document.getElementById('deleteCardBtn').addEventListener('click', deleteCard);
-  document.getElementById('cardForm').addEventListener('submit', handleCardSave);
+    if (expandAllBtn) expandAllBtn.addEventListener('click', () => expandCollapseAll(true));
+    if (collapseAllBtn) collapseAllBtn.addEventListener('click', () => expandCollapseAll(false));
+    if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', refreshTree);
+    if (treeSearch) treeSearch.addEventListener('input', handleTreeSearch);
 
-  // Type change updates subtypes
-  document.getElementById('cardType').addEventListener('change', updateSubtypeOptions);
+    // View mode
+    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
+    });
 
-  // Close modal on backdrop click
-  document.querySelector('.modal-backdrop').addEventListener('click', closeCardEditor);
+    // Filters
+    const filterType = document.getElementById('filterType');
+    const filterSubtype = document.getElementById('filterSubtype');
+    const searchCards = document.getElementById('searchCards');
+
+    if (filterType) filterType.addEventListener('change', handleFilterChange);
+    if (filterSubtype) filterSubtype.addEventListener('change', handleFilterChange);
+    if (searchCards) searchCards.addEventListener('input', handleFilterChange);
+
+    // Modal
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const cancelModalBtn = document.getElementById('cancelModalBtn');
+    const deleteCardBtn = document.getElementById('deleteCardBtn');
+    const cardForm = document.getElementById('cardForm');
+    const cardType = document.getElementById('cardType');
+    const modalBackdrop = document.querySelector('.modal-backdrop');
+
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeCardEditor);
+    if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeCardEditor);
+    if (deleteCardBtn) deleteCardBtn.addEventListener('click', deleteCard);
+    if (cardForm) cardForm.addEventListener('submit', handleCardSave);
+    if (cardType) cardType.addEventListener('change', updateSubtypeOptions);
+    if (modalBackdrop) modalBackdrop.addEventListener('click', closeCardEditor);
+  } catch (error) {
+    console.error('Error setting up event listeners:', error);
+  }
+}
+
+// Setup mobile menu toggle functionality
+function setupMobileMenu() {
+  try {
+    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+    const sidebar = document.getElementById('sidebar');
+
+    if (!mobileMenuToggle) {
+      console.warn('Mobile menu toggle button not found');
+      return;
+    }
+
+    if (!sidebar) {
+      console.warn('Sidebar element not found');
+      return;
+    }
+
+    mobileMenuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.toggle('active');
+    });
+
+    // Close sidebar when clicking a nav link on mobile
+    const navItems = sidebar.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('active');
+        }
+      });
+    });
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768 &&
+          !sidebar.contains(e.target) &&
+          !mobileMenuToggle.contains(e.target) &&
+          sidebar.classList.contains('active')) {
+        sidebar.classList.remove('active');
+      }
+    });
+  } catch (error) {
+    console.error('Error setting up mobile menu:', error);
+  }
 }
 
 // Build and render tree
 function renderTree() {
-  const treeContainer = document.getElementById('cardTree');
-  const tree = buildTree();
-  treeContainer.innerHTML = renderTreeNodes(tree);
+  try {
+    const treeContainer = document.getElementById('cardTree');
+    if (!treeContainer) {
+      console.warn('Tree container not found');
+      return;
+    }
 
-  // Attach tree node click handlers
-  treeContainer.querySelectorAll('.tree-node-content').forEach(node => {
-    node.addEventListener('click', handleTreeNodeClick);
-  });
+    const tree = buildTree();
+    treeContainer.innerHTML = renderTreeNodes(tree);
+
+    // Attach tree node click handlers
+    treeContainer.querySelectorAll('.tree-node-content').forEach(node => {
+      node.addEventListener('click', handleTreeNodeClick);
+    });
+  } catch (error) {
+    console.error('Error rendering tree:', error);
+  }
 }
 
 // Build tree structure
@@ -208,31 +364,39 @@ function renderTreeNodes(tree) {
 
 // Handle tree node click
 function handleTreeNodeClick(e) {
-  const content = e.currentTarget;
-  const node = content.closest('.tree-node');
-  const level = node.dataset.level;
+  try {
+    const content = e.currentTarget;
+    if (!content) return;
 
-  // Toggle expansion for type nodes
-  if (level === 'type') {
-    const toggle = content.querySelector('.tree-node-toggle');
-    const children = content.parentElement.querySelector('.tree-node-children');
+    const node = content.closest('.tree-node');
+    if (!node) return;
 
-    toggle.classList.toggle('expanded');
-    children.classList.toggle('expanded');
-  }
+    const level = node.dataset.level;
 
-  // Apply selection
-  document.querySelectorAll('.tree-node-content').forEach(n => n.classList.remove('selected'));
-  content.classList.add('selected');
+    // Toggle expansion for type nodes
+    if (level === 'type') {
+      const toggle = content.querySelector('.tree-node-toggle');
+      const children = content.parentElement.querySelector('.tree-node-children');
 
-  // Filter cards based on selection
-  if (level === 'type') {
-    const type = node.dataset.value;
-    filterCardsByTree(type, null);
-  } else if (level === 'subtype') {
-    const type = node.dataset.type;
-    const subtype = node.dataset.subtype;
-    filterCardsByTree(type, subtype);
+      if (toggle) toggle.classList.toggle('expanded');
+      if (children) children.classList.toggle('expanded');
+    }
+
+    // Apply selection
+    document.querySelectorAll('.tree-node-content').forEach(n => n.classList.remove('selected'));
+    content.classList.add('selected');
+
+    // Filter cards based on selection
+    if (level === 'type') {
+      const type = node.dataset.value;
+      filterCardsByTree(type, null);
+    } else if (level === 'subtype') {
+      const type = node.dataset.type;
+      const subtype = node.dataset.subtype;
+      filterCardsByTree(type, subtype);
+    }
+  } catch (error) {
+    console.error('Error handling tree node click:', error);
   }
 }
 
@@ -313,13 +477,13 @@ function setViewMode(mode) {
 }
 
 // Handle filter changes
-function handleFilterChange() {
+function handleFilterChange(e) {
   state.filters.type = document.getElementById('filterType').value;
   state.filters.subtype = document.getElementById('filterSubtype').value;
   state.filters.search = document.getElementById('searchCards').value.toLowerCase();
 
   // Update subtype options when type changes
-  if (event.target.id === 'filterType') {
+  if (e.target.id === 'filterType') {
     updateSubtypeFilterOptions(state.filters.type);
   }
 
@@ -383,28 +547,51 @@ function applyFilters() {
 
 // Render cards
 function renderCards() {
-  const cardList = document.getElementById('cardList');
-  const emptyState = document.getElementById('emptyState');
+  try {
+    const cardList = document.getElementById('cardList');
+    const emptyState = document.getElementById('emptyState');
 
-  if (state.filteredCards.length === 0) {
-    cardList.style.display = 'none';
-    emptyState.style.display = 'block';
-    return;
-  }
+    if (!cardList || !emptyState) {
+      console.warn('Card list or empty state element not found');
+      return;
+    }
 
-  cardList.style.display = 'grid';
-  emptyState.style.display = 'none';
+    if (state.filteredCards.length === 0) {
+      cardList.style.display = 'none';
+      emptyState.style.display = 'block';
+      return;
+    }
 
-  cardList.innerHTML = state.filteredCards.map(card => renderCardItem(card)).join('');
+    cardList.style.display = 'grid';
+    emptyState.style.display = 'none';
 
-  // Attach card click handlers
-  cardList.querySelectorAll('.card-item').forEach((item, index) => {
-    item.addEventListener('click', (e) => {
-      if (!e.target.closest('.card-item-actions')) {
-        openCardEditor(state.filteredCards[index]);
+    // Render cards, skip broken ones
+    const renderedCards = [];
+    state.filteredCards.forEach(card => {
+      try {
+        renderedCards.push(renderCardItem(card));
+      } catch (error) {
+        console.warn('Error rendering card:', card, error);
       }
     });
-  });
+
+    cardList.innerHTML = renderedCards.join('');
+
+    // Attach card click handlers
+    cardList.querySelectorAll('.card-item').forEach((item, index) => {
+      try {
+        item.addEventListener('click', (e) => {
+          if (!e.target.closest('.card-item-actions')) {
+            openCardEditor(state.filteredCards[index]);
+          }
+        });
+      } catch (error) {
+        console.warn('Error attaching card click handler:', error);
+      }
+    });
+  } catch (error) {
+    console.error('Error rendering cards:', error);
+  }
 }
 
 // Render a single card item
@@ -632,5 +819,15 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
+// Initialize application
+function initializeApp() {
+  setupMobileMenu();
+  init();
+}
+
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+  initializeApp();
+}

@@ -18,12 +18,12 @@ echo "=== Running local tests for $SITE_NAME ==="
 # Install dependencies if not already installed
 if [ ! -d "node_modules" ]; then
   echo "Installing dependencies..."
-  npm install
+  pnpm install --frozen-lockfile
 fi
 
 # Build the site
 echo "Building site..."
-npm run build --workspace="${SITE_NAME}/site"
+pnpm --filter "${SITE_NAME}/site" build
 
 # Lint check
 echo "Running lint checks..."

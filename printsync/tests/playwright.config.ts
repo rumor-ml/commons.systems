@@ -7,6 +7,6 @@ export default createPlaywrightConfig({
   deployedUrl: 'https://printsync.commons.systems',
   webServerCommand: {
     local: 'cd ../site && air',
-    ci: 'cd ../site && ./printsync',
+    ci: 'cd ../site && ./bin/printsync',
   },
 });

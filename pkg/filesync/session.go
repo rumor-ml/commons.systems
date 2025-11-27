@@ -20,6 +20,9 @@ type FileStatus string
 const (
 	FileStatusPending    FileStatus = "pending"
 	FileStatusExtracting FileStatus = "extracting"
+	FileStatusExtracted  FileStatus = "extracted" // Awaiting approval
+	FileStatusRejected   FileStatus = "rejected"  // User rejected
+	FileStatusTrashed    FileStatus = "trashed"   // User trashed (soft delete)
 	FileStatusUploading  FileStatus = "uploading"
 	FileStatusUploaded   FileStatus = "uploaded"
 	FileStatusSkipped    FileStatus = "skipped"
@@ -30,6 +33,8 @@ const (
 type SessionStats struct {
 	Discovered int `firestore:"discovered"`
 	Extracted  int `firestore:"extracted"`
+	Approved   int `firestore:"approved"`
+	Rejected   int `firestore:"rejected"`
 	Uploaded   int `firestore:"uploaded"`
 	Skipped    int `firestore:"skipped"`
 	Errors     int `firestore:"errors"`

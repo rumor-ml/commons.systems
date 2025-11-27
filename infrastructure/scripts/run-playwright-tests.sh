@@ -1,113 +1,55 @@
 #!/bin/bash
-# Run Playwright E2E tests against deployed site using remote browser server
-# Usage: run-playwright-tests.sh <site-name> <site-url> <playwright-server-url>
-#
-# This script handles the Workload Identity Federation token exchange needed in CI
-# to authenticate with the Playwright browser server.
+# Run Playwright E2E tests against deployed site
+# Usage: run-playwright-tests.sh <site-name> <site-url>
 
 set -e
 
 SITE_NAME="${1}"
 SITE_URL="${2}"
-PLAYWRIGHT_SERVER_URL="${3}"
 
-if [ -z "$SITE_NAME" ] || [ -z "$SITE_URL" ] || [ -z "$PLAYWRIGHT_SERVER_URL" ]; then
-  echo "Usage: $0 <site-name> <site-url> <playwright-server-url>"
+if [ -z "$SITE_NAME" ] || [ -z "$SITE_URL" ]; then
+  echo "Usage: $0 <site-name> <site-url>"
   exit 1
 fi
 
 echo "=== Playwright E2E Tests: $SITE_NAME ==="
 echo "Site: $SITE_URL"
-echo "Browser Server: $PLAYWRIGHT_SERVER_URL"
 
 # --- Verify site is accessible ---
 echo "Checking site availability..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SITE_URL" || echo "000")
+if ! HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$SITE_URL" 2>&1); then
+  echo "❌ Network error reaching $SITE_URL"
+  echo "   Possible causes: DNS failure, connection timeout, SSL error, or network unreachable"
+  exit 1
+fi
 if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "304" ]; then
-  echo "❌ Site not accessible (HTTP $HTTP_CODE): $SITE_URL"
+  if [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+    echo "❌ Site returned redirect (HTTP $HTTP_CODE). Expected direct response: $SITE_URL"
+  elif [ "$HTTP_CODE" -ge "400" ] && [ "$HTTP_CODE" -lt "500" ]; then
+    echo "❌ Client error (HTTP $HTTP_CODE): $SITE_URL"
+  elif [ "$HTTP_CODE" -ge "500" ]; then
+    echo "❌ Server error (HTTP $HTTP_CODE): $SITE_URL"
+  else
+    echo "❌ Unexpected response (HTTP $HTTP_CODE): $SITE_URL"
+  fi
   exit 1
 fi
 echo "✅ Site accessible"
 
-# --- Get OIDC token via WIF (Workload Identity Federation) ---
-# This uses the IAM Credentials API to generate an ID token for the service account
-echo "Getting OIDC token..."
-SA_EMAIL=$(gcloud config get-value account 2>/dev/null)
-ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-OIDC_RESPONSE=$(curl -s -X POST \
-  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA_EMAIL}:generateIdToken" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"audience\": \"${PLAYWRIGHT_SERVER_URL}\", \"includeEmail\": true}")
-
-OIDC_TOKEN=$(echo "$OIDC_RESPONSE" | jq -r '.token // empty')
-if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
-  echo "❌ Failed to get OIDC token"
-  echo "$OIDC_RESPONSE"
-  exit 1
-fi
-echo "✅ OIDC token obtained"
-
-# --- Get browser WebSocket endpoint (with retry for Cloud Run cold start) ---
-echo "Getting browser endpoint..."
-MAX_RETRIES=5
-RETRY_DELAY=2
-BROWSER_RESPONSE=""
-
-for attempt in $(seq 1 $MAX_RETRIES); do
-  HTTP_STATUS=$(curl -s -o /tmp/browser-response.txt -w "%{http_code}" \
-    -H "Authorization: Bearer $OIDC_TOKEN" \
-    --max-time 30 \
-    "${PLAYWRIGHT_SERVER_URL}/api/browser-endpoint" 2>/dev/null || echo "000")
-
-  if [ "$HTTP_STATUS" = "200" ]; then
-    BROWSER_RESPONSE=$(cat /tmp/browser-response.txt)
-    break
-  elif [ "$HTTP_STATUS" = "429" ] || [ "$HTTP_STATUS" = "503" ] || [ "$HTTP_STATUS" = "000" ]; then
-    # Retry on: 429 (Rate Limited), 503 (Service Unavailable), 000 (Connection Error)
-    if [ $attempt -lt $MAX_RETRIES ]; then
-      reason="Server busy"
-      [ "$HTTP_STATUS" = "429" ] && reason="Rate limited (HTTP 429)"
-      [ "$HTTP_STATUS" = "503" ] && reason="Service unavailable (HTTP 503)"
-      [ "$HTTP_STATUS" = "000" ] && reason="Connection error"
-      echo "⏳ $reason, retrying in ${RETRY_DELAY}s... (attempt $attempt/$MAX_RETRIES)"
-      sleep $RETRY_DELAY
-      RETRY_DELAY=$((RETRY_DELAY * 2))
-    else
-      echo "❌ Failed to get browser endpoint after $MAX_RETRIES attempts (HTTP $HTTP_STATUS)"
-      if [ "$HTTP_STATUS" = "429" ]; then
-        echo "   Check Cloud Run scaling settings: maxScale/minScale"
-      elif [ "$HTTP_STATUS" = "503" ]; then
-        echo "   Browser server failed to start. Check Cloud Run logs."
-      elif [ "$HTTP_STATUS" = "000" ]; then
-        echo "   Connection error. Check network and server availability."
-      fi
-      exit 1
-    fi
-  else
-    echo "❌ Failed to get browser endpoint (HTTP $HTTP_STATUS)"
-    cat /tmp/browser-response.txt 2>/dev/null
-    exit 1
-  fi
-done
-
-WS_ENDPOINT=$(echo "$BROWSER_RESPONSE" | jq -r '.wsEndpoint')
-if [ -z "$WS_ENDPOINT" ] || [ "$WS_ENDPOINT" = "null" ]; then
-  echo "❌ Failed to parse browser endpoint from response"
-  echo "$BROWSER_RESPONSE"
-  exit 1
-fi
-echo "✅ Browser endpoint: $WS_ENDPOINT"
-
 # --- Run tests ---
 echo "Running tests..."
-cd "${SITE_NAME}/tests"
+TEST_DIR="${SITE_NAME}/tests"
+if [ ! -d "$TEST_DIR" ]; then
+  echo "❌ Test directory not found: $TEST_DIR"
+  echo "   Valid sites: fellspiral, videobrowser, audiobrowser, print, printsync"
+  exit 1
+fi
+cd "$TEST_DIR"
 
-PLAYWRIGHT_WS_ENDPOINT="$WS_ENDPOINT" \
-DEPLOYED=true \
-DEPLOYED_URL="$SITE_URL" \
-CI=true \
-npx playwright test --project chromium
-
-echo "✅ Tests passed: $SITE_NAME"
+if DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --project chromium; then
+  echo "✅ Tests passed: $SITE_NAME"
+else
+  TEST_EXIT_CODE=$?
+  echo "❌ Playwright tests failed for $SITE_NAME (exit code: $TEST_EXIT_CODE)"
+  exit $TEST_EXIT_CODE
+fi

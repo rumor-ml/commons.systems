@@ -127,14 +127,6 @@ jobs:
 
           echo "Cleaning up packages for: $SANITIZED"
 
-          # Delete from playwright-server repo
-          PACKAGE="playwright-server-${SANITIZED}"
-          gcloud artifacts packages delete "$PACKAGE" \
-            --repository=playwright-server \
-            --location=${{ env.GCP_REGION }} \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --quiet 2>/dev/null && echo "Deleted: $PACKAGE" || echo "Not found: $PACKAGE"
-
           # Delete from site preview repos
           for site in fellspiral videobrowser audiobrowser print; do
             PACKAGE="${site}-${SANITIZED}"

@@ -26,7 +26,8 @@ type PathNormalizer interface {
 
 // Uploader uploads files to GCS
 type Uploader interface {
-	// Upload uploads a file to the specified GCS path, sending progress updates
+	// Upload uploads a file to the specified GCS path, sending progress updates.
+	// progress may be nil if the caller does not need progress updates.
 	Upload(ctx context.Context, file FileInfo, gcsPath string, metadata *ExtractedMetadata, progress chan<- Progress) (*UploadResult, error)
 
 	// CheckExists checks if a file with the given hash already exists in GCS

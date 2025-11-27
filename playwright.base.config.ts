@@ -14,7 +14,6 @@ export interface SiteConfig {
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
   const isDeployed = process.env.DEPLOYED === 'true';
-  const isRemoteBrowser = !!process.env.PLAYWRIGHT_WS_ENDPOINT;
 
   const baseURL = isDeployed
     ? process.env.DEPLOYED_URL || site.deployedUrl || `https://${site.siteName}.commons.systems`
@@ -25,7 +24,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
-    workers: isRemoteBrowser ? 1 : (process.env.CI ? 4 : undefined),
+    workers: process.env.CI ? 4 : undefined,
     timeout: 60000,
 
     reporter: [
@@ -38,20 +37,13 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
       trace: 'off',
       screenshot: 'only-on-failure',
       video: 'off',
-      ...(isRemoteBrowser ? {
-        connectOptions: {
-          wsEndpoint: process.env.PLAYWRIGHT_WS_ENDPOINT!,
-          timeout: 30000,
-        },
-      } : {
-        headless: true,
-      }),
+      headless: true,
     },
 
     projects: [
       {
         name: 'chromium',
-        use: isRemoteBrowser ? {} : {
+        use: {
           ...devices['Desktop Chrome'],
           launchOptions: {
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],

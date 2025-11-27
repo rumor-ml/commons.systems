@@ -3,6 +3,7 @@ package filesync
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
@@ -95,18 +96,32 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 		iter := s.client.Collection(sessionsCollection).Doc(sessionID).Snapshots(ctx)
 		defer iter.Stop()
 
+		consecutiveErrors := 0
+		maxConsecutiveErrors := 5
+
 		for {
 			snap, err := iter.Next()
 			if err == iterator.Done {
+				log.Printf("INFO: Session subscription for %s completed normally", sessionID)
 				return
 			}
 			if err != nil {
-				// Log error but continue listening
+				consecutiveErrors++
+				log.Printf("ERROR: Session subscription error for %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
+
+				if consecutiveErrors >= maxConsecutiveErrors {
+					log.Printf("ERROR: Session subscription for %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
+					return
+				}
 				continue
 			}
 
+			// Reset consecutive error counter on success
+			consecutiveErrors = 0
+
 			var session SyncSession
 			if err := snap.DataTo(&session); err != nil {
+				log.Printf("ERROR: Failed to parse session data for %s: %v", sessionID, err)
 				continue
 			}
 			session.ID = snap.Ref.ID
@@ -207,19 +222,33 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 			Snapshots(ctx)
 		defer iter.Stop()
 
+		consecutiveErrors := 0
+		maxConsecutiveErrors := 5
+
 		for {
 			snap, err := iter.Next()
 			if err == iterator.Done {
+				log.Printf("INFO: File subscription for session %s completed normally", sessionID)
 				return
 			}
 			if err != nil {
-				// Log error but continue listening
+				consecutiveErrors++
+				log.Printf("ERROR: File subscription error for session %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
+
+				if consecutiveErrors >= maxConsecutiveErrors {
+					log.Printf("ERROR: File subscription for session %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
+					return
+				}
 				continue
 			}
+
+			// Reset consecutive error counter on success
+			consecutiveErrors = 0
 
 			for _, change := range snap.Changes {
 				var file SyncFile
 				if err := change.Doc.DataTo(&file); err != nil {
+					log.Printf("ERROR: Failed to parse file data in session %s: %v", sessionID, err)
 					continue
 				}
 				file.ID = change.Doc.Ref.ID

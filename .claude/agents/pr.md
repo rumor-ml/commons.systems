@@ -1,6 +1,6 @@
 ---
 name: "PR"
-description: "Create a PR to main for the current branch. This agent must always be invoked when creating a pull request."
+description: "Create a PR to main for the current branch. This agent must always be invoked when creating a pull request or when user explicitly requests pr."
 model: haiku
 ---
 
@@ -34,15 +34,31 @@ gh pr create --base main
 ```
 Auto-generate title from branch name and body from commit messages.
 
-### 5. Monitor PR Checks
-Monitor PR checks using:
-```bash
-gh pr checks --watch --fail-fast
-```
-Let this command run to completion - do NOT interrupt or report results until the command exits on its own.
+### 5. Launch Concurrent Tasks
+After PR is created (or if PR already exists from step 2), use the Task tool to launch two concurrent tasks in a single message:
 
-### 6. Report Results
-After checks complete:
-- Report the final status
-- If any checks failed, report which checks failed (do not attempt to fix them)
+1. **PR Review Task** (model: sonnet)
+   - Run `/pr-review-toolkit:review-pr` slash command
+   - This will perform comprehensive PR review using specialized agents
+
+2. **Monitor Workflow Task** (subagent_type: "Monitor Workflow")
+   - Invoke the Monitor Workflow agent
+   - This will track CI/CD workflow status
+
+**IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding.
+
+### 6. Approve PR
+**Only if the PR Review Task completed successfully**, approve the PR:
+```bash
+gh pr review --approve
+```
+
+If the PR Review Task failed or reported critical issues, do NOT approve the PR. Report the issues instead.
+
+### 7. Report Combined Results
+After all tasks complete:
+- Report results from the PR review task
+- Report workflow status from the Monitor Workflow task
+- Report whether PR was approved
 - Include PR URL for user reference
+- If any checks failed, report which checks failed (do not attempt to fix them)

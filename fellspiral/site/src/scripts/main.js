@@ -961,6 +961,14 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
 import { initializeAuth } from './auth-init.js';
 
 // Navigation and UI functionality
+// Helper function to close mobile sidebar
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar && window.innerWidth <= 768) {
+    sidebar.classList.remove('active');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
@@ -977,11 +985,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
     navItems.forEach(item => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
-          sidebar.classList.remove('active');
-        }
-      });
+      item.addEventListener('click', closeMobileSidebar);
+    });
+
+    // Close mobile menu for external links
+    document.querySelectorAll('.nav-item:not([href^="#"])').forEach(link => {
+      link.addEventListener('click', closeMobileSidebar);
     });
 
     // Close sidebar when clicking outside on mobile
@@ -1000,46 +1009,62 @@ document.addEventListener('DOMContentLoaded', () => {
   const sections = document.querySelectorAll('.content-section');
 
   function highlightNavigation() {
-    let currentSection = '';
-
-    sections.forEach(section => {
-      const sectionTop = section.offsetTop;
-      const sectionHeight = section.clientHeight;
-
-      if (window.scrollY >= sectionTop - 100) {
-        currentSection = section.getAttribute('id');
+    try {
+      if (!sections || sections.length === 0 || !navItems || navItems.length === 0) {
+        return;
       }
-    });
 
-    navItems.forEach(item => {
-      item.classList.remove('active');
-      if (item.getAttribute('href') === `#${currentSection}`) {
-        item.classList.add('active');
-      }
-    });
+      let currentSection = '';
+
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        const sectionHeight = section.clientHeight;
+
+        if (window.scrollY >= sectionTop - 100) {
+          currentSection = section.getAttribute('id');
+        }
+      });
+
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === `#${currentSection}`) {
+          item.classList.add('active');
+        }
+      });
+    } catch (error) {
+      console.error('Error highlighting navigation:', error);
+    }
   }
 
   // Smooth scroll for navigation links
   document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     anchor.addEventListener('click', (e) => {
-      e.preventDefault();
-      const href = anchor.getAttribute('href');
-      const target = document.querySelector(href);
-      if (target) {
-        target.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-        // Update URL hash
-        history.pushState(null, null, href);
-        highlightNavigation();
+      try {
+        e.preventDefault();
+        const href = anchor.getAttribute('href');
+        const target = document.querySelector(href);
+        if (target) {
+          target.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+          // Update URL hash
+          history.pushState(null, null, href);
+          highlightNavigation();
+        }
+      } catch (error) {
+        console.error('Error in smooth scroll:', error);
       }
     });
   });
 
-  // Highlight navigation on scroll
-  window.addEventListener('scroll', highlightNavigation);
-  highlightNavigation(); // Initial highlight
+  // Highlight navigation on scroll (protected)
+  try {
+    window.addEventListener('scroll', highlightNavigation);
+    highlightNavigation(); // Initial highlight
+  } catch (error) {
+    console.error('Error setting up scroll listener:', error);
+  }
 
   // Combat Simulator functionality
   const simulateBtn = document.getElementById('simulateBtn');
