@@ -20,11 +20,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Initialize Firebase Admin
-const initialized = initializeFirebase();
-if (!initialized) {
-  console.error('❌ Firebase initialization failed');
-  process.exit(1);
-}
+initializeFirebase();
 
 const db = getFirestore();
 
@@ -72,92 +68,103 @@ async function seedCards() {
     process.exit(1);
   }
 
-  const batch = db.batch();
+  const BATCH_SIZE = 500;
   const cardsCollection = db.collection('cards');
 
+  let batch = db.batch();
+  let batchCount = 0;
   let created = 0;
   let updated = 0;
-  let skipped = 0;
 
   for (const card of cards) {
+    // Use card.id (already sanitized during parsing)
+    const docId = card.id;
+    const cardRef = cardsCollection.doc(docId);
+
+    // Separate error handling for Firestore read operation
+    let cardDoc;
     try {
-      // Use card.id (already sanitized during parsing)
-      const docId = card.id;
-      const cardRef = cardsCollection.doc(docId);
+      cardDoc = await cardRef.get();
+    } catch (firestoreError) {
+      console.error(`\n❌ Firestore error checking card "${card.title}":`, firestoreError.message);
 
-      // Separate error handling for Firestore read operation
-      let cardDoc;
-      try {
-        cardDoc = await cardRef.get();
-      } catch (firestoreError) {
-        console.error(`\n❌ Firestore error checking card "${card.title}":`, firestoreError.message);
-
-        // Categorize the error
-        if (firestoreError.code === 'unavailable' || firestoreError.code === 'deadline-exceeded') {
-          console.error('Network or timeout error. Aborting to prevent data loss.');
-          console.error('Please retry the operation.');
-          process.exit(1);
-        } else if (firestoreError.code === 'permission-denied') {
-          console.error('Permission error. Check Firebase security rules and service account permissions.');
-          process.exit(1);
-        } else {
-          console.error('Unexpected Firestore error. Aborting to prevent data inconsistency.');
-          console.error('Full error:', firestoreError);
-          process.exit(1);
-        }
-      }
-
-      if (cardDoc.exists) {
-        // Update existing card
-        batch.update(cardRef, {
-          ...card,
-          updatedAt: new Date().toISOString()
-        });
-        updated++;
-        console.log(`  ✓ Updating: ${card.title}`);
+      // Categorize the error
+      if (firestoreError.code === 'unavailable' || firestoreError.code === 'deadline-exceeded') {
+        console.error('Network or timeout error. Aborting to prevent data loss.');
+        console.error('Please retry the operation.');
+        process.exit(1);
+      } else if (firestoreError.code === 'permission-denied') {
+        console.error('Permission error. Check Firebase security rules and service account permissions.');
+        process.exit(1);
       } else {
-        // Create new card
-        batch.set(cardRef, {
-          ...card,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-        created++;
-        console.log(`  + Creating: ${card.title}`);
+        console.error('Unexpected Firestore error. Aborting to prevent data inconsistency.');
+        console.error('Full error:', firestoreError);
+        process.exit(1);
       }
-    } catch (error) {
-      console.error(`\n❌ Error processing "${card.title}":`, error.message);
-      console.error('Stack trace:', error.stack);
-      console.error('\nAborting seed operation due to processing error.');
-      console.error('This error must be fixed before continuing.');
-      process.exit(1);
+    }
+
+    if (cardDoc.exists) {
+      // Update existing card
+      batch.update(cardRef, {
+        ...card,
+        updatedAt: new Date().toISOString()
+      });
+      updated++;
+      console.log(`  ✓ Updating: ${card.title}`);
+    } else {
+      // Create new card
+      batch.set(cardRef, {
+        ...card,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      created++;
+      console.log(`  + Creating: ${card.title}`);
+    }
+
+    batchCount++;
+
+    // Commit batch if we've reached the batch size limit
+    if (batchCount >= BATCH_SIZE) {
+      try {
+        await batch.commit();
+        console.log(`  Committed batch of ${batchCount} operations`);
+      } catch (error) {
+        console.error(`\n❌ Error committing batch write to Firestore:`, error.message);
+        console.error(`Attempted to write ${batchCount} operations`);
+        console.error('This likely means a Firebase permission or quota issue.');
+        console.error('Full error:', error);
+        process.exit(1);
+      }
+      batch = db.batch();
+      batchCount = 0;
     }
   }
 
   // Check if any cards were processed
   if (created === 0 && updated === 0) {
-    console.error(`\n❌ No cards were processed successfully. All ${skipped} cards were skipped.`);
+    console.error(`\n❌ No cards were processed successfully.`);
     console.error('This indicates a systemic problem with card data or Firestore connection.');
     process.exit(1);
   }
 
-  // Commit batch
-  try {
-    await batch.commit();
-    console.log(`\n✅ Seeding complete!`);
-    console.log(`   Created: ${created}`);
-    console.log(`   Updated: ${updated}`);
-    if (skipped > 0) {
-      console.log(`   Skipped: ${skipped}`);
+  // Commit remaining batch
+  if (batchCount > 0) {
+    try {
+      await batch.commit();
+      console.log(`  Committed final batch of ${batchCount} operations`);
+    } catch (error) {
+      console.error(`\n❌ Error committing final batch write to Firestore:`, error.message);
+      console.error(`Attempted to write ${batchCount} operations`);
+      console.error('This likely means a Firebase permission or quota issue.');
+      console.error('Full error:', error);
+      process.exit(1);
     }
-  } catch (error) {
-    console.error(`\n❌ Error committing batch write to Firestore:`, error.message);
-    console.error(`Attempted to write ${created + updated} operations (${created} creates, ${updated} updates)`);
-    console.error('This likely means a Firebase permission or quota issue.');
-    console.error('None of the cards in this batch were written. You can safely retry.');
-    console.error('Full error:', error);
-    process.exit(1);
   }
+
+  console.log(`\n✅ Seeding complete!`);
+  console.log(`   Created: ${created}`);
+  console.log(`   Updated: ${updated}`);
 }
 
 // Run seeding

@@ -24,8 +24,9 @@ try {
 // Parse markdown tables to extract cards
 function parseCards(content) {
   const cards = [];
-  const cardMap = new Map(); // Track unique cards by ID
+  const cardMap = new Map(); // Track cards by generated ID to detect duplicates
   let duplicatesSkipped = 0;
+  let validationSkipped = 0;
   const lines = content.split('\n');
 
   let currentType = null;
@@ -44,7 +45,7 @@ function parseCards(content) {
       if (header.match(/^(Equipment|Upgrade|Skill|Foe|Origin):/)) {
         const parts = header.split(':');
         currentType = parts[0].trim();
-        // Preserve subtype from previous section unless explicitly overridden
+        // Don't clear subtype here - it may still apply to cards in this section
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
       else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
@@ -120,20 +121,22 @@ function parseCards(content) {
           // Validate required fields
           if (!card.type) {
             console.warn(`⚠️  Warning: Card "${card.title}" is missing type field, skipping`);
+            validationSkipped++;
             continue;
           }
           if (!card.subtype) {
             console.warn(`⚠️  Warning: Card "${card.title}" is missing subtype field, skipping`);
+            validationSkipped++;
             continue;
           }
 
-          // Generate a unique ID
+          // Generate a base ID from the card title
           const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
           let id = baseId;
           let counter = 1;
 
           // Ensure unique IDs by adding a suffix if needed
-          // But check if it's truly a duplicate or just the same card appearing multiple times
+          // Check if this is truly the same card (same data) or a different card with the same title
           if (cardMap.has(id)) {
             const existingCard = cardMap.get(id);
             // Check if it's the same card (same type, subtype, description)
@@ -171,18 +174,22 @@ function parseCards(content) {
     }
   }
 
-  return { cards, duplicatesSkipped };
+  return { cards, duplicatesSkipped, validationSkipped };
 }
 
 // Parse cards
 const result = parseCards(rulesContent);
 const cards = result.cards;
 const duplicatesSkipped = result.duplicatesSkipped;
+const validationSkipped = result.validationSkipped;
 
 // Log summary
 console.log(`\nParsed ${cards.length} cards from rules.md`);
 if (duplicatesSkipped > 0) {
   console.log(`  (Skipped ${duplicatesSkipped} duplicates)`);
+}
+if (validationSkipped > 0) {
+  console.log(`  (Skipped ${validationSkipped} cards with missing required fields)`);
 }
 console.log('');
 

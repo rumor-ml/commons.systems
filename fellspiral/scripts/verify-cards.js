@@ -7,11 +7,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebase } from './lib/firebase-init.js';
 
 // Initialize Firebase Admin
-const initialized = initializeFirebase();
-if (!initialized) {
-  console.error('❌ Firebase initialization failed');
-  process.exit(1);
-}
+initializeFirebase();
 
 const db = getFirestore();
 
@@ -27,7 +23,7 @@ async function verifyCards() {
     } else if (error.code === 'unavailable') {
       console.error('Check internet connection and Firebase project settings.');
     }
-    throw error;
+    process.exit(1);
   }
 
   const totalCount = countSnapshot.data().count;
@@ -51,11 +47,12 @@ async function verifyCards() {
     } else if (error.code === 'unavailable') {
       console.error('Check internet connection and Firebase project settings.');
     }
-    throw error;
+    process.exit(1);
   }
 
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
 
+  let errorCount = 0;
   cardsSnapshot.forEach(doc => {
     try {
       const data = doc.data();
@@ -63,11 +60,13 @@ async function verifyCards() {
       // Validate document has required fields
       if (!data) {
         console.log(`- [Error: Document ${doc.id} has no data]`);
+        errorCount++;
         return;
       }
 
       if (!data.title) {
         console.log(`- [Error: Document ${doc.id} missing title field]`);
+        errorCount++;
         return;
       }
 
@@ -78,8 +77,13 @@ async function verifyCards() {
       console.log(`- ${title} (${type} - ${subtype})`);
     } catch (error) {
       console.log(`- [Error processing document ${doc.id}: ${error.message}]`);
+      errorCount++;
     }
   });
+
+  if (errorCount > 0) {
+    console.log(`\n⚠️  ${errorCount} document(s) had errors`);
+  }
 
   console.log('');
 }
@@ -87,8 +91,7 @@ async function verifyCards() {
 verifyCards()
   .then(() => process.exit(0))
   .catch(error => {
-    console.error('\n❌ Error querying Firestore:', error.message);
-    console.error('This likely means a permission issue, network error, or the cards collection is inaccessible.');
+    console.error('\n❌ Unexpected error:', error.message);
     console.error('Full error:', error);
     process.exit(1);
   });
