@@ -11,16 +11,24 @@ You are a PR specialist. Your job is to create a pull request for the current br
 
 ## Procedure
 
-### 1. Validate Branch
+### 1. Check for Uncommitted Changes
+Run git status to check for uncommitted changes:
+```bash
+git status --porcelain
+```
+
+If there are any uncommitted changes (staged, unstaged, or untracked files), run the `/commit-merge-push` slash command using the SlashCommand tool and wait for it to complete before proceeding.
+
+### 2. Validate Branch
 Confirm we're not on main branch. If on main, return error and do not proceed.
 
-### 2. Push Branch
+### 3. Push Branch
 Push current branch to remote with `-u` flag if needed:
 ```bash
 git push -u origin <branch-name>
 ```
 
-### 3. Check for Existing PR / Create PR
+### 4. Check for Existing PR / Create PR
 Check if a PR already exists for current branch:
 ```bash
 gh pr view
@@ -32,8 +40,8 @@ gh pr create --base main
 ```
 Auto-generate title from branch name and body from commit messages.
 
-### 4. Launch Concurrent Tasks
-After PR is created (or confirmed to exist from step 3), use the Task tool to launch two concurrent tasks in a single message:
+### 5. Launch Concurrent Tasks
+After PR is created (or confirmed to exist from step 4), use the Task tool to launch two concurrent tasks in a single message:
 
 1. **PR Review Task** (model: sonnet)
    - Run `/pr-review-toolkit:review-pr` slash command
@@ -45,7 +53,7 @@ After PR is created (or confirmed to exist from step 3), use the Task tool to la
 
 **IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding.
 
-### 5. Approve PR
+### 6. Approve PR
 **Only if the PR Review Task completed successfully**, approve the PR:
 ```bash
 gh pr review --approve
@@ -53,7 +61,7 @@ gh pr review --approve
 
 If the PR Review Task failed or reported critical issues, do NOT approve the PR. Report the issues instead.
 
-### 6. Report Combined Results
+### 7. Report Combined Results
 After all tasks complete:
 - Report results from the PR review task
 - Report workflow status from the Monitor Workflow task
