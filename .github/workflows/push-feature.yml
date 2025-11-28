@@ -254,7 +254,26 @@ jobs:
         id: deploy
         run: |
           ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
+
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format
+          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
@@ -328,7 +347,26 @@ jobs:
         id: deploy
         run: |
           ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
+
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format
+          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
@@ -402,7 +440,26 @@ jobs:
         id: deploy
         run: |
           ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
+
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format
+          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
@@ -476,7 +533,26 @@ jobs:
         id: deploy
         run: |
           ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
+
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format
+          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 

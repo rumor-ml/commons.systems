@@ -121,6 +121,7 @@ jobs:
         run: pnpm add -g firebase-tools
 
       - name: Delete Firebase Hosting preview channels
+        id: cleanup-firebase
         continue-on-error: true
         env:
           CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
@@ -262,6 +263,7 @@ jobs:
           done
 
       - name: Mark GitHub deployments as inactive
+        id: cleanup-deployments
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -278,11 +280,20 @@ jobs:
           SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
           DEACTIVATED_COUNT=0
 
+          # Sanitize branch name to match deployment workflow
+          SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
+
           # Build list of environments to deactivate
           # PR deployments use format: preview-{branch}-{site}
           ENVIRONMENTS_TO_DEACTIVATE=()
           for site in "${SITES[@]}"; do
-            ENVIRONMENTS_TO_DEACTIVATE+=("preview-${BRANCH_NAME}-${site}")
+            ENVIRONMENTS_TO_DEACTIVATE+=("preview-${SANITIZED_BRANCH}-${site}")
           done
 
           # Deactivate deployments for each environment
@@ -333,3 +344,23 @@ jobs:
 
           echo ""
           echo "**GitHub deployments deactivated:** ${DEACTIVATED_COUNT}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup Summary
+        if: always()
+        run: |
+          echo "## Cleanup Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.cleanup-firebase.outcome }}" = "failure" ]; then
+            echo "::warning::Firebase cleanup encountered errors"
+            echo "- ❌ Firebase Hosting: FAILED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ Firebase Hosting: Success" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.cleanup-deployments.outcome }}" = "failure" ]; then
+            echo "::warning::Deployment cleanup encountered errors"
+            echo "- ❌ GitHub Deployments: FAILED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ GitHub Deployments: Success" >> $GITHUB_STEP_SUMMARY
+          fi
