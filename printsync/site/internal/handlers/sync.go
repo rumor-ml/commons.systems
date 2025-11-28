@@ -343,7 +343,11 @@ func (h *SyncHandlers) ApproveAll(w http.ResponseWriter, r *http.Request) {
 	// Return success message HTML
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Approving all files... uploads in progress</p></div>`))
+	if err := partials.SuccessMessage("Approving all files... uploads in progress").Render(r.Context(), w); err != nil {
+		log.Printf("ERROR: ApproveAll for user %s, session %s - failed to render success message: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, "Failed to render response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // RejectFile handles POST /api/files/{id}/reject
@@ -510,7 +514,11 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 	if len(fileIDs) == 0 {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<div class="p-4 bg-text-tertiary border border-bg-hover rounded-lg"><p class="text-text-secondary font-medium">No files to trash</p></div>`))
+		if err := partials.InfoMessage("No files to trash").Render(r.Context(), w); err != nil {
+			log.Printf("ERROR: TrashAll for user %s, session %s - failed to render info message: %v", authInfo.UserID, sessionID, err)
+			http.Error(w, "Failed to render response", http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -532,8 +540,12 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 	// Return success message HTML (SSE will handle individual file removals)
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	successMsg := fmt.Sprintf(`<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Trashed %d file(s)</p></div>`, len(fileIDs))
-	w.Write([]byte(successMsg))
+	successMsg := fmt.Sprintf("Trashed %d file(s)", len(fileIDs))
+	if err := partials.SuccessMessage(successMsg).Render(r.Context(), w); err != nil {
+		log.Printf("ERROR: TrashAll for user %s, session %s - failed to render success message: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, "Failed to render response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // RetryFile handles POST /api/files/{id}/retry
@@ -600,14 +612,15 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 		fileInfo := filesync.FileInfo{Path: file.LocalPath}
 		extractor := print.NewDefaultExtractor()
 
-		// Consume progress updates to prevent blocking
+		// Create progress channel and draining goroutine.
+		// The goroutine will exit when the channel is closed via defer.
 		progressChan := make(chan filesync.Progress)
+		defer close(progressChan)
 		go func() {
 			for range progressChan {
-				// Drain progress updates
+				// Drain progress updates to prevent Extract from blocking
 			}
 		}()
-		defer close(progressChan)
 
 		extractedMetadata, err := extractor.Extract(ctx, fileInfo, progressChan)
 

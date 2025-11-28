@@ -1,0 +1,19 @@
+package partials
+
+templ SuccessMessage(message string) {
+	<div class="p-4 bg-success-muted border border-success rounded-lg">
+		<p class="text-success font-medium">{ message }</p>
+	</div>
+}
+
+templ InfoMessage(message string) {
+	<div class="p-4 bg-text-tertiary border border-bg-hover rounded-lg">
+		<p class="text-text-secondary font-medium">{ message }</p>
+	</div>
+}
+
+templ ErrorMessage(message string) {
+	<div class="p-4 bg-error-muted border border-error rounded-lg">
+		<p class="text-error font-medium">{ message }</p>
+	</div>
+}

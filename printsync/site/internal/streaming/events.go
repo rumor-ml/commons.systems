@@ -39,12 +39,12 @@ type SessionEvent struct {
 
 // FileEvent represents a file status change
 type FileEvent struct {
-	ID        string               `json:"id"`
-	SessionID string               `json:"sessionId"`
-	LocalPath string               `json:"localPath"`
-	Status    filesync.FileStatus  `json:"status"`
+	ID        string                `json:"id"`
+	SessionID string                `json:"sessionId"`
+	LocalPath string                `json:"localPath"`
+	Status    filesync.FileStatus   `json:"status"`
 	Metadata  filesync.FileMetadata `json:"metadata,omitempty"`
-	Error     string               `json:"error,omitempty"`
+	Error     string                `json:"error,omitempty"`
 }
 
 // CompleteEvent represents a terminal event
