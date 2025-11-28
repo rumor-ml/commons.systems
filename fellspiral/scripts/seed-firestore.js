@@ -4,8 +4,10 @@
  *
  * Usage: node seed-firestore.js
  *
- * Requires GOOGLE_APPLICATION_CREDENTIALS environment variable
- * or GOOGLE_APPLICATION_CREDENTIALS_JSON for JSON credentials
+ * Uses Firebase credentials from one of:
+ * - GOOGLE_APPLICATION_CREDENTIALS_JSON (inline JSON)
+ * - GOOGLE_APPLICATION_CREDENTIALS (path to service account file)
+ * - gcloud Application Default Credentials
  */
 
 import { getFirestore } from 'firebase-admin/firestore';
@@ -18,7 +20,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Initialize Firebase Admin
-initializeFirebase();
+const initialized = initializeFirebase();
+if (!initialized) {
+  console.error('❌ Firebase initialization failed');
+  process.exit(1);
+}
 
 const db = getFirestore();
 
@@ -30,7 +36,17 @@ try {
   cards = JSON.parse(cardsContent);
 } catch (error) {
   console.error(`\n❌ Failed to load cards from ${cardsPath}:`, error.message);
-  console.error('Run "node scripts/parse-cards.js" first to generate cards.json');
+
+  if (error.code === 'ENOENT') {
+    console.error('The cards.json file does not exist.');
+    console.error('Run "node scripts/parse-cards.js" first to generate cards.json');
+  } else if (error instanceof SyntaxError) {
+    console.error('The cards.json file contains invalid JSON.');
+    console.error('Try regenerating it with "node scripts/parse-cards.js"');
+  } else {
+    console.error('Ensure the file exists and is readable.');
+  }
+
   process.exit(1);
 }
 
@@ -38,6 +54,24 @@ console.log(`\n📦 Seeding Firestore with ${cards.length} cards from rules.md\n
 
 // Seed cards to Firestore
 async function seedCards() {
+  // Validate all cards before processing
+  const validationErrors = [];
+  for (const card of cards) {
+    if (!card.id) {
+      validationErrors.push(`Card "${card.title || 'unknown'}" is missing id field`);
+    }
+    if (!card.title) {
+      validationErrors.push(`Card with id "${card.id || 'unknown'}" is missing title field`);
+    }
+  }
+
+  if (validationErrors.length > 0) {
+    console.error('\n❌ Card validation failed:');
+    validationErrors.forEach(err => console.error(`  - ${err}`));
+    console.error('\nFix these errors before seeding.');
+    process.exit(1);
+  }
+
   const batch = db.batch();
   const cardsCollection = db.collection('cards');
 
@@ -51,15 +85,26 @@ async function seedCards() {
       const docId = card.id;
       const cardRef = cardsCollection.doc(docId);
 
-      // Check if card exists (with nested try/catch for Firestore operations)
+      // Separate error handling for Firestore read operation
       let cardDoc;
       try {
         cardDoc = await cardRef.get();
       } catch (firestoreError) {
-        console.error(`  ✗ Firestore error checking "${card.title}":`, firestoreError.message);
-        console.error('This likely means a network or permission issue.');
-        skipped++;
-        continue;
+        console.error(`\n❌ Firestore error checking card "${card.title}":`, firestoreError.message);
+
+        // Categorize the error
+        if (firestoreError.code === 'unavailable' || firestoreError.code === 'deadline-exceeded') {
+          console.error('Network or timeout error. Aborting to prevent data loss.');
+          console.error('Please retry the operation.');
+          process.exit(1);
+        } else if (firestoreError.code === 'permission-denied') {
+          console.error('Permission error. Check Firebase security rules and service account permissions.');
+          process.exit(1);
+        } else {
+          console.error('Unexpected Firestore error. Aborting to prevent data inconsistency.');
+          console.error('Full error:', firestoreError);
+          process.exit(1);
+        }
       }
 
       if (cardDoc.exists) {
@@ -81,10 +126,19 @@ async function seedCards() {
         console.log(`  + Creating: ${card.title}`);
       }
     } catch (error) {
-      console.error(`  ✗ Error processing "${card.title}":`, error.message);
+      console.error(`\n❌ Error processing "${card.title}":`, error.message);
       console.error('Stack trace:', error.stack);
-      skipped++;
+      console.error('\nAborting seed operation due to processing error.');
+      console.error('This error must be fixed before continuing.');
+      process.exit(1);
     }
+  }
+
+  // Check if any cards were processed
+  if (created === 0 && updated === 0) {
+    console.error(`\n❌ No cards were processed successfully. All ${skipped} cards were skipped.`);
+    console.error('This indicates a systemic problem with card data or Firestore connection.');
+    process.exit(1);
   }
 
   // Commit batch
@@ -98,7 +152,9 @@ async function seedCards() {
     }
   } catch (error) {
     console.error(`\n❌ Error committing batch write to Firestore:`, error.message);
+    console.error(`Attempted to write ${created + updated} operations (${created} creates, ${updated} updates)`);
     console.error('This likely means a Firebase permission or quota issue.');
+    console.error('None of the cards in this batch were written. You can safely retry.');
     console.error('Full error:', error);
     process.exit(1);
   }

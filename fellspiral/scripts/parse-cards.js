@@ -25,6 +25,7 @@ try {
 function parseCards(content) {
   const cards = [];
   const cardMap = new Map(); // Track unique cards by ID
+  let duplicatesSkipped = 0;
   const lines = content.split('\n');
 
   let currentType = null;
@@ -43,8 +44,7 @@ function parseCards(content) {
       if (header.match(/^(Equipment|Upgrade|Skill|Foe|Origin):/)) {
         const parts = header.split(':');
         currentType = parts[0].trim();
-        // Don't clear subtype yet - next line might specify it
-        // currentSubtype = null;
+        // Preserve subtype from previous section unless explicitly overridden
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
       else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
@@ -150,6 +150,7 @@ function parseCards(content) {
             } else {
               // Same card appearing multiple times - skip it
               console.log(`  Skipping duplicate: ${card.title} (${card.type} - ${card.subtype})`);
+              duplicatesSkipped++;
               continue;
             }
           }
@@ -170,14 +171,20 @@ function parseCards(content) {
     }
   }
 
-  return cards;
+  return { cards, duplicatesSkipped };
 }
 
 // Parse cards
-const cards = parseCards(rulesContent);
+const result = parseCards(rulesContent);
+const cards = result.cards;
+const duplicatesSkipped = result.duplicatesSkipped;
 
 // Log summary
-console.log(`\nParsed ${cards.length} cards from rules.md\n`);
+console.log(`\nParsed ${cards.length} cards from rules.md`);
+if (duplicatesSkipped > 0) {
+  console.log(`  (Skipped ${duplicatesSkipped} duplicates)`);
+}
+console.log('');
 
 // Group by type
 const cardsByType = {};

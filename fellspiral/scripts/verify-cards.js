@@ -7,13 +7,29 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebase } from './lib/firebase-init.js';
 
 // Initialize Firebase Admin
-initializeFirebase();
+const initialized = initializeFirebase();
+if (!initialized) {
+  console.error('❌ Firebase initialization failed');
+  process.exit(1);
+}
 
 const db = getFirestore();
 
 async function verifyCards() {
   // Get total count first
-  const countSnapshot = await db.collection('cards').count().get();
+  let countSnapshot;
+  try {
+    countSnapshot = await db.collection('cards').count().get();
+  } catch (error) {
+    console.error('\n❌ Failed to query card count:', error.message);
+    if (error.code === 'permission-denied') {
+      console.error('Check Firestore security rules and service account permissions.');
+    } else if (error.code === 'unavailable') {
+      console.error('Check internet connection and Firebase project settings.');
+    }
+    throw error;
+  }
+
   const totalCount = countSnapshot.data().count;
 
   if (totalCount === 0) {
@@ -25,28 +41,44 @@ async function verifyCards() {
   console.log(`\nTotal cards in Firestore: ${totalCount}`);
 
   // Get sample cards
-  const cardsSnapshot = await db.collection('cards').limit(5).get();
+  let cardsSnapshot;
+  try {
+    cardsSnapshot = await db.collection('cards').limit(5).get();
+  } catch (error) {
+    console.error('\n❌ Failed to query cards:', error.message);
+    if (error.code === 'permission-denied') {
+      console.error('Check Firestore security rules and service account permissions.');
+    } else if (error.code === 'unavailable') {
+      console.error('Check internet connection and Firebase project settings.');
+    }
+    throw error;
+  }
+
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
 
   cardsSnapshot.forEach(doc => {
-    const data = doc.data();
+    try {
+      const data = doc.data();
 
-    // Validate document has required fields
-    if (!data) {
-      console.log(`- [Error: Document ${doc.id} has no data]`);
-      return;
+      // Validate document has required fields
+      if (!data) {
+        console.log(`- [Error: Document ${doc.id} has no data]`);
+        return;
+      }
+
+      if (!data.title) {
+        console.log(`- [Error: Document ${doc.id} missing title field]`);
+        return;
+      }
+
+      const title = data.title;
+      const type = data.type || 'Unknown';
+      const subtype = data.subtype || 'Unknown';
+
+      console.log(`- ${title} (${type} - ${subtype})`);
+    } catch (error) {
+      console.log(`- [Error processing document ${doc.id}: ${error.message}]`);
     }
-
-    if (!data.title) {
-      console.log(`- [Error: Document ${doc.id} missing title field]`);
-      return;
-    }
-
-    const title = data.title;
-    const type = data.type || 'Unknown';
-    const subtype = data.subtype || 'Unknown';
-
-    console.log(`- ${title} (${type} - ${subtype})`);
   });
 
   console.log('');
@@ -56,7 +88,7 @@ verifyCards()
   .then(() => process.exit(0))
   .catch(error => {
     console.error('\n❌ Error querying Firestore:', error.message);
-    console.error('This likely means Firebase is not configured or the cards collection does not exist.');
+    console.error('This likely means a permission issue, network error, or the cards collection is inaccessible.');
     console.error('Full error:', error);
     process.exit(1);
   });
