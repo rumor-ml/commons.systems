@@ -10,6 +10,31 @@ import (
 	"time"
 )
 
+const (
+	testSocketName = "e2e-test"
+	testAlertDir   = "/tmp/claude"
+	alertPrefix    = "tui-alert-"
+)
+
+// tmuxCmd creates a tmux command that runs on the isolated test server
+func tmuxCmd(args ...string) *exec.Cmd {
+	fullArgs := append([]string{"-L", testSocketName}, args...)
+	cmd := exec.Command("tmux", fullArgs...)
+	cmd.Env = filterTmuxEnv(os.Environ())
+	return cmd
+}
+
+// filterTmuxEnv removes TMUX and TMUX_PANE env vars to ensure test session isolation
+func filterTmuxEnv(env []string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TMUX_PANE=") {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
 // DiagnosticInfo captures test environment state
 type DiagnosticInfo struct {
 	PaneID          string
@@ -277,4 +302,22 @@ func logEnvironmentState(t *testing.T, session, paneID, context string) {
 		}
 	}
 	t.Logf("==========================")
+}
+
+// CleanupAlertFiles removes all alert files from the test directory.
+// This is useful for ensuring a clean state before tests.
+func CleanupAlertFiles() error {
+	pattern := filepath.Join(testAlertDir, alertPrefix+"*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob alert files: %w", err)
+	}
+
+	for _, file := range matches {
+		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove %s: %w", file, err)
+		}
+	}
+
+	return nil
 }

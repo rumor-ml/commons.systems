@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] STOP_START pane=$TMUX_PANE test=$CLAUDE_E2E_TEST\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] STOP_SUCCESS pane=$TMUX_PANE file_created=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] STOP_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log; [[ -z \"$CLAUDE_E2E_TEST\" ]] && afplay /System/Library/Sounds/Tink.aiff &"
+            "command": "echo \"[$(date +%s.%N)] STOP_START pane=$TMUX_PANE test=$CLAUDE_E2E_TEST\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'stop' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] STOP_SUCCESS pane=$TMUX_PANE file_created=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] STOP_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log; [[ -z \"$CLAUDE_E2E_TEST\" ]] && afplay /System/Library/Sounds/Tink.aiff &"
           }
         ]
       }
@@ -127,6 +127,35 @@
           {
             "type": "command",
             "command": ".claude/hooks/exit-plan-mode-reminder.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[$(date +%s.%N)] PERMISSION_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'permission' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] PERMISSION_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] PERMISSION_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[$(date +%s.%N)] IDLE_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'idle' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] IDLE_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] IDLE_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+          }
+        ]
+      },
+      {
+        "matcher": "elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[$(date +%s.%N)] ELICITATION_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'elicitation' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] ELICITATION_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] ELICITATION_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
           }
         ]
       }
