@@ -49,6 +49,8 @@ importers:
         specifier: ^14.1.1
         version: 14.1.1
 
+  fellspiral/scripts: {}
+
   fellspiral/site:
     dependencies:
       '@commons/auth':

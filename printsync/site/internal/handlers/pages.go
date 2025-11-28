@@ -61,6 +61,21 @@ func (h *PageHandlers) Sync(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *PageHandlers) SyncDetail(w http.ResponseWriter, r *http.Request) {
+	htmx := middleware.GetHTMX(r)
+	sessionID := r.PathValue("id")
+
+	data := pages.SyncDetailPageData{
+		SessionID: sessionID,
+	}
+
+	if htmx.IsHTMX && !htmx.HistoryRestore {
+		pages.SyncDetailContent(data).Render(r.Context(), w)
+	} else {
+		pages.SyncDetail(data).Render(r.Context(), w)
+	}
+}
+
 func (h *PageHandlers) SyncFormPartial(w http.ResponseWriter, r *http.Request) {
 	partials.SyncForm().Render(r.Context(), w)
 }

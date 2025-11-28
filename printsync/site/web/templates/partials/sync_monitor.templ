@@ -1,0 +1,118 @@
+package partials
+
+import (
+	"fmt"
+)
+
+templ SyncMonitor(sessionID string) {
+	<div
+		class="bg-bg-elevated rounded-lg shadow-lg p-6"
+		hx-ext="sse"
+		sse-connect={ fmt.Sprintf("/api/sync/%s/stream", sessionID) }
+	>
+		<!-- Header with title and Cancel button -->
+		<div class="flex items-center justify-between mb-4">
+			<h2 class="text-xl font-semibold text-text-primary">Sync in Progress</h2>
+			<button
+				hx-post={ fmt.Sprintf("/api/sync/%s/cancel", sessionID) }
+				hx-target="#sync-monitor"
+				hx-swap="outerHTML"
+				class="btn btn--sm btn--danger"
+			>
+				<span>Cancel</span>
+				<span class="htmx-indicator spinner spinner--sm"></span>
+			</button>
+		</div>
+
+		<!-- Stats section -->
+		<div
+			id="sync-stats"
+			sse-swap="session"
+			hx-swap="innerHTML"
+		>
+			<!-- Initial stats - will be replaced by SSE -->
+			<div class="grid grid-cols-4 gap-4 mb-6">
+				<div class="text-center">
+					<div class="text-2xl font-bold text-primary">0</div>
+					<div class="text-sm text-text-secondary">Discovered</div>
+				</div>
+				<div class="text-center">
+					<div class="text-2xl font-bold text-success">0</div>
+					<div class="text-sm text-text-secondary">Extracted</div>
+				</div>
+				<div class="text-center">
+					<div class="text-2xl font-bold text-secondary">0</div>
+					<div class="text-sm text-text-secondary">Uploaded</div>
+				</div>
+				<div class="text-center">
+					<div class="text-2xl font-bold text-error">0</div>
+					<div class="text-sm text-text-secondary">Errors</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Progress bar section -->
+		<div
+			id="phase-indicator"
+			sse-swap="progress"
+			hx-swap="innerHTML"
+		>
+			<!-- Initial progress - will be replaced by SSE -->
+			<div class="mb-6">
+				<div class="w-full bg-bg-surface rounded-full h-2.5">
+					<div class="bg-primary h-2.5 rounded-full shadow-glow-subtle transition-all duration-slow" style="width: 0%"></div>
+				</div>
+				<div class="text-sm text-text-secondary mt-2">
+					<span>Initializing...</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Action buttons section -->
+		<div id="action-buttons" class="flex gap-3 mb-6">
+			<button
+				id="upload-all-btn"
+				hx-post={ fmt.Sprintf("/api/sync/%s/approve-all", sessionID) }
+				hx-target="#action-buttons"
+				hx-swap="outerHTML"
+				hx-indicator="#upload-all-spinner"
+				class="btn btn--primary btn--sm hidden"
+			>
+				<span>Upload All</span>
+				<span id="upload-all-spinner" class="htmx-indicator spinner spinner--sm"></span>
+			</button>
+			<button
+				id="trash-all-btn"
+				hx-get={ fmt.Sprintf("/partials/trash-modal?sessionID=%s&action=trash-all", sessionID) }
+				hx-target="body"
+				hx-swap="beforeend"
+				class="btn btn--sm btn--danger btn--outline hidden"
+			>
+				<span>Trash All</span>
+			</button>
+		</div>
+
+		<!-- File list container -->
+		<div class="mt-6">
+			<h3 class="font-semibold text-text-primary mb-3">Files</h3>
+			<div
+				id="file-list"
+				class="space-y-2 max-h-96 overflow-y-auto"
+				sse-swap="file"
+				hx-swap="beforeend"
+			>
+				<!-- Files will be added here via SSE with beforeend swap -->
+			</div>
+		</div>
+
+		<!-- Complete message section -->
+		<div
+			id="complete-message"
+			class="hidden"
+			sse-swap="complete"
+			hx-swap="innerHTML"
+		>
+			<!-- Will be populated by SSE when complete -->
+		</div>
+	</div>
+}
