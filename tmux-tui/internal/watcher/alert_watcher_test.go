@@ -471,3 +471,40 @@ func TestAlertWatcher_ErrorChannelClosure(t *testing.T) {
 		t.Fatal("Event channel not closed - goroutine leak")
 	}
 }
+
+func TestAlertWatcher_ErrorEventPropagation(t *testing.T) {
+	// This test verifies that normal alert events have nil Error field
+	// and that the PaneID is correctly extracted
+	watcher := mustNewAlertWatcher(t)
+	defer watcher.Close()
+
+	eventCh := watcher.Start()
+
+	// Create a normal alert file
+	testPaneID := "%error-prop-test"
+	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
+	defer os.Remove(alertFile)
+
+	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+		t.Fatalf("Failed to create alert file: %v", err)
+	}
+
+	// Wait for the create event
+	select {
+	case event := <-eventCh:
+		// Verify the event has nil Error field for normal events
+		if event.Error != nil {
+			t.Errorf("Expected Error to be nil for normal event, got: %v", event.Error)
+		}
+		// Verify PaneID is correct
+		if event.PaneID != testPaneID {
+			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+		}
+		// Verify Created flag
+		if !event.Created {
+			t.Error("Expected Created=true, got false")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for create event")
+	}
+}

@@ -18,7 +18,8 @@ const (
 // AlertEvent represents an alert file change event
 type AlertEvent struct {
 	PaneID  string
-	Created bool // true = created, false = deleted
+	Created bool  // true = created, false = deleted
+	Error   error // nil for normal events, non-nil for fsnotify errors
 }
 
 // AlertWatcher watches for alert file changes using fsnotify
@@ -40,13 +41,13 @@ func NewAlertWatcher() (*AlertWatcher, error) {
 	// Ensure alert directory exists
 	if err := os.MkdirAll(alertDir, 0755); err != nil {
 		watcher.Close()
-		return nil, fmt.Errorf("failed to create alert directory: %w", err)
+		return nil, fmt.Errorf("failed to create alert directory %s: %w", alertDir, err)
 	}
 
 	// Add directory to watcher
 	if err := watcher.Add(alertDir); err != nil {
 		watcher.Close()
-		return nil, fmt.Errorf("failed to watch alert directory: %w", err)
+		return nil, fmt.Errorf("failed to watch alert directory %s: %w", alertDir, err)
 	}
 
 	return &AlertWatcher{
@@ -126,9 +127,12 @@ func (w *AlertWatcher) watch() {
 			if !ok {
 				return
 			}
-			// Log critical filesystem errors
-			fmt.Fprintf(os.Stderr, "Alert watcher error: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Alert watching may be degraded. Some alerts may not be detected.\n")
+			// Send error event instead of logging directly
+			select {
+			case w.alertCh <- AlertEvent{Error: err}:
+			case <-w.done:
+				return
+			}
 		}
 	}
 }
@@ -169,7 +173,7 @@ func GetExistingAlerts() (map[string]bool, error) {
 	pattern := filepath.Join(alertDir, alertPrefix+"*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("failed to glob alert files: %w", err)
+		return nil, fmt.Errorf("failed to glob alert files with pattern %s: %w", pattern, err)
 	}
 
 	for _, file := range matches {
