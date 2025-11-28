@@ -56,10 +56,19 @@ type treeRefreshMsg struct {
 }
 
 func realInitialModel() realModel {
-	collector := tmux.NewCollector()
+	collector, collectorErr := tmux.NewCollector()
+	if collectorErr != nil {
+		collector = nil
+	}
 	renderer := ui.NewTreeRenderer(80)
 
-	tree, err := collector.GetTree()
+	var tree tmux.RepoTree
+	var err error
+	if collector != nil {
+		tree, err = collector.GetTree()
+	} else {
+		err = collectorErr
+	}
 
 	alertWatcher, watcherErr := watcher.NewAlertWatcher()
 	if watcherErr != nil {
