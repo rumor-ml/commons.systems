@@ -36,15 +36,15 @@ gh pr view
 
 If no PR exists, create PR to main:
 ```bash
-gh pr create --base main
+gh pr create --base main --label "needs review"
 ```
 Auto-generate title from branch name and body from commit messages.
 
 ### 5. Launch Concurrent Tasks
 After PR is created (or confirmed to exist from step 4), use the Task tool to launch two concurrent tasks in a single message:
 
-1. **PR Review Task** (model: sonnet)
-   - Run `/pr-review-toolkit:review-pr` slash command
+1. **PR Review Task** (subagent_type: "general-purpose")
+   - Use the Task tool with subagent_type="general-purpose" to run the `/pr-review-toolkit:review-pr` slash command
    - This will perform comprehensive PR review using specialized agents
 
 2. **Monitor Workflow Task** (subagent_type: "Monitor Workflow")
@@ -53,7 +53,14 @@ After PR is created (or confirmed to exist from step 4), use the Task tool to la
 
 **IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding.
 
-### 6. Approve PR
+### 6. Post Review Feedback
+After the PR Review Task completes, post the feedback as a comment on the PR:
+```bash
+gh pr comment --body "<review feedback from PR Review Task>"
+```
+Include all relevant feedback from the review in the comment.
+
+### 7. Approve PR
 **Only if the PR Review Task completed successfully**, approve the PR:
 ```bash
 gh pr review --approve
@@ -61,7 +68,7 @@ gh pr review --approve
 
 If the PR Review Task failed or reported critical issues, do NOT approve the PR. Report the issues instead.
 
-### 7. Report Combined Results
+### 8. Report Combined Results
 After all tasks complete:
 - Report results from the PR review task
 - Report workflow status from the Monitor Workflow task
