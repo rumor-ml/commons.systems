@@ -169,12 +169,18 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 		cmd = exec.Command("ps", "-o", "command=", "-p", childPID)
 		output, err := cmd.Output()
 		if err != nil {
-			// Process may have exited between pgrep and ps - this is expected
-			if _, ok := err.(*exec.ExitError); ok {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() == 1 {
+					// Expected: process exited between pgrep and ps (TOCTOU race)
+					continue
+				}
+				// Unexpected exit code - system issue
+				fmt.Fprintf(os.Stderr, "Warning: ps failed for process %s (exit %d): %v\n",
+					childPID, exitErr.ExitCode(), err)
 				continue
 			}
-			// Unexpected error
-			fmt.Fprintf(os.Stderr, "Warning: Failed to inspect process %s: %v\n", childPID, err)
+			// Non-exit error
+			fmt.Fprintf(os.Stderr, "Error: Failed to run ps for process %s: %v\n", childPID, err)
 			continue
 		}
 
