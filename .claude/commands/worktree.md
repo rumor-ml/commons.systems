@@ -11,12 +11,12 @@ model: haiku
      - If issue found, use it as the GitHub issue (same as #<number> case below)
    - If argument starts with `#` (e.g., `#66`): This is a gh issue number. Source is issue body.
    - Otherwise: source is argument
+3.5 If working from a GitHub issue: Update issue labels
+    - Remove "ready" label: `gh issue edit <number> --remove-label "ready"`
+    - Add "in progress" label: `gh issue edit <number> --add-label "in progress"`
 4. Generate concise, descriptive branch name from the source.
    - If argument was a GitHub issue number: prefix the branch name with the issue number (e.g., `#23` → `23-fix-some-issue`)
 5. Create worktree in ~/worktrees with this branch name, branching off main.
 6. Set upstream to origin/<branch-name> (don't push).
 7. Run `direnv allow` in the new worktree directory to enable the environment.
-8. If source was a GitHub issue: update issue labels
-   - Remove the "ready" label (if present): `gh issue edit <number> --remove-label "ready"`
-   - Add the "in progress" label: `gh issue edit <number> --add-label "in progress"`
-9. Open a new tmux window running claude in nix dev shell: `tmux new-window -n "<branch-name>" -c "<worktree-path>" "nix develop -c claude"`
+8. Open a new tmux window running claude in nix dev shell: `tmux new-window -n "<branch-name>" -c "<worktree-path>" "bash -c 'nix develop -c claude || exec bash'"`

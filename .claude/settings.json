@@ -28,6 +28,7 @@
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr checks:*)",
+      "Bash(gh api graphql:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
       "Bash(gh run watch:*)",
@@ -104,6 +105,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/sandbox-reminder.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pre-push-tests.sh"
           }
         ]
       }
