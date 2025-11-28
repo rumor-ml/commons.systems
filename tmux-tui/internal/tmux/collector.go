@@ -199,8 +199,15 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
-		// Git returns exit code 128 for "not a git repository"
+		// Git returns exit code 128 for various errors
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "not a git repository") {
+				// Expected - path is not in a git repository
+				return "", ""
+			}
+			// Other 128 errors - log with context for debugging
+			fmt.Fprintf(os.Stderr, "Git error for %s: %s\n", path, stderr)
 			return "", ""
 		}
 		fmt.Fprintf(os.Stderr, "Warning: Failed to get git info for %s: %v\n", path, err)
@@ -221,8 +228,15 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd = exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err = cmd.Output()
 	if err != nil {
-		// Git returns exit code 128 for "not a git repository"
+		// Git returns exit code 128 for various errors
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "not a git repository") {
+				// Expected - path is not in a git repository
+				return repo, ""
+			}
+			// Other 128 errors - log with context for debugging
+			fmt.Fprintf(os.Stderr, "Git error getting branch for %s: %s\n", path, stderr)
 			return repo, ""
 		}
 		fmt.Fprintf(os.Stderr, "Warning: Failed to get branch for %s: %v\n", path, err)
