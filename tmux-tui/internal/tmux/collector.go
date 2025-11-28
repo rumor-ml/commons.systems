@@ -16,10 +16,14 @@ type Collector struct {
 }
 
 // NewCollector creates a new Collector instance
-func NewCollector() *Collector {
-	return &Collector{
-		claudeCache: NewClaudePaneCache(30 * time.Second),
+func NewCollector() (*Collector, error) {
+	cache, err := NewClaudePaneCache(30 * time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
+	return &Collector{
+		claudeCache: cache,
+	}, nil
 }
 
 // GetTree collects all panes from the current tmux session and organizes them into a RepoTree

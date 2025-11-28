@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -19,14 +20,14 @@ type ClaudePaneCache struct {
 }
 
 // NewClaudePaneCache creates a new cache with the specified TTL
-func NewClaudePaneCache(ttl time.Duration) *ClaudePaneCache {
+func NewClaudePaneCache(ttl time.Duration) (*ClaudePaneCache, error) {
 	if ttl <= 0 {
-		panic("ClaudePaneCache: ttl must be positive")
+		return nil, fmt.Errorf("ttl must be positive, got %v", ttl)
 	}
 	return &ClaudePaneCache{
 		cache: make(map[string]cacheEntry),
 		ttl:   ttl,
-	}
+	}, nil
 }
 
 // Get retrieves a cached value if it exists and hasn't expired

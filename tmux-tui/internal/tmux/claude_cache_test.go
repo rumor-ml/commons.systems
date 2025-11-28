@@ -6,8 +6,18 @@ import (
 	"time"
 )
 
+// mustNewCache is a helper that creates a cache or fails the test
+func mustNewCache(t *testing.T, ttl time.Duration) *ClaudePaneCache {
+	t.Helper()
+	cache, err := NewClaudePaneCache(ttl)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	return cache
+}
+
 func TestClaudePaneCache_HitMiss(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 
 	// Cache miss
 	_, found := cache.Get("1234")
@@ -50,7 +60,7 @@ func TestClaudePaneCache_HitMiss(t *testing.T) {
 }
 
 func TestClaudePaneCache_TTLExpiration(t *testing.T) {
-	cache := NewClaudePaneCache(100 * time.Millisecond)
+	cache := mustNewCache(t, 100*time.Millisecond)
 
 	// Set value
 	cache.Set("1234", true)
@@ -75,7 +85,7 @@ func TestClaudePaneCache_TTLExpiration(t *testing.T) {
 }
 
 func TestClaudePaneCache_Concurrent(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 	var wg sync.WaitGroup
 
 	// Concurrent writes
@@ -107,7 +117,7 @@ func TestClaudePaneCache_Concurrent(t *testing.T) {
 }
 
 func TestClaudePaneCache_Invalidate(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 
 	// Set values
 	cache.Set("1234", true)
@@ -139,7 +149,7 @@ func TestClaudePaneCache_Invalidate(t *testing.T) {
 }
 
 func TestClaudePaneCache_Cleanup(t *testing.T) {
-	cache := NewClaudePaneCache(100 * time.Millisecond)
+	cache := mustNewCache(t, 100*time.Millisecond)
 
 	// Add several entries
 	cache.Set("1234", true)
@@ -164,7 +174,7 @@ func TestClaudePaneCache_Cleanup(t *testing.T) {
 }
 
 func TestClaudePaneCache_CleanupPartial(t *testing.T) {
-	cache := NewClaudePaneCache(100 * time.Millisecond)
+	cache := mustNewCache(t, 100*time.Millisecond)
 
 	// Add entries
 	cache.Set("1234", true)
@@ -194,7 +204,7 @@ func TestClaudePaneCache_CleanupPartial(t *testing.T) {
 }
 
 func TestClaudePaneCache_CleanupExcept(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 
 	// Add several entries
 	cache.Set("1234", true)
@@ -238,7 +248,7 @@ func TestClaudePaneCache_CleanupExcept(t *testing.T) {
 }
 
 func TestClaudePaneCache_Size(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 
 	if cache.Size() != 0 {
 		t.Errorf("Expected empty cache, got size %d", cache.Size())
@@ -267,7 +277,7 @@ func TestClaudePaneCache_Size(t *testing.T) {
 }
 
 func TestClaudePaneCache_CleanupExceptEmpty(t *testing.T) {
-	cache := NewClaudePaneCache(30 * time.Second)
+	cache := mustNewCache(t, 30*time.Second)
 	cache.Set("1234", true)
 	cache.Set("5678", false)
 
@@ -281,5 +291,25 @@ func TestClaudePaneCache_CleanupExceptEmpty(t *testing.T) {
 
 	if cache.Size() != 0 {
 		t.Errorf("Expected cache to be empty after CleanupExcept with empty map, got %d entries", cache.Size())
+	}
+}
+
+func TestClaudePaneCache_InvalidTTL(t *testing.T) {
+	// Test zero TTL
+	_, err := NewClaudePaneCache(0)
+	if err == nil {
+		t.Error("Expected error for zero TTL, got nil")
+	}
+
+	// Test negative TTL
+	_, err = NewClaudePaneCache(-1 * time.Second)
+	if err == nil {
+		t.Error("Expected error for negative TTL, got nil")
+	}
+
+	// Test valid TTL should not error
+	_, err = NewClaudePaneCache(1 * time.Second)
+	if err != nil {
+		t.Errorf("Expected no error for valid TTL, got: %v", err)
 	}
 }

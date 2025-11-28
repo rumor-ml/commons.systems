@@ -39,7 +39,13 @@ type model struct {
 }
 
 func initialModel() model {
-	collector := tmux.NewCollector()
+	collector, collectorErr := tmux.NewCollector()
+	if collectorErr != nil {
+		return model{
+			err: fmt.Errorf("failed to initialize collector: %w", collectorErr),
+		}
+	}
+
 	renderer := ui.NewTreeRenderer(80) // Default width
 
 	// Initial tree load
