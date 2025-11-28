@@ -46,6 +46,7 @@ type tickMsg time.Time
 type alertChangedMsg struct {
 	paneID  string
 	created bool
+	err     error
 }
 
 type alertWatcherFailedMsg struct{}
@@ -125,6 +126,17 @@ func (m realModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case alertChangedMsg:
+		// Check for error events first
+		if msg.err != nil {
+			fmt.Fprintf(os.Stderr, "Alert watcher error: %v\n", msg.err)
+			fmt.Fprintf(os.Stderr, "Alert watching may be degraded. Some alerts may not be detected.\n")
+			// Continue watching despite error
+			if m.alertWatcher != nil {
+				return m, watchAlertsCmd(m.alertWatcher)
+			}
+			return m, nil
+		}
+		// FAST PATH: Update alert immediately with mutex protection
 		m.alertsMu.Lock()
 		if msg.created {
 			m.alerts[msg.paneID] = true
@@ -132,6 +144,7 @@ func (m realModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.alerts, msg.paneID)
 		}
 		m.alertsMu.Unlock()
+		// Continue watching for more alert events
 		if m.alertWatcher != nil {
 			return m, watchAlertsCmd(m.alertWatcher)
 		}
