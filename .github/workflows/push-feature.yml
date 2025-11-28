@@ -5,6 +5,7 @@ on:
     branches:
       - '**'
       - '!main'
+      - '!gh-readonly-queue/**'
   workflow_dispatch:
 
 # Only allow one pipeline per branch at a time
