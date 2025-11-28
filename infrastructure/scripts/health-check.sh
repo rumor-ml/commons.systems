@@ -62,8 +62,10 @@ check_url() {
   local response
   local http_code
 
-  # Fetch response with HTTP code
-  response=$(curl -sf -w "\n%{http_code}" "$URL" 2>/dev/null) || return 1
+  # Fetch response with HTTP code and timeouts
+  # --connect-timeout: max time for connection establishment
+  # --max-time: max time for entire operation
+  response=$(curl -sf --connect-timeout 10 --max-time 30 -w "\n%{http_code}" "$URL" 2>/dev/null) || return 1
   http_code=$(echo "$response" | tail -n1)
   response=$(echo "$response" | sed '$d')
 

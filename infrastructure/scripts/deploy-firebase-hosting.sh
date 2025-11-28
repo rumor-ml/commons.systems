@@ -157,7 +157,7 @@ else
   echo "⏰ Expires: 7 days from now"
 
   # Verify the deployment is accessible with exponential backoff
-  # Use 120s timeout for new preview channels (DNS propagation can take longer)
+  # Use 300s timeout for new preview channels (DNS propagation can take longer)
   echo ""
   echo "🔍 Verifying deployment readiness..."
 
