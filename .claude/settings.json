@@ -16,6 +16,7 @@
       "WebSearch",
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
+      "SlashCommand(/commit-merge-push)",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",
