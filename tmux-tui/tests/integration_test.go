@@ -34,7 +34,7 @@ type realModel struct {
 	renderer     *ui.TreeRenderer
 	alertWatcher *watcher.AlertWatcher
 	tree         tmux.RepoTree
-	alerts       map[string]bool
+	alerts       map[string]string
 	alertsMu     *sync.RWMutex
 	width        int
 	height       int
@@ -44,12 +44,15 @@ type realModel struct {
 type tickMsg time.Time
 
 type alertChangedMsg struct {
-	paneID  string
-	created bool
-	err     error
+	paneID    string
+	eventType string
+	created   bool
+	err       error
 }
 
-type alertWatcherFailedMsg struct{}
+type alertWatcherStoppedMsg struct {
+	wasIntentional bool
+}
 
 type treeRefreshMsg struct {
 	tree tmux.RepoTree
@@ -78,7 +81,7 @@ func realInitialModel() realModel {
 
 	alerts, alertsErr := watcher.GetExistingAlerts()
 	if alertsErr != nil {
-		alerts = make(map[string]bool)
+		alerts = make(map[string]string)
 	}
 
 	return realModel{
@@ -139,7 +142,7 @@ func (m realModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// FAST PATH: Update alert immediately with mutex protection
 		m.alertsMu.Lock()
 		if msg.created {
-			m.alerts[msg.paneID] = true
+			m.alerts[msg.paneID] = msg.eventType
 		} else {
 			delete(m.alerts, msg.paneID)
 		}
@@ -150,9 +153,12 @@ func (m realModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case alertWatcherFailedMsg:
-		fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
-		fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
+	case alertWatcherStoppedMsg:
+		// Only print error if watcher stopped unexpectedly
+		if !msg.wasIntentional {
+			fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
+			fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
+		}
 		m.alertWatcher = nil
 		return m, nil
 
@@ -189,7 +195,7 @@ func (m realModel) View() string {
 
 	// Copy alerts map with read lock for safe concurrent access
 	m.alertsMu.RLock()
-	alertsCopy := make(map[string]bool)
+	alertsCopy := make(map[string]string)
 	for k, v := range m.alerts {
 		alertsCopy[k] = v
 	}
@@ -198,11 +204,11 @@ func (m realModel) View() string {
 	return m.renderer.Render(m.tree, alertsCopy)
 }
 
-func (m realModel) GetAlertsForTesting() map[string]bool {
+func (m realModel) GetAlertsForTesting() map[string]string {
 	m.alertsMu.RLock()
 	defer m.alertsMu.RUnlock()
 
-	alerts := make(map[string]bool, len(m.alerts))
+	alerts := make(map[string]string, len(m.alerts))
 	for k, v := range m.alerts {
 		alerts[k] = v
 	}
@@ -213,11 +219,14 @@ func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-w.Start()
 		if !ok {
-			return alertWatcherFailedMsg{}
+			// Channel closed - check if it was intentional
+			wasIntentional := w.IsClosed()
+			return alertWatcherStoppedMsg{wasIntentional: wasIntentional}
 		}
 		return alertChangedMsg{
-			paneID:  event.PaneID,
-			created: event.Created,
+			paneID:    event.PaneID,
+			eventType: event.EventType,
+			created:   event.Created,
 		}
 	}
 }
@@ -229,7 +238,7 @@ func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
 	}
 }
 
-func reconcileAlerts(tree tmux.RepoTree, alerts map[string]bool) map[string]bool {
+func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
 	validPanes := make(map[string]bool)
 	for _, branches := range tree {
 		for _, panes := range branches {
@@ -522,13 +531,13 @@ func TestIntegration_GetAlertsForTesting(t *testing.T) {
 
 	// Clear any existing alerts first
 	m.alertsMu.Lock()
-	m.alerts = make(map[string]bool)
+	m.alerts = make(map[string]string)
 	m.alertsMu.Unlock()
 
 	// Add some alerts
 	m.alertsMu.Lock()
-	m.alerts["%test1"] = true
-	m.alerts["%test2"] = true
+	m.alerts["%test1"] = "stop"
+	m.alerts["%test2"] = "stop"
 	m.alertsMu.Unlock()
 
 	// Get alerts safely
@@ -539,12 +548,12 @@ func TestIntegration_GetAlertsForTesting(t *testing.T) {
 		t.Errorf("Expected 2 alerts, got %d", len(alerts))
 	}
 
-	if !alerts["%test1"] || !alerts["%test2"] {
+	if alerts["%test1"] != "stop" || alerts["%test2"] != "stop" {
 		t.Errorf("Missing expected alerts")
 	}
 
 	// Modify the returned map - should not affect original
-	alerts["%test3"] = true
+	alerts["%test3"] = "stop"
 
 	// Get alerts again
 	alerts2 := m.GetAlertsForTesting()
@@ -689,7 +698,7 @@ func TestIntegration_ViewOutputContainsAlerts(t *testing.T) {
 
 	// Add a test alert
 	m.alertsMu.Lock()
-	m.alerts["%999"] = true
+	m.alerts["%999"] = "stop"
 	m.alertsMu.Unlock()
 
 	// Render view
@@ -776,9 +785,9 @@ func TestIntegration_ReconcileAlertsWithEmptyTree(t *testing.T) {
 
 	// Add multiple alerts manually
 	m.alertsMu.Lock()
-	m.alerts["%100"] = true
-	m.alerts["%101"] = true
-	m.alerts["%102"] = true
+	m.alerts["%100"] = "stop"
+	m.alerts["%101"] = "stop"
+	m.alerts["%102"] = "stop"
 	initialAlertCount := len(m.alerts)
 	m.alertsMu.Unlock()
 

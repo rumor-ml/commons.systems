@@ -13,16 +13,6 @@ import (
 	teatest "github.com/charmbracelet/x/exp/teatest"
 )
 
-const testSocketName = "e2e-test"
-
-// tmuxCmd creates a tmux command that runs on the isolated test server
-func tmuxCmd(args ...string) *exec.Cmd {
-	fullArgs := append([]string{"-L", testSocketName}, args...)
-	cmd := exec.Command("tmux", fullArgs...)
-	cmd.Env = filterTmuxEnv(os.Environ())
-	return cmd
-}
-
 // Mock model for testing (simplified version of main.go model)
 type model struct {
 	windowID  string
@@ -282,8 +272,8 @@ func TestTmuxConfigExists(t *testing.T) {
 
 // getActiveAlerts is a copy of the function from main.go for testing
 // This allows us to test the function without importing main
-func getActiveAlerts() map[string]bool {
-	alerts := make(map[string]bool)
+func getActiveAlerts() map[string]string {
+	alerts := make(map[string]string)
 
 	// Get list of all current pane IDs
 	validPanes := make(map[string]bool)
@@ -302,7 +292,16 @@ func getActiveAlerts() map[string]bool {
 		paneID := strings.TrimPrefix(filepath.Base(file), "tui-alert-")
 		// Only include if pane currently exists (validates format implicitly)
 		if validPanes[paneID] {
-			alerts[paneID] = true
+			// Read event type from file
+			content, err := os.ReadFile(file)
+			eventType := "stop"
+			if err == nil {
+				eventType = strings.TrimSpace(string(content))
+				if eventType == "" {
+					eventType = "stop"
+				}
+			}
+			alerts[paneID] = eventType
 		}
 	}
 	return alerts
@@ -341,17 +340,19 @@ func TestDirectAlertFileSystem(t *testing.T) {
 
 	// Initially no alert
 	alerts := getActiveAlerts()
-	if alerts[testPaneID] {
+	if _, exists := alerts[testPaneID]; exists {
 		t.Error("Should have no alert initially")
 	}
 
-	// Create alert file (simulates Notification hook)
-	os.WriteFile(alertFile, []byte{}, 0644)
+	// Create alert file (simulates Notification hook) with explicit event type
+	os.WriteFile(alertFile, []byte("stop"), 0644)
 
 	// Should now have alert
 	alerts = getActiveAlerts()
-	if !alerts[testPaneID] {
+	if eventType, exists := alerts[testPaneID]; !exists {
 		t.Errorf("Should have alert after file created for pane %s", testPaneID)
+	} else if eventType != "stop" {
+		t.Errorf("Expected event type 'stop', got '%s'", eventType)
 	}
 
 	// Remove file (simulates UserPromptSubmit hook)
@@ -359,7 +360,7 @@ func TestDirectAlertFileSystem(t *testing.T) {
 
 	// Alert should be cleared
 	alerts = getActiveAlerts()
-	if alerts[testPaneID] {
+	if _, exists := alerts[testPaneID]; exists {
 		t.Error("Alert should be cleared after file removed")
 	}
 }
@@ -391,8 +392,8 @@ func TestMultipleTUIInstancesShareAlerts(t *testing.T) {
 	// Ensure /tmp/claude directory exists
 	os.MkdirAll("/tmp/claude", 0755)
 
-	// Create alert
-	os.WriteFile(alertFile, []byte{}, 0644)
+	// Create alert with event type
+	os.WriteFile(alertFile, []byte("permission"), 0644)
 	defer os.Remove(alertFile)
 
 	// Simulate two TUI instances reading alerts
@@ -403,8 +404,10 @@ func TestMultipleTUIInstancesShareAlerts(t *testing.T) {
 	if alerts1[testPaneID] != alerts2[testPaneID] {
 		t.Error("Multiple TUI instances should see same alert state")
 	}
-	if !alerts1[testPaneID] {
+	if eventType, exists := alerts1[testPaneID]; !exists {
 		t.Errorf("Alert should be present for pane %s", testPaneID)
+	} else if eventType != "permission" {
+		t.Errorf("Expected event type 'permission', got '%s'", eventType)
 	}
 }
 
@@ -435,14 +438,16 @@ func TestAlertPersistsAcrossRefresh(t *testing.T) {
 	// Ensure /tmp/claude directory exists
 	os.MkdirAll("/tmp/claude", 0755)
 
-	os.WriteFile(alertFile, []byte{}, 0644)
+	os.WriteFile(alertFile, []byte("idle"), 0644)
 	defer os.Remove(alertFile)
 
 	// Multiple reads (simulating refresh cycles)
 	for i := 0; i < 5; i++ {
 		alerts := getActiveAlerts()
-		if !alerts[testPaneID] {
+		if eventType, exists := alerts[testPaneID]; !exists {
 			t.Errorf("Alert should persist on refresh %d for pane %s", i, testPaneID)
+		} else if eventType != "idle" {
+			t.Errorf("Expected event type 'idle', got '%s'", eventType)
 		}
 	}
 }
@@ -542,7 +547,7 @@ func TestNotificationHookSimulation(t *testing.T) {
 
 	// Verify alert is detected by getActiveAlerts
 	alerts := getActiveAlerts()
-	if !alerts[paneID] {
+	if _, exists := alerts[paneID]; !exists {
 		t.Errorf("Alert for pane %s should be detected", paneID)
 	}
 
@@ -562,7 +567,7 @@ func TestNotificationHookSimulation(t *testing.T) {
 
 	// Verify alert is no longer detected
 	alerts = getActiveAlerts()
-	if alerts[paneID] {
+	if _, exists := alerts[paneID]; exists {
 		t.Error("Alert should be cleared after cleanup")
 	}
 }
@@ -643,7 +648,7 @@ func TestAlertFileWithRealPaneID(t *testing.T) {
 
 	// Verify alert is detected
 	alerts := getActiveAlerts()
-	if !alerts[paneID] {
+	if _, exists := alerts[paneID]; !exists {
 		t.Errorf("Alert for real pane ID %s should be detected", paneID)
 	}
 
@@ -687,7 +692,7 @@ func TestEndToEndAlertFlow(t *testing.T) {
 
 	// Phase 1: No alert initially
 	alerts := getActiveAlerts()
-	if alerts[paneID] {
+	if _, exists := alerts[paneID]; exists {
 		t.Error("Should have no alert initially")
 	}
 	if _, err := os.Stat(alertFile); !os.IsNotExist(err) {
@@ -695,7 +700,7 @@ func TestEndToEndAlertFlow(t *testing.T) {
 	}
 
 	// Phase 2: Notification creates alert
-	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(alertFile, []byte("elicitation"), 0644); err != nil {
 		t.Fatalf("Failed to create alert file: %v", err)
 	}
 
@@ -703,8 +708,10 @@ func TestEndToEndAlertFlow(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		time.Sleep(50 * time.Millisecond)
 		alerts = getActiveAlerts()
-		if !alerts[paneID] {
+		if eventType, exists := alerts[paneID]; !exists {
 			t.Errorf("Alert should persist on check %d", i+1)
+		} else if eventType != "elicitation" {
+			t.Errorf("Expected event type 'elicitation', got '%s'", eventType)
 		}
 		if _, err := os.Stat(alertFile); os.IsNotExist(err) {
 			t.Errorf("Alert file should exist on check %d", i+1)
@@ -718,7 +725,7 @@ func TestEndToEndAlertFlow(t *testing.T) {
 
 	// Phase 5: Alert is cleared
 	alerts = getActiveAlerts()
-	if alerts[paneID] {
+	if _, exists := alerts[paneID]; exists {
 		t.Error("Alert should be cleared after removal")
 	}
 	if _, err := os.Stat(alertFile); !os.IsNotExist(err) {
@@ -747,10 +754,10 @@ func TestStaleAlertFilesIgnored(t *testing.T) {
 
 	alerts := getActiveAlerts()
 
-	if alerts["%99999"] {
+	if _, exists := alerts["%99999"]; exists {
 		t.Error("Should not show alert for non-existent pane %99999")
 	}
-	if alerts["test-invalid"] {
+	if _, exists := alerts["test-invalid"]; exists {
 		t.Error("Should not show alert for invalid pane ID format")
 	}
 }
@@ -1016,7 +1023,7 @@ func TestHookCommandCreateAlert(t *testing.T) {
 
 	// Verify getActiveAlerts detects it
 	alerts := getActiveAlerts()
-	if !alerts[paneID] {
+	if _, exists := alerts[paneID]; !exists {
 		t.Errorf("Alert for pane %s should be detected after hook command", paneID)
 	}
 }
@@ -1078,7 +1085,7 @@ func TestHookCommandRemoveAlert(t *testing.T) {
 
 	// Verify getActiveAlerts no longer detects it
 	alerts := getActiveAlerts()
-	if alerts[paneID] {
+	if _, exists := alerts[paneID]; exists {
 		t.Error("Alert should be cleared after cleanup hook command")
 	}
 }
@@ -1205,8 +1212,6 @@ func TestHookCommandVariousPaneIDFormats(t *testing.T) {
 // ============================================================================
 
 const (
-	testAlertDir  = "/tmp/claude"
-	alertPrefix   = "tui-alert-"
 	claudeCommand = "claude --model haiku" // MUST use haiku for cost/speed
 )
 
@@ -1222,17 +1227,6 @@ func createTestTmuxSession(t *testing.T, name string) func() {
 	return func() {
 		tmuxCmd("kill-server").Run()
 	}
-}
-
-// filterTmuxEnv removes TMUX and TMUX_PANE env vars to ensure test session isolation
-func filterTmuxEnv(env []string) []string {
-	filtered := make([]string, 0, len(env))
-	for _, e := range env {
-		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TMUX_PANE=") {
-			filtered = append(filtered, e)
-		}
-	}
-	return filtered
 }
 
 // verifyPaneEnvironment verifies that TMUX_PANE environment variable is set correctly
@@ -1446,7 +1440,7 @@ func sendPromptToClaude(t *testing.T, session, paneID, prompt string) {
 // The actual hook command logic is tested in TestHookCommandCreateAlert.
 func simulateNotificationHook(t *testing.T, paneID string) {
 	alertFile := filepath.Join(testAlertDir, alertPrefix+paneID)
-	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(alertFile, []byte("stop"), 0644); err != nil {
 		t.Fatalf("Failed to create alert file for pane %s: %v", paneID, err)
 	}
 }
@@ -1510,7 +1504,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 
 	// Verify no alerts initially
 	alerts := getActiveAlerts()
-	if alerts[pane1] || alerts[pane2] {
+	_, exists1 := alerts[pane1]
+	_, exists2 := alerts[pane2]
+	if exists1 || exists2 {
 		t.Fatal("Should have no alerts initially")
 	}
 
@@ -1534,7 +1530,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 
 	// Verify both alerts are detected
 	alerts = getActiveAlerts()
-	if !alerts[pane1] || !alerts[pane2] {
+	_, exists1 = alerts[pane1]
+	_, exists2 = alerts[pane2]
+	if !exists1 || !exists2 {
 		t.Errorf("Both panes should have alerts. pane1=%v, pane2=%v", alerts[pane1], alerts[pane2])
 	}
 
@@ -1566,10 +1564,10 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 
 	// Verify both windows have alerts again (both Claude instances responded)
 	alerts = getActiveAlerts()
-	if !alerts[pane1] {
+	if _, exists := alerts[pane1]; !exists {
 		t.Error("Window1 should have alert after Claude responded")
 	}
-	if !alerts[pane2] {
+	if _, exists := alerts[pane2]; !exists {
 		t.Error("Window2 alert should still be active")
 	}
 
@@ -1666,7 +1664,9 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 
 	// Verify both alerts
 	alerts := getActiveAlerts()
-	if !alerts[pane1] || !alerts[pane2] {
+	_, exists1 := alerts[pane1]
+	_, exists2 := alerts[pane2]
+	if !exists1 || !exists2 {
 		t.Errorf("Both panes should have alerts. pane1=%v, pane2=%v", alerts[pane1], alerts[pane2])
 	}
 
@@ -1688,10 +1688,10 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 
 	// Verify both panes have alerts (both Claude instances have responded)
 	alerts = getActiveAlerts()
-	if !alerts[pane1] {
+	if _, exists := alerts[pane1]; !exists {
 		t.Error("Pane1 should have alert after Claude responded")
 	}
-	if !alerts[pane2] {
+	if _, exists := alerts[pane2]; !exists {
 		t.Error("Pane2 alert should still be active")
 	}
 
@@ -1749,7 +1749,7 @@ func TestRapidConcurrentPrompts(t *testing.T) {
 	// Verify all alerts detected
 	alerts := getActiveAlerts()
 	for i, pane := range panes {
-		if !alerts[pane] {
+		if _, exists := alerts[pane]; !exists {
 			t.Errorf("Pane %d should have alert", i+1)
 		}
 	}
@@ -1779,7 +1779,7 @@ func TestRapidConcurrentPrompts(t *testing.T) {
 	// Verify all alerts are back (Claude responded to all)
 	alerts = getActiveAlerts()
 	for i, pane := range panes {
-		if !alerts[pane] {
+		if _, exists := alerts[pane]; !exists {
 			t.Errorf("Pane %d should have alert after Claude responded", i+1)
 		}
 	}
@@ -1830,7 +1830,7 @@ func TestAlertPersistenceThroughTUIRefresh(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		time.Sleep(2 * time.Second) // TUI refresh interval
 		alerts := getActiveAlerts()
-		if !alerts[pane] {
+		if _, exists := alerts[pane]; !exists {
 			t.Errorf("Alert should persist on refresh cycle %d", i+1)
 		}
 	}
@@ -1855,7 +1855,7 @@ func TestAlertPersistenceThroughTUIRefresh(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		time.Sleep(2 * time.Second)
 		alerts := getActiveAlerts()
-		if !alerts[pane] {
+		if _, exists := alerts[pane]; !exists {
 			t.Errorf("Alert should persist after response on refresh cycle %d", i+1)
 		}
 	}
@@ -1898,7 +1898,7 @@ func TestStalePaneAlertCleanup(t *testing.T) {
 
 	// Verify alert is detected
 	alerts := getActiveAlerts()
-	if !alerts[pane] {
+	if _, exists := alerts[pane]; !exists {
 		t.Fatal("Alert should be detected for active pane")
 	}
 
@@ -1914,7 +1914,7 @@ func TestStalePaneAlertCleanup(t *testing.T) {
 		t.Log("Alert file was auto-cleaned, skipping stale check")
 	} else {
 		alerts = getActiveAlerts()
-		if alerts[pane] {
+		if _, exists := alerts[pane]; exists {
 			t.Error("Alert for deleted pane should NOT be detected (stale file)")
 		}
 		t.Log("Stale alert correctly filtered out")
