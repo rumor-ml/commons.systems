@@ -43,8 +43,8 @@ Auto-generate title from branch name and body from commit messages.
 ### 5. Launch Concurrent Tasks
 After PR is created (or confirmed to exist from step 4), use the Task tool to launch two concurrent tasks in a single message:
 
-1. **PR Review Task** (subagent_type: "general-purpose")
-   - Use the Task tool with subagent_type="general-purpose" to run the `/pr-review-toolkit:review-pr` slash command
+1. **PR Review Task** (subagent_type: "accept-edits")
+   - Use the Task tool with subagent_type="accept-edits" to run the `/pr-review-toolkit:review-pr` slash command (no arguments)
    - This will perform comprehensive PR review using specialized agents
 
 2. **Monitor Workflow Task** (subagent_type: "Monitor Workflow")
