@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
@@ -217,6 +218,25 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
+	// Display alert error banner at TOP of screen if alerts are disabled
+	var warningBanner string
+	if m.alertsDisabled {
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("3")).
+			Bold(true).
+			Padding(0, 1)
+		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
+	}
+	if m.alertLoadError != "" {
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("3")).
+			Bold(true).
+			Padding(0, 1)
+		warningBanner += warningStyle.Render("⚠ "+m.alertLoadError) + "\n\n"
+	}
+
 	// Copy alerts map with read lock for safe concurrent access
 	// We copy to prevent the renderer from accessing the map after lock release
 	m.alertsMu.RLock()
@@ -228,15 +248,7 @@ func (m model) View() string {
 
 	output := m.renderer.Render(m.tree, alertsCopy)
 
-	// Display warnings for alert issues
-	if m.alertsDisabled {
-		output += fmt.Sprintf("\n\n⚠ Alert notifications disabled: %s", m.alertError)
-	}
-	if m.alertLoadError != "" {
-		output += fmt.Sprintf("\n⚠ %s", m.alertLoadError)
-	}
-
-	return output
+	return warningBanner + output
 }
 
 // watchAlertsCmd watches for alert file changes
