@@ -1,0 +1,49 @@
+package partials
+
+import (
+	"fmt"
+	"printsync/internal/streaming"
+)
+
+// SessionStats renders the statistics grid for a session event
+// Accepts SessionEvent from streaming/events.go
+templ SessionStats(event streaming.SessionEvent) {
+	<!-- Stats Grid -->
+	<div class="grid grid-cols-4 gap-4 mb-6">
+		<div class="text-center">
+			<div class="text-2xl font-bold text-primary">{ fmt.Sprintf("%d", event.Stats.Discovered) }</div>
+			<div class="text-sm text-text-secondary">Discovered</div>
+		</div>
+		<div class="text-center">
+			<div class="text-2xl font-bold text-success">{ fmt.Sprintf("%d", event.Stats.Extracted) }</div>
+			<div class="text-sm text-text-secondary">Extracted</div>
+		</div>
+		<div class="text-center">
+			<div class="text-2xl font-bold text-secondary">{ fmt.Sprintf("%d", event.Stats.Uploaded) }</div>
+			<div class="text-sm text-text-secondary">Uploaded</div>
+		</div>
+		<div class="text-center">
+			<div class="text-2xl font-bold text-error">{ fmt.Sprintf("%d", event.Stats.Errors) }</div>
+			<div class="text-sm text-text-secondary">Errors</div>
+		</div>
+	</div>
+}
+
+// ProgressBar renders the progress bar with phase indicator
+// Accepts ProgressEvent from streaming/events.go
+templ ProgressBar(progress streaming.ProgressEvent) {
+	<div class="mb-6">
+		<div class="w-full bg-bg-surface rounded-full h-2.5">
+			<div
+				class="bg-primary h-2.5 rounded-full shadow-glow-subtle transition-all duration-slow"
+				style={ fmt.Sprintf("width: %.1f%%", progress.Percentage) }
+			></div>
+		</div>
+		<div class="text-sm text-text-secondary mt-2">
+			<span>{ progress.Operation }</span>
+			if progress.File != "" {
+				<span class="text-text-tertiary"> - { progress.File }</span>
+			}
+		</div>
+	</div>
+}

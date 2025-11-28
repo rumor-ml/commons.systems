@@ -1,14 +1,18 @@
 package handlers
 
 import (
-	"encoding/json"
+	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/commons-systems/filesync"
 	"printsync/internal/middleware"
 	"printsync/internal/streaming"
+	"printsync/web/templates/partials"
 )
 
 // StreamSession handles GET /api/sync/{id}/stream (SSE endpoint)
@@ -65,7 +69,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 			CompletedAt: session.CompletedAt,
 		},
 	}
-	if err := writeSSEEvent(w, initialEvent); err != nil {
+	if err := h.writeSSEEventHTML(w, r.Context(), initialEvent); err != nil {
 		return
 	}
 	flusher.Flush()
@@ -86,7 +90,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 					Error:     file.Error,
 				},
 			}
-			if err := writeSSEEvent(w, fileEvent); err != nil {
+			if err := h.writeSSEEventHTML(w, r.Context(), fileEvent); err != nil {
 				return
 			}
 		}
@@ -110,7 +114,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if err := writeSSEEvent(w, event); err != nil {
+			if err := h.writeSSEEventHTML(w, r.Context(), event); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -121,13 +125,11 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case <-heartbeat.C:
-			// Send heartbeat
-			heartbeatEvent := streaming.SSEEvent{
-				Type:      streaming.EventTypeHeartbeat,
-				Timestamp: time.Now(),
-				Data:      map[string]string{"status": "alive"},
+			// Send heartbeat (keep as simple text)
+			if _, err := fmt.Fprintf(w, "event: %s\n", streaming.EventTypeHeartbeat); err != nil {
+				return
 			}
-			if err := writeSSEEvent(w, heartbeatEvent); err != nil {
+			if _, err := fmt.Fprintf(w, "data: {\"status\":\"alive\"}\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -135,19 +137,64 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeSSEEvent writes an SSE event to the response writer
-func writeSSEEvent(w http.ResponseWriter, event streaming.SSEEvent) error {
-	// Marshal data to JSON
-	data, err := json.Marshal(event.Data)
-	if err != nil {
-		return err
+// writeSSEEventHTML writes an SSE event with HTML partial content to the response writer
+func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Context, event streaming.SSEEvent) error {
+	var buf bytes.Buffer
+
+	switch event.Type {
+	case streaming.EventTypeSession:
+		sessionData, ok := event.Data.(streaming.SessionEvent)
+		if !ok {
+			return fmt.Errorf("invalid session event data type")
+		}
+		if err := partials.SessionStats(sessionData).Render(ctx, &buf); err != nil {
+			return err
+		}
+
+	case streaming.EventTypeProgress:
+		progressData, ok := event.Data.(streaming.ProgressEvent)
+		if !ok {
+			return fmt.Errorf("invalid progress event data type")
+		}
+		if err := partials.ProgressBar(progressData).Render(ctx, &buf); err != nil {
+			return err
+		}
+
+	case streaming.EventTypeFile:
+		fileData, ok := event.Data.(streaming.FileEvent)
+		if !ok {
+			return fmt.Errorf("invalid file event data type")
+		}
+		// Convert FileEvent to SyncFile for rendering
+		file := &filesync.SyncFile{
+			ID:        fileData.ID,
+			SessionID: fileData.SessionID,
+			LocalPath: fileData.LocalPath,
+			Status:    fileData.Status,
+			Metadata:  fileData.Metadata,
+			Error:     fileData.Error,
+		}
+		if err := partials.FileRow(file).Render(ctx, &buf); err != nil {
+			return err
+		}
+
+	case streaming.EventTypeComplete:
+		// Render completion message
+		completeHTML := `<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Sync completed!</p></div>`
+		buf.WriteString(completeHTML)
+
+	default:
+		return fmt.Errorf("unknown event type: %s", event.Type)
 	}
 
-	// Write event
+	// Remove newlines for compact SSE
+	html := strings.ReplaceAll(buf.String(), "\n", "")
+
+	// Write SSE event
 	if _, err := fmt.Fprintf(w, "event: %s\n", event.Type); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", html); err != nil {
 		return err
 	}
 
