@@ -117,6 +117,16 @@ function parseCards(content) {
 
         // Only add cards that have a title
         if (card.title) {
+          // Validate required fields
+          if (!card.type) {
+            console.warn(`⚠️  Warning: Card "${card.title}" is missing type field, skipping`);
+            continue;
+          }
+          if (!card.subtype) {
+            console.warn(`⚠️  Warning: Card "${card.title}" is missing subtype field, skipping`);
+            continue;
+          }
+
           // Generate a unique ID
           const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
           let id = baseId;
@@ -139,6 +149,7 @@ function parseCards(content) {
               }
             } else {
               // Same card appearing multiple times - skip it
+              console.log(`  Skipping duplicate: ${card.title} (${card.type} - ${card.subtype})`);
               continue;
             }
           }

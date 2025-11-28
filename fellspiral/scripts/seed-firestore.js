@@ -8,58 +8,14 @@
  * or GOOGLE_APPLICATION_CREDENTIALS_JSON for JSON credentials
  */
 
-import { initializeApp, cert, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { initializeFirebase } from './lib/firebase-init.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Helper function to initialize Firebase with proper error handling
-function initializeFirebase() {
-  try {
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-      // CI/CD: parse inline JSON
-      let serviceAccount;
-      try {
-        serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-      } catch (error) {
-        throw new Error(`Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: ${error.message}`);
-      }
-      initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
-      console.log('Using inline JSON credentials');
-    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      // Explicit service account file
-      let credFileContent;
-      try {
-        credFileContent = readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8');
-      } catch (error) {
-        throw new Error(`Failed to read credentials file at ${process.env.GOOGLE_APPLICATION_CREDENTIALS}: ${error.message}`);
-      }
-      let serviceAccount;
-      try {
-        serviceAccount = JSON.parse(credFileContent);
-      } catch (error) {
-        throw new Error(`Failed to parse credentials file: ${error.message}`);
-      }
-      initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
-      console.log('Using service account file credentials');
-    } else {
-      // Use gcloud Application Default Credentials
-      console.log('Using gcloud Application Default Credentials');
-      initializeApp({ credential: applicationDefault(), projectId: 'chalanding' });
-    }
-  } catch (error) {
-    console.error('\n❌ Failed to initialize Firebase:', error.message);
-    console.error('Ensure one of the following is configured:');
-    console.error('  - GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable');
-    console.error('  - GOOGLE_APPLICATION_CREDENTIALS environment variable');
-    console.error('  - gcloud Application Default Credentials (run: gcloud auth application-default login)');
-    process.exit(1);
-  }
-}
 
 // Initialize Firebase Admin
 initializeFirebase();
@@ -95,8 +51,16 @@ async function seedCards() {
       const docId = card.id;
       const cardRef = cardsCollection.doc(docId);
 
-      // Check if card exists
-      const cardDoc = await cardRef.get();
+      // Check if card exists (with nested try/catch for Firestore operations)
+      let cardDoc;
+      try {
+        cardDoc = await cardRef.get();
+      } catch (firestoreError) {
+        console.error(`  ✗ Firestore error checking "${card.title}":`, firestoreError.message);
+        console.error('This likely means a network or permission issue.');
+        skipped++;
+        continue;
+      }
 
       if (cardDoc.exists) {
         // Update existing card
@@ -147,6 +111,26 @@ seedCards()
     process.exit(0);
   })
   .catch((error) => {
-    console.error('\n❌ Fatal error:', error);
+    console.error('\n❌ Fatal error during seeding:');
+
+    // Categorize error types to help with debugging
+    if (error.code && error.code.startsWith('auth/')) {
+      console.error('Authentication error:', error.message);
+      console.error('Check that your Firebase credentials are valid and have the correct permissions.');
+    } else if (error.code && error.code.includes('permission-denied')) {
+      console.error('Permission denied:', error.message);
+      console.error('Check your Firestore security rules and service account permissions.');
+    } else if (error.message && error.message.includes('ECONNREFUSED')) {
+      console.error('Network error:', error.message);
+      console.error('Check your internet connection and Firebase project settings.');
+    } else if (error instanceof TypeError || error instanceof ReferenceError) {
+      console.error('JavaScript error:', error.message);
+      console.error('This is likely a bug in the script. Stack trace:');
+      console.error(error.stack);
+    } else {
+      console.error('Unknown error:', error.message);
+      console.error('Full error:', error);
+    }
+
     process.exit(1);
   });
