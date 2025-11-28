@@ -108,21 +108,43 @@ else
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
   echo "Debug: Site ID = ${FIREBASE_SITE_ID}, Channel = ${CHANNEL_NAME}"
 
-  # Run Firebase deployment
-  echo "Deploying..."
+  # Run Firebase deployment with error handling
+  echo "::group::Firebase Deployment Output"
+  set +e  # Disable exit on error to capture exit code
   firebase hosting:channel:deploy "$CHANNEL_NAME" \
     --only ${FIREBASE_SITE_ID} \
     --project chalanding \
     --expires 7d \
     2>&1 | tee /tmp/firebase-deploy-output.txt
+  FIREBASE_EXIT_CODE=${PIPESTATUS[0]}
+  set -e  # Re-enable exit on error
+  echo "::endgroup::"
+
+  # Check Firebase CLI exit code first
+  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
+    echo "::error::Firebase CLI exited with code $FIREBASE_EXIT_CODE"
+    echo "Firebase output:"
+    cat /tmp/firebase-deploy-output.txt
+
+    # Provide specific error context based on common failure patterns
+    if grep -qi "permission denied\|unauthorized" /tmp/firebase-deploy-output.txt; then
+      echo "::error::Authentication failure - check FIREBASE_TOKEN or credentials"
+    elif grep -qi "quota exceeded\|rate limit" /tmp/firebase-deploy-output.txt; then
+      echo "::error::Rate limit or quota exceeded"
+    elif grep -qi "not found\|does not exist" /tmp/firebase-deploy-output.txt; then
+      echo "::error::Site or project not found - check FIREBASE_SITE_ID: ${FIREBASE_SITE_ID}"
+    fi
+    exit 1
+  fi
 
   # Check if deployment was successful by looking for success indicators
   if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
     # Extract URL from output like: "Channel URL (site): https://site--channel.web.app [expires ...]"
     DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | grep -oE 'https://[^ \[]+' | head -1)
   else
-    echo "❌ Firebase deployment may have failed"
-    echo "Output:"
+    echo "::error::Firebase deployment succeeded but output format unexpected"
+    echo "Expected 'Channel URL' in output but not found"
+    echo "Firebase output:"
     cat /tmp/firebase-deploy-output.txt
     exit 1
   fi
@@ -141,7 +163,7 @@ else
   echo "⏰ Expires: 7 days from now"
 
   # Verify the deployment is accessible with exponential backoff
-  # Use 120s timeout for new preview channels (DNS propagation can take longer)
+  # Use 300s timeout for new preview channels (DNS propagation can take longer)
   echo ""
   echo "🔍 Verifying deployment readiness..."
 

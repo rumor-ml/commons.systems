@@ -256,6 +256,7 @@ function setupMobileMenu() {
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
       if (window.innerWidth <= 768 &&
+          document.body.contains(mobileMenuToggle) &&
           !sidebar.contains(e.target) &&
           !mobileMenuToggle?.contains(e.target) &&
           sidebar.classList.contains('active')) {

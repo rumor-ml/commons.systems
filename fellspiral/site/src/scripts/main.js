@@ -1,3 +1,6 @@
+// Import auth initialization
+import { initializeAuth } from './auth-init.js';
+
 // Combat Simulator Data and Logic
 const characters = {
   skeleton: {
@@ -957,9 +960,6 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
   }
 }
 
-// Import auth initialization
-import { initializeAuth } from './auth-init.js';
-
 // Navigation and UI functionality
 // Helper function to close mobile sidebar
 function closeMobileSidebar() {
@@ -996,6 +996,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
       if (window.innerWidth <= 768 &&
+          document.body.contains(mobileMenuToggle) &&
           !sidebar.contains(e.target) &&
           !mobileMenuToggle?.contains(e.target) &&
           sidebar.classList.contains('active')) {
