@@ -1,5 +1,8 @@
 {
   "model": "opus",
+  "enabledMcpjsonServers": [
+    "gh-workflow"
+  ],
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
@@ -17,6 +20,8 @@
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
       "SlashCommand(/commit-merge-push)",
+      "mcp__gh-workflow__gh_monitor_run",
+      "mcp__gh-workflow__gh_get_deployment_urls",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",

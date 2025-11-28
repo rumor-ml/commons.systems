@@ -14,21 +14,22 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
 
 ## Step 1: Monitor Workflow
 
-- Use Task tool with `subagent_type="Monitor"` to monitor the latest workflow for the current branch
-- Wait for the monitoring task to complete and analyze the result:
+- Call `mcp__gh-workflow__gh_monitor_run` with the current branch to monitor the latest workflow
+- Wait for the result:
   - **On SUCCESS**: Proceed to Step 2
   - **On FAILURE**:
-    1. Use Task tool with `subagent_type="Plan"` and `model="opus"` to debug the failure, identify root cause, and create a fix plan
-    2. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
-    3. Execute `/commit-merge-push` command
+    1. Call `mcp__gh-workflow__gh_get_failure_details` to get a token-efficient error summary
+    2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to debug the failure using the error summary, identify root cause, and create a fix plan
+    3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
+    4. Execute `/commit-merge-push` command
        - **If push hook reports testing errors**, recursively handle:
          a. Use Task tool with `subagent_type="Plan"` and `model="opus"` to diagnose the testing errors and plan fix
          b. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
          c. Retry `/commit-merge-push`
          d. Repeat recursively until push succeeds or manual intervention is required
-    4. Increment iteration counter
-    5. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
-    6. Return to Step 1 (restart workflow monitoring)
+    5. Increment iteration counter
+    6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
+    7. Return to Step 1 (restart workflow monitoring)
 
 ## Step 2: PR Review
 
