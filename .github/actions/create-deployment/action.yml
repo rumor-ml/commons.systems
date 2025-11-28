@@ -28,7 +28,7 @@ runs:
         set -euo pipefail
 
         # Build JSON payload with required_contexts: []
-        TRANSIENT_ENV='${{ inputs.is_preview == ''true'' && ''true'' || ''false'' }}'
+        TRANSIENT_ENV="${{ inputs.is_preview == 'true' }}"
 
         if [ "$TRANSIENT_ENV" = "true" ]; then
           PAYLOAD=$(jq -n \
