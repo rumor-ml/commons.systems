@@ -57,4 +57,14 @@ echo "$CHANNELS" | jq -r '.result.channels[].name' | while read -r channel_path;
     fi
 done
 
+# Clean up merge queue channels (they don't persist beyond the queue run)
+echo "$CHANNELS" | jq -r '.result.channels[] | select(.name | contains("gh-readonly-queue")) | .name' | while read -r channel_path; do
+    channel=$(basename "$channel_path")
+    echo "🗑️  Deleting merge queue channel ${channel}"
+    firebase hosting:channel:delete "$channel" \
+        --site "${FIREBASE_SITE_ID}" \
+        --project chalanding \
+        --force || echo "Failed to delete ${channel}"
+done
+
 echo "✅ Cleanup complete"
