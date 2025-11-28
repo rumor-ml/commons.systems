@@ -43,6 +43,22 @@ After all workflows complete, report:
 - Workflow URLs for reference
 - Any error information for failed workflows
 
+### 5. Extract and Display Deployment URLs
+
+After successful workflow completion, extract deployment URLs from the workflow logs:
+
+```bash
+gh run view <run-id> --log 2>/dev/null | \
+  grep -oE 'https://[^[:space:]\[\]]+\.web\.app' | \
+  sort -u
+```
+
+Report deployment URLs with the appropriate type:
+- For **main branch**: "Production deployment"
+- For **feature branches**: "Preview deployment (expires in 7 days)"
+
+If no deployment URLs are found, report: "No deployments completed"
+
 ## Important Notes
 - Always use `gh run watch` for monitoring (never poll with `gh run list` in a loop)
 - Wait for ALL workflows to complete before finishing

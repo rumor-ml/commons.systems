@@ -25,6 +25,7 @@ permissions:
   issues: write
   actions: read
   packages: read
+  deployments: write
 
 jobs:
   # ==================== Check CI Image Availability ====================
@@ -288,15 +289,69 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Sanitize branch name for environment
+        if: github.event_name == 'pull_request'
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-fellspiral', steps.sanitize.outputs.sanitized) || 'production-fellspiral' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-fellspiral.web.app', steps.sanitize.outputs.sanitized) || 'https://fellspiral.web.app' }}
+          site_name: 'fellspiral'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
       - name: Deploy fellspiral to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
         run: |
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Fellspiral URL: ${URL}"
+          echo "Deployed to: ${URL}"
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-videobrowser:
     name: Deploy videobrowser
@@ -319,15 +374,69 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Sanitize branch name for environment
+        if: github.event_name == 'pull_request'
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-videobrowser', steps.sanitize.outputs.sanitized) || 'production-videobrowser' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-videobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://videobrowser.web.app' }}
+          site_name: 'videobrowser'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
       - name: Deploy videobrowser to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
         run: |
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Videobrowser URL: ${URL}"
+          echo "Deployed to: ${URL}"
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-audiobrowser:
     name: Deploy audiobrowser
@@ -350,15 +459,69 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Sanitize branch name for environment
+        if: github.event_name == 'pull_request'
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-audiobrowser', steps.sanitize.outputs.sanitized) || 'production-audiobrowser' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-audiobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://audiobrowser.web.app' }}
+          site_name: 'audiobrowser'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
       - name: Deploy audiobrowser to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
         run: |
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Audiobrowser URL: ${URL}"
+          echo "Deployed to: ${URL}"
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-print:
     name: Deploy print
@@ -381,15 +544,69 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Sanitize branch name for environment
+        if: github.event_name == 'pull_request'
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-print', steps.sanitize.outputs.sanitized) || 'production-print' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-print.web.app', steps.sanitize.outputs.sanitized) || 'https://print.web.app' }}
+          site_name: 'print'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
       - name: Deploy print to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
         run: |
+          # Validate deployment URL file exists
+          if [ ! -f /tmp/deployment-url.txt ]; then
+            echo "::error::Deployment script did not create URL file"
+            exit 1
+          fi
+
+          # Read and validate URL
           URL=$(cat /tmp/deployment-url.txt)
+          if [ -z "$URL" ]; then
+            echo "::error::Deployment URL is empty"
+            exit 1
+          fi
+
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+            echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+            exit 1
+          fi
+
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Print URL: ${URL}"
+          echo "Deployed to: ${URL}"
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:
