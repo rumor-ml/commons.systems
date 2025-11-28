@@ -508,3 +508,86 @@ func TestAlertWatcher_ErrorEventPropagation(t *testing.T) {
 		t.Fatal("Timeout waiting for create event")
 	}
 }
+
+func TestAlertWatcher_BufferOverflowRecovery(t *testing.T) {
+	watcher := mustNewAlertWatcher(t)
+	defer watcher.Close()
+
+	eventCh := watcher.Start()
+
+	// Create 200 files rapidly (buffer is 100)
+	// Without reading from the channel, the buffer will fill up
+	createdFiles := make([]string, 0, 200)
+	defer func() {
+		for _, file := range createdFiles {
+			os.Remove(file)
+		}
+	}()
+
+	// Create files in batches to allow fsnotify to generate events
+	for i := 0; i < 200; i++ {
+		paneID := fmt.Sprintf("%%overflow%d", i)
+		alertFile := filepath.Join(alertDir, alertPrefix+paneID)
+		os.WriteFile(alertFile, []byte{}, 0644)
+		createdFiles = append(createdFiles, alertFile)
+		// Small delay to allow fsnotify to generate events
+		if i%10 == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Wait a bit for all events to be generated
+	time.Sleep(100 * time.Millisecond)
+
+	// Now drain channel - if buffer overflowed, we won't get all events
+	receivedPanes := make(map[string]bool)
+	timeout := time.After(1 * time.Second)
+
+drainLoop:
+	for {
+		select {
+		case event, ok := <-eventCh:
+			if !ok {
+				break drainLoop
+			}
+			receivedPanes[event.PaneID] = true
+		case <-timeout:
+			break drainLoop
+		}
+	}
+
+	// We should have received some events, possibly all if no overflow
+	// The key is that the watcher should still be functional
+	t.Logf("Received %d events from 200 file creations", len(receivedPanes))
+	if len(receivedPanes) == 0 {
+		t.Error("Expected to receive at least some events")
+	}
+
+	// Test recovery: watcher should still work after potential overflow
+	recoveryPaneID := "%recovery-test"
+	recoveryFile := filepath.Join(alertDir, alertPrefix+recoveryPaneID)
+	defer os.Remove(recoveryFile)
+
+	os.WriteFile(recoveryFile, []byte{}, 0644)
+
+	select {
+	case event := <-eventCh:
+		if event.PaneID != recoveryPaneID {
+			t.Errorf("Expected recovery event for %s, got %s",
+				recoveryPaneID, event.PaneID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Watcher failed to recover after buffer overflow")
+	}
+
+	// Verify continued operation with delete
+	os.Remove(recoveryFile)
+	select {
+	case event := <-eventCh:
+		if event.PaneID != recoveryPaneID || event.Created {
+			t.Error("Should receive delete event")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Watcher not processing deletes after recovery")
+	}
+}

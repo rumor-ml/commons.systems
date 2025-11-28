@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +173,49 @@ func waitForAlertFile(t *testing.T, session, paneID string, shouldExist bool, ti
 		info := captureDiagnostics(t, session, paneID)
 		logDiagnostics(t, info, "FAILURE - Alert file wait timeout")
 		t.Logf("Error: %v", err)
+		return false
+	}
+
+	return true
+}
+
+// waitForClaudePaneDetection waits for pane to be detected as Claude pane using retry logic
+func waitForClaudePaneDetection(t *testing.T, session, paneID string, timeout time.Duration) bool {
+	t.Helper()
+
+	cond := WaitCondition{
+		Name:     fmt.Sprintf("Claude pane detection for %s", paneID),
+		Timeout:  timeout,
+		Interval: 500 * time.Millisecond,
+		CheckFunc: func() (bool, error) {
+			target := fmt.Sprintf("%s.%s", session, paneID)
+
+			// Get pane PID
+			pidCmd := tmuxCmd("display-message", "-t", target, "-p", "#{pane_pid}")
+			output, err := pidCmd.Output()
+			if err != nil {
+				return false, fmt.Errorf("failed to get pane PID: %w", err)
+			}
+			panePID := strings.TrimSpace(string(output))
+
+			// Check for Claude child processes
+			pgrepCmd := exec.Command("pgrep", "-P", panePID, "claude")
+			if err := pgrepCmd.Run(); err != nil {
+				return false, nil
+			}
+
+			return true, nil
+		},
+		OnRetry: func(attempt int, elapsed time.Duration) {
+			if attempt%5 == 0 {
+				t.Logf("Still waiting for Claude pane detection (%.1fs)", elapsed.Seconds())
+			}
+		},
+	}
+
+	err := waitForCondition(t, cond)
+	if err != nil {
+		t.Logf("Claude pane detection timeout: %v", err)
 		return false
 	}
 

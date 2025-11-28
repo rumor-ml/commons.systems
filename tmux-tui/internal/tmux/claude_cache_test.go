@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -311,5 +312,110 @@ func TestClaudePaneCache_InvalidTTL(t *testing.T) {
 	_, err = NewClaudePaneCache(1 * time.Second)
 	if err != nil {
 		t.Errorf("Expected no error for valid TTL, got: %v", err)
+	}
+}
+
+func TestClaudePaneCache_CleanupExceptConcurrency(t *testing.T) {
+	cache := mustNewCache(t, 30*time.Second)
+
+	// Pre-populate
+	for i := 0; i < 50; i++ {
+		cache.Set(fmt.Sprintf("pane-%d", i), i%2 == 0)
+	}
+
+	validPIDs := make(map[string]bool)
+	for i := 0; i < 25; i++ {
+		validPIDs[fmt.Sprintf("pane-%d", i*2)] = true
+	}
+
+	var wg sync.WaitGroup
+
+	// 100 concurrent operations
+	for i := 0; i < 100; i++ {
+		// Concurrent Gets
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			cache.Get(fmt.Sprintf("pane-%d", id%50))
+		}(i)
+
+		// Concurrent Sets
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			cache.Set(fmt.Sprintf("pane-%d", id%50), id%3 == 0)
+		}(i)
+
+		// Concurrent CleanupExcept
+		if i%10 == 0 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				cache.CleanupExcept(validPIDs)
+			}()
+		}
+	}
+
+	wg.Wait()
+
+	// Verify cache state is consistent
+	finalSize := cache.Size()
+	if finalSize > len(validPIDs)+10 {
+		t.Errorf("Expected cache size <= %d, got %d",
+			len(validPIDs)+10, finalSize)
+	}
+}
+
+func TestClaudePaneCache_CleanupDuringExpiration(t *testing.T) {
+	cache := mustNewCache(t, 50*time.Millisecond)
+
+	// Set entries that will expire
+	for i := 0; i < 20; i++ {
+		cache.Set(fmt.Sprintf("expiring-%d", i), true)
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	// Set fresh entries
+	validPIDs := make(map[string]bool)
+	for i := 0; i < 10; i++ {
+		panePID := fmt.Sprintf("fresh-%d", i)
+		cache.Set(panePID, true)
+		validPIDs[panePID] = true
+	}
+
+	var wg sync.WaitGroup
+
+	// Race cleanup against expiration checks
+	for i := 0; i < 50; i++ {
+		wg.Add(3)
+
+		go func(id int) {
+			defer wg.Done()
+			cache.Get(fmt.Sprintf("expiring-%d", id%20))
+		}(i)
+
+		go func(id int) {
+			defer wg.Done()
+			cache.Get(fmt.Sprintf("fresh-%d", id%10))
+		}(i)
+
+		go func() {
+			defer wg.Done()
+			cache.CleanupExcept(validPIDs)
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify only fresh entries remain
+	if cache.Size() != len(validPIDs) {
+		t.Errorf("Expected %d entries, got %d", len(validPIDs), cache.Size())
+	}
+
+	for i := 0; i < 20; i++ {
+		if _, found := cache.Get(fmt.Sprintf("expiring-%d", i)); found {
+			t.Error("Expired entry should not be in cache")
+		}
 	}
 }

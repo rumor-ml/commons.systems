@@ -767,11 +767,6 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		t.Skip("Skipping real Claude test in short mode")
 	}
 
-	// TODO: Fix flaky pane detection - this test is skipped temporarily
-	// The underlying issue is that isClaudePane() uses pgrep to find Claude child processes
-	// but this is timing-dependent and unreliable in test environments
-	t.Skip("TestRealClaudeAlertFlow is flaky due to timing issues with isClaudePane detection")
-
 	// Skip if dependencies not available
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
@@ -892,6 +887,13 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		output, _ := captureCmd.Output()
 		t.Logf("Warning: Could not confirm Claude is ready. Pane content:\n%s", string(output))
 	}
+
+	// Wait for pane to be detected as Claude pane
+	t.Log("Waiting for pane to be detected as Claude pane...")
+	if !waitForClaudePaneDetection(t, sessionName, claudePane, 30*time.Second) {
+		t.Fatal("Pane was not detected as running Claude within timeout")
+	}
+	t.Log("Claude pane successfully detected by collector")
 
 	// Capture TUI output BEFORE sending prompt (baseline) - use session-qualified target
 	tuiCaptureCmd := tmuxCmd("capture-pane", "-t", sessionName+"."+tuiPane, "-p", "-e")
