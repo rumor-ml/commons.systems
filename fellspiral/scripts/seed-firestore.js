@@ -8,7 +8,7 @@
  * or GOOGLE_APPLICATION_CREDENTIALS_JSON for JSON credentials
  */
 
-import { initializeApp, cert } from 'firebase-admin/app';
+import { initializeApp, cert, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -18,25 +18,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Initialize Firebase Admin
-let serviceAccount;
-
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-  // Parse credentials from JSON string (used in CI/CD)
-  serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  // CI/CD: parse inline JSON
+  const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
 } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  // Load from file path
-  serviceAccount = JSON.parse(
-    readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
-  );
+  // Explicit service account file
+  const serviceAccount = JSON.parse(readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
+  initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
 } else {
-  console.error('Error: GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_APPLICATION_CREDENTIALS_JSON not set');
-  process.exit(1);
+  // Use gcloud Application Default Credentials
+  console.log('Using gcloud Application Default Credentials');
+  initializeApp({ credential: applicationDefault(), projectId: 'chalanding' });
 }
-
-initializeApp({
-  credential: cert(serviceAccount),
-  projectId: serviceAccount.project_id
-});
 
 const db = getFirestore();
 

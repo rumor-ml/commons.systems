@@ -3,12 +3,16 @@
  * Parse cards from rules.md and generate structured JSON data
  */
 
-const fs = require('fs');
-const path = require('path');
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Read rules.md
-const rulesPath = path.join(__dirname, '../rules.md');
-const rulesContent = fs.readFileSync(rulesPath, 'utf-8');
+const rulesPath = join(__dirname, '../rules.md');
+const rulesContent = readFileSync(rulesPath, 'utf-8');
 
 // Parse markdown tables to extract cards
 function parseCards(content) {
@@ -187,15 +191,15 @@ Object.keys(cardsByType).forEach(type => {
 });
 
 // Output JSON
-const outputPath = path.join(__dirname, '../site/src/data/cards.json');
-const outputDir = path.dirname(outputPath);
+const outputPath = join(__dirname, '../site/src/data/cards.json');
+const outputDir = dirname(outputPath);
 
 // Create directory if it doesn't exist
-if (!fs.existsSync(outputDir)) {
-  fs.mkdirSync(outputDir, { recursive: true });
+if (!existsSync(outputDir)) {
+  mkdirSync(outputDir, { recursive: true });
 }
 
-fs.writeFileSync(outputPath, JSON.stringify(cards, null, 2));
+writeFileSync(outputPath, JSON.stringify(cards, null, 2));
 console.log(`\n✅ Cards saved to: ${outputPath}\n`);
 
 // Also create a summary file
@@ -214,6 +218,6 @@ cards.forEach(card => {
   summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
 });
 
-const summaryPath = path.join(__dirname, '../site/src/data/cards-summary.json');
-fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
+writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
 console.log(`✅ Summary saved to: ${summaryPath}\n`);
