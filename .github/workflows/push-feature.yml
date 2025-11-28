@@ -250,6 +250,21 @@ jobs:
       - name: Install Firebase CLI
         run: pnpm add -g firebase-tools
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.ref_name }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-fellspiral'
+          environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-fellspiral.web.app'
+          site_name: 'fellspiral'
+          is_preview: 'true'
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         run: |
@@ -277,39 +292,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Sanitize branch name for environment
-        id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
-
-          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: 'preview-${{ steps.sanitize.outputs.branch }}-fellspiral'
-          environment_url: ${{ steps.deploy.outputs.url }}
-          site_name: 'fellspiral'
-          is_preview: 'true'
 
       - name: Update deployment status to success
         if: success()
@@ -371,6 +353,21 @@ jobs:
       - name: Install Firebase CLI
         run: pnpm add -g firebase-tools
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.ref_name }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-videobrowser'
+          environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-videobrowser.web.app'
+          site_name: 'videobrowser'
+          is_preview: 'true'
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         run: |
@@ -398,39 +395,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Sanitize branch name for environment
-        id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
-
-          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: 'preview-${{ steps.sanitize.outputs.branch }}-videobrowser'
-          environment_url: ${{ steps.deploy.outputs.url }}
-          site_name: 'videobrowser'
-          is_preview: 'true'
 
       - name: Update deployment status to success
         if: success()
@@ -492,6 +456,21 @@ jobs:
       - name: Install Firebase CLI
         run: pnpm add -g firebase-tools
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.ref_name }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-audiobrowser'
+          environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-audiobrowser.web.app'
+          site_name: 'audiobrowser'
+          is_preview: 'true'
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         run: |
@@ -519,39 +498,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Sanitize branch name for environment
-        id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
-
-          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: 'preview-${{ steps.sanitize.outputs.branch }}-audiobrowser'
-          environment_url: ${{ steps.deploy.outputs.url }}
-          site_name: 'audiobrowser'
-          is_preview: 'true'
 
       - name: Update deployment status to success
         if: success()
@@ -613,6 +559,21 @@ jobs:
       - name: Install Firebase CLI
         run: pnpm add -g firebase-tools
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.ref_name }}
+
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-print'
+          environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-print.web.app'
+          site_name: 'print'
+          is_preview: 'true'
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         run: |
@@ -640,39 +601,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Sanitize branch name for environment
-        id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
-
-          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: 'preview-${{ steps.sanitize.outputs.branch }}-print'
-          environment_url: ${{ steps.deploy.outputs.url }}
-          site_name: 'print'
-          is_preview: 'true'
 
       - name: Update deployment status to success
         if: success()

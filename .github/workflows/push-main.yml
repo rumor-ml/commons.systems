@@ -292,26 +292,18 @@ jobs:
       - name: Sanitize branch name for environment
         if: github.event_name == 'pull_request'
         id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-          
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
 
-          echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-fellspiral', steps.sanitize.outputs.sanitized) || 'production-fellspiral' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-fellspiral.web.app', steps.sanitize.outputs.sanitized) || 'https://fellspiral.web.app' }}
+          site_name: 'fellspiral'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy fellspiral to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -341,16 +333,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-fellspiral', steps.sanitize.outputs.branch) || 'production-fellspiral' }}
-          environment_url: ${{ steps.site-url.outputs.url }}
-          site_name: 'fellspiral'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Update deployment status to success
         if: success()
@@ -395,26 +377,18 @@ jobs:
       - name: Sanitize branch name for environment
         if: github.event_name == 'pull_request'
         id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-          
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
 
-          echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-videobrowser', steps.sanitize.outputs.sanitized) || 'production-videobrowser' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-videobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://videobrowser.web.app' }}
+          site_name: 'videobrowser'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy videobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -444,16 +418,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-videobrowser', steps.sanitize.outputs.branch) || 'production-videobrowser' }}
-          environment_url: ${{ steps.site-url.outputs.url }}
-          site_name: 'videobrowser'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Update deployment status to success
         if: success()
@@ -498,26 +462,18 @@ jobs:
       - name: Sanitize branch name for environment
         if: github.event_name == 'pull_request'
         id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-          
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
 
-          echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-audiobrowser', steps.sanitize.outputs.sanitized) || 'production-audiobrowser' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-audiobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://audiobrowser.web.app' }}
+          site_name: 'audiobrowser'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy audiobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -547,16 +503,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-audiobrowser', steps.sanitize.outputs.branch) || 'production-audiobrowser' }}
-          environment_url: ${{ steps.site-url.outputs.url }}
-          site_name: 'audiobrowser'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Update deployment status to success
         if: success()
@@ -601,26 +547,18 @@ jobs:
       - name: Sanitize branch name for environment
         if: github.event_name == 'pull_request'
         id: sanitize
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
-          SANITIZED=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
-          
-          # Validate sanitized name is not empty
-          if [ -z "$SANITIZED" ]; then
-            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
-            exit 1
-          fi
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
 
-          echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
-          echo "Sanitized branch name: ${SANITIZED}"
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-print', steps.sanitize.outputs.sanitized) || 'production-print' }}
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-print.web.app', steps.sanitize.outputs.sanitized) || 'https://print.web.app' }}
+          site_name: 'print'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy print to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -650,16 +588,6 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
-
-      - name: Create GitHub deployment
-        id: create-deployment
-        if: success()
-        uses: ./.github/actions/create-deployment
-        with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-print', steps.sanitize.outputs.branch) || 'production-print' }}
-          environment_url: ${{ steps.site-url.outputs.url }}
-          site_name: 'print'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Update deployment status to success
         if: success()
