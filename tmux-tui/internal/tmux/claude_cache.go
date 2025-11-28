@@ -72,8 +72,9 @@ func (c *ClaudePaneCache) Invalidate(panePID string) {
 	delete(c.cache, panePID)
 }
 
-// Cleanup removes all expired entries from the cache
-// This should be called periodically to prevent unbounded growth
+// Cleanup removes all expired entries from the cache.
+// Note: In production, CleanupExcept() is the primary cleanup mechanism
+// (called every 30s in GetTree). This method is for manual/testing use.
 func (c *ClaudePaneCache) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

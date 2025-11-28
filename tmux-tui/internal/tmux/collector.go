@@ -117,6 +117,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	// Clean up cache entries for panes that no longer exist.
 	// This is the primary mechanism preventing unbounded cache growth,
 	// called on every GetTree() invocation (typically every 30s).
+	// CleanupExcept() removes both invalid PIDs and expired entries.
 	c.claudeCache.CleanupExcept(validPIDs)
 
 	return tree, nil
