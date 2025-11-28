@@ -7,6 +7,7 @@
   "workspaces": [
     "shared/design-system",
     "shared/auth",
+    "shared/design-system",
     "fellspiral/site",
     "fellspiral/tests",
     "videobrowser/site",

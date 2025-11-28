@@ -22,6 +22,7 @@
       "Bash(git rev-parse:*)",
       "Bash(git worktree list)",
       "Bash(git worktree add:*)",
+      "Bash(git check-ignore:*)",
       "Bash(gh issue view:*)",
       "Bash(gh issue list:*)",
       "Bash(gh pr list:*)",
