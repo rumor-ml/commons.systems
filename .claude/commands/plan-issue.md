@@ -105,37 +105,14 @@ Body:
   <Brief summary>
 ```
 
-## Step 5: Create Implementation Plan
-Based on the hierarchical context:
-
-1. **Analyze Scope**: Review the current issue's requirements in context of:
-   - Parent issue's goals (if exists)
-   - Sibling issues to avoid duplication or conflicts
-   - Existing sub-issues to understand what's already planned
-
-2. **Determine Planning Strategy**:
-   - If issue has NO sub-issues and is small (<50k tokens estimated): Create direct implementation plan
-   - If issue has NO sub-issues but is large (>50k tokens): Break it into new sub-issues that maximize parallelization
-   - If issue HAS sub-issues: Review their adequacy and suggest refinements if needed
-
-3. **Implementation Plan Structure**:
-   For direct implementation:
-   - List specific files to modify/create
-   - Outline key changes per file
-   - Identify dependencies and order of operations
-   - Note any risks or considerations
-
-   For sub-issue breakdown:
-   - Create focused sub-issues that can be worked on independently
-   - Each sub-issue should be <50k tokens
-   - Maximize parallelization - minimize cross-dependencies
-   - Provide clear acceptance criteria for each sub-issue
-
-4. **Output the Plan**: Present a clear, actionable plan with:
-   - Summary of approach
-   - Detailed steps or sub-issue proposals
-   - Estimated complexity/effort
-   - Recommended execution order
+## Step 5: Invoke Feature Development
+After presenting the hierarchical context, invoke the feature development workflow:
+- Use the SlashCommand tool to execute `/feature-dev:feature-dev` with the issue title and summary
+- Pass the issue context as: `/feature-dev:feature-dev Implement: <issue title> - <brief summary from issue body>`
+- This hands off to the guided feature development workflow which will:
+  - Explore the codebase for relevant patterns
+  - Design the architecture
+  - Create a detailed implementation plan
 
 ## Important Notes
 - All `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
