@@ -290,7 +290,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy fellspiral to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
@@ -303,10 +303,10 @@ jobs:
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'production-fellspiral'
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-fellspiral', github.head_ref) || 'production-fellspiral' }}
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'fellspiral'
-          is_preview: 'false'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
   deploy-videobrowser:
     name: Deploy videobrowser
@@ -330,7 +330,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy videobrowser to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
@@ -343,10 +343,10 @@ jobs:
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'production-videobrowser'
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-videobrowser', github.head_ref) || 'production-videobrowser' }}
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'videobrowser'
-          is_preview: 'false'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
   deploy-audiobrowser:
     name: Deploy audiobrowser
@@ -370,7 +370,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy audiobrowser to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
@@ -383,10 +383,10 @@ jobs:
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'production-audiobrowser'
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-audiobrowser', github.head_ref) || 'production-audiobrowser' }}
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'audiobrowser'
-          is_preview: 'false'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
   deploy-print:
     name: Deploy print
@@ -410,7 +410,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy print to Firebase Hosting
-        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.ref_name }} ${{ github.sha }}
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
         id: site-url
@@ -423,10 +423,10 @@ jobs:
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'production-print'
+          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-print', github.head_ref) || 'production-print' }}
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'print'
-          is_preview: 'false'
+          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:
