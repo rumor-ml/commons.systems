@@ -205,9 +205,7 @@ jobs:
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
-      - name: Test Print
-        if: steps.check-changes.outputs.print-changed == 'true'
-        run: ./infrastructure/scripts/run-local-tests.sh print
+      # Print tests are handled separately in deploy-print job
 
   # ==================== Step 2: Deploy Sites to Firebase Hosting ====================
   deploy-fellspiral:
@@ -260,11 +258,26 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          SANITIZED=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
+          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
+
       - name: Create GitHub deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-fellspiral'
+          environment: 'preview-${{ steps.sanitize.outputs.branch }}-fellspiral'
           environment_url: ${{ steps.deploy.outputs.url }}
           site_name: 'fellspiral'
           is_preview: 'true'
@@ -319,11 +332,26 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          SANITIZED=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
+          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
+
       - name: Create GitHub deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-videobrowser'
+          environment: 'preview-${{ steps.sanitize.outputs.branch }}-videobrowser'
           environment_url: ${{ steps.deploy.outputs.url }}
           site_name: 'videobrowser'
           is_preview: 'true'
@@ -378,11 +406,26 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          SANITIZED=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
+          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
+
       - name: Create GitHub deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-audiobrowser'
+          environment: 'preview-${{ steps.sanitize.outputs.branch }}-audiobrowser'
           environment_url: ${{ steps.deploy.outputs.url }}
           site_name: 'audiobrowser'
           is_preview: 'true'
@@ -391,8 +434,11 @@ jobs:
     name: Deploy Print (Preview)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: local-tests
-    if: needs.local-tests.outputs.print-changed == 'true'
+    needs: [detect-changes, local-tests]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.print-changed == 'true' &&
+      (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
       service-url: ${{ steps.deploy.outputs.url }}
 
@@ -434,11 +480,26 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
 
+      - name: Sanitize branch name for environment
+        id: sanitize
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          SANITIZED=$(echo "$BRANCH_NAME" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/[^a-z0-9-]/-/g' | \
+            sed 's/-\+/-/g' | \
+            sed 's/^-//' | \
+            sed 's/-$//' | \
+            cut -c1-63)
+          echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
+
       - name: Create GitHub deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-print'
+          environment: 'preview-${{ steps.sanitize.outputs.branch }}-print'
           environment_url: ${{ steps.deploy.outputs.url }}
           site_name: 'print'
           is_preview: 'true'

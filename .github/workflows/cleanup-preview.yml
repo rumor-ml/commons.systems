@@ -289,8 +289,20 @@ jobs:
           for env_name in "${ENVIRONMENTS_TO_DEACTIVATE[@]}"; do
             echo "Processing environment: ${env_name}"
 
-            # Get all deployments for this environment
-            DEPLOYMENTS=$(gh api "repos/${{ github.repository }}/deployments?environment=${env_name}&per_page=100" --jq '.[].id' 2>/dev/null || echo "")
+            # Get all deployments for this environment with error handling
+            if ! DEPLOYMENTS_JSON=$(gh api "repos/${{ github.repository }}/deployments?environment=${env_name}&per_page=100" 2>&1); then
+              echo "  ⚠️ Failed to fetch deployments: $DEPLOYMENTS_JSON"
+              continue
+            fi
+
+            # Validate JSON response
+            if ! echo "$DEPLOYMENTS_JSON" | jq -e '.' >/dev/null 2>&1; then
+              echo "  ⚠️ Invalid JSON response from GitHub API"
+              continue
+            fi
+
+            # Extract deployment IDs
+            DEPLOYMENTS=$(echo "$DEPLOYMENTS_JSON" | jq -r '.[].id' 2>/dev/null || echo "")
 
             if [ -z "$DEPLOYMENTS" ]; then
               echo "  No deployments found"
@@ -301,14 +313,19 @@ jobs:
             while IFS= read -r deployment_id; do
               if [ -n "$deployment_id" ]; then
                 echo "  Marking deployment $deployment_id as inactive"
-                if gh api "repos/${{ github.repository }}/deployments/${deployment_id}/statuses" \
+                if STATUS_JSON=$(gh api "repos/${{ github.repository }}/deployments/${deployment_id}/statuses" \
                   -X POST \
                   -f state="inactive" \
-                  -f description="Branch deleted" 2>/dev/null; then
-                  echo "  ✅ Deactivated"
-                  DEACTIVATED_COUNT=$((DEACTIVATED_COUNT + 1))
+                  -f description="Branch deleted" 2>&1); then
+                  # Validate response
+                  if echo "$STATUS_JSON" | jq -e '.id' >/dev/null 2>&1; then
+                    echo "  ✅ Deactivated"
+                    DEACTIVATED_COUNT=$((DEACTIVATED_COUNT + 1))
+                  else
+                    echo "  ⚠️ Unexpected API response: $STATUS_JSON"
+                  fi
                 else
-                  echo "  ⚠️ Failed to deactivate"
+                  echo "  ⚠️ Failed to deactivate: $STATUS_JSON"
                 fi
               fi
             done <<< "$DEPLOYMENTS"

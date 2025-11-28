@@ -69,9 +69,19 @@ runs:
           exit 1
         fi
 
-        gh api repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
+        STATUS_RESPONSE=$(gh api repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
           -X POST \
           -f state="success" \
           -f environment_url="${{ inputs.environment_url }}" \
           -f log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-          -f description="Deployment successful"
+          -f description="Deployment successful")
+
+        STATUS_ID=$(echo "$STATUS_RESPONSE" | jq -r '.id')
+
+        if [ "$STATUS_ID" = "null" ] || [ -z "$STATUS_ID" ]; then
+          echo "::error::Failed to create deployment status"
+          echo "$STATUS_RESPONSE"
+          exit 1
+        fi
+
+        echo "::notice::Created deployment $DEPLOYMENT_ID with status $STATUS_ID"

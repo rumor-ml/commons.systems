@@ -1,3 +1,6 @@
+// Import auth initialization
+import { initializeAuth } from './auth-init.js';
+
 // Combat Simulator Data and Logic
 const characters = {
   skeleton: {
@@ -956,9 +959,6 @@ function applyDamageWithAI(attacker, defender, log, attackSkill) {
     defender.alive = false;
   }
 }
-
-// Import auth initialization
-import { initializeAuth } from './auth-init.js';
 
 // Navigation and UI functionality
 // Helper function to close mobile sidebar
