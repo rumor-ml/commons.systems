@@ -125,9 +125,9 @@ func (w *AlertWatcher) watch() {
 				continue
 			}
 
-			// Attempt to send event. May drop if watcher is shutting down,
-			// which is acceptable since we're terminating anyway.
-			// This is safe because fsnotify events are rate-limited by filesystem operations.
+			// Attempt to send event. Uses select to prevent blocking during shutdown.
+			// If done channel is closed, we exit immediately without blocking.
+			// Event loss during shutdown is acceptable since watcher is terminating.
 			select {
 			case w.alertCh <- alertEvent:
 			case <-w.done:
