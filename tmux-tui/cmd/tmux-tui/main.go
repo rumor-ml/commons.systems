@@ -28,15 +28,18 @@ type treeRefreshMsg struct {
 }
 
 type model struct {
-	collector    *tmux.Collector
-	renderer     *ui.TreeRenderer
-	alertWatcher *watcher.AlertWatcher
-	tree         tmux.RepoTree
-	alerts       map[string]bool // Persistent alert state
-	alertsMu     *sync.RWMutex   // Protects alerts map from race conditions
-	width        int
-	height       int
-	err          error
+	collector       *tmux.Collector
+	renderer        *ui.TreeRenderer
+	alertWatcher    *watcher.AlertWatcher
+	tree            tmux.RepoTree
+	alerts          map[string]bool // Persistent alert state
+	alertsMu        *sync.RWMutex   // Protects alerts map from race conditions
+	width           int
+	height          int
+	err             error
+	alertsDisabled  bool   // true if alert watcher failed to initialize
+	alertError      string // watcher initialization error
+	alertLoadError  string // error loading existing alerts
 }
 
 func initialModel() model {
@@ -53,30 +56,40 @@ func initialModel() model {
 	tree, err := collector.GetTree()
 
 	// Initialize alert watcher
+	var alertsDisabled bool
+	var alertError string
 	alertWatcher, watcherErr := watcher.NewAlertWatcher()
 	if watcherErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Alert watcher failed to initialize: %v\n", watcherErr)
 		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
 		alertWatcher = nil
+		alertsDisabled = true
+		alertError = watcherErr.Error()
 	}
 
 	// Load existing alerts
+	var alertLoadError string
 	alerts, alertsErr := watcher.GetExistingAlerts()
 	if alertsErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load existing alerts: %v\n", alertsErr)
+		fmt.Fprintf(os.Stderr, "Existing alert files in ~/.tmux-alerts/ will not be shown.\n")
 		alerts = make(map[string]bool)
+		alertLoadError = fmt.Sprintf("Failed to load existing alerts: %v", alertsErr)
 	}
 
 	return model{
-		collector:    collector,
-		renderer:     renderer,
-		alertWatcher: alertWatcher,
-		tree:         tree,
-		alerts:       alerts,
-		alertsMu:     &sync.RWMutex{},
-		width:        80,
-		height:       24,
-		err:          err,
+		collector:      collector,
+		renderer:       renderer,
+		alertWatcher:   alertWatcher,
+		tree:           tree,
+		alerts:         alerts,
+		alertsMu:       &sync.RWMutex{},
+		width:          80,
+		height:         24,
+		err:            err,
+		alertsDisabled: alertsDisabled,
+		alertError:     alertError,
+		alertLoadError: alertLoadError,
 	}
 }
 
@@ -108,7 +121,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			// Clean up watcher on quit
 			if m.alertWatcher != nil {
-				m.alertWatcher.Close()
+				if err := m.alertWatcher.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error closing alert watcher: %v\n", err)
+				}
 			}
 			return m, tea.Quit
 		}
@@ -188,7 +203,17 @@ func (m model) View() string {
 	}
 	m.alertsMu.RUnlock()
 
-	return m.renderer.Render(m.tree, alertsCopy)
+	output := m.renderer.Render(m.tree, alertsCopy)
+
+	// Display warnings for alert issues
+	if m.alertsDisabled {
+		output += fmt.Sprintf("\n\n⚠ Alert notifications disabled: %s", m.alertError)
+	}
+	if m.alertLoadError != "" {
+		output += fmt.Sprintf("\n⚠ %s", m.alertLoadError)
+	}
+
+	return output
 }
 
 // watchAlertsCmd watches for alert file changes

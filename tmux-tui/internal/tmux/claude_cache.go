@@ -43,9 +43,10 @@ func (c *ClaudePaneCache) Get(panePID string) (bool, bool) {
 
 	// Check if expired
 	if time.Now().After(entry.expiresAt) {
-		// Expired entries remain in cache until CleanupExcept() is called.
-		// This keeps Get() lock-free and fast, trading memory for performance.
-		// Cleanup is guaranteed at each GetTree() call via CleanupExcept().
+		// Return expired entry as not found, but don't remove it here.
+		// This avoids taking a write lock in Get(), keeping reads fast
+		// while trading some memory for performance. Expired entries
+		// are removed during CleanupExcept() calls in GetTree().
 		return false, false
 	}
 
