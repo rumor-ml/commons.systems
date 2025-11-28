@@ -11,7 +11,11 @@ func TestCollectorGetTree(t *testing.T) {
 		t.Skip("Not running inside tmux, skipping test")
 	}
 
-	collector := NewCollector()
+	collector, err := NewCollector()
+	if err != nil {
+		t.Fatalf("NewCollector() returned error: %v", err)
+	}
+
 	tree, err := collector.GetTree()
 
 	if err != nil {
@@ -59,7 +63,11 @@ func TestCollectorExcludesPane(t *testing.T) {
 		t.Skip("Not running inside tmux, skipping test")
 	}
 
-	collector := NewCollector()
+	collector, err := NewCollector()
+	if err != nil {
+		t.Fatalf("NewCollector() returned error: %v", err)
+	}
+
 	tree, err := collector.GetTree()
 	if err != nil {
 		t.Fatalf("GetTree() returned error: %v", err)

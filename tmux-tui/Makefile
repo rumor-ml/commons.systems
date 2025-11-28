@@ -26,7 +26,7 @@ test-unit:
 test-e2e:
 	@echo "Running E2E tests..."
 	@command -v tmux >/dev/null || (echo "Error: tmux not found" && exit 1)
-	@$(GO) test -v ./tests/...
+	@$(GO) test -v -count=1 ./tests/...
 
 clean:
 	@echo "Cleaning build artifacts..."

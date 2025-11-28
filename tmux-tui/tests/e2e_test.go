@@ -759,6 +759,9 @@ func TestStaleAlertFilesIgnored(t *testing.T) {
 // This test spawns Claude and tmux-tui in a tmux session, sends a prompt, and verifies:
 // 1. TUI displays highlighted window number (ANSI red background) after notification
 // 2. TUI displays normal window number after next prompt clears the alert
+// NOTE: This test is flaky due to timing issues with process detection
+// The test fails when the pane running Claude is not detected as a Claude pane
+// by the collector (isClaudePane check), which depends on timing of process hierarchy
 func TestRealClaudeAlertFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping real Claude test in short mode")
@@ -850,7 +853,7 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start TUI: %v", err)
 	}
-	time.Sleep(2 * time.Second) // Wait for TUI to initialize
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize and alert watcher to start
 
 	// Start Claude in the Claude pane (right pane) - use session-qualified target
 	// cd to project directory so Claude picks up hooks from .claude/settings.json
@@ -884,6 +887,13 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		output, _ := captureCmd.Output()
 		t.Logf("Warning: Could not confirm Claude is ready. Pane content:\n%s", string(output))
 	}
+
+	// Wait for pane to be detected as Claude pane
+	t.Log("Waiting for pane to be detected as Claude pane...")
+	if !waitForClaudePaneDetection(t, sessionName, claudePane, 30*time.Second) {
+		t.Fatal("Pane was not detected as running Claude within timeout")
+	}
+	t.Log("Claude pane successfully detected by collector")
 
 	// Capture TUI output BEFORE sending prompt (baseline) - use session-qualified target
 	tuiCaptureCmd := tmuxCmd("capture-pane", "-t", sessionName+"."+tuiPane, "-p", "-e")
@@ -1225,8 +1235,100 @@ func filterTmuxEnv(env []string) []string {
 	return filtered
 }
 
+// verifyPaneEnvironment verifies that TMUX_PANE environment variable is set correctly
+func verifyPaneEnvironment(t *testing.T, session, paneID string) {
+	t.Helper()
+	target := fmt.Sprintf("%s.%s", session, paneID)
+
+	cmd := tmuxCmd("show-environment", "-t", target, "TMUX_PANE")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Logf("Warning: Could not verify TMUX_PANE env: %v", err)
+		return
+	}
+
+	envLine := strings.TrimSpace(string(output))
+	expected := fmt.Sprintf("TMUX_PANE=%s", paneID)
+	if envLine != expected {
+		t.Errorf("TMUX_PANE mismatch. Expected %q, got %q", expected, envLine)
+	} else {
+		t.Logf("✓ TMUX_PANE correctly set: %s", envLine)
+	}
+}
+
+// waitForClaudeReady waits for Claude to be ready with enhanced diagnostics
+func waitForClaudeReady(t *testing.T, session, paneID, windowTarget string, timeout time.Duration) bool {
+	t.Helper()
+
+	permissionPromptAnswered := false
+
+	cond := WaitCondition{
+		Name:     fmt.Sprintf("Claude ready in pane %s", paneID),
+		Timeout:  timeout,
+		Interval: 1 * time.Second,
+		CheckFunc: func() (bool, error) {
+			captureCmd := tmuxCmd("capture-pane", "-t", windowTarget, "-p")
+			output, err := captureCmd.Output()
+			if err != nil {
+				return false, fmt.Errorf("capture-pane failed: %w", err)
+			}
+
+			paneContent := string(output)
+
+			// Handle permission prompt
+			if !permissionPromptAnswered &&
+				strings.Contains(paneContent, "Do you want to work in this folder") {
+				t.Logf("Answering folder permission prompt in pane %s", paneID)
+				answerCmd := tmuxCmd("send-keys", "-t", windowTarget, "Enter")
+				answerCmd.Run()
+				permissionPromptAnswered = true
+				return false, nil
+			}
+
+			// Check for ready indicators
+			if strings.Contains(paneContent, ">") ||
+				strings.Contains(paneContent, "What can I help") {
+				return true, nil
+			}
+
+			// Check for error states
+			if strings.Contains(paneContent, "error:") ||
+				strings.Contains(paneContent, "Error:") ||
+				strings.Contains(paneContent, "failed") {
+				return false, fmt.Errorf("detected error in Claude output")
+			}
+
+			return false, nil
+		},
+		OnRetry: func(attempt int, elapsed time.Duration) {
+			if attempt%5 == 0 {
+				t.Logf("Still waiting for Claude (%.1fs elapsed)...", elapsed.Seconds())
+
+				if attempt%10 == 0 {
+					info := captureDiagnostics(t, session, paneID)
+					logDiagnostics(t, info, "Claude initialization progress")
+				}
+			}
+		},
+	}
+
+	err := waitForCondition(t, cond)
+	if err != nil {
+		info := captureDiagnostics(t, session, paneID)
+		logDiagnostics(t, info, "FAILURE - Claude readiness timeout")
+		t.Logf("Error: %v", err)
+		return false
+	}
+
+	t.Logf("Claude ready - waiting 2s for hook registration...")
+	time.Sleep(2 * time.Second)
+	return true
+}
+
 // Helper function: Create window with Claude in tmux session
 func createWindowWithClaude(t *testing.T, session, windowName string) string {
+	t.Helper()
+
 	// Create new window
 	cmd := tmuxCmd("new-window", "-t", session, "-n", windowName)
 	if err := cmd.Run(); err != nil {
@@ -1234,55 +1336,24 @@ func createWindowWithClaude(t *testing.T, session, windowName string) string {
 	}
 	time.Sleep(200 * time.Millisecond)
 
-	// Get window target (session:windowName)
 	windowTarget := fmt.Sprintf("%s:%s", session, windowName)
-
-	// Get pane ID
 	paneID := getPaneID(t, session, windowName)
 
-	// Get project root to pick up .claude/settings.json hooks
-	// From tmux-tui/tmux-tui/tests (where tests run), go up two levels to repo root
+	// Start Claude with environment variables prefixed in the command
+	// This ensures the variables are in Claude's process environment (not just tmux's environment table)
+	t.Logf("Starting Claude in window %s with TMUX_PANE=%s", windowName, paneID)
 	projectDir, _ := filepath.Abs("../..")
-
-	// Start Claude with haiku model and default permission mode
-	// CRITICAL: Set TMUX_PANE env var so hooks can use it
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s %s --permission-mode default", projectDir, paneID, claudeCommand)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, paneID, claudeCommand)
 	cmd = tmuxCmd("send-keys", "-t", windowTarget, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in window %s: %v", windowName, err)
 	}
 
-	// Wait for Claude to initialize (handle folder permission prompt if needed)
-	claudeReady := false
-	permissionPromptAnswered := false
-	for i := 0; i < 30; i++ {
-		time.Sleep(1 * time.Second)
-		captureCmd := tmuxCmd("capture-pane", "-t", windowTarget, "-p")
-		output, _ := captureCmd.Output()
-		paneContent := string(output)
-
-		// Check if Claude is asking for folder permission
-		if !permissionPromptAnswered && strings.Contains(paneContent, "Do you want to work in this folder") {
-			t.Logf("Answering folder permission prompt in window %s", windowName)
-			// Send Enter to select "Yes, continue" (default option)
-			answerCmd := tmuxCmd("send-keys", "-t", windowTarget, "Enter")
-			answerCmd.Run()
-			permissionPromptAnswered = true
-			continue
-		}
-
-		// Check if Claude is ready (main prompt visible)
-		if strings.Contains(paneContent, ">") || strings.Contains(paneContent, "What can I help") {
-			claudeReady = true
-			t.Logf("Claude ready in window %s after %d seconds", windowName, i+1)
-			break
-		}
-	}
-
+	// Wait for Claude to be ready using enhanced wait function
+	timeouts := getTestTimeouts()
+	claudeReady := waitForClaudeReady(t, session, paneID, windowTarget, timeouts.ClaudeInit)
 	if !claudeReady {
-		captureCmd := tmuxCmd("capture-pane", "-t", windowTarget, "-p")
-		output, _ := captureCmd.Output()
-		t.Logf("Warning: Claude may not be ready in window %s. Content:\n%s", windowName, string(output))
+		t.Fatalf("Claude failed to become ready in window %s", windowName)
 	}
 
 	return paneID
@@ -1299,38 +1370,71 @@ func getPaneID(t *testing.T, session, window string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// Helper function: Send prompt to Claude in a pane
-// Uses pane ID directly as target since we're on isolated server
-func sendPromptToClaude(t *testing.T, session, paneID, prompt string) {
-	// Claude's TUI uses vim-like keybindings:
-	// - Press 'i' to enter insert mode (needed after Claude responds, as it exits insert mode)
-	// - Type the prompt text
-	// - Press Escape to exit insert mode
-	// - Press Enter to submit
+// Helper function: Send prompt to Claude in a pane within a specific window
+func sendPromptToClaudeInWindow(t *testing.T, session, windowTarget, paneID, prompt string) {
+	t.Helper()
 
-	// Press 'i' to ensure we're in insert mode
-	cmd := tmuxCmd("send-keys", "-t", paneID, "i")
+	// Use the window target directly (session:window format)
+	target := windowTarget
+
+	// Press 'i' to enter insert mode
+	cmd := tmuxCmd("send-keys", "-t", target, "i")
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to enter insert mode in pane %s: %v", paneID, err)
+		t.Fatalf("Failed to enter insert mode in pane %s (window %s): %v", paneID, windowTarget, err)
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Send the prompt text
-	cmd = tmuxCmd("send-keys", "-t", paneID, prompt)
+	// Send prompt text
+	cmd = tmuxCmd("send-keys", "-t", target, prompt)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to send prompt text to pane %s: %v", paneID, err)
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	// Send Escape to exit insert mode
-	cmd = tmuxCmd("send-keys", "-t", paneID, "Escape")
+	// Exit insert mode
+	cmd = tmuxCmd("send-keys", "-t", target, "Escape")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to send Escape to pane %s: %v", paneID, err)
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Send Enter to submit
-	cmd = tmuxCmd("send-keys", "-t", paneID, "Enter")
+	// Submit
+	cmd = tmuxCmd("send-keys", "-t", target, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to send Enter to pane %s: %v", paneID, err)
+	}
+}
+
+// Helper function: Send prompt to Claude in a pane (for single-window tests)
+func sendPromptToClaude(t *testing.T, session, paneID, prompt string) {
+	t.Helper()
+
+	// ALWAYS use session-qualified target for consistency
+	target := fmt.Sprintf("%s.%s", session, paneID)
+
+	// Press 'i' to enter insert mode
+	cmd := tmuxCmd("send-keys", "-t", target, "i")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to enter insert mode in pane %s: %v", paneID, err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Send prompt text
+	cmd = tmuxCmd("send-keys", "-t", target, prompt)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to send prompt text to pane %s: %v", paneID, err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Exit insert mode
+	cmd = tmuxCmd("send-keys", "-t", target, "Escape")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to send Escape to pane %s: %v", paneID, err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Submit
+	cmd = tmuxCmd("send-keys", "-t", target, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to send Enter to pane %s: %v", paneID, err)
 	}
@@ -1356,25 +1460,6 @@ func simulateUserPromptSubmitHook(t *testing.T, paneID string) {
 	os.Remove(alertFile) // Don't fail if file doesn't exist (like rm -f)
 }
 
-// Helper function: Wait for alert file to appear or disappear
-func waitForAlertFile(t *testing.T, paneID string, shouldExist bool, timeout time.Duration) bool {
-	alertFile := filepath.Join(testAlertDir, alertPrefix+paneID)
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		_, err := os.Stat(alertFile)
-		exists := !os.IsNotExist(err)
-
-		if exists == shouldExist {
-			return true
-		}
-
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	return false
-}
-
 // Test A: Multi-Window Alert Isolation (Priority 1)
 // Tests that clearing alert in one window doesn't affect other windows
 func TestMultiWindowAlertIsolation(t *testing.T) {
@@ -1390,8 +1475,23 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 		t.Skip("claude not found")
 	}
 
-	// Ensure alert directory exists
+	// Ensure alert directory exists and clean up any leftover alert files
 	os.MkdirAll(testAlertDir, 0755)
+
+	// Clean up all existing alert files to prevent collisions between tests
+	pattern := filepath.Join(testAlertDir, alertPrefix+"*")
+	if matches, err := filepath.Glob(pattern); err == nil {
+		for _, f := range matches {
+			os.Remove(f)
+		}
+		if len(matches) > 0 {
+			t.Logf("Cleaned up %d leftover alert files", len(matches))
+		}
+	}
+
+	// Clear hook debug log at test start
+	os.Remove("/tmp/claude/hook-debug.log")
+	t.Log("Cleared hook debug log for clean test run")
 
 	sessionName := fmt.Sprintf("test-multiwin-%d", time.Now().Unix())
 	cleanup := createTestTmuxSession(t, sessionName)
@@ -1400,10 +1500,12 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	// Create two windows with Claude
 	t.Log("Creating window1 with Claude...")
 	pane1 := createWindowWithClaude(t, sessionName, "window1")
+	window1Target := fmt.Sprintf("%s:window1", sessionName)
 	defer os.Remove(filepath.Join(testAlertDir, alertPrefix+pane1))
 
 	t.Log("Creating window2 with Claude...")
 	pane2 := createWindowWithClaude(t, sessionName, "window2")
+	window2Target := fmt.Sprintf("%s:window2", sessionName)
 	defer os.Remove(filepath.Join(testAlertDir, alertPrefix+pane2))
 
 	// Verify no alerts initially
@@ -1413,16 +1515,20 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	}
 
 	// Send prompts - Claude responds, Stop hook creates alert files
+	// Need to use window targets since panes are in different windows
 	t.Logf("Sending prompts to both windows... pane1=%s, pane2=%s", pane1, pane2)
-	sendPromptToClaude(t, sessionName, pane1, "say hi")
-	sendPromptToClaude(t, sessionName, pane2, "say hello")
+	sendPromptToClaudeInWindow(t, sessionName, window1Target, pane1, "say hi")
+	logEnvironmentState(t, sessionName, pane1, "After first prompt to pane1")
+	sendPromptToClaudeInWindow(t, sessionName, window2Target, pane2, "say hello")
+	logEnvironmentState(t, sessionName, pane2, "After first prompt to pane2")
 
 	// Wait for real Stop hooks to create alert files (30s timeout)
 	t.Log("Waiting for Stop hooks to create alert files...")
-	if !waitForAlertFile(t, pane1, true, 30*time.Second) {
+	timeouts := getTestTimeouts()
+	if !waitForAlertFile(t, sessionName, pane1, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not create alert file for pane1")
 	}
-	if !waitForAlertFile(t, pane2, true, 30*time.Second) {
+	if !waitForAlertFile(t, sessionName, pane2, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not create alert file for pane2")
 	}
 
@@ -1442,7 +1548,8 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	os.Remove(alertFile1)
 
 	// Now send the follow-up - UserPromptSubmit should NOT recreate it yet
-	sendPromptToClaude(t, sessionName, pane1, "thanks")
+	sendPromptToClaudeInWindow(t, sessionName, window1Target, pane1, "thanks")
+	logEnvironmentState(t, sessionName, pane1, "After follow-up prompt to pane1")
 
 	// Give UserPromptSubmit hook a moment to fire (it runs before Claude processes)
 	time.Sleep(500 * time.Millisecond)
@@ -1451,7 +1558,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	// We can't easily test the brief "cleared" state since Claude responds fast
 	// Instead, wait for Claude to respond and Stop hook to recreate alert
 	t.Log("Waiting for Claude to respond and Stop hook to recreate alert...")
-	if !waitForAlertFile(t, pane1, true, 30*time.Second) {
+	if !waitForAlertFile(t, sessionName, pane1, true, timeouts.AlertFileWait) {
+		dumpHookDebugLog(t)
+		logEnvironmentState(t, sessionName, pane1, "FAILURE - Stop hook did not fire")
 		t.Fatal("Stop hook did not recreate alert file for pane1 after response")
 	}
 
@@ -1463,6 +1572,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	if !alerts[pane2] {
 		t.Error("Window2 alert should still be active")
 	}
+
+	// Dump hook debug log for analysis (both success and failure cases)
+	dumpHookDebugLog(t)
 
 	t.Log("Multi-window alert isolation test passed")
 }
@@ -1518,17 +1630,24 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 	}
 	defer os.Remove(filepath.Join(testAlertDir, alertPrefix+pane2))
 
-	// Start Claude in second pane (use session-qualified target)
-	// CRITICAL: Set TMUX_PANE env var so hooks can use it
+	// Get the pane target (session-qualified)
+	pane2Target := fmt.Sprintf("%s.%s", sessionName, pane2)
+
+	// Start Claude with environment variables prefixed in the command
+	t.Logf("Starting Claude in pane2 with TMUX_PANE=%s", pane2)
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s %s --permission-mode default", projectDir, pane2, claudeCommand)
-	cmd = tmuxCmd("send-keys", "-t", sessionName+"."+pane2, claudeCmd, "Enter")
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, pane2, claudeCommand)
+	cmd = tmuxCmd("send-keys", "-t", pane2Target, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in pane2: %v", err)
 	}
 
-	// Wait for second Claude to initialize
-	time.Sleep(5 * time.Second)
+	// Wait for second Claude to initialize using enhanced waiter
+	timeouts := getTestTimeouts()
+	claudeReady := waitForClaudeReady(t, sessionName, pane2, pane2Target, timeouts.ClaudeInit)
+	if !claudeReady {
+		t.Fatalf("Claude failed to become ready in pane2")
+	}
 
 	// Send prompts - Claude responds, Stop hook creates alert files
 	t.Log("Sending prompts to both panes...")
@@ -1537,10 +1656,11 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 
 	// Wait for real Stop hooks to create alert files (30s timeout)
 	t.Log("Waiting for Stop hooks to create alert files...")
-	if !waitForAlertFile(t, pane1, true, 30*time.Second) {
+	timeouts = getTestTimeouts()
+	if !waitForAlertFile(t, sessionName, pane1, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not create alert file for pane1")
 	}
-	if !waitForAlertFile(t, pane2, true, 30*time.Second) {
+	if !waitForAlertFile(t, sessionName, pane2, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not create alert file for pane2")
 	}
 
@@ -1562,7 +1682,7 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 
 	// Wait for Claude to respond and Stop hook to recreate alert
 	t.Log("Waiting for Claude to respond and Stop hook to recreate alert...")
-	if !waitForAlertFile(t, pane1, true, 30*time.Second) {
+	if !waitForAlertFile(t, sessionName, pane1, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not recreate alert file for pane1 after response")
 	}
 
@@ -1602,23 +1722,26 @@ func TestRapidConcurrentPrompts(t *testing.T) {
 	// Create 3 windows with Claude
 	t.Log("Creating 3 windows with Claude...")
 	panes := make([]string, 3)
+	windowTargets := make([]string, 3)
 	for i := 0; i < 3; i++ {
 		windowName := fmt.Sprintf("rapid%d", i+1)
 		panes[i] = createWindowWithClaude(t, sessionName, windowName)
+		windowTargets[i] = fmt.Sprintf("%s:%s", sessionName, windowName)
 		defer os.Remove(filepath.Join(testAlertDir, alertPrefix+panes[i]))
 	}
 
 	// Send prompts rapidly - Claude responds, Stop hook creates alert files
 	t.Log("Sending rapid concurrent prompts...")
 	for i, pane := range panes {
-		sendPromptToClaude(t, sessionName, pane, fmt.Sprintf("say test %d", i+1))
+		sendPromptToClaudeInWindow(t, sessionName, windowTargets[i], pane, fmt.Sprintf("say test %d", i+1))
 		time.Sleep(50 * time.Millisecond) // <100ms between prompts
 	}
 
 	// Wait for real Stop hooks to create alert files (30s timeout)
 	t.Log("Waiting for Stop hooks to create alert files...")
+	timeouts := getTestTimeouts()
 	for i, pane := range panes {
-		if !waitForAlertFile(t, pane, true, 30*time.Second) {
+		if !waitForAlertFile(t, sessionName, pane, true, timeouts.AlertFileWait) {
 			t.Errorf("Stop hook did not create alert file for pane %d", i+1)
 		}
 	}
@@ -1640,15 +1763,15 @@ func TestRapidConcurrentPrompts(t *testing.T) {
 		os.Remove(alertFile)
 	}
 
-	for _, pane := range panes {
-		sendPromptToClaude(t, sessionName, pane, "ok")
+	for i, pane := range panes {
+		sendPromptToClaudeInWindow(t, sessionName, windowTargets[i], pane, "ok")
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Wait for Claude responses and Stop hooks to recreate alert files
 	t.Log("Waiting for Claude responses and Stop hooks...")
 	for i, pane := range panes {
-		if !waitForAlertFile(t, pane, true, 30*time.Second) {
+		if !waitForAlertFile(t, sessionName, pane, true, timeouts.AlertFileWait) {
 			t.Errorf("Stop hook did not recreate alert file for pane %d after response", i+1)
 		}
 	}
@@ -1696,7 +1819,8 @@ func TestAlertPersistenceThroughTUIRefresh(t *testing.T) {
 
 	// Wait for real Stop hook to create alert file (30s timeout)
 	t.Log("Waiting for Stop hook to create alert file...")
-	if !waitForAlertFile(t, pane, true, 30*time.Second) {
+	timeouts := getTestTimeouts()
+	if !waitForAlertFile(t, sessionName, pane, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not create alert file")
 	}
 
@@ -1722,7 +1846,7 @@ func TestAlertPersistenceThroughTUIRefresh(t *testing.T) {
 
 	// Wait for Claude to respond and Stop hook to recreate alert
 	t.Log("Waiting for Claude to respond...")
-	if !waitForAlertFile(t, pane, true, 30*time.Second) {
+	if !waitForAlertFile(t, sessionName, pane, true, timeouts.AlertFileWait) {
 		t.Fatal("Stop hook did not recreate alert file after response")
 	}
 

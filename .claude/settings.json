@@ -77,6 +77,7 @@
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",
+      "Bash(tee:*)",
       "Bash(sort:*)",
       "Bash(echo:*)"
     ]
@@ -88,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"; afplay /System/Library/Sounds/Tink.aiff &"
+            "command": "echo \"[$(date +%s.%N)] STOP_START pane=$TMUX_PANE test=$CLAUDE_E2E_TEST\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] STOP_SUCCESS pane=$TMUX_PANE file_created=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] STOP_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log; [[ -z \"$CLAUDE_E2E_TEST\" ]] && afplay /System/Library/Sounds/Tink.aiff &"
           }
         ]
       }
@@ -99,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\""
+            "command": "echo \"[$(date +%s.%N)] SUBMIT_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] SUBMIT_SUCCESS pane=$TMUX_PANE file_removed=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] SUBMIT_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
           }
         ]
       }

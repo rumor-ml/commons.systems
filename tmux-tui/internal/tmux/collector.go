@@ -7,14 +7,23 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Collector collects tmux and git information
-type Collector struct{}
+type Collector struct {
+	claudeCache *ClaudePaneCache
+}
 
 // NewCollector creates a new Collector instance
-func NewCollector() *Collector {
-	return &Collector{}
+func NewCollector() (*Collector, error) {
+	cache, err := NewClaudePaneCache(30 * time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+	return &Collector{
+		claudeCache: cache,
+	}, nil
 }
 
 // GetTree collects all panes from the current tmux session and organizes them into a RepoTree
@@ -35,6 +44,9 @@ func (c *Collector) GetTree() (RepoTree, error) {
 
 	tree := make(RepoTree)
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// Track valid pane PIDs for cache cleanup
+	validPIDs := make(map[string]bool)
 
 	for _, line := range lines {
 		if line == "" {
@@ -60,6 +72,11 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		// Skip any pane running tmux-tui
 		if command == "tmux-tui" {
 			continue
+		}
+
+		// Track this PID as valid
+		if panePID != "" {
+			validPIDs[panePID] = true
 		}
 
 		windowIndex, _ := strconv.Atoi(windowIndexStr)
@@ -97,11 +114,34 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		tree[repo][branch] = append(tree[repo][branch], pane)
 	}
 
+	// Clean up cache entries for panes that no longer exist.
+	// This is the primary mechanism preventing unbounded cache growth,
+	// called on every GetTree() invocation (typically every 30s).
+	// CleanupExcept() removes both invalid PIDs and expired entries.
+	c.claudeCache.CleanupExcept(validPIDs)
+
 	return tree, nil
 }
 
 // isClaudePane checks if the pane is running Claude by inspecting child processes
+// This version uses caching to prevent expensive process checks on every tick
 func (c *Collector) isClaudePane(panePID string) bool {
+	// Check cache first
+	if result, found := c.claudeCache.Get(panePID); found {
+		return result
+	}
+
+	// Cache miss - do the expensive check
+	result := c.isClaudePaneUncached(panePID)
+
+	// Store in cache
+	c.claudeCache.Set(panePID, result)
+
+	return result
+}
+
+// isClaudePaneUncached performs the actual process inspection without caching
+func (c *Collector) isClaudePaneUncached(panePID string) bool {
 	if panePID == "" {
 		return false
 	}
@@ -110,7 +150,12 @@ func (c *Collector) isClaudePane(panePID string) bool {
 	cmd := exec.Command("pgrep", "-P", panePID)
 	output, err := cmd.Output()
 	if err != nil {
-		// No children found or error - not a Claude pane
+		// pgrep returns exit code 1 when no processes found - this is expected
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false
+		}
+		// Actual error - log it
+		fmt.Fprintf(os.Stderr, "Warning: Failed to check for Claude process in pane %s: %v\n", panePID, err)
 		return false
 	}
 
@@ -125,6 +170,18 @@ func (c *Collector) isClaudePane(panePID string) bool {
 		cmd = exec.Command("ps", "-o", "command=", "-p", childPID)
 		output, err := cmd.Output()
 		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() == 1 {
+					// Expected: process exited between pgrep and ps (TOCTOU race)
+					continue
+				}
+				// Unexpected exit code - system issue
+				fmt.Fprintf(os.Stderr, "Warning: ps failed for process %s (exit %d): %v\n",
+					childPID, exitErr.ExitCode(), err)
+				continue
+			}
+			// Non-exit error
+			fmt.Fprintf(os.Stderr, "Error: Failed to run ps for process %s: %v\n", childPID, err)
 			continue
 		}
 
@@ -143,6 +200,18 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
+		// Git returns exit code 128 for various errors
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "not a git repository") {
+				// Expected - path is not in a git repository
+				return "", ""
+			}
+			// Other 128 errors - log with context for debugging
+			fmt.Fprintf(os.Stderr, "Git error for %s: %s\n", path, stderr)
+			return "", ""
+		}
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get git info for %s: %v\n", path, err)
 		return "", ""
 	}
 	gitCommonDir := strings.TrimSpace(string(output))
@@ -160,9 +229,29 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd = exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err = cmd.Output()
 	if err != nil {
+		// Git returns exit code 128 for various errors
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "not a git repository") {
+				// Expected - path is not in a git repository
+				return repo, ""
+			}
+			// Other 128 errors - log with context for debugging
+			fmt.Fprintf(os.Stderr, "Git error getting branch for %s: %s\n", path, stderr)
+			return repo, ""
+		}
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get branch for %s: %v\n", path, err)
 		return repo, ""
 	}
 	branch = strings.TrimSpace(string(output))
 
 	return repo, branch
+}
+
+// CacheSize returns the number of entries in the Claude pane cache (for testing)
+func (c *Collector) CacheSize() int {
+	if c.claudeCache == nil {
+		return 0
+	}
+	return c.claudeCache.Size()
 }
