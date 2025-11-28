@@ -27,13 +27,39 @@ runs:
       run: |
         set -euo pipefail
 
+        # Build JSON payload with required_contexts: []
+        TRANSIENT_ENV='${{ inputs.is_preview == ''true'' && ''true'' || ''false'' }}'
+
+        if [ "$TRANSIENT_ENV" = "true" ]; then
+          PAYLOAD=$(jq -n \
+            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --arg environment "${ENVIRONMENT}" \
+            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
+            '{
+              ref: $ref,
+              environment: $environment,
+              description: $description,
+              auto_merge: false,
+              required_contexts: [],
+              transient_environment: true
+            }')
+        else
+          PAYLOAD=$(jq -n \
+            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --arg environment "${ENVIRONMENT}" \
+            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
+            '{
+              ref: $ref,
+              environment: $environment,
+              description: $description,
+              auto_merge: false,
+              required_contexts: []
+            }')
+        fi
+
         DEPLOYMENT_RESPONSE=$(gh api repos/${{ github.repository }}/deployments \
           -X POST \
-          -f ref="${{ github.event.pull_request.head.sha || github.sha }}" \
-          -f environment="${ENVIRONMENT}" \
-          -f description="Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
-          -F auto_merge=false \
-          ${{ inputs.is_preview == 'true' && '-F transient_environment=true' || '' }})
+          --input - <<< "$PAYLOAD")
 
         DEPLOYMENT_ID=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.id')
 
