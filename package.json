@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "shared/design-system",
     "shared/auth",
     "shared/design-system",
     "fellspiral/site",
