@@ -344,13 +344,15 @@ func TestDirectAlertFileSystem(t *testing.T) {
 		t.Error("Should have no alert initially")
 	}
 
-	// Create alert file (simulates Notification hook)
-	os.WriteFile(alertFile, []byte{}, 0644)
+	// Create alert file (simulates Notification hook) with explicit event type
+	os.WriteFile(alertFile, []byte("stop"), 0644)
 
 	// Should now have alert
 	alerts = getActiveAlerts()
-	if _, exists := alerts[testPaneID]; !exists {
+	if eventType, exists := alerts[testPaneID]; !exists {
 		t.Errorf("Should have alert after file created for pane %s", testPaneID)
+	} else if eventType != "stop" {
+		t.Errorf("Expected event type 'stop', got '%s'", eventType)
 	}
 
 	// Remove file (simulates UserPromptSubmit hook)
@@ -390,8 +392,8 @@ func TestMultipleTUIInstancesShareAlerts(t *testing.T) {
 	// Ensure /tmp/claude directory exists
 	os.MkdirAll("/tmp/claude", 0755)
 
-	// Create alert
-	os.WriteFile(alertFile, []byte{}, 0644)
+	// Create alert with event type
+	os.WriteFile(alertFile, []byte("permission"), 0644)
 	defer os.Remove(alertFile)
 
 	// Simulate two TUI instances reading alerts
@@ -402,8 +404,10 @@ func TestMultipleTUIInstancesShareAlerts(t *testing.T) {
 	if alerts1[testPaneID] != alerts2[testPaneID] {
 		t.Error("Multiple TUI instances should see same alert state")
 	}
-	if _, exists := alerts1[testPaneID]; !exists {
+	if eventType, exists := alerts1[testPaneID]; !exists {
 		t.Errorf("Alert should be present for pane %s", testPaneID)
+	} else if eventType != "permission" {
+		t.Errorf("Expected event type 'permission', got '%s'", eventType)
 	}
 }
 
@@ -434,14 +438,16 @@ func TestAlertPersistsAcrossRefresh(t *testing.T) {
 	// Ensure /tmp/claude directory exists
 	os.MkdirAll("/tmp/claude", 0755)
 
-	os.WriteFile(alertFile, []byte{}, 0644)
+	os.WriteFile(alertFile, []byte("idle"), 0644)
 	defer os.Remove(alertFile)
 
 	// Multiple reads (simulating refresh cycles)
 	for i := 0; i < 5; i++ {
 		alerts := getActiveAlerts()
-		if _, exists := alerts[testPaneID]; !exists {
+		if eventType, exists := alerts[testPaneID]; !exists {
 			t.Errorf("Alert should persist on refresh %d for pane %s", i, testPaneID)
+		} else if eventType != "idle" {
+			t.Errorf("Expected event type 'idle', got '%s'", eventType)
 		}
 	}
 }
@@ -694,7 +700,7 @@ func TestEndToEndAlertFlow(t *testing.T) {
 	}
 
 	// Phase 2: Notification creates alert
-	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(alertFile, []byte("elicitation"), 0644); err != nil {
 		t.Fatalf("Failed to create alert file: %v", err)
 	}
 
@@ -702,8 +708,10 @@ func TestEndToEndAlertFlow(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		time.Sleep(50 * time.Millisecond)
 		alerts = getActiveAlerts()
-		if _, exists := alerts[paneID]; !exists {
+		if eventType, exists := alerts[paneID]; !exists {
 			t.Errorf("Alert should persist on check %d", i+1)
+		} else if eventType != "elicitation" {
+			t.Errorf("Expected event type 'elicitation', got '%s'", eventType)
 		}
 		if _, err := os.Stat(alertFile); os.IsNotExist(err) {
 			t.Errorf("Alert file should exist on check %d", i+1)
