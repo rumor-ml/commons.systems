@@ -171,7 +171,8 @@ func TestTmuxWindowOptionTracking(t *testing.T) {
 	// Create background tmux session
 	cmd := tmuxCmd("new-session", "-d", "-s", sessionName)
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to create tmux session: %v", err)
+		// Skip if we can't create a tmux session (may happen in containerized CI environments)
+		t.Skipf("Could not create tmux session (may be running in restricted environment): %v", err)
 	}
 	defer tmuxCmd("kill-server").Run()
 
