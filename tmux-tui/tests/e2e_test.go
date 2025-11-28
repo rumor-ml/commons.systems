@@ -1339,25 +1339,11 @@ func createWindowWithClaude(t *testing.T, session, windowName string) string {
 	windowTarget := fmt.Sprintf("%s:%s", session, windowName)
 	paneID := getPaneID(t, session, windowName)
 
-	// Set TMUX_PANE environment using tmux's native mechanism
-	t.Logf("Setting TMUX_PANE=%s for window %s", paneID, windowName)
-	setEnvCmd := tmuxCmd("set-environment", "-t", windowTarget, "TMUX_PANE", paneID)
-	if err := setEnvCmd.Run(); err != nil {
-		t.Fatalf("Failed to set TMUX_PANE env: %v", err)
-	}
-
-	// Set CLAUDE_E2E_TEST environment variable
-	setEnvCmd = tmuxCmd("set-environment", "-t", windowTarget, "CLAUDE_E2E_TEST", "1")
-	if err := setEnvCmd.Run(); err != nil {
-		t.Fatalf("Failed to set CLAUDE_E2E_TEST env: %v", err)
-	}
-
-	// Verify environment was set
-	verifyPaneEnvironment(t, session, paneID)
-
-	// Simplified Claude start command - env vars are now set in pane environment
+	// Start Claude with environment variables prefixed in the command
+	// This ensures the variables are in Claude's process environment (not just tmux's environment table)
+	t.Logf("Starting Claude in window %s with TMUX_PANE=%s", windowName, paneID)
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && %s --permission-mode default", projectDir, claudeCommand)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, paneID, claudeCommand)
 	cmd = tmuxCmd("send-keys", "-t", windowTarget, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in window %s: %v", windowName, err)
@@ -1489,8 +1475,23 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 		t.Skip("claude not found")
 	}
 
-	// Ensure alert directory exists
+	// Ensure alert directory exists and clean up any leftover alert files
 	os.MkdirAll(testAlertDir, 0755)
+
+	// Clean up all existing alert files to prevent collisions between tests
+	pattern := filepath.Join(testAlertDir, alertPrefix+"*")
+	if matches, err := filepath.Glob(pattern); err == nil {
+		for _, f := range matches {
+			os.Remove(f)
+		}
+		if len(matches) > 0 {
+			t.Logf("Cleaned up %d leftover alert files", len(matches))
+		}
+	}
+
+	// Clear hook debug log at test start
+	os.Remove("/tmp/claude/hook-debug.log")
+	t.Log("Cleared hook debug log for clean test run")
 
 	sessionName := fmt.Sprintf("test-multiwin-%d", time.Now().Unix())
 	cleanup := createTestTmuxSession(t, sessionName)
@@ -1517,7 +1518,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	// Need to use window targets since panes are in different windows
 	t.Logf("Sending prompts to both windows... pane1=%s, pane2=%s", pane1, pane2)
 	sendPromptToClaudeInWindow(t, sessionName, window1Target, pane1, "say hi")
+	logEnvironmentState(t, sessionName, pane1, "After first prompt to pane1")
 	sendPromptToClaudeInWindow(t, sessionName, window2Target, pane2, "say hello")
+	logEnvironmentState(t, sessionName, pane2, "After first prompt to pane2")
 
 	// Wait for real Stop hooks to create alert files (30s timeout)
 	t.Log("Waiting for Stop hooks to create alert files...")
@@ -1546,6 +1549,7 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 
 	// Now send the follow-up - UserPromptSubmit should NOT recreate it yet
 	sendPromptToClaudeInWindow(t, sessionName, window1Target, pane1, "thanks")
+	logEnvironmentState(t, sessionName, pane1, "After follow-up prompt to pane1")
 
 	// Give UserPromptSubmit hook a moment to fire (it runs before Claude processes)
 	time.Sleep(500 * time.Millisecond)
@@ -1555,6 +1559,8 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	// Instead, wait for Claude to respond and Stop hook to recreate alert
 	t.Log("Waiting for Claude to respond and Stop hook to recreate alert...")
 	if !waitForAlertFile(t, sessionName, pane1, true, timeouts.AlertFileWait) {
+		dumpHookDebugLog(t)
+		logEnvironmentState(t, sessionName, pane1, "FAILURE - Stop hook did not fire")
 		t.Fatal("Stop hook did not recreate alert file for pane1 after response")
 	}
 
@@ -1566,6 +1572,9 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	if !alerts[pane2] {
 		t.Error("Window2 alert should still be active")
 	}
+
+	// Dump hook debug log for analysis (both success and failure cases)
+	dumpHookDebugLog(t)
 
 	t.Log("Multi-window alert isolation test passed")
 }
@@ -1624,25 +1633,10 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 	// Get the pane target (session-qualified)
 	pane2Target := fmt.Sprintf("%s.%s", sessionName, pane2)
 
-	// Set TMUX_PANE using tmux set-environment for the new pane
-	t.Logf("Setting TMUX_PANE=%s for pane2", pane2)
-	setEnvCmd := tmuxCmd("set-environment", "-t", pane2Target, "TMUX_PANE", pane2)
-	if err := setEnvCmd.Run(); err != nil {
-		t.Fatalf("Failed to set TMUX_PANE for pane2: %v", err)
-	}
-
-	// Set CLAUDE_E2E_TEST environment variable
-	setEnvCmd = tmuxCmd("set-environment", "-t", pane2Target, "CLAUDE_E2E_TEST", "1")
-	if err := setEnvCmd.Run(); err != nil {
-		t.Fatalf("Failed to set CLAUDE_E2E_TEST for pane2: %v", err)
-	}
-
-	// Verify environment
-	verifyPaneEnvironment(t, sessionName, pane2)
-
-	// Simplified Claude command - environment is already set
+	// Start Claude with environment variables prefixed in the command
+	t.Logf("Starting Claude in pane2 with TMUX_PANE=%s", pane2)
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && %s --permission-mode default", projectDir, claudeCommand)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, pane2, claudeCommand)
 	cmd = tmuxCmd("send-keys", "-t", pane2Target, claudeCmd, "Enter")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to start Claude in pane2: %v", err)

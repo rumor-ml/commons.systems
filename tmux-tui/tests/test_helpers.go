@@ -221,3 +221,60 @@ func waitForClaudePaneDetection(t *testing.T, session, paneID string, timeout ti
 
 	return true
 }
+
+// dumpHookDebugLog displays the hook execution log for debugging
+func dumpHookDebugLog(t *testing.T) {
+	t.Helper()
+	data, err := os.ReadFile("/tmp/claude/hook-debug.log")
+	if err != nil {
+		t.Logf("No hook debug log found: %v", err)
+		return
+	}
+	t.Logf("=== Hook Debug Log ===\n%s\n===================", string(data))
+}
+
+// logEnvironmentState captures environment variables for a pane
+func logEnvironmentState(t *testing.T, session, paneID, context string) {
+	t.Helper()
+	target := fmt.Sprintf("%s.%s", session, paneID)
+
+	// Get TMUX_PANE environment variable
+	tmuxPaneCmd := tmuxCmd("show-environment", "-t", target, "TMUX_PANE")
+	tmuxPaneOutput, tmuxPaneErr := tmuxPaneCmd.CombinedOutput()
+
+	// Get CLAUDE_E2E_TEST environment variable
+	claudeTestCmd := tmuxCmd("show-environment", "-t", target, "CLAUDE_E2E_TEST")
+	claudeTestOutput, claudeTestErr := claudeTestCmd.CombinedOutput()
+
+	// Get all environment variables for comprehensive diagnostics
+	allEnvCmd := tmuxCmd("show-environment", "-t", target)
+	allEnvOutput, allEnvErr := allEnvCmd.CombinedOutput()
+
+	t.Logf("=== Environment State: %s ===", context)
+	t.Logf("  Target: %s", target)
+
+	if tmuxPaneErr != nil {
+		t.Logf("  TMUX_PANE: ERROR - %v (output: %s)", tmuxPaneErr, string(tmuxPaneOutput))
+	} else {
+		t.Logf("  TMUX_PANE: %s", strings.TrimSpace(string(tmuxPaneOutput)))
+	}
+
+	if claudeTestErr != nil {
+		t.Logf("  CLAUDE_E2E_TEST: ERROR - %v (output: %s)", claudeTestErr, string(claudeTestOutput))
+	} else {
+		t.Logf("  CLAUDE_E2E_TEST: %s", strings.TrimSpace(string(claudeTestOutput)))
+	}
+
+	if allEnvErr != nil {
+		t.Logf("  Full environment: ERROR - %v", allEnvErr)
+	} else {
+		envLines := strings.Split(strings.TrimSpace(string(allEnvOutput)), "\n")
+		t.Logf("  Full environment (%d variables):", len(envLines))
+		for _, line := range envLines {
+			if strings.Contains(line, "TMUX") || strings.Contains(line, "CLAUDE") {
+				t.Logf("    %s", line)
+			}
+		}
+	}
+	t.Logf("==========================")
+}
