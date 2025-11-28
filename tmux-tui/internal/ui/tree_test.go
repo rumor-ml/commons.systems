@@ -21,7 +21,7 @@ func TestTreeRenderer(t *testing.T) {
 	}
 
 	renderer := NewTreeRenderer(80)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 	output := renderer.Render(tree, claudeAlerts)
 
 	// Verify output contains expected elements
@@ -53,7 +53,7 @@ func TestTreeRenderer(t *testing.T) {
 
 func TestTreeRendererEmpty(t *testing.T) {
 	renderer := NewTreeRenderer(80)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 
 	// Test with nil tree
 	output := renderer.Render(nil, claudeAlerts)
@@ -82,7 +82,7 @@ func TestTreeRendererFullHeight(t *testing.T) {
 
 	renderer := NewTreeRenderer(80)
 	renderer.SetHeight(20)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 	output := renderer.Render(tree, claudeAlerts)
 
 	// Count the number of lines

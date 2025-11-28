@@ -14,6 +14,12 @@ const (
 	LastItem = "└── "
 	Pipe     = "│   "
 	Space    = "    "
+
+	// Alert type icons
+	StopIcon        = "●" // U+25CF BLACK CIRCLE
+	PermissionIcon  = "⚠" // U+26A0 WARNING SIGN
+	IdleIcon        = "⏸" // U+23F8 DOUBLE VERTICAL BAR
+	ElicitationIcon = "❓" // U+2753 BLACK QUESTION MARK ORNAMENT
 )
 
 var bellStyle = lipgloss.NewStyle().
@@ -23,6 +29,23 @@ var bellStyle = lipgloss.NewStyle().
 
 var activeStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("240"))
+
+// iconForAlertType returns the appropriate icon for a given alert type
+func iconForAlertType(alertType string) string {
+	switch alertType {
+	case "permission":
+		return PermissionIcon
+	case "idle":
+		return IdleIcon
+	case "elicitation":
+		return ElicitationIcon
+	case "stop":
+		return StopIcon
+	default:
+		// Default to stop icon for unknown types
+		return StopIcon
+	}
+}
 
 // TreeRenderer renders a tmux.RepoTree as a hierarchical tree
 type TreeRenderer struct {
@@ -46,7 +69,7 @@ func (r *TreeRenderer) SetHeight(height int) {
 }
 
 // Render converts a RepoTree into a formatted tree string
-func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]bool) string {
+func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string) string {
 	if tree == nil || len(tree) == 0 {
 		return "No panes found in current tmux session"
 	}
@@ -73,7 +96,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]bool) 
 	return strings.Join(lines, "\n")
 }
 
-func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]bool) []string {
+func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string) []string {
 	var lines []string
 	lines = append(lines, repoName)
 
@@ -100,7 +123,7 @@ func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pa
 	return lines
 }
 
-func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]bool) []string {
+func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]string) []string {
 	var lines []string
 
 	// Sort panes by window index for consistent output
@@ -118,19 +141,22 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		// Build window number portion separately
 		windowNumber := fmt.Sprintf("%d:", pane.WindowIndex)
 
-		// Determine if bell should be shown
-		showBell := false
+		// Determine if bell should be shown and get alert type
+		var showBell bool
+		var alertType string
 		if pane.IsClaudePane {
 			// For Claude panes, use persistent alert state
-			showBell = claudeAlerts[pane.ID]
+			alertType, showBell = claudeAlerts[pane.ID]
 		} else {
 			// For non-Claude panes, use default tmux bell behavior
 			showBell = pane.WindowBell
+			alertType = "stop" // Default for non-Claude panes
 		}
 
-		// Apply bell style ONLY to window number if bell is active
+		// Apply bell style with icon ONLY to window number if bell is active
 		if showBell {
-			windowNumber = bellStyle.Render(windowNumber)
+			icon := iconForAlertType(alertType)
+			windowNumber = bellStyle.Render(icon + windowNumber)
 		}
 
 		// Build command + title portion

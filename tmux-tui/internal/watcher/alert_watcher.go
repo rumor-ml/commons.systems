@@ -25,11 +25,30 @@ func isValidPaneID(id string) bool {
 	return id != "" && validPaneIDPattern.MatchString(id)
 }
 
+// readEventType reads the event type from an alert file.
+// Returns the event type string, defaulting to "stop" for empty files (backward compatibility).
+func readEventType(filePath string) string {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		// If we can't read the file, default to "stop" for backward compatibility
+		return "stop"
+	}
+
+	eventType := strings.TrimSpace(string(content))
+	if eventType == "" {
+		// Empty file defaults to "stop" for backward compatibility
+		return "stop"
+	}
+
+	return eventType
+}
+
 // AlertEvent represents an alert file change event
 type AlertEvent struct {
-	PaneID  string
-	Created bool  // true = created, false = deleted
-	Error   error // nil for normal events, non-nil for fsnotify errors
+	PaneID    string
+	EventType string // Type of event: "stop", "permission", "idle", "elicitation"
+	Created   bool   // true = created, false = deleted
+	Error     error  // nil for normal events, non-nil for fsnotify errors
 }
 
 // AlertWatcher watches for alert file changes using fsnotify
@@ -130,12 +149,14 @@ func (w *AlertWatcher) watch() {
 			var alertEvent AlertEvent
 			switch {
 			case event.Op&fsnotify.Create == fsnotify.Create:
-				alertEvent = AlertEvent{PaneID: paneID, Created: true}
+				eventType := readEventType(event.Name)
+				alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
 			case event.Op&fsnotify.Remove == fsnotify.Remove:
 				alertEvent = AlertEvent{PaneID: paneID, Created: false}
 			case event.Op&fsnotify.Write == fsnotify.Write:
 				// Treat writes as creates (file touched/updated)
-				alertEvent = AlertEvent{PaneID: paneID, Created: true}
+				eventType := readEventType(event.Name)
+				alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
 			default:
 				// Ignore other events (chmod, rename, etc.)
 				continue
@@ -199,10 +220,10 @@ func (w *AlertWatcher) Close() error {
 	return nil
 }
 
-// GetExistingAlerts returns a map of currently active alert files
+// GetExistingAlerts returns a map of currently active alert files with their event types
 // This is useful for initializing state when the watcher starts
-func GetExistingAlerts() (map[string]bool, error) {
-	alerts := make(map[string]bool)
+func GetExistingAlerts() (map[string]string, error) {
+	alerts := make(map[string]string)
 
 	pattern := filepath.Join(alertDir, alertPrefix+"*")
 	matches, err := filepath.Glob(pattern)
@@ -214,7 +235,8 @@ func GetExistingAlerts() (map[string]bool, error) {
 		filename := filepath.Base(file)
 		paneID := strings.TrimPrefix(filename, alertPrefix)
 		if isValidPaneID(paneID) {
-			alerts[paneID] = true
+			eventType := readEventType(file)
+			alerts[paneID] = eventType
 		}
 	}
 

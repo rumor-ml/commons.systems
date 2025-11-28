@@ -32,19 +32,19 @@ func waitForReady(t *testing.T, w *AlertWatcher, timeout time.Duration) {
 }
 
 func TestAlertWatcher_CreateFile(t *testing.T) {
+	// Create alert file
+	testPaneID := "%1"
+	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
+
+	// Clean up any existing file BEFORE starting watcher to avoid stale events
+	os.Remove(alertFile)
+	defer os.Remove(alertFile)
+
 	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
 	waitForReady(t, watcher, 1*time.Second)
-
-	// Create alert file
-	testPaneID := "%1"
-	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
-
-	// Clean up any existing file
-	os.Remove(alertFile)
-	defer os.Remove(alertFile)
 
 	// Create the file
 	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
@@ -240,7 +240,7 @@ func TestGetExistingAlerts(t *testing.T) {
 	}
 
 	for _, paneID := range testPanes {
-		if !alerts[paneID] {
+		if _, exists := alerts[paneID]; !exists {
 			t.Errorf("Expected paneID %s to be in alerts", paneID)
 		}
 	}
