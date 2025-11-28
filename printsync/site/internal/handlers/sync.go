@@ -584,7 +584,7 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retry the file by re-extracting metadata
-	ctx := context.Background()
+	ctx := context.WithoutCancel(r.Context())
 	go func() {
 		log.Printf("INFO: Retrying file %s for user %s", fileID, authInfo.UserID)
 
@@ -599,7 +599,14 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 		// Use extractor to re-extract the file
 		fileInfo := filesync.FileInfo{Path: file.LocalPath}
 		extractor := print.NewDefaultExtractor()
+
+		// Consume progress updates to prevent blocking
 		progressChan := make(chan filesync.Progress)
+		go func() {
+			for range progressChan {
+				// Drain progress updates
+			}
+		}()
 		defer close(progressChan)
 
 		extractedMetadata, err := extractor.Extract(ctx, fileInfo, progressChan)
@@ -638,9 +645,15 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 
 	// Return updated file row HTML
 	w.Header().Set("Content-Type", "text/html")
-	file.Status = filesync.FileStatusExtracting // Show extracting state immediately
-	file.Error = ""
-	partials.FileRow(file).Render(r.Context(), w)
+	// Create a copy for rendering to avoid race condition
+	displayFile := *file
+	displayFile.Status = filesync.FileStatusExtracting // Show extracting state immediately
+	displayFile.Error = ""
+	if err := partials.FileRow(&displayFile).Render(r.Context(), w); err != nil {
+		log.Printf("ERROR: RetryFile for user %s, file %s - failed to render: %v", authInfo.UserID, fileID, err)
+		http.Error(w, "Failed to render response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // HistoryPartial handles GET /partials/sync/history
