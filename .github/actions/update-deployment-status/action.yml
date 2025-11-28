@@ -40,6 +40,16 @@ runs:
           exit 1
         fi
 
+        # Validate URL format if provided - must be valid Firebase Hosting URL
+        # Pattern: https://<subdomain>.web.app (no consecutive dots, valid DNS chars)
+        if [ -n "${ENVIRONMENT_URL// /}" ]; then
+          if ! echo "$ENVIRONMENT_URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+            echo "::error::Invalid URL format: $ENVIRONMENT_URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+            exit 1
+          fi
+        fi
+
         # Set default description if not provided
         if [ -z "${DESCRIPTION}" ]; then
           case "$STATE" in
