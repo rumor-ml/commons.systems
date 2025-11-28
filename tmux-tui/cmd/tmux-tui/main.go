@@ -40,6 +40,9 @@ type model struct {
 	alertsDisabled  bool   // true if alert watcher failed to initialize
 	alertError      string // watcher initialization error
 	alertLoadError  string // error loading existing alerts
+	// Circuit breaker state
+	alertWatcherErrors    int
+	alertWatcherMaxErrors int // Default: 5
 }
 
 func initialModel() model {
@@ -78,18 +81,19 @@ func initialModel() model {
 	}
 
 	return model{
-		collector:      collector,
-		renderer:       renderer,
-		alertWatcher:   alertWatcher,
-		tree:           tree,
-		alerts:         alerts,
-		alertsMu:       &sync.RWMutex{},
-		width:          80,
-		height:         24,
-		err:            err,
-		alertsDisabled: alertsDisabled,
-		alertError:     alertError,
-		alertLoadError: alertLoadError,
+		collector:             collector,
+		renderer:              renderer,
+		alertWatcher:          alertWatcher,
+		tree:                  tree,
+		alerts:                alerts,
+		alertsMu:              &sync.RWMutex{},
+		width:                 80,
+		height:                24,
+		err:                   err,
+		alertsDisabled:        alertsDisabled,
+		alertError:            alertError,
+		alertLoadError:        alertLoadError,
+		alertWatcherMaxErrors: 5,
 	}
 }
 
@@ -131,14 +135,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case alertChangedMsg:
 		// Check for error events first
 		if msg.err != nil {
-			fmt.Fprintf(os.Stderr, "Alert watcher error: %v\n", msg.err)
-			fmt.Fprintf(os.Stderr, "Alert watching may be degraded. Some alerts may not be detected.\n")
+			m.alertWatcherErrors++
+			fmt.Fprintf(os.Stderr, "Alert watcher error (%d/%d): %v\n",
+				m.alertWatcherErrors, m.alertWatcherMaxErrors, msg.err)
+
+			// Circuit breaker: disable after threshold
+			if m.alertWatcherErrors >= m.alertWatcherMaxErrors {
+				fmt.Fprintf(os.Stderr, "Alert watcher disabled after %d consecutive errors\n",
+					m.alertWatcherErrors)
+				if m.alertWatcher != nil {
+					m.alertWatcher.Close()
+				}
+				m.alertWatcher = nil
+				m.alertsDisabled = true
+				m.alertError = fmt.Sprintf("Disabled after %d consecutive errors", m.alertWatcherErrors)
+				return m, nil
+			}
+
 			// Continue watching despite error
 			if m.alertWatcher != nil {
 				return m, watchAlertsCmd(m.alertWatcher)
 			}
 			return m, nil
 		}
+
+		// Success - reset error counter
+		m.alertWatcherErrors = 0
+
 		// FAST PATH: Update alert immediately with mutex protection
 		m.alertsMu.Lock()
 		if msg.created {
