@@ -50,7 +50,7 @@ async function verifyCards() {
   if (totalCount === 0) {
     console.log('\n⚠️  No cards found in Firestore.');
     console.log('Run "node scripts/seed-firestore.js" to populate the database.\n');
-    return;
+    process.exit(1);
   }
 
   console.log(`\nTotal cards in Firestore: ${totalCount}`);
@@ -82,40 +82,27 @@ async function verifyCards() {
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
 
   let errorCount = 0;
-  try {
-    cardsSnapshot.forEach(doc => {
-      try {
-        const data = doc.data();
+  cardsSnapshot.forEach(doc => {
+    const data = doc.data();
 
-        // Validate document has required fields
-        if (!data) {
-          console.log(`- [Error: Document ${doc.id} has no data]`);
-          errorCount++;
-          return;
-        }
+    if (!data) {
+      console.log(`- [Error: Document ${doc.id} has no data]`);
+      errorCount++;
+      return;
+    }
 
-        if (!data.title) {
-          console.log(`- [Error: Document ${doc.id} missing title field]`);
-          errorCount++;
-          return;
-        }
+    if (!data.title) {
+      console.log(`- [Error: Document ${doc.id} missing title field]`);
+      errorCount++;
+      return;
+    }
 
-        const title = data.title;
-        const type = data.type || 'Unknown';
-        const subtype = data.subtype || 'Unknown';
+    const title = data.title;
+    const type = data.type || 'Unknown';
+    const subtype = data.subtype || 'Unknown';
 
-        console.log(`- ${title} (${type} - ${subtype})`);
-      } catch (error) {
-        console.log(`- [Error processing document ${doc.id}: ${error.message}]`);
-        errorCount++;
-      }
-    });
-  } catch (iteratorError) {
-    console.error('\n❌ Fatal error iterating over cards snapshot:', iteratorError.message);
-    console.error('The snapshot may be corrupted or the iterator protocol failed.');
-    console.error('Full error:', iteratorError);
-    process.exit(1);
-  }
+    console.log(`- ${title} (${type} - ${subtype})`);
+  });
 
   if (errorCount > 0) {
     console.log(`\n⚠️  ${errorCount} document(s) had errors`);

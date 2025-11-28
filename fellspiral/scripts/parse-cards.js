@@ -45,10 +45,13 @@ function parseCards(content) {
       if (header.match(/^(Equipment|Upgrade|Skill|Foe|Origin):/)) {
         const parts = header.split(':');
         currentType = parts[0].trim();
-        // Don't clear subtype - type and subtype are set independently
+        // Don't clear subtype - type and subtype are set independently from separate headers
+        // This allows "# Equipment: Weapons" to set both type=Equipment and subtype=Weapons
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
       else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
+        // WARNING: The replace(/s$/, '') regex has a side effect - it modifies 'header' for the NEXT iteration
+        // because regex maintains state. This is fine since we only use it once per header.
         currentSubtype = header.replace(/s$/, ''); // Remove trailing 's'
       }
       // Standalone type headers (Equipment, Skill, etc.)
@@ -135,6 +138,12 @@ function parseCards(content) {
           let id = baseId;
           let counter = 1;
 
+          /**
+           * Duplicate detection strategy:
+           * - If we've seen this ID before, check if it's the SAME card (matching type, subtype, description)
+           * - Same card = true duplicate, skip it (prevents redundant entries from being listed in multiple sections)
+           * - Different card with same title = collision, append numeric suffix to ID (handles edge cases like "Armor" appearing as both Equipment and Skill)
+           */
           // Handle ID collisions: skip true duplicates (same data), append suffix for different cards with same title
           if (cardMap.has(id)) {
             const existingCard = cardMap.get(id);
@@ -178,6 +187,15 @@ function parseCards(content) {
 // Parse cards
 const { cards, duplicatesSkipped, validationSkipped } = parseCards(rulesContent);
 
+// Validate failure rate isn't too high (indicates problem with source data)
+const totalAttempted = cards.length + validationSkipped;
+const failureRate = validationSkipped / totalAttempted;
+if (failureRate > 0.1) {
+  console.error(`\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`);
+  console.error('This indicates a problem with the source data in rules.md');
+  process.exit(1);
+}
+
 // Log summary
 console.log(`\nParsed ${cards.length} cards from rules.md`);
 if (duplicatesSkipped > 0) {
@@ -192,16 +210,17 @@ console.log('');
 const cardsByType = {};
 let typeGroupingErrors = 0;
 cards.forEach(card => {
-  try {
-    const type = card.type || 'Unknown';
-    if (!cardsByType[type]) {
-      cardsByType[type] = [];
-    }
-    cardsByType[type].push(card);
-  } catch (error) {
-    console.warn(`⚠️  Warning: Failed to categorize card "${card?.title || 'unknown'}" by type:`, error.message);
+  if (!card || typeof card !== 'object') {
+    console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
     typeGroupingErrors++;
+    return;
   }
+
+  const type = card.type || 'Unknown';
+  if (!cardsByType[type]) {
+    cardsByType[type] = [];
+  }
+  cardsByType[type].push(card);
 });
 
 if (typeGroupingErrors > 0) {
@@ -216,16 +235,17 @@ Object.keys(cardsByType).forEach(type => {
   // Group by subtype
   const bySubtype = {};
   cardsByType[type].forEach(card => {
-    try {
-      const subtype = card.subtype || 'Unknown';
-      if (!bySubtype[subtype]) {
-        bySubtype[subtype] = 0;
-      }
-      bySubtype[subtype]++;
-    } catch (error) {
-      console.warn(`⚠️  Warning: Failed to categorize card "${card?.title || 'unknown'}" by subtype:`, error.message);
+    if (!card || typeof card !== 'object') {
+      console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
       subtypeGroupingErrors++;
+      return;
     }
+
+    const subtype = card.subtype || 'Unknown';
+    if (!bySubtype[subtype]) {
+      bySubtype[subtype] = 0;
+    }
+    bySubtype[subtype]++;
   });
 
   Object.keys(bySubtype).forEach(subtype => {
@@ -269,16 +289,17 @@ const summary = {
 
 let summaryErrors = 0;
 cards.forEach(card => {
-  try {
-    const type = card.type || 'Unknown';
-    const subtype = card.subtype || 'Unknown';
-
-    summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
-    summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
-  } catch (error) {
-    console.warn(`⚠️  Warning: Failed to add card "${card?.title || 'unknown'}" to summary:`, error.message);
+  if (!card || typeof card !== 'object') {
+    console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
     summaryErrors++;
+    return;
   }
+
+  const type = card.type || 'Unknown';
+  const subtype = card.subtype || 'Unknown';
+
+  summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
+  summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
 });
 
 if (summaryErrors > 0) {
