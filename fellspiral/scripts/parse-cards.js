@@ -24,7 +24,7 @@ try {
 // Parse markdown tables to extract cards
 function parseCards(content) {
   const cards = [];
-  const cardMap = new Map(); // Track cards by generated ID to detect duplicates
+  const cardMap = new Map(); // Track cards by ID to detect duplicates and resolve title collisions
   let duplicatesSkipped = 0;
   let validationSkipped = 0;
   const lines = content.split('\n');
@@ -45,7 +45,7 @@ function parseCards(content) {
       if (header.match(/^(Equipment|Upgrade|Skill|Foe|Origin):/)) {
         const parts = header.split(':');
         currentType = parts[0].trim();
-        // Don't clear subtype here - it may still apply to cards in this section
+        // Don't clear subtype - type and subtype are set independently
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
       else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
@@ -130,13 +130,12 @@ function parseCards(content) {
             continue;
           }
 
-          // Generate a base ID from the card title
+          // Generate a base ID from card title (lowercase, alphanumeric only, hyphens for separators)
           const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
           let id = baseId;
           let counter = 1;
 
-          // Ensure unique IDs by adding a suffix if needed
-          // Check if this is truly the same card (same data) or a different card with the same title
+          // Handle ID collisions: skip true duplicates (same data), append suffix for different cards with same title
           if (cardMap.has(id)) {
             const existingCard = cardMap.get(id);
             // Check if it's the same card (same type, subtype, description)
@@ -160,7 +159,6 @@ function parseCards(content) {
 
           card.id = id;
 
-          // Add timestamps
           card.createdAt = new Date().toISOString();
           card.updatedAt = new Date().toISOString();
 
@@ -178,10 +176,7 @@ function parseCards(content) {
 }
 
 // Parse cards
-const result = parseCards(rulesContent);
-const cards = result.cards;
-const duplicatesSkipped = result.duplicatesSkipped;
-const validationSkipped = result.validationSkipped;
+const { cards, duplicatesSkipped, validationSkipped } = parseCards(rulesContent);
 
 // Log summary
 console.log(`\nParsed ${cards.length} cards from rules.md`);
@@ -195,32 +190,52 @@ console.log('');
 
 // Group by type
 const cardsByType = {};
+let typeGroupingErrors = 0;
 cards.forEach(card => {
-  const type = card.type || 'Unknown';
-  if (!cardsByType[type]) {
-    cardsByType[type] = [];
+  try {
+    const type = card.type || 'Unknown';
+    if (!cardsByType[type]) {
+      cardsByType[type] = [];
+    }
+    cardsByType[type].push(card);
+  } catch (error) {
+    console.warn(`⚠️  Warning: Failed to categorize card "${card?.title || 'unknown'}" by type:`, error.message);
+    typeGroupingErrors++;
   }
-  cardsByType[type].push(card);
 });
 
+if (typeGroupingErrors > 0) {
+  console.warn(`⚠️  ${typeGroupingErrors} card(s) could not be categorized by type. Statistics may be incomplete.\n`);
+}
+
 console.log('Cards by type:');
+let subtypeGroupingErrors = 0;
 Object.keys(cardsByType).forEach(type => {
   console.log(`  ${type}: ${cardsByType[type].length}`);
 
   // Group by subtype
   const bySubtype = {};
   cardsByType[type].forEach(card => {
-    const subtype = card.subtype || 'Unknown';
-    if (!bySubtype[subtype]) {
-      bySubtype[subtype] = 0;
+    try {
+      const subtype = card.subtype || 'Unknown';
+      if (!bySubtype[subtype]) {
+        bySubtype[subtype] = 0;
+      }
+      bySubtype[subtype]++;
+    } catch (error) {
+      console.warn(`⚠️  Warning: Failed to categorize card "${card?.title || 'unknown'}" by subtype:`, error.message);
+      subtypeGroupingErrors++;
     }
-    bySubtype[subtype]++;
   });
 
   Object.keys(bySubtype).forEach(subtype => {
     console.log(`    ${subtype}: ${bySubtype[subtype]}`);
   });
 });
+
+if (subtypeGroupingErrors > 0) {
+  console.warn(`⚠️  ${subtypeGroupingErrors} card(s) could not be categorized by subtype. Statistics may be incomplete.\n`);
+}
 
 // Output JSON
 const outputPath = join(__dirname, '../site/src/data/cards.json');
@@ -252,13 +267,23 @@ const summary = {
   lastUpdated: new Date().toISOString()
 };
 
+let summaryErrors = 0;
 cards.forEach(card => {
-  const type = card.type || 'Unknown';
-  const subtype = card.subtype || 'Unknown';
+  try {
+    const type = card.type || 'Unknown';
+    const subtype = card.subtype || 'Unknown';
 
-  summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
-  summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
+    summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
+    summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
+  } catch (error) {
+    console.warn(`⚠️  Warning: Failed to add card "${card?.title || 'unknown'}" to summary:`, error.message);
+    summaryErrors++;
+  }
 });
+
+if (summaryErrors > 0) {
+  console.warn(`⚠️  ${summaryErrors} card(s) could not be added to summary. Summary statistics may be incomplete.\n`);
+}
 
 const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
 try {

@@ -5,13 +5,14 @@
  * - GOOGLE_APPLICATION_CREDENTIALS_JSON (inline JSON, for CI/CD)
  * - GOOGLE_APPLICATION_CREDENTIALS (path to service account file)
  * - gcloud Application Default Credentials (requires FIREBASE_PROJECT_ID environment variable)
+ *
+ * @returns {boolean} - true if initialization succeeds or was already complete
  */
 
 import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app';
 import { readFileSync } from 'fs';
 
 export function initializeFirebase() {
-  // Return early if already initialized
   if (getApps().length > 0) {
     return true;
   }
@@ -44,7 +45,6 @@ export function initializeFirebase() {
     }
     console.log('Using inline JSON credentials');
   } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    // Explicit service account file
     let credFileContent;
     try {
       credFileContent = readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8');
@@ -79,7 +79,6 @@ export function initializeFirebase() {
     }
     console.log('Using service account file credentials');
   } else {
-    // Use gcloud Application Default Credentials
     if (!process.env.FIREBASE_PROJECT_ID) {
       console.error('\n❌ FIREBASE_PROJECT_ID environment variable is required when using Application Default Credentials');
       console.error('Set FIREBASE_PROJECT_ID to your Firebase project ID, or use one of these alternatives:');

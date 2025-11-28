@@ -22,7 +22,16 @@ const __dirname = dirname(__filename);
 // Initialize Firebase Admin
 initializeFirebase();
 
-const db = getFirestore();
+let db;
+try {
+  db = getFirestore();
+} catch (error) {
+  console.error('\n❌ Failed to initialize Firestore:', error.message);
+  console.error('Ensure Firestore is enabled in your Firebase project.');
+  console.error('Visit: https://console.firebase.google.com/project/_/firestore');
+  console.error('Full error:', error);
+  process.exit(1);
+}
 
 // Load cards from parsed rules.md
 const cardsPath = join(__dirname, '../site/src/data/cards.json');
@@ -46,7 +55,44 @@ try {
   process.exit(1);
 }
 
-console.log(`\n📦 Seeding Firestore with ${cards.length} cards from rules.md\n`);
+console.log(`\n📦 Seeding Firestore with ${cards.length} cards from cards.json (originally parsed from rules.md)\n`);
+
+// Validate that data is Firestore-compatible (no undefined, functions, symbols)
+function validateFirestoreData(obj, path = 'root') {
+  const errors = [];
+
+  for (const [key, value] of Object.entries(obj)) {
+    const currentPath = `${path}.${key}`;
+
+    if (value === undefined) {
+      errors.push(`${currentPath} is undefined (Firestore does not support undefined values)`);
+    } else if (typeof value === 'function') {
+      errors.push(`${currentPath} is a function (Firestore does not support functions)`);
+    } else if (typeof value === 'symbol') {
+      errors.push(`${currentPath} is a symbol (Firestore does not support symbols)`);
+    } else if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      // Recursively validate nested objects
+      const nestedErrors = validateFirestoreData(value, currentPath);
+      errors.push(...nestedErrors);
+    } else if (Array.isArray(value)) {
+      // Validate array elements
+      value.forEach((item, index) => {
+        if (item !== null && typeof item === 'object') {
+          const arrayErrors = validateFirestoreData(item, `${currentPath}[${index}]`);
+          errors.push(...arrayErrors);
+        } else if (item === undefined) {
+          errors.push(`${currentPath}[${index}] is undefined (Firestore does not support undefined values)`);
+        } else if (typeof item === 'function') {
+          errors.push(`${currentPath}[${index}] is a function (Firestore does not support functions)`);
+        } else if (typeof item === 'symbol') {
+          errors.push(`${currentPath}[${index}] is a symbol (Firestore does not support symbols)`);
+        }
+      });
+    }
+  }
+
+  return errors;
+}
 
 // Seed cards to Firestore
 async function seedCards() {
@@ -73,22 +119,22 @@ async function seedCards() {
 
   let batch = db.batch();
   let batchCount = 0;
+  let batchCardTitles = []; // Track cards in current batch for error reporting
   let created = 0;
   let updated = 0;
 
   for (const card of cards) {
-    // Use card.id (already sanitized during parsing)
+    // Use card.id (validated at lines 56-61)
     const docId = card.id;
     const cardRef = cardsCollection.doc(docId);
 
-    // Separate error handling for Firestore read operation
     let cardDoc;
     try {
       cardDoc = await cardRef.get();
     } catch (firestoreError) {
       console.error(`\n❌ Firestore error checking card "${card.title}":`, firestoreError.message);
 
-      // Categorize the error
+      // Handle specific error types with contextual messages
       if (firestoreError.code === 'unavailable' || firestoreError.code === 'deadline-exceeded') {
         console.error('Network or timeout error. Aborting to prevent data loss.');
         console.error('Please retry the operation.');
@@ -103,8 +149,17 @@ async function seedCards() {
       }
     }
 
+    // Validate Firestore data compatibility before adding to batch
+    const firestoreErrors = validateFirestoreData(card, `card[${card.id}]`);
+    if (firestoreErrors.length > 0) {
+      console.error(`\n❌ Card "${card.title}" contains Firestore-incompatible data:`);
+      firestoreErrors.forEach(err => console.error(`  - ${err}`));
+      console.error('\nFix these data issues before seeding.');
+      process.exit(1);
+    }
+
     if (cardDoc.exists) {
-      // Update existing card
+      // Update existing card (preserve createdAt, update updatedAt timestamp)
       batch.update(cardRef, {
         ...card,
         updatedAt: new Date().toISOString()
@@ -123,6 +178,7 @@ async function seedCards() {
     }
 
     batchCount++;
+    batchCardTitles.push(card.title);
 
     // Commit batch if we've reached the batch size limit
     if (batchCount >= BATCH_SIZE) {
@@ -132,12 +188,14 @@ async function seedCards() {
       } catch (error) {
         console.error(`\n❌ Error committing batch write to Firestore:`, error.message);
         console.error(`Attempted to write ${batchCount} operations`);
+        console.error(`Cards in failed batch: ${batchCardTitles.join(', ')}`);
         console.error('This likely means a Firebase permission or quota issue.');
         console.error('Full error:', error);
         process.exit(1);
       }
       batch = db.batch();
       batchCount = 0;
+      batchCardTitles = [];
     }
   }
 
@@ -156,6 +214,7 @@ async function seedCards() {
     } catch (error) {
       console.error(`\n❌ Error committing final batch write to Firestore:`, error.message);
       console.error(`Attempted to write ${batchCount} operations`);
+      console.error(`Cards in failed batch: ${batchCardTitles.join(', ')}`);
       console.error('This likely means a Firebase permission or quota issue.');
       console.error('Full error:', error);
       process.exit(1);

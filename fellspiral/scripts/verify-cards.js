@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Quick verification script to check if cards are in Firestore
+ * Quick verification script to check Firestore contains cards with valid structure (checks count and samples first 5 cards)
  */
 
 import { getFirestore } from 'firebase-admin/firestore';
@@ -9,7 +9,16 @@ import { initializeFirebase } from './lib/firebase-init.js';
 // Initialize Firebase Admin
 initializeFirebase();
 
-const db = getFirestore();
+let db;
+try {
+  db = getFirestore();
+} catch (error) {
+  console.error('\n❌ Failed to initialize Firestore:', error.message);
+  console.error('Ensure Firestore is enabled in your Firebase project.');
+  console.error('Visit: https://console.firebase.google.com/project/_/firestore');
+  console.error('Full error:', error);
+  process.exit(1);
+}
 
 async function verifyCards() {
   // Get total count first
@@ -22,6 +31,16 @@ async function verifyCards() {
       console.error('Check Firestore security rules and service account permissions.');
     } else if (error.code === 'unavailable') {
       console.error('Check internet connection and Firebase project settings.');
+    } else if (error.code === 'deadline-exceeded') {
+      console.error('Query timed out. Check your internet connection or try again later.');
+    } else if (error.code === 'resource-exhausted') {
+      console.error('Firestore quota exceeded. Check your Firebase usage limits.');
+    } else if (error.code === 'unauthenticated') {
+      console.error('No valid credentials found. Ensure Firebase authentication is configured.');
+    } else if (error.code === 'not-found') {
+      console.error('Collection not found. Ensure the Firestore database and collection exist.');
+    } else {
+      console.error('Unexpected error. Full details:', error);
     }
     process.exit(1);
   }
@@ -46,6 +65,16 @@ async function verifyCards() {
       console.error('Check Firestore security rules and service account permissions.');
     } else if (error.code === 'unavailable') {
       console.error('Check internet connection and Firebase project settings.');
+    } else if (error.code === 'deadline-exceeded') {
+      console.error('Query timed out. Check your internet connection or try again later.');
+    } else if (error.code === 'resource-exhausted') {
+      console.error('Firestore quota exceeded. Check your Firebase usage limits.');
+    } else if (error.code === 'unauthenticated') {
+      console.error('No valid credentials found. Ensure Firebase authentication is configured.');
+    } else if (error.code === 'not-found') {
+      console.error('Collection not found. Ensure the Firestore database and collection exist.');
+    } else {
+      console.error('Unexpected error. Full details:', error);
     }
     process.exit(1);
   }
@@ -53,33 +82,40 @@ async function verifyCards() {
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
 
   let errorCount = 0;
-  cardsSnapshot.forEach(doc => {
-    try {
-      const data = doc.data();
+  try {
+    cardsSnapshot.forEach(doc => {
+      try {
+        const data = doc.data();
 
-      // Validate document has required fields
-      if (!data) {
-        console.log(`- [Error: Document ${doc.id} has no data]`);
+        // Validate document has required fields
+        if (!data) {
+          console.log(`- [Error: Document ${doc.id} has no data]`);
+          errorCount++;
+          return;
+        }
+
+        if (!data.title) {
+          console.log(`- [Error: Document ${doc.id} missing title field]`);
+          errorCount++;
+          return;
+        }
+
+        const title = data.title;
+        const type = data.type || 'Unknown';
+        const subtype = data.subtype || 'Unknown';
+
+        console.log(`- ${title} (${type} - ${subtype})`);
+      } catch (error) {
+        console.log(`- [Error processing document ${doc.id}: ${error.message}]`);
         errorCount++;
-        return;
       }
-
-      if (!data.title) {
-        console.log(`- [Error: Document ${doc.id} missing title field]`);
-        errorCount++;
-        return;
-      }
-
-      const title = data.title;
-      const type = data.type || 'Unknown';
-      const subtype = data.subtype || 'Unknown';
-
-      console.log(`- ${title} (${type} - ${subtype})`);
-    } catch (error) {
-      console.log(`- [Error processing document ${doc.id}: ${error.message}]`);
-      errorCount++;
-    }
-  });
+    });
+  } catch (iteratorError) {
+    console.error('\n❌ Fatal error iterating over cards snapshot:', iteratorError.message);
+    console.error('The snapshot may be corrupted or the iterator protocol failed.');
+    console.error('Full error:', iteratorError);
+    process.exit(1);
+  }
 
   if (errorCount > 0) {
     console.log(`\n⚠️  ${errorCount} document(s) had errors`);
