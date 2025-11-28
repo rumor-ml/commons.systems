@@ -33,6 +33,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      deployments: write
 
     steps:
       - name: Determine cleanup targets
@@ -259,3 +260,59 @@ jobs:
               --project=${{ env.GCP_PROJECT_ID }} \
               --quiet 2>/dev/null && echo "Deleted: $PACKAGE" || echo "Not found: $PACKAGE"
           done
+
+      - name: Mark GitHub deployments as inactive
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
+          BRANCH_NAME: ${{ steps.targets.outputs.branch }}
+        run: |
+          echo "🧹 Marking GitHub deployments as inactive"
+
+          if [ -z "$BRANCH_NAME" ]; then
+            echo "No branch name provided, skipping deployment cleanup"
+            exit 0
+          fi
+
+          SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
+          DEACTIVATED_COUNT=0
+
+          # Build list of environments to deactivate
+          # PR deployments use format: preview-{branch}-{site}
+          ENVIRONMENTS_TO_DEACTIVATE=()
+          for site in "${SITES[@]}"; do
+            ENVIRONMENTS_TO_DEACTIVATE+=("preview-${BRANCH_NAME}-${site}")
+          done
+
+          # Deactivate deployments for each environment
+          for env_name in "${ENVIRONMENTS_TO_DEACTIVATE[@]}"; do
+            echo "Processing environment: ${env_name}"
+
+            # Get all deployments for this environment
+            DEPLOYMENTS=$(gh api "repos/${{ github.repository }}/deployments?environment=${env_name}&per_page=100" --jq '.[].id' 2>/dev/null || echo "")
+
+            if [ -z "$DEPLOYMENTS" ]; then
+              echo "  No deployments found"
+              continue
+            fi
+
+            # Mark each deployment as inactive
+            while IFS= read -r deployment_id; do
+              if [ -n "$deployment_id" ]; then
+                echo "  Marking deployment $deployment_id as inactive"
+                if gh api "repos/${{ github.repository }}/deployments/${deployment_id}/statuses" \
+                  -X POST \
+                  -f state="inactive" \
+                  -f description="Branch deleted" 2>/dev/null; then
+                  echo "  ✅ Deactivated"
+                  DEACTIVATED_COUNT=$((DEACTIVATED_COUNT + 1))
+                else
+                  echo "  ⚠️ Failed to deactivate"
+                fi
+              fi
+            done <<< "$DEPLOYMENTS"
+          done
+
+          echo ""
+          echo "**GitHub deployments deactivated:** ${DEACTIVATED_COUNT}" >> $GITHUB_STEP_SUMMARY
