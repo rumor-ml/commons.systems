@@ -20,29 +20,33 @@ try {
   process.exit(1);
 }
 
+function handleFirestoreError(error, operation) {
+  console.error(`\n❌ Failed to ${operation}:`, error.message);
+  if (error.code === 'permission-denied') {
+    console.error('Check Firestore security rules and service account permissions.');
+  } else if (error.code === 'unavailable') {
+    console.error('Check internet connection and Firebase project settings.');
+  } else if (error.code === 'deadline-exceeded') {
+    console.error('Query timed out. Check your internet connection or try again later.');
+  } else if (error.code === 'resource-exhausted') {
+    console.error('Firestore quota exceeded. Check your Firebase usage limits.');
+  } else if (error.code === 'unauthenticated') {
+    console.error('No valid credentials found. Ensure Firebase authentication is configured.');
+  } else if (error.code === 'not-found') {
+    console.error('Collection not found. Ensure the Firestore database and collection exist.');
+  } else {
+    console.error('Unexpected error. Full details:', error);
+  }
+  process.exit(1);
+}
+
 async function verifyCards() {
   // Get total count first
   let countSnapshot;
   try {
     countSnapshot = await db.collection('cards').count().get();
   } catch (error) {
-    console.error('\n❌ Failed to query card count:', error.message);
-    if (error.code === 'permission-denied') {
-      console.error('Check Firestore security rules and service account permissions.');
-    } else if (error.code === 'unavailable') {
-      console.error('Check internet connection and Firebase project settings.');
-    } else if (error.code === 'deadline-exceeded') {
-      console.error('Query timed out. Check your internet connection or try again later.');
-    } else if (error.code === 'resource-exhausted') {
-      console.error('Firestore quota exceeded. Check your Firebase usage limits.');
-    } else if (error.code === 'unauthenticated') {
-      console.error('No valid credentials found. Ensure Firebase authentication is configured.');
-    } else if (error.code === 'not-found') {
-      console.error('Collection not found. Ensure the Firestore database and collection exist.');
-    } else {
-      console.error('Unexpected error. Full details:', error);
-    }
-    process.exit(1);
+    handleFirestoreError(error, 'get card count');
   }
 
   const totalCount = countSnapshot.data().count;
@@ -60,23 +64,7 @@ async function verifyCards() {
   try {
     cardsSnapshot = await db.collection('cards').limit(5).get();
   } catch (error) {
-    console.error('\n❌ Failed to query cards:', error.message);
-    if (error.code === 'permission-denied') {
-      console.error('Check Firestore security rules and service account permissions.');
-    } else if (error.code === 'unavailable') {
-      console.error('Check internet connection and Firebase project settings.');
-    } else if (error.code === 'deadline-exceeded') {
-      console.error('Query timed out. Check your internet connection or try again later.');
-    } else if (error.code === 'resource-exhausted') {
-      console.error('Firestore quota exceeded. Check your Firebase usage limits.');
-    } else if (error.code === 'unauthenticated') {
-      console.error('No valid credentials found. Ensure Firebase authentication is configured.');
-    } else if (error.code === 'not-found') {
-      console.error('Collection not found. Ensure the Firestore database and collection exist.');
-    } else {
-      console.error('Unexpected error. Full details:', error);
-    }
-    process.exit(1);
+    handleFirestoreError(error, 'fetch sample cards');
   }
 
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
@@ -109,10 +97,17 @@ async function verifyCards() {
   }
 
   console.log('');
+
+  return errorCount;
 }
 
 verifyCards()
-  .then(() => process.exit(0))
+  .then((errorCount) => {
+    if (errorCount > 0) {
+      process.exit(1);
+    }
+    process.exit(0);
+  })
   .catch(error => {
     console.error('\n❌ Unexpected error:', error.message);
     console.error('Full error:', error);

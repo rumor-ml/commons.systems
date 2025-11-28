@@ -50,8 +50,7 @@ function parseCards(content) {
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
       else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
-        // WARNING: The replace(/s$/, '') regex has a side effect - it modifies 'header' for the NEXT iteration
-        // because regex maintains state. This is fine since we only use it once per header.
+        // Normalize plural forms to singular (e.g., "Weapons" -> "Weapon")
         currentSubtype = header.replace(/s$/, ''); // Remove trailing 's'
       }
       // Standalone type headers (Equipment, Skill, etc.)
@@ -189,6 +188,13 @@ const { cards, duplicatesSkipped, validationSkipped } = parseCards(rulesContent)
 
 // Validate failure rate isn't too high (indicates problem with source data)
 const totalAttempted = cards.length + validationSkipped;
+
+if (totalAttempted === 0) {
+  console.error('\n❌ No cards found in rules.md');
+  console.error('Check that rules.md contains properly formatted markdown tables.');
+  process.exit(1);
+}
+
 const failureRate = validationSkipped / totalAttempted;
 if (failureRate > 0.1) {
   console.error(`\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`);
@@ -313,4 +319,9 @@ try {
 } catch (error) {
   console.error(`\n❌ Failed to write summary to ${summaryPath}:`, error.message);
   process.exit(1);
+}
+
+const totalWarnings = typeGroupingErrors + subtypeGroupingErrors + summaryErrors;
+if (totalWarnings > 0) {
+  console.warn(`\n⚠️  Completed with ${totalWarnings} warning(s) - some cards may not be fully categorized.`);
 }
