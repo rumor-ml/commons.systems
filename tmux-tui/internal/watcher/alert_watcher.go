@@ -14,9 +14,23 @@ import (
 const (
 	alertDir     = "/tmp/claude"
 	alertPrefix  = "tui-alert-"
+
+	// Event type constants
+	EventTypeStop        = "stop"
+	EventTypePermission  = "permission"
+	EventTypeIdle        = "idle"
+	EventTypeElicitation = "elicitation"
 )
 
-var validPaneIDPattern = regexp.MustCompile(`^%\d+$`)
+var (
+	validPaneIDPattern = regexp.MustCompile(`^%\d+$`)
+	validEventTypes    = map[string]bool{
+		EventTypeStop:        true,
+		EventTypePermission:  true,
+		EventTypeIdle:        true,
+		EventTypeElicitation: true,
+	}
+)
 
 // isValidPaneID validates that a pane ID matches the expected format.
 // Valid pane IDs must start with '%' followed by one or more digits.
@@ -26,18 +40,24 @@ func isValidPaneID(id string) bool {
 }
 
 // readEventType reads the event type from an alert file.
-// Returns the event type string, defaulting to "stop" for empty files (backward compatibility).
+// Returns the event type string, defaulting to "stop" for empty files or unknown types (backward compatibility).
 func readEventType(filePath string) string {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		// If we can't read the file, default to "stop" for backward compatibility
-		return "stop"
+		return EventTypeStop
 	}
 
 	eventType := strings.TrimSpace(string(content))
 	if eventType == "" {
 		// Empty file defaults to "stop" for backward compatibility
-		return "stop"
+		return EventTypeStop
+	}
+
+	// Validate against known event types
+	if !validEventTypes[eventType] {
+		// Unknown event type defaults to "stop" for backward compatibility
+		return EventTypeStop
 	}
 
 	return eventType
@@ -59,6 +79,7 @@ type AlertWatcher struct {
 	ready   chan struct{} // closed when watch goroutine is ready
 	mu      sync.Mutex
 	started bool
+	closed  bool // tracks if Close() was explicitly called
 }
 
 // NewAlertWatcher creates a new AlertWatcher
@@ -185,10 +206,20 @@ func (w *AlertWatcher) watch() {
 	}
 }
 
+// IsClosed returns true if Close() was explicitly called
+func (w *AlertWatcher) IsClosed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
+}
+
 // Close stops the watcher and releases resources
 func (w *AlertWatcher) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Mark as closed
+	w.closed = true
 
 	if !w.started {
 		// If never started, close ready channel if not already closed

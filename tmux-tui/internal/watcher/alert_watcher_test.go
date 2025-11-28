@@ -101,15 +101,18 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 }
 
 func TestAlertWatcher_RapidChanges(t *testing.T) {
+	testPaneID := "%3"
+	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
+
+	// Clean up alert file BEFORE watcher creation to avoid stale events
+	os.Remove(alertFile)
+	defer os.Remove(alertFile)
+
 	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
 	waitForReady(t, watcher, 1*time.Second)
-
-	testPaneID := "%3"
-	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
-	defer os.Remove(alertFile)
 
 	// Rapid create/delete/create cycle
 	events := []bool{}
@@ -119,14 +122,18 @@ func TestAlertWatcher_RapidChanges(t *testing.T) {
 		t.Fatalf("Failed to create alert file: %v", err)
 	}
 
+	// Wait for fsnotify to detect the create
+	time.Sleep(50 * time.Millisecond)
+
 	// Delete
-	time.Sleep(10 * time.Millisecond)
 	if err := os.Remove(alertFile); err != nil {
 		t.Fatalf("Failed to remove alert file: %v", err)
 	}
 
+	// Wait for fsnotify to detect the delete
+	time.Sleep(50 * time.Millisecond)
+
 	// Create again
-	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
 		t.Fatalf("Failed to recreate alert file: %v", err)
 	}
@@ -139,6 +146,7 @@ func TestAlertWatcher_RapidChanges(t *testing.T) {
 			if event.PaneID != testPaneID {
 				t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
 			}
+			t.Logf("Received event %d: Created=%v", len(events)+1, event.Created)
 			events = append(events, event.Created)
 		case <-timeout:
 			t.Fatalf("Timeout waiting for events, got %d/3", len(events))

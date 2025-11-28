@@ -22,7 +22,9 @@ type alertChangedMsg struct {
 	err       error
 }
 
-type alertWatcherFailedMsg struct{}
+type alertWatcherStoppedMsg struct {
+	wasIntentional bool
+}
 
 type treeRefreshMsg struct {
 	tree tmux.RepoTree
@@ -178,9 +180,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case alertWatcherFailedMsg:
-		fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
-		fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
+	case alertWatcherStoppedMsg:
+		// Only print error if watcher stopped unexpectedly
+		if !msg.wasIntentional {
+			fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
+			fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
+		}
 		m.alertWatcher = nil
 		return m, nil
 
@@ -257,7 +262,9 @@ func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-w.Start()
 		if !ok {
-			return alertWatcherFailedMsg{}
+			// Channel closed - check if it was intentional
+			wasIntentional := w.IsClosed()
+			return alertWatcherStoppedMsg{wasIntentional: wasIntentional}
 		}
 		return alertChangedMsg{
 			paneID:    event.PaneID,

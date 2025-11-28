@@ -303,3 +303,21 @@ func logEnvironmentState(t *testing.T, session, paneID, context string) {
 	}
 	t.Logf("==========================")
 }
+
+// CleanupAlertFiles removes all alert files from the test directory.
+// This is useful for ensuring a clean state before tests.
+func CleanupAlertFiles() error {
+	pattern := filepath.Join(testAlertDir, alertPrefix+"*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob alert files: %w", err)
+	}
+
+	for _, file := range matches {
+		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove %s: %w", file, err)
+		}
+	}
+
+	return nil
+}

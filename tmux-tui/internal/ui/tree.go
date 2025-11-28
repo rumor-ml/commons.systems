@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
+	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
 const (
@@ -33,13 +34,13 @@ var activeStyle = lipgloss.NewStyle().
 // iconForAlertType returns the appropriate icon for a given alert type
 func iconForAlertType(alertType string) string {
 	switch alertType {
-	case "permission":
+	case watcher.EventTypePermission:
 		return PermissionIcon
-	case "idle":
+	case watcher.EventTypeIdle:
 		return IdleIcon
-	case "elicitation":
+	case watcher.EventTypeElicitation:
 		return ElicitationIcon
-	case "stop":
+	case watcher.EventTypeStop:
 		return StopIcon
 	default:
 		// Default to stop icon for unknown types
@@ -150,7 +151,7 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		} else {
 			// For non-Claude panes, use default tmux bell behavior
 			showBell = pane.WindowBell
-			alertType = "stop" // Default for non-Claude panes
+			alertType = watcher.EventTypeStop // Default for non-Claude panes
 		}
 
 		// Apply bell style with icon ONLY to window number if bell is active
