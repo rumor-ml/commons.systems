@@ -129,12 +129,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check for changes
         id: check-changes
         run: |
-          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
 
           # Check fellspiral changes
           if echo "$CHANGED_FILES" | grep -qE "^(fellspiral/|shared/auth/)"; then
@@ -164,7 +164,7 @@ jobs:
           fi
 
           # Check print changes
-          if git diff --name-only HEAD^ HEAD | grep -q "^print/"; then
+          if echo "$CHANGED_FILES" | grep -q "^print/"; then
             echo "print-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Print changed"
           else
