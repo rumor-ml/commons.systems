@@ -1,0 +1,46 @@
+name: 'Sanitize Branch Name'
+description: 'Sanitizes a branch name for use in GitHub environment names (DNS-compatible, max 63 chars)'
+inputs:
+  branch_name:
+    description: 'The branch name to sanitize'
+    required: true
+
+outputs:
+  sanitized:
+    description: 'The sanitized branch name'
+    value: ${{ steps.sanitize.outputs.sanitized }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Sanitize branch name
+      id: sanitize
+      shell: bash
+      env:
+        BRANCH_NAME: ${{ inputs.branch_name }}
+      run: |
+        set -euo pipefail
+
+        # Validate input is not empty
+        if [ -z "${BRANCH_NAME// /}" ]; then
+          echo "::error::branch_name input is empty or contains only whitespace"
+          exit 1
+        fi
+
+        # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
+        SANITIZED=$(echo "$BRANCH_NAME" | \
+          tr '[:upper:]' '[:lower:]' | \
+          sed 's/[^a-z0-9-]/-/g' | \
+          sed 's/-\+/-/g' | \
+          sed 's/^-//' | \
+          sed 's/-$//' | \
+          cut -c1-63)
+
+        # Validate sanitized name is not empty
+        if [ -z "$SANITIZED" ]; then
+          echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
+          exit 1
+        fi
+
+        echo "sanitized=${SANITIZED}" >> $GITHUB_OUTPUT
+        echo "::notice::Sanitized branch name: ${SANITIZED}"
