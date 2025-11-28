@@ -12,7 +12,6 @@
     ]
   },
   "permissions": {
-    "defaultMode": "plan",
     "allow": [
       "WebSearch",
       "Skill(frontend-design:frontend-design)",
