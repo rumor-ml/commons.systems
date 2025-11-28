@@ -296,6 +296,15 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Fellspiral URL: ${URL}"
 
+      - name: Create GitHub deployment
+        if: success()
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'production-fellspiral'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          site_name: 'fellspiral'
+          is_preview: 'false'
+
   deploy-videobrowser:
     name: Deploy videobrowser
     runs-on: ubuntu-latest
@@ -326,6 +335,15 @@ jobs:
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Videobrowser URL: ${URL}"
+
+      - name: Create GitHub deployment
+        if: success()
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'production-videobrowser'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          site_name: 'videobrowser'
+          is_preview: 'false'
 
   deploy-audiobrowser:
     name: Deploy audiobrowser
@@ -358,6 +376,15 @@ jobs:
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Audiobrowser URL: ${URL}"
 
+      - name: Create GitHub deployment
+        if: success()
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'production-audiobrowser'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          site_name: 'audiobrowser'
+          is_preview: 'false'
+
   deploy-print:
     name: Deploy print
     runs-on: ubuntu-latest
@@ -388,6 +415,15 @@ jobs:
           URL=$(cat /tmp/deployment-url.txt)
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Print URL: ${URL}"
+
+      - name: Create GitHub deployment
+        if: success()
+        uses: ./.github/actions/create-deployment
+        with:
+          environment: 'production-print'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          site_name: 'print'
+          is_preview: 'false'
 
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:

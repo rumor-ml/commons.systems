@@ -1,0 +1,42 @@
+name: 'Create GitHub Deployment'
+description: 'Creates a GitHub deployment with status updates'
+inputs:
+  environment:
+    description: 'Deployment environment name'
+    required: true
+  environment_url:
+    description: 'URL of the deployment'
+    required: true
+  site_name:
+    description: 'Name of the site being deployed'
+    required: true
+  is_preview:
+    description: 'Whether this is a preview deployment'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create deployment and set status
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        DEPLOYMENT_RESPONSE=$(gh api repos/${{ github.repository }}/deployments \
+          -X POST \
+          -f ref="${{ github.sha }}" \
+          -f environment="${{ inputs.environment }}" \
+          -f description="Deploy ${{ inputs.site_name }} to ${{ inputs.environment }}" \
+          -F auto_merge=false \
+          -F required_contexts='[]' \
+          ${{ inputs.is_preview == 'true' && '-F transient_environment=true' || '' }})
+
+        DEPLOYMENT_ID=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.id')
+
+        gh api repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
+          -X POST \
+          -f state="success" \
+          -f environment_url="${{ inputs.environment_url }}" \
+          -f log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -f description="Deployment successful"
