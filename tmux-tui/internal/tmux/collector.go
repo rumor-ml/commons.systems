@@ -232,3 +232,11 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 
 	return repo, branch
 }
+
+// CacheSize returns the number of entries in the Claude pane cache (for testing)
+func (c *Collector) CacheSize() int {
+	if c.claudeCache == nil {
+		return 0
+	}
+	return c.claudeCache.Size()
+}

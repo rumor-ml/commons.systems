@@ -88,12 +88,15 @@ func (c *ClaudePaneCache) Cleanup() {
 
 // CleanupExcept removes entries not in the provided set of valid PIDs
 // This is useful for cleaning up cache entries for panes that no longer exist
+// Also removes expired entries to prevent unbounded growth
 func (c *ClaudePaneCache) CleanupExcept(validPIDs map[string]bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for pid := range c.cache {
-		if !validPIDs[pid] {
+	now := time.Now()
+	for pid, entry := range c.cache {
+		// Remove if not in validPIDs OR if expired
+		if !validPIDs[pid] || now.After(entry.expiresAt) {
 			delete(c.cache, pid)
 		}
 	}
