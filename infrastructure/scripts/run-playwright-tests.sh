@@ -15,26 +15,13 @@ fi
 echo "=== Playwright E2E Tests: $SITE_NAME ==="
 echo "Site: $SITE_URL"
 
-# --- Verify site is accessible ---
-echo "Checking site availability..."
-if ! HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$SITE_URL" 2>&1); then
-  echo "❌ Network error reaching $SITE_URL"
-  echo "   Possible causes: DNS failure, connection timeout, SSL error, or network unreachable"
+# --- Wait for site to be ready (with retry) ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! "$SCRIPT_DIR/health-check.sh" "$SITE_URL" --exponential --max-wait 60; then
+  echo "❌ Site not ready after waiting"
   exit 1
 fi
-if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "304" ]; then
-  if [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
-    echo "❌ Site returned redirect (HTTP $HTTP_CODE). Expected direct response: $SITE_URL"
-  elif [ "$HTTP_CODE" -ge "400" ] && [ "$HTTP_CODE" -lt "500" ]; then
-    echo "❌ Client error (HTTP $HTTP_CODE): $SITE_URL"
-  elif [ "$HTTP_CODE" -ge "500" ]; then
-    echo "❌ Server error (HTTP $HTTP_CODE): $SITE_URL"
-  else
-    echo "❌ Unexpected response (HTTP $HTTP_CODE): $SITE_URL"
-  fi
-  exit 1
-fi
-echo "✅ Site accessible"
 
 # --- Run tests ---
 echo "Running tests..."

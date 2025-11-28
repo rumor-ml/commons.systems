@@ -22,6 +22,8 @@
       "SlashCommand(/commit-merge-push)",
       "mcp__gh-workflow__gh_monitor_run",
       "mcp__gh-workflow__gh_get_deployment_urls",
+      "mcp__gh-workflow__gh_monitor_pr_checks",
+      "mcp__gh-workflow__gh_get_failure_details",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",
