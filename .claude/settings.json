@@ -15,6 +15,7 @@
     "allow": [
       "WebSearch",
       "Skill(frontend-design:frontend-design)",
+      "SlashCommand(/pr-review-toolkit:review-pr)",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",
