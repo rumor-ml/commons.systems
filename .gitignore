@@ -58,6 +58,10 @@ tmux-tui/tmux-tui
 *.test
 *.out
 
+# Go binaries
+bin/
+printsync/site/bin/
+
 # Trigger CI workflow test - forcing sync
 __pycache__/
 
