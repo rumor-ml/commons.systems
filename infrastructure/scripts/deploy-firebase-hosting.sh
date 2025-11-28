@@ -85,7 +85,7 @@ else
 
   # Clean up stale channels first to avoid quota errors
   echo "🧹 Running cleanup to avoid quota issues..."
-  "$(dirname "$0")/cleanup-stale-channels.sh" "$SITE_NAME" || {
+  "$(dirname "$0")/cleanup-stale-channels.sh" "$SITE_NAME" "$BRANCH_NAME" || {
     echo "⚠️  Cleanup failed but continuing with deployment"
   }
 
