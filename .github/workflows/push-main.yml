@@ -23,6 +23,7 @@ permissions:
   issues: write
   actions: read
   packages: read
+  deployments: write
 
 jobs:
   # ==================== Check CI Image Availability ====================

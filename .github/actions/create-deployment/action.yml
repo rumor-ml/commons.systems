@@ -22,17 +22,27 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        SITE_NAME: ${{ inputs.site_name }}
+        ENVIRONMENT: ${{ inputs.environment }}
       run: |
+        set -euo pipefail
+
         DEPLOYMENT_RESPONSE=$(gh api repos/${{ github.repository }}/deployments \
           -X POST \
           -f ref="${{ github.sha }}" \
-          -f environment="${{ inputs.environment }}" \
-          -f description="Deploy ${{ inputs.site_name }} to ${{ inputs.environment }}" \
+          -f environment="${ENVIRONMENT}" \
+          -f description="Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
           -F auto_merge=false \
           -F required_contexts='[]' \
           ${{ inputs.is_preview == 'true' && '-F transient_environment=true' || '' }})
 
         DEPLOYMENT_ID=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.id')
+
+        if [ "$DEPLOYMENT_ID" = "null" ] || [ -z "$DEPLOYMENT_ID" ]; then
+          echo "::error::Failed to create deployment"
+          echo "$DEPLOYMENT_RESPONSE"
+          exit 1
+        fi
 
         gh api repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
           -X POST \
