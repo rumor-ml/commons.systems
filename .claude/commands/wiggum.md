@@ -34,13 +34,15 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
 
 - Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to execute `/pr-review-toolkit:review-pr`
 - Wait for review to complete and analyze the feedback:
-  - **If NO FEEDBACK** (PR is approved or has no suggestions):
-    - Command complete, exit successfully with message: "PR review complete with no additional feedback"
-  - **If FEEDBACK exists** (any suggestions or required changes):
+  - **If NO ISSUES** (PR has zero issues identified - not even minor ones):
+    1. Post a summary PR comment using: `gh pr comment <number> --body "<summary of review - all checks passed>"`
+       - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
+    2. Command complete, exit successfully with message: "PR review complete with no issues identified"
+  - **If ANY ISSUES exist** (including minor suggestions, style issues, or any feedback whatsoever):
     1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
-    2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address the feedback
-    3. Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to implement the fixes
+    2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address ALL issues (do not skip minor issues)
+    3. Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to implement the fixes for ALL issues
     4. Execute `/commit-merge-push` (with recursive error handling as described in Step 1)
     5. Increment iteration counter
     6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
