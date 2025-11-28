@@ -37,6 +37,7 @@ type AlertWatcher struct {
 	watcher *fsnotify.Watcher
 	alertCh chan AlertEvent
 	done    chan struct{}
+	ready   chan struct{} // closed when watch goroutine is ready
 	mu      sync.Mutex
 	started bool
 }
@@ -64,6 +65,7 @@ func NewAlertWatcher() (*AlertWatcher, error) {
 		watcher: watcher,
 		alertCh: make(chan AlertEvent, 100), // Buffered to handle bursts
 		done:    make(chan struct{}),
+		ready:   make(chan struct{}),
 		started: false,
 	}, nil
 }
@@ -83,9 +85,23 @@ func (w *AlertWatcher) Start() <-chan AlertEvent {
 	return w.alertCh
 }
 
+// Ready returns a channel that is closed when the watch goroutine
+// has started and is ready to receive events.
+func (w *AlertWatcher) Ready() <-chan struct{} {
+	return w.ready
+}
+
 // watch is the main event loop
 func (w *AlertWatcher) watch() {
 	defer close(w.alertCh)
+
+	// Signal that the watcher is ready (safe from double-close)
+	select {
+	case <-w.ready:
+		// Already closed
+	default:
+		close(w.ready)
+	}
 
 	for {
 		select {
@@ -154,7 +170,14 @@ func (w *AlertWatcher) Close() error {
 	defer w.mu.Unlock()
 
 	if !w.started {
-		// If never started, just close the watcher
+		// If never started, close ready channel if not already closed
+		select {
+		case <-w.ready:
+			// Already closed
+		default:
+			close(w.ready)
+		}
+		// Close the watcher
 		if w.watcher != nil {
 			return w.watcher.Close()
 		}

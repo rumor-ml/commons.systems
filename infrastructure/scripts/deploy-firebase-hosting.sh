@@ -85,7 +85,7 @@ else
 
   # Clean up stale channels first to avoid quota errors
   echo "🧹 Running cleanup to avoid quota issues..."
-  "$(dirname "$0")/cleanup-stale-channels.sh" "$SITE_NAME" || {
+  "$(dirname "$0")/cleanup-stale-channels.sh" "$SITE_NAME" "$BRANCH_NAME" || {
     echo "⚠️  Cleanup failed but continuing with deployment"
   }
 
@@ -108,71 +108,104 @@ else
   echo "Running: firebase hosting:channel:deploy ${CHANNEL_NAME} --only ${FIREBASE_SITE_ID}"
   echo "Debug: Site ID = ${FIREBASE_SITE_ID}, Channel = ${CHANNEL_NAME}"
 
-  # Run Firebase deployment with error handling
-  echo "::group::Firebase Deployment Output"
-  set +e  # Disable exit on error to capture exit code
-  firebase hosting:channel:deploy "$CHANNEL_NAME" \
-    --only ${FIREBASE_SITE_ID} \
-    --project chalanding \
-    --expires 7d \
-    2>&1 | tee /tmp/firebase-deploy-output.txt
-  FIREBASE_EXIT_CODE=${PIPESTATUS[0]}
-  set -e  # Re-enable exit on error
-  echo "::endgroup::"
+  # Retry deployment up to 3 times on health check failure
+  MAX_ATTEMPTS=3
+  ATTEMPT=1
+  DEPLOYMENT_SUCCESS=false
 
-  # Check Firebase CLI exit code first
-  if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
-    echo "::error::Firebase CLI exited with code $FIREBASE_EXIT_CODE"
-    echo "Firebase output:"
-    cat /tmp/firebase-deploy-output.txt
+  while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    echo ""
+    echo "🔄 Deployment attempt $ATTEMPT of $MAX_ATTEMPTS..."
 
-    # Provide specific error context based on common failure patterns
-    if grep -qi "permission denied\|unauthorized" /tmp/firebase-deploy-output.txt; then
-      echo "::error::Authentication failure - check FIREBASE_TOKEN or credentials"
-    elif grep -qi "quota exceeded\|rate limit" /tmp/firebase-deploy-output.txt; then
-      echo "::error::Rate limit or quota exceeded"
-    elif grep -qi "not found\|does not exist" /tmp/firebase-deploy-output.txt; then
-      echo "::error::Site or project not found - check FIREBASE_SITE_ID: ${FIREBASE_SITE_ID}"
+    # Run Firebase deployment with error handling
+    echo "::group::Firebase Deployment Output (Attempt $ATTEMPT)"
+    set +e  # Disable exit on error to capture exit code
+    firebase hosting:channel:deploy "$CHANNEL_NAME" \
+      --only ${FIREBASE_SITE_ID} \
+      --project chalanding \
+      --expires 7d \
+      2>&1 | tee /tmp/firebase-deploy-output.txt
+    FIREBASE_EXIT_CODE=${PIPESTATUS[0]}
+    set -e  # Re-enable exit on error
+    echo "::endgroup::"
+
+    # Check Firebase CLI exit code first
+    if [ $FIREBASE_EXIT_CODE -ne 0 ]; then
+      echo "::error::Firebase CLI exited with code $FIREBASE_EXIT_CODE"
+      echo "Firebase output:"
+      cat /tmp/firebase-deploy-output.txt
+
+      # Provide specific error context based on common failure patterns
+      if grep -qi "permission denied\|unauthorized" /tmp/firebase-deploy-output.txt; then
+        echo "::error::Authentication failure - check FIREBASE_TOKEN or credentials"
+      elif grep -qi "quota exceeded\|rate limit" /tmp/firebase-deploy-output.txt; then
+        echo "::error::Rate limit or quota exceeded"
+      elif grep -qi "not found\|does not exist" /tmp/firebase-deploy-output.txt; then
+        echo "::error::Site or project not found - check FIREBASE_SITE_ID: ${FIREBASE_SITE_ID}"
+      fi
+      exit 1
     fi
+
+    # Check if deployment was successful by looking for success indicators
+    if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
+      # Extract URL from output like: "Channel URL (site): https://site--channel.web.app [expires ...]"
+      DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | grep -oE 'https://[^ \[]+' | head -1)
+    else
+      echo "::error::Firebase deployment succeeded but output format unexpected"
+      echo "Expected 'Channel URL' in output but not found"
+      echo "Firebase output:"
+      cat /tmp/firebase-deploy-output.txt
+      exit 1
+    fi
+
+    if [ -z "$DEPLOYMENT_URL" ]; then
+      echo "❌ CRITICAL: Could not extract deployment URL from Firebase output"
+      echo "This indicates deployment may have failed or CLI format changed."
+      echo "Firebase output:"
+      cat /tmp/firebase-deploy-output.txt
+      exit 1
+    fi
+
+    echo ""
+    echo "✅ Preview deployment complete!"
+    echo "🔍 Preview URL: ${DEPLOYMENT_URL}"
+    echo "⏰ Expires: 7 days from now"
+
+    # Verify the deployment is accessible with exponential backoff
+    echo ""
+    echo "🔍 Verifying deployment readiness..."
+
+    SCRIPT_DIR="$(dirname "$0")"
+    set +e  # Disable exit on error to capture health check result
+    "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
+      --exponential \
+      --max-wait 200 \
+      --content "</html>" \
+      --verbose
+    HEALTH_CHECK_EXIT_CODE=$?
+    set -e  # Re-enable exit on error
+
+    if [ $HEALTH_CHECK_EXIT_CODE -eq 0 ]; then
+      DEPLOYMENT_SUCCESS=true
+      break
+    else
+      echo ""
+      echo "⚠️  Health check failed on attempt $ATTEMPT"
+
+      if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+        echo "🔄 Retrying deployment..."
+        ATTEMPT=$((ATTEMPT + 1))
+      else
+        echo "❌ All $MAX_ATTEMPTS deployment attempts failed"
+        exit 1
+      fi
+    fi
+  done
+
+  if [ "$DEPLOYMENT_SUCCESS" = false ]; then
+    echo "❌ Deployment failed after $MAX_ATTEMPTS attempts"
     exit 1
   fi
-
-  # Check if deployment was successful by looking for success indicators
-  if grep -q "Channel URL" /tmp/firebase-deploy-output.txt; then
-    # Extract URL from output like: "Channel URL (site): https://site--channel.web.app [expires ...]"
-    DEPLOYMENT_URL=$(grep "Channel URL" /tmp/firebase-deploy-output.txt | grep -oE 'https://[^ \[]+' | head -1)
-  else
-    echo "::error::Firebase deployment succeeded but output format unexpected"
-    echo "Expected 'Channel URL' in output but not found"
-    echo "Firebase output:"
-    cat /tmp/firebase-deploy-output.txt
-    exit 1
-  fi
-
-  if [ -z "$DEPLOYMENT_URL" ]; then
-    echo "❌ CRITICAL: Could not extract deployment URL from Firebase output"
-    echo "This indicates deployment may have failed or CLI format changed."
-    echo "Firebase output:"
-    cat /tmp/firebase-deploy-output.txt
-    exit 1
-  fi
-
-  echo ""
-  echo "✅ Preview deployment complete!"
-  echo "🔍 Preview URL: ${DEPLOYMENT_URL}"
-  echo "⏰ Expires: 7 days from now"
-
-  # Verify the deployment is accessible with exponential backoff
-  # Use 300s timeout for new preview channels (DNS propagation can take longer)
-  echo ""
-  echo "🔍 Verifying deployment readiness..."
-
-  SCRIPT_DIR="$(dirname "$0")"
-  "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
-    --exponential \
-    --max-wait 600 \
-    --content "</html>" \
-    --verbose
 fi
 
 # Save deployment URL for GitHub Actions

@@ -20,11 +20,23 @@ func mustNewAlertWatcher(t *testing.T) *AlertWatcher {
 	return watcher
 }
 
+// waitForReady blocks until the watcher is ready to receive events.
+func waitForReady(t *testing.T, w *AlertWatcher, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-w.Ready():
+		// Ready
+	case <-time.After(timeout):
+		t.Fatal("Timeout waiting for watcher to become ready")
+	}
+}
+
 func TestAlertWatcher_CreateFile(t *testing.T) {
 	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create alert file
 	testPaneID := "%1"
@@ -67,9 +79,7 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
-
-	// Small delay to ensure watcher is ready
-	time.Sleep(100 * time.Millisecond)
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Delete the file
 	if err := os.Remove(alertFile); err != nil {
@@ -95,6 +105,7 @@ func TestAlertWatcher_RapidChanges(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	testPaneID := "%3"
 	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
@@ -247,9 +258,7 @@ func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
-
-	// Small delay to ensure watcher is ready
-	time.Sleep(100 * time.Millisecond)
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create a non-alert file
 	nonAlertFile := filepath.Join(alertDir, "not-an-alert.txt")
@@ -274,6 +283,7 @@ func TestAlertWatcher_ErrorRecovery(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create a test alert file to verify normal operation
 	testPaneID := "%4"
@@ -423,6 +433,7 @@ func TestAlertWatcher_BufferOverflow(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create 150 files rapidly (exceeds buffer of 100)
 	for i := 0; i < 150; i++ {
@@ -479,6 +490,7 @@ func TestAlertWatcher_ErrorEventPropagation(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create a normal alert file
 	testPaneID := "%5"
@@ -514,6 +526,7 @@ func TestAlertWatcher_BufferOverflowRecovery(t *testing.T) {
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
+	waitForReady(t, watcher, 1*time.Second)
 
 	// Create 200 files rapidly (buffer is 100)
 	// Without reading from the channel, the buffer will fill up

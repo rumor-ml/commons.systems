@@ -267,3 +267,16 @@
 .animate-slide-up {
   animation: slide-up var(--duration-slow) var(--ease-out-expo);
 }
+
+/* HTMX Indicator Pattern */
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline-block;
+}
+
+.htmx-request.htmx-indicator {
+  display: inline-block;
+}
