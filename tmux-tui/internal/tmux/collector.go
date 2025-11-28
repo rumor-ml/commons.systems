@@ -189,10 +189,11 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
-		// Only log if it's not the expected "not a git repository" error
-		if !strings.Contains(err.Error(), "not a git repository") {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to get git info for %s: %v\n", path, err)
+		// Git returns exit code 128 for "not a git repository"
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			return "", ""
 		}
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get git info for %s: %v\n", path, err)
 		return "", ""
 	}
 	gitCommonDir := strings.TrimSpace(string(output))
@@ -210,10 +211,11 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd = exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err = cmd.Output()
 	if err != nil {
-		// Only log if it's not the expected "not a git repository" error
-		if !strings.Contains(err.Error(), "not a git repository") {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to get branch for %s: %v\n", path, err)
+		// Git returns exit code 128 for "not a git repository"
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			return repo, ""
 		}
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get branch for %s: %v\n", path, err)
 		return repo, ""
 	}
 	branch = strings.TrimSpace(string(output))

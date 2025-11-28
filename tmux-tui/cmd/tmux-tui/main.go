@@ -19,6 +19,8 @@ type alertChangedMsg struct {
 	created bool
 }
 
+type alertWatcherFailedMsg struct{}
+
 type treeRefreshMsg struct {
 	tree tmux.RepoTree
 	err  error
@@ -30,7 +32,7 @@ type model struct {
 	alertWatcher *watcher.AlertWatcher
 	tree         tmux.RepoTree
 	alerts       map[string]bool // Persistent alert state
-	alertsMu     sync.RWMutex    // Protects alerts map from race conditions
+	alertsMu     *sync.RWMutex   // Protects alerts map from race conditions
 	width        int
 	height       int
 	err          error
@@ -64,6 +66,7 @@ func initialModel() model {
 		alertWatcher: alertWatcher,
 		tree:         tree,
 		alerts:       alerts,
+		alertsMu:     &sync.RWMutex{},
 		width:        80,
 		height:       24,
 		err:          err,
@@ -118,6 +121,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case alertWatcherFailedMsg:
+		fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
+		fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
+		m.alertWatcher = nil
+		return m, nil
+
 	case treeRefreshMsg:
 		// Background tree refresh completed
 		if msg.err == nil {
@@ -170,7 +179,7 @@ func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-w.Start()
 		if !ok {
-			return nil // Channel closed, no more events
+			return alertWatcherFailedMsg{}
 		}
 		return alertChangedMsg{
 			paneID:  event.PaneID,

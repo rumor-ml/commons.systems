@@ -1,18 +1,27 @@
 package watcher
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestAlertWatcher_CreateFile(t *testing.T) {
-	// Setup
+// mustNewAlertWatcher creates an AlertWatcher and fails the test if creation fails.
+// The caller is responsible for calling Close() on the returned watcher.
+func mustNewAlertWatcher(t *testing.T) *AlertWatcher {
+	t.Helper()
 	watcher, err := NewAlertWatcher()
 	if err != nil {
 		t.Fatalf("NewAlertWatcher failed: %v", err)
 	}
+	return watcher
+}
+
+func TestAlertWatcher_CreateFile(t *testing.T) {
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
@@ -54,10 +63,7 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 	}
 
 	// Start watcher after file exists
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
@@ -85,11 +91,7 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 }
 
 func TestAlertWatcher_RapidChanges(t *testing.T) {
-	// Setup
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
@@ -149,11 +151,7 @@ func TestAlertWatcher_RapidChanges(t *testing.T) {
 
 func TestAlertWatcher_DirectoryNotExist(t *testing.T) {
 	// This test verifies that NewAlertWatcher creates the directory if it doesn't exist
-	// The directory should be created by NewAlertWatcher, so this should always succeed
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed even though it should create the directory: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	// Verify directory exists
@@ -163,10 +161,7 @@ func TestAlertWatcher_DirectoryNotExist(t *testing.T) {
 }
 
 func TestAlertWatcher_Close(t *testing.T) {
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 
 	eventCh := watcher.Start()
 
@@ -192,10 +187,7 @@ func TestAlertWatcher_Close(t *testing.T) {
 }
 
 func TestAlertWatcher_MultipleStarts(t *testing.T) {
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	// Start should be idempotent
@@ -251,10 +243,7 @@ func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
 		os.Remove(file)
 	}
 
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
@@ -281,11 +270,7 @@ func TestAlertWatcher_IgnoreNonAlertFiles(t *testing.T) {
 func TestAlertWatcher_ErrorRecovery(t *testing.T) {
 	// This test verifies that the watcher continues operating after fsnotify errors
 	// by testing that events are still received after the watcher encounters errors
-
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 	defer watcher.Close()
 
 	eventCh := watcher.Start()
@@ -354,10 +339,7 @@ func TestAlertWatcher_ErrorRecovery(t *testing.T) {
 
 func TestAlertWatcher_CloseBeforeStart(t *testing.T) {
 	// This test verifies that Close() works correctly before Start() is called
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 
 	// Call Close() without calling Start()
 	if err := watcher.Close(); err != nil {
@@ -382,10 +364,7 @@ func TestAlertWatcher_CloseBeforeStart(t *testing.T) {
 
 func TestAlertWatcher_CloseWhileBlocking(t *testing.T) {
 	// This test verifies that Close() cleanly unblocks channel reads
-	watcher, err := NewAlertWatcher()
-	if err != nil {
-		t.Fatalf("NewAlertWatcher failed: %v", err)
-	}
+	watcher := mustNewAlertWatcher(t)
 
 	eventCh := watcher.Start()
 
@@ -422,4 +401,73 @@ func TestAlertWatcher_CloseWhileBlocking(t *testing.T) {
 	}
 
 	t.Log("Close() successfully unblocked channel read without goroutine leak")
+}
+
+func TestAlertWatcher_ConcurrentClose(t *testing.T) {
+	watcher := mustNewAlertWatcher(t)
+	_ = watcher.Start()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = watcher.Close()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestAlertWatcher_BufferOverflow(t *testing.T) {
+	watcher := mustNewAlertWatcher(t)
+	defer watcher.Close()
+
+	eventCh := watcher.Start()
+
+	// Create 150 files rapidly (exceeds buffer of 100)
+	for i := 0; i < 150; i++ {
+		paneID := fmt.Sprintf("%%buffer%d", i)
+		alertFile := filepath.Join(alertDir, alertPrefix+paneID)
+		os.WriteFile(alertFile, []byte{}, 0644)
+		defer os.Remove(alertFile)
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Verify can read events without deadlock
+	receivedCount := 0
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case _, ok := <-eventCh:
+			if !ok {
+				t.Fatal("Channel closed unexpectedly")
+			}
+			receivedCount++
+			if receivedCount >= 100 {
+				return // Success
+			}
+		case <-timeout:
+			t.Fatalf("Only received %d events", receivedCount)
+		}
+	}
+}
+
+func TestAlertWatcher_ErrorChannelClosure(t *testing.T) {
+	watcher := mustNewAlertWatcher(t)
+	eventCh := watcher.Start()
+
+	// Close watcher (closes error channel internally)
+	if err := watcher.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Verify event channel closes (watch goroutine exited)
+	select {
+	case _, ok := <-eventCh:
+		if ok {
+			t.Error("Event channel should be closed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Event channel not closed - goroutine leak")
+	}
 }
