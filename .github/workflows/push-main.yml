@@ -295,6 +295,7 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.head_ref }}
         run: |
+          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
           SANITIZED=$(echo "$BRANCH_NAME" | \
             tr '[:upper:]' '[:lower:]' | \
             sed 's/[^a-z0-9-]/-/g' | \
@@ -302,7 +303,15 @@ jobs:
             sed 's/^-//' | \
             sed 's/-$//' | \
             cut -c1-63)
+          
+          # Validate sanitized name is not empty
+          if [ -z "$SANITIZED" ]; then
+            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
+            exit 1
+          fi
+
           echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
 
       - name: Deploy fellspiral to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -323,9 +332,10 @@ jobs:
             exit 1
           fi
 
-          # Validate URL format
-          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
             echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
             exit 1
           fi
 
@@ -333,6 +343,7 @@ jobs:
           echo "Deployed to: ${URL}"
 
       - name: Create GitHub deployment
+        id: create-deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
@@ -340,6 +351,25 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'fellspiral'
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-videobrowser:
     name: Deploy videobrowser
@@ -368,6 +398,7 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.head_ref }}
         run: |
+          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
           SANITIZED=$(echo "$BRANCH_NAME" | \
             tr '[:upper:]' '[:lower:]' | \
             sed 's/[^a-z0-9-]/-/g' | \
@@ -375,7 +406,15 @@ jobs:
             sed 's/^-//' | \
             sed 's/-$//' | \
             cut -c1-63)
+          
+          # Validate sanitized name is not empty
+          if [ -z "$SANITIZED" ]; then
+            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
+            exit 1
+          fi
+
           echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
 
       - name: Deploy videobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -396,9 +435,10 @@ jobs:
             exit 1
           fi
 
-          # Validate URL format
-          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
             echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
             exit 1
           fi
 
@@ -406,6 +446,7 @@ jobs:
           echo "Deployed to: ${URL}"
 
       - name: Create GitHub deployment
+        id: create-deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
@@ -413,6 +454,25 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'videobrowser'
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-audiobrowser:
     name: Deploy audiobrowser
@@ -441,6 +501,7 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.head_ref }}
         run: |
+          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
           SANITIZED=$(echo "$BRANCH_NAME" | \
             tr '[:upper:]' '[:lower:]' | \
             sed 's/[^a-z0-9-]/-/g' | \
@@ -448,7 +509,15 @@ jobs:
             sed 's/^-//' | \
             sed 's/-$//' | \
             cut -c1-63)
+          
+          # Validate sanitized name is not empty
+          if [ -z "$SANITIZED" ]; then
+            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
+            exit 1
+          fi
+
           echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
 
       - name: Deploy audiobrowser to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -469,9 +538,10 @@ jobs:
             exit 1
           fi
 
-          # Validate URL format
-          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
             echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
             exit 1
           fi
 
@@ -479,6 +549,7 @@ jobs:
           echo "Deployed to: ${URL}"
 
       - name: Create GitHub deployment
+        id: create-deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
@@ -486,6 +557,25 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'audiobrowser'
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   deploy-print:
     name: Deploy print
@@ -514,6 +604,7 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.head_ref }}
         run: |
+          # Sanitize branch name for GitHub environment (max 63 chars, DNS-compatible)
           SANITIZED=$(echo "$BRANCH_NAME" | \
             tr '[:upper:]' '[:lower:]' | \
             sed 's/[^a-z0-9-]/-/g' | \
@@ -521,7 +612,15 @@ jobs:
             sed 's/^-//' | \
             sed 's/-$//' | \
             cut -c1-63)
+          
+          # Validate sanitized name is not empty
+          if [ -z "$SANITIZED" ]; then
+            echo "::error::Sanitized branch name is empty - branch name may contain only invalid characters"
+            exit 1
+          fi
+
           echo "branch=$SANITIZED" >> $GITHUB_OUTPUT
+          echo "Sanitized branch name: ${SANITIZED}"
 
       - name: Deploy print to Firebase Hosting
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
@@ -542,9 +641,10 @@ jobs:
             exit 1
           fi
 
-          # Validate URL format
-          if ! echo "$URL" | grep -qE '^https://[a-zA-Z0-9.-]+\.web\.app'; then
+          # Validate URL format - strict regex to prevent consecutive dots
+          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
             echo "::error::Invalid deployment URL format: $URL"
+            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
             exit 1
           fi
 
@@ -552,6 +652,7 @@ jobs:
           echo "Deployed to: ${URL}"
 
       - name: Create GitHub deployment
+        id: create-deployment
         if: success()
         uses: ./.github/actions/create-deployment
         with:
@@ -559,6 +660,25 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           site_name: 'print'
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+
+      - name: Update deployment status to failure
+        if: failure()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
 
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:
