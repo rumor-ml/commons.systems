@@ -29,7 +29,7 @@ runs:
 
         DEPLOYMENT_RESPONSE=$(gh api repos/${{ github.repository }}/deployments \
           -X POST \
-          -f ref="${{ github.sha }}" \
+          -f ref="${{ github.event.pull_request.head.sha || github.sha }}" \
           -f environment="${ENVIRONMENT}" \
           -f description="Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
           -F auto_merge=false \
