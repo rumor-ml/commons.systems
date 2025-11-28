@@ -63,16 +63,16 @@ query($issueId: ID!) {
 - Use the same sub-issues query as 3b, but with the parent's node ID
 - Exclude the current issue from the siblings list
 
-## Step 4: Explore Codebase
+## Step 4: Enter Planning Mode
+Use the `EnterPlanMode` tool to transition into planning mode.
+
+## Step 5: Explore Codebase
 Use the Task tool to launch an Explore agent:
 - `subagent_type`: "Explore"
 
 Prompt should include the issue context and ask for a "very thorough" exploration of relevant code patterns, architecture, and files related to the issue.
 
 Store the exploration results - this context will be passed to both planning agents.
-
-## Step 5: Enter Planning Mode
-Use the `EnterPlanMode` tool to transition into planning mode.
 
 ## Step 6: Delegate Planning (Parallel Agents)
 Launch TWO agents **in parallel** using the Task tool in a single message:
@@ -86,7 +86,7 @@ Launch TWO agents **in parallel** using the Task tool in a single message:
 
 Both agents receive the same context:
 - Issue hierarchy (from Step 3)
-- Codebase exploration results (from Step 4)
+- Codebase exploration results (from Step 5)
 - The issue title and body
 
 Let each agent approach the planning in their own way.

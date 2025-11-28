@@ -34,6 +34,7 @@ func NewRouter(
 	mux.HandleFunc("GET /", pageH.Home)
 	mux.HandleFunc("GET /dashboard", pageH.Dashboard)
 	mux.HandleFunc("GET /sync", pageH.Sync)
+	mux.HandleFunc("GET /sync/{id}", pageH.SyncDetail)
 
 	// HTMX partials (non-authenticated)
 	mux.HandleFunc("GET /partials/items", pageH.ItemsPartial)
@@ -70,10 +71,12 @@ func NewRouter(
 	// File API
 	mux.Handle("POST /api/files/{id}/approve", authMiddleware(http.HandlerFunc(syncH.ApproveFile)))
 	mux.Handle("POST /api/files/{id}/reject", authMiddleware(http.HandlerFunc(syncH.RejectFile)))
+	mux.Handle("POST /api/files/{id}/retry", authMiddleware(http.HandlerFunc(syncH.RetryFile)))
 	mux.Handle("POST /api/files/{id}/trash", authMiddleware(http.HandlerFunc(syncH.TrashFile)))
 
 	// Protected partials
 	mux.Handle("GET /partials/sync/history", authMiddleware(http.HandlerFunc(syncH.HistoryPartial)))
+	mux.Handle("GET /partials/trash-modal", authMiddleware(http.HandlerFunc(syncH.RenderTrashModal)))
 
 	// Apply middleware
 	return middleware.Chain(mux,
