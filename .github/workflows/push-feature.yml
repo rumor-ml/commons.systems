@@ -321,7 +321,7 @@ jobs:
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
-        if: failure()
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
         uses: ./.github/actions/update-deployment-status
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
@@ -442,7 +442,7 @@ jobs:
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
-        if: failure()
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
         uses: ./.github/actions/update-deployment-status
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
@@ -563,7 +563,7 @@ jobs:
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
-        if: failure()
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
         uses: ./.github/actions/update-deployment-status
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
@@ -684,7 +684,7 @@ jobs:
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
-        if: failure()
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
         uses: ./.github/actions/update-deployment-status
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
