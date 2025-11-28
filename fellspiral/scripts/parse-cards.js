@@ -12,7 +12,14 @@ const __dirname = dirname(__filename);
 
 // Read rules.md
 const rulesPath = join(__dirname, '../rules.md');
-const rulesContent = readFileSync(rulesPath, 'utf-8');
+let rulesContent;
+try {
+  rulesContent = readFileSync(rulesPath, 'utf-8');
+} catch (error) {
+  console.error(`\n❌ Failed to read rules.md from ${rulesPath}:`, error.message);
+  console.error('Ensure the file exists and is readable.');
+  process.exit(1);
+}
 
 // Parse markdown tables to extract cards
 function parseCards(content) {
@@ -195,12 +202,22 @@ const outputPath = join(__dirname, '../site/src/data/cards.json');
 const outputDir = dirname(outputPath);
 
 // Create directory if it doesn't exist
-if (!existsSync(outputDir)) {
-  mkdirSync(outputDir, { recursive: true });
+try {
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+} catch (error) {
+  console.error(`\n❌ Failed to create output directory ${outputDir}:`, error.message);
+  process.exit(1);
 }
 
-writeFileSync(outputPath, JSON.stringify(cards, null, 2));
-console.log(`\n✅ Cards saved to: ${outputPath}\n`);
+try {
+  writeFileSync(outputPath, JSON.stringify(cards, null, 2));
+  console.log(`\n✅ Cards saved to: ${outputPath}\n`);
+} catch (error) {
+  console.error(`\n❌ Failed to write cards.json to ${outputPath}:`, error.message);
+  process.exit(1);
+}
 
 // Also create a summary file
 const summary = {
@@ -219,5 +236,10 @@ cards.forEach(card => {
 });
 
 const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
-writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-console.log(`✅ Summary saved to: ${summaryPath}\n`);
+try {
+  writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+  console.log(`✅ Summary saved to: ${summaryPath}\n`);
+} catch (error) {
+  console.error(`\n❌ Failed to write summary to ${summaryPath}:`, error.message);
+  process.exit(1);
+}
