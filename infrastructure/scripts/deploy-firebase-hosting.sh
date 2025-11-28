@@ -148,7 +148,7 @@ else
   SCRIPT_DIR="$(dirname "$0")"
   "$SCRIPT_DIR/health-check.sh" "${DEPLOYMENT_URL}" \
     --exponential \
-    --max-wait 120 \
+    --max-wait 300 \
     --content "</html>" \
     --verbose
 fi

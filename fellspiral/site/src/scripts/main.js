@@ -997,7 +997,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
       if (window.innerWidth <= 768 &&
           !sidebar.contains(e.target) &&
-          !mobileMenuToggle.contains(e.target) &&
+          !mobileMenuToggle?.contains(e.target) &&
           sidebar.classList.contains('active')) {
         sidebar.classList.remove('active');
       }
