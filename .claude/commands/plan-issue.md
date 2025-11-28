@@ -1,9 +1,9 @@
 ---
-description: Break down large GitHub issues into subissues that **maximize parallelization** while keeping each subissue **<50k tokens**.
-model: opus
+description: Plan implementation for a GitHub issue by gathering context and delegating to planning agents.
+model: sonnet
 ---
 
-You are tasked with creating an implementation plan for a GitHub issue and its related sub-issues. Follow these steps:
+You are an **orchestrator** for planning GitHub issues. You gather issue context yourself, but delegate all planning to specialized agents and all implementation to the accept-edits agent (sonnet).
 
 ## Step 1: Validate Input
 - Check if "{{args}}" is provided
@@ -63,60 +63,57 @@ query($issueId: ID!) {
 - Use the same sub-issues query as 3b, but with the parent's node ID
 - Exclude the current issue from the siblings list
 
-## Step 4: Present Hierarchical Context
-Display the gathered information in this format:
+## Step 4: Explore Codebase
+Use the Task tool to launch an Explore agent:
+- `subagent_type`: "Explore"
 
-```
-# Issue Hierarchy for #<number>: <title>
+Prompt should include the issue context and ask for a "very thorough" exploration of relevant code patterns, architecture, and files related to the issue.
 
-## Ancestor Chain (Root → Current)
-<If no ancestors: "None - this is a root issue">
-<Otherwise, list from root to current:>
-1. #<number>: <title>
-   URL: <url>
-   <Brief summary of body if relevant>
+Store the exploration results - this context will be passed to both planning agents.
 
-2. #<number>: <title>
-   URL: <url>
-   <Brief summary>
+## Step 5: Enter Planning Mode
+Use the `EnterPlanMode` tool to transition into planning mode.
 
-... (continue to current issue's parent)
+## Step 6: Delegate Planning (Parallel Agents)
+Launch TWO agents **in parallel** using the Task tool in a single message:
 
-## Current Issue: #<number>
-Title: <title>
-URL: <url>
+### Agent 1: Plan Agent (opus)
+- `subagent_type`: "Plan"
+- `model`: "opus"
 
-Body:
-<full body content>
+### Agent 2: Code Architect Agent
+- `subagent_type`: "feature-dev:code-architect"
 
-## Direct Children (Sub-issues)
-<If no children: "None - this issue has no sub-issues">
-<Otherwise, list:>
-- #<number>: <title>
-  URL: <url>
-  <Brief summary of body>
+Both agents receive the same context:
+- Issue hierarchy (from Step 3)
+- Codebase exploration results (from Step 4)
+- The issue title and body
 
-## Siblings (Other Sub-issues of Parent)
-<If no parent: "None - this is a root issue">
-<If parent but no other siblings: "None - this is the only sub-issue">
-<Otherwise, list:>
-- #<number>: <title>
-  URL: <url>
-  <Brief summary>
-```
+Let each agent approach the planning in their own way.
 
-## Step 5: Invoke Feature Development
-After presenting the hierarchical context, invoke the feature development workflow:
-- Use the SlashCommand tool to execute `/feature-dev:feature-dev` with the issue title and summary
-- Pass the issue context as: `/feature-dev:feature-dev Implement: <issue title> - <brief summary from issue body>`
-- This hands off to the guided feature development workflow which will:
-  - Explore the codebase for relevant patterns
-  - Design the architecture
-  - Create a detailed implementation plan
+## Step 7: Synthesize Composite Plan
+After BOTH agents complete, evaluate their results and create a composite plan that:
+- Combines the best insights from both approaches
+- Resolves any conflicts between the two plans
+- Write the final composite plan to the plan file
+
+## Step 8: Exit Plan Mode and Await Approval
+1. Use `ExitPlanMode` tool
+2. Present the composite plan to the user for approval
+
+## Step 9: Delegate Implementation to accept-edits Agent (sonnet)
+Once the user approves the plan, use the Task tool to delegate implementation:
+- `subagent_type`: "accept-edits"
+- `model`: "sonnet"
+
+For each implementation step, spawn an accept-edits agent with clear instructions.
 
 ## Important Notes
-- All `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
+- **You are an orchestrator** - gather context yourself, but delegate planning to agents
+- All `gh` commands require `dangerouslyDisableSandbox: true`
+- Plan agent MUST use `model: "opus"`
+- Launch Plan and code-architect agents **in parallel** (single message with multiple Task calls)
+- Implementation uses `accept-edits` agent with `model: "sonnet"`
+- Always wait for user approval before starting implementation
 - Handle cases where issue has no parent/children/siblings gracefully
 - When fetching GraphQL data, parse JSON responses carefully
-- If GraphQL queries fail, provide helpful error messages
-- Focus on maximizing parallel work opportunities in the plan
