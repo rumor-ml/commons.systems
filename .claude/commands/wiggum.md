@@ -19,11 +19,11 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
   - **On SUCCESS**: Proceed to Step 2
   - **On FAILURE**:
     1. Use Task tool with `subagent_type="Plan"` and `model="opus"` to debug the failure, identify root cause, and create a fix plan
-    2. Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to implement the fix
+    2. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
     3. Execute `/commit-merge-push` command
        - **If push hook reports testing errors**, recursively handle:
          a. Use Task tool with `subagent_type="Plan"` and `model="opus"` to diagnose the testing errors and plan fix
-         b. Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to implement the fix
+         b. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
          c. Retry `/commit-merge-push`
          d. Repeat recursively until push succeeds or manual intervention is required
     4. Increment iteration counter
@@ -32,7 +32,7 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
 
 ## Step 2: PR Review
 
-- Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to execute `/pr-review-toolkit:review-pr`
+- Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to execute `/pr-review-toolkit:review-pr` (no arguments)
 - Wait for review to complete and analyze the feedback:
   - **If NO ISSUES** (PR has zero issues identified - not even minor ones):
     1. Post a summary PR comment using: `gh pr comment <number> --body "<summary of review - all checks passed>"`
@@ -42,7 +42,7 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
     1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address ALL issues (do not skip minor issues)
-    3. Use Task tool with `subagent_type="general-purpose"` and `model="sonnet"` to implement the fixes for ALL issues
+    3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fixes for ALL issues
     4. Execute `/commit-merge-push` (with recursive error handling as described in Step 1)
     5. Increment iteration counter
     6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"

@@ -8,7 +8,7 @@ cat <<EOF
   "hookSpecificOutput": {
     "hookEventName": "PostToolUse",
     "decision": "allow",
-    "reason": "IMPLEMENTATION REMINDER: You have exited plan mode. Per CLAUDE.md, do NOT make edits directly. Use the Task tool with subagent_type='general-purpose' to execute the plan."
+    "reason": "IMPLEMENTATION REMINDER: You have exited plan mode. Per CLAUDE.md, do NOT make edits directly. Use the Task tool with subagent_type='accept-edits' to execute the plan."
   }
 }
 EOF
