@@ -105,6 +105,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/sandbox-reminder.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pre-push-tests.sh"
           }
         ]
       }
