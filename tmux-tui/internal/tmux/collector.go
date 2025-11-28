@@ -145,7 +145,12 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 	cmd := exec.Command("pgrep", "-P", panePID)
 	output, err := cmd.Output()
 	if err != nil {
-		// No children found or error - not a Claude pane
+		// pgrep returns exit code 1 when no processes found - this is expected
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false
+		}
+		// Actual error - log it
+		fmt.Fprintf(os.Stderr, "Warning: Failed to check for Claude process in pane %s: %v\n", panePID, err)
 		return false
 	}
 
@@ -160,6 +165,12 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 		cmd = exec.Command("ps", "-o", "command=", "-p", childPID)
 		output, err := cmd.Output()
 		if err != nil {
+			// Process may have exited between pgrep and ps - this is expected
+			if _, ok := err.(*exec.ExitError); ok {
+				continue
+			}
+			// Unexpected error
+			fmt.Fprintf(os.Stderr, "Warning: Failed to inspect process %s: %v\n", childPID, err)
 			continue
 		}
 
@@ -178,6 +189,10 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
+		// Only log if it's not the expected "not a git repository" error
+		if !strings.Contains(err.Error(), "not a git repository") {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get git info for %s: %v\n", path, err)
+		}
 		return "", ""
 	}
 	gitCommonDir := strings.TrimSpace(string(output))
@@ -195,6 +210,10 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	cmd = exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err = cmd.Output()
 	if err != nil {
+		// Only log if it's not the expected "not a git repository" error
+		if !strings.Contains(err.Error(), "not a git repository") {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get branch for %s: %v\n", path, err)
+		}
 		return repo, ""
 	}
 	branch = strings.TrimSpace(string(output))

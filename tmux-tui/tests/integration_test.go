@@ -777,3 +777,103 @@ func TestIntegration_ReconcileAlertsWithEmptyTree(t *testing.T) {
 
 	t.Log("All stale alerts were successfully cleaned up when tree became empty")
 }
+
+// TestIntegration_ConcurrentViewAndUpdate verifies that concurrent View() calls
+// during alert updates don't cause data races or panics
+func TestIntegration_ConcurrentViewAndUpdate(t *testing.T) {
+	m := realInitialModel()
+	var wg sync.WaitGroup
+
+	// Spawn 50 goroutines: 25 updating alerts, 25 calling View()
+	for i := 0; i < 25; i++ {
+		wg.Add(2)
+		go func(idx int) {
+			defer wg.Done()
+			paneID := fmt.Sprintf("%%test%d", idx)
+			m.alertsMu.Lock()
+			m.alerts[paneID] = true
+			m.alertsMu.Unlock()
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = m.View() // Should not race or panic
+		}()
+	}
+	wg.Wait()
+
+	t.Log("Concurrent View() and alert updates completed without data races")
+}
+
+// TestIntegration_GetAlertsForTestingConcurrency verifies that GetAlertsForTesting()
+// doesn't race with concurrent alert updates
+func TestIntegration_GetAlertsForTestingConcurrency(t *testing.T) {
+	m := realInitialModel()
+
+	// Continuously update alerts in background
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				m.alertsMu.Lock()
+				m.alerts["test"] = true
+				delete(m.alerts, "test")
+				m.alertsMu.Unlock()
+			}
+		}
+	}()
+
+	// Verify GetAlertsForTesting doesn't race
+	for i := 0; i < 100; i++ {
+		_ = m.GetAlertsForTesting()
+	}
+	close(done)
+
+	t.Log("GetAlertsForTesting() handled concurrent updates without data races")
+}
+
+// TestIntegration_ReconcileDuringConcurrentUpdates verifies that reconciliation
+// works correctly when concurrent alertChangedMsg updates are happening
+func TestIntegration_ReconcileDuringConcurrentUpdates(t *testing.T) {
+	m := realInitialModel()
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	defer tm.Quit()
+
+	// Add initial alerts
+	tm.Send(alertChangedMsg{paneID: "%100", created: true})
+	tm.Send(alertChangedMsg{paneID: "%101", created: true})
+	time.Sleep(100 * time.Millisecond)
+
+	// Start rapid alert updates in background
+	done := make(chan bool)
+	go func() {
+		for i := 0; i < 50; i++ {
+			select {
+			case <-done:
+				return
+			default:
+				tm.Send(alertChangedMsg{paneID: "%100", created: false})
+				time.Sleep(5 * time.Millisecond)
+				tm.Send(alertChangedMsg{paneID: "%100", created: true})
+			}
+		}
+	}()
+
+	// Trigger multiple tree refreshes (which call reconcileAlerts)
+	for i := 0; i < 10; i++ {
+		tm.Send(tickMsg(time.Now()))
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Stop updates
+	close(done)
+	time.Sleep(500 * time.Millisecond)
+
+	// Clean shutdown
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+
+	t.Log("Reconciliation handled concurrent updates without panics or deadlocks")
+}

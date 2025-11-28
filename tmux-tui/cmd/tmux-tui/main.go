@@ -128,6 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.alertsMu.Unlock()
 			m.err = nil
 		} else {
+			fmt.Fprintf(os.Stderr, "Tree refresh failed: %v\n", msg.err)
 			m.err = msg.err
 		}
 		return m, nil

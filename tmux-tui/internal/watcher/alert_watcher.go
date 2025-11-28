@@ -128,6 +128,7 @@ func (w *AlertWatcher) watch() {
 			}
 			// Log critical filesystem errors
 			fmt.Fprintf(os.Stderr, "Alert watcher error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Alert watching may be degraded. Some alerts may not be detected.\n")
 		}
 	}
 }

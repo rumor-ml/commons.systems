@@ -379,3 +379,47 @@ func TestAlertWatcher_CloseBeforeStart(t *testing.T) {
 
 	t.Log("Close() before Start() handled gracefully")
 }
+
+func TestAlertWatcher_CloseWhileBlocking(t *testing.T) {
+	// This test verifies that Close() cleanly unblocks channel reads
+	watcher, err := NewAlertWatcher()
+	if err != nil {
+		t.Fatalf("NewAlertWatcher failed: %v", err)
+	}
+
+	eventCh := watcher.Start()
+
+	// Start a goroutine that blocks on reading
+	readDone := make(chan bool)
+	var receivedEvent AlertEvent
+	var channelOpen bool
+
+	go func() {
+		receivedEvent, channelOpen = <-eventCh
+		close(readDone)
+	}()
+
+	// Give the goroutine time to start blocking
+	time.Sleep(100 * time.Millisecond)
+
+	// Close while the goroutine is blocking on the channel
+	if err := watcher.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Verify the reader unblocked
+	select {
+	case <-readDone:
+		// Success - reader unblocked
+		if channelOpen {
+			t.Error("Channel should be closed, but received an event")
+		}
+		if receivedEvent.PaneID != "" {
+			t.Errorf("Event should be zero value on channel closure, got PaneID=%s", receivedEvent.PaneID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Reader did not unblock after Close() - potential goroutine leak")
+	}
+
+	t.Log("Close() successfully unblocked channel read without goroutine leak")
+}
