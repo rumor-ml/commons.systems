@@ -276,7 +276,7 @@ func TestAlertWatcher_ErrorRecovery(t *testing.T) {
 	eventCh := watcher.Start()
 
 	// Create a test alert file to verify normal operation
-	testPaneID := "%error-test"
+	testPaneID := "%4"
 	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
 	defer os.Remove(alertFile)
 
@@ -426,7 +426,7 @@ func TestAlertWatcher_BufferOverflow(t *testing.T) {
 
 	// Create 150 files rapidly (exceeds buffer of 100)
 	for i := 0; i < 150; i++ {
-		paneID := fmt.Sprintf("%%buffer%d", i)
+		paneID := fmt.Sprintf("%%10%d", i)
 		alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 		os.WriteFile(alertFile, []byte{}, 0644)
 		defer os.Remove(alertFile)
@@ -481,7 +481,7 @@ func TestAlertWatcher_ErrorEventPropagation(t *testing.T) {
 	eventCh := watcher.Start()
 
 	// Create a normal alert file
-	testPaneID := "%error-prop-test"
+	testPaneID := "%5"
 	alertFile := filepath.Join(alertDir, alertPrefix+testPaneID)
 	defer os.Remove(alertFile)
 
@@ -526,7 +526,7 @@ func TestAlertWatcher_BufferOverflowRecovery(t *testing.T) {
 
 	// Create files in batches to allow fsnotify to generate events
 	for i := 0; i < 200; i++ {
-		paneID := fmt.Sprintf("%%overflow%d", i)
+		paneID := fmt.Sprintf("%%20%d", i)
 		alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 		os.WriteFile(alertFile, []byte{}, 0644)
 		createdFiles = append(createdFiles, alertFile)
@@ -564,7 +564,7 @@ drainLoop:
 	}
 
 	// Test recovery: watcher should still work after potential overflow
-	recoveryPaneID := "%recovery-test"
+	recoveryPaneID := "%999"
 	recoveryFile := filepath.Join(alertDir, alertPrefix+recoveryPaneID)
 	defer os.Remove(recoveryFile)
 

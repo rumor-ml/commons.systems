@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -14,6 +15,15 @@ const (
 	alertDir     = "/tmp/claude"
 	alertPrefix  = "tui-alert-"
 )
+
+var validPaneIDPattern = regexp.MustCompile(`^%\d+$`)
+
+// isValidPaneID validates that a pane ID matches the expected format.
+// Valid pane IDs must start with '%' followed by one or more digits.
+// This prevents path traversal and injection attacks.
+func isValidPaneID(id string) bool {
+	return id != "" && validPaneIDPattern.MatchString(id)
+}
 
 // AlertEvent represents an alert file change event
 type AlertEvent struct {
@@ -95,7 +105,8 @@ func (w *AlertWatcher) watch() {
 
 			// Extract pane ID from filename
 			paneID := strings.TrimPrefix(filename, alertPrefix)
-			if paneID == "" {
+			if !isValidPaneID(paneID) {
+				// Invalid pane ID format - skip silently to prevent injection attacks
 				continue
 			}
 
@@ -179,7 +190,7 @@ func GetExistingAlerts() (map[string]bool, error) {
 	for _, file := range matches {
 		filename := filepath.Base(file)
 		paneID := strings.TrimPrefix(filename, alertPrefix)
-		if paneID != "" {
+		if isValidPaneID(paneID) {
 			alerts[paneID] = true
 		}
 	}
