@@ -75,8 +75,8 @@ function parseCards(content) {
     if (inTable && line.startsWith('|')) {
       const values = line.split('|').map(v => v.trim()).filter(v => v);
 
-      // Allow rows with at least 3 columns (title, type, subtype minimum)
-      if (values.length >= 3 && values[0]) {
+      // Allow rows with at least 1 column (title is required, type/subtype can be inferred from headers)
+      if (values.length >= 1 && values[0]) {
         const card = {};
 
         headers.forEach((header, index) => {
@@ -133,7 +133,7 @@ function parseCards(content) {
           }
 
           // Generate a base ID from card title (lowercase, alphanumeric only, hyphens for separators)
-          const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
           let id = baseId;
           let counter = 1;
 
@@ -183,145 +183,150 @@ function parseCards(content) {
   return { cards, duplicatesSkipped, validationSkipped };
 }
 
-// Parse cards
-const { cards, duplicatesSkipped, validationSkipped } = parseCards(rulesContent);
+// Only run main script if executed directly (not imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // Parse cards
+  const { cards, duplicatesSkipped, validationSkipped } = parseCards(rulesContent);
 
-// Validate failure rate isn't too high (indicates problem with source data)
-const totalAttempted = cards.length + validationSkipped;
+  // Validate failure rate isn't too high (indicates problem with source data)
+  const totalAttempted = cards.length + validationSkipped;
 
-if (totalAttempted === 0) {
-  console.error('\n❌ No cards found in rules.md');
-  console.error('Check that rules.md contains properly formatted markdown tables.');
-  process.exit(1);
-}
-
-const failureRate = validationSkipped / totalAttempted;
-if (failureRate > 0.1) {
-  console.error(`\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`);
-  console.error('This indicates a problem with the source data in rules.md');
-  process.exit(1);
-}
-
-// Log summary
-console.log(`\nParsed ${cards.length} cards from rules.md`);
-if (duplicatesSkipped > 0) {
-  console.log(`  (Skipped ${duplicatesSkipped} duplicates)`);
-}
-if (validationSkipped > 0) {
-  console.log(`  (Skipped ${validationSkipped} cards with missing required fields)`);
-}
-console.log('');
-
-// Group by type
-const cardsByType = {};
-let typeGroupingErrors = 0;
-cards.forEach(card => {
-  if (!card || typeof card !== 'object') {
-    console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
-    typeGroupingErrors++;
-    return;
+  if (totalAttempted === 0) {
+    console.error('\n❌ No cards found in rules.md');
+    console.error('Check that rules.md contains properly formatted markdown tables.');
+    process.exit(1);
   }
 
-  const type = card.type || 'Unknown';
-  if (!cardsByType[type]) {
-    cardsByType[type] = [];
+  const failureRate = validationSkipped / (totalAttempted || 1);
+  if (failureRate > 0.1) {
+    console.error(`\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`);
+    console.error('This indicates a problem with the source data in rules.md');
+    process.exit(1);
   }
-  cardsByType[type].push(card);
-});
 
-if (typeGroupingErrors > 0) {
-  console.warn(`⚠️  ${typeGroupingErrors} card(s) could not be categorized by type. Statistics may be incomplete.\n`);
-}
+  // Log summary
+  console.log(`\nParsed ${cards.length} cards from rules.md`);
+  if (duplicatesSkipped > 0) {
+    console.log(`  (Skipped ${duplicatesSkipped} duplicates)`);
+  }
+  if (validationSkipped > 0) {
+    console.log(`  (Skipped ${validationSkipped} cards with missing required fields)`);
+  }
+  console.log('');
 
-console.log('Cards by type:');
-let subtypeGroupingErrors = 0;
-Object.keys(cardsByType).forEach(type => {
-  console.log(`  ${type}: ${cardsByType[type].length}`);
-
-  // Group by subtype
-  const bySubtype = {};
-  cardsByType[type].forEach(card => {
+  // Group by type
+  const cardsByType = {};
+  let typeGroupingErrors = 0;
+  cards.forEach(card => {
     if (!card || typeof card !== 'object') {
       console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
-      subtypeGroupingErrors++;
+      typeGroupingErrors++;
       return;
     }
 
-    const subtype = card.subtype || 'Unknown';
-    if (!bySubtype[subtype]) {
-      bySubtype[subtype] = 0;
+    const type = card.type || 'Unknown';
+    if (!cardsByType[type]) {
+      cardsByType[type] = [];
     }
-    bySubtype[subtype]++;
+    cardsByType[type].push(card);
   });
 
-  Object.keys(bySubtype).forEach(subtype => {
-    console.log(`    ${subtype}: ${bySubtype[subtype]}`);
+  if (typeGroupingErrors > 0) {
+    console.warn(`⚠️  ${typeGroupingErrors} card(s) could not be categorized by type. Statistics may be incomplete.\n`);
+  }
+
+  console.log('Cards by type:');
+  let subtypeGroupingErrors = 0;
+  Object.keys(cardsByType).forEach(type => {
+    console.log(`  ${type}: ${cardsByType[type].length}`);
+
+    // Group by subtype
+    const bySubtype = {};
+    cardsByType[type].forEach(card => {
+      if (!card || typeof card !== 'object') {
+        console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
+        subtypeGroupingErrors++;
+        return;
+      }
+
+      const subtype = card.subtype || 'Unknown';
+      if (!bySubtype[subtype]) {
+        bySubtype[subtype] = 0;
+      }
+      bySubtype[subtype]++;
+    });
+
+    Object.keys(bySubtype).forEach(subtype => {
+      console.log(`    ${subtype}: ${bySubtype[subtype]}`);
+    });
   });
-});
 
-if (subtypeGroupingErrors > 0) {
-  console.warn(`⚠️  ${subtypeGroupingErrors} card(s) could not be categorized by subtype. Statistics may be incomplete.\n`);
-}
-
-// Output JSON
-const outputPath = join(__dirname, '../site/src/data/cards.json');
-const outputDir = dirname(outputPath);
-
-// Create directory if it doesn't exist
-try {
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true });
-  }
-} catch (error) {
-  console.error(`\n❌ Failed to create output directory ${outputDir}:`, error.message);
-  process.exit(1);
-}
-
-try {
-  writeFileSync(outputPath, JSON.stringify(cards, null, 2));
-  console.log(`\n✅ Cards saved to: ${outputPath}\n`);
-} catch (error) {
-  console.error(`\n❌ Failed to write cards.json to ${outputPath}:`, error.message);
-  process.exit(1);
-}
-
-// Also create a summary file
-const summary = {
-  totalCards: cards.length,
-  cardsByType: {},
-  cardsBySubtype: {},
-  lastUpdated: new Date().toISOString()
-};
-
-let summaryErrors = 0;
-cards.forEach(card => {
-  if (!card || typeof card !== 'object') {
-    console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
-    summaryErrors++;
-    return;
+  if (subtypeGroupingErrors > 0) {
+    console.warn(`⚠️  ${subtypeGroupingErrors} card(s) could not be categorized by subtype. Statistics may be incomplete.\n`);
   }
 
-  const type = card.type || 'Unknown';
-  const subtype = card.subtype || 'Unknown';
+  // Output JSON
+  const outputPath = join(__dirname, '../site/src/data/cards.json');
+  const outputDir = dirname(outputPath);
 
-  summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
-  summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
-});
+  // Create directory if it doesn't exist
+  try {
+    if (!existsSync(outputDir)) {
+      mkdirSync(outputDir, { recursive: true });
+    }
+  } catch (error) {
+    console.error(`\n❌ Failed to create output directory ${outputDir}:`, error.message);
+    process.exit(1);
+  }
 
-if (summaryErrors > 0) {
-  console.warn(`⚠️  ${summaryErrors} card(s) could not be added to summary. Summary statistics may be incomplete.\n`);
+  try {
+    writeFileSync(outputPath, JSON.stringify(cards, null, 2));
+    console.log(`\n✅ Cards saved to: ${outputPath}\n`);
+  } catch (error) {
+    console.error(`\n❌ Failed to write cards.json to ${outputPath}:`, error.message);
+    process.exit(1);
+  }
+
+  // Also create a summary file
+  const summary = {
+    totalCards: cards.length,
+    cardsByType: {},
+    cardsBySubtype: {},
+    lastUpdated: new Date().toISOString()
+  };
+
+  let summaryErrors = 0;
+  cards.forEach(card => {
+    if (!card || typeof card !== 'object') {
+      console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
+      summaryErrors++;
+      return;
+    }
+
+    const type = card.type || 'Unknown';
+    const subtype = card.subtype || 'Unknown';
+
+    summary.cardsByType[type] = (summary.cardsByType[type] || 0) + 1;
+    summary.cardsBySubtype[subtype] = (summary.cardsBySubtype[subtype] || 0) + 1;
+  });
+
+  if (summaryErrors > 0) {
+    console.warn(`⚠️  ${summaryErrors} card(s) could not be added to summary. Summary statistics may be incomplete.\n`);
+  }
+
+  const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
+  try {
+    writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+    console.log(`✅ Summary saved to: ${summaryPath}\n`);
+  } catch (error) {
+    console.error(`\n❌ Failed to write summary to ${summaryPath}:`, error.message);
+    process.exit(1);
+  }
+
+  const totalWarnings = typeGroupingErrors + subtypeGroupingErrors + summaryErrors;
+  if (totalWarnings > 0) {
+    console.warn(`\n⚠️  Completed with ${totalWarnings} warning(s) - some cards may not be fully categorized.`);
+  }
 }
 
-const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
-try {
-  writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-  console.log(`✅ Summary saved to: ${summaryPath}\n`);
-} catch (error) {
-  console.error(`\n❌ Failed to write summary to ${summaryPath}:`, error.message);
-  process.exit(1);
-}
-
-const totalWarnings = typeGroupingErrors + subtypeGroupingErrors + summaryErrors;
-if (totalWarnings > 0) {
-  console.warn(`\n⚠️  Completed with ${totalWarnings} warning(s) - some cards may not be fully categorized.`);
-}
+export { parseCards };
