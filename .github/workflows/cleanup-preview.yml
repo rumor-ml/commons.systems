@@ -122,7 +122,6 @@ jobs:
 
       - name: Delete Firebase Hosting preview channels
         id: cleanup-firebase
-        continue-on-error: true
         env:
           CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
           BRANCH_NAME: ${{ steps.targets.outputs.branch }}
@@ -133,6 +132,7 @@ jobs:
           # Sites to clean up
           SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
           DELETED_COUNT=0
+          FAILED_COUNT=0
 
           # Handle cleanup_all mode
           if [ "$CLEANUP_TYPE" = "all" ]; then
@@ -154,14 +154,20 @@ jobs:
               while IFS= read -r channel; do
                 if [ -n "$channel" ] && [ "$channel" != "live" ]; then
                   echo "  Deleting channel: ${channel}"
-                  if firebase hosting:channel:delete "$channel" \
+                  if OUTPUT=$(firebase hosting:channel:delete "$channel" \
                     --site ${site} \
                     --project ${{ env.GCP_PROJECT_ID }} \
-                    --force 2>&1; then
+                    --force 2>&1); then
                     echo "  ✅ Deleted"
                     DELETED_COUNT=$((DELETED_COUNT + 1))
                   else
-                    echo "  ⚠️  Failed to delete"
+                    # Check if it's "not found" (acceptable) or real error
+                    if echo "$OUTPUT" | grep -qi "not found\|does not exist"; then
+                      echo "  ℹ️  Channel not found (already deleted)"
+                    else
+                      echo "  ❌ Failed to delete: $OUTPUT"
+                      FAILED_COUNT=$((FAILED_COUNT + 1))
+                    fi
                   fi
                 fi
               done <<< "$CHANNELS"
@@ -172,6 +178,12 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Mode:** Clean up ALL preview channels" >> $GITHUB_STEP_SUMMARY
             echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+            echo "**Failed deletions:** ${FAILED_COUNT}" >> $GITHUB_STEP_SUMMARY
+
+            if [ $FAILED_COUNT -gt 0 ]; then
+              echo "::error::${FAILED_COUNT} Firebase channel deletion(s) failed"
+              exit 1
+            fi
             exit 0
           fi
 
@@ -209,14 +221,20 @@ jobs:
               echo "  Checking ${site}..."
 
               # Try to delete the channel
-              if firebase hosting:channel:delete "$channel" \
+              if OUTPUT=$(firebase hosting:channel:delete "$channel" \
                 --site ${site} \
                 --project ${{ env.GCP_PROJECT_ID }} \
-                --force 2>&1; then
+                --force 2>&1); then
                 echo "  ✅ Deleted preview channel for ${site}"
                 DELETED_COUNT=$((DELETED_COUNT + 1))
               else
-                echo "  ℹ️  No preview channel found for ${site} (or already deleted)"
+                # Check if it's "not found" (acceptable) or real error
+                if echo "$OUTPUT" | grep -qi "not found\|does not exist"; then
+                  echo "  ℹ️  No preview channel found for ${site} (or already deleted)"
+                else
+                  echo "  ❌ Failed to delete from ${site}: $OUTPUT"
+                  FAILED_COUNT=$((FAILED_COUNT + 1))
+                fi
               fi
             done
           done
@@ -232,11 +250,16 @@ jobs:
           fi
           echo "**Channels cleaned:** ${#CHANNELS_TO_DELETE[@]}" >> $GITHUB_STEP_SUMMARY
           echo "**Preview channels deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed deletions:** ${FAILED_COUNT}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Firebase Hosting preview channels are automatically cleaned up after expiration (7 days)." >> $GITHUB_STEP_SUMMARY
 
+          if [ $FAILED_COUNT -gt 0 ]; then
+            echo "::error::${FAILED_COUNT} Firebase channel deletion(s) failed"
+            exit 1
+          fi
+
       - name: Delete Artifact Registry packages for branch
-        continue-on-error: true
         env:
           BRANCH_NAME: ${{ steps.targets.outputs.branch }}
         run: |
@@ -252,19 +275,41 @@ jobs:
 
           echo "Cleaning up packages for: $SANITIZED"
 
+          DELETED_COUNT=0
+          FAILED_COUNT=0
+
           # Delete from site preview repos
           for site in fellspiral videobrowser audiobrowser print; do
             PACKAGE="${site}-${SANITIZED}"
-            gcloud artifacts packages delete "$PACKAGE" \
+            if OUTPUT=$(gcloud artifacts packages delete "$PACKAGE" \
               --repository="${site}-previews" \
               --location=${{ env.GCP_REGION }} \
               --project=${{ env.GCP_PROJECT_ID }} \
-              --quiet 2>/dev/null && echo "Deleted: $PACKAGE" || echo "Not found: $PACKAGE"
+              --quiet 2>&1); then
+              echo "✅ Deleted: $PACKAGE"
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+              # Check if it's "not found" (acceptable) or real error
+              if echo "$OUTPUT" | grep -qi "not found\|does not exist\|NOT_FOUND"; then
+                echo "ℹ️  Not found: $PACKAGE"
+              else
+                echo "❌ Failed to delete $PACKAGE: $OUTPUT"
+                FAILED_COUNT=$((FAILED_COUNT + 1))
+              fi
+            fi
           done
+
+          echo ""
+          echo "**Artifact Registry packages deleted:** ${DELETED_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed deletions:** ${FAILED_COUNT}" >> $GITHUB_STEP_SUMMARY
+
+          if [ $FAILED_COUNT -gt 0 ]; then
+            echo "::error::${FAILED_COUNT} Artifact Registry package deletion(s) failed"
+            exit 1
+          fi
 
       - name: Mark GitHub deployments as inactive
         id: cleanup-deployments
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
