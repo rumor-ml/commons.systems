@@ -2,7 +2,6 @@ package watcher
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -36,7 +36,6 @@ var (
 		EventTypeIdle:        true,
 		EventTypeElicitation: true,
 	}
-	debugEnabled = os.Getenv("TMUX_TUI_DEBUG") != ""
 )
 
 // isValidPaneID validates that a pane ID matches the expected format.
@@ -44,13 +43,6 @@ var (
 // This prevents path traversal and injection attacks.
 func isValidPaneID(id string) bool {
 	return id != "" && validPaneIDPattern.MatchString(id)
-}
-
-// debugLog logs a message if debug mode is enabled via TMUX_TUI_DEBUG environment variable
-func debugLog(format string, args ...interface{}) {
-	if debugEnabled {
-		log.Printf("[TMUX_TUI_DEBUG] "+format, args...)
-	}
 }
 
 // readEventType reads the event type from an alert file.
@@ -65,14 +57,14 @@ func readEventType(filePath string) string {
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			debugLog("readEventType: retry attempt %d/%d for %s", attempt+1, maxRetries, filePath)
+			debug.Log("WATCHER_READ_RETRY attempt=%d/%d file=%s", attempt+1, maxRetries, filePath)
 			time.Sleep(retryDelay)
 		}
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			lastErr = err
-			debugLog("readEventType: failed to read file %s: %v", filePath, err)
+			debug.Log("WATCHER_READ_ERROR file=%s error=%v", filePath, err)
 			continue
 		}
 
@@ -82,23 +74,23 @@ func readEventType(filePath string) string {
 			break
 		}
 
-		debugLog("readEventType: file %s is empty on attempt %d", filePath, attempt+1)
+		debug.Log("WATCHER_READ_EMPTY file=%s attempt=%d", filePath, attempt+1)
 		lastErr = fmt.Errorf("empty file")
 	}
 
 	// Handle read errors or empty file after retries
 	if lastErr != nil {
-		debugLog("readEventType: defaulting to 'stop' for %s after %d attempts (last error: %v)", filePath, maxRetries, lastErr)
+		debug.Log("WATCHER_READ_DEFAULT file=%s attempts=%d error=%v", filePath, maxRetries, lastErr)
 		return EventTypeStop
 	}
 
 	// Validate against known event types
 	if !validEventTypes[eventType] {
-		debugLog("readEventType: unknown event type '%s' in %s, defaulting to 'stop'", eventType, filePath)
+		debug.Log("WATCHER_READ_UNKNOWN eventType=%s file=%s", eventType, filePath)
 		return EventTypeStop
 	}
 
-	debugLog("readEventType: successfully read event type '%s' from %s", eventType, filePath)
+	debug.Log("WATCHER_READ_SUCCESS eventType=%s file=%s", eventType, filePath)
 	return eventType
 }
 
@@ -110,34 +102,61 @@ type AlertEvent struct {
 	Error     error  // nil for normal events, non-nil for fsnotify errors
 }
 
+// AlertWatcherOption configures an AlertWatcher
+type AlertWatcherOption func(*alertWatcherConfig)
+
+type alertWatcherConfig struct {
+	alertDir string
+}
+
+// WithAlertDir sets a custom directory for alert files (primarily for testing)
+func WithAlertDir(dir string) AlertWatcherOption {
+	return func(c *alertWatcherConfig) {
+		c.alertDir = dir
+	}
+}
+
 // AlertWatcher watches for alert file changes using fsnotify
 type AlertWatcher struct {
 	watcher *fsnotify.Watcher
 	alertCh chan AlertEvent
 	done    chan struct{}
 	ready   chan struct{} // closed when watch goroutine is ready
+	dir     string        // The alert directory being watched
 	mu      sync.Mutex
 	started bool
 	closed  bool // tracks if Close() was explicitly called
 }
 
+// Dir returns the directory being watched (for testing)
+func (w *AlertWatcher) Dir() string {
+	return w.dir
+}
+
 // NewAlertWatcher creates a new AlertWatcher
-func NewAlertWatcher() (*AlertWatcher, error) {
+func NewAlertWatcher(opts ...AlertWatcherOption) (*AlertWatcher, error) {
+	cfg := &alertWatcherConfig{
+		alertDir: alertDir, // default
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
 
 	// Ensure alert directory exists
-	if err := os.MkdirAll(alertDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.alertDir, 0755); err != nil {
 		watcher.Close()
-		return nil, fmt.Errorf("failed to create alert directory %s: %w", alertDir, err)
+		return nil, fmt.Errorf("failed to create alert directory %s: %w", cfg.alertDir, err)
 	}
 
 	// Add directory to watcher
-	if err := watcher.Add(alertDir); err != nil {
+	if err := watcher.Add(cfg.alertDir); err != nil {
 		watcher.Close()
-		return nil, fmt.Errorf("failed to watch alert directory %s: %w", alertDir, err)
+		return nil, fmt.Errorf("failed to watch alert directory %s: %w", cfg.alertDir, err)
 	}
 
 	return &AlertWatcher{
@@ -145,6 +164,7 @@ func NewAlertWatcher() (*AlertWatcher, error) {
 		alertCh: make(chan AlertEvent, 100), // Buffered to handle bursts
 		done:    make(chan struct{}),
 		ready:   make(chan struct{}),
+		dir:     cfg.alertDir,
 		started: false,
 	}, nil
 }

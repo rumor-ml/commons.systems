@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
@@ -148,6 +149,8 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		if pane.IsClaudePane {
 			// For Claude panes, use persistent alert state
 			alertType, showBell = claudeAlerts[pane.ID]
+			// Log render state for Claude panes
+			debug.Log("TUI_RENDER_PANE id=%s isClaudePane=%v alertType=%s showBell=%v", pane.ID, pane.IsClaudePane, alertType, showBell)
 		} else {
 			// For non-Claude panes, use default tmux bell behavior
 			showBell = pane.WindowBell
