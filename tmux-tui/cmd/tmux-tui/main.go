@@ -122,7 +122,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case daemon.MsgTypeFullState:
 			// Full state received - update alerts map
 			m.alertsMu.Lock()
-			m.alerts = msg.msg.Alerts
+			if msg.msg.Alerts != nil {
+				m.alerts = msg.msg.Alerts
+			} else {
+				m.alerts = make(map[string]string)
+			}
 			m.alertsMu.Unlock()
 			debug.Log("TUI_DAEMON_STATE alerts=%d", len(msg.msg.Alerts))
 			// Trigger tree refresh to update UI
