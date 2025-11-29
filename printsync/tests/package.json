@@ -9,7 +9,10 @@
     "test:deployed": "DEPLOYED=true playwright test"
   },
   "devDependencies": {
+    "@google-cloud/firestore": "^7.1.0",
+    "@google-cloud/storage": "^7.7.0",
     "@playwright/test": "^1.40.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "uuid": "^9.0.1"
   }
 }

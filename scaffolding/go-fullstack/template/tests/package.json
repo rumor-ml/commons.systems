@@ -9,7 +9,14 @@
     "test:deployed": "DEPLOYED=true playwright test"
   },
   "devDependencies": {
+    "@google-cloud/firestore": "^7.1.0",
+    "@google-cloud/storage": "^7.7.0",
     "@playwright/test": "^1.40.0",
     "typescript": "^5.3.0"
+  },
+  "comments": {
+    "note": "These tests require Firebase emulators to be running",
+    "setup": "Run 'firebase emulators:start' before running tests",
+    "emulators": "Firestore: localhost:8082, Storage: localhost:9199"
   }
 }

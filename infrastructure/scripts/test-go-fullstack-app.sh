@@ -15,8 +15,28 @@ fi
 APP_PATH="$1"
 APP_NAME=$(basename "$APP_PATH")
 
+# Get the root directory (2 levels up from infrastructure/scripts)
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Set up trap to stop emulators on exit
+cleanup() {
+  echo ""
+  echo "--- Stopping Emulators ---"
+  "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh"
+}
+trap cleanup EXIT
+
+echo "--- Starting Emulators ---"
+# Source the start script to get environment variables
+source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+
+# Export emulator environment variables for the tests
+export FIRESTORE_EMULATOR_HOST="localhost:8081"
+export STORAGE_EMULATOR_HOST="localhost:9199"
+
 cd "${APP_PATH}/site"
 
+echo ""
 echo "--- Building ---"
 make build
 
