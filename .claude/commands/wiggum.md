@@ -16,10 +16,10 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
 
 - Call `mcp__gh-workflow__gh_monitor_run` with the current branch to monitor the latest workflow
 - Wait for the result:
-  - **On SUCCESS**: Proceed to Step 2
+  - **On SUCCESS**: Proceed to Step 1b
   - **On FAILURE**:
     1. Call `mcp__gh-workflow__gh_get_failure_details` to get a token-efficient error summary
-    2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to debug the failure using the error summary, identify root cause, and create a fix plan
+    2. Use Task tool with `subagent_type="Plan"` to debug the failure using the error summary, identify root cause, and create a fix plan
     3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
     4. Execute `/commit-merge-push` command
        - **If push hook reports testing errors**, recursively handle:
@@ -27,6 +27,20 @@ You are tasked with monitoring CI/CD workflows and PR review feedback in a recur
          b. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
          c. Retry `/commit-merge-push`
          d. Repeat recursively until push succeeds or manual intervention is required
+    5. Increment iteration counter
+    6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
+    7. Return to Step 1 (restart workflow monitoring)
+
+## Step 1b: Monitor PR Checks
+
+- Call `mcp__gh-workflow__gh_monitor_pr_checks` with the PR number (from Step 0)
+- Wait for the result and check the "Overall Status" in the tool output:
+  - **If "Overall Status: SUCCESS"**: Proceed to Step 2
+  - **If ANY OTHER STATUS** (FAILED, CONFLICTS, BLOCKED, MIXED, etc.):
+    1. The tool output provides full context about what failed (merge conflicts, failed checks, etc.)
+    2. Use Task tool with `subagent_type="Plan"` to analyze the failure context and create a fix plan
+    3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fix
+    4. Execute `/commit-merge-push` command (with recursive error handling as described in Step 1)
     5. Increment iteration counter
     6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
     7. Return to Step 1 (restart workflow monitoring)

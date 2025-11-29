@@ -62,6 +62,8 @@ interface PRData {
   state: string;
   url: string;
   headRefName: string;
+  mergeable: string;      // "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+  mergeStateStatus: string; // "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY" | "UNSTABLE" etc.
 }
 
 export async function monitorPRChecks(
@@ -148,12 +150,28 @@ export async function monitorPRChecks(
       return `  ${icon} ${check.name}: ${check.conclusion || check.status}`;
     });
 
-    const overallStatus =
-      failureCount > 0
-        ? "FAILED"
-        : successCount === checks.length
-          ? "SUCCESS"
-          : "MIXED";
+    // Determine overall status with merge conflict detection
+    let overallStatus: string;
+    if (pr.mergeable === "CONFLICTING") {
+      overallStatus = "CONFLICTS";
+    } else if (pr.mergeStateStatus === "DIRTY" || pr.mergeStateStatus === "BLOCKED") {
+      // If checks passed but PR is blocked/dirty, indicate blocking status
+      if (failureCount === 0 && successCount === checks.length) {
+        overallStatus = "BLOCKED";
+      } else if (failureCount > 0) {
+        overallStatus = "FAILED";
+      } else {
+        overallStatus = "MIXED";
+      }
+    } else {
+      // Standard check-based status
+      overallStatus =
+        failureCount > 0
+          ? "FAILED"
+          : successCount === checks.length
+            ? "SUCCESS"
+            : "MIXED";
+    }
 
     const headerSuffix = failedEarly ? " (early exit)" : "";
     const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
@@ -162,6 +180,8 @@ export async function monitorPRChecks(
       `PR #${pr.number} Checks ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${pr.title}`,
       `Overall Status: ${overallStatus}`,
       `Success: ${successCount}, Failed: ${failureCount}, Other: ${otherCount}`,
+      `Mergeable: ${pr.mergeable}`,
+      `Merge State: ${pr.mergeStateStatus}`,
       `PR URL: ${pr.url}`,
       ``,
       `Checks (${checks.length}):`,

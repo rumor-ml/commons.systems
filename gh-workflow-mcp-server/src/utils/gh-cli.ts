@@ -239,7 +239,7 @@ export async function getPR(prNumber: number, repo?: string) {
   return ghCliJson(
     [
       "pr", "view", prNumber.toString(),
-      "--json", "number,title,state,url,headRefName,headRefOid,baseRefName"
+      "--json", "number,title,state,url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus"
     ],
     { repo: resolvedRepo }
   );
