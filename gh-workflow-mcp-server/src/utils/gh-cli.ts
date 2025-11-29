@@ -119,6 +119,45 @@ export async function getWorkflowRunsForBranch(branch: string, repo?: string, li
 }
 
 /**
+ * Get the HEAD commit SHA for a branch
+ */
+export async function getBranchHeadSha(branch: string, repo?: string): Promise<string> {
+  const resolvedRepo = await resolveRepo(repo);
+  const result = await ghCli(
+    ["api", `repos/${resolvedRepo}/branches/${branch}`, "--jq", ".commit.sha"],
+    {} // No repo flag needed - it's in the API path
+  );
+  return result.trim();
+}
+
+/**
+ * Get all workflow runs for a specific commit SHA
+ *
+ * This function retrieves ALL workflow runs matching a commit SHA, regardless of trigger event.
+ * Unlike getWorkflowRunsForBranch, this catches workflows triggered by "dynamic" events
+ * (like CodeQL analysis) that don't appear in branch-filtered queries.
+ *
+ * @param headSha - The commit SHA to filter runs by
+ * @param repo - Repository in format "owner/repo"
+ * @param limit - Maximum number of runs to fetch (default: 20)
+ * @returns Array of workflow runs matching the commit SHA
+ */
+export async function getWorkflowRunsForCommit(headSha: string, repo?: string, limit = 20): Promise<any[]> {
+  const resolvedRepo = await resolveRepo(repo);
+  const allRuns = await ghCliJson<any[]>(
+    [
+      "run", "list",
+      "--limit", limit.toString(),
+      "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha,event"
+    ],
+    { repo: resolvedRepo }
+  );
+
+  // Filter to only runs matching the target commit SHA
+  return allRuns.filter((run) => run.headSha === headSha);
+}
+
+/**
  * Map PR check state to workflow run status
  *
  * GitHub's `gh pr checks` API returns check states (PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, etc.)

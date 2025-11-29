@@ -16,8 +16,9 @@ import {
 } from "../constants.js";
 import {
   getWorkflowRun,
-  getWorkflowRunsForBranch,
   getWorkflowRunsForPR,
+  getBranchHeadSha,
+  getWorkflowRunsForCommit,
   resolveRepo,
   sleep,
   getWorkflowJobs,
@@ -113,21 +114,23 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       }
       runIds = [parseInt(runIdMatch[1], 10)];
     } else if (input.branch) {
-      const runs = await getWorkflowRunsForBranch(input.branch, resolvedRepo, 10);
-      if (!Array.isArray(runs) || runs.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for branch ${input.branch}`
-        );
-      }
-      // Get all runs with the same headSha as the most recent run
-      const latestSha = runs[0]?.headSha;
-      if (!latestSha) {
+      // Get the HEAD commit SHA for the branch
+      const headSha = await getBranchHeadSha(input.branch, resolvedRepo);
+      if (!headSha) {
         throw new ValidationError(
           `Could not determine head SHA for branch ${input.branch}`
         );
       }
-      const concurrentRuns = runs.filter((r) => r.headSha === latestSha);
-      runIds = concurrentRuns.map((r) => r.databaseId);
+
+      // Get all workflow runs for this commit (catches all trigger events including "dynamic")
+      const runs = await getWorkflowRunsForCommit(headSha, resolvedRepo, 20);
+      if (!Array.isArray(runs) || runs.length === 0) {
+        throw new ValidationError(
+          `No workflow runs found for branch ${input.branch} (commit ${headSha})`
+        );
+      }
+
+      runIds = runs.map((r) => r.databaseId);
       monitoringMultipleRuns = runIds.length > 1;
     } else {
       throw new ValidationError(
