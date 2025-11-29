@@ -211,8 +211,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.alertsMu.Unlock()
 
 		// Continue watching for more alert events
-		// When a new alert is created, also trigger a tree refresh to update IsClaudePane status.
-		// This fixes a race condition where the pane was cached as non-Claude before claude started.
+		// Trigger tree refresh for both alert creation and removal to ensure immediate UI updates.
+		// For new alerts, also clear cache to update IsClaudePane status.
 		if m.alertWatcher != nil {
 			if isNewAlert {
 				// New alert - clear cache and refresh tree to pick up IsClaudePane changes
@@ -220,7 +220,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.collector.ClearCache()
 				return m, tea.Batch(watchAlertsCmd(m.alertWatcher), refreshTreeCmd(m.collector))
 			}
-			return m, watchAlertsCmd(m.alertWatcher)
+			// Alert removed - trigger refresh to immediately update UI
+			debug.Log("TUI_TRIGGER_REFRESH reason=alert_removed paneID=%s", msg.paneID)
+			return m, tea.Batch(watchAlertsCmd(m.alertWatcher), refreshTreeCmd(m.collector))
 		}
 		return m, nil
 
