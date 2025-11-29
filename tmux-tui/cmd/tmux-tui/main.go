@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
@@ -183,23 +184,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Success - reset error counter
 		m.alertWatcherErrors = 0
 
+		// Log when alert is received
+		debug.Log("TUI_ALERT_RECEIVED paneID=%s eventType=%s created=%v", msg.paneID, msg.eventType, msg.created)
+
 		// FAST PATH: Update alert immediately with mutex protection
+		var isNewAlert bool
 		m.alertsMu.Lock()
 		if msg.created {
 			// Check if this is a new alert (transition TO idle state)
 			_, alreadyExists := m.alerts[msg.paneID]
+			isNewAlert = !alreadyExists
 			m.alerts[msg.paneID] = msg.eventType
 
+			// Log after storing
+			debug.Log("TUI_ALERT_STORED paneID=%s eventType=%s total_alerts=%d", msg.paneID, msg.eventType, len(m.alerts))
+
 			// Play sound only when transitioning to alert state (not already in alert)
-			if !alreadyExists {
+			if isNewAlert {
 				playAlertSound()
 			}
 		} else {
 			delete(m.alerts, msg.paneID)
+			// Log after removing
+			debug.Log("TUI_ALERT_REMOVED paneID=%s remaining=%d", msg.paneID, len(m.alerts))
 		}
 		m.alertsMu.Unlock()
+
 		// Continue watching for more alert events
+		// When a new alert is created, also trigger a tree refresh to update IsClaudePane status.
+		// This fixes a race condition where the pane was cached as non-Claude before claude started.
 		if m.alertWatcher != nil {
+			if isNewAlert {
+				// New alert - clear cache and refresh tree to pick up IsClaudePane changes
+				debug.Log("TUI_TRIGGER_REFRESH reason=new_alert paneID=%s", msg.paneID)
+				m.collector.ClearCache()
+				return m, tea.Batch(watchAlertsCmd(m.alertWatcher), refreshTreeCmd(m.collector))
+			}
 			return m, watchAlertsCmd(m.alertWatcher)
 		}
 		return m, nil
@@ -219,7 +239,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tree = msg.tree
 			// Reconcile alerts with lock held to prevent race with fast path
 			m.alertsMu.Lock()
+			alertsBefore := len(m.alerts)
 			m.alerts = reconcileAlerts(m.tree, m.alerts)
+			alertsAfter := len(m.alerts)
+			removed := alertsBefore - alertsAfter
+
+			// Count total panes in tree
+			totalPanes := 0
+			for _, branches := range m.tree {
+				for _, panes := range branches {
+					totalPanes += len(panes)
+				}
+			}
+
+			// Log reconciliation results
+			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
 			m.alertsMu.Unlock()
 			m.err = nil
 		} else {

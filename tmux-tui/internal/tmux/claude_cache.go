@@ -87,6 +87,16 @@ func (c *ClaudePaneCache) Cleanup() {
 	}
 }
 
+// Clear removes all entries from the cache, forcing fresh checks on next access.
+// Use this when external events suggest cached data may be stale (e.g., receiving
+// an alert for a pane that might have just started running Claude).
+func (c *ClaudePaneCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cache = make(map[string]cacheEntry)
+}
+
 // CleanupExcept removes entries not in the provided set of valid PIDs
 // This is useful for cleaning up cache entries for panes that no longer exist
 // Also removes expired entries to prevent unbounded growth
