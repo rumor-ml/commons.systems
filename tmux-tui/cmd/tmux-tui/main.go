@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -29,6 +30,22 @@ type alertWatcherStoppedMsg struct {
 type treeRefreshMsg struct {
 	tree tmux.RepoTree
 	err  error
+}
+
+// playAlertSound plays the system alert sound in the background.
+// It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
+// The sound only plays once when transitioning to an alert state.
+func playAlertSound() {
+	// Skip sound during E2E tests
+	if os.Getenv("CLAUDE_E2E_TEST") != "" {
+		return
+	}
+
+	// Play sound in background (non-blocking)
+	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
+	// Detach from parent process so it continues even if TUI exits
+	cmd.Start()
+	// Don't wait for completion - fire and forget
 }
 
 type model struct {
@@ -169,7 +186,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// FAST PATH: Update alert immediately with mutex protection
 		m.alertsMu.Lock()
 		if msg.created {
+			// Check if this is a new alert (transition TO idle state)
+			_, alreadyExists := m.alerts[msg.paneID]
 			m.alerts[msg.paneID] = msg.eventType
+
+			// Play sound only when transitioning to alert state (not already in alert)
+			if !alreadyExists {
+				playAlertSound()
+			}
 		} else {
 			delete(m.alerts, msg.paneID)
 		}
