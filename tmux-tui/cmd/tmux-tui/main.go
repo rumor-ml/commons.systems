@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -58,7 +59,11 @@ func initialModel() model {
 	daemonClient := daemon.NewDaemonClient()
 
 	// Try to connect to daemon with retries
-	if err := daemonClient.ConnectWithRetry(5); err != nil {
+	// Use background context with a reasonable timeout for initialization
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := daemonClient.ConnectWithRetry(ctx, 5); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
 		daemonClient = nil

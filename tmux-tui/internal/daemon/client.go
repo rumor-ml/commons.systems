@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -136,12 +137,19 @@ func (c *DaemonClient) Close() error {
 }
 
 // ConnectWithRetry attempts to connect to the daemon with exponential backoff.
-// Returns nil on success, error if all retries exhausted.
-func (c *DaemonClient) ConnectWithRetry(maxRetries int) error {
+// Returns nil on success, error if all retries exhausted or context cancelled.
+func (c *DaemonClient) ConnectWithRetry(ctx context.Context, maxRetries int) error {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Check context cancellation before attempting connection
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("connection cancelled: %w", ctx.Err())
+		default:
+		}
+
 		if err := c.Connect(); err == nil {
 			return nil
 		}
@@ -149,7 +157,14 @@ func (c *DaemonClient) ConnectWithRetry(maxRetries int) error {
 		if attempt < maxRetries-1 {
 			debug.Log("CLIENT_CONNECT_RETRY id=%s attempt=%d/%d backoff=%v",
 				c.clientID, attempt+1, maxRetries, backoff)
-			time.Sleep(backoff)
+
+			// Context-aware backoff sleep
+			select {
+			case <-time.After(backoff):
+				// Continue to next retry
+			case <-ctx.Done():
+				return fmt.Errorf("connection cancelled during backoff: %w", ctx.Err())
+			}
 
 			// Exponential backoff with cap
 			backoff *= 2

@@ -84,6 +84,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	existingAlerts, err := watcher.GetExistingAlertsFromDir(alertDir)
 	if err != nil {
 		debug.Log("DAEMON_ALERTS_LOAD_ERROR error=%v", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to load existing alerts: %v\n", err)
 		existingAlerts = make(map[string]string)
 	}
 
