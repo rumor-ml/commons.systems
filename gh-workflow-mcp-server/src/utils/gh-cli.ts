@@ -158,9 +158,9 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
     name: check.name,
     status: mapStateToStatus(check.state),
     conclusion: mapStateToConclusion(check.state),
-    url: check.link,
-    createdAt: check.startedAt,
-    updatedAt: check.completedAt || check.startedAt,
+    detailsUrl: check.link,
+    startedAt: check.startedAt,
+    completedAt: check.completedAt,
     workflowName: check.workflow,
   }));
 }
