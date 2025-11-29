@@ -320,15 +320,8 @@ func (w *AlertWatcher) Close() error {
 	return nil
 }
 
-// GetExistingAlerts returns a map of currently active alert files with their event types
-// This is useful for initializing state when the watcher starts
-// Uses the default alert directory.
-func GetExistingAlerts() (map[string]string, error) {
-	return GetExistingAlertsFromDir(alertDir)
-}
-
 // GetExistingAlertsFromDir returns a map of currently active alert files with their event types
-// from a specific directory. This is useful for session-scoped alert directories.
+// from a specific directory. This is useful for initializing state when the watcher starts.
 func GetExistingAlertsFromDir(dir string) (map[string]string, error) {
 	alerts := make(map[string]string)
 
@@ -351,4 +344,10 @@ func GetExistingAlertsFromDir(dir string) (map[string]string, error) {
 	}
 
 	return alerts, nil
+}
+
+// GetExistingAlerts returns a map of currently active alert files with their event types
+// from the default alert directory. This is useful for initializing state when the watcher starts.
+func GetExistingAlerts() (map[string]string, error) {
+	return GetExistingAlertsFromDir(alertDir)
 }

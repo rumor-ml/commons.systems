@@ -95,17 +95,24 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 		t.Fatalf("Failed to remove alert file: %v", err)
 	}
 
-	// Wait for delete event
-	select {
-	case event := <-eventCh:
-		if event.PaneID != testPaneID {
-			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+	// Wait for delete event, potentially draining any Write events that may precede it
+	foundDelete := false
+	timeout := time.After(2 * time.Second)
+	for !foundDelete {
+		select {
+		case event := <-eventCh:
+			if event.PaneID != testPaneID {
+				t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+				break
+			}
+			if !event.Created {
+				// Found the delete event
+				foundDelete = true
+			}
+			// If Created=true, it's likely a Write event before Remove; continue waiting
+		case <-timeout:
+			t.Fatal("Timeout waiting for delete event")
 		}
-		if event.Created {
-			t.Error("Expected Created=false, got true")
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("Timeout waiting for delete event")
 	}
 }
 
@@ -234,22 +241,8 @@ func TestAlertWatcher_MultipleStarts(t *testing.T) {
 }
 
 func TestGetExistingAlerts(t *testing.T) {
-	// Note: GetExistingAlerts uses the hardcoded alertDir constant.
-	// This test still uses the production directory since GetExistingAlerts
-	// is not yet configurable. This test may still be flaky if other
-	// Claude instances are running. A future improvement could make
-	// GetExistingAlerts also accept a directory parameter.
-
-	// Clean up first
-	// Ensure alertDir exists before creating test files
-	if err := os.MkdirAll(alertDir, 0755); err != nil {
-		t.Fatalf("Failed to create alert directory: %v", err)
-	}
-	pattern := filepath.Join(alertDir, alertPrefix+"*")
-	matches, _ := filepath.Glob(pattern)
-	for _, file := range matches {
-		os.Remove(file)
-	}
+	// Use temp directory to avoid flakiness from other Claude instances
+	tempDir := t.TempDir()
 
 	// Create some test alert files with different event types
 	testPanes := map[string]string{
@@ -258,22 +251,21 @@ func TestGetExistingAlerts(t *testing.T) {
 		"%12": EventTypeIdle,
 	}
 	for paneID, eventType := range testPanes {
-		alertFile := filepath.Join(alertDir, alertPrefix+paneID)
+		alertFile := filepath.Join(tempDir, alertPrefix+paneID)
 		if err := os.WriteFile(alertFile, []byte(eventType), 0644); err != nil {
 			t.Fatalf("Failed to create test alert file: %v", err)
 		}
-		defer os.Remove(alertFile)
 	}
 
-	// Get existing alerts
-	alerts, err := GetExistingAlerts()
+	// Get existing alerts from temp directory
+	alerts, err := GetExistingAlertsFromDir(tempDir)
 	if err != nil {
-		t.Fatalf("GetExistingAlerts failed: %v", err)
+		t.Fatalf("GetExistingAlertsFromDir failed: %v", err)
 	}
 
 	// Verify all test panes are present with correct event types
-	if len(alerts) < len(testPanes) {
-		t.Errorf("Expected at least %d alerts, got %d", len(testPanes), len(alerts))
+	if len(alerts) != len(testPanes) {
+		t.Errorf("Expected %d alerts, got %d", len(testPanes), len(alerts))
 	}
 
 	for paneID, expectedEventType := range testPanes {

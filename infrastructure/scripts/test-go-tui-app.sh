@@ -18,12 +18,12 @@ APP_NAME=$(basename "$APP_PATH")
 cd "$APP_PATH"
 
 echo "--- Unit Tests ---"
-go test -v ./cmd/... ./internal/...
+go test -v -json ./cmd/... ./internal/...
 
 echo ""
 echo "--- Integration Tests ---"
 if [[ -d "tests" ]]; then
-  go test -v ./tests/...
+  go test -v -json ./tests/...
 else
   echo "Warning: No tests/ directory found, skipping integration tests"
 fi

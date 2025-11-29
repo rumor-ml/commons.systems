@@ -29,12 +29,12 @@ test: test-unit test-e2e
 
 test-unit:
 	@echo "Running unit tests..."
-	@$(GO) test -v ./cmd/... ./internal/... 2>/dev/null || echo "No unit tests found (expected for MVP)"
+	@$(GO) test -v -json ./cmd/... ./internal/... 2>/dev/null || echo "No unit tests found (expected for MVP)"
 
 test-e2e:
 	@echo "Running E2E tests..."
 	@command -v tmux >/dev/null || (echo "Error: tmux not found" && exit 1)
-	@$(GO) test -v -count=1 ./tests/...
+	@$(GO) test -v -json -count=1 ./tests/...
 
 clean:
 	@echo "Cleaning build artifacts..."
