@@ -18,6 +18,6 @@ PKG_NAME=$(basename "$PKG_PATH")
 cd "$PKG_PATH"
 
 echo "--- Go Tests ---"
-go test -v ./...
+go test -v -json ./...
 
 echo "Tests passed for $PKG_NAME"

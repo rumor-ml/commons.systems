@@ -1,5 +1,8 @@
 {
   "model": "opus",
+  "enabledMcpjsonServers": [
+    "gh-workflow"
+  ],
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
@@ -17,6 +20,10 @@
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
       "SlashCommand(/commit-merge-push)",
+      "mcp__gh-workflow__gh_monitor_run",
+      "mcp__gh-workflow__gh_get_deployment_urls",
+      "mcp__gh-workflow__gh_monitor_pr_checks",
+      "mcp__gh-workflow__gh_get_failure_details",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",
@@ -89,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] STOP_START pane=$TMUX_PANE test=$CLAUDE_E2E_TEST\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'stop' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] STOP_SUCCESS pane=$TMUX_PANE file_created=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] STOP_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] STOP_START pane=$TMUX_PANE namespace=$NAMESPACE test=$CLAUDE_E2E_TEST\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && mkdir -p \"$NAMESPACE\" && echo 'stop' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] STOP_SUCCESS pane=$TMUX_PANE file_created=yes\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] STOP_FAILED pane=$TMUX_PANE code=$?\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       }
@@ -100,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] SUBMIT_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] SUBMIT_SUCCESS pane=$TMUX_PANE file_removed=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] SUBMIT_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] SUBMIT_START pane=$TMUX_PANE namespace=$NAMESPACE\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && mkdir -p \"$NAMESPACE\" && echo 'working' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] SUBMIT_SUCCESS pane=$TMUX_PANE state=working\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] SUBMIT_FAILED pane=$TMUX_PANE code=$?\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       }
@@ -135,7 +142,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] POSTTOOL_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] POSTTOOL_SUCCESS pane=$TMUX_PANE file_removed=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] POSTTOOL_SKIPPED pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] POSTTOOL_START pane=$TMUX_PANE namespace=$NAMESPACE\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && [[ -f \"$NAMESPACE/tui-alert-$TMUX_PANE\" ]] && grep -q \"permission\" \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo 'working' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] POSTTOOL_SUCCESS pane=$TMUX_PANE permission_cleared=yes\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] POSTTOOL_SKIPPED pane=$TMUX_PANE\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       }
@@ -146,7 +153,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] PERMISSION_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'permission' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] PERMISSION_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] PERMISSION_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] PERMISSION_START pane=$TMUX_PANE namespace=$NAMESPACE\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && mkdir -p \"$NAMESPACE\" && echo 'permission' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] PERMISSION_SUCCESS pane=$TMUX_PANE\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] PERMISSION_FAILED pane=$TMUX_PANE code=$?\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       },
@@ -155,7 +162,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] IDLE_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'idle' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] IDLE_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] IDLE_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] IDLE_START pane=$TMUX_PANE namespace=$NAMESPACE\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && mkdir -p \"$NAMESPACE\" && echo 'idle' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] IDLE_SUCCESS pane=$TMUX_PANE\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] IDLE_FAILED pane=$TMUX_PANE code=$?\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       },
@@ -164,7 +171,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date +%s.%N)] ELICITATION_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && echo 'elicitation' > \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] ELICITATION_SUCCESS pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] ELICITATION_FAILED pane=$TMUX_PANE code=$?\" >> /tmp/claude/hook-debug.log"
+            "command": "NAMESPACE=\"$([[ -n \"$TMUX\" ]] && echo \"/tmp/claude/$(basename \"${TMUX%%,*}\")\" || echo \"/tmp/claude/default\")\" && echo \"[$(date +%s.%N)] ELICITATION_START pane=$TMUX_PANE namespace=$NAMESPACE\" >> \"$NAMESPACE/hook-debug.log\" && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && mkdir -p \"$NAMESPACE\" && echo 'elicitation' > \"$NAMESPACE/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] ELICITATION_SUCCESS pane=$TMUX_PANE\" >> \"$NAMESPACE/hook-debug.log\" || echo \"[$(date +%s.%N)] ELICITATION_FAILED pane=$TMUX_PANE code=$?\" >> \"$NAMESPACE/hook-debug.log\""
           }
         ]
       }

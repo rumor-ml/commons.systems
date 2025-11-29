@@ -22,10 +22,18 @@ if [ -n "$EXISTING_TUI_PANE" ]; then
   fi
 fi
 
-# Rebuild binary before spawning
+# Rebuild binaries before spawning
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1)
+
+# Start daemon if not already running
+DAEMON_BIN="$PROJECT_ROOT/build/tmux-tui-daemon"
+if [ -f "$DAEMON_BIN" ]; then
+  # Daemon auto-detects namespace from $TMUX
+  # It will exit immediately if already running
+  "$DAEMON_BIN" >/dev/null 2>&1 &
+fi
 
 # Save current pane ID to return focus later
 CURRENT_PANE=$(tmux display-message -p "#{pane_id}")
