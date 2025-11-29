@@ -219,8 +219,21 @@ export async function getFailureDetails(
     // Get run details
     const run = (await getWorkflowRun(runId, resolvedRepo)) as WorkflowRunData;
 
-    // Check if run actually failed
-    if (run.conclusion !== "failure" && run.conclusion !== "timed_out") {
+    // Get all jobs first - we need to check for failed jobs even if run is still in progress
+    // (supports fail-fast monitoring where we detect failures before run completes)
+    const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
+    const jobs = jobsData.jobs || [];
+
+    // Filter to failed jobs
+    const failedJobs = jobs.filter(
+      (job) => job.conclusion === "failure" || job.conclusion === "timed_out"
+    );
+
+    // Check if run failed OR if any jobs have failed (for fail-fast support)
+    const runFailed = run.conclusion === "failure" || run.conclusion === "timed_out";
+    const hasFailedJobs = failedJobs.length > 0;
+
+    if (!runFailed && !hasFailedJobs) {
       return {
         content: [
           {
@@ -235,15 +248,6 @@ export async function getFailureDetails(
         ],
       };
     }
-
-    // Get all jobs
-    const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
-    const jobs = jobsData.jobs || [];
-
-    // Filter to failed jobs
-    const failedJobs = jobs.filter(
-      (job) => job.conclusion === "failure" || job.conclusion === "timed_out"
-    );
 
     if (failedJobs.length === 0) {
       return {
@@ -355,9 +359,11 @@ export async function getFailureDetails(
       ].join("\n");
     });
 
+    // Indicate if run is still in progress (fail-fast scenario)
+    const headerSuffix = run.status !== "completed" ? " (run still in progress)" : "";
     const summary = [
-      `Workflow Run Failed: ${run.name}`,
-      `Overall Status: ${run.status} / ${run.conclusion}`,
+      `Workflow Run Failed${headerSuffix}: ${run.name}`,
+      `Overall Status: ${run.status} / ${run.conclusion || "none"}`,
       `URL: ${run.url}`,
       ``,
       `Failed Jobs (${failedJobSummaries.length}):`,

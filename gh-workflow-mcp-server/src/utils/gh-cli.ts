@@ -216,8 +216,9 @@ export async function getJobLogs(
   tailLines = 2000
 ): Promise<string> {
   const resolvedRepo = await resolveRepo(repo);
+  // Correct order: gh run view <run-id> --job <job-id> --log
   const fullLogs = await ghCliWithRetry(
-    ["run", "view", "--job", jobId.toString(), "--log", runId.toString()],
+    ["run", "view", runId.toString(), "--job", jobId.toString(), "--log"],
     { repo: resolvedRepo }
   );
 
