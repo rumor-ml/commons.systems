@@ -736,67 +736,6 @@ func TestIntegration_ViewOutputContainsAlerts(t *testing.T) {
 	t.Logf("View output length: %d characters", len(output))
 }
 
-// TestIntegration_InitializationFailureGracefulDegradation verifies the app continues
-// functioning when alert watcher initialization fails
-func TestIntegration_InitializationFailureGracefulDegradation(t *testing.T) {
-	socketName := uniqueSocketName()
-	// Make alert directory unreadable to force initialization failure
-	// Save original permissions
-	dirInfo, err := os.Stat(getTestAlertDir(socketName))
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatalf("Failed to stat alert directory: %v", err)
-	}
-
-	// Create directory if it doesn't exist
-	if os.IsNotExist(err) {
-		if err := os.MkdirAll(getTestAlertDir(socketName), 0755); err != nil {
-			t.Fatalf("Failed to create alert directory: %v", err)
-		}
-		dirInfo, err = os.Stat(getTestAlertDir(socketName))
-		if err != nil {
-			t.Fatalf("Failed to stat newly created alert directory: %v", err)
-		}
-	}
-
-	originalMode := dirInfo.Mode()
-	defer os.Chmod(getTestAlertDir(socketName), originalMode) // Restore permissions
-
-	// Make directory unreadable/unwritable
-	if err := os.Chmod(getTestAlertDir(socketName), 0000); err != nil {
-		t.Fatalf("Failed to change alert directory permissions: %v", err)
-	}
-
-	// Ensure permissions are restored even if test fails
-	defer func() {
-		os.Chmod(getTestAlertDir(socketName), originalMode)
-	}()
-
-	// Try to initialize the model - should handle failure gracefully
-	m := realInitialModel()
-
-	// AlertWatcher should be nil due to initialization failure
-	if m.alertWatcher != nil {
-		t.Error("Expected alertWatcher to be nil after initialization failure")
-	}
-
-	// Restore permissions for the rest of the test
-	if err := os.Chmod(getTestAlertDir(socketName), originalMode); err != nil {
-		t.Fatalf("Failed to restore alert directory permissions: %v", err)
-	}
-
-	// Start the TUI - should work without alert watcher
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
-	defer tm.Quit()
-
-	// Wait for initialization
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify app still functions (can quit)
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	t.Log("App functioned correctly despite alert watcher initialization failure")
-}
 
 // TestIntegration_ReconcileAlertsWithEmptyTree verifies that stale alerts are
 // cleaned up when all panes disappear

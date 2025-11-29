@@ -289,7 +289,9 @@ func getActiveAlerts(socketName string) map[string]string {
 		}
 	}
 
-	pattern := "/tmp/claude/tui-alert-*"
+	// Use socket-specific alert directory for test isolation
+	alertDir := getTestAlertDir(socketName)
+	pattern := filepath.Join(alertDir, "tui-alert-*")
 	matches, _ := filepath.Glob(pattern)
 	for _, file := range matches {
 		paneID := strings.TrimPrefix(filepath.Base(file), "tui-alert-")
