@@ -143,9 +143,9 @@ function extractErrorLines(logText: string, maxLines = 40): string[] {
   const result: string[] = [];
 
   for (const failureIdx of failureLineIndices) {
-    // Capture context: 2 lines before, 3 lines after
-    const contextStart = Math.max(0, failureIdx - 2);
-    const contextEnd = Math.min(lines.length, failureIdx + 4);
+    // Capture context: 5 lines before, 5 lines after
+    const contextStart = Math.max(0, failureIdx - 5);
+    const contextEnd = Math.min(lines.length, failureIdx + 6);
 
     for (let j = contextStart; j < contextEnd; j++) {
       if (!seenIndices.has(j)) {

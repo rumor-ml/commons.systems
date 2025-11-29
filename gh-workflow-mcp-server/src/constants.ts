@@ -60,6 +60,11 @@ export const FAILURE_PATTERNS = [
   /Error:/i,                        // General error prefix
   /Exception:/i,                    // Exception messages
   /Traceback/i,                     // Python tracebacks
+  /--- FAIL:/,                      // Go test failure marker
+  /FAIL\t/,                         // Go package failure (tab after FAIL)
+  /panic:/i,                        // Go panic
+  /got:.*want:/i,                   // Go testify/assertion pattern
+  /\.go:\d+:/,                      // Go file:line error reference
 ];
 
 // Context patterns (include for additional info)
