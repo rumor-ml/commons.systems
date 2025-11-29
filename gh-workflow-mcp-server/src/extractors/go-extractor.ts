@@ -15,7 +15,7 @@ interface GoTestEvent {
   Package: string;
   Test?: string;
   Output?: string;
-  Elapsed?: number;
+  Elapsed?: number; // Test duration in seconds
 }
 
 export class GoExtractor implements FrameworkExtractor {
@@ -88,6 +88,7 @@ export class GoExtractor implements FrameworkExtractor {
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
     const testResults = new Map<string, "pass" | "fail">();
+    const testDurations = new Map<string, number>();
 
     for (const line of lines) {
       if (!line.startsWith("{")) continue;
@@ -109,9 +110,12 @@ export class GoExtractor implements FrameworkExtractor {
           testOutputs.get(key)!.push(event.Output);
         }
 
-        // Track test results
+        // Track test results and duration
         if (event.Action === "fail" && event.Test) {
           testResults.set(key, "fail");
+          if (event.Elapsed !== undefined) {
+            testDurations.set(key, event.Elapsed * 1000); // Convert to ms
+          }
         } else if (event.Action === "pass" && event.Test) {
           testResults.set(key, "pass");
         }
@@ -136,17 +140,25 @@ export class GoExtractor implements FrameworkExtractor {
         const fileName = fileLineMatch?.[1];
         const lineNumber = fileLineMatch?.[2] ? parseInt(fileLineMatch[2], 10) : undefined;
 
-        // Extract context lines (indented lines with actual assertions)
-        const contextLines = outputs
-          .filter((line) => line.trim() && (line.startsWith("    ") || line.startsWith("\t")))
-          .map((line) => line.trimEnd());
+        // Extract stack trace from panic output (look for goroutine patterns)
+        let stack: string | undefined;
+        // Match from "goroutine" to end or next "goroutine" or test marker
+        const goroutineMatch = fullOutput.match(/goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/);
+        if (goroutineMatch) {
+          stack = goroutineMatch[0].trim();
+        }
+
+        // Store all output lines for this test
+        const rawOutput = outputs.map((line) => line.trimEnd());
 
         failures.push({
           testName,
           fileName,
           lineNumber,
           message: fullOutput.trim() || `Test failed: ${testName}`,
-          context: contextLines,
+          stack,
+          duration: testDurations.get(key),
+          rawOutput,
         });
 
         if (failures.length >= maxErrors) break;
@@ -168,16 +180,18 @@ export class GoExtractor implements FrameworkExtractor {
   private parseGoTestText(logText: string, maxErrors: number): ExtractionResult {
     const lines = logText.split("\n");
     const failures: ExtractedError[] = [];
-    const failPattern = /^---\s*FAIL:\s*(\S+)/;
+    const failPattern = /^---\s*FAIL:\s*(\S+)\s*\(([0-9.]+)s\)?/;
     const fileLinePattern = /(\w+\.go):(\d+):/;
 
     for (let i = 0; i < lines.length; i++) {
       const match = lines[i].match(failPattern);
       if (match) {
         const testName = match[1];
-        const contextLines: string[] = [];
+        const duration = match[2] ? parseFloat(match[2]) * 1000 : undefined; // Convert to ms
+        const rawOutput: string[] = [];
         let fileName: string | undefined;
         let lineNumber: number | undefined;
+        let stack: string | undefined;
 
         // Collect indented assertion lines and context
         for (let j = i + 1; j < lines.length; j++) {
@@ -190,7 +204,7 @@ export class GoExtractor implements FrameworkExtractor {
 
           // Collect indented lines (test output)
           if (line.startsWith("    ") || line.startsWith("\t")) {
-            contextLines.push(line.trimEnd());
+            rawOutput.push(line.trimEnd());
 
             // Extract file:line reference if present
             if (!fileName) {
@@ -203,9 +217,17 @@ export class GoExtractor implements FrameworkExtractor {
           }
         }
 
-        // Build message from context lines
-        const message = contextLines.length > 0
-          ? contextLines.join("\n")
+        // Extract stack trace from panic output (look for goroutine patterns)
+        const fullOutput = rawOutput.join("\n");
+        // Match from "goroutine" to end or next "goroutine" or test marker
+        const goroutineMatch = fullOutput.match(/goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/);
+        if (goroutineMatch) {
+          stack = goroutineMatch[0].trim();
+        }
+
+        // Build message from raw output
+        const message = rawOutput.length > 0
+          ? rawOutput.join("\n")
           : `Test failed: ${testName}`;
 
         failures.push({
@@ -213,7 +235,9 @@ export class GoExtractor implements FrameworkExtractor {
           fileName,
           lineNumber,
           message,
-          context: contextLines,
+          stack,
+          duration,
+          rawOutput,
         });
 
         if (failures.length >= maxErrors) break;
