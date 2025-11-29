@@ -14,3 +14,4 @@ onlyBuiltDependencies:
   - es5-ext
   - esbuild
   - protobufjs
+  - 'test-app-scaffold-verification/tests'
