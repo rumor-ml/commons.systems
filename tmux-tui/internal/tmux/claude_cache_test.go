@@ -204,6 +204,39 @@ func TestClaudePaneCache_CleanupPartial(t *testing.T) {
 	}
 }
 
+func TestClaudePaneCache_Clear(t *testing.T) {
+	cache := mustNewCache(t, 30*time.Second)
+
+	// Add several entries
+	cache.Set("1234", true)
+	cache.Set("5678", false)
+	cache.Set("9999", true)
+
+	// Verify all exist
+	if cache.Size() != 3 {
+		t.Errorf("Expected 3 entries, got %d", cache.Size())
+	}
+
+	// Clear all entries
+	cache.Clear()
+
+	// Verify cache is empty
+	if cache.Size() != 0 {
+		t.Errorf("Expected 0 entries after Clear(), got %d", cache.Size())
+	}
+
+	// Verify entries are actually gone
+	if _, found := cache.Get("1234"); found {
+		t.Error("Expected 1234 to be cleared")
+	}
+	if _, found := cache.Get("5678"); found {
+		t.Error("Expected 5678 to be cleared")
+	}
+	if _, found := cache.Get("9999"); found {
+		t.Error("Expected 9999 to be cleared")
+	}
+}
+
 func TestClaudePaneCache_CleanupExcept(t *testing.T) {
 	cache := mustNewCache(t, 30*time.Second)
 
