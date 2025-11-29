@@ -14,7 +14,7 @@ import {
   getJobLogs,
   resolveRepo,
 } from "../utils/gh-cli.js";
-import { ValidationError, createErrorResult } from "../utils/errors.js";
+import { ValidationError, GitHubCliError, createErrorResult } from "../utils/errors.js";
 import { extractErrors, formatExtractionResult } from "../extractors/index.js";
 
 export const GetFailureDetailsInputSchema = z
@@ -269,11 +269,23 @@ export async function getFailureDetails(
           }
         }
       } catch (error) {
-        // If we can't get logs, note that
+        console.error(`Failed to retrieve logs for job ${job.name}:`, error);
+
+        const errorMessage = error instanceof GitHubCliError
+          ? `GitHub CLI error: ${error.message}${error.stderr ? ` - ${error.stderr}` : ''}`
+          : error instanceof Error
+          ? `Error: ${error.message}`
+          : `Unknown error: ${String(error)}`;
+
         failedSteps.push({
           name: "Unable to retrieve logs",
           conclusion: job.conclusion,
-          error_lines: [`Error retrieving logs: ${error}`],
+          error_lines: [
+            errorMessage,
+            error instanceof GitHubCliError && error.exitCode
+              ? `Exit code: ${error.exitCode}`
+              : '',
+          ].filter(Boolean),
         });
       }
 

@@ -13,7 +13,7 @@
     "watch": "tsc --watch",
     "dev": "tsc && node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test --test-reporter=tap dist/utils/gh-cli.test.js dist/extractors/extractors.test.js"
+    "test": "npm run build && node --test --test-reporter=tap dist/utils/gh-cli.test.js dist/extractors/extractors.test.js dist/tools/monitor-run.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

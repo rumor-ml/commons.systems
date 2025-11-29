@@ -142,4 +142,57 @@ describe("MonitorRun - Concurrent Runs Logic", () => {
 
     assert.equal(failedRunId, 2);
   });
+
+  it("handles empty runs array gracefully", () => {
+    const runs: any[] = [];
+
+    const latestSha = runs[0]?.headSha;
+    assert.equal(latestSha, undefined);
+
+    const concurrentRuns = runs.filter((r) => r.headSha === latestSha);
+    assert.equal(concurrentRuns.length, 0);
+  });
+
+  it("handles runs with different event types", () => {
+    const runs = [
+      { databaseId: 1, headSha: "abc123", name: "CI", event: "push" },
+      { databaseId: 2, headSha: "abc123", name: "CI", event: "pull_request" },
+      { databaseId: 3, headSha: "abc123", name: "CI", event: "workflow_dispatch" },
+    ];
+
+    const latestSha = runs[0]?.headSha;
+    const concurrentRuns = runs.filter((r) => r.headSha === latestSha);
+    assert.equal(concurrentRuns.length, 3);
+  });
+
+  it("handles all runs cancelled scenario", () => {
+    const runs = new Map([
+      [1, { status: "completed", conclusion: "cancelled" }],
+      [2, { status: "completed", conclusion: "cancelled" }],
+    ]);
+
+    const allComplete = Array.from(runs.values()).every((run: any) =>
+      ["completed"].includes(run.status)
+    );
+    assert.equal(allComplete, true);
+
+    const failureConclusions = ["failure", "cancelled", "timed_out", "action_required"];
+    const hasFailure = Array.from(runs.values()).some((run: any) =>
+      failureConclusions.includes(run.conclusion)
+    );
+    assert.equal(hasFailure, true);
+  });
+
+  it("handles queued status correctly", () => {
+    const runs = new Map([
+      [1, { status: "queued" }],
+      [2, { status: "in_progress" }],
+      [3, { status: "completed" }],
+    ]);
+
+    const allComplete = Array.from(runs.values()).every((run: any) =>
+      ["completed"].includes(run.status)
+    );
+    assert.equal(allComplete, false);
+  });
 });
