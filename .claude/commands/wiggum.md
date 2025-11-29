@@ -64,6 +64,11 @@ You are tasked with monitoring CI/CD workflows, addressing automated code qualit
     2. Command complete, exit successfully with message: "PR review complete with no issues identified"
   - **If ANY ISSUES exist** (including minor suggestions, style issues, or any feedback whatsoever):
     1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
+       - **CRITICAL**: The comment must be self-contained and actionable. For each issue, include:
+         - The specific file path(s) and line number(s) affected
+         - The exact change requested (not just a category like "documentation improvement")
+         - Code snippets or examples where helpful
+       - Someone reading ONLY this PR comment must be able to implement all fixes without access to the original review
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address ALL issues (do not skip minor issues)
     3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the fixes for ALL issues
