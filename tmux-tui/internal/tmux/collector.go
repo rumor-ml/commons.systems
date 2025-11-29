@@ -123,6 +123,13 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	return tree, nil
 }
 
+// ClearCache clears the Claude pane detection cache, forcing fresh checks on next GetTree.
+// Call this when external events suggest cached data may be stale (e.g., receiving
+// an alert for a pane that might have just started running Claude).
+func (c *Collector) ClearCache() {
+	c.claudeCache.Clear()
+}
+
 // isClaudePane checks if the pane is running Claude by inspecting child processes
 // This version uses caching to prevent expensive process checks on every tick
 func (c *Collector) isClaudePane(panePID string) bool {
