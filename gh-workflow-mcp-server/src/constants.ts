@@ -36,6 +36,16 @@ export const DEPLOYMENT_URL_KEYWORDS = [
 export const PR_CHECK_IN_PROGRESS_STATES = ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING"];
 export const PR_CHECK_TERMINAL_STATES = ["SUCCESS", "FAILURE", "ERROR", "CANCELLED", "SKIPPED", "STALE"];
 
+// Mapping from PR check terminal states to workflow run conclusions
+export const PR_CHECK_TERMINAL_STATE_MAP: Record<string, string> = {
+  SUCCESS: "success",
+  FAILURE: "failure",
+  ERROR: "failure",
+  CANCELLED: "cancelled",
+  SKIPPED: "skipped",
+  STALE: "skipped",
+};
+
 // High-confidence failure patterns (trigger error extraction)
 export const FAILURE_PATTERNS = [
   /✘/,                              // Playwright failure marker

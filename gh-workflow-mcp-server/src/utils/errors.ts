@@ -36,10 +36,48 @@ export class ValidationError extends McpError {
   }
 }
 
+/**
+ * Create a standardized error result for MCP tool responses
+ *
+ * Categorizes errors by type to help consumers handle different error scenarios:
+ * - TimeoutError: Operation exceeded time limit
+ * - ValidationError: Invalid input parameters
+ * - GitHubCliError: GitHub CLI command failed
+ * - Generic errors: Unexpected failures
+ *
+ * @param error - The error to convert to a tool result
+ * @returns Standardized ToolResult with error information and type metadata
+ */
 export function createErrorResult(error: unknown): ToolResult {
   const message = error instanceof Error ? error.message : String(error);
+  let errorType = "UnknownError";
+  let errorCode: string | undefined;
+
+  // Categorize error types for better handling
+  if (error instanceof TimeoutError) {
+    errorType = "TimeoutError";
+    errorCode = "TIMEOUT";
+  } else if (error instanceof ValidationError) {
+    errorType = "ValidationError";
+    errorCode = "VALIDATION_ERROR";
+  } else if (error instanceof GitHubCliError) {
+    errorType = "GitHubCliError";
+    errorCode = "GH_CLI_ERROR";
+  } else if (error instanceof McpError) {
+    errorType = "McpError";
+    errorCode = error.code;
+  }
+
   return {
-    content: [{ type: "text", text: `Error: ${message}` }],
+    content: [{
+      type: "text",
+      text: `Error: ${message}`
+    }],
+    isError: true,
+    _meta: {
+      errorType,
+      errorCode,
+    },
   };
 }
 

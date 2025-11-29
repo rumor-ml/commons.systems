@@ -4,6 +4,7 @@
 
 import { execa } from "execa";
 import { GitHubCliError } from "./errors.js";
+import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from "../constants.js";
 
 export interface GhCliOptions {
   repo?: string;
@@ -119,25 +120,51 @@ export async function getWorkflowRunsForBranch(branch: string, repo?: string, li
 
 /**
  * Map PR check state to workflow run status
+ *
+ * GitHub's `gh pr checks` API returns check states (PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, etc.)
+ * that differ from workflow run statuses (in_progress, completed). This mapping normalizes PR check states
+ * to the workflow run status format used by the monitoring tools.
+ *
+ * Mapping rationale:
+ * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": All represent actively running or queued checks
+ * - All other states (SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE) → "completed": Terminal states
+ *
+ * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
+ * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
+ *
+ * @param state - The PR check state from GitHub API (uppercase format)
+ * @returns Normalized workflow run status ("in_progress" or "completed")
  */
-function mapStateToStatus(state: string): string {
-  const IN_PROGRESS = ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING"];
-  return IN_PROGRESS.includes(state) ? "in_progress" : "completed";
+export function mapStateToStatus(state: string): string {
+  return PR_CHECK_IN_PROGRESS_STATES.includes(state) ? "in_progress" : "completed";
 }
 
 /**
  * Map PR check state to workflow run conclusion
+ *
+ * GitHub's `gh pr checks` returns terminal states (SUCCESS, FAILURE, etc.) that need to be mapped
+ * to workflow run conclusions (success, failure, cancelled, skipped). This mapping ensures consistency
+ * with the workflow run format used throughout the monitoring tools.
+ *
+ * Full state-to-conclusion mapping:
+ * - SUCCESS → "success": Check passed successfully
+ * - FAILURE → "failure": Check failed due to test/build failures
+ * - ERROR → "failure": Check encountered an error (system failure, mapped to "failure" for consistency)
+ * - CANCELLED → "cancelled": Check was explicitly cancelled by user or system
+ * - SKIPPED → "skipped": Check was skipped (conditional execution, path filters, etc.)
+ * - STALE → "skipped": Check is outdated/stale (treated as skipped since it won't complete)
+ * - In-progress states (PENDING, QUEUED, IN_PROGRESS, WAITING) → null: No conclusion yet
+ *
+ * Edge cases:
+ * - ERROR maps to "failure" rather than having a separate conclusion to align with how errors are typically
+ *   treated in CI/CD systems (as failures requiring attention)
+ * - STALE maps to "skipped" because stale checks won't complete and are effectively superseded by newer runs
+ *
+ * @param state - The PR check state from GitHub API (uppercase format)
+ * @returns Workflow run conclusion string for terminal states, null for in-progress states
  */
-function mapStateToConclusion(state: string): string | null {
-  const TERMINAL_STATES: Record<string, string> = {
-    SUCCESS: "success",
-    FAILURE: "failure",
-    ERROR: "failure",
-    CANCELLED: "cancelled",
-    SKIPPED: "skipped",
-    STALE: "skipped",
-  };
-  return TERMINAL_STATES[state] || null;
+export function mapStateToConclusion(state: string): string | null {
+  return PR_CHECK_TERMINAL_STATE_MAP[state] || null;
 }
 
 /**
