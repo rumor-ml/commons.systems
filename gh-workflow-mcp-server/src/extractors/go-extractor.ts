@@ -21,6 +21,16 @@ interface GoTestEvent {
 export class GoExtractor implements FrameworkExtractor {
   readonly name = "go" as const;
 
+  /**
+   * Strip GitHub Actions timestamp prefix from a log line.
+   * GitHub Actions logs are prefixed with timestamps like "2025-11-29T21:44:33.3461112Z "
+   */
+  private stripTimestamp(line: string): string {
+    // Match ISO timestamp at start: YYYY-MM-DDTHH:MM:SS.nnnnnnnZ followed by space or tab
+    const match = line.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z[\s\t]+/);
+    return match ? line.slice(match[0].length) : line;
+  }
+
   detect(logText: string): DetectionResult | null {
     const lines = logText.split("\n");
     let jsonLineCount = 0;
@@ -30,7 +40,7 @@ export class GoExtractor implements FrameworkExtractor {
     const sampleSize = Math.min(100, lines.length);
 
     for (let i = 0; i < sampleSize; i++) {
-      const line = lines[i];
+      const line = this.stripTimestamp(lines[i]);
 
       // Check for Go test JSON format
       if (line.startsWith("{") && line.includes('"Time"') && line.includes('"Action"')) {
@@ -90,7 +100,8 @@ export class GoExtractor implements FrameworkExtractor {
     const testResults = new Map<string, "pass" | "fail">();
     const testDurations = new Map<string, number>();
 
-    for (const line of lines) {
+    for (const rawLine of lines) {
+      const line = this.stripTimestamp(rawLine);
       if (!line.startsWith("{")) continue;
 
       try {
@@ -178,7 +189,8 @@ export class GoExtractor implements FrameworkExtractor {
   }
 
   private parseGoTestText(logText: string, maxErrors: number): ExtractionResult {
-    const lines = logText.split("\n");
+    const rawLines = logText.split("\n");
+    const lines = rawLines.map((line) => this.stripTimestamp(line));
     const failures: ExtractedError[] = [];
     const failPattern = /^---\s*FAIL:\s*(\S+)\s*\(([0-9.]+)s\)?/;
     const fileLinePattern = /(\w+\.go):(\d+):/;
