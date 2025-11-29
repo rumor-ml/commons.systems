@@ -13,17 +13,25 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	heartbeatInterval = 5 * time.Second  // How often to send pings
+	heartbeatTimeout  = 3 * time.Second  // How long to wait for pong response
+)
+
 // DaemonClient represents a client connection to the alert daemon.
 type DaemonClient struct {
 	clientID   string
 	socketPath string
 	conn       net.Conn
 	encoder    *json.Encoder
+	encoderMu  sync.Mutex    // Protects encoder from concurrent writes
 	decoder    *json.Decoder
 	eventCh    chan Message
 	done       chan struct{}
 	mu         sync.Mutex
 	connected  bool
+	lastPong   time.Time     // Timestamp of last pong received
+	lastPongMu sync.RWMutex  // Protects lastPong
 }
 
 // NewDaemonClient creates a new daemon client.
@@ -34,6 +42,27 @@ func NewDaemonClient() *DaemonClient {
 		eventCh:    make(chan Message, 100),
 		done:       make(chan struct{}),
 	}
+}
+
+// sendMessage safely sends a message to the daemon with mutex protection
+func (c *DaemonClient) sendMessage(msg Message) error {
+	c.encoderMu.Lock()
+	defer c.encoderMu.Unlock()
+	return c.encoder.Encode(msg)
+}
+
+// updateLastPong updates the timestamp of the last pong received
+func (c *DaemonClient) updateLastPong() {
+	c.lastPongMu.Lock()
+	defer c.lastPongMu.Unlock()
+	c.lastPong = time.Now()
+}
+
+// getLastPong returns the timestamp of the last pong received
+func (c *DaemonClient) getLastPong() time.Time {
+	c.lastPongMu.RLock()
+	defer c.lastPongMu.RUnlock()
+	return c.lastPong
 }
 
 // Connect connects to the daemon and sends a hello message.
@@ -60,7 +89,7 @@ func (c *DaemonClient) Connect() error {
 		Type:     MsgTypeHello,
 		ClientID: c.clientID,
 	}
-	if err := c.encoder.Encode(helloMsg); err != nil {
+	if err := c.sendMessage(helloMsg); err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to send hello message: %w", err)
 	}
@@ -69,8 +98,14 @@ func (c *DaemonClient) Connect() error {
 
 	c.connected = true
 
+	// Initialize lastPong to current time
+	c.updateLastPong()
+
 	// Start receiving messages
 	go c.receive()
+
+	// Start heartbeat monitoring
+	go c.heartbeat()
 
 	return nil
 }
@@ -90,12 +125,21 @@ func (c *DaemonClient) receive() {
 				c.connected = false
 				c.mu.Unlock()
 
-				// Send disconnect event
-				c.eventCh <- Message{
-					Type: "disconnect",
+				// Send disconnect event (context-aware to prevent goroutine leak)
+				select {
+				case c.eventCh <- Message{Type: "disconnect"}:
+				case <-c.done:
+					return
 				}
 				return
 			}
+		}
+
+		// Handle pong messages to update heartbeat
+		if msg.Type == MsgTypePong {
+			c.updateLastPong()
+			debug.Log("CLIENT_PONG_RECEIVED id=%s", c.clientID)
+			continue
 		}
 
 		// Forward message to event channel
@@ -103,6 +147,66 @@ func (c *DaemonClient) receive() {
 		case c.eventCh <- msg:
 		case <-c.done:
 			return
+		}
+	}
+}
+
+// heartbeat periodically sends ping messages and monitors for pong responses.
+// If no pong is received within the timeout period, it triggers a disconnect.
+func (c *DaemonClient) heartbeat() {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			// Check if we're still connected
+			c.mu.Lock()
+			connected := c.connected
+			c.mu.Unlock()
+
+			if !connected {
+				return
+			}
+
+			// Check if last pong is too old
+			lastPong := c.getLastPong()
+			timeSinceLastPong := time.Since(lastPong)
+			if timeSinceLastPong > heartbeatInterval+heartbeatTimeout {
+				debug.Log("CLIENT_HEARTBEAT_TIMEOUT id=%s since_last_pong=%v", c.clientID, timeSinceLastPong)
+				c.mu.Lock()
+				c.connected = false
+				c.mu.Unlock()
+
+				// Trigger disconnect event
+				select {
+				case c.eventCh <- Message{Type: "disconnect"}:
+				case <-c.done:
+					return
+				}
+				return
+			}
+
+			// Send ping
+			pingMsg := Message{Type: MsgTypePing}
+			if err := c.sendMessage(pingMsg); err != nil {
+				debug.Log("CLIENT_PING_ERROR id=%s error=%v", c.clientID, err)
+				c.mu.Lock()
+				c.connected = false
+				c.mu.Unlock()
+
+				// Trigger disconnect event
+				select {
+				case c.eventCh <- Message{Type: "disconnect"}:
+				case <-c.done:
+					return
+				}
+				return
+			}
+
+			debug.Log("CLIENT_PING_SENT id=%s", c.clientID)
 		}
 	}
 }
@@ -122,16 +226,24 @@ func (c *DaemonClient) IsConnected() bool {
 // Close closes the daemon client connection.
 func (c *DaemonClient) Close() error {
 	debug.Log("CLIENT_CLOSING id=%s", c.clientID)
-	close(c.done)
 
+	// Safely close done channel (may already be closed)
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.connected {
+		select {
+		case <-c.done:
+			// Already closed
+		default:
+			close(c.done)
+		}
+	}
 
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
 	c.connected = false
+	c.mu.Unlock()
 
 	return nil
 }

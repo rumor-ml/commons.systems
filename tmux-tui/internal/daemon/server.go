@@ -19,6 +19,21 @@ var (
 	lastAudioPlay time.Time
 )
 
+// clientConnection wraps a client connection with a mutex-protected encoder
+// to prevent race conditions when writing from multiple goroutines
+type clientConnection struct {
+	conn      net.Conn
+	encoder   *json.Encoder
+	encoderMu sync.Mutex
+}
+
+// sendMessage safely sends a message to the client with mutex protection
+func (c *clientConnection) sendMessage(msg Message) error {
+	c.encoderMu.Lock()
+	defer c.encoderMu.Unlock()
+	return c.encoder.Encode(msg)
+}
+
 // playAlertSound plays the system alert sound in the background.
 // It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
 // The sound only plays once when transitioning to an alert state.
@@ -56,7 +71,7 @@ type AlertDaemon struct {
 	alerts        map[string]string // Current alert state: paneID -> eventType
 	previousState map[string]string // Previous state for bell firing logic
 	alertsMu      sync.RWMutex
-	clients       map[string]net.Conn
+	clients       map[string]*clientConnection
 	clientsMu     sync.RWMutex
 	listener      net.Listener
 	done          chan struct{}
@@ -94,7 +109,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		alertWatcher:  alertWatcher,
 		alerts:        existingAlerts,
 		previousState: make(map[string]string),
-		clients:       make(map[string]net.Conn),
+		clients:       make(map[string]*clientConnection),
 		done:          make(chan struct{}),
 		socketPath:    socketPath,
 	}, nil
@@ -220,7 +235,6 @@ func (d *AlertDaemon) acceptClients() {
 // handleClient manages a client connection.
 func (d *AlertDaemon) handleClient(conn net.Conn) {
 	decoder := json.NewDecoder(conn)
-	encoder := json.NewEncoder(conn)
 
 	var clientID string
 
@@ -241,9 +255,15 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	clientID = helloMsg.ClientID
 	debug.Log("DAEMON_CLIENT_CONNECTED id=%s", clientID)
 
+	// Create client connection wrapper
+	client := &clientConnection{
+		conn:    conn,
+		encoder: json.NewEncoder(conn),
+	}
+
 	// Register client
 	d.clientsMu.Lock()
-	d.clients[clientID] = conn
+	d.clients[clientID] = client
 	d.clientsMu.Unlock()
 
 	// Send full state
@@ -258,7 +278,7 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		Type:   MsgTypeFullState,
 		Alerts: alertsCopy,
 	}
-	if err := encoder.Encode(fullStateMsg); err != nil {
+	if err := client.sendMessage(fullStateMsg); err != nil {
 		debug.Log("DAEMON_SEND_STATE_ERROR client=%s error=%v", clientID, err)
 		d.removeClient(clientID)
 		conn.Close()
@@ -279,7 +299,7 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 
 		if msg.Type == MsgTypePing {
 			pongMsg := Message{Type: MsgTypePong}
-			if err := encoder.Encode(pongMsg); err != nil {
+			if err := client.sendMessage(pongMsg); err != nil {
 				debug.Log("DAEMON_PONG_ERROR client=%s error=%v", clientID, err)
 				d.removeClient(clientID)
 				conn.Close()
@@ -294,9 +314,8 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
 	defer d.clientsMu.RUnlock()
 
-	for clientID, conn := range d.clients {
-		encoder := json.NewEncoder(conn)
-		if err := encoder.Encode(msg); err != nil {
+	for clientID, client := range d.clients {
+		if err := client.sendMessage(msg); err != nil {
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
 			// Don't remove client here - let handleClient detect disconnect
 		}
@@ -323,11 +342,11 @@ func (d *AlertDaemon) Stop() error {
 
 	// Close all client connections
 	d.clientsMu.Lock()
-	for clientID, conn := range d.clients {
+	for clientID, client := range d.clients {
 		debug.Log("DAEMON_CLOSING_CLIENT id=%s", clientID)
-		conn.Close()
+		client.conn.Close()
 	}
-	d.clients = make(map[string]net.Conn)
+	d.clients = make(map[string]*clientConnection)
 	d.clientsMu.Unlock()
 
 	// Close listener
