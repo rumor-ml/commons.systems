@@ -207,19 +207,24 @@ export async function getPR(prNumber: number, repo?: string) {
 }
 
 /**
- * Get logs for a specific job, with optional truncation for large logs
+ * Get logs for a specific job, with optional truncation for large logs.
+ * Uses GitHub API directly to fetch logs for completed jobs even when
+ * the overall workflow run is still in progress.
  */
 export async function getJobLogs(
-  runId: number,
+  _runId: number,  // Unused - kept for API compatibility
   jobId: number,
   repo?: string,
   tailLines = 2000
 ): Promise<string> {
   const resolvedRepo = await resolveRepo(repo);
-  // Correct order: gh run view <run-id> --job <job-id> --log
+
+  // Use GitHub API directly - this allows fetching logs for completed jobs
+  // even when the overall workflow run is still in progress.
+  // The `gh run view --log` command blocks until the entire run completes.
   const fullLogs = await ghCliWithRetry(
-    ["run", "view", runId.toString(), "--job", jobId.toString(), "--log"],
-    { repo: resolvedRepo }
+    ["api", `repos/${resolvedRepo}/actions/jobs/${jobId}/logs`],
+    {}  // No repo flag needed - it's in the API path
   );
 
   const lines = fullLogs.split("\n");
