@@ -26,6 +26,8 @@ const (
 	EventTypeIdle = "idle"
 	// EventTypeElicitation is written by Notification hook for elicitation_dialog
 	EventTypeElicitation = "elicitation"
+	// EventTypeWorking is written by UserPromptSubmit and PostToolUse hooks to signal "no alert"
+	EventTypeWorking = "working"
 )
 
 var (
@@ -35,6 +37,7 @@ var (
 		EventTypePermission:  true,
 		EventTypeIdle:        true,
 		EventTypeElicitation: true,
+		EventTypeWorking:     true,
 	}
 )
 
@@ -319,10 +322,17 @@ func (w *AlertWatcher) Close() error {
 
 // GetExistingAlerts returns a map of currently active alert files with their event types
 // This is useful for initializing state when the watcher starts
+// Uses the default alert directory.
 func GetExistingAlerts() (map[string]string, error) {
+	return GetExistingAlertsFromDir(alertDir)
+}
+
+// GetExistingAlertsFromDir returns a map of currently active alert files with their event types
+// from a specific directory. This is useful for session-scoped alert directories.
+func GetExistingAlertsFromDir(dir string) (map[string]string, error) {
 	alerts := make(map[string]string)
 
-	pattern := filepath.Join(alertDir, alertPrefix+"*")
+	pattern := filepath.Join(dir, alertPrefix+"*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to glob alert files with pattern %s: %w", pattern, err)
@@ -333,7 +343,10 @@ func GetExistingAlerts() (map[string]string, error) {
 		paneID := strings.TrimPrefix(filename, alertPrefix)
 		if isValidPaneID(paneID) {
 			eventType := readEventType(file)
-			alerts[paneID] = eventType
+			// Only include actual alert states, not "working"
+			if eventType != EventTypeWorking {
+				alerts[paneID] = eventType
+			}
 		}
 	}
 

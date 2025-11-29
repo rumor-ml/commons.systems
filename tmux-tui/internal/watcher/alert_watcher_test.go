@@ -298,6 +298,7 @@ func TestAlertWatcher_EventTypes(t *testing.T) {
 		{"Permission event", "%101", EventTypePermission},
 		{"Idle event", "%102", EventTypeIdle},
 		{"Elicitation event", "%103", EventTypeElicitation},
+		{"Working event", "%104", EventTypeWorking},
 	}
 
 	for _, tc := range testCases {
@@ -339,7 +340,7 @@ func TestAlertWatcher_UnknownEventType(t *testing.T) {
 	watcher := mustNewTestAlertWatcher(t)
 	defer watcher.Close()
 
-	testPaneID := "%104"
+	testPaneID := "%105"
 	alertFile := filepath.Join(watcher.Dir(), alertPrefix+testPaneID)
 
 	eventCh := watcher.Start()

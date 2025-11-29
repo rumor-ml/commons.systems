@@ -3,29 +3,21 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
-	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
 type tickMsg time.Time
 
-type alertChangedMsg struct {
-	paneID    string
-	eventType string
-	created   bool
-	err       error
-}
-
-type alertWatcherStoppedMsg struct {
-	wasIntentional bool
+type daemonEventMsg struct {
+	msg daemon.Message
 }
 
 type treeRefreshMsg struct {
@@ -33,38 +25,18 @@ type treeRefreshMsg struct {
 	err  error
 }
 
-// playAlertSound plays the system alert sound in the background.
-// It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
-// The sound only plays once when transitioning to an alert state.
-func playAlertSound() {
-	// Skip sound during E2E tests
-	if os.Getenv("CLAUDE_E2E_TEST") != "" {
-		return
-	}
-
-	// Play sound in background (non-blocking)
-	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
-	// Detach from parent process so it continues even if TUI exits
-	cmd.Start()
-	// Don't wait for completion - fire and forget
-}
-
 type model struct {
-	collector       *tmux.Collector
-	renderer        *ui.TreeRenderer
-	alertWatcher    *watcher.AlertWatcher
-	tree            tmux.RepoTree
-	alerts          map[string]string // Persistent alert state: paneID -> eventType
-	alertsMu        *sync.RWMutex     // Protects alerts map from race conditions
-	width           int
-	height          int
-	err             error
-	alertsDisabled  bool   // true if alert watcher failed to initialize
-	alertError      string // watcher initialization error
-	alertLoadError  string // error loading existing alerts
-	// Circuit breaker state
-	alertWatcherErrors    int
-	alertWatcherMaxErrors int // Default: 5
+	collector      *tmux.Collector
+	renderer       *ui.TreeRenderer
+	daemonClient   *daemon.DaemonClient
+	tree           tmux.RepoTree
+	alerts         map[string]string // Alert state received from daemon: paneID -> eventType
+	alertsMu       *sync.RWMutex     // Protects alerts map from race conditions
+	width          int
+	height         int
+	err            error
+	alertsDisabled bool   // true if daemon connection failed
+	alertError     string // daemon connection error
 }
 
 func initialModel() model {
@@ -80,42 +52,32 @@ func initialModel() model {
 	// Initial tree load
 	tree, err := collector.GetTree()
 
-	// Initialize alert watcher
+	// Initialize daemon client
 	var alertsDisabled bool
 	var alertError string
-	alertWatcher, watcherErr := watcher.NewAlertWatcher()
-	if watcherErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Alert watcher failed to initialize: %v\n", watcherErr)
-		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
-		alertWatcher = nil
-		alertsDisabled = true
-		alertError = watcherErr.Error()
-	}
+	daemonClient := daemon.NewDaemonClient()
 
-	// Load existing alerts
-	var alertLoadError string
-	alerts, alertsErr := watcher.GetExistingAlerts()
-	if alertsErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load existing alerts: %v\n", alertsErr)
-		fmt.Fprintf(os.Stderr, "Existing alert files in ~/.tmux-alerts/ will not be shown.\n")
-		alerts = make(map[string]string)
-		alertLoadError = fmt.Sprintf("Failed to load existing alerts: %v", alertsErr)
+	// Try to connect to daemon with retries
+	if err := daemonClient.ConnectWithRetry(5); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
+		daemonClient = nil
+		alertsDisabled = true
+		alertError = err.Error()
 	}
 
 	return model{
-		collector:             collector,
-		renderer:              renderer,
-		alertWatcher:          alertWatcher,
-		tree:                  tree,
-		alerts:                alerts,
-		alertsMu:              &sync.RWMutex{},
-		width:                 80,
-		height:                24,
-		err:                   err,
-		alertsDisabled:        alertsDisabled,
-		alertError:            alertError,
-		alertLoadError:        alertLoadError,
-		alertWatcherMaxErrors: 5,
+		collector:      collector,
+		renderer:       renderer,
+		daemonClient:   daemonClient,
+		tree:           tree,
+		alerts:         make(map[string]string),
+		alertsMu:       &sync.RWMutex{},
+		width:          80,
+		height:         24,
+		err:            err,
+		alertsDisabled: alertsDisabled,
+		alertError:     alertError,
 	}
 }
 
@@ -125,9 +87,9 @@ func (m model) Init() tea.Cmd {
 		refreshTreeCmd(m.collector),
 	}
 
-	// Start alert watcher if available
-	if m.alertWatcher != nil {
-		cmds = append(cmds, watchAlertsCmd(m.alertWatcher))
+	// Start daemon event listener if connected
+	if m.daemonClient != nil {
+		cmds = append(cmds, watchDaemonCmd(m.daemonClient))
 	}
 
 	return tea.Batch(cmds...)
@@ -145,94 +107,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
-			// Clean up watcher on quit
-			if m.alertWatcher != nil {
-				if err := m.alertWatcher.Close(); err != nil {
-					fmt.Fprintf(os.Stderr, "Error closing alert watcher: %v\n", err)
+			// Clean up daemon client on quit
+			if m.daemonClient != nil {
+				if err := m.daemonClient.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error closing daemon client: %v\n", err)
 				}
 			}
 			return m, tea.Quit
 		}
 
-	case alertChangedMsg:
-		// Check for error events first
-		if msg.err != nil {
-			m.alertWatcherErrors++
-			fmt.Fprintf(os.Stderr, "Alert watcher error (%d/%d): %v\n",
-				m.alertWatcherErrors, m.alertWatcherMaxErrors, msg.err)
-
-			// Circuit breaker: disable after threshold
-			if m.alertWatcherErrors >= m.alertWatcherMaxErrors {
-				fmt.Fprintf(os.Stderr, "Alert watcher disabled after %d consecutive errors\n",
-					m.alertWatcherErrors)
-				if m.alertWatcher != nil {
-					m.alertWatcher.Close()
-				}
-				m.alertWatcher = nil
-				m.alertsDisabled = true
-				m.alertError = fmt.Sprintf("Disabled after %d consecutive errors", m.alertWatcherErrors)
-				return m, nil
+	case daemonEventMsg:
+		// Handle daemon event
+		switch msg.msg.Type {
+		case daemon.MsgTypeFullState:
+			// Full state received - update alerts map
+			m.alertsMu.Lock()
+			m.alerts = msg.msg.Alerts
+			m.alertsMu.Unlock()
+			debug.Log("TUI_DAEMON_STATE alerts=%d", len(msg.msg.Alerts))
+			// Trigger tree refresh to update UI
+			if m.daemonClient != nil {
+				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
 			}
+			return m, nil
 
-			// Continue watching despite error
-			if m.alertWatcher != nil {
-				return m, watchAlertsCmd(m.alertWatcher)
+		case daemon.MsgTypeAlertChange:
+			// Single alert changed
+			debug.Log("TUI_DAEMON_ALERT paneID=%s eventType=%s created=%v",
+				msg.msg.PaneID, msg.msg.EventType, msg.msg.Created)
+
+			m.alertsMu.Lock()
+			if msg.msg.Created {
+				m.alerts[msg.msg.PaneID] = msg.msg.EventType
+			} else {
+				delete(m.alerts, msg.msg.PaneID)
 			}
+			m.alertsMu.Unlock()
+
+			// Trigger tree refresh
+			if m.daemonClient != nil {
+				m.collector.ClearCache()
+				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
+			}
+			return m, nil
+
+		case "disconnect":
+			// Daemon disconnected
+			debug.Log("TUI_DAEMON_DISCONNECT")
+			fmt.Fprintf(os.Stderr, "Disconnected from daemon\n")
+			m.alertsDisabled = true
+			m.alertError = "Disconnected from daemon"
+			m.daemonClient = nil
 			return m, nil
 		}
 
-		// Success - reset error counter
-		m.alertWatcherErrors = 0
-
-		// Log when alert is received
-		debug.Log("TUI_ALERT_RECEIVED paneID=%s eventType=%s created=%v", msg.paneID, msg.eventType, msg.created)
-
-		// FAST PATH: Update alert immediately with mutex protection
-		var isNewAlert bool
-		m.alertsMu.Lock()
-		if msg.created {
-			// Check if this is a new alert (transition TO idle state)
-			_, alreadyExists := m.alerts[msg.paneID]
-			isNewAlert = !alreadyExists
-			m.alerts[msg.paneID] = msg.eventType
-
-			// Log after storing
-			debug.Log("TUI_ALERT_STORED paneID=%s eventType=%s total_alerts=%d", msg.paneID, msg.eventType, len(m.alerts))
-
-			// Play sound only when transitioning to alert state (not already in alert)
-			if isNewAlert {
-				playAlertSound()
-			}
-		} else {
-			delete(m.alerts, msg.paneID)
-			// Log after removing
-			debug.Log("TUI_ALERT_REMOVED paneID=%s remaining=%d", msg.paneID, len(m.alerts))
+		// Continue watching
+		if m.daemonClient != nil {
+			return m, watchDaemonCmd(m.daemonClient)
 		}
-		m.alertsMu.Unlock()
-
-		// Continue watching for more alert events
-		// Trigger tree refresh for both alert creation and removal to ensure immediate UI updates.
-		// For new alerts, also clear cache to update IsClaudePane status.
-		if m.alertWatcher != nil {
-			if isNewAlert {
-				// New alert - clear cache and refresh tree to pick up IsClaudePane changes
-				debug.Log("TUI_TRIGGER_REFRESH reason=new_alert paneID=%s", msg.paneID)
-				m.collector.ClearCache()
-				return m, tea.Batch(watchAlertsCmd(m.alertWatcher), refreshTreeCmd(m.collector))
-			}
-			// Alert removed - trigger refresh to immediately update UI
-			debug.Log("TUI_TRIGGER_REFRESH reason=alert_removed paneID=%s", msg.paneID)
-			return m, tea.Batch(watchAlertsCmd(m.alertWatcher), refreshTreeCmd(m.collector))
-		}
-		return m, nil
-
-	case alertWatcherStoppedMsg:
-		// Only print error if watcher stopped unexpectedly
-		if !msg.wasIntentional {
-			fmt.Fprintf(os.Stderr, "Alert watcher stopped unexpectedly\n")
-			fmt.Fprintf(os.Stderr, "Alert notifications are now disabled\n")
-		}
-		m.alertWatcher = nil
 		return m, nil
 
 	case treeRefreshMsg:
@@ -294,14 +226,6 @@ func (m model) View() string {
 			Padding(0, 1)
 		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
 	}
-	if m.alertLoadError != "" {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")).
-			Bold(true).
-			Padding(0, 1)
-		warningBanner += warningStyle.Render("⚠ "+m.alertLoadError) + "\n\n"
-	}
 
 	// Copy alerts map with read lock for safe concurrent access
 	// We copy to prevent the renderer from accessing the map after lock release
@@ -317,21 +241,17 @@ func (m model) View() string {
 	return warningBanner + output
 }
 
-// watchAlertsCmd watches for alert file changes
-func watchAlertsCmd(w *watcher.AlertWatcher) tea.Cmd {
+// watchDaemonCmd watches for daemon events
+func watchDaemonCmd(client *daemon.DaemonClient) tea.Cmd {
 	return func() tea.Msg {
-		event, ok := <-w.Start()
+		msg, ok := <-client.Events()
 		if !ok {
-			// Channel closed - check if it was intentional
-			wasIntentional := w.IsClosed()
-			return alertWatcherStoppedMsg{wasIntentional: wasIntentional}
+			// Channel closed
+			return daemonEventMsg{
+				msg: daemon.Message{Type: "disconnect"},
+			}
 		}
-		return alertChangedMsg{
-			paneID:    event.PaneID,
-			eventType: event.EventType,
-			created:   event.Created,
-			err:       event.Error,
-		}
+		return daemonEventMsg{msg: msg}
 	}
 }
 
