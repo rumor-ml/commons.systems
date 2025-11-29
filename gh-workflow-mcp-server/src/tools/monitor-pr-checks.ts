@@ -12,6 +12,7 @@ import {
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
   IN_PROGRESS_STATUSES,
+  FAILURE_CONCLUSIONS,
 } from "../constants.js";
 import {
   getWorkflowRunsForPR,
@@ -37,6 +38,10 @@ export const MonitorPRChecksInputSchema = z
       .positive()
       .max(MAX_TIMEOUT)
       .default(DEFAULT_TIMEOUT),
+    fail_fast: z
+      .boolean()
+      .default(true)
+      .describe("Exit immediately on first failure detection. Set to false to wait for all checks to complete."),
   })
   .strict();
 
@@ -81,6 +86,7 @@ export async function monitorPRChecks(
     let checks: CheckData[] = [];
     let iterationCount = 0;
     let allComplete = false;
+    let failedEarly = false;
 
     while (Date.now() - startTime < timeoutMs) {
       iterationCount++;
@@ -95,6 +101,18 @@ export async function monitorPRChecks(
         continue;
       }
 
+      // Check for fail-fast condition before checking if all complete
+      if (input.fail_fast) {
+        const failedCheck = checks.find(
+          (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
+        );
+
+        if (failedCheck) {
+          failedEarly = true;
+          break;
+        }
+      }
+
       // Check if all checks are complete
       allComplete = checks.every(
         (check) => !IN_PROGRESS_STATUSES.includes(check.status)
@@ -107,7 +125,7 @@ export async function monitorPRChecks(
       await sleep(pollIntervalMs);
     }
 
-    if (!allComplete) {
+    if (!allComplete && !failedEarly) {
       throw new TimeoutError(
         `PR checks did not complete within ${input.timeout_seconds} seconds`
       );
@@ -137,8 +155,11 @@ export async function monitorPRChecks(
           ? "SUCCESS"
           : "MIXED";
 
+    const headerSuffix = failedEarly ? " (early exit)" : "";
+    const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+
     const summary = [
-      `PR #${pr.number} Checks Completed: ${pr.title}`,
+      `PR #${pr.number} Checks ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${pr.title}`,
       `Overall Status: ${overallStatus}`,
       `Success: ${successCount}, Failed: ${failureCount}, Other: ${otherCount}`,
       `PR URL: ${pr.url}`,
@@ -146,7 +167,7 @@ export async function monitorPRChecks(
       `Checks (${checks.length}):`,
       ...checkSummaries,
       ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s`,
+      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
     ].join("\n");
 
     return {

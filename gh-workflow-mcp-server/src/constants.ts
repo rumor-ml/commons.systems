@@ -20,6 +20,7 @@ export const MAX_TIMEOUT = 3600; // 1 hour
 export const COMPLETED_STATUSES = ["completed"];
 export const IN_PROGRESS_STATUSES = ["queued", "in_progress", "waiting", "requested", "pending"];
 export const TERMINAL_CONCLUSIONS = ["success", "failure", "cancelled", "timed_out", "skipped"];
+export const FAILURE_CONCLUSIONS = ["failure", "timed_out"];
 
 // Log parsing
 export const URL_PATTERN = /https?:\/\/[^\s]+/g;

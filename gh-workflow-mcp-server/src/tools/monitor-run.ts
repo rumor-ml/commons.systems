@@ -12,6 +12,7 @@ import {
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
   COMPLETED_STATUSES,
+  FAILURE_CONCLUSIONS,
 } from "../constants.js";
 import {
   getWorkflowRun,
@@ -41,6 +42,10 @@ export const MonitorRunInputSchema = z
       .positive()
       .max(MAX_TIMEOUT)
       .default(DEFAULT_TIMEOUT),
+    fail_fast: z
+      .boolean()
+      .default(true)
+      .describe("Exit immediately on first failure detection. Set to false to wait for all checks to complete."),
   })
   .strict();
 
@@ -122,6 +127,8 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     // Poll until completion or timeout
     let run: WorkflowRunData | null = null;
     let iterationCount = 0;
+    let failedEarly = false;
+    let jobs: JobData[] = [];
 
     while (Date.now() - startTime < timeoutMs) {
       iterationCount++;
@@ -131,18 +138,35 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
         break;
       }
 
+      // Check for fail-fast condition
+      if (input.fail_fast) {
+        const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
+        jobs = jobsData.jobs || [];
+
+        const failedJob = jobs.find(
+          (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
+        );
+
+        if (failedJob) {
+          failedEarly = true;
+          break;
+        }
+      }
+
       await sleep(pollIntervalMs);
     }
 
-    if (!run || !COMPLETED_STATUSES.includes(run.status)) {
+    if (!run || (!COMPLETED_STATUSES.includes(run.status) && !failedEarly)) {
       throw new TimeoutError(
         `Workflow run did not complete within ${input.timeout_seconds} seconds`
       );
     }
 
-    // Get job details
-    const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
-    const jobs = jobsData.jobs || [];
+    // Get job details if not already fetched
+    if (jobs.length === 0) {
+      const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
+      jobs = jobsData.jobs || [];
+    }
 
     // Calculate duration
     const startedAt = new Date(run.createdAt);
@@ -163,8 +187,11 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`;
     });
 
+    const headerSuffix = failedEarly ? " (early exit)" : "";
+    const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+
     const summary = [
-      `Workflow Run Completed: ${run.workflowName || run.name}`,
+      `Workflow Run ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${run.workflowName || run.name}`,
       `Status: ${run.status}`,
       `Conclusion: ${run.conclusion || "none"}`,
       `Duration: ${durationSeconds}s`,
@@ -173,7 +200,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       `Jobs (${jobs.length}):`,
       ...jobSummaries,
       ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s`,
+      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
     ].join("\n");
 
     return {
