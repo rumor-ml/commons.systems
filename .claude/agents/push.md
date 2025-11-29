@@ -16,12 +16,20 @@ git push -u origin <branch-name>
 
 Use `dangerouslyDisableSandbox: true` for git commands.
 
-## Output
-Report push status.
-
 ## Monitor Workflows
 
-After successful push, invoke the "Monitor" agent to monitor all triggered CI/CD workflows and report their results.
+After successful push, use MCP tools to monitor workflows:
+
+1. Call `mcp__gh-workflow__gh_monitor_run` with the current branch name
+2. On success: call `mcp__gh-workflow__gh_get_deployment_urls` to get deployment URLs
+3. On failure: call `mcp__gh-workflow__gh_get_failure_details` to get error summary
+
+## Output
+Report push status and workflow results including:
+- Workflow success/failure status
+- Deployment URLs (if successful)
+- Error summary (if failed)
 
 ## Important Notes
 - If push fails, report the error and do not proceed
+- MCP tools handle polling and timeouts automatically

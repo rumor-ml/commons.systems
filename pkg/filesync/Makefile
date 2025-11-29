@@ -3,7 +3,7 @@
 test: test-unit test-integration
 
 test-unit:
-	go test -v -short ./...
+	go test -v -json -short ./...
 
 test-integration:
 	../../infrastructure/scripts/run-go-tests.sh

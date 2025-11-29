@@ -27,10 +27,12 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     workers: process.env.CI ? 4 : undefined,
     timeout: 60000,
 
-    reporter: [
-      ['list'],
-      ['json', { outputFile: 'test-results.json' }],
-    ],
+    reporter: process.env.CI
+      ? [['json']]  // JSON to stdout in CI
+      : [
+          ['list'],
+          ['json', { outputFile: 'test-results.json' }],
+        ],
 
     use: {
       baseURL,
