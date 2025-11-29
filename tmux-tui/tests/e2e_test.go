@@ -335,10 +335,10 @@ func TestDirectAlertFileSystem(t *testing.T) {
 		t.Fatalf("Failed to get pane ID: %v", err)
 	}
 	testPaneID := strings.TrimSpace(string(output))
-	alertFile := "/tmp/claude/tui-alert-" + testPaneID
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+testPaneID)
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
 	// Clean up first
 	os.Remove(alertFile)
@@ -394,10 +394,10 @@ func TestMultipleTUIInstancesShareAlerts(t *testing.T) {
 		t.Fatalf("Failed to get pane ID: %v", err)
 	}
 	testPaneID := strings.TrimSpace(string(output))
-	alertFile := "/tmp/claude/tui-alert-" + testPaneID
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+testPaneID)
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
 	// Create alert with event type
 	os.WriteFile(alertFile, []byte("permission"), 0644)
@@ -441,10 +441,10 @@ func TestAlertPersistsAcrossRefresh(t *testing.T) {
 		t.Fatalf("Failed to get pane ID: %v", err)
 	}
 	testPaneID := strings.TrimSpace(string(output))
-	alertFile := "/tmp/claude/tui-alert-" + testPaneID
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+testPaneID)
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
 	os.WriteFile(alertFile, []byte("idle"), 0644)
 	defer os.Remove(alertFile)
@@ -534,15 +534,16 @@ func TestNotificationHookSimulation(t *testing.T) {
 	}
 	paneID := strings.TrimSpace(string(output))
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	alertDir := getTestAlertDir(socketName)
+	os.MkdirAll(alertDir, 0755)
 
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 	defer os.Remove(alertFile)
 
 	// Simulate Notification hook
 	// Note: We need to run this from within the tmux session context
-	hookCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && touch \"/tmp/claude/tui-alert-$PANE\"", socketName, sessionName)
+	hookCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && touch \"%s/tui-alert-$PANE\"", socketName, sessionName, alertDir)
 	cmd = exec.Command("sh", "-c", hookCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run notification hook command: %v", err)
@@ -562,7 +563,7 @@ func TestNotificationHookSimulation(t *testing.T) {
 	}
 
 	// Simulate UserPromptSubmit hook (cleanup)
-	cleanupCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && rm -f \"/tmp/claude/tui-alert-$PANE\"", socketName, sessionName)
+	cleanupCmd := fmt.Sprintf("PANE=$(tmux -L %s display-message -t %s -p '#{pane_id}' 2>/dev/null); [ -n \"$PANE\" ] && rm -f \"%s/tui-alert-$PANE\"", socketName, sessionName, alertDir)
 	cmd = exec.Command("sh", "-c", cleanupCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run cleanup hook command: %v", err)
@@ -647,10 +648,10 @@ func TestAlertFileWithRealPaneID(t *testing.T) {
 	}
 	paneID := strings.TrimSpace(string(output))
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+paneID)
 	defer os.Remove(alertFile)
 
 	// Create alert file
@@ -697,10 +698,10 @@ func TestEndToEndAlertFlow(t *testing.T) {
 	}
 	paneID := strings.TrimSpace(string(output))
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+paneID)
 	defer os.Remove(alertFile)
 
 	// Phase 1: No alert initially
@@ -754,15 +755,15 @@ func TestStaleAlertFilesIgnored(t *testing.T) {
 	}
 
 	socketName := uniqueSocketName()
-	os.MkdirAll("/tmp/claude", 0755)
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
 	// Create alert file for a pane that doesn't exist
-	staleFile := "/tmp/claude/tui-alert-%99999"
+	staleFile := filepath.Join(getTestAlertDir(socketName), "tui-alert-%99999")
 	os.WriteFile(staleFile, []byte{}, 0644)
 	defer os.Remove(staleFile)
 
 	// Create alert file with invalid format
-	invalidFile := "/tmp/claude/tui-alert-test-invalid"
+	invalidFile := filepath.Join(getTestAlertDir(socketName), "tui-alert-test-invalid")
 	os.WriteFile(invalidFile, []byte{}, 0644)
 	defer os.Remove(invalidFile)
 
@@ -798,7 +799,7 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 
 	socketName := uniqueSocketName()
 	// Get project paths - tests run from tmux-tui/tests/
-	os.MkdirAll("/tmp/claude", 0755)
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
 	projectDir, _ := filepath.Abs("../..") // Project root with .claude/settings.json
 	tuiDir, _ := filepath.Abs("..")        // tmux-tui directory
 
@@ -925,7 +926,7 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	// Manually create alert file for the Claude pane (simulating Notification hook)
 	// This tests TUI behavior without relying on Claude hooks working in detached sessions
 	t.Log("Creating alert file (simulating Notification hook)...")
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", claudePane)
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+claudePane)
 	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
 		t.Fatalf("Failed to create alert file: %v", err)
 	}
@@ -1015,18 +1016,19 @@ func TestHookCommandCreateAlert(t *testing.T) {
 	}
 	paneID := strings.TrimSpace(string(output))
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	alertDir := getTestAlertDir(socketName)
+	os.MkdirAll(alertDir, 0755)
 
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 	defer os.Remove(alertFile)
 
 	// Ensure file doesn't exist before test
 	os.Remove(alertFile)
 
-	// Run the Notification hook command from .claude/settings.json
+	// Run the Notification hook command (adapted for test isolation)
 	// [ -n "$TMUX_PANE" ] && touch "/tmp/claude/tui-alert-$TMUX_PANE"
-	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && touch \"/tmp/claude/tui-alert-$TMUX_PANE\"", paneID)
+	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && touch \"%s/tui-alert-$TMUX_PANE\"", paneID, alertDir)
 	cmd = exec.Command("sh", "-c", hookCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run notification hook command: %v", err)
@@ -1071,10 +1073,11 @@ func TestHookCommandRemoveAlert(t *testing.T) {
 	}
 	paneID := strings.TrimSpace(string(output))
 
-	// Ensure /tmp/claude directory exists
-	os.MkdirAll("/tmp/claude", 0755)
+	// Ensure alert directory exists
+	alertDir := getTestAlertDir(socketName)
+	os.MkdirAll(alertDir, 0755)
 
-	alertFile := fmt.Sprintf("/tmp/claude/tui-alert-%s", paneID)
+	alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 	defer os.Remove(alertFile)
 
 	// Create alert file first
@@ -1087,9 +1090,9 @@ func TestHookCommandRemoveAlert(t *testing.T) {
 		t.Fatal("Alert file should exist before running cleanup hook")
 	}
 
-	// Run the UserPromptSubmit hook command from .claude/settings.json
+	// Run the UserPromptSubmit hook command (adapted for test isolation)
 	// [ -n "$TMUX_PANE" ] && rm -f "/tmp/claude/tui-alert-$TMUX_PANE"
-	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\"", paneID)
+	hookCmd := fmt.Sprintf("TMUX_PANE=%s; [ -n \"$TMUX_PANE\" ] && rm -f \"%s/tui-alert-$TMUX_PANE\"", paneID, alertDir)
 	cmd = exec.Command("sh", "-c", hookCmd)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run cleanup hook command: %v", err)
