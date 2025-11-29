@@ -95,17 +95,24 @@ func TestAlertWatcher_DeleteFile(t *testing.T) {
 		t.Fatalf("Failed to remove alert file: %v", err)
 	}
 
-	// Wait for delete event
-	select {
-	case event := <-eventCh:
-		if event.PaneID != testPaneID {
-			t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+	// Wait for delete event, potentially draining any Write events that may precede it
+	foundDelete := false
+	timeout := time.After(2 * time.Second)
+	for !foundDelete {
+		select {
+		case event := <-eventCh:
+			if event.PaneID != testPaneID {
+				t.Errorf("Expected paneID %s, got %s", testPaneID, event.PaneID)
+				break
+			}
+			if !event.Created {
+				// Found the delete event
+				foundDelete = true
+			}
+			// If Created=true, it's likely a Write event before Remove; continue waiting
+		case <-timeout:
+			t.Fatal("Timeout waiting for delete event")
 		}
-		if event.Created {
-			t.Error("Expected Created=false, got true")
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("Timeout waiting for delete event")
 	}
 }
 
