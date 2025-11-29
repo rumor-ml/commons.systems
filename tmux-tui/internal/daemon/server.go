@@ -78,6 +78,37 @@ type AlertDaemon struct {
 	socketPath    string
 }
 
+// loadExistingAlertsWithRetry attempts to load existing alerts with exponential backoff
+func loadExistingAlertsWithRetry(alertDir string, maxRetries int) (map[string]string, error) {
+	backoff := 50 * time.Millisecond
+	maxBackoff := 500 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			debug.Log("DAEMON_ALERTS_LOAD_RETRY attempt=%d/%d backoff=%v", attempt+1, maxRetries, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+
+		alerts, err := watcher.GetExistingAlertsFromDir(alertDir)
+		if err == nil {
+			if attempt > 0 {
+				debug.Log("DAEMON_ALERTS_LOAD_SUCCESS after_retries=%d", attempt)
+			}
+			return alerts, nil
+		}
+
+		lastErr = err
+		debug.Log("DAEMON_ALERTS_LOAD_ERROR attempt=%d error=%v", attempt+1, err)
+	}
+
+	return nil, fmt.Errorf("failed to load existing alerts after %d attempts: %w", maxRetries, lastErr)
+}
+
 // NewAlertDaemon creates a new AlertDaemon instance.
 func NewAlertDaemon() (*AlertDaemon, error) {
 	// Use namespace to determine alert directory and socket path
@@ -95,12 +126,12 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		return nil, fmt.Errorf("failed to create alert watcher: %w", err)
 	}
 
-	// Load existing alerts
-	existingAlerts, err := watcher.GetExistingAlertsFromDir(alertDir)
+	// Load existing alerts with retry
+	const maxLoadRetries = 3
+	existingAlerts, err := loadExistingAlertsWithRetry(alertDir, maxLoadRetries)
 	if err != nil {
-		debug.Log("DAEMON_ALERTS_LOAD_ERROR error=%v", err)
-		fmt.Fprintf(os.Stderr, "Warning: failed to load existing alerts: %v\n", err)
-		existingAlerts = make(map[string]string)
+		alertWatcher.Close()
+		return nil, fmt.Errorf("failed to recover alert state: %w", err)
 	}
 
 	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d", alertDir, socketPath, len(existingAlerts))

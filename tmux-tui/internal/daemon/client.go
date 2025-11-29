@@ -227,9 +227,9 @@ func (c *DaemonClient) IsConnected() bool {
 func (c *DaemonClient) Close() error {
 	debug.Log("CLIENT_CLOSING id=%s", c.clientID)
 
-	// Safely close done channel (may already be closed)
 	c.mu.Lock()
-	if c.connected {
+	wasConnected := c.connected
+	if wasConnected {
 		select {
 		case <-c.done:
 			// Already closed
@@ -237,13 +237,29 @@ func (c *DaemonClient) Close() error {
 			close(c.done)
 		}
 	}
+	c.connected = false
 
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
-	c.connected = false
 	c.mu.Unlock()
+
+	// Drain eventCh to allow any blocked goroutines to exit
+	if wasConnected {
+		drainTimeout := time.After(100 * time.Millisecond)
+		for {
+			select {
+			case <-c.eventCh:
+				// Discard message, allow blocked senders to proceed
+			case <-drainTimeout:
+				return nil
+			default:
+				// Channel is empty, we're done
+				return nil
+			}
+		}
+	}
 
 	return nil
 }
