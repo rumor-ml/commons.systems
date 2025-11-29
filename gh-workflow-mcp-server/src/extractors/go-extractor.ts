@@ -36,8 +36,9 @@ export class GoExtractor implements FrameworkExtractor {
     let jsonLineCount = 0;
     let textMarkerCount = 0;
 
-    // Sample first 100 lines for detection
-    const sampleSize = Math.min(100, lines.length);
+    // Sample first 500 lines for detection - GitHub Actions logs have significant
+    // preamble (runner setup, checkout, etc.) before actual test output begins
+    const sampleSize = Math.min(500, lines.length);
 
     for (let i = 0; i < sampleSize; i++) {
       const line = this.stripTimestamp(lines[i]);
