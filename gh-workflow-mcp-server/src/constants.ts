@@ -32,6 +32,10 @@ export const DEPLOYMENT_URL_KEYWORDS = [
   "published to",
 ];
 
+// GitHub PR check states (different from workflow run statuses)
+export const PR_CHECK_IN_PROGRESS_STATES = ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING"];
+export const PR_CHECK_TERMINAL_STATES = ["SUCCESS", "FAILURE", "ERROR", "CANCELLED", "SKIPPED", "STALE"];
+
 // High-confidence failure patterns (trigger error extraction)
 export const FAILURE_PATTERNS = [
   /✘/,                              // Playwright failure marker

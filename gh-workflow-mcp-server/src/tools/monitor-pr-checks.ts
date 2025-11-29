@@ -71,7 +71,7 @@ export async function monitorPRChecks(
     // Get PR details first
     const pr = (await getPR(input.pr_number, resolvedRepo)) as PRData;
 
-    if (pr.state !== "open") {
+    if (pr.state.toLowerCase() !== "open") {
       throw new ValidationError(
         `PR #${input.pr_number} is ${pr.state}, not open`
       );

@@ -118,17 +118,51 @@ export async function getWorkflowRunsForBranch(branch: string, repo?: string, li
 }
 
 /**
+ * Map PR check state to workflow run status
+ */
+function mapStateToStatus(state: string): string {
+  const IN_PROGRESS = ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING"];
+  return IN_PROGRESS.includes(state) ? "in_progress" : "completed";
+}
+
+/**
+ * Map PR check state to workflow run conclusion
+ */
+function mapStateToConclusion(state: string): string | null {
+  const TERMINAL_STATES: Record<string, string> = {
+    SUCCESS: "success",
+    FAILURE: "failure",
+    ERROR: "failure",
+    CANCELLED: "cancelled",
+    SKIPPED: "skipped",
+    STALE: "skipped",
+  };
+  return TERMINAL_STATES[state] || null;
+}
+
+/**
  * Get workflow runs for a PR
  */
 export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Promise<any[]> {
   const resolvedRepo = await resolveRepo(repo);
-  return ghCliJson<any[]>(
+  const checks = await ghCliJson<any[]>(
     [
       "pr", "checks", prNumber.toString(),
-      "--json", "name,status,conclusion,detailsUrl,startedAt,completedAt"
+      "--json", "name,state,link,startedAt,completedAt,workflow"
     ],
     { repo: resolvedRepo }
   );
+
+  // Map gh pr checks format to workflow run format
+  return checks.map((check: any) => ({
+    name: check.name,
+    status: mapStateToStatus(check.state),
+    conclusion: mapStateToConclusion(check.state),
+    url: check.link,
+    createdAt: check.startedAt,
+    updatedAt: check.completedAt || check.startedAt,
+    workflowName: check.workflow,
+  }));
 }
 
 /**

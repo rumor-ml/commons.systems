@@ -259,28 +259,27 @@ test.describe('Card Manager Page', () => {
   });
 
   test('should handle missing elements gracefully', async ({ page }) => {
-    // Set up console listener BEFORE page navigation to catch all errors
     const consoleErrors = [];
     page.on('console', msg => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
     await page.goto('/cards.html');
-
-    // Remove some elements via JavaScript to test error handling
     await page.evaluate(() => {
       const toggle = document.getElementById('mobileMenuToggle');
       if (toggle) toggle.remove();
     });
-
-    // Try to interact with page
     await page.locator('.card-toolbar h1').click();
-
-    // Wait a bit for any delayed console errors
     await page.waitForTimeout(100);
 
-    // Should see warnings but not errors
-    const hasErrors = consoleErrors.some(err => !err.includes('Warning'));
-    expect(hasErrors).toBeFalsy();
+    // Filter out expected warnings
+    const actualErrors = consoleErrors.filter(err => !err.includes('Warning'));
+
+    // Log errors for debugging before assertion
+    if (actualErrors.length > 0) {
+      console.log('Console errors detected:', actualErrors);
+    }
+
+    expect(actualErrors).toHaveLength(0);
   });
 });

@@ -101,7 +101,7 @@ export async function monitorMergeQueue(
       }
 
       // Check if PR is closed without merging
-      if (pr.state !== "open") {
+      if (pr.state.toLowerCase() !== "open") {
         throw new ValidationError(
           `PR #${pr.number} was closed without merging (state: ${pr.state})`
         );
