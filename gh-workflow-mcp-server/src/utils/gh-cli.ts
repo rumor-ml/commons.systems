@@ -112,7 +112,7 @@ export async function getWorkflowRunsForBranch(branch: string, repo?: string, li
       "run", "list",
       "--branch", branch,
       "--limit", limit.toString(),
-      "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName"
+      "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha"
     ],
     { repo: resolvedRepo }
   );

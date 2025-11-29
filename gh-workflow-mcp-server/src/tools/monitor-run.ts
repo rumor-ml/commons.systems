@@ -60,6 +60,7 @@ interface WorkflowRunData {
   createdAt: string;
   updatedAt: string;
   workflowName: string;
+  headSha?: string;
 }
 
 interface JobData {
@@ -89,11 +90,12 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     const timeoutMs = input.timeout_seconds * 1000;
     const startTime = Date.now();
 
-    let runId: number;
+    let runIds: number[];
+    let monitoringMultipleRuns = false;
 
     // Resolve run_id from pr_number or branch if needed
     if (input.run_id) {
-      runId = input.run_id;
+      runIds = [input.run_id];
     } else if (input.pr_number) {
       const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
       if (!Array.isArray(checks) || checks.length === 0) {
@@ -109,15 +111,24 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
           `Could not extract run ID from PR #${input.pr_number} checks`
         );
       }
-      runId = parseInt(runIdMatch[1], 10);
+      runIds = [parseInt(runIdMatch[1], 10)];
     } else if (input.branch) {
-      const runs = await getWorkflowRunsForBranch(input.branch, resolvedRepo, 1);
+      const runs = await getWorkflowRunsForBranch(input.branch, resolvedRepo, 10);
       if (!Array.isArray(runs) || runs.length === 0) {
         throw new ValidationError(
           `No workflow runs found for branch ${input.branch}`
         );
       }
-      runId = runs[0].databaseId;
+      // Get all runs with the same headSha as the most recent run
+      const latestSha = runs[0]?.headSha;
+      if (!latestSha) {
+        throw new ValidationError(
+          `Could not determine head SHA for branch ${input.branch}`
+        );
+      }
+      const concurrentRuns = runs.filter((r) => r.headSha === latestSha);
+      runIds = concurrentRuns.map((r) => r.databaseId);
+      monitoringMultipleRuns = runIds.length > 1;
     } else {
       throw new ValidationError(
         "Must provide at least one of: run_id, pr_number, or branch"
@@ -125,30 +136,59 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     }
 
     // Poll until completion or timeout
-    let run: WorkflowRunData | null = null;
+    let runs: Map<number, WorkflowRunData> = new Map();
+    let allJobs: Map<number, JobData[]> = new Map();
     let iterationCount = 0;
     let failedEarly = false;
-    let jobs: JobData[] = [];
+    let failedRunId: number | null = null;
 
     while (Date.now() - startTime < timeoutMs) {
       iterationCount++;
-      run = (await getWorkflowRun(runId, resolvedRepo)) as WorkflowRunData;
 
-      if (COMPLETED_STATUSES.includes(run.status)) {
+      // Fetch all runs in parallel
+      const fetchedRuns = await Promise.all(
+        runIds.map((id) => getWorkflowRun(id, resolvedRepo))
+      );
+
+      // Update runs map
+      fetchedRuns.forEach((runData, index) => {
+        runs.set(runIds[index], runData as WorkflowRunData);
+      });
+
+      // Check if all runs are complete
+      const allComplete = Array.from(runs.values()).every((run) =>
+        COMPLETED_STATUSES.includes(run.status)
+      );
+
+      if (allComplete) {
         break;
       }
 
-      // Check for fail-fast condition
+      // Check for fail-fast condition across all runs
       if (input.fail_fast) {
-        const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
-        jobs = jobsData.jobs || [];
-
-        const failedJob = jobs.find(
-          (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
+        // Fetch jobs for all runs in parallel
+        const jobsResults = await Promise.all(
+          runIds.map((id) => getWorkflowJobs(id, resolvedRepo))
         );
 
-        if (failedJob) {
-          failedEarly = true;
+        jobsResults.forEach((jobsData: any, index) => {
+          allJobs.set(runIds[index], jobsData.jobs || []);
+        });
+
+        // Check if any run has a failed job
+        for (const [runId, jobs] of allJobs.entries()) {
+          const failedJob = jobs.find(
+            (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
+          );
+
+          if (failedJob) {
+            failedEarly = true;
+            failedRunId = runId;
+            break;
+          }
+        }
+
+        if (failedEarly) {
           break;
         }
       }
@@ -156,55 +196,107 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       await sleep(pollIntervalMs);
     }
 
-    if (!run || (!COMPLETED_STATUSES.includes(run.status) && !failedEarly)) {
+    // Check for timeout
+    const allComplete = Array.from(runs.values()).every((run) =>
+      COMPLETED_STATUSES.includes(run.status)
+    );
+
+    if (!allComplete && !failedEarly) {
       throw new TimeoutError(
-        `Workflow run did not complete within ${input.timeout_seconds} seconds`
+        `Workflow runs did not complete within ${input.timeout_seconds} seconds`
       );
     }
 
     // Get job details if not already fetched
-    if (jobs.length === 0) {
-      const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
-      jobs = jobsData.jobs || [];
+    if (allJobs.size === 0) {
+      const jobsResults = await Promise.all(
+        runIds.map((id) => getWorkflowJobs(id, resolvedRepo))
+      );
+      jobsResults.forEach((jobsData: any, index) => {
+        allJobs.set(runIds[index], jobsData.jobs || []);
+      });
     }
 
-    // Calculate duration
-    const startedAt = new Date(run.createdAt);
-    const completedAt = new Date(run.updatedAt);
-    const durationSeconds = Math.round(
-      (completedAt.getTime() - startedAt.getTime()) / 1000
-    );
+    // Format output for multiple or single runs
+    const summaryLines: string[] = [];
 
-    // Format job summaries
-    const jobSummaries = jobs.map((job) => {
-      const jobDuration = job.completedAt
-        ? Math.round(
-            (new Date(job.completedAt).getTime() -
-              new Date(job.startedAt).getTime()) /
-              1000
-          )
-        : null;
-      return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`;
-    });
+    if (monitoringMultipleRuns) {
+      // Multi-run output format
+      const headerSuffix = failedEarly ? " (early exit)" : "";
+      const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
 
-    const headerSuffix = failedEarly ? " (early exit)" : "";
-    const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+      summaryLines.push(`Workflow Runs ${failedEarly ? "Failed" : "Completed"}${headerSuffix} (${runs.size} concurrent runs)`);
+      summaryLines.push("");
 
-    const summary = [
-      `Workflow Run ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${run.workflowName || run.name}`,
-      `Status: ${run.status}`,
-      `Conclusion: ${run.conclusion || "none"}`,
-      `Duration: ${durationSeconds}s`,
-      `URL: ${run.url}`,
-      ``,
-      `Jobs (${jobs.length}):`,
-      ...jobSummaries,
-      ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
-    ].join("\n");
+      // Show each run with its jobs
+      for (const [runId, run] of runs.entries()) {
+        const jobs = allJobs.get(runId) || [];
+        const startedAt = new Date(run.createdAt);
+        const completedAt = new Date(run.updatedAt);
+        const durationSeconds = Math.round(
+          (completedAt.getTime() - startedAt.getTime()) / 1000
+        );
+
+        const failureMarker = failedEarly && runId === failedRunId ? " ⚠️ FAILED" : "";
+        summaryLines.push(`Run: ${run.workflowName || run.name}${failureMarker}`);
+        summaryLines.push(`  Status: ${run.status}`);
+        summaryLines.push(`  Conclusion: ${run.conclusion || "none"}`);
+        summaryLines.push(`  Duration: ${durationSeconds}s`);
+        summaryLines.push(`  URL: ${run.url}`);
+        summaryLines.push(`  Jobs (${jobs.length}):`);
+
+        jobs.forEach((job) => {
+          const jobDuration = job.completedAt
+            ? Math.round(
+                (new Date(job.completedAt).getTime() -
+                  new Date(job.startedAt).getTime()) /
+                  1000
+              )
+            : null;
+          summaryLines.push(`    - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`);
+        });
+        summaryLines.push("");
+      }
+
+      summaryLines.push(`Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`);
+    } else {
+      // Single-run output format (backward compatible)
+      const run = runs.get(runIds[0])!;
+      const jobs = allJobs.get(runIds[0]) || [];
+      const startedAt = new Date(run.createdAt);
+      const completedAt = new Date(run.updatedAt);
+      const durationSeconds = Math.round(
+        (completedAt.getTime() - startedAt.getTime()) / 1000
+      );
+
+      const jobSummaries = jobs.map((job) => {
+        const jobDuration = job.completedAt
+          ? Math.round(
+              (new Date(job.completedAt).getTime() -
+                new Date(job.startedAt).getTime()) /
+                1000
+            )
+          : null;
+        return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`;
+      });
+
+      const headerSuffix = failedEarly ? " (early exit)" : "";
+      const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+
+      summaryLines.push(`Workflow Run ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${run.workflowName || run.name}`);
+      summaryLines.push(`Status: ${run.status}`);
+      summaryLines.push(`Conclusion: ${run.conclusion || "none"}`);
+      summaryLines.push(`Duration: ${durationSeconds}s`);
+      summaryLines.push(`URL: ${run.url}`);
+      summaryLines.push("");
+      summaryLines.push(`Jobs (${jobs.length}):`);
+      summaryLines.push(...jobSummaries);
+      summaryLines.push("");
+      summaryLines.push(`Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`);
+    }
 
     return {
-      content: [{ type: "text", text: summary }],
+      content: [{ type: "text", text: summaryLines.join("\n") }],
     };
   } catch (error) {
     return createErrorResult(error);
