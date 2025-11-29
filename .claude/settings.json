@@ -129,6 +129,15 @@
             "command": ".claude/hooks/exit-plan-mode-reminder.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[$(date +%s.%N)] POSTTOOL_START pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log && [[ -n \"$TMUX_PANE\" ]] && [[ \"$TMUX_PANE\" =~ ^%[0-9]+$ ]] && rm -f \"/tmp/claude/tui-alert-$TMUX_PANE\" && echo \"[$(date +%s.%N)] POSTTOOL_SUCCESS pane=$TMUX_PANE file_removed=yes\" >> /tmp/claude/hook-debug.log || echo \"[$(date +%s.%N)] POSTTOOL_SKIPPED pane=$TMUX_PANE\" >> /tmp/claude/hook-debug.log"
+          }
+        ]
       }
     ],
     "Notification": [
