@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/commons-systems/tmux-tui/internal/tmux"
+	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
 func TestTreeRenderer(t *testing.T) {
@@ -21,7 +22,7 @@ func TestTreeRenderer(t *testing.T) {
 	}
 
 	renderer := NewTreeRenderer(80)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 	output := renderer.Render(tree, claudeAlerts)
 
 	// Verify output contains expected elements
@@ -53,7 +54,7 @@ func TestTreeRenderer(t *testing.T) {
 
 func TestTreeRendererEmpty(t *testing.T) {
 	renderer := NewTreeRenderer(80)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 
 	// Test with nil tree
 	output := renderer.Render(nil, claudeAlerts)
@@ -66,6 +67,66 @@ func TestTreeRendererEmpty(t *testing.T) {
 	output = renderer.Render(emptyTree, claudeAlerts)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for empty tree")
+	}
+}
+
+func TestIconForAlertType(t *testing.T) {
+	// Test that each event type returns the correct icon
+	testCases := []struct {
+		name          string
+		eventType     string
+		expectedIcon  string
+	}{
+		{"Stop event", watcher.EventTypeStop, StopIcon},
+		{"Permission event", watcher.EventTypePermission, PermissionIcon},
+		{"Idle event", watcher.EventTypeIdle, IdleIcon},
+		{"Elicitation event", watcher.EventTypeElicitation, ElicitationIcon},
+		{"Unknown event defaults to stop", "unknown_type", StopIcon},
+		{"Empty string defaults to stop", "", StopIcon},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			icon := iconForAlertType(tc.eventType)
+			if icon != tc.expectedIcon {
+				t.Errorf("iconForAlertType(%q) = %q, want %q", tc.eventType, icon, tc.expectedIcon)
+			}
+		})
+	}
+}
+
+func TestIconForAlertTypeIntegration(t *testing.T) {
+	// Test that icons are correctly applied in the tree renderer
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"main": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim", IsClaudePane: true},
+				{ID: "%3", WindowID: "@3", WindowIndex: 2, WindowActive: false, Command: "vim", IsClaudePane: true},
+				{ID: "%4", WindowID: "@4", WindowIndex: 3, WindowActive: false, Command: "emacs", IsClaudePane: true},
+			},
+		},
+	}
+
+	// Create alerts with different event types
+	claudeAlerts := map[string]string{
+		"%1": watcher.EventTypeStop,
+		"%2": watcher.EventTypePermission,
+		"%3": watcher.EventTypeIdle,
+		"%4": watcher.EventTypeElicitation,
+	}
+
+	renderer := NewTreeRenderer(80)
+	output := renderer.Render(tree, claudeAlerts)
+
+	// Verify that output contains the styled window numbers with icons
+	// The exact ANSI codes may vary, but we can check that the icons appear
+	// Note: This is a basic check - full styling validation would require ANSI parsing
+	expectedIcons := []string{StopIcon, PermissionIcon, IdleIcon, ElicitationIcon}
+	for _, icon := range expectedIcons {
+		if !strings.Contains(output, icon) {
+			t.Errorf("Output should contain icon %q for alert type", icon)
+		}
 	}
 }
 
@@ -82,7 +143,7 @@ func TestTreeRendererFullHeight(t *testing.T) {
 
 	renderer := NewTreeRenderer(80)
 	renderer.SetHeight(20)
-	claudeAlerts := make(map[string]bool)
+	claudeAlerts := make(map[string]string)
 	output := renderer.Render(tree, claudeAlerts)
 
 	// Count the number of lines
