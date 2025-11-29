@@ -54,7 +54,7 @@ curl -s -o "$APP_NAME/site/web/static/js/vendor/htmx.min.js" \
 
 # 2. Replace placeholders in all files
 echo "Replacing placeholders..."
-find "$APP_NAME" -type f \( -name "*.go" -o -name "*.mod" -o -name "*.templ" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.toml" -o -name "Dockerfile" -o -name "Makefile" -o -name "*.yaml" -o -name "*.yml" -o -name "*.css" -o -name "*.html" \) | while read -r file; do
+find "$APP_NAME" -type f \( -name "*.go" -o -name "*.mod" -o -name "*.templ" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.toml" -o -name "Dockerfile" -o -name "Makefile" -o -name "*.yaml" -o -name "*.yml" -o -name "*.css" -o -name "*.html" -o -name "*.md" \) | while read -r file; do
   if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
     sed -i.bak "s|{{APP_NAME}}|$APP_NAME|g" "$file"
@@ -66,6 +66,12 @@ find "$APP_NAME" -type f \( -name "*.go" -o -name "*.mod" -o -name "*.templ" -o 
     sed -i "s|{{APP_NAME_TITLE}}|$APP_NAME_TITLE|g" "$file"
   fi
 done
+
+# 2b. Rename fixture file from {{APP_NAME}}-fixtures.ts to actual app name
+echo "Renaming fixture files..."
+if [ -f "$APP_NAME/tests/fixtures/{{APP_NAME}}-fixtures.ts" ]; then
+  mv "$APP_NAME/tests/fixtures/{{APP_NAME}}-fixtures.ts" "$APP_NAME/tests/fixtures/$APP_NAME-fixtures.ts"
+fi
 
 # 3. Initialize Go modules (skip for now, requires Go tooling)
 echo "Skipping Go module initialization (run 'go mod tidy' manually)"

@@ -16,7 +16,11 @@ model: haiku
     - Add "in progress" label: `gh issue edit <number> --add-label "in progress"`
 4. Generate concise, descriptive branch name from the source.
    - If argument was a GitHub issue number: prefix the branch name with the issue number (e.g., `#23` → `23-fix-some-issue`)
-5. Create worktree in ~/worktrees with this branch name, branching off main.
+5. Create worktree at `$HOME/worktrees/<branch-name>` using absolute path (NOT relative to cwd):
+   `git worktree add $HOME/worktrees/<branch-name> -b <branch-name> origin/main`
 6. Set upstream to origin/<branch-name> (don't push).
 7. Run `direnv allow` in the new worktree directory to enable the environment.
-8. Open a new tmux window running claude in nix dev shell: `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`
+8. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
+   `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`
+
+   IMPORTANT: The -c path MUST match the worktree path from step 5. If it doesn't exist, tmux defaults to home directory.
