@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import type { ToolResult } from "../types.js";
-import { MAX_RESPONSE_LENGTH, FAILURE_PATTERNS } from "../constants.js";
+import { MAX_RESPONSE_LENGTH } from "../constants.js";
 import {
   getWorkflowRun,
   getWorkflowRunsForBranch,
@@ -15,6 +15,7 @@ import {
   resolveRepo,
 } from "../utils/gh-cli.js";
 import { ValidationError, createErrorResult } from "../utils/errors.js";
+import { extractErrors, formatExtractionResult } from "../extractors/index.js";
 
 export const GetFailureDetailsInputSchema = z
   .object({
@@ -116,55 +117,6 @@ function extractTestSummary(logText: string): string | null {
   return null;
 }
 
-/**
- * Extract error lines from logs, capturing ALL failure instances
- * with surrounding context
- */
-function extractErrorLines(logText: string, maxLines = 40): string[] {
-  const lines = logText.split("\n");
-  const failureLineIndices: number[] = [];
-
-  // First pass: find ALL lines matching failure patterns
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const isFailureLine = FAILURE_PATTERNS.some((pattern) => pattern.test(line));
-    if (isFailureLine) {
-      failureLineIndices.push(i);
-    }
-  }
-
-  // No failures found
-  if (failureLineIndices.length === 0) {
-    return [];
-  }
-
-  // Second pass: collect unique lines with context around each failure
-  const seenIndices = new Set<number>();
-  const result: string[] = [];
-
-  for (const failureIdx of failureLineIndices) {
-    // Capture context: 5 lines before, 5 lines after
-    const contextStart = Math.max(0, failureIdx - 5);
-    const contextEnd = Math.min(lines.length, failureIdx + 6);
-
-    for (let j = contextStart; j < contextEnd; j++) {
-      if (!seenIndices.has(j)) {
-        seenIndices.add(j);
-        const line = lines[j].trim();
-        if (line) {
-          result.push(lines[j]); // Keep original formatting (not trimmed)
-        }
-      }
-    }
-
-    // Stop if we've collected enough
-    if (result.length >= maxLines) {
-      break;
-    }
-  }
-
-  return result.slice(0, maxLines);
-}
 
 export async function getFailureDetails(
   input: GetFailureDetailsInput
@@ -286,29 +238,35 @@ export async function getFailureDetails(
         if (failedStepNames.length > 0) {
           // Extract errors for each failed step
           for (const stepName of failedStepNames) {
-            const errorLines = extractErrorLines(logs, 10);
+            const extraction = extractErrors(logs, 10);
+            const errorLines = formatExtractionResult(extraction);
             failedSteps.push({
               name: stepName,
               conclusion: "failure",
               error_lines: errorLines,
-              test_summary: testSummary,
+              test_summary: extraction.summary || testSummary,
             });
 
             totalChars += stepName.length + errorLines.join("\n").length;
-            if (testSummary) totalChars += testSummary.length;
+            if (extraction.summary || testSummary) {
+              totalChars += (extraction.summary || testSummary)!.length;
+            }
             if (totalChars > input.max_chars) break;
           }
         } else {
           // No step info, just extract general errors
-          const errorLines = extractErrorLines(logs, 15);
+          const extraction = extractErrors(logs, 15);
+          const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
             name: "General failure",
             conclusion: job.conclusion,
             error_lines: errorLines,
-            test_summary: testSummary,
+            test_summary: extraction.summary || testSummary,
           });
           totalChars += errorLines.join("\n").length;
-          if (testSummary) totalChars += testSummary.length;
+          if (extraction.summary || testSummary) {
+            totalChars += (extraction.summary || testSummary)!.length;
+          }
         }
       } catch (error) {
         // If we can't get logs, note that
