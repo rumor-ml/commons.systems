@@ -259,6 +259,12 @@ test.describe('Card Manager Page', () => {
   });
 
   test('should handle missing elements gracefully', async ({ page }) => {
+    // Set up console listener BEFORE page navigation to catch all errors
+    const consoleErrors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+
     await page.goto('/cards.html');
 
     // Remove some elements via JavaScript to test error handling
@@ -267,14 +273,11 @@ test.describe('Card Manager Page', () => {
       if (toggle) toggle.remove();
     });
 
-    // Page should still function without console errors
-    const consoleErrors = [];
-    page.on('console', msg => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
-
     // Try to interact with page
     await page.locator('.card-toolbar h1').click();
+
+    // Wait a bit for any delayed console errors
+    await page.waitForTimeout(100);
 
     // Should see warnings but not errors
     const hasErrors = consoleErrors.some(err => !err.includes('Warning'));

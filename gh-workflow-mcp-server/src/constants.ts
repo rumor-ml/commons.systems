@@ -32,12 +32,23 @@ export const DEPLOYMENT_URL_KEYWORDS = [
   "published to",
 ];
 
-// Error message patterns to extract
-export const ERROR_PATTERNS = [
-  /Error:/i,
-  /Failed:/i,
-  /FAIL/i,
-  /Exception:/i,
-  /Traceback/i,
-  /at \w+\.\w+/,
+// High-confidence failure patterns (trigger error extraction)
+export const FAILURE_PATTERNS = [
+  /✘/,                              // Playwright failure marker
+  /\u2718/,                         // ✘ character (cross mark) - unicode
+  /FAILED:/i,                       // Explicit failure prefix
+  /AssertionError/i,                // Node/Jest assertion failures
+  /Error: expect\(/i,               // Playwright expect failures
+  /\d+ failed/i,                    // Test summary with failures
+  /exit code [1-9]/i,               // Non-zero exit codes
+  /##\[error\]/i,                   // GitHub Actions error annotation
+  /Error:/i,                        // General error prefix
+  /Exception:/i,                    // Exception messages
+  /Traceback/i,                     // Python tracebacks
+];
+
+// Context patterns (include for additional info)
+export const CONTEXT_PATTERNS = [
+  /› .*\.spec\.(js|ts):\d+/,        // Test file location
+  /retry #\d+/i,                     // Retry markers
 ];

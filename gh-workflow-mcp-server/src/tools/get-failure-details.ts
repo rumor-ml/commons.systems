@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import type { ToolResult } from "../types.js";
-import { MAX_RESPONSE_LENGTH, ERROR_PATTERNS } from "../constants.js";
+import { MAX_RESPONSE_LENGTH, FAILURE_PATTERNS } from "../constants.js";
 import {
   getWorkflowRun,
   getWorkflowRunsForBranch,
@@ -56,6 +56,7 @@ interface FailedStepSummary {
   name: string;
   conclusion: string | null;
   error_lines: string[];
+  test_summary?: string | null;
 }
 
 interface FailedJobSummary {
@@ -65,31 +66,104 @@ interface FailedJobSummary {
   failed_steps: FailedStepSummary[];
 }
 
-function extractErrorLines(logText: string, maxLines = 20): string[] {
+/**
+ * Extract test summary from logs (e.g., "1 failed, 77 passed")
+ * Playwright outputs these on separate lines, so we need to find and combine them
+ */
+function extractTestSummary(logText: string): string | null {
   const lines = logText.split("\n");
-  const errorLines: string[] = [];
 
-  for (let i = 0; i < lines.length && errorLines.length < maxLines; i++) {
+  // Patterns for individual summary lines
+  const failedPattern = /(\d+)\s+failed/i;
+  const passedPattern = /(\d+)\s+passed/i;
+
+  let failed: string | null = null;
+  let passed: string | null = null;
+
+  // Search from end for the most recent summary lines
+  for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
 
-    // Check if line matches error patterns
-    const isErrorLine = ERROR_PATTERNS.some((pattern) => pattern.test(line));
-
-    if (isErrorLine) {
-      // Include some context around the error
-      const contextStart = Math.max(0, i - 1);
-      const contextEnd = Math.min(lines.length, i + 3);
-
-      for (let j = contextStart; j < contextEnd && errorLines.length < maxLines; j++) {
-        const contextLine = lines[j].trim();
-        if (contextLine && !errorLines.includes(contextLine)) {
-          errorLines.push(contextLine);
-        }
+    // Check for combined format first (e.g., "77 passed, 1 failed")
+    if (failedPattern.test(line) && passedPattern.test(line)) {
+      const failMatch = line.match(failedPattern);
+      const passMatch = line.match(passedPattern);
+      if (failMatch && passMatch) {
+        return `${failMatch[1]} failed, ${passMatch[1]} passed`;
       }
+    }
+
+    // Otherwise collect separate lines
+    if (!failed && failedPattern.test(line)) {
+      const match = line.match(failedPattern);
+      if (match) failed = match[1];
+    }
+    if (!passed && passedPattern.test(line)) {
+      const match = line.match(passedPattern);
+      if (match) passed = match[1];
+    }
+
+    // If we have both, return combined summary
+    if (failed && passed) {
+      return `${failed} failed, ${passed} passed`;
     }
   }
 
-  return errorLines;
+  // Return partial if we only found one
+  if (failed) return `${failed} failed`;
+  if (passed) return `${passed} passed`;
+
+  return null;
+}
+
+/**
+ * Extract error lines from logs, capturing ALL failure instances
+ * with surrounding context
+ */
+function extractErrorLines(logText: string, maxLines = 40): string[] {
+  const lines = logText.split("\n");
+  const failureLineIndices: number[] = [];
+
+  // First pass: find ALL lines matching failure patterns
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isFailureLine = FAILURE_PATTERNS.some((pattern) => pattern.test(line));
+    if (isFailureLine) {
+      failureLineIndices.push(i);
+    }
+  }
+
+  // No failures found
+  if (failureLineIndices.length === 0) {
+    return [];
+  }
+
+  // Second pass: collect unique lines with context around each failure
+  const seenIndices = new Set<number>();
+  const result: string[] = [];
+
+  for (const failureIdx of failureLineIndices) {
+    // Capture context: 2 lines before, 3 lines after
+    const contextStart = Math.max(0, failureIdx - 2);
+    const contextEnd = Math.min(lines.length, failureIdx + 4);
+
+    for (let j = contextStart; j < contextEnd; j++) {
+      if (!seenIndices.has(j)) {
+        seenIndices.add(j);
+        const line = lines[j].trim();
+        if (line) {
+          result.push(lines[j]); // Keep original formatting (not trimmed)
+        }
+      }
+    }
+
+    // Stop if we've collected enough
+    if (result.length >= maxLines) {
+      break;
+    }
+  }
+
+  return result.slice(0, maxLines);
 }
 
 export async function getFailureDetails(
@@ -196,6 +270,7 @@ export async function getFailureDetails(
       // Get job logs
       try {
         const logs = await getJobLogs(runId, job.databaseId, resolvedRepo);
+        const testSummary = extractTestSummary(logs);
 
         // Find failed steps (if step info is available)
         const failedStepNames = job.steps
@@ -212,9 +287,11 @@ export async function getFailureDetails(
               name: stepName,
               conclusion: "failure",
               error_lines: errorLines,
+              test_summary: testSummary,
             });
 
             totalChars += stepName.length + errorLines.join("\n").length;
+            if (testSummary) totalChars += testSummary.length;
             if (totalChars > input.max_chars) break;
           }
         } else {
@@ -224,8 +301,10 @@ export async function getFailureDetails(
             name: "General failure",
             conclusion: job.conclusion,
             error_lines: errorLines,
+            test_summary: testSummary,
           });
           totalChars += errorLines.join("\n").length;
+          if (testSummary) totalChars += testSummary.length;
         }
       } catch (error) {
         // If we can't get logs, note that
@@ -249,11 +328,27 @@ export async function getFailureDetails(
     // Format the summary
     const jobSummaries = failedJobSummaries.map((job) => {
       const stepSummaries = job.failed_steps.map((step) => {
-        const errorPreview = step.error_lines.slice(0, 10).join("\n      ");
-        return `    Step: ${step.name} (${step.conclusion})\n      ${errorPreview}`;
+        const parts: string[] = [];
+
+        // Add test summary if available
+        if (step.test_summary) {
+          parts.push(`    Test Summary: ${step.test_summary}`);
+        }
+
+        // Add step name and conclusion
+        parts.push(`    Step: ${step.name} (${step.conclusion})`);
+
+        // Add error lines
+        if (step.error_lines.length > 0) {
+          const errorPreview = step.error_lines.slice(0, 10).join("\n      ");
+          parts.push(`      ${errorPreview}`);
+        }
+
+        return parts.join("\n");
       });
 
       return [
+        ``,
         `  Job: ${job.name} (${job.conclusion})`,
         `  URL: ${job.url}`,
         ...stepSummaries,

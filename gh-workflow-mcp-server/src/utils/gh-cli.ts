@@ -146,14 +146,26 @@ export async function getPR(prNumber: number, repo?: string) {
 }
 
 /**
- * Get workflow job logs
+ * Get logs for a specific job, with optional truncation for large logs
  */
-export async function getJobLogs(runId: number, jobId: number, repo?: string): Promise<string> {
+export async function getJobLogs(
+  runId: number,
+  jobId: number,
+  repo?: string,
+  tailLines = 2000
+): Promise<string> {
   const resolvedRepo = await resolveRepo(repo);
-  return ghCli(
+  const fullLogs = await ghCliWithRetry(
     ["run", "view", "--job", jobId.toString(), "--log", runId.toString()],
     { repo: resolvedRepo }
   );
+
+  const lines = fullLogs.split("\n");
+  if (lines.length > tailLines) {
+    const truncatedCount = lines.length - tailLines;
+    return `... (${truncatedCount} lines truncated)\n` + lines.slice(-tailLines).join("\n");
+  }
+  return fullLogs;
 }
 
 /**
@@ -175,4 +187,52 @@ export async function getWorkflowJobs(runId: number, repo?: string) {
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Check if an error is retryable (network errors, 5xx server errors)
+ */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("network") ||
+      msg.includes("timeout") ||
+      msg.includes("econnreset") ||
+      msg.includes("socket") ||
+      msg.includes("502") ||
+      msg.includes("503") ||
+      msg.includes("504")
+    );
+  }
+  return false;
+}
+
+/**
+ * Execute gh CLI command with retry logic
+ */
+export async function ghCliWithRetry(
+  args: string[],
+  options?: GhCliOptions,
+  maxRetries = 3
+): Promise<string> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await ghCli(args, options);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (!isRetryableError(error) || attempt === maxRetries) {
+        throw lastError;
+      }
+
+      // Exponential backoff: 2s, 4s, 8s
+      const delayMs = Math.pow(2, attempt) * 1000;
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError || new Error("Unexpected retry failure");
 }
