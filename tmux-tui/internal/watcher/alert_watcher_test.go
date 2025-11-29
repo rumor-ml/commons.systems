@@ -241,6 +241,10 @@ func TestGetExistingAlerts(t *testing.T) {
 	// GetExistingAlerts also accept a directory parameter.
 
 	// Clean up first
+	// Ensure alertDir exists before creating test files
+	if err := os.MkdirAll(alertDir, 0755); err != nil {
+		t.Fatalf("Failed to create alert directory: %v", err)
+	}
 	pattern := filepath.Join(alertDir, alertPrefix+"*")
 	matches, _ := filepath.Glob(pattern)
 	for _, file := range matches {

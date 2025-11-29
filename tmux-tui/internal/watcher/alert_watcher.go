@@ -234,9 +234,16 @@ func (w *AlertWatcher) watch() {
 			case event.Op&fsnotify.Remove == fsnotify.Remove:
 				alertEvent = AlertEvent{PaneID: paneID, Created: false}
 			case event.Op&fsnotify.Write == fsnotify.Write:
-				// Treat writes as creates (file touched/updated)
-				eventType := readEventType(event.Name)
-				alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
+				// Check if file still exists - Write events may occur before Remove during deletion
+				_, err := os.Stat(event.Name)
+				if os.IsNotExist(err) {
+					// File was deleted - treat as delete event
+					alertEvent = AlertEvent{PaneID: paneID, Created: false}
+				} else {
+					// File exists - treat as create/update event
+					eventType := readEventType(event.Name)
+					alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
+				}
 			default:
 				// Ignore other events (chmod, rename, etc.)
 				continue
