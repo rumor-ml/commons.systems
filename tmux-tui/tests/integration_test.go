@@ -141,9 +141,11 @@ func (m realModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// FAST PATH: Update alert immediately with mutex protection
 		m.alertsMu.Lock()
-		if msg.created {
+		if msg.created && msg.eventType != "working" {
+			// Alert state (idle, stop, permission, elicitation) - store it
 			m.alerts[msg.paneID] = msg.eventType
 		} else {
+			// Either file deleted OR "working" state - remove alert
 			delete(m.alerts, msg.paneID)
 		}
 		m.alertsMu.Unlock()
@@ -744,6 +746,7 @@ func TestIntegration_ReconcileAlertsWithEmptyTree(t *testing.T) {
 
 	// Add multiple alerts manually
 	m.alertsMu.Lock()
+	m.alerts = make(map[string]string)
 	m.alerts["%100"] = "stop"
 	m.alerts["%101"] = "stop"
 	m.alerts["%102"] = "stop"
@@ -819,4 +822,58 @@ func TestIntegration_ReconcileDuringConcurrentUpdates(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	t.Log("Reconciliation handled concurrent updates without panics or deadlocks")
+}
+
+// TestIntegration_WorkingEventClearsAlert verifies that receiving a "working"
+// event type clears the alert from the alerts map instead of storing it.
+// This tests the fix for the bug where UserPromptSubmit hook didn't clear the idle highlight.
+func TestIntegration_WorkingEventClearsAlert(t *testing.T) {
+	m := realInitialModel()
+
+	// Clear any existing alerts first
+	m.alertsMu.Lock()
+	m.alerts = make(map[string]string)
+	m.alertsMu.Unlock()
+
+	testPaneID := "%test-working"
+
+	// Step 1: Simulate receiving an "idle" alert - should be stored
+	t.Log("Simulating 'idle' alert via Update()...")
+	updatedModel, _ := m.Update(alertChangedMsg{paneID: testPaneID, eventType: "idle", created: true})
+	m = updatedModel.(realModel)
+
+	// Verify alert is stored
+	alerts := m.GetAlertsForTesting()
+	if alerts[testPaneID] != "idle" {
+		t.Errorf("Expected 'idle' alert to be stored, got %q", alerts[testPaneID])
+	} else {
+		t.Logf("✓ Idle alert stored: %s = %s", testPaneID, alerts[testPaneID])
+	}
+
+	// Step 2: Simulate receiving a "working" alert - should CLEAR the alert, not store it
+	t.Log("Simulating 'working' alert via Update() (UserPromptSubmit hook behavior)...")
+	updatedModel, _ = m.Update(alertChangedMsg{paneID: testPaneID, eventType: "working", created: true})
+	m = updatedModel.(realModel)
+
+	// Verify alert is cleared (not stored as "working")
+	alerts = m.GetAlertsForTesting()
+	if eventType, exists := alerts[testPaneID]; exists {
+		t.Errorf("Alert should be cleared after 'working' event, but found: %q", eventType)
+	} else {
+		t.Log("✓ Alert correctly cleared after 'working' event")
+	}
+
+	// Step 3: Verify other alert types still work correctly
+	t.Log("Verifying other alert types are stored correctly...")
+	for _, eventType := range []string{"stop", "permission", "elicitation"} {
+		updatedModel, _ = m.Update(alertChangedMsg{paneID: testPaneID, eventType: eventType, created: true})
+		m = updatedModel.(realModel)
+		alerts = m.GetAlertsForTesting()
+		if alerts[testPaneID] != eventType {
+			t.Errorf("Expected '%s' alert to be stored, got %q", eventType, alerts[testPaneID])
+		}
+	}
+	t.Log("✓ Other alert types (stop, permission, elicitation) stored correctly")
+
+	t.Log("Working event clears alert test passed")
 }

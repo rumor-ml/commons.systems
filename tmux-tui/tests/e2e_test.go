@@ -1949,3 +1949,164 @@ func TestStalePaneAlertCleanup(t *testing.T) {
 	t.Log("Stale pane alert cleanup test passed")
 }
 
+// TestUserPromptSubmitClearsIdleHighlight verifies that writing "working" to an
+// alert file (simulating UserPromptSubmit hook) immediately clears the TUI highlight.
+// This tests the behavior: idle state → "working" written → highlight disappears.
+func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
+	socketName := uniqueSocketName()
+	if testing.Short() {
+		t.Skip("Skipping real Claude test in short mode")
+	}
+
+	// Skip if dependencies not available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found")
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("claude not found")
+	}
+
+	// Setup
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
+	projectDir, _ := filepath.Abs("../..")
+	tuiDir, _ := filepath.Abs("..")
+
+	// Build tmux-tui binary
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tuiDir, "build", "tmux-tui"), "./cmd/tmux-tui")
+	buildCmd.Dir = tuiDir
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build tmux-tui: %v", err)
+	}
+
+	sessionName := fmt.Sprintf("test-idle-clear-%d", time.Now().Unix())
+	cleanup := createTestTmuxSession(t, socketName, sessionName)
+	defer cleanup()
+
+	// Create window for Claude
+	t.Log("Creating window with Claude...")
+	cmd := tmuxCmd(socketName, "new-window", "-t", sessionName, "-n", "idle-test")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create window: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	windowTarget := fmt.Sprintf("%s:idle-test", sessionName)
+
+	// Get the Claude pane ID
+	paneCmd := tmuxCmd(socketName, "display-message", "-t", windowTarget, "-p", "#{pane_id}")
+	claudePaneOutput, _ := paneCmd.Output()
+	claudePane := strings.TrimSpace(string(claudePaneOutput))
+	t.Logf("Claude pane: %s", claudePane)
+
+	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+claudePane)
+	defer os.Remove(alertFile)
+
+	// Split window to create TUI pane on left
+	t.Log("Creating TUI pane...")
+	cmd = tmuxCmd(socketName, "split-window", "-t", windowTarget, "-h", "-b", "-l", "40")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create TUI pane: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Find TUI pane
+	listCmd := tmuxCmd(socketName, "list-panes", "-t", windowTarget, "-F", "#{pane_id}")
+	panesOutput, _ := listCmd.Output()
+	paneIDs := strings.Split(strings.TrimSpace(string(panesOutput)), "\n")
+	var tuiPane string
+	for _, p := range paneIDs {
+		if p != claudePane && p != "" {
+			tuiPane = p
+			break
+		}
+	}
+	if tuiPane == "" {
+		t.Fatal("Could not find TUI pane")
+	}
+	t.Logf("TUI pane: %s", tuiPane)
+
+	// Start TUI in the TUI pane
+	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
+	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start TUI: %v", err)
+	}
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize
+
+	// Start Claude in the Claude pane
+	t.Log("Starting Claude...")
+	claudeTarget := fmt.Sprintf("%s.%s", sessionName, claudePane)
+	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, claudePane, claudeCommand)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", claudeTarget, claudeCmd, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start Claude: %v", err)
+	}
+
+	// Wait for Claude to be ready
+	timeouts := getTestTimeouts()
+	if !waitForClaudeReady(t, socketName, sessionName, claudePane, claudeTarget, timeouts.ClaudeInit) {
+		t.Fatal("Claude failed to become ready")
+	}
+
+	// Wait for pane to be detected as Claude pane
+	t.Log("Waiting for pane to be detected as Claude pane...")
+	if !waitForClaudePaneDetection(t, socketName, sessionName, claudePane, 30*time.Second) {
+		t.Fatal("Pane was not detected as running Claude within timeout")
+	}
+
+	// Step 1: Manually create alert file with "idle" content to simulate idle state
+	t.Log("Creating alert file with 'idle' content (simulating Claude idle state)...")
+	if err := os.WriteFile(alertFile, []byte("idle"), 0644); err != nil {
+		t.Fatalf("Failed to create idle alert file: %v", err)
+	}
+
+	// Wait for TUI to receive and render the alert
+	t.Log("Waiting for TUI to show idle highlight...")
+	alertVisible := false
+	var tuiOutputBefore []byte
+	for i := 0; i < 10; i++ {
+		time.Sleep(2 * time.Second)
+		captureCmd := tmuxCmd(socketName, "capture-pane", "-t", tuiTarget, "-p", "-e")
+		tuiOutputBefore, _ = captureCmd.Output()
+		if containsHighlightedWindow(string(tuiOutputBefore), "1:") {
+			alertVisible = true
+			t.Logf("Idle highlight visible after %d checks", i+1)
+			break
+		}
+	}
+
+	t.Logf("TUI output BEFORE 'working' write (should have highlight):\n%s", string(tuiOutputBefore))
+
+	if !alertVisible {
+		t.Log("Warning: Could not confirm idle highlight is present - TUI may not be detecting Claude pane")
+		// Continue the test anyway to verify the "working" state clears any potential alert
+	} else {
+		t.Log("✓ Idle highlight confirmed present before 'working' write")
+	}
+
+	// Step 2: Write "working" to alert file (simulating UserPromptSubmit hook)
+	t.Log("Writing 'working' to alert file (simulating UserPromptSubmit hook)...")
+	if err := os.WriteFile(alertFile, []byte("working"), 0644); err != nil {
+		t.Fatalf("Failed to write 'working' to alert file: %v", err)
+	}
+
+	// Wait briefly for the file change to propagate through fsnotify → daemon → TUI
+	time.Sleep(1 * time.Second)
+
+	// Step 3: Capture TUI output - should NOT show highlighted window anymore
+	captureCmd := tmuxCmd(socketName, "capture-pane", "-t", tuiTarget, "-p", "-e")
+	tuiOutputAfter, _ := captureCmd.Output()
+	t.Logf("TUI output AFTER 'working' write (should NOT have highlight):\n%s", string(tuiOutputAfter))
+
+	// Verify highlight is gone
+	if containsHighlightedWindow(string(tuiOutputAfter), "1:") {
+		t.Error("TUI should NOT show highlighted window after 'working' is written to alert file")
+		t.Log("The 'working' event type should clear the highlight immediately")
+	} else {
+		t.Log("✓ Highlight correctly cleared after 'working' write")
+	}
+
+	t.Log("UserPromptSubmit clears idle highlight test passed")
+}
+

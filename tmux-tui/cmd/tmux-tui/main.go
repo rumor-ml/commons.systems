@@ -146,9 +146,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.msg.PaneID, msg.msg.EventType, msg.msg.Created)
 
 			m.alertsMu.Lock()
-			if msg.msg.Created {
+			if msg.msg.Created && msg.msg.EventType != "working" {
+				// Alert state (idle, stop, permission, elicitation) - store it
 				m.alerts[msg.msg.PaneID] = msg.msg.EventType
 			} else {
+				// Either file deleted OR "working" state - remove alert
 				delete(m.alerts, msg.msg.PaneID)
 			}
 			m.alertsMu.Unlock()
