@@ -53,11 +53,11 @@ log "Received input: $input"
 [[ -z "$input" ]] && deny "Hook received no input"
 
 # Extract command from JSON - allow if not a Bash tool call
-if ! command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>&1); then
-  deny "Hook received malformed JSON input. jq error: $command"
+if ! command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null); then
+  deny "Failed to parse JSON input. Ensure valid JSON with .tool_input.command field."
 fi
 log "Extracted command: $command"
-[[ -z "$command" ]] && allow
+[[ -z "$command" ]] && allow "Empty command field - no git operation to validate"
 
 # Parse command into base and first argument
 read -r base_cmd first_arg _ <<< "$command"
