@@ -6,6 +6,10 @@ inputs:
     description: Whether to install Playwright browsers
     required: false
     default: 'false'
+  install-firebase:
+    description: Whether to install Firebase CLI for emulators
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -37,3 +41,8 @@ runs:
       if: inputs.install-playwright == 'true'
       shell: bash
       run: npx playwright install chromium --with-deps
+
+    - name: Install Firebase CLI
+      if: inputs.install-firebase == 'true'
+      shell: bash
+      run: pnpm add -g firebase-tools
