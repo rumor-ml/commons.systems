@@ -40,6 +40,17 @@ echo "========================================="
 echo "Site: $SITE_NAME"
 echo "Branch: $BRANCH_NAME"
 echo "Commit: $COMMIT_SHA"
+
+# Log Firebase CLI version for diagnostics
+FIREBASE_VERSION=$(firebase --version 2>/dev/null || echo "unknown")
+echo "Firebase CLI: $FIREBASE_VERSION"
+
+# Warn if using known buggy version
+if [[ "$FIREBASE_VERSION" == *"13.32.0"* ]]; then
+  echo "⚠️  WARNING: firebase-tools 13.32.0 has known 404 deployment bugs"
+  echo "   See: https://github.com/firebase/firebase-tools/issues/8274"
+fi
+
 echo "========================================="
 echo ""
 

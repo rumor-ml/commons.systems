@@ -327,6 +327,8 @@ jobs:
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy fellspiral to Firebase Hosting
+        id: deploy
+        continue-on-error: true
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
@@ -354,6 +356,45 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
+
+      - name: Trigger retry workflow on new worker if deployment failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️  Deployment health check failed. Triggering retry on new worker..."
+
+          gh workflow run retry-health-check.yml \
+            -f deployment_url="${DEPLOYMENT_URL}" \
+            -f site_name="fellspiral" \
+            -f original_run_id="${RUN_ID}" \
+            -f original_job_name="deploy-fellspiral"
+
+          sleep 5
+          RETRY_RUN_ID=$(gh run list --workflow=retry-health-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Retry workflow started: Run ID ${RETRY_RUN_ID}"
+
+          echo "Waiting for retry workflow to complete..."
+          gh run watch "${RETRY_RUN_ID}" --exit-status
+
+          echo "✅ Health check passed on new worker - original deployment was successful"
+
+      - name: Check final deployment status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on first attempt"
+            exit 0
+          elif [ "${{ steps.retry.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on retry (new worker)"
+            exit 0
+          else
+            echo "❌ Deployment failed on both original and retry attempts"
+            exit 1
+          fi
 
       - name: Update deployment status to success
         if: success()
@@ -412,6 +453,8 @@ jobs:
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy videobrowser to Firebase Hosting
+        id: deploy
+        continue-on-error: true
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
@@ -439,6 +482,45 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
+
+      - name: Trigger retry workflow on new worker if deployment failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️  Deployment health check failed. Triggering retry on new worker..."
+
+          gh workflow run retry-health-check.yml \
+            -f deployment_url="${DEPLOYMENT_URL}" \
+            -f site_name="videobrowser" \
+            -f original_run_id="${RUN_ID}" \
+            -f original_job_name="deploy-videobrowser"
+
+          sleep 5
+          RETRY_RUN_ID=$(gh run list --workflow=retry-health-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Retry workflow started: Run ID ${RETRY_RUN_ID}"
+
+          echo "Waiting for retry workflow to complete..."
+          gh run watch "${RETRY_RUN_ID}" --exit-status
+
+          echo "✅ Health check passed on new worker - original deployment was successful"
+
+      - name: Check final deployment status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on first attempt"
+            exit 0
+          elif [ "${{ steps.retry.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on retry (new worker)"
+            exit 0
+          else
+            echo "❌ Deployment failed on both original and retry attempts"
+            exit 1
+          fi
 
       - name: Update deployment status to success
         if: success()
@@ -497,6 +579,8 @@ jobs:
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy audiobrowser to Firebase Hosting
+        id: deploy
+        continue-on-error: true
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
@@ -524,6 +608,45 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
+
+      - name: Trigger retry workflow on new worker if deployment failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️  Deployment health check failed. Triggering retry on new worker..."
+
+          gh workflow run retry-health-check.yml \
+            -f deployment_url="${DEPLOYMENT_URL}" \
+            -f site_name="audiobrowser" \
+            -f original_run_id="${RUN_ID}" \
+            -f original_job_name="deploy-audiobrowser"
+
+          sleep 5
+          RETRY_RUN_ID=$(gh run list --workflow=retry-health-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Retry workflow started: Run ID ${RETRY_RUN_ID}"
+
+          echo "Waiting for retry workflow to complete..."
+          gh run watch "${RETRY_RUN_ID}" --exit-status
+
+          echo "✅ Health check passed on new worker - original deployment was successful"
+
+      - name: Check final deployment status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on first attempt"
+            exit 0
+          elif [ "${{ steps.retry.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on retry (new worker)"
+            exit 0
+          else
+            echo "❌ Deployment failed on both original and retry attempts"
+            exit 1
+          fi
 
       - name: Update deployment status to success
         if: success()
@@ -582,6 +705,8 @@ jobs:
           is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Deploy print to Firebase Hosting
+        id: deploy
+        continue-on-error: true
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh print ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
@@ -609,6 +734,45 @@ jobs:
 
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "Deployed to: ${URL}"
+
+      - name: Trigger retry workflow on new worker if deployment failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️  Deployment health check failed. Triggering retry on new worker..."
+
+          gh workflow run retry-health-check.yml \
+            -f deployment_url="${DEPLOYMENT_URL}" \
+            -f site_name="print" \
+            -f original_run_id="${RUN_ID}" \
+            -f original_job_name="deploy-print"
+
+          sleep 5
+          RETRY_RUN_ID=$(gh run list --workflow=retry-health-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Retry workflow started: Run ID ${RETRY_RUN_ID}"
+
+          echo "Waiting for retry workflow to complete..."
+          gh run watch "${RETRY_RUN_ID}" --exit-status
+
+          echo "✅ Health check passed on new worker - original deployment was successful"
+
+      - name: Check final deployment status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on first attempt"
+            exit 0
+          elif [ "${{ steps.retry.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on retry (new worker)"
+            exit 0
+          else
+            echo "❌ Deployment failed on both original and retry attempts"
+            exit 1
+          fi
 
       - name: Update deployment status to success
         if: success()
