@@ -24,7 +24,7 @@ test.describe('SSE Real-time Updates', () => {
       },
     ]);
 
-    const fileID = await helpers.createTestFile(sessionID, testFile);
+    const fileID = await helpers.createTestFile(userID, sessionID, testFile);
 
     // Set up console monitoring to detect page refreshes
     let pageRefreshed = false;
@@ -45,7 +45,7 @@ test.describe('SSE Real-time Updates', () => {
 
     // Simulate a backend status change (pending -> extracted)
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileID).update({
+    await firestore.collection('printsync-files').doc(fileID).update({
       status: 'extracted',
       updatedAt: new Date(),
     });
@@ -104,8 +104,8 @@ test.describe('SSE Real-time Updates', () => {
       },
     ]);
 
-    const fileID1 = await helpers.createTestFile(sessionID, file1);
-    const fileID2 = await helpers.createTestFile(sessionID, file2);
+    const fileID1 = await helpers.createTestFile(userID, sessionID, file1);
+    const fileID2 = await helpers.createTestFile(userID, sessionID, file2);
 
     // Navigate to sync detail page
     await page.goto(`http://localhost:8080/sync/${sessionID}`);
@@ -123,7 +123,7 @@ test.describe('SSE Real-time Updates', () => {
 
     // Update file1 status in Firestore
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileID1).update({
+    await firestore.collection('printsync-files').doc(fileID1).update({
       status: 'extracted',
       updatedAt: new Date(),
     });
@@ -184,7 +184,7 @@ test.describe('SSE Real-time Updates', () => {
     );
 
     const fileIDs = await Promise.all(
-      testFiles.map(f => helpers.createTestFile(sessionID, f))
+      testFiles.map(f => helpers.createTestFile(userID, sessionID, f))
     );
 
     // Navigate to sync detail page
@@ -207,13 +207,13 @@ test.describe('SSE Real-time Updates', () => {
 
     // Update one file to extracted status
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileIDs[0]).update({
+    await firestore.collection('printsync-files').doc(fileIDs[0]).update({
       status: 'extracted',
       updatedAt: new Date(),
     });
 
     // Update session stats
-    await firestore.collection('sessions').doc(sessionID).update({
+    await firestore.collection('printsync-sessions').doc(sessionID).update({
       'stats.extracted': 1,
       updatedAt: new Date(),
     });
@@ -259,7 +259,7 @@ test.describe('SSE Real-time Updates', () => {
       },
     ]);
 
-    await helpers.createTestFile(sessionID, testFile);
+    await helpers.createTestFile(userID, sessionID, testFile);
 
     // Monitor console for SSE-related messages
     const consoleMessages: string[] = [];

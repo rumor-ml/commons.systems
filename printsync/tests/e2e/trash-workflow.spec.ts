@@ -24,7 +24,7 @@ test.describe('Trash Workflow', () => {
       },
     ]);
 
-    const fileID = await helpers.createTestFile(sessionID, {
+    const fileID = await helpers.createTestFile(userID, sessionID, {
       localPath: file.localPath,
       hash: file.hash,
       status: file.status,
@@ -46,7 +46,7 @@ test.describe('Trash Workflow', () => {
 
     // Get the GCS path before trashing
     const firestore = helpers.getFirestore();
-    const fileDoc = await firestore.collection('files').doc(fileID).get();
+    const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
     const fileData = fileDoc.data();
     expect(fileData).toBeDefined();
     expect(fileData?.gcsPath).toBeDefined();
@@ -107,7 +107,7 @@ test.describe('Trash Workflow', () => {
     const fileIDs: string[] = [];
 
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
@@ -128,7 +128,7 @@ test.describe('Trash Workflow', () => {
     const gcsPaths: string[] = [];
 
     for (const fileID of fileIDs) {
-      const fileDoc = await firestore.collection('files').doc(fileID).get();
+      const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
       const fileData = fileDoc.data();
       expect(fileData).toBeDefined();
       expect(fileData?.gcsPath).toBeDefined();
@@ -194,7 +194,7 @@ test.describe('Trash Workflow', () => {
     const fileIDs: string[] = [];
 
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
@@ -239,7 +239,7 @@ test.describe('Trash Workflow', () => {
     const bucket = 'test-bucket';
 
     for (const fileID of fileIDs.slice(0, 2)) {
-      const fileDoc = await firestore.collection('files').doc(fileID).get();
+      const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
       const fileData = fileDoc.data();
       const gcsFile = storage.bucket(bucket).file(fileData!.gcsPath);
       const [exists] = await gcsFile.exists();
@@ -247,7 +247,7 @@ test.describe('Trash Workflow', () => {
     }
 
     // Verify rejected file still has no GCS path
-    const rejectedDoc = await firestore.collection('files').doc(fileIDs[2]).get();
+    const rejectedDoc = await firestore.collection('printsync-files').doc(fileIDs[2]).get();
     const rejectedData = rejectedDoc.data();
     expect(rejectedData?.gcsPath || '').toBe('');
   });

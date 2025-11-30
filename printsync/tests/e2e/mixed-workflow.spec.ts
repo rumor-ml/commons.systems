@@ -30,7 +30,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
     // Create files
     const fileIDs: string[] = [];
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
@@ -99,7 +99,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
     const bucket = 'test-bucket';
 
     for (const fileID of filesToApprove) {
-      const fileDoc = await firestore.collection('files').doc(fileID).get();
+      const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
       const fileData = fileDoc.data();
       expect(fileData).toBeDefined();
       expect(fileData?.gcsPath).toBeDefined();
@@ -110,7 +110,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
 
     // Verify rejected files do NOT have GCS paths
     for (const fileID of filesToReject) {
-      const fileDoc = await firestore.collection('files').doc(fileID).get();
+      const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
       const fileData = fileDoc.data();
       expect(fileData).toBeDefined();
       expect(fileData?.gcsPath || '').toBe('');
@@ -141,7 +141,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
     const fileIDs: string[] = [];
 
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 

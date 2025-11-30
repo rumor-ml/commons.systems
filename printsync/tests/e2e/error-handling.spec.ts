@@ -25,11 +25,11 @@ test.describe('Error Handling and Recovery', () => {
     ]);
 
     // Create the file with error status and error message
-    const fileID = await helpers.createTestFile(sessionID, errorFile);
+    const fileID = await helpers.createTestFile(userID, sessionID, errorFile);
 
     // Update the file to add error message
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileID).update({
+    await firestore.collection('printsync-files').doc(fileID).update({
       errorMessage: 'Failed to extract metadata: corrupted file header',
     });
 
@@ -90,11 +90,11 @@ test.describe('Error Handling and Recovery', () => {
       },
     ]);
 
-    const fileID = await helpers.createTestFile(sessionID, errorFile);
+    const fileID = await helpers.createTestFile(userID, sessionID, errorFile);
 
     // Add error message
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileID).update({
+    await firestore.collection('printsync-files').doc(fileID).update({
       errorMessage: 'Temporary network error',
     });
 
@@ -170,16 +170,16 @@ test.describe('Error Handling and Recovery', () => {
       },
     ]);
 
-    const fileID1 = await helpers.createTestFile(sessionID, errorFile1);
-    const fileID2 = await helpers.createTestFile(sessionID, errorFile2);
-    const fileID3 = await helpers.createTestFile(sessionID, okFile);
+    const fileID1 = await helpers.createTestFile(userID, sessionID, errorFile1);
+    const fileID2 = await helpers.createTestFile(userID, sessionID, errorFile2);
+    const fileID3 = await helpers.createTestFile(userID, sessionID, okFile);
 
     // Add different error messages
     const firestore = helpers.getFirestore();
-    await firestore.collection('files').doc(fileID1).update({
+    await firestore.collection('printsync-files').doc(fileID1).update({
       errorMessage: 'Invalid file format',
     });
-    await firestore.collection('files').doc(fileID2).update({
+    await firestore.collection('printsync-files').doc(fileID2).update({
       errorMessage: 'Metadata extraction failed',
     });
 

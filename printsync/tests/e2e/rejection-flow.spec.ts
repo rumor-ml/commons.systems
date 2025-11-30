@@ -37,7 +37,7 @@ test.describe('File Rejection Workflow', () => {
 
     // Verify file does NOT exist in GCS
     const firestore = helpers.getFirestore();
-    const fileDoc = await firestore.collection('files').doc(firstFileID).get();
+    const fileDoc = await firestore.collection('printsync-files').doc(firstFileID).get();
     const fileData = fileDoc.data();
 
     expect(fileData).toBeDefined();

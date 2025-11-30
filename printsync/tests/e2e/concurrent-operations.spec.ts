@@ -105,8 +105,8 @@ test.describe('Concurrent Operations', () => {
       },
     ]);
 
-    const fileID1 = await helpers.createTestFile(sessionID, file1);
-    const fileID2 = await helpers.createTestFile(sessionID, file2);
+    const fileID1 = await helpers.createTestFile(userID, sessionID, file1);
+    const fileID2 = await helpers.createTestFile(userID, sessionID, file2);
 
     // Navigate to sync page
     await page.goto(`http://localhost:8080/sync/${sessionID}`);
@@ -145,7 +145,7 @@ test.describe('Concurrent Operations', () => {
       await page.waitForTimeout(2000);
 
       const firestore = helpers.getFirestore();
-      const file2Doc = await firestore.collection('files').doc(fileID2).get();
+      const file2Doc = await firestore.collection('printsync-files').doc(fileID2).get();
       const file2Data = file2Doc.data();
 
       if (file2Data?.status === 'deduplicated' || file2Data?.isDuplicate) {
@@ -180,7 +180,7 @@ test.describe('Concurrent Operations', () => {
       }))
     );
 
-    const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(sessionID, f)));
+    const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(userID, sessionID, f)));
 
     // Navigate to sync page
     await page.goto(`http://localhost:8080/sync/${sessionID}`);
@@ -210,7 +210,7 @@ test.describe('Concurrent Operations', () => {
       const firestore = helpers.getFirestore();
       const fileStatuses = await Promise.all(
         fileIDs.map(async fileID => {
-          const doc = await firestore.collection('files').doc(fileID).get();
+          const doc = await firestore.collection('printsync-files').doc(fileID).get();
           return doc.data()?.status;
         })
       );
@@ -267,7 +267,7 @@ test.describe('Concurrent Operations', () => {
       }))
     );
 
-    const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(sessionID, f)));
+    const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(userID, sessionID, f)));
 
     // Navigate to sync page
     await page.goto(`http://localhost:8080/sync/${sessionID}`);
@@ -303,14 +303,14 @@ test.describe('Concurrent Operations', () => {
     // Verify the first two files are approved/uploading
     const firestore = helpers.getFirestore();
     for (let i = 0; i < 2; i++) {
-      const doc = await firestore.collection('files').doc(fileIDs[i]).get();
+      const doc = await firestore.collection('printsync-files').doc(fileIDs[i]).get();
       const status = doc.data()?.status;
       expect(['uploaded', 'uploading', 'extracted']).toContain(status);
     }
 
     // Verify the last two files are rejected
     for (let i = 2; i < 4; i++) {
-      const doc = await firestore.collection('files').doc(fileIDs[i]).get();
+      const doc = await firestore.collection('printsync-files').doc(fileIDs[i]).get();
       const status = doc.data()?.status;
       expect(status).toBe('rejected');
     }
@@ -338,7 +338,7 @@ test.describe('Concurrent Operations', () => {
       },
     ]);
 
-    const fileID = await helpers.createTestFile(sessionID, file);
+    const fileID = await helpers.createTestFile(userID, sessionID, file);
 
     // Navigate to sync page
     await page.goto(`http://localhost:8080/sync/${sessionID}`);
@@ -356,7 +356,7 @@ test.describe('Concurrent Operations', () => {
     const firestore = helpers.getFirestore();
     await page.waitForTimeout(500); // Let UI action start
 
-    await firestore.collection('files').doc(fileID).update({
+    await firestore.collection('printsync-files').doc(fileID).update({
       status: 'uploading',
       uploadProgress: 50,
       updatedAt: new Date(),
@@ -366,7 +366,7 @@ test.describe('Concurrent Operations', () => {
     await page.waitForTimeout(2000);
 
     // Verify final state is consistent
-    const doc = await firestore.collection('files').doc(fileID).get();
+    const doc = await firestore.collection('printsync-files').doc(fileID).get();
     const finalStatus = doc.data()?.status;
 
     // Should be in a valid state (not corrupted)

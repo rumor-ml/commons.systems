@@ -43,7 +43,7 @@ test.describe('Single File Approval Workflow', () => {
 
     // Get the file from Firestore to get the GCS path
     const firestore = helpers.getFirestore();
-    const fileDoc = await firestore.collection('files').doc(firstFileID).get();
+    const fileDoc = await firestore.collection('printsync-files').doc(firstFileID).get();
     const fileData = fileDoc.data();
 
     expect(fileData).toBeDefined();

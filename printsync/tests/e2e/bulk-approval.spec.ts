@@ -30,7 +30,7 @@ test.describe('Bulk Approval with Upload All', () => {
     // Create files
     const fileIDs: string[] = [];
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
@@ -78,7 +78,7 @@ test.describe('Bulk Approval with Upload All', () => {
     const bucket = 'test-bucket'; // Replace with actual bucket name
 
     for (const fileID of fileIDs) {
-      const fileDoc = await firestore.collection('files').doc(fileID).get();
+      const fileDoc = await firestore.collection('printsync-files').doc(fileID).get();
       const fileData = fileDoc.data();
       expect(fileData).toBeDefined();
       expect(fileData?.gcsPath).toBeDefined();
@@ -116,7 +116,7 @@ test.describe('Bulk Approval with Upload All', () => {
     const fileIDs: string[] = [];
 
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
