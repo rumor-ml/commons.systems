@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 
 interface PlaywrightJsonReport {
+  config?: any;  // Config object (optional, may not be present in all reports)
   suites: PlaywrightSuite[];
 }
 
@@ -54,14 +55,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     // Check for JSON format first
     const trimmed = logText.trim();
-    if (trimmed.startsWith('{"suites":')) {
+    if (trimmed.startsWith('{')) {
       try {
-        JSON.parse(trimmed);
-        return {
-          framework: "playwright",
-          confidence: "high",
-          isJsonOutput: true,
-        };
+        const parsed = JSON.parse(trimmed);
+        if (parsed.suites && Array.isArray(parsed.suites)) {
+          return {
+            framework: "playwright",
+            confidence: "high",
+            isJsonOutput: true,
+          };
+        }
       } catch {
         // Not valid JSON, continue with text detection
       }
