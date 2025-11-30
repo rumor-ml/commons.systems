@@ -26,6 +26,8 @@ const (
 	EventTypeIdle = "idle"
 	// EventTypeElicitation is written by Notification hook for elicitation_dialog
 	EventTypeElicitation = "elicitation"
+	// EventTypeWorking is written by UserPromptSubmit and PostToolUse hooks to signal "no alert"
+	EventTypeWorking = "working"
 )
 
 var (
@@ -35,6 +37,7 @@ var (
 		EventTypePermission:  true,
 		EventTypeIdle:        true,
 		EventTypeElicitation: true,
+		EventTypeWorking:     true,
 	}
 )
 
@@ -234,9 +237,16 @@ func (w *AlertWatcher) watch() {
 			case event.Op&fsnotify.Remove == fsnotify.Remove:
 				alertEvent = AlertEvent{PaneID: paneID, Created: false}
 			case event.Op&fsnotify.Write == fsnotify.Write:
-				// Treat writes as creates (file touched/updated)
-				eventType := readEventType(event.Name)
-				alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
+				// Check if file still exists - Write events may occur before Remove during deletion
+				_, err := os.Stat(event.Name)
+				if os.IsNotExist(err) {
+					// File was deleted - treat as delete event
+					alertEvent = AlertEvent{PaneID: paneID, Created: false}
+				} else {
+					// File exists - treat as create/update event
+					eventType := readEventType(event.Name)
+					alertEvent = AlertEvent{PaneID: paneID, EventType: eventType, Created: true}
+				}
 			default:
 				// Ignore other events (chmod, rename, etc.)
 				continue
@@ -310,12 +320,12 @@ func (w *AlertWatcher) Close() error {
 	return nil
 }
 
-// GetExistingAlerts returns a map of currently active alert files with their event types
-// This is useful for initializing state when the watcher starts
-func GetExistingAlerts() (map[string]string, error) {
+// GetExistingAlertsFromDir returns a map of currently active alert files with their event types
+// from a specific directory. This is useful for initializing state when the watcher starts.
+func GetExistingAlertsFromDir(dir string) (map[string]string, error) {
 	alerts := make(map[string]string)
 
-	pattern := filepath.Join(alertDir, alertPrefix+"*")
+	pattern := filepath.Join(dir, alertPrefix+"*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to glob alert files with pattern %s: %w", pattern, err)
@@ -326,9 +336,18 @@ func GetExistingAlerts() (map[string]string, error) {
 		paneID := strings.TrimPrefix(filename, alertPrefix)
 		if isValidPaneID(paneID) {
 			eventType := readEventType(file)
-			alerts[paneID] = eventType
+			// Only include actual alert states, not "working"
+			if eventType != EventTypeWorking {
+				alerts[paneID] = eventType
+			}
 		}
 	}
 
 	return alerts, nil
+}
+
+// GetExistingAlerts returns a map of currently active alert files with their event types
+// from the default alert directory. This is useful for initializing state when the watcher starts.
+func GetExistingAlerts() (map[string]string, error) {
+	return GetExistingAlertsFromDir(alertDir)
 }
