@@ -9,4 +9,16 @@ export default createPlaywrightConfig({
     local: 'cd ../site && air',
     ci: 'cd ../site && ./bin/printsync',
   },
+  // Environment variables for Firebase emulators
+  // These should match the ports in infrastructure/scripts/start-emulators.sh
+  env: {
+    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
+    STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || 'localhost:9199',
+    GCP_PROJECT_ID: 'demo-test', // Must match the project ID used in test fixtures (test-helpers.ts)
+  },
+  // Increase timeout for tests that interact with emulators
+  timeout: 60000,
+  expect: {
+    timeout: 10000,
+  },
 });

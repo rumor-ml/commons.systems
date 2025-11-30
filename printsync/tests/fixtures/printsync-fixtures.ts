@@ -76,7 +76,7 @@ export const test = base.extend<{
     // Create files
     const fileIDs: string[] = [];
     for (const file of files) {
-      const fileID = await helpers.createTestFile(sessionID, file);
+      const fileID = await helpers.createTestFile(userID, sessionID, file);
       fileIDs.push(fileID);
     }
 
