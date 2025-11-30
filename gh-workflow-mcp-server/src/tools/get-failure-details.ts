@@ -261,41 +261,43 @@ export async function getFailureDetails(
           .map((step) => step.name) || [];
 
         if (failedStepNames.length > 0) {
-          // Extract errors - no limit on number of errors for complete context
-          const extraction = extractErrors(logs, Number.MAX_SAFE_INTEGER);
+          // Parse logs by step to get individual step content
+          const stepLogs = parseLogsByStep(logs);
 
-          // If a test framework was detected, show all test failures
-          if (extraction.framework !== "unknown") {
-            const errorLines = formatExtractionResult(extraction);
-            const stepNames = failedStepNames.join(", ");
-            failedSteps.push({
-              name: stepNames,
-              conclusion: "failure",
-              error_lines: errorLines,
-              test_summary: extraction.summary || testSummary,
-            });
+          for (const stepName of failedStepNames) {
+            const stepContent = stepLogs.get(stepName) || [];
+            const stepText = stepContent.join("\n");
 
-            totalChars += stepNames.length + errorLines.join("\n").length;
-            if (extraction.summary || testSummary) {
-              totalChars += (extraction.summary || testSummary)!.length;
-            }
-          } else {
-            // No test framework detected - parse logs by step and return failing step content
-            const stepLogs = parseLogsByStep(logs);
+            // Check if this is a test step by trying to parse test results
+            const extraction = extractErrors(stepText, Number.MAX_SAFE_INTEGER);
 
-            for (const stepName of failedStepNames) {
-              const stepContent = stepLogs.get(stepName) || [];
+            if (extraction.framework !== "unknown") {
+              // Test step - return parsed test failures or reporting error
+              const errorLines = formatExtractionResult(extraction);
+              failedSteps.push({
+                name: stepName,
+                conclusion: "failure",
+                error_lines: errorLines,
+                test_summary: extraction.summary || testSummary,
+              });
+
+              totalChars += stepName.length + errorLines.join("\n").length;
+              if (extraction.summary || testSummary) {
+                totalChars += (extraction.summary || testSummary)!.length;
+              }
+            } else {
+              // Not a test step - return full step content
               failedSteps.push({
                 name: stepName,
                 conclusion: "failure",
                 error_lines: stepContent,
                 test_summary: null,
               });
-              totalChars += stepName.length + stepContent.join("\n").length;
+              totalChars += stepName.length + stepText.length;
             }
           }
         } else {
-          // No step info, just extract general errors
+          // No step info available - try to extract test results from full log
           const extraction = extractErrors(logs, Number.MAX_SAFE_INTEGER);
           const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
