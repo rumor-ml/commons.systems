@@ -52,19 +52,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const lines = logText.split("\n");
     let playwrightMarkerCount = 0;
 
-    // Check for JSON format first - try parsing and checking for 'suites' key
+    // Check for JSON format first
     const trimmed = logText.trim();
-    if (trimmed.startsWith('{')) {
+    if (trimmed.startsWith('{"suites":')) {
       try {
-        const parsed = JSON.parse(trimmed);
-        // Check if this is Playwright JSON by looking for the suites array
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.suites)) {
-          return {
-            framework: "playwright",
-            confidence: "high",
-            isJsonOutput: true,
-          };
-        }
+        JSON.parse(trimmed);
+        return {
+          framework: "playwright",
+          confidence: "high",
+          isJsonOutput: true,
+        };
       } catch {
         // Not valid JSON, continue with text detection
       }
