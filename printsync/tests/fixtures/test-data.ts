@@ -96,7 +96,7 @@ export function generateTestPDFFile(overrides?: Partial<TestFileData>): TestFile
   return {
     localPath: '/test/documents/sample.pdf',
     hash: generateTestFileHash(),
-    status: 'pending',
+    status: 'extracted',
     metadata: generateTestPDFMetadata(),
     size: 1024 * 100,
     ...overrides,
@@ -110,7 +110,7 @@ export function generateTestEPUBFile(overrides?: Partial<TestFileData>): TestFil
   return {
     localPath: '/test/books/sample.epub',
     hash: generateTestFileHash(),
-    status: 'pending',
+    status: 'extracted',
     metadata: generateTestEPUBMetadata(),
     size: 1024 * 200,
     ...overrides,

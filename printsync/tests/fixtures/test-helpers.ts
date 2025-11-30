@@ -27,6 +27,7 @@ export class TestHelpers {
   private storage: Storage;
   private createdSessionIDs: string[] = [];
   private createdFileIDs: string[] = [];
+  private listeners = new Map<string, () => void>();
 
   constructor() {
     // Check for emulator environment variables
@@ -69,20 +70,23 @@ export class TestHelpers {
     const sessionID = `test-session-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     const sessionData = {
-      id: sessionID,
-      userID,
+      userId: userID,
       rootDir,
       status: 'running',
       startedAt: new Date(),
       stats: {
         discovered: files.length,
+        extracted: files.length,
+        approved: 0,
+        rejected: 0,
+        skipped: 0,
         uploaded: 0,
         failed: 0,
         deduplicated: 0,
       },
     };
 
-    await this.firestore.collection('sessions').doc(sessionID).set(sessionData);
+    await this.firestore.collection('printsync-sessions').doc(sessionID).set(sessionData);
     this.createdSessionIDs.push(sessionID);
 
     return sessionID;
@@ -90,16 +94,17 @@ export class TestHelpers {
 
   /**
    * Creates a test file in Firestore
+   * @param userID User ID for the file
    * @param sessionID Session ID to associate the file with
    * @param fileData File data object
    * @returns File ID
    */
-  async createTestFile(sessionID: string, fileData: FileData): Promise<string> {
+  async createTestFile(userID: string, sessionID: string, fileData: FileData): Promise<string> {
     const fileID = `test-file-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     const file = {
-      id: fileID,
-      sessionID,
+      userId: userID,
+      sessionId: sessionID,
       localPath: fileData.localPath,
       gcsPath: fileData.gcsPath || '',
       hash: fileData.hash,
@@ -108,14 +113,14 @@ export class TestHelpers {
       updatedAt: new Date(),
     };
 
-    await this.firestore.collection('files').doc(fileID).set(file);
+    await this.firestore.collection('printsync-files').doc(fileID).set(file);
     this.createdFileIDs.push(fileID);
 
     return fileID;
   }
 
   /**
-   * Waits for a file to reach a specific status
+   * Waits for a file to reach a specific status using Firestore snapshot listeners
    * @param fileID File ID to monitor
    * @param status Expected status
    * @param timeout Timeout in milliseconds (default: 30000)
@@ -125,25 +130,96 @@ export class TestHelpers {
     status: string,
     timeout: number = 30000
   ): Promise<void> {
-    const startTime = Date.now();
-    const pollInterval = 100; // Poll every 100ms
-
-    while (Date.now() - startTime < timeout) {
-      const doc = await this.firestore.collection('files').doc(fileID).get();
-
-      if (doc.exists) {
-        const data = doc.data();
-        if (data?.status === status) {
-          return;
-        }
-      }
-
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    // First check if file already has the target status
+    const initialDoc = await this.firestore.collection('printsync-files').doc(fileID).get();
+    if (initialDoc.exists && initialDoc.data()?.status === status) {
+      return;
     }
 
-    throw new Error(
-      `Timeout waiting for file ${fileID} to reach status ${status} after ${timeout}ms`
+    return new Promise((resolve, reject) => {
+      const timeoutHandle = setTimeout(() => {
+        unsubscribe();
+        this.listeners.delete(fileID);
+        reject(new Error(`Timeout waiting for file ${fileID} to reach ${status}`));
+      }, timeout);
+
+      // Firestore snapshot listener - fires on all changes including initial snapshot
+      const unsubscribe = this.firestore
+        .collection('printsync-files')
+        .doc(fileID)
+        .onSnapshot(
+          (snapshot) => {
+            const data = snapshot.data();
+            if (data?.status === status) {
+              clearTimeout(timeoutHandle);
+              unsubscribe();
+              this.listeners.delete(fileID);
+              resolve();
+            }
+          },
+          (error) => {
+            clearTimeout(timeoutHandle);
+            unsubscribe();
+            this.listeners.delete(fileID);
+            reject(error);
+          }
+        );
+
+      this.listeners.set(fileID, unsubscribe);
+    });
+  }
+
+  /**
+   * Waits for multiple files to reach a specific status in parallel
+   * @param fileIDs Array of file IDs to monitor
+   * @param status Expected status
+   * @param timeout Timeout in milliseconds (default: 30000)
+   */
+  async waitForFilesStatus(
+    fileIDs: string[],
+    status: string,
+    timeout: number = 30000
+  ): Promise<void> {
+    await Promise.all(
+      fileIDs.map(fileID => this.waitForFileStatus(fileID, status, timeout))
     );
+  }
+
+  /**
+   * Creates multiple test files in Firestore in parallel
+   * @param userID User ID for the files
+   * @param sessionID Session ID to associate the files with
+   * @param files Array of file data objects
+   * @returns Array of file IDs
+   */
+  async createTestFiles(
+    userID: string,
+    sessionID: string,
+    files: FileData[]
+  ): Promise<string[]> {
+    const fileIDsWithData = files.map(file => ({
+      id: `test-file-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      data: {
+        userId: userID,
+        sessionId: sessionID,
+        localPath: file.localPath,
+        gcsPath: file.gcsPath || '',
+        hash: file.hash,
+        status: file.status,
+        metadata: file.metadata || {},
+        updatedAt: new Date(),
+      },
+    }));
+
+    // Parallel Firestore writes
+    await Promise.all(
+      fileIDsWithData.map(({ id, data }) =>
+        this.firestore.collection('printsync-files').doc(id).set(data)
+      )
+    );
+
+    this.createdFileIDs.push(...fileIDsWithData.map(f => f.id));
+    return fileIDsWithData.map(f => f.id);
   }
 
   /**
@@ -155,7 +231,7 @@ export class TestHelpers {
     fileID: string,
     expectedState: Partial<Record<string, any>>
   ): Promise<void> {
-    const doc = await this.firestore.collection('files').doc(fileID).get();
+    const doc = await this.firestore.collection('printsync-files').doc(fileID).get();
 
     if (!doc.exists) {
       throw new Error(`File ${fileID} not found in Firestore`);
@@ -192,23 +268,22 @@ export class TestHelpers {
    * Cleans up all test data created by this helper instance
    */
   async cleanup(): Promise<void> {
-    // Delete all created files
-    const fileDeletePromises = this.createdFileIDs.map(fileID =>
-      this.firestore.collection('files').doc(fileID).delete().catch(() => {
-        // Ignore errors during cleanup
-      })
-    );
+    // Unsubscribe all listeners first
+    for (const unsubscribe of this.listeners.values()) {
+      unsubscribe();
+    }
+    this.listeners.clear();
 
-    // Delete all created sessions
-    const sessionDeletePromises = this.createdSessionIDs.map(sessionID =>
-      this.firestore.collection('sessions').doc(sessionID).delete().catch(() => {
-        // Ignore errors during cleanup
-      })
-    );
+    // Parallel cleanup
+    await Promise.all([
+      ...this.createdFileIDs.map(id =>
+        this.firestore.collection('printsync-files').doc(id).delete().catch(() => {})
+      ),
+      ...this.createdSessionIDs.map(id =>
+        this.firestore.collection('printsync-sessions').doc(id).delete().catch(() => {})
+      )
+    ]);
 
-    await Promise.all([...fileDeletePromises, ...sessionDeletePromises]);
-
-    // Clear the tracking arrays
     this.createdFileIDs = [];
     this.createdSessionIDs = [];
   }
