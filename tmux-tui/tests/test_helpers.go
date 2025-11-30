@@ -11,17 +11,41 @@ import (
 )
 
 const (
-	testSocketName = "e2e-test"
-	testAlertDir   = "/tmp/claude"
-	alertPrefix    = "tui-alert-"
+	testSocketPrefix = "e2e-test"
+	alertPrefix      = "tui-alert-"
 )
 
+// uniqueSocketName generates a unique socket name for each test
+func uniqueSocketName() string {
+	return fmt.Sprintf("%s-%d", testSocketPrefix, time.Now().UnixNano())
+}
+
+// getTestAlertDir returns the alert directory for a given socket name
+func getTestAlertDir(socketName string) string {
+	return filepath.Join("/tmp/claude", socketName)
+}
+
 // tmuxCmd creates a tmux command that runs on the isolated test server
-func tmuxCmd(args ...string) *exec.Cmd {
-	fullArgs := append([]string{"-L", testSocketName}, args...)
+// Now accepts a socket name parameter for per-test isolation
+func tmuxCmd(socketName string, args ...string) *exec.Cmd {
+	fullArgs := append([]string{"-L", socketName}, args...)
 	cmd := exec.Command("tmux", fullArgs...)
-	cmd.Env = filterTmuxEnv(os.Environ())
+	env := filterTmuxEnv(os.Environ())
+	env = append(env, "CLAUDE_E2E_TEST=1")
+	cmd.Env = env
+
+	// Also ensure the global environment is set on the test server
+	// This needs to happen once but is safe to call multiple times
+	setGlobalTestEnv(socketName)
+
 	return cmd
+}
+
+// setGlobalTestEnv sets CLAUDE_E2E_TEST globally on the test tmux server
+// This ensures all processes spawned in test sessions inherit the variable
+func setGlobalTestEnv(socketName string) {
+	cmd := exec.Command("tmux", "-L", socketName, "set-environment", "-g", "CLAUDE_E2E_TEST", "1")
+	cmd.Run() // Ignore errors - may fail if server isn't running yet
 }
 
 // filterTmuxEnv removes TMUX and TMUX_PANE env vars to ensure test session isolation
@@ -46,7 +70,7 @@ type DiagnosticInfo struct {
 }
 
 // captureDiagnostics gathers comprehensive state
-func captureDiagnostics(t *testing.T, session, paneID string) DiagnosticInfo {
+func captureDiagnostics(t *testing.T, socketName, session, paneID string) DiagnosticInfo {
 	t.Helper()
 
 	info := DiagnosticInfo{
@@ -55,13 +79,14 @@ func captureDiagnostics(t *testing.T, session, paneID string) DiagnosticInfo {
 	}
 
 	// Check alert file
-	alertFile := filepath.Join(testAlertDir, alertPrefix+paneID)
+	alertDir := getTestAlertDir(socketName)
+	alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 	_, err := os.Stat(alertFile)
 	info.AlertFileExists = !os.IsNotExist(err)
 
 	// Capture pane content
 	windowTarget := fmt.Sprintf("%s.%s", session, paneID)
-	captureCmd := tmuxCmd("capture-pane", "-t", windowTarget, "-p")
+	captureCmd := tmuxCmd(socketName, "capture-pane", "-t", windowTarget, "-p")
 	if output, err := captureCmd.Output(); err == nil {
 		info.PaneContent = string(output)
 		info.ClaudeRunning = strings.Contains(info.PaneContent, "claude") ||
@@ -165,10 +190,11 @@ func getTestTimeouts() TestTimeouts {
 }
 
 // waitForAlertFile waits for alert file with diagnostics
-func waitForAlertFile(t *testing.T, session, paneID string, shouldExist bool, timeout time.Duration) bool {
+func waitForAlertFile(t *testing.T, socketName, session, paneID string, shouldExist bool, timeout time.Duration) bool {
 	t.Helper()
 
-	alertFile := filepath.Join(testAlertDir, alertPrefix+paneID)
+	alertDir := getTestAlertDir(socketName)
+	alertFile := filepath.Join(alertDir, alertPrefix+paneID)
 
 	cond := WaitCondition{
 		Name:     fmt.Sprintf("alert file %s (shouldExist=%v)", paneID, shouldExist),
@@ -186,7 +212,7 @@ func waitForAlertFile(t *testing.T, session, paneID string, shouldExist bool, ti
 		},
 		OnRetry: func(attempt int, elapsed time.Duration) {
 			if attempt%25 == 0 {
-				info := captureDiagnostics(t, session, paneID)
+				info := captureDiagnostics(t, socketName, session, paneID)
 				logDiagnostics(t, info,
 					fmt.Sprintf("Waiting for alert (attempt %d)", attempt))
 			}
@@ -195,7 +221,7 @@ func waitForAlertFile(t *testing.T, session, paneID string, shouldExist bool, ti
 
 	err := waitForCondition(t, cond)
 	if err != nil {
-		info := captureDiagnostics(t, session, paneID)
+		info := captureDiagnostics(t, socketName, session, paneID)
 		logDiagnostics(t, info, "FAILURE - Alert file wait timeout")
 		t.Logf("Error: %v", err)
 		return false
@@ -205,7 +231,7 @@ func waitForAlertFile(t *testing.T, session, paneID string, shouldExist bool, ti
 }
 
 // waitForClaudePaneDetection waits for pane to be detected as Claude pane using retry logic
-func waitForClaudePaneDetection(t *testing.T, session, paneID string, timeout time.Duration) bool {
+func waitForClaudePaneDetection(t *testing.T, socketName, session, paneID string, timeout time.Duration) bool {
 	t.Helper()
 
 	cond := WaitCondition{
@@ -216,7 +242,7 @@ func waitForClaudePaneDetection(t *testing.T, session, paneID string, timeout ti
 			target := fmt.Sprintf("%s.%s", session, paneID)
 
 			// Get pane PID
-			pidCmd := tmuxCmd("display-message", "-t", target, "-p", "#{pane_pid}")
+			pidCmd := tmuxCmd(socketName, "display-message", "-t", target, "-p", "#{pane_pid}")
 			output, err := pidCmd.Output()
 			if err != nil {
 				return false, fmt.Errorf("failed to get pane PID: %w", err)
@@ -248,31 +274,33 @@ func waitForClaudePaneDetection(t *testing.T, session, paneID string, timeout ti
 }
 
 // dumpHookDebugLog displays the hook execution log for debugging
-func dumpHookDebugLog(t *testing.T) {
+func dumpHookDebugLog(t *testing.T, socketName string) {
 	t.Helper()
-	data, err := os.ReadFile("/tmp/claude/hook-debug.log")
+	alertDir := getTestAlertDir(socketName)
+	logFile := filepath.Join(alertDir, "hook-debug.log")
+	data, err := os.ReadFile(logFile)
 	if err != nil {
-		t.Logf("No hook debug log found: %v", err)
+		t.Logf("No hook debug log found at %s: %v", logFile, err)
 		return
 	}
 	t.Logf("=== Hook Debug Log ===\n%s\n===================", string(data))
 }
 
 // logEnvironmentState captures environment variables for a pane
-func logEnvironmentState(t *testing.T, session, paneID, context string) {
+func logEnvironmentState(t *testing.T, socketName, session, paneID, context string) {
 	t.Helper()
 	target := fmt.Sprintf("%s.%s", session, paneID)
 
 	// Get TMUX_PANE environment variable
-	tmuxPaneCmd := tmuxCmd("show-environment", "-t", target, "TMUX_PANE")
+	tmuxPaneCmd := tmuxCmd(socketName, "show-environment", "-t", target, "TMUX_PANE")
 	tmuxPaneOutput, tmuxPaneErr := tmuxPaneCmd.CombinedOutput()
 
 	// Get CLAUDE_E2E_TEST environment variable
-	claudeTestCmd := tmuxCmd("show-environment", "-t", target, "CLAUDE_E2E_TEST")
+	claudeTestCmd := tmuxCmd(socketName, "show-environment", "-t", target, "CLAUDE_E2E_TEST")
 	claudeTestOutput, claudeTestErr := claudeTestCmd.CombinedOutput()
 
 	// Get all environment variables for comprehensive diagnostics
-	allEnvCmd := tmuxCmd("show-environment", "-t", target)
+	allEnvCmd := tmuxCmd(socketName, "show-environment", "-t", target)
 	allEnvOutput, allEnvErr := allEnvCmd.CombinedOutput()
 
 	t.Logf("=== Environment State: %s ===", context)
@@ -306,18 +334,11 @@ func logEnvironmentState(t *testing.T, session, paneID, context string) {
 
 // CleanupAlertFiles removes all alert files from the test directory.
 // This is useful for ensuring a clean state before tests.
-func CleanupAlertFiles() error {
-	pattern := filepath.Join(testAlertDir, alertPrefix+"*")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return fmt.Errorf("failed to glob alert files: %w", err)
+func CleanupAlertFiles(socketName string) error {
+	alertDir := getTestAlertDir(socketName)
+	// Remove entire namespace directory
+	if err := os.RemoveAll(alertDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove alert directory %s: %w", alertDir, err)
 	}
-
-	for _, file := range matches {
-		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove %s: %w", file, err)
-		}
-	}
-
 	return nil
 }
