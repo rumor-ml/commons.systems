@@ -123,6 +123,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/pre-push-tests.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/worktree-branch-guard.sh"
           }
         ]
       }
