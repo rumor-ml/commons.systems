@@ -68,6 +68,31 @@ interface FailedJobSummary {
 }
 
 /**
+ * Parse GitHub Actions logs by step name
+ * Returns a map of step name to array of log lines (without timestamps)
+ */
+function parseLogsByStep(logText: string): Map<string, string[]> {
+  const stepLogs = new Map<string, string[]>();
+  const lines = logText.split("\n");
+
+  for (const line of lines) {
+    // GitHub Actions log format: "Job Name\tStep Name\tTimestamp\tContent"
+    const parts = line.split("\t");
+    if (parts.length >= 3) {
+      const stepName = parts[1];
+      const content = parts.slice(2).join("\t"); // Rejoin in case content has tabs
+
+      if (!stepLogs.has(stepName)) {
+        stepLogs.set(stepName, []);
+      }
+      stepLogs.get(stepName)!.push(content);
+    }
+  }
+
+  return stepLogs;
+}
+
+/**
  * Extract test summary from logs (e.g., "1 failed, 77 passed")
  * Playwright outputs these on separate lines, so we need to find and combine them
  */
@@ -236,26 +261,42 @@ export async function getFailureDetails(
           .map((step) => step.name) || [];
 
         if (failedStepNames.length > 0) {
-          // Extract errors for all failed steps in one pass (more efficient and comprehensive)
-          const extraction = extractErrors(logs, 20);
-          const errorLines = formatExtractionResult(extraction);
+          // Extract errors - no limit on number of errors for complete context
+          const extraction = extractErrors(logs, Number.MAX_SAFE_INTEGER);
 
-          // Create a single consolidated entry for all failed steps in this job
-          const stepNames = failedStepNames.join(", ");
-          failedSteps.push({
-            name: stepNames,
-            conclusion: "failure",
-            error_lines: errorLines,
-            test_summary: extraction.summary || testSummary,
-          });
+          // If a test framework was detected, show all test failures
+          if (extraction.framework !== "unknown") {
+            const errorLines = formatExtractionResult(extraction);
+            const stepNames = failedStepNames.join(", ");
+            failedSteps.push({
+              name: stepNames,
+              conclusion: "failure",
+              error_lines: errorLines,
+              test_summary: extraction.summary || testSummary,
+            });
 
-          totalChars += stepNames.length + errorLines.join("\n").length;
-          if (extraction.summary || testSummary) {
-            totalChars += (extraction.summary || testSummary)!.length;
+            totalChars += stepNames.length + errorLines.join("\n").length;
+            if (extraction.summary || testSummary) {
+              totalChars += (extraction.summary || testSummary)!.length;
+            }
+          } else {
+            // No test framework detected - parse logs by step and return failing step content
+            const stepLogs = parseLogsByStep(logs);
+
+            for (const stepName of failedStepNames) {
+              const stepContent = stepLogs.get(stepName) || [];
+              failedSteps.push({
+                name: stepName,
+                conclusion: "failure",
+                error_lines: stepContent,
+                test_summary: null,
+              });
+              totalChars += stepName.length + stepContent.join("\n").length;
+            }
           }
         } else {
           // No step info, just extract general errors
-          const extraction = extractErrors(logs, 20);
+          const extraction = extractErrors(logs, Number.MAX_SAFE_INTEGER);
           const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
             name: "General failure",
@@ -312,16 +353,10 @@ export async function getFailureDetails(
         // Add step name and conclusion
         parts.push(`    Step: ${step.name} (${step.conclusion})`);
 
-        // Add error lines - show more context (up to 50 lines instead of 10)
+        // Add all error lines - no artificial limits
         if (step.error_lines.length > 0) {
-          // Include all error lines up to a reasonable limit
-          const errorPreview = step.error_lines.slice(0, 50).join("\n      ");
-          parts.push(`      ${errorPreview}`);
-
-          // Indicate if there are more errors
-          if (step.error_lines.length > 50) {
-            parts.push(`      ... (${step.error_lines.length - 50} more lines omitted)`);
-          }
+          const errorContent = step.error_lines.join("\n      ");
+          parts.push(`      ${errorContent}`);
         }
 
         return parts.join("\n");

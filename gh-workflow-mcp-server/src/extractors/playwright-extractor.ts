@@ -97,11 +97,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, maxErrors = 10): ExtractionResult {
+  extract(logText: string, _maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
     if (detection?.isJsonOutput) {
-      return this.parsePlaywrightJson(logText, maxErrors);
+      return this.parsePlaywrightJson(logText);
     } else if (detection) {
       // Playwright detected but wrong reporter format
       return {
@@ -130,7 +130,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     };
   }
 
-  private parsePlaywrightJson(logText: string, maxErrors: number): ExtractionResult {
+  private parsePlaywrightJson(logText: string): ExtractionResult {
     const failures: ExtractedError[] = [];
 
     try {
@@ -138,7 +138,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
       const extractFromSuite = (suite: PlaywrightSuite) => {
         for (const spec of suite.specs || []) {
-          if (!spec.ok && failures.length < maxErrors) {
+          if (!spec.ok) {
             for (const test of spec.tests || []) {
               for (const result of test.results || []) {
                 if (result.status !== 'passed' && result.status !== 'skipped') {
@@ -161,8 +161,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                     failureType: result.status,
                     rawOutput,
                   });
-
-                  if (failures.length >= maxErrors) return;
                 }
               }
             }
@@ -172,13 +170,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         // Recursively process nested suites
         for (const nestedSuite of suite.suites || []) {
           extractFromSuite(nestedSuite);
-          if (failures.length >= maxErrors) return;
         }
       };
 
       for (const suite of report.suites || []) {
         extractFromSuite(suite);
-        if (failures.length >= maxErrors) break;
       }
 
       // Count total tests for summary
