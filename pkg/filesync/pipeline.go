@@ -715,7 +715,9 @@ func (p *Pipeline) RejectFiles(ctx context.Context, sessionID string, fileIDs []
 	return nil
 }
 
-// TrashFiles marks files as trashed (soft delete). Files can be in uploaded or skipped state.
+// TrashFiles marks files as trashed (soft delete) and deletes local files.
+// Files can be in uploaded or skipped state.
+// Local files are deleted (moved to system trash), but GCS files remain permanently.
 func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []string) error {
 	// Get session for stats updates
 	session, err := p.sessionStore.Get(ctx, sessionID)
@@ -732,9 +734,17 @@ func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []s
 			return fmt.Errorf("failed to get file %s: %w", fileID, err)
 		}
 
-		// Verify file is in uploaded or skipped state
-		if syncFile.Status != FileStatusUploaded && syncFile.Status != FileStatusSkipped {
-			return fmt.Errorf("file %s is not in uploaded or skipped state (current: %s)", fileID, syncFile.Status)
+		// Validate state transition using state machine
+		if !CanTrash(syncFile.Status) {
+			return fmt.Errorf("file %s cannot be trashed from state %s", fileID, syncFile.Status)
+		}
+
+		// Delete local file if path exists
+		if syncFile.LocalPath != "" {
+			if err := p.uploader.DeleteLocal(ctx, syncFile.LocalPath); err != nil {
+				// If local file deletion fails, don't update to trashed state
+				return fmt.Errorf("failed to delete local file for %s: %w", fileID, err)
+			}
 		}
 
 		// Update status to trashed
