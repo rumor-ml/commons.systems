@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20251125134817-d85927d7854b
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/google/uuid v1.6.0
 )
 
 require (
