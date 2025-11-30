@@ -17,6 +17,7 @@
   "permissions": {
     "allow": [
       "WebSearch",
+      "Skill(sonnet)",
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
       "SlashCommand(/commit-merge-push)",

@@ -1,5 +1,6 @@
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
+import { AuthHelper } from './auth-helper';
 
 export interface FileData {
   localPath: string;
@@ -25,8 +26,10 @@ export interface SessionData {
 export class TestHelpers {
   private firestore: Firestore;
   private storage: Storage;
+  private authHelper: AuthHelper;
   private createdSessionIDs: string[] = [];
   private createdFileIDs: string[] = [];
+  private createdUserIDs: string[] = [];
   private listeners = new Map<string, () => void>();
 
   constructor() {
@@ -53,6 +56,9 @@ export class TestHelpers {
       projectId: 'demo-test',
       apiEndpoint: `http://${storageHost}`,
     });
+
+    // Initialize Auth helper
+    this.authHelper = new AuthHelper();
   }
 
   /**
@@ -223,6 +229,17 @@ export class TestHelpers {
   }
 
   /**
+   * Creates a Firebase Auth token for a test user
+   * @param userID User ID (should match the userID in test session)
+   * @returns Firebase ID token for use in Authorization: Bearer header
+   */
+  async createAuthToken(userID: string): Promise<string> {
+    const token = await this.authHelper.createUserAndGetToken(userID);
+    this.createdUserIDs.push(userID);
+    return token;
+  }
+
+  /**
    * Asserts that a file exists in Firestore with expected state
    * @param fileID File ID to verify
    * @param expectedState Expected state object (partial match)
@@ -281,11 +298,18 @@ export class TestHelpers {
       ),
       ...this.createdSessionIDs.map(id =>
         this.firestore.collection('printsync-sessions').doc(id).delete().catch(() => {})
+      ),
+      ...this.createdUserIDs.map(id =>
+        this.authHelper.deleteUser(id).catch(() => {})
       )
     ]);
 
     this.createdFileIDs = [];
     this.createdSessionIDs = [];
+    this.createdUserIDs = [];
+
+    // Cleanup auth helper
+    await this.authHelper.cleanup();
   }
 
   /**

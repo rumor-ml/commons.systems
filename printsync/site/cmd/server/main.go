@@ -42,6 +42,11 @@ func main() {
 		log.Fatalf("Failed to create Firebase app: %v", err)
 	}
 
+	// Log if using Firebase Auth Emulator
+	if authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"); authEmulator != "" {
+		log.Printf("INFO: Using Firebase Auth Emulator at %s", authEmulator)
+	}
+
 	// Create session and file stores
 	sessionStore := filesync.NewFirestoreSessionStore(fsClient.Client)
 	fileStore := filesync.NewFirestoreFileStore(fsClient.Client)

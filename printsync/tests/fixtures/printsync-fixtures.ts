@@ -6,6 +6,7 @@ export interface TestSession {
   sessionID: string;
   userID: string;
   fileIDs: string[];
+  authToken: string;
 }
 
 /**
@@ -80,16 +81,35 @@ export const test = base.extend<{
       fileIDs.push(fileID);
     }
 
+    // Generate auth token for this user
+    const authToken = await helpers.createAuthToken(userID);
+
     const testSession: TestSession = {
       sessionID,
       userID,
       fileIDs,
+      authToken,
     };
 
     // Provide the test session to the test
     await use(testSession);
 
     // Cleanup is handled by the helpers fixture
+  },
+
+  /**
+   * Override page fixture to inject Firebase auth token in all requests
+   * This makes authenticated API calls work in e2e tests
+   */
+  page: async ({ browser, testSession }, use) => {
+    const context = await browser.newContext({
+      extraHTTPHeaders: {
+        'Authorization': `Bearer ${testSession.authToken}`,
+      },
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
   },
 });
 
