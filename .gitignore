@@ -66,6 +66,7 @@ printsync/site/bin/
 __pycache__/
 
 # Git worktree files
+worktrees
 HEAD
 ORIG_HEAD
 commondir
