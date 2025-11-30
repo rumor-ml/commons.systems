@@ -61,24 +61,48 @@ fi
 check_url() {
   local response
   local http_code
+  local curl_output
+  local time_namelookup
+  local time_connect
+  local time_starttransfer
+  local time_total
 
-  # Fetch response with HTTP code and timeouts
+  # Fetch response with HTTP code, timing metrics, and headers
   # --connect-timeout: max time for connection establishment
   # --max-time: max time for entire operation
-  response=$(curl -sf --connect-timeout 10 --max-time 30 -w "\n%{http_code}" "$URL" 2>/dev/null) || return 1
-  http_code=$(echo "$response" | tail -n1)
-  response=$(echo "$response" | sed '$d')
+  # -w format includes timing data: DNS lookup, TCP connect, TTFB, total
+  curl_output=$(curl -sf --connect-timeout 10 --max-time 30 \
+    -w "\n%{http_code}\n%{time_namelookup}\n%{time_connect}\n%{time_starttransfer}\n%{time_total}" \
+    -D /dev/stderr \
+    "$URL" 2>&1) || {
+    [ "$VERBOSE" = true ] && echo "  ⚠️  curl failed (connection error or timeout)"
+    return 1
+  }
+
+  # Parse curl output
+  # curl appends 5 lines: http_code, time_namelookup, time_connect, time_starttransfer, time_total
+  response=$(echo "$curl_output" | head -n -5)
+  http_code=$(echo "$curl_output" | tail -n 5 | head -n 1)
+  time_namelookup=$(echo "$curl_output" | tail -n 4 | head -n 1)
+  time_connect=$(echo "$curl_output" | tail -n 3 | head -n 1)
+  time_starttransfer=$(echo "$curl_output" | tail -n 2 | head -n 1)
+  time_total=$(echo "$curl_output" | tail -n 1)
+
+  # Log timing metrics in verbose mode
+  if [ "$VERBOSE" = true ]; then
+    echo "  📊 Timing: DNS=${time_namelookup}s, Connect=${time_connect}s, TTFB=${time_starttransfer}s, Total=${time_total}s"
+  fi
 
   # Check HTTP status
   if [ "$http_code" != "200" ] && [ "$http_code" != "304" ]; then
-    [ "$VERBOSE" = true ] && echo "  HTTP status: $http_code (expected 200 or 304)"
+    [ "$VERBOSE" = true ] && echo "  ❌ HTTP status: $http_code (expected 200 or 304)"
     return 1
   fi
 
   # Check content pattern if specified
   if [ -n "$CONTENT_PATTERN" ]; then
     if ! echo "$response" | grep -q "$CONTENT_PATTERN"; then
-      [ "$VERBOSE" = true ] && echo "  Content pattern '$CONTENT_PATTERN' not found"
+      [ "$VERBOSE" = true ] && echo "  ❌ Content pattern '$CONTENT_PATTERN' not found"
       return 1
     fi
   fi
@@ -109,8 +133,13 @@ while true; do
     [ -n "$CONTENT_PATTERN" ] && echo "   Expected content: '$CONTENT_PATTERN'"
     echo ""
     echo "Last response details:"
-    LAST_HTTP_CODE=$(curl -sf -w "%{http_code}" "$URL" 2>/dev/null || echo "Connection failed")
-    echo "   HTTP Code: $LAST_HTTP_CODE"
+
+    # Capture detailed diagnostics on final attempt
+    DIAGNOSTIC_OUTPUT=$(curl -svf --connect-timeout 10 --max-time 30 \
+      -w "\nHTTP_CODE: %{http_code}\nDNS_TIME: %{time_namelookup}s\nCONNECT_TIME: %{time_connect}s\nTTFB: %{time_starttransfer}s\nTOTAL_TIME: %{time_total}s" \
+      "$URL" 2>&1 || echo "Connection failed")
+
+    echo "$DIAGNOSTIC_OUTPUT" | grep -E "(HTTP_CODE|DNS_TIME|CONNECT_TIME|TTFB|TOTAL_TIME|< HTTP/|< [Cc]ache-|Connection failed)" | sed 's/^/   /'
     exit 1
   fi
 
