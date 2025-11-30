@@ -41,17 +41,17 @@ gh pr create --base main --label "needs review"
 Auto-generate title from branch name and body from commit messages.
 
 ### 5. Launch Concurrent Tasks
-After PR is created (or confirmed to exist from step 4), use the Task tool to launch two concurrent tasks in a single message:
+After PR is created (or confirmed to exist from step 4), launch two concurrent tasks:
 
 1. **PR Review Task** (subagent_type: "accept-edits")
    - Use the Task tool with subagent_type="accept-edits" to run the `/pr-review-toolkit:review-pr` slash command (no arguments)
    - This will perform comprehensive PR review using specialized agents
 
-2. **Monitor Workflow Task** (subagent_type: "Monitor Workflow")
-   - Invoke the Monitor Workflow agent
-   - This will track CI/CD workflow status
+2. **Monitor PR Checks**
+   - Call `mcp__gh-workflow__gh_monitor_pr_checks` with the PR number
+   - This will track all CI/CD status checks for the PR until completion
 
-**IMPORTANT**: Launch both tasks concurrently by making multiple Task tool calls in a single message. Then wait for both tasks to complete before proceeding.
+**IMPORTANT**: Launch both tasks concurrently (Task tool call + MCP tool call in a single message). Then wait for both to complete before proceeding.
 
 ### 6. Post Review Feedback
 After the PR Review Task completes, post the feedback as a comment on the PR:
@@ -71,7 +71,7 @@ If the PR Review Task failed or reported critical issues, do NOT approve the PR.
 ### 8. Report Combined Results
 After all tasks complete:
 - Report results from the PR review task
-- Report workflow status from the Monitor Workflow task
+- Report workflow status from the MCP monitor tool
 - Report whether PR was approved
 - Include PR URL for user reference
 - If any checks failed, report which checks failed (do not attempt to fix them)

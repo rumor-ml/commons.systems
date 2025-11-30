@@ -49,6 +49,6 @@ export FIRESTORE_EMULATOR_HOST=localhost:8081
 
 # Navigate to the filesync directory and run tests
 cd "$PROJECT_ROOT/pkg/filesync"
-go test -v ./...
+go test -v -json ./...
 
 echo "=== Tests completed successfully ==="
