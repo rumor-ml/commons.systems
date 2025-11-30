@@ -196,6 +196,20 @@ describe("PlaywrightExtractor - JSON", () => {
       assert.strictEqual(result?.confidence, "high");
       assert.strictEqual(result?.isJsonOutput, true);
     });
+
+    test("detects Playwright JSON with different key ordering (config before suites)", () => {
+      const jsonOutput = `{"config":{"rootDir":"/tmp"},"suites":[{"title":"","file":"test.spec.ts","column":0,"line":0,"specs":[]}]}`;
+      const result = extractor.detect(jsonOutput);
+      assert.strictEqual(result?.framework, "playwright");
+      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.isJsonOutput, true);
+    });
+
+    test("does not detect JSON without suites key", () => {
+      const jsonOutput = `{"config":{"rootDir":"/tmp"},"other":"value"}`;
+      const result = extractor.detect(jsonOutput);
+      assert.strictEqual(result, null);
+    });
   });
 
   describe("extract JSON", () => {
@@ -238,6 +252,47 @@ describe("PlaywrightExtractor - JSON", () => {
       assert.ok(result.errors[0].stack);
       assert.ok(result.errors[0].codeSnippet);
       assert.strictEqual(result.errors[0].duration, 1234);
+      assert.strictEqual(result.errors[0].failureType, "failed");
+    });
+
+    test("extracts test failures from Playwright JSON with config key first", () => {
+      const jsonOutput = JSON.stringify({
+        config: { rootDir: "/tmp/test" },
+        suites: [{
+          title: "example.spec.ts",
+          file: "example.spec.ts",
+          line: 10,
+          column: 2,
+          specs: [{
+            title: "should handle config-first JSON",
+            ok: false,
+            tests: [{
+              expectedStatus: "passed",
+              status: "failed",
+              projectName: "firefox",
+              results: [{
+                duration: 5678,
+                status: "failed",
+                error: {
+                  message: "Timeout exceeded",
+                  stack: "Error: Timeout exceeded\n    at example.spec.ts:15:10"
+                }
+              }]
+            }]
+          }]
+        }]
+      });
+      const result = extractor.extract(jsonOutput);
+
+      assert.strictEqual(result.framework, "playwright");
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.errors[0].testName, "[firefox] should handle config-first JSON");
+      assert.strictEqual(result.errors[0].fileName, "example.spec.ts");
+      assert.strictEqual(result.errors[0].lineNumber, 10);
+      assert.strictEqual(result.errors[0].columnNumber, 2);
+      assert.strictEqual(result.errors[0].message, "Timeout exceeded");
+      assert.ok(result.errors[0].stack);
+      assert.strictEqual(result.errors[0].duration, 5678);
       assert.strictEqual(result.errors[0].failureType, "failed");
     });
   });
