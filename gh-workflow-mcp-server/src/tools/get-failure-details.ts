@@ -236,26 +236,26 @@ export async function getFailureDetails(
           .map((step) => step.name) || [];
 
         if (failedStepNames.length > 0) {
-          // Extract errors for each failed step
-          for (const stepName of failedStepNames) {
-            const extraction = extractErrors(logs, 10);
-            const errorLines = formatExtractionResult(extraction);
-            failedSteps.push({
-              name: stepName,
-              conclusion: "failure",
-              error_lines: errorLines,
-              test_summary: extraction.summary || testSummary,
-            });
+          // Extract errors for all failed steps in one pass (more efficient and comprehensive)
+          const extraction = extractErrors(logs, 20);
+          const errorLines = formatExtractionResult(extraction);
 
-            totalChars += stepName.length + errorLines.join("\n").length;
-            if (extraction.summary || testSummary) {
-              totalChars += (extraction.summary || testSummary)!.length;
-            }
-            if (totalChars > input.max_chars) break;
+          // Create a single consolidated entry for all failed steps in this job
+          const stepNames = failedStepNames.join(", ");
+          failedSteps.push({
+            name: stepNames,
+            conclusion: "failure",
+            error_lines: errorLines,
+            test_summary: extraction.summary || testSummary,
+          });
+
+          totalChars += stepNames.length + errorLines.join("\n").length;
+          if (extraction.summary || testSummary) {
+            totalChars += (extraction.summary || testSummary)!.length;
           }
         } else {
           // No step info, just extract general errors
-          const extraction = extractErrors(logs, 15);
+          const extraction = extractErrors(logs, 20);
           const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
             name: "General failure",
@@ -312,10 +312,16 @@ export async function getFailureDetails(
         // Add step name and conclusion
         parts.push(`    Step: ${step.name} (${step.conclusion})`);
 
-        // Add error lines
+        // Add error lines - show more context (up to 50 lines instead of 10)
         if (step.error_lines.length > 0) {
-          const errorPreview = step.error_lines.slice(0, 10).join("\n      ");
+          // Include all error lines up to a reasonable limit
+          const errorPreview = step.error_lines.slice(0, 50).join("\n      ");
           parts.push(`      ${errorPreview}`);
+
+          // Indicate if there are more errors
+          if (step.error_lines.length > 50) {
+            parts.push(`      ... (${step.error_lines.length - 50} more lines omitted)`);
+          }
         }
 
         return parts.join("\n");

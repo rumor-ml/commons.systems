@@ -1,5 +1,5 @@
 /**
- * Playwright test framework extractor - parses JSON and text output
+ * Playwright test framework extractor - parses JSON output only
  */
 
 import type {
@@ -49,10 +49,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   readonly name = "playwright" as const;
 
   detect(logText: string): DetectionResult | null {
-    const lines = logText.split("\n");
-    let playwrightMarkerCount = 0;
-
-    // Check for JSON format first
+    // Check for JSON format
     const trimmed = logText.trim();
     if (trimmed.startsWith('{"suites":')) {
       try {
@@ -63,42 +60,36 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           isJsonOutput: true,
         };
       } catch {
-        // Not valid JSON, continue with text detection
+        // Not valid JSON
       }
     }
 
-    // Sample first 200 lines for text detection
+    // Check if this looks like Playwright output but using wrong reporter
+    const lines = logText.split("\n");
     const sampleSize = Math.min(200, lines.length);
+    let playwrightMarkerCount = 0;
 
     for (let i = 0; i < sampleSize; i++) {
       const line = lines[i];
 
-      // Check for Playwright-specific markers
+      // Check for Playwright-specific markers (line reporter)
       if (
         /[✘✓]/.test(line) ||
-        /\u2718/.test(line) || // ✘ unicode
+        /\u2718|\u2714/.test(line) || // ✘ ✓ unicode
         /\[chromium\]|\[firefox\]|\[webkit\]/.test(line) ||
         /Error: expect\(/i.test(line) ||
-        /›.*\.spec\.(ts|js):\d+/.test(line)
+        /›.*\.spec\.(ts|js):\d+/.test(line) ||
+        /\d+\)\s+\[chromium\]|\[firefox\]|\[webkit\]/.test(line)
       ) {
         playwrightMarkerCount++;
       }
     }
 
-    // High confidence if we see multiple Playwright markers
+    // Detected Playwright but not JSON format - wrong reporter
     if (playwrightMarkerCount >= 3) {
       return {
         framework: "playwright",
         confidence: "high",
-        isJsonOutput: false,
-      };
-    }
-
-    // Medium confidence with at least one marker
-    if (playwrightMarkerCount > 0) {
-      return {
-        framework: "playwright",
-        confidence: "medium",
         isJsonOutput: false,
       };
     }
@@ -111,9 +102,32 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     if (detection?.isJsonOutput) {
       return this.parsePlaywrightJson(logText, maxErrors);
-    } else {
-      return this.parsePlaywrightText(logText, maxErrors);
+    } else if (detection) {
+      // Playwright detected but wrong reporter format
+      return {
+        framework: "playwright",
+        errors: [{
+          message: "Playwright tests detected but logs are not in JSON format. Please configure Playwright to use the JSON reporter.",
+          rawOutput: [
+            "To fix this, update your Playwright configuration:",
+            "",
+            "In playwright.config.ts/js, add:",
+            "  reporter: [['json', { outputFile: 'results.json' }]]",
+            "",
+            "Or use the --reporter=json flag:",
+            "  npx playwright test --reporter=json",
+            "",
+            "Current logs appear to be using the 'line' or 'list' reporter.",
+          ],
+        }],
+      };
     }
+
+    // No Playwright detected at all
+    return {
+      framework: "unknown",
+      errors: [],
+    };
   }
 
   private parsePlaywrightJson(logText: string, maxErrors: number): ExtractionResult {
@@ -166,131 +180,44 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         extractFromSuite(suite);
         if (failures.length >= maxErrors) break;
       }
+
+      // Count total tests for summary
+      let totalPassed = 0;
+      let totalFailed = failures.length;
+
+      const countTests = (suite: PlaywrightSuite) => {
+        for (const spec of suite.specs || []) {
+          if (spec.ok) {
+            totalPassed += spec.tests.length;
+          }
+        }
+        for (const nestedSuite of suite.suites || []) {
+          countTests(nestedSuite);
+        }
+      };
+
+      for (const suite of report.suites || []) {
+        countTests(suite);
+      }
+
+      const summary = totalFailed > 0
+        ? `${totalFailed} failed, ${totalPassed} passed`
+        : `${totalPassed} passed`;
+
+      return {
+        framework: "playwright",
+        errors: failures,
+        summary,
+      };
     } catch (err) {
-      // If JSON parsing fails, fall back to text parsing
-      return this.parsePlaywrightText(logText, maxErrors);
+      // JSON parsing failed
+      return {
+        framework: "playwright",
+        errors: [{
+          message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
+          rawOutput: [logText.substring(0, 500)],
+        }],
+      };
     }
-
-    return {
-      framework: "playwright",
-      errors: failures,
-      summary: failures.length > 0 ? `${failures.length} failed` : undefined,
-    };
-  }
-
-  private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
-    const lines = logText.split("\n");
-    const failures: ExtractedError[] = [];
-
-    // Playwright failure line format:
-    // ✘ N [browser] › file.spec.ts:line › test name (duration)
-    // We capture everything up to the optional duration in parentheses
-    const failPattern = /^\s*[✘\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
-
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(failPattern);
-      if (match) {
-        const browser = match[1];
-        const fileName = match[2];
-        const lineNumber = parseInt(match[4], 10);
-        const testName = match[5].trim();
-
-        // Collect error context until next test or end
-        const rawOutput: string[] = [];
-        let errorMessage = "Test failed";
-        let stack: string | undefined;
-
-        for (let j = i + 1; j < lines.length && j < i + 20; j++) {
-          const line = lines[j];
-
-          // Stop at next test marker
-          if (failPattern.test(line) || /^\s*[✓\u2714]/.test(line)) {
-            break;
-          }
-
-          // Collect non-empty lines
-          if (line.trim()) {
-            rawOutput.push(line);
-
-            // Extract error message from expect() or Error: lines
-            if (!errorMessage || errorMessage === "Test failed") {
-              if (/Error: expect\(/i.test(line)) {
-                errorMessage = line.trim();
-              } else if (/Error:/i.test(line)) {
-                errorMessage = line.trim();
-              }
-            }
-
-            // Build stack trace from error lines
-            if (line.trim().startsWith('at ')) {
-              if (!stack) stack = '';
-              stack += (stack ? '\n' : '') + line.trim();
-            }
-          }
-        }
-
-        // Use first raw output line as message if we didn't find an explicit error
-        if (errorMessage === "Test failed" && rawOutput.length > 0) {
-          errorMessage = rawOutput[0];
-        }
-
-        failures.push({
-          testName: `[${browser}] ${testName}`,
-          fileName,
-          lineNumber,
-          message: errorMessage,
-          stack,
-          rawOutput,
-        });
-
-        if (failures.length >= maxErrors) break;
-      }
-    }
-
-    // Try to extract summary
-    let summary: string | undefined;
-    const summaryPattern = /(\d+)\s+failed.*(\d+)\s+passed/i;
-
-    // Search from end for summary
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
-      const match = lines[i].match(summaryPattern);
-      if (match) {
-        summary = `${match[1]} failed, ${match[2]} passed`;
-        break;
-      }
-    }
-
-    // Alternative summary patterns
-    if (!summary) {
-      const failedPattern = /(\d+)\s+failed/i;
-      const passedPattern = /(\d+)\s+passed/i;
-      let failed: string | null = null;
-      let passed: string | null = null;
-
-      for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
-        if (!failed && failedPattern.test(lines[i])) {
-          const match = lines[i].match(failedPattern);
-          if (match) failed = match[1];
-        }
-        if (!passed && passedPattern.test(lines[i])) {
-          const match = lines[i].match(passedPattern);
-          if (match) passed = match[1];
-        }
-        if (failed && passed) {
-          summary = `${failed} failed, ${passed} passed`;
-          break;
-        }
-      }
-
-      if (!summary && failed) {
-        summary = `${failed} failed`;
-      }
-    }
-
-    return {
-      framework: "playwright",
-      errors: failures,
-      summary,
-    };
   }
 }
