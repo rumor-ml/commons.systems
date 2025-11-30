@@ -50,11 +50,18 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   readonly name = "playwright" as const;
 
   detect(logText: string): DetectionResult | null {
-    // Check for JSON format
-    const trimmed = logText.trim();
-    if (trimmed.startsWith('{')) {
+    // Check for JSON format (may be embedded in logs)
+    // Look for Playwright JSON structure markers
+    const hasConfig = logText.includes('"config":');
+    const hasSuites = logText.includes('"suites":');
+    console.error(`[DEBUG] Playwright detect: hasConfig=${hasConfig}, hasSuites=${hasSuites}`);
+
+    if (hasConfig && hasSuites) {
       try {
-        const parsed = JSON.parse(trimmed);
+        const jsonText = this.extractJsonFromLogs(logText);
+        console.error(`[DEBUG] Extracted JSON length: ${jsonText.length}`);
+        const parsed = JSON.parse(jsonText);
+        console.error(`[DEBUG] JSON parsed successfully, has suites: ${!!parsed.suites}`);
         if (parsed.suites && Array.isArray(parsed.suites)) {
           return {
             framework: "playwright",
@@ -62,8 +69,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             isJsonOutput: true,
           };
         }
-      } catch {
-        // Not valid JSON
+      } catch (err) {
+        // Not valid JSON or extraction failed
+        console.error(`[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -137,7 +145,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
 
     try {
-      const report = JSON.parse(logText.trim()) as PlaywrightJsonReport;
+      // Extract JSON from logs - it may be embedded within other output
+      const jsonText = this.extractJsonFromLogs(logText);
+      const report = JSON.parse(jsonText) as PlaywrightJsonReport;
 
       const extractFromSuite = (suite: PlaywrightSuite) => {
         for (const spec of suite.specs || []) {
@@ -218,5 +228,53 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         }],
       };
     }
+  }
+
+  /**
+   * Extract JSON blob from logs that may contain other output
+   * Looks for a JSON object that has "config" or "suites" as top-level keys
+   */
+  private extractJsonFromLogs(logText: string): string {
+    const lines = logText.split("\n");
+
+    // Strip GitHub Actions timestamps from each line
+    const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
+    const cleanLines = lines.map(line => line.replace(timestampPattern, ''));
+
+    // Find start of JSON - look for standalone { followed by "config" or "suites"
+    let jsonStart = -1;
+    for (let i = 0; i < cleanLines.length; i++) {
+      if (cleanLines[i].trim() === '{') {
+        // Check if next few lines contain "config" or "suites"
+        const nextFewLines = cleanLines.slice(i, Math.min(i + 20, cleanLines.length)).join('\n');
+        if (nextFewLines.includes('"config":') || nextFewLines.includes('"suites":')) {
+          jsonStart = i;
+          break;
+        }
+      }
+    }
+
+    if (jsonStart === -1) {
+      // Fallback: try parsing the whole thing
+      return logText.trim();
+    }
+
+    // Try progressive parsing - keep adding lines until we have valid JSON
+    // This handles nested braces in strings correctly
+    for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
+      try {
+        const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
+        const parsed = JSON.parse(candidate);
+        // Successfully parsed and has the expected structure
+        if (parsed.suites || parsed.config) {
+          return candidate;
+        }
+      } catch {
+        // Keep trying with more lines
+      }
+    }
+
+    // Fallback: couldn't parse, return from start to end
+    return cleanLines.slice(jsonStart).join('\n');
   }
 }
