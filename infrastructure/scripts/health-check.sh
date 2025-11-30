@@ -80,11 +80,12 @@ check_url() {
   }
 
   # Parse curl output
-  response=$(echo "$curl_output" | sed -n '1,/^$/p' | head -n -1)
-  http_code=$(echo "$curl_output" | tail -n 4 | head -n 1)
-  time_namelookup=$(echo "$curl_output" | tail -n 3 | head -n 1)
-  time_connect=$(echo "$curl_output" | tail -n 2 | head -n 1)
-  time_starttransfer=$(echo "$curl_output" | tail -n 1 | head -n 1)
+  # curl appends 5 lines: http_code, time_namelookup, time_connect, time_starttransfer, time_total
+  response=$(echo "$curl_output" | head -n -5)
+  http_code=$(echo "$curl_output" | tail -n 5 | head -n 1)
+  time_namelookup=$(echo "$curl_output" | tail -n 4 | head -n 1)
+  time_connect=$(echo "$curl_output" | tail -n 3 | head -n 1)
+  time_starttransfer=$(echo "$curl_output" | tail -n 2 | head -n 1)
   time_total=$(echo "$curl_output" | tail -n 1)
 
   # Log timing metrics in verbose mode
