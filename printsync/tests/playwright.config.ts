@@ -1,7 +1,7 @@
 // printsync/tests/playwright.config.ts
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
-export default createPlaywrightConfig({
+const config = createPlaywrightConfig({
   siteName: 'printsync',
   port: 8080,
   deployedUrl: 'https://printsync.commons.systems',
@@ -23,3 +23,8 @@ export default createPlaywrightConfig({
     timeout: 10000,
   },
 });
+
+// Add global setup to ensure emulators are running before tests
+config.globalSetup = require.resolve('./global-setup.ts');
+
+export default config;

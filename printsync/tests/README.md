@@ -8,13 +8,12 @@ End-to-end tests using Playwright for the PrintSync application.
 # From repository root
 pnpm install
 
-# Start Firebase emulators (Auth, Firestore, Storage)
-./infrastructure/scripts/start-emulators.sh
-
-# Run tests
+# Run tests (emulators start automatically)
 cd printsync/tests
 npm test
 ```
+
+Firebase emulators (Auth, Firestore, Storage) are automatically started before tests run if not already running.
 
 ## What Tests Cover
 
