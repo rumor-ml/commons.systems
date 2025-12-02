@@ -1,5 +1,31 @@
-# Tool organization by category
-# This file defines package sets that can be composed for different shells
+# Modular Tool Organization
+#
+# This file organizes development tools into logical categories that can be
+# composed to create different development shells with varying tool sets.
+#
+# Why this approach?
+# - Clarity: Easy to find and understand tool categories
+# - Maintainability: Adding/removing tools is straightforward
+# - Composability: Different shells can mix and match categories
+# - Documentation: Categories serve as inline documentation
+#
+# How to add a tool:
+# 1. Determine the appropriate category (core, cloud, nodejs, golang, devtools)
+# 2. Add the package to that category's list
+# 3. If the tool doesn't fit existing categories, consider creating a new one
+#
+# Example - Adding ripgrep to core tools:
+#   core = with pkgs; [
+#     bash
+#     coreutils
+#     ripgrep  # Add here
+#   ];
+#
+# Why split by category?
+# - Makes it easy to create specialized shells (e.g., frontend-only, backend-only)
+# - Allows CI to use a minimal subset of tools for faster builds
+# - Documents which tools serve which purpose
+#
 { pkgs }:
 
 rec {

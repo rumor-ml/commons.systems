@@ -1,9 +1,34 @@
+# Nix Flake Configuration for Commons.Systems Monorepo
+#
+# This flake provides:
+# - devShells: Reproducible development environments with all necessary tools
+#   Usage: nix develop (main dev shell) or nix develop .#ci (CI shell)
+#
+# - packages: Custom-built tools not available in nixpkgs
+#   Usage: nix build .#tmux-tui or nix build .#gh-workflow-mcp-server
+#
+# - apps: Utility scripts for environment management
+#   Usage: nix run .#check-env (verify environment) or nix run .#list-tools (show available tools)
+#
+# - homeConfigurations: Optional system-wide dotfile management via Home Manager
+#   Usage: home-manager switch --flake .#<system> (e.g., .#x86_64-darwin)
+#
+# Quick Start:
+#   nix develop          # Enter development shell
+#   nix run .#check-env  # Verify environment setup
+#   nix flake check      # Validate configuration
+#
+# Learn more: See nix/README.md for comprehensive documentation
 {
   description = "Fellspiral monorepo development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    home-manager = {
+      url = "github:nix-community/home-manager/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -17,73 +42,93 @@
     ];
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config = { allowUnfree = true; };
-        };
-
-        # Import modular package sets
-        packageSets = pkgs.callPackage ./nix/package-sets.nix { };
-
-        # Use the 'all' package set for universal development shell
-        commonTools = packageSets.all;
-
-        ciShell = pkgs.mkShell {
-          buildInputs = commonTools;
-
-          shellHook = ''
-            if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
-              export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-            fi
-            export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
-
-            if [ ! -d "node_modules" ]; then
-              pnpm install --frozen-lockfile
-            fi
-
-            export PATH="$PWD/node_modules/.bin:$PATH"
-          '';
-
-          NIXPKGS_ALLOW_UNFREE = "1";
-        };
-
-        # Custom packages
-        tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
-        gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
-
-        # Apps for tool discovery and environment checking
-        list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
-        check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
-
-        # Development shell using modular configuration
-        devShell = pkgs.callPackage ./nix/shells/default.nix {
-          inherit packageSets tmux-tui gh-workflow-mcp-server;
-        };
-
-      in {
-        packages = {
-          inherit tmux-tui gh-workflow-mcp-server;
-          default = tmux-tui;
-        };
-
-        apps = {
-          list-tools = {
-            type = "app";
-            program = "${list-tools}/bin/list-tools";
+  outputs = { self, nixpkgs, flake-utils, home-manager }:
+    let
+      # Per-system outputs
+      systemOutputs = flake-utils.lib.eachDefaultSystem (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config = { allowUnfree = true; };
           };
-          check-env = {
-            type = "app";
-            program = "${check-env}/bin/check-env";
-          };
-        };
 
-        devShells = {
-          default = devShell;
-          ci = ciShell;
-        };
-      }
-    );
+          # Import modular package sets
+          packageSets = pkgs.callPackage ./nix/package-sets.nix { };
+
+          # Use the 'all' package set for universal development shell
+          commonTools = packageSets.all;
+
+          ciShell = pkgs.mkShell {
+            buildInputs = commonTools;
+
+            shellHook = ''
+              if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+                export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+              fi
+              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+
+              if [ ! -d "node_modules" ]; then
+                pnpm install --frozen-lockfile
+              fi
+
+              export PATH="$PWD/node_modules/.bin:$PATH"
+            '';
+
+            NIXPKGS_ALLOW_UNFREE = "1";
+          };
+
+          # Custom packages
+          tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
+          gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
+
+          # Apps for tool discovery and environment checking
+          list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
+          check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
+
+          # Development shell using modular configuration
+          devShell = pkgs.callPackage ./nix/shells/default.nix {
+            inherit packageSets tmux-tui gh-workflow-mcp-server;
+          };
+
+        in {
+          packages = {
+            inherit tmux-tui gh-workflow-mcp-server;
+            default = tmux-tui;
+          };
+
+          apps = {
+            list-tools = {
+              type = "app";
+              program = "${list-tools}/bin/list-tools";
+            };
+            check-env = {
+              type = "app";
+              program = "${check-env}/bin/check-env";
+            };
+          };
+
+          devShells = {
+            default = devShell;
+            ci = ciShell;
+          };
+        }
+      );
+
+      # Home Manager configurations for each supported system
+      homeConfigurations = builtins.listToAttrs (
+        map (system: {
+          name = system;
+          value = home-manager.lib.homeManagerConfiguration {
+            pkgs = import nixpkgs {
+              inherit system;
+              config = { allowUnfree = true; };
+            };
+            modules = [
+              ./nix/home/default.nix
+            ];
+          };
+        }) flake-utils.lib.defaultSystems
+      );
+    in
+      systemOutputs // { inherit homeConfigurations; };
 }

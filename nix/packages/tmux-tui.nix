@@ -1,5 +1,39 @@
-# tmux-tui: TUI for managing tmux sessions
-# Built as a proper Go derivation using buildGoModule
+# tmux-tui: Custom TUI for managing tmux sessions
+#
+# This package uses buildGoModule to build a Go application from source with
+# reproducible dependency management via Nix.
+#
+# buildGoModule vs stdenv.mkDerivation:
+# - Use buildGoModule when building Go projects from source
+# - buildGoModule handles Go module dependency resolution automatically
+# - It fetches dependencies based on go.mod and verifies them with vendorHash
+# - Alternative (stdenv.mkDerivation) is used for pre-built binaries or non-Go builds
+#
+# How vendorHash works:
+# - Nix needs to download Go dependencies reproducibly
+# - vendorHash is a SHA256 hash of all dependencies listed in go.mod
+# - When dependencies change, vendorHash must be updated
+#
+# When to update vendorHash:
+# 1. When you modify go.mod (add/remove/update dependencies)
+# 2. When Nix reports a hash mismatch error
+#
+# How to get the correct vendorHash:
+# Method 1: Let Nix tell you
+#   nix build .#tmux-tui
+#   # Error: hash mismatch, got: sha256-xyz...
+#   # Copy the "got" hash to vendorHash below
+#
+# Method 2: Use a placeholder
+#   vendorHash = lib.fakeHash;
+#   # Build once, Nix outputs the correct hash, then replace
+#
+# Wrapper purpose:
+# - The postInstall phase wraps the binary with wrapProgram
+# - This ensures tmux-tui can find tmux in its PATH without requiring
+#   tmux to be globally installed
+# - It also sets environment variables pointing to bundled scripts/config
+#
 { lib
 , buildGoModule
 , tmux
@@ -10,14 +44,16 @@ buildGoModule {
   pname = "tmux-tui";
   version = "0.1.0";
 
-  # Use the local source directory
+  # Use the local source directory (cleaned to exclude .git, etc.)
   src = lib.cleanSource ../../tmux-tui;
 
-  # vendorHash computed from go.sum
+  # vendorHash: SHA256 hash of Go module dependencies
   # Computed by running nix build and copying the hash from the error message
+  # Update this when go.mod changes
   vendorHash = "sha256-xhf4vzHGxUdLviBuU7/B6cSrMrrF56I3WUa8dpct6Mk=";
 
-  # Use proxyVendor to fetch dependencies via Go proxy
+  # Use proxyVendor to fetch dependencies via Go module proxy
+  # This is more reliable than vendor directory
   proxyVendor = true;
 
   # Build from cmd/tmux-tui

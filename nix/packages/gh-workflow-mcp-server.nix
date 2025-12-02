@@ -1,5 +1,30 @@
 # gh-workflow-mcp-server: MCP server for GitHub Workflow monitoring
-# Built as a simple derivation that uses existing dist/ and node_modules/
+#
+# This package uses stdenv.mkDerivation instead of buildGoModule or buildNpmPackage
+# because it packages a pre-built artifact rather than building from source.
+#
+# Why stdenv.mkDerivation (not buildGoModule):
+# - This is a Node.js/TypeScript project, not a Go project
+# - The TypeScript source is already compiled to JavaScript (in dist/)
+# - Dependencies are already installed (in node_modules/)
+# - We're packaging the pre-built artifacts, not building from source
+#
+# Pre-built artifact approach:
+# - The dist/ directory contains compiled JavaScript from TypeScript source
+# - The node_modules/ directory contains runtime dependencies
+# - We copy these artifacts into the Nix store as-is
+# - This is faster than rebuilding but requires dist/ and node_modules/ to exist
+#
+# Alternative approach (not used here):
+# - Could use buildNpmPackage to build from source
+# - Would require fetching dependencies via npm registry
+# - More reproducible but slower and more complex
+#
+# Wrapper purpose:
+# - Creates a shell script that invokes Node.js with the correct entry point
+# - Ensures the package can find its dependencies in node_modules/
+# - Makes the tool executable from anywhere via $PATH
+#
 { lib
 , stdenv
 , nodejs
@@ -10,10 +35,10 @@ stdenv.mkDerivation {
   version = "0.1.0";
 
   # Use the local source directory without cleanSource to preserve dist/ and node_modules/
-  # These are built imperatively but we package them here
+  # These directories are built imperatively (pnpm build) but packaged here
   src = ../../gh-workflow-mcp-server;
 
-  # Don't clean anything - we need dist/ and node_modules/ from the source
+  # Skip build phase - we're using pre-built artifacts
   dontBuild = true;
 
   installPhase = ''

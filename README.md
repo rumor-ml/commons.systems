@@ -8,7 +8,53 @@ A monorepo for commons.systems projects.
 
 Deploy the to GCP with **zero local setup** and **one local command**.
 
-### GitHub Codespaces
+### Development with Nix (Recommended)
+
+Get a fully configured, reproducible development environment in one command:
+
+```bash
+# Install Nix (one-time setup)
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+
+# Enter development shell
+nix develop
+
+# Verify environment
+nix run .#check-env
+
+# Start developing
+pnpm install
+pnpm dev
+```
+
+**Why Nix?**
+- **Reproducible**: Everyone gets the exact same tool versions
+- **Isolated**: Project dependencies don't interfere with your system
+- **Version Controlled**: Development environment lives in Git
+- **Fast Onboarding**: One command to get started
+
+**What you get:**
+- Go 1.21.5, Node.js 20.x, pnpm 8.x
+- Firebase CLI, GitHub CLI, Google Cloud SDK
+- tmux, ripgrep, jq, and other developer tools
+- Custom tooling (tmux-tui, gh-workflow-mcp-server)
+- Automatic environment initialization
+
+**Comparison:**
+
+| Aspect | Nix | Codespaces |
+|--------|-----|------------|
+| Setup time | 1 command | Click + wait for container |
+| Tool versions | Exact, pinned | Container-defined |
+| Works offline | Yes | No |
+| Cost | Free | Free for 120 hours/month |
+| Ideal for | Daily development | Quick experiments |
+
+**Learn more:**
+- Comprehensive guide: [nix/README.md](nix/README.md)
+- Home Manager setup: [nix/home/README.md](nix/home/README.md)
+
+### GitHub Codespaces (Alternative)
 
 1. **Open in Codespaces**:
    - Click the green "Code" button on GitHub
