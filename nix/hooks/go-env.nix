@@ -1,4 +1,4 @@
-{ pkgs }:
+{ }:
 
 ''
   # Go environment configuration

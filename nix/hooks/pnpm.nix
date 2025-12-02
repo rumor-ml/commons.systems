@@ -1,4 +1,4 @@
-{ pkgs }:
+{ }:
 
 ''
   # pnpm uses global store by default (~/.pnpm-store)

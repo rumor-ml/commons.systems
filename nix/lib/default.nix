@@ -1,11 +1,7 @@
 # Utility functions for Nix configuration
-{ pkgs, lib }:
+{ lib }:
 
 {
-  # Helper to create shell hook snippets
-  # Usage: mkShellHook "echo hello"
-  mkShellHook = content: content;
-
   # Helper to concatenate multiple shell hooks
   # Usage: concatHooks [ hook1 hook2 hook3 ]
   concatHooks = hooks: lib.concatStringsSep "\n\n" hooks;

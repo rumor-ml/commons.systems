@@ -1,4 +1,4 @@
-{ pkgs }:
+{ }:
 
 ''
   # Build gh-workflow-mcp-server if needed

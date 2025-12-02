@@ -2,7 +2,7 @@
 # This file defines package sets that can be composed for different shells
 { pkgs }:
 
-{
+rec {
   # Core development tools - essential utilities
   core = with pkgs; [
     bash
@@ -42,21 +42,9 @@
 
   # Composite sets for different use cases
   # All tools - for the universal development shell
-  all =
-    let
-      sets = {
-        inherit (pkgs.callPackage ./package-sets.nix {}) core cloud nodejs golang devtools;
-      };
-    in
-      sets.core ++ sets.cloud ++ sets.nodejs ++ sets.golang ++ sets.devtools;
+  all = core ++ cloud ++ nodejs ++ golang ++ devtools;
 
   # CI subset - minimal tools needed for CI/CD
   # Note: CI currently doesn't need Node.js tools since it uses setup-node action
-  ci =
-    let
-      sets = {
-        inherit (pkgs.callPackage ./package-sets.nix {}) core cloud golang devtools;
-      };
-    in
-      sets.core ++ sets.cloud ++ sets.golang ++ sets.devtools;
+  ci = core ++ cloud ++ golang ++ devtools;
 }

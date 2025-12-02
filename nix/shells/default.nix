@@ -1,4 +1,4 @@
-{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server, lib }:
+{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server }:
 
 let
   # Import all hooks
@@ -9,7 +9,7 @@ let
   tmuxTuiHook = pkgs.callPackage ../hooks/tmux-tui.nix { };
 
 in pkgs.mkShell {
-  buildInputs = packageSets.all ++ [ tmux-tui ];
+  buildInputs = packageSets.all ++ [ tmux-tui gh-workflow-mcp-server ];
 
   shellHook = ''
     echo "╔═══════════════════════════════════════════════════════════╗"

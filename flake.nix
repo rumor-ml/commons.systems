@@ -28,9 +28,6 @@
         # Import modular package sets
         packageSets = pkgs.callPackage ./nix/package-sets.nix { };
 
-        # Import utility library
-        lib = pkgs.callPackage ./nix/lib/default.nix { inherit (pkgs) lib; };
-
         # Use the 'all' package set for universal development shell
         commonTools = packageSets.all;
 
@@ -63,7 +60,7 @@
 
         # Development shell using modular configuration
         devShell = pkgs.callPackage ./nix/shells/default.nix {
-          inherit packageSets tmux-tui gh-workflow-mcp-server lib;
+          inherit packageSets tmux-tui gh-workflow-mcp-server;
         };
 
       in {

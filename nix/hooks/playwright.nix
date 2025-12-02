@@ -1,4 +1,4 @@
-{ pkgs }:
+{ }:
 
 ''
   # Playwright browser configuration
