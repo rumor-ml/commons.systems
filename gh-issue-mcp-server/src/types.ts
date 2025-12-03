@@ -1,5 +1,5 @@
 /**
- * Common types for {{SERVICE_TITLE}} MCP server
+ * Common types for GitHub Issue MCP server
  */
 
 export interface ToolResult {
