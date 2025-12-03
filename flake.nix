@@ -53,13 +53,22 @@
           };
 
           # Import modular package sets
-          packageSets = pkgs.callPackage ./nix/package-sets.nix { };
+          packageSets = import ./nix/package-sets.nix { inherit pkgs; };
 
-          # Use the 'all' package set for universal development shell
-          commonTools = packageSets.all;
-
+          # CI shell with inlined packages (avoiding callPackage issues)
           ciShell = pkgs.mkShell {
-            buildInputs = commonTools;
+            buildInputs = with pkgs; [
+              # Core tools
+              bash coreutils git gh jq curl
+              # Cloud tools
+              google-cloud-sdk terraform
+              # Node.js (firebase-tools removed - install via pnpm)
+              nodejs pnpm
+              # Go toolchain
+              go gopls gotools air templ
+              # Dev utilities
+              tmux
+            ];
 
             shellHook = ''
               if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
@@ -85,9 +94,24 @@
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
           check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
 
-          # Development shell using modular configuration
+          # Development shell with inlined packages (avoiding callPackage issues)
           devShell = pkgs.mkShell {
-            buildInputs = packageSets.core ++ packageSets.cloud ++ packageSets.nodejs ++ packageSets.golang ++ packageSets.devtools;
+            buildInputs = with pkgs; [
+              # Core tools
+              bash coreutils git gh jq curl
+              # Cloud tools
+              google-cloud-sdk terraform
+              # Node.js (firebase-tools removed - install via pnpm)
+              nodejs pnpm
+              # Go toolchain
+              go gopls gotools air templ
+              # Dev utilities
+              tmux
+            ];
+            shellHook = ''
+              echo "Development environment loaded"
+            '';
+            NIXPKGS_ALLOW_UNFREE = "1";
           };
 
         in {
