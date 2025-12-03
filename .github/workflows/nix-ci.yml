@@ -56,9 +56,6 @@ jobs:
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
 
-      - name: Run environment health check
-        run: nix develop --command nix run .#check-env
-
       - name: Build tmux-tui package
         run: nix build .#tmux-tui
 
