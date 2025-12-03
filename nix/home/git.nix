@@ -21,12 +21,12 @@
     #   3. Keep existing ~/.gitconfig values (Home Manager merges, not replaces)
     userName = lib.mkDefault (
       let envName = builtins.getEnv "GIT_AUTHOR_NAME";
-      in if envName != "" then envName else "User"
+      in if envName != "" then envName else "Nathan Buesgens"
     );
 
     userEmail = lib.mkDefault (
       let envEmail = builtins.getEnv "GIT_AUTHOR_EMAIL";
-      in if envEmail != "" then envEmail else "user@example.com"
+      in if envEmail != "" then envEmail else "nathan@natb1.com"
     );
 
     # Core settings
