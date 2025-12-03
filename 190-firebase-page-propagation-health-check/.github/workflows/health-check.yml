@@ -1,0 +1,179 @@
+name: Health Check
+
+on:
+  # Disabled by default - uncomment to enable scheduled health checks
+  # schedule:
+  #   - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Site to check (fellspiral, videobrowser, or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - fellspiral
+          - videobrowser
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  # ==================== Fellspiral Health Check ====================
+  health-check-fellspiral:
+    name: Health Check - Fellspiral
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.site == 'fellspiral' || github.event.inputs.site == 'all' || github.event.inputs.site == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(./infrastructure/scripts/get-deployment-url.sh fellspiral-site ${{ env.GCP_REGION }} ${{ env.GCP_PROJECT_ID }} main)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Fellspiral URL: ${URL}"
+
+      - name: Check health endpoint
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
+
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ steps.get-url.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
+          CI: true
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.get-url.outputs.url }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Fellspiral Health Check Failed',
+              body: `The health check failed for Fellspiral at ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'health-check', 'fellspiral']
+            })
+
+  # ==================== Videobrowser Health Check ====================
+  health-check-videobrowser:
+    name: Health Check - Videobrowser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.site == 'videobrowser' || github.event.inputs.site == 'all' || github.event.inputs.site == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          URL=$(./infrastructure/scripts/get-deployment-url.sh videobrowser-site ${{ env.GCP_REGION }} ${{ env.GCP_PROJECT_ID }} main)
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Videobrowser URL: ${URL}"
+
+      - name: Check health endpoint
+        run: ./infrastructure/scripts/health-check.sh "${{ steps.get-url.outputs.url }}/health" --exponential --max-wait 30
+
+      - name: Run Playwright tests
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ steps.get-url.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ steps.get-url.outputs.url }}
+          CI: true
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.get-url.outputs.url }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Videobrowser Health Check Failed',
+              body: `The health check failed for Videobrowser at ${url}.\n\nPlease investigate the issue.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'health-check', 'videobrowser']
+            })

@@ -18,8 +18,23 @@ buildNpmPackage {
   pname = "gh-workflow-mcp-server";
   version = "0.1.0";
 
-  # Use lib.cleanSource to remove build artifacts and preserve source files
-  src = lib.cleanSource ../../gh-workflow-mcp-server;
+  # Filter source to remove build artifacts and preserve source files
+  # Using builtins.path instead of lib.cleanSource to support git worktrees
+  src = builtins.path {
+    path = ../../gh-workflow-mcp-server;
+    name = "gh-workflow-mcp-server-source";
+    filter = path: type:
+      let
+        baseName = baseNameOf path;
+      in
+        # Exclude build artifacts, git, and temp files
+        baseName != ".git" &&
+        baseName != "node_modules" &&
+        baseName != "dist" &&
+        baseName != ".direnv" &&
+        !(lib.hasSuffix ".swp" baseName) &&
+        !(lib.hasSuffix "~" baseName);
+  };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps package-lock.json
   npmDepsHash = "sha256-/gb/AnDr63ggwG3Ug6yT+T3+eJGd4zH7+xKkCNdfntw=";

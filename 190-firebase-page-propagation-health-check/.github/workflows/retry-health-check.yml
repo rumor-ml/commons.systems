@@ -1,0 +1,96 @@
+name: Retry Health Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: 'Deployment URL to health check'
+        required: true
+        type: string
+      site_name:
+        description: 'Site name being deployed'
+        required: true
+        type: string
+      original_run_id:
+        description: 'Original workflow run ID'
+        required: true
+        type: string
+      original_job_name:
+        description: 'Original job name that failed'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  retry-health-check:
+    name: Retry Health Check on New Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Display retry context
+        env:
+          SITE_NAME: ${{ inputs.site_name }}
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          ORIGINAL_RUN_ID: ${{ inputs.original_run_id }}
+          ORIGINAL_JOB_NAME: ${{ inputs.original_job_name }}
+        run: |
+          echo "========================================="
+          echo "Health Check Retry"
+          echo "========================================="
+          echo "Site: ${SITE_NAME}"
+          echo "URL: ${DEPLOYMENT_URL}"
+          echo "Original Run: ${ORIGINAL_RUN_ID}"
+          echo "Original Job: ${ORIGINAL_JOB_NAME}"
+          echo "Retry Worker: Running on fresh GitHub Actions worker"
+          echo "========================================="
+
+      - name: Run health check on new worker
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          ./infrastructure/scripts/health-check.sh "${DEPLOYMENT_URL}" \
+            --exponential \
+            --max-wait 200 \
+            --content "</html>" \
+            --verbose
+
+      - name: Mark original job as successful
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SITE_NAME: ${{ inputs.site_name }}
+          ORIGINAL_RUN_ID: ${{ inputs.original_run_id }}
+          ORIGINAL_JOB_NAME: ${{ inputs.original_job_name }}
+        run: |
+          echo "✅ Health check succeeded on retry worker!"
+          echo "Original deployment was successful - issue was worker-specific network problem"
+          echo ""
+          echo "Note: GitHub Actions does not support programmatically marking jobs as successful."
+          echo "The original workflow should check this retry workflow's status to proceed."
+          echo ""
+          echo "Retry workflow completed successfully for:"
+          echo "  - Site: ${SITE_NAME}"
+          echo "  - Original Run ID: ${ORIGINAL_RUN_ID}"
+          echo "  - Original Job: ${ORIGINAL_JOB_NAME}"
+
+      - name: Report retry failure
+        if: failure()
+        env:
+          SITE_NAME: ${{ inputs.site_name }}
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          ORIGINAL_RUN_ID: ${{ inputs.original_run_id }}
+        run: |
+          echo "❌ Health check failed on retry worker"
+          echo "This indicates a real deployment issue, not a worker-specific problem"
+          echo ""
+          echo "Failed retry for:"
+          echo "  - Site: ${SITE_NAME}"
+          echo "  - URL: ${DEPLOYMENT_URL}"
+          echo "  - Original Run ID: ${ORIGINAL_RUN_ID}"
+          exit 1

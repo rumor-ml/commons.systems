@@ -1,0 +1,105 @@
+package partials
+
+import (
+	"fmt"
+)
+
+// TrashModal renders a confirmation modal for trash operations
+// Parameters:
+// - sessionID: for trash-all operation (optional)
+// - fileID: for single file trash (optional)
+// - fileName: for display in message (optional)
+templ TrashModal(sessionID, fileID, fileName string) {
+	<div
+		id="trash-modal"
+		class="modal-backdrop"
+		onclick="if (event.target === this) this.remove()"
+	>
+		<div class="modal" onclick="event.stopPropagation()">
+			<!-- Header -->
+			<div class="modal__header">
+				<div>
+					<h3 class="modal__title">Confirm Trash</h3>
+					<p class="modal__subtitle">This action cannot be undone</p>
+				</div>
+				<button
+					type="button"
+					class="modal__close"
+					onclick="document.getElementById('trash-modal').remove()"
+					aria-label="Close"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+					</svg>
+				</button>
+			</div>
+
+			<!-- Body -->
+			<div class="modal__body">
+				if sessionID != "" {
+					<!-- Trash All -->
+					<p class="text-text-primary">
+						Are you sure you want to trash all uploaded and skipped files?
+						This will remove them from the sync session.
+					</p>
+					<p class="text-sm text-text-secondary mt-2">
+						Files will be marked as trashed and can be recovered from your storage provider.
+					</p>
+				} else if fileID != "" {
+					<!-- Trash Single File -->
+					<p class="text-text-primary">
+						Are you sure you want to trash this file?
+					</p>
+					if fileName != "" {
+						<p class="text-sm text-text-secondary mt-2 font-mono">
+							{ fileName }
+						</p>
+					}
+					<p class="text-sm text-text-secondary mt-2">
+						The file will be marked as trashed and can be recovered from your storage provider.
+					</p>
+				}
+			</div>
+
+			<!-- Footer -->
+			<div class="modal__footer">
+				<button
+					type="button"
+					class="btn btn--ghost"
+					onclick="document.getElementById('trash-modal').remove()"
+				>
+					Cancel
+				</button>
+				if sessionID != "" {
+					<!-- Trash All Confirm -->
+					<button
+						type="button"
+						hx-post={ fmt.Sprintf("/api/sync/%s/trash-all", sessionID) }
+						hx-target="#file-list"
+						hx-swap="innerHTML"
+						hx-on::after-request="document.getElementById('trash-modal').remove()"
+						hx-indicator="#trash-all-confirm-spinner"
+						class="btn btn--danger"
+					>
+						<span>Trash All</span>
+						<span id="trash-all-confirm-spinner" class="htmx-indicator spinner spinner--sm"></span>
+					</button>
+				} else if fileID != "" {
+					<!-- Trash Single File Confirm -->
+					<button
+						type="button"
+						hx-post={ fmt.Sprintf("/api/files/%s/trash", fileID) }
+						hx-target={ fmt.Sprintf("#file-%s", fileID) }
+						hx-swap="outerHTML swap:0s"
+						hx-on::after-request="document.getElementById('trash-modal').remove()"
+						hx-indicator="#trash-confirm-spinner"
+						class="btn btn--danger"
+					>
+						<span>Trash File</span>
+						<span id="trash-confirm-spinner" class="htmx-indicator spinner spinner--sm"></span>
+					</button>
+				}
+			</div>
+		</div>
+	</div>
+}

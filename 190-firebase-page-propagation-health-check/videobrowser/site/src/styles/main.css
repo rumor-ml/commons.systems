@@ -1,0 +1,379 @@
+/**
+ * Video Browser - Design System Integration
+ * Refined minimalism + retro-futuristic aesthetic with electric cyan accents
+ */
+
+/* Import the complete design system */
+@import '@commons/design-system';
+
+/* =============================================================================
+ * Layout
+ * ============================================================================= */
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Header */
+.header {
+  margin-bottom: var(--spacing-lg);
+  text-align: center;
+}
+
+.header__title {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  margin-bottom: var(--spacing-2);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-success));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header__subtitle {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+/* Main Layout Grid */
+.main {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spacing-md);
+  flex: 1;
+}
+
+@media (min-width: 1024px) {
+  .main {
+    grid-template-columns: 1fr 400px;
+  }
+}
+
+/* =============================================================================
+ * Video Section
+ * ============================================================================= */
+
+.video-section {
+  background: var(--color-bg-surface);
+  border: var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-md);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.video-player {
+  position: relative;
+}
+
+.video-player__element {
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-void);
+  max-height: 70vh;
+  border: var(--border-default);
+  box-shadow: var(--shadow-inner);
+}
+
+/* Signature cyan glow on video player when playing */
+.video-player__element:not([paused]) {
+  box-shadow: var(--shadow-glow-sm);
+}
+
+.video-info {
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-4);
+  background: var(--color-bg-elevated);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.video-info__message {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.video-info__title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--spacing-2);
+  word-break: break-all;
+  color: var(--color-text-primary);
+}
+
+.video-info__details {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+/* =============================================================================
+ * Browser Section
+ * ============================================================================= */
+
+.browser-section {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  border: var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-md);
+  max-height: 85vh;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-lg);
+}
+
+/* Search Input with Signature Cyan Focus Glow */
+.search-input {
+  flex: 1;
+  padding: var(--spacing-input-y) var(--spacing-input-x);
+  background: var(--color-bg-base);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  transition: all var(--duration-normal) var(--ease-out);
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* Signature cyan glow on focus */
+.search-input:focus {
+  border-color: var(--color-primary);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-focus);
+}
+
+.search-input:hover:not(:focus) {
+  border-color: var(--color-border-strong);
+}
+
+/* =============================================================================
+ * File List
+ * ============================================================================= */
+
+.file-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: var(--spacing-lg);
+  border-radius: var(--radius-md);
+}
+
+/* Custom Scrollbar with Cyan Accent */
+.file-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.file-list::-webkit-scrollbar-track {
+  background: var(--color-bg-base);
+  border-radius: var(--radius-sm);
+}
+
+.file-list::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.file-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+  box-shadow: var(--shadow-glow-subtle);
+}
+
+/* File Item with Signature Cyan Glow on Hover */
+.file-item {
+  padding: var(--spacing-4);
+  background: var(--color-bg-base);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-2);
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out-expo);
+}
+
+.file-item:hover {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow-sm);
+}
+
+.file-item--active {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.file-item__name {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-1);
+  word-break: break-all;
+  color: var(--color-text-primary);
+}
+
+.file-item__meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  display: flex;
+  gap: var(--spacing-3);
+}
+
+/* =============================================================================
+ * Loading States
+ * ============================================================================= */
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  color: var(--color-text-secondary);
+  min-height: 200px;
+}
+
+.loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-border-default);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  animation: spin 1s linear infinite;
+  margin-bottom: var(--spacing-4);
+  filter: drop-shadow(var(--shadow-glow-subtle));
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* =============================================================================
+ * Stats
+ * ============================================================================= */
+
+.stats {
+  padding-top: var(--spacing-4);
+  border-top: var(--border-default);
+}
+
+.stats__text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* =============================================================================
+ * Error States
+ * ============================================================================= */
+
+.error {
+  padding: var(--spacing-4);
+  background: var(--color-error-muted);
+  border: var(--border-width-1) solid var(--color-error);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  margin-bottom: var(--spacing-4);
+}
+
+.error__title {
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--spacing-2);
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* =============================================================================
+ * Footer
+ * ============================================================================= */
+
+.footer {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: var(--border-default);
+  text-align: center;
+}
+
+.footer__text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.footer__link {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.footer__link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+  text-shadow: var(--shadow-glow-subtle);
+}
+
+/* =============================================================================
+ * Auth Components
+ * ============================================================================= */
+
+.header__auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-4);
+  padding-top: var(--spacing-4);
+  border-top: var(--border-subtle);
+}
+
+/* Auth button overrides for dark theme with cyan accent */
+.auth-button--dark {
+  --auth-button-bg: var(--color-primary);
+  --auth-button-bg-hover: var(--color-primary-hover);
+  --auth-button-authenticated-bg: var(--color-success);
+  --auth-button-authenticated-bg-hover: var(--color-success-hover);
+  --auth-button-border-radius: var(--radius-button);
+  --auth-button-color: var(--color-primary-text);
+}
+
+/* User profile overrides for dark theme */
+.user-profile--dark {
+  --user-profile-name-color: var(--color-text-primary);
+  --user-profile-username-color: var(--color-text-secondary);
+  --user-profile-avatar-border: 2px solid var(--color-primary);
+}
+
+/* =============================================================================
+ * Utilities
+ * ============================================================================= */
+
+.hidden {
+  display: none !important;
+}
+
+/* Override body defaults for Video Browser specific layout */
+body {
+  display: flex;
+  flex-direction: column;
+}

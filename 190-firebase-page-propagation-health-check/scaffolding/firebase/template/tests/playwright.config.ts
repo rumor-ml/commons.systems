@@ -1,0 +1,11 @@
+import { createPlaywrightConfig } from '../../playwright.base.config';
+
+export default createPlaywrightConfig({
+  siteName: '{{APP_NAME}}',
+  port: 3000,
+  deployedUrl: 'https://{{APP_NAME}}.commons.systems',
+  webServerCommand: {
+    local: 'cd ../site && pnpm dev',
+    ci: 'npx http-server ../site/dist -p 3000 -s',
+  },
+});

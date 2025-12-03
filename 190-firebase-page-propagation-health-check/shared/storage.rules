@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for rml-media bucket
+// Used by: videobrowser, print
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Video files in rml-media bucket (for videobrowser)
+    match /video/{videoFile} {
+      // Allow read access to all authenticated users
+      allow read: if isAuthenticated();
+
+      // Only allow writes from authenticated users
+      // In production, you might want to restrict this to admin users only
+      allow write: if isAuthenticated();
+    }
+
+    // Print documents in rml-media bucket (for print site)
+    match /print/{allPaths=**} {
+      allow read, list: if true;  // Public read and list access for all documents
+      allow write: if false; // No public writes - only admins via console/API
+    }
+
+    // User uploads (optional - for user-generated content)
+    match /user-uploads/{userId}/{allPaths=**} {
+      // Users can read their own uploads
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+
+      // Users can write to their own directory
+      allow write: if isAuthenticated()
+                   && request.auth.uid == userId
+                   && request.resource.size < 100 * 1024 * 1024; // Max 100MB
+    }
+
+    // Default: deny all access to other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@commons/audiobrowser-site",
+  "version": "1.0.0",
+  "description": "Audio Browser - Navigate and play audio files from GCS with Firestore metadata",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@commons/auth": "workspace:*",
+    "@commons/design-system": "workspace:*",
+    "firebase": "^10.7.1"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,48 @@
+//go:build ignore
+
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/evanw/esbuild/pkg/api"
+)
+
+func main() {
+	isProd := os.Getenv("GO_ENV") == "production"
+
+	sourcemap := api.SourceMapNone
+	if !isProd {
+		sourcemap = api.SourceMapLinked
+	}
+
+	result := api.Build(api.BuildOptions{
+		EntryPoints:       []string{"web/static/js/islands/index.ts"},
+		Outfile:           "web/dist/js/islands.js",
+		Bundle:            true,
+		Write:             true,
+		Format:            api.FormatESModule,
+		Platform:          api.PlatformBrowser,
+		Target:            api.ES2020,
+		JSX:               api.JSXAutomatic,
+		Sourcemap:         sourcemap,
+		MinifySyntax:      isProd,
+		MinifyWhitespace:  isProd,
+		MinifyIdentifiers: isProd,
+	})
+
+	if len(result.Errors) > 0 {
+		fmt.Fprintf(os.Stderr, "\n=== BUILD FAILED ===\n")
+		for _, err := range result.Errors {
+			if err.Location != nil {
+				fmt.Fprintf(os.Stderr, "%s:%d:%d: %s\n",
+					err.Location.File, err.Location.Line, err.Location.Column, err.Text)
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err.Text)
+			}
+		}
+		os.Exit(1)
+	}
+	fmt.Println("Build completed successfully")
+}

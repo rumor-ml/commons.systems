@@ -1,0 +1,11 @@
+/**
+ * Components
+ * All component styles aggregated
+ */
+
+@import './buttons.css';
+@import './forms.css';
+@import './cards.css';
+@import './navigation.css';
+@import './modals.css';
+@import './loading.css';

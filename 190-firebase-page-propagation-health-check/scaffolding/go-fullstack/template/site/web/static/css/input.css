@@ -1,0 +1,11 @@
+/* Import design system tokens */
+@import '@commons/design-system/tokens';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-specific Tailwind extensions */
+.island-loading {
+  @apply p-4 bg-surface rounded animate-pulse;
+}

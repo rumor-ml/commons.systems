@@ -1,0 +1,73 @@
+/**
+ * Design Tokens
+ * All design tokens aggregated
+ */
+
+@import './colors.css';
+@import './typography.css';
+@import './spacing.css';
+@import './shadows.css';
+@import './borders.css';
+
+:root {
+  /* Motion/Animation tokens */
+  --ease-linear: linear;
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* Signature easing */
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Duration scale */
+  --duration-instant: 50ms;
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --duration-slower: 500ms;
+
+  /* Z-index scale */
+  --z-base: 0;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-fixed: 1200;
+  --z-modal-backdrop: 1300;
+  --z-modal: 1400;
+  --z-popover: 1500;
+  --z-tooltip: 1600;
+  --z-notification: 1700;
+
+  /* Container widths */
+  --container-xs: 20rem;    /* 320px */
+  --container-sm: 36rem;    /* 576px */
+  --container-md: 48rem;    /* 768px */
+  --container-lg: 64rem;    /* 1024px */
+  --container-xl: 80rem;    /* 1280px */
+  --container-2xl: 96rem;   /* 1536px */
+}
+
+/* ==========================================================================
+   Viewport & Chrome Allowances
+   ========================================================================== */
+
+:root {
+  /* Browser/OS Chrome Allowances - easily configurable */
+  --chrome-allowance-horizontal: 200px;   /* Horizontal (dock, taskbar) - landscape only */
+  --chrome-allowance-vertical: 80px;      /* Vertical (browser toolbar, tabs) */
+
+  /* Effective viewport calculations */
+  --viewport-width: calc(100vw - var(--chrome-allowance-horizontal));
+  --viewport-height: calc(100vh - var(--chrome-allowance-vertical));
+
+  /* Breakpoint values */
+  --breakpoint-sm: 375px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+}
+
+/* No horizontal allowance in portrait mode */
+@media (orientation: portrait) {
+  :root {
+    --chrome-allowance-horizontal: 0px;
+  }
+}
