@@ -40,7 +40,7 @@
 #     ...
 #   '';
 #
-{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server }:
+{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server, iac }:
 
 let
   # Import all hooks
@@ -51,7 +51,7 @@ let
   tmuxTuiHook = pkgs.callPackage ../hooks/tmux-tui.nix { };
 
 in pkgs.mkShell {
-  buildInputs = packageSets.all ++ [ tmux-tui gh-workflow-mcp-server ];
+  buildInputs = packageSets.all ++ [ tmux-tui gh-workflow-mcp-server iac ];
 
   # Shell initialization script that runs when entering 'nix develop'
   # Hooks execute in the order specified below
@@ -78,6 +78,7 @@ in pkgs.mkShell {
     echo "  • Run dev server: pnpm dev"
     echo "  • Run tests: pnpm test"
     echo "  • Add packages: pnpm add <pkg>"
+    echo "  • Setup infrastructure: iac"
     echo "  • List all tools: nix run .#list-tools"
     echo "  • Check environment: nix run .#check-env"
     echo ""
