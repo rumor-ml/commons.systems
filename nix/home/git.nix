@@ -5,17 +5,29 @@
 # so any settings you have defined manually will be preserved unless
 # explicitly overridden here.
 
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   programs.git = {
     enable = true;
 
-    # User identity - OVERRIDE THESE IN YOUR LOCAL CONFIG
-    # You can override these by creating ~/.config/home-manager/override.nix
-    # or by setting them in your existing ~/.gitconfig
-    userName = "Your Name";
-    userEmail = "your.email@example.com";
+    # User identity - automatically detected from environment
+    # These values are read from GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL environment variables.
+    # If not set, sensible defaults are used.
+    #
+    # To customize, either:
+    #   1. Export environment variables: export GIT_AUTHOR_NAME="Your Name"
+    #   2. Override in Home Manager: programs.git.userName = lib.mkForce "Your Name";
+    #   3. Keep existing ~/.gitconfig values (Home Manager merges, not replaces)
+    userName = lib.mkDefault (
+      let envName = builtins.getEnv "GIT_AUTHOR_NAME";
+      in if envName != "" then envName else "User"
+    );
+
+    userEmail = lib.mkDefault (
+      let envEmail = builtins.getEnv "GIT_AUTHOR_EMAIL";
+      in if envEmail != "" then envEmail else "user@example.com"
+    );
 
     # Core settings
     extraConfig = {
