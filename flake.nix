@@ -114,11 +114,12 @@
         }
       );
 
-      # Home Manager configurations for each supported system
-      homeConfigurations = builtins.listToAttrs (
-        map (system: {
-          name = system;
-          value = home-manager.lib.homeManagerConfiguration {
+      # Home Manager configurations
+      # Creates username-based configurations for easy activation
+      homeConfigurations =
+        let
+          username = builtins.getEnv "USER";
+          mkHomeConfig = system: home-manager.lib.homeManagerConfiguration {
             pkgs = import nixpkgs {
               inherit system;
               config = { allowUnfree = true; };
@@ -127,8 +128,17 @@
               ./nix/home/default.nix
             ];
           };
-        }) flake-utils.lib.defaultSystems
-      );
+        in {
+          # Primary config for current user (auto-detects system)
+          "${username}" = mkHomeConfig builtins.currentSystem;
+
+          # System-specific variants (e.g., "n8@aarch64-darwin")
+        } // builtins.listToAttrs (
+          map (system: {
+            name = "${username}@${system}";
+            value = mkHomeConfig system;
+          }) flake-utils.lib.defaultSystems
+        );
     in
       systemOutputs // { inherit homeConfigurations; };
 }
