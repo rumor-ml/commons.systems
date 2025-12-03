@@ -34,7 +34,7 @@ test.describe('Error Handling and Recovery', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Find the file row
@@ -99,7 +99,7 @@ test.describe('Error Handling and Recovery', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     const fileRow = page.locator(`#file-${fileID}`);
@@ -184,7 +184,7 @@ test.describe('Error Handling and Recovery', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Verify all three files are visible

@@ -11,7 +11,8 @@
       "gh", 
       "gcloud", 
       "nix", 
-      "go mod tidy"
+      "go mod tidy",
+      "pnpm"
     ]
   },
   "permissions": {
@@ -71,6 +72,7 @@
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
       "Bash(npm test:*)",
+      "Bash(pnpm test:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",
       "Bash(gcloud artifacts repositories list:*)",
@@ -82,6 +84,7 @@
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
+      "Bash(lsof:*)",
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",

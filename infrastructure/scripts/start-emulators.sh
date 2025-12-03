@@ -17,6 +17,11 @@ mkdir -p /tmp/claude
 
 echo "Starting Firebase emulators (Auth on port ${AUTH_PORT}, Firestore on port ${FIRESTORE_PORT}, Storage on port ${STORAGE_PORT})..."
 
+# Change to printsync directory to use its firebase.json which has auth emulator config
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}/printsync"
+
 # Start emulators in the background
 firebase emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > /tmp/claude/emulators.log 2>&1 &
 EMULATOR_PID=$!

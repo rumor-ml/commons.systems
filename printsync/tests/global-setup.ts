@@ -6,6 +6,12 @@ import * as path from 'path';
  * Ensures Firebase emulators are running before tests start
  */
 async function globalSetup() {
+  // NOTE: Do NOT clean up processes on TEST_PORT here!
+  // Playwright's webServer starts BEFORE globalSetup runs,
+  // so killing processes on TEST_PORT would kill Playwright's own webServer.
+  // Pre-test cleanup should be done manually via cleanup-test-processes.sh
+  // or will be handled by globalTeardown after tests complete.
+
   console.log('Checking Firebase emulators...');
 
   // Check if emulators are already running by testing ports

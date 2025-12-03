@@ -53,7 +53,13 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
 
     expect: site.expect,
 
-    projects: [
+    projects: process.platform === 'darwin' ? [
+      // On macOS, use Firefox to avoid chrome-headless-shell Mach port issues
+      {
+        name: 'firefox',
+        use: { ...devices['Desktop Firefox'] },
+      },
+    ] : [
       {
         name: 'chromium',
         use: {
@@ -63,7 +69,6 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
           },
         },
       },
-      // Additional browsers can be enabled per-project if needed
     ],
 
     webServer: isDeployed ? undefined : {

@@ -27,7 +27,12 @@ test.describe('Concurrent Operations', () => {
       },
     ]);
 
-    const fileID1 = await helpers.createTestFile(sessionID1, file1);
+    const fileID1 = await helpers.createTestFile(userID1, sessionID1, {
+      localPath: file1.localPath,
+      hash: file1.hash,
+      status: file1.status,
+      metadata: file1.metadata,
+    });
 
     // Create session 2
     const sessionID2 = await helpers.createTestSession(userID2, '/test/user2', [
@@ -39,10 +44,15 @@ test.describe('Concurrent Operations', () => {
       },
     ]);
 
-    const fileID2 = await helpers.createTestFile(sessionID2, file2);
+    const fileID2 = await helpers.createTestFile(userID2, sessionID2, {
+      localPath: file2.localPath,
+      hash: file2.hash,
+      status: file2.status,
+      metadata: file2.metadata,
+    });
 
     // Navigate to session 1
-    await page.goto(`http://localhost:8080/sync/${sessionID1}`);
+    await page.goto(`/sync/${sessionID1}`);
     await page.waitForLoadState('networkidle');
 
     // Verify only file1 is visible
@@ -58,7 +68,7 @@ test.describe('Concurrent Operations', () => {
     expect(filePath).not.toContain('user2');
 
     // Navigate to session 2
-    await page.goto(`http://localhost:8080/sync/${sessionID2}`);
+    await page.goto(`/sync/${sessionID2}`);
     await page.waitForLoadState('networkidle');
 
     // Verify only file2 is visible now
@@ -109,7 +119,7 @@ test.describe('Concurrent Operations', () => {
     const fileID2 = await helpers.createTestFile(userID, sessionID, file2);
 
     // Navigate to sync page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Both files should be visible
@@ -183,7 +193,7 @@ test.describe('Concurrent Operations', () => {
     const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(userID, sessionID, f)));
 
     // Navigate to sync page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Rapidly click approve on all files
@@ -270,7 +280,7 @@ test.describe('Concurrent Operations', () => {
     const fileIDs = await Promise.all(files.map(f => helpers.createTestFile(userID, sessionID, f)));
 
     // Navigate to sync page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Approve first two files
@@ -341,7 +351,7 @@ test.describe('Concurrent Operations', () => {
     const fileID = await helpers.createTestFile(userID, sessionID, file);
 
     // Navigate to sync page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     const fileRow = page.locator(`#file-${fileID}`);

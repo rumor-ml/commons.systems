@@ -32,7 +32,7 @@ test.describe('Trash Workflow', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Approve the file first
@@ -111,7 +111,7 @@ test.describe('Trash Workflow', () => {
       fileIDs.push(fileID);
     }
 
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Approve all files using Upload All
@@ -198,7 +198,7 @@ test.describe('Trash Workflow', () => {
       fileIDs.push(fileID);
     }
 
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Approve first two files

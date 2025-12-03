@@ -7,7 +7,7 @@ test.describe('File Rejection Workflow', () => {
     helpers,
   }) => {
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${testSession.sessionID}`);
+    await page.goto(`/sync/${testSession.sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Get the first file ID
@@ -56,7 +56,7 @@ test.describe('File Rejection Workflow', () => {
     testSession,
     helpers,
   }) => {
-    await page.goto(`http://localhost:8080/sync/${testSession.sessionID}`);
+    await page.goto(`/sync/${testSession.sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Reject the first two files
@@ -93,7 +93,7 @@ test.describe('File Rejection Workflow', () => {
     testSession,
     helpers,
   }) => {
-    await page.goto(`http://localhost:8080/sync/${testSession.sessionID}`);
+    await page.goto(`/sync/${testSession.sessionID}`);
     await page.waitForLoadState('networkidle');
 
     const firstFileID = testSession.fileIDs[0];

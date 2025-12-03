@@ -35,7 +35,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
     }
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Verify all 4 files are visible
@@ -145,7 +145,7 @@ test.describe('Mixed Approve and Reject Workflow', () => {
       fileIDs.push(fileID);
     }
 
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Approve first file

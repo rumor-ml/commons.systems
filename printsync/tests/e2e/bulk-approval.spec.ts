@@ -35,7 +35,7 @@ test.describe('Bulk Approval with Upload All', () => {
     }
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Verify all files are visible
@@ -120,7 +120,7 @@ test.describe('Bulk Approval with Upload All', () => {
       fileIDs.push(fileID);
     }
 
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Click Upload All

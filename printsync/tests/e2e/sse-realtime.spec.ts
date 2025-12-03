@@ -33,7 +33,7 @@ test.describe('SSE Real-time Updates', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Reset the refresh flag after initial load
@@ -108,7 +108,7 @@ test.describe('SSE Real-time Updates', () => {
     const fileID2 = await helpers.createTestFile(userID, sessionID, file2);
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Get initial DOM element references
@@ -188,7 +188,7 @@ test.describe('SSE Real-time Updates', () => {
     );
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Look for session stats area
@@ -268,7 +268,7 @@ test.describe('SSE Real-time Updates', () => {
     });
 
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${sessionID}`);
+    await page.goto(`/sync/${sessionID}`);
     await page.waitForLoadState('networkidle');
 
     // Wait a bit to allow SSE connection to establish

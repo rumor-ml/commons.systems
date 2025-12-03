@@ -7,7 +7,7 @@ test.describe('Single File Approval Workflow', () => {
     helpers,
   }) => {
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${testSession.sessionID}`);
+    await page.goto(`/sync/${testSession.sessionID}`);
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
@@ -62,7 +62,7 @@ test.describe('Single File Approval Workflow', () => {
     helpers,
   }) => {
     // Navigate to sync detail page
-    await page.goto(`http://localhost:8080/sync/${testSession.sessionID}`);
+    await page.goto(`/sync/${testSession.sessionID}`);
     await page.waitForLoadState('networkidle');
 
     const firstFileID = testSession.fileIDs[0];

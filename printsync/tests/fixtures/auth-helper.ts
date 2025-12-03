@@ -1,4 +1,4 @@
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 /**
  * AuthHelper generates Firebase Auth tokens for e2e tests
