@@ -1,5 +1,5 @@
 /**
- * Shared constants for {{SERVICE_TITLE}} MCP server
+ * Shared constants for Gh Issue MCP server
  */
 
 // Maximum characters to return in tool responses to stay within token limits

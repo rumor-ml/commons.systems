@@ -1,5 +1,5 @@
 /**
- * Error handling utilities for {{SERVICE_TITLE}} MCP server
+ * Error handling utilities for Gh Issue MCP server
  */
 
 import type { ErrorResult } from "../types.js";
@@ -32,6 +32,17 @@ export class NetworkError extends McpError {
   }
 }
 
+export class GitHubCliError extends McpError {
+  constructor(
+    message: string,
+    public readonly exitCode?: number,
+    public readonly stderr?: string
+  ) {
+    super(message, "GH_CLI_ERROR");
+    this.name = "GitHubCliError";
+  }
+}
+
 /**
  * Create a standardized error result for MCP tool responses
  *
@@ -39,6 +50,7 @@ export class NetworkError extends McpError {
  * - TimeoutError: Operation exceeded time limit
  * - ValidationError: Invalid input parameters
  * - NetworkError: Network-related failures
+ * - GitHubCliError: GitHub CLI command failed
  * - Generic errors: Unexpected failures
  *
  * @param error - The error to convert to a tool result
@@ -59,6 +71,9 @@ export function createErrorResult(error: unknown): ErrorResult {
   } else if (error instanceof NetworkError) {
     errorType = "NetworkError";
     errorCode = "NETWORK_ERROR";
+  } else if (error instanceof GitHubCliError) {
+    errorType = "GitHubCliError";
+    errorCode = "GH_CLI_ERROR";
   } else if (error instanceof McpError) {
     errorType = "McpError";
     errorCode = error.code;
