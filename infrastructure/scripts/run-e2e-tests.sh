@@ -19,8 +19,17 @@ fi
 # Get absolute paths (handles any initial CWD)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-APP_PATH_ABS="$(cd "$ROOT_DIR/$APP_PATH" && pwd)"
-APP_NAME=$(basename "$APP_PATH")
+
+# Handle both relative and absolute paths
+if [[ "$APP_PATH" = /* ]]; then
+  # Already absolute
+  APP_PATH_ABS="$APP_PATH"
+else
+  # Relative path
+  APP_PATH_ABS="$(cd "$ROOT_DIR/$APP_PATH" && pwd)"
+fi
+
+APP_NAME=$(basename "$APP_PATH_ABS")
 
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
@@ -62,7 +71,7 @@ case "$APP_TYPE" in
   go-tui)
     # Go TUI app
     echo "Building..."
-    (cd "${APP_PATH_ABS}/site" && make build)
+    (cd "${APP_PATH_ABS}" && make build)
     ;;
 
   *)
@@ -71,17 +80,22 @@ case "$APP_TYPE" in
     ;;
 esac
 
-# --- Run tests from correct directory ---
-echo "Running Playwright tests..."
-cd "${APP_PATH_ABS}/tests"
+# --- Run tests ---
+cd "${APP_PATH_ABS}"
 
-# Let playwright.config.ts determine browser based on platform
-# No hardcoded --project chromium
-if [ "${CI}" = "true" ]; then
+if [ "$APP_TYPE" = "firebase" ]; then
+  # Firebase apps use Playwright
+  echo "Running Playwright tests..."
+  cd "${APP_PATH_ABS}/tests"
+
+  # Let playwright.config.ts determine browser based on platform
+  # No hardcoded --project chromium
   npx playwright test
-else
-  # Local development
-  npx playwright test
+
+elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
+  # Go apps use make test-e2e
+  echo "Running Go E2E tests..."
+  make test-e2e
 fi
 
 echo "✅ Tests passed: $APP_NAME"
