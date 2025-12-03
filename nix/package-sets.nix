@@ -28,7 +28,7 @@
 #
 { pkgs }:
 
-rec {
+let
   # Core development tools - essential utilities
   core = with pkgs; [
     bash
@@ -49,7 +49,18 @@ rec {
   nodejs = with pkgs; [
     nodejs      # Currently using default version, can pin to nodejs_20
     pnpm
-    firebase-tools  # For Firebase Emulator Suite
+    # firebase-tools removed: causes segfault in Nix evaluator
+    #
+    # Platform: Primarily observed on macOS (darwin), may affect other platforms
+    # Issue: Nix evaluator crashes with segmentation fault when firebase-tools
+    #        is included in package sets via callPackage pattern
+    # Related: Same underlying issue as nix/shells/default.nix callPackage problem
+    #
+    # Workaround: Install via pnpm instead: pnpm add -g firebase-tools
+    # This provides the same functionality without triggering Nix evaluator issues
+    #
+    # References:
+    # - Segfault fix commit: 72d9d78
   ];
 
   # Go toolchain and tools
@@ -65,6 +76,9 @@ rec {
   devtools = with pkgs; [
     tmux
   ];
+in
+{
+  inherit core cloud nodejs golang devtools;
 
   # Composite sets for different use cases
   # All tools - for the universal development shell

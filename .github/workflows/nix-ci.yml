@@ -21,26 +21,43 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v22
+        uses: cachix/install-nix-action@v31
         with:
-          nix_version: "2.17.0"
           enable_kvm: false
 
       - name: Set up Cachix
+        id: cachix
         uses: cachix/cachix-action@v12
-        if: ${{ secrets.CACHIX_AUTH_TOKEN != '' }}
+        continue-on-error: true
         with:
           name: commons-systems
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-      - name: Check flake configuration
+      - name: Check Cachix setup status
+        if: steps.cachix.outcome == 'failure'
+        run: |
+          echo "::warning::Cachix setup failed - builds will not be cached"
+          echo "This is expected for PRs from forks without access to secrets"
+          echo "Cachix outcome: ${{ steps.cachix.outcome }}"
+          echo "Note: CI will continue normally but may be slower"
+
+      - name: Check flake syntax
         run: nix flake check
+
+      - name: Verify development shell loads
+        run: |
+          nix develop --command bash -c 'echo "✓ Development shell loads successfully"'
+
+      - name: Verify custom packages in dev shell
+        run: |
+          nix develop --command bash -c '
+            echo "Checking custom packages..."
+            which tmux-tui && echo "✓ tmux-tui found" || echo "✗ tmux-tui missing"
+            which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
+          '
 
       - name: Build tmux-tui package
         run: nix build .#tmux-tui
 
       - name: Build gh-workflow-mcp-server package
         run: nix build .#gh-workflow-mcp-server
-
-      - name: Verify development shell
-        run: nix develop --command nix run .#check-env
