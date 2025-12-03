@@ -1,0 +1,233 @@
+package partials
+
+import (
+	"fmt"
+	"path/filepath"
+	"github.com/commons-systems/filesync"
+)
+
+// FileRow renders a single file row with status-specific UI
+// Uses hx-swap-oob for targeted updates via SSE
+templ FileRow(file *filesync.SyncFile) {
+	<div
+		id={ fmt.Sprintf("file-%s", file.ID) }
+		hx-swap-oob="true"
+		class="bg-bg-surface rounded-lg p-4 border border-bg-hover transition-all"
+	>
+		<div class="flex items-start justify-between gap-4">
+			<!-- File info -->
+			<div class="flex-1 min-w-0">
+				<div class="flex items-center gap-2 mb-1">
+					@FileStatusIcon(file.Status)
+					<span class="font-medium text-text-primary truncate">{ filepath.Base(file.LocalPath) }</span>
+					@FileStatusBadge(file.Status)
+				</div>
+				<div class="text-sm text-text-secondary truncate">{ file.LocalPath }</div>
+			</div>
+			<!-- Actions -->
+			<div class="flex-shrink-0">
+				@FileActions(file)
+			</div>
+		</div>
+		<!-- Additional content based on status -->
+		@FileStatusContent(file)
+	</div>
+}
+
+// FileStatusIcon renders the appropriate icon for each status
+templ FileStatusIcon(status filesync.FileStatus) {
+	switch status {
+		case filesync.FileStatusExtracting:
+			<span class="spinner spinner--sm"></span>
+		case filesync.FileStatusExtracted:
+			<svg class="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+			</svg>
+		case filesync.FileStatusUploading:
+			<span class="spinner spinner--sm text-primary"></span>
+		case filesync.FileStatusUploaded:
+			<svg class="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+			</svg>
+		case filesync.FileStatusSkipped:
+			<svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
+			</svg>
+		case filesync.FileStatusRejected:
+			<svg class="w-5 h-5 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+			</svg>
+		case filesync.FileStatusError:
+			<svg class="w-5 h-5 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+			</svg>
+	}
+}
+
+// FileStatusBadge renders status badge
+templ FileStatusBadge(status filesync.FileStatus) {
+	switch status {
+		case filesync.FileStatusExtracting:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-primary-muted text-primary">
+				Extracting...
+			</span>
+		case filesync.FileStatusExtracted:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-success-muted text-success">
+				Ready
+			</span>
+		case filesync.FileStatusUploading:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-primary-muted text-primary">
+				Uploading...
+			</span>
+		case filesync.FileStatusUploaded:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-success-muted text-success">
+				Uploaded
+			</span>
+		case filesync.FileStatusSkipped:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-text-tertiary text-text-secondary">
+				Duplicate
+			</span>
+		case filesync.FileStatusRejected:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-error-muted text-error">
+				Rejected
+			</span>
+		case filesync.FileStatusError:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-error-muted text-error">
+				Error
+			</span>
+	}
+}
+
+// FileActions renders action buttons based on status
+templ FileActions(file *filesync.SyncFile) {
+	switch file.Status {
+		case filesync.FileStatusExtracted:
+			<div class="flex gap-2">
+				<button
+					hx-post={ fmt.Sprintf("/api/files/%s/approve", file.ID) }
+					hx-target={ fmt.Sprintf("#file-%s", file.ID) }
+					hx-swap="outerHTML"
+					hx-indicator={ fmt.Sprintf("#approve-%s-spinner", file.ID) }
+					class="btn btn--sm btn--success"
+				>
+					<span>Approve</span>
+					<span id={ fmt.Sprintf("approve-%s-spinner", file.ID) } class="htmx-indicator spinner spinner--sm"></span>
+				</button>
+				<button
+					hx-post={ fmt.Sprintf("/api/files/%s/reject", file.ID) }
+					hx-target={ fmt.Sprintf("#file-%s", file.ID) }
+					hx-swap="outerHTML"
+					hx-indicator={ fmt.Sprintf("#reject-%s-spinner", file.ID) }
+					class="btn btn--sm btn--danger btn--outline"
+				>
+					<span>Reject</span>
+					<span id={ fmt.Sprintf("reject-%s-spinner", file.ID) } class="htmx-indicator spinner spinner--sm"></span>
+				</button>
+			</div>
+		case filesync.FileStatusUploaded, filesync.FileStatusSkipped:
+			<button
+				hx-get={ fmt.Sprintf("/partials/trash-modal?fileID=%s&fileName=%s", file.ID, filepath.Base(file.LocalPath)) }
+				hx-target="body"
+				hx-swap="beforeend"
+				class="btn btn--sm btn--danger btn--ghost"
+				title="Move to trash"
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+				</svg>
+			</button>
+		case filesync.FileStatusError:
+			<button
+				hx-post={ fmt.Sprintf("/api/files/%s/retry", file.ID) }
+				hx-target={ fmt.Sprintf("#file-%s", file.ID) }
+				hx-swap="outerHTML"
+				hx-indicator={ fmt.Sprintf("#retry-%s-spinner", file.ID) }
+				class="btn btn--sm btn--primary"
+			>
+				<span>Retry</span>
+				<span id={ fmt.Sprintf("retry-%s-spinner", file.ID) } class="htmx-indicator spinner spinner--sm"></span>
+			</button>
+	}
+}
+
+// FileStatusContent renders additional content based on status
+templ FileStatusContent(file *filesync.SyncFile) {
+	switch file.Status {
+		case filesync.FileStatusExtracted:
+			<!-- Metadata details -->
+			<details class="mt-3">
+				<summary class="cursor-pointer text-sm text-primary hover:text-primary-hover transition-colors">
+					View metadata
+				</summary>
+				<div class="mt-2 p-3 bg-bg-base rounded border border-bg-hover space-y-2 text-sm">
+					if file.Metadata.Title != "" {
+						<div>
+							<span class="font-medium text-text-primary">Title:</span>
+							<span class="text-text-secondary ml-2">{ file.Metadata.Title }</span>
+						</div>
+					}
+					if file.Metadata.Author != "" {
+						<div>
+							<span class="font-medium text-text-primary">Author:</span>
+							<span class="text-text-secondary ml-2">{ file.Metadata.Author }</span>
+						</div>
+					}
+					if file.Metadata.ISBN != "" {
+						<div>
+							<span class="font-medium text-text-primary">ISBN:</span>
+							<span class="text-text-secondary ml-2">{ file.Metadata.ISBN }</span>
+						</div>
+					}
+					if file.Metadata.Publisher != "" {
+						<div>
+							<span class="font-medium text-text-primary">Publisher:</span>
+							<span class="text-text-secondary ml-2">{ file.Metadata.Publisher }</span>
+						</div>
+					}
+					if file.Metadata.PublishDate != "" {
+						<div>
+							<span class="font-medium text-text-primary">Publish Date:</span>
+							<span class="text-text-secondary ml-2">{ file.Metadata.PublishDate }</span>
+						</div>
+					}
+					for key, value := range file.Metadata.Extra {
+						<div>
+							<span class="font-medium text-text-primary">{ key }:</span>
+							<span class="text-text-secondary ml-2">{ value }</span>
+						</div>
+					}
+				</div>
+			</details>
+		case filesync.FileStatusUploading:
+			<!-- Progress bar for upload -->
+			<div class="mt-3">
+				<div class="w-full bg-bg-base rounded-full h-1.5">
+					<!-- Percentage would come from file data if available -->
+					<div class="bg-primary h-1.5 rounded-full shadow-glow-subtle transition-all" style="width: 50%"></div>
+				</div>
+			</div>
+		case filesync.FileStatusError:
+			<!-- Error message with expansion -->
+			<div class="mt-3 p-3 bg-error-muted rounded border border-error">
+				<p class="text-sm text-error">
+					{ truncateError(file.Error, 100) }
+				</p>
+				if len(file.Error) > 100 {
+					<details class="mt-2">
+						<summary class="cursor-pointer text-sm text-error hover:text-error-hover transition-colors">
+							View full error
+						</summary>
+						<pre class="mt-2 text-xs text-error whitespace-pre-wrap font-mono">{ file.Error }</pre>
+					</details>
+				}
+			</div>
+	}
+}
+
+// Helper function to truncate error messages
+func truncateError(err string, maxLen int) string {
+	if len(err) <= maxLen {
+		return err
+	}
+	return err[:maxLen] + "..."
+}

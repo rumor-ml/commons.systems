@@ -1,0 +1,25 @@
+package islands
+
+import (
+	"encoding/json"
+	"log"
+)
+
+templ ReactIsland(component string, props any) {
+	<div
+		data-island-component={ component }
+		data-island-props={ mustJSON(props) }
+		class="react-island"
+	>
+		<div class="island-loading">Loading...</div>
+	</div>
+}
+
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("JSON marshal error: %v", err)
+		return "{}"
+	}
+	return string(b)
+}

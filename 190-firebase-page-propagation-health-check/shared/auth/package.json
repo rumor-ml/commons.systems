@@ -1,0 +1,28 @@
+{
+  "name": "@commons/auth",
+  "version": "1.0.0",
+  "description": "Shared GitHub authentication library for commons.systems sites",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./components/*": "./src/components/*.js",
+    "./styles/auth-button.css": "./src/styles/auth-button.css",
+    "./styles/user-profile.css": "./src/styles/user-profile.css"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "auth",
+    "github",
+    "firebase",
+    "oauth"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@commons/design-system": "workspace:*",
+    "firebase": "^10.7.1"
+  }
+}

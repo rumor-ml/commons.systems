@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Print - Document Viewer</title>
+  <meta name="description" content="Document viewer for PDFs, EPUBs, Markdown, and Comics">
+
+  <!-- Geist Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Sans:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./styles/main.css">
+  <link rel="stylesheet" href="./styles/viewer.css">
+  <link rel="stylesheet" href="./styles/comic-viewer.css">
+</head>
+<body class="viewer-body">
+  <div class="viewer-container">
+    <!-- Loading state -->
+    <div id="viewerLoading" class="viewer-loading">
+      <div class="loading__spinner"></div>
+      <p class="loading__text">Loading document...</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="viewerError" class="viewer-error" hidden>
+      <div class="error-state__icon">⚠️</div>
+      <h2 class="error-state__title">Error Loading Document</h2>
+      <p id="viewerErrorMessage" class="error-state__text"></p>
+      <a href="index.html" class="btn btn--primary">Back to Library</a>
+    </div>
+
+    <!-- PDF Viewer -->
+    <div id="pdfViewer" class="pdf-viewer" hidden>
+      <div class="pdf-viewer__header">
+        <a href="index.html" class="btn btn--icon" aria-label="Back to library">←</a>
+        <h1 id="pdfTitle" class="viewer-title"></h1>
+        <div class="pdf-viewer__controls">
+          <button id="pdfPrevPage" class="btn btn--icon" aria-label="Previous page">←</button>
+          <span id="pdfPageInfo" class="page-info">1 / 1</span>
+          <button id="pdfNextPage" class="btn btn--icon" aria-label="Next page">→</button>
+          <button id="pdfZoomOut" class="btn btn--icon" aria-label="Zoom out">-</button>
+          <span id="pdfZoomLevel" class="zoom-level">100%</span>
+          <button id="pdfZoomIn" class="btn btn--icon" aria-label="Zoom in">+</button>
+        </div>
+      </div>
+      <div class="pdf-viewer__content">
+        <canvas id="pdfCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Markdown Viewer -->
+    <div id="markdownViewer" class="markdown-viewer" hidden>
+      <div class="markdown-viewer__header">
+        <a href="index.html" class="btn btn--icon" aria-label="Back to library">←</a>
+        <h1 id="markdownTitle" class="viewer-title"></h1>
+      </div>
+      <div class="markdown-viewer__content">
+        <article id="markdownContent" class="markdown-content"></article>
+      </div>
+    </div>
+
+    <!-- EPUB Viewer -->
+    <div id="epubViewer" class="epub-viewer" hidden>
+      <div class="epub-viewer__header">
+        <a href="index.html" class="btn btn--icon" aria-label="Back to library">←</a>
+        <h1 id="epubTitle" class="viewer-title"></h1>
+        <div class="epub-viewer__controls">
+          <button id="epubPrevPage" class="btn btn--icon" aria-label="Previous page">←</button>
+          <span id="epubProgress" class="page-info">0%</span>
+          <button id="epubNextPage" class="btn btn--icon" aria-label="Next page">→</button>
+          <button id="epubTocToggle" class="btn btn--secondary">TOC</button>
+        </div>
+      </div>
+      <div class="epub-viewer__layout">
+        <aside id="epubToc" class="epub-toc" hidden>
+          <h2 class="epub-toc__title">Table of Contents</h2>
+          <nav id="epubTocNav" class="epub-toc__nav"></nav>
+        </aside>
+        <div class="epub-viewer__content">
+          <div id="epubArea" class="epub-area"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comic Viewer -->
+    <div id="comicViewer" class="comic-viewer" hidden>
+      <!-- Portrait Layout: Sidebar on right -->
+      <aside id="comicSidebar" class="comic-sidebar" hidden>
+        <a href="index.html" class="btn btn--icon comic-sidebar__back" aria-label="Back to library">←</a>
+        <h1 id="comicTitleSidebar" class="comic-title"></h1>
+        <div class="comic-info">
+          <span id="comicPageInfoSidebar" class="page-info">1 / 1</span>
+        </div>
+        <div class="comic-controls">
+          <button id="comicPrevPageSidebar" class="btn btn--block" aria-label="Previous page">← Previous</button>
+          <button id="comicNextPageSidebar" class="btn btn--block" aria-label="Next page">Next →</button>
+        </div>
+        <div class="comic-keyboard-help">
+          <h3 class="comic-keyboard-help__title">Keyboard Shortcuts</h3>
+          <ul class="comic-keyboard-help__list">
+            <li><kbd>←</kbd> / <kbd>→</kbd> Navigate pages</li>
+            <li><kbd>ESC</kbd> Back to library</li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Landscape Layout: Header and Footer -->
+      <header id="comicHeader" class="comic-header" hidden>
+        <a href="index.html" class="btn btn--icon" aria-label="Back to library">←</a>
+        <h1 id="comicTitleHeader" class="comic-title"></h1>
+        <span id="comicPageInfoHeader" class="page-info">1 / 1</span>
+      </header>
+
+      <!-- Image Container (both layouts) -->
+      <div id="comicImageContainer" class="comic-image-container">
+        <img id="comicImage" class="comic-image" alt="Comic page" />
+        <div id="comicImageLoading" class="comic-loading">Loading page...</div>
+      </div>
+
+      <footer id="comicFooter" class="comic-footer" hidden>
+        <button id="comicPrevPageFooter" class="btn btn--icon" aria-label="Previous page">←</button>
+        <button id="comicNextPageFooter" class="btn btn--icon" aria-label="Next page">→</button>
+      </footer>
+    </div>
+  </div>
+
+  <script type="module" src="./scripts/viewer.js"></script>
+</body>
+</html>

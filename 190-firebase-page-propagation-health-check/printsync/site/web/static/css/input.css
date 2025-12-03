@@ -1,0 +1,9 @@
+@import '../../../../../shared/design-system/src/tokens/index.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.island-loading {
+  @apply p-4 bg-bg-surface rounded animate-pulse;
+}

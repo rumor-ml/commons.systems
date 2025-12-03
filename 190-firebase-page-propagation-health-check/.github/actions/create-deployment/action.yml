@@ -1,0 +1,197 @@
+name: 'Create GitHub Deployment'
+description: 'Creates a GitHub deployment with status updates'
+inputs:
+  environment:
+    description: 'Deployment environment name'
+    required: true
+  environment_url:
+    description: 'URL of the deployment'
+    required: true
+  site_name:
+    description: 'Name of the site being deployed'
+    required: true
+  is_preview:
+    description: 'Whether this is a preview deployment'
+    required: false
+    default: 'false'
+
+outputs:
+  deployment_id:
+    description: 'The ID of the created deployment'
+    value: ${{ steps.create-deployment.outputs.deployment_id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create deployment and set status
+      id: create-deployment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SITE_NAME: ${{ inputs.site_name }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        ENVIRONMENT_URL: ${{ inputs.environment_url }}
+      run: |
+        set -euo pipefail
+
+        # Validate inputs
+        if [ -z "${ENVIRONMENT// /}" ]; then
+          echo "::error::environment input is empty or contains only whitespace"
+          exit 1
+        fi
+
+        if [ -z "${ENVIRONMENT_URL// /}" ]; then
+          echo "::error::environment_url input is empty or contains only whitespace"
+          exit 1
+        fi
+
+        # Validate URL format - must be valid Firebase Hosting URL
+        # Pattern: https://<subdomain>.web.app (no consecutive dots, valid DNS chars)
+        if ! echo "$ENVIRONMENT_URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
+          echo "::error::Invalid URL format: $ENVIRONMENT_URL"
+          echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
+          exit 1
+        fi
+
+        if [ -z "${SITE_NAME// /}" ]; then
+          echo "::error::site_name input is empty or contains only whitespace"
+          exit 1
+        fi
+
+        # Build JSON payload with required_contexts: []
+        TRANSIENT_ENV="${{ inputs.is_preview == 'true' }}"
+
+        if [ "$TRANSIENT_ENV" = "true" ]; then
+          set +e  # Disable exit on error to capture exit code
+          PAYLOAD=$(jq -n \
+            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --arg environment "${ENVIRONMENT}" \
+            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
+            '{
+              ref: $ref,
+              environment: $environment,
+              description: $description,
+              auto_merge: false,
+              required_contexts: [],
+              transient_environment: true
+            }' 2>&1)
+          JQ_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "::error::Failed to construct deployment payload with jq"
+            echo "$PAYLOAD"
+            exit 1
+          fi
+        else
+          set +e  # Disable exit on error to capture exit code
+          PAYLOAD=$(jq -n \
+            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --arg environment "${ENVIRONMENT}" \
+            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
+            '{
+              ref: $ref,
+              environment: $environment,
+              description: $description,
+              auto_merge: false,
+              required_contexts: []
+            }' 2>&1)
+          JQ_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "::error::Failed to construct deployment payload with jq"
+            echo "$PAYLOAD"
+            exit 1
+          fi
+        fi
+
+        # Validate payload is not empty
+        if [ -z "$PAYLOAD" ]; then
+          echo "::error::Deployment payload is empty"
+          exit 1
+        fi
+
+        set +e  # Disable exit on error to capture exit code
+        DEPLOYMENT_RESPONSE=$(gh api repos/${{ github.repository }}/deployments \
+          -X POST \
+          --input - <<< "$PAYLOAD" 2>&1)
+        GH_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
+
+        # Check if gh api command succeeded
+        if [ $GH_EXIT_CODE -ne 0 ]; then
+          echo "::error::GitHub API call failed to create deployment"
+          echo "$DEPLOYMENT_RESPONSE"
+          exit 1
+        fi
+
+        # Validate response is valid JSON
+        if ! echo "$DEPLOYMENT_RESPONSE" | jq -e . >/dev/null 2>&1; then
+          echo "::error::Invalid JSON response from deployment creation"
+          echo "$DEPLOYMENT_RESPONSE"
+          exit 1
+        fi
+
+        # Check for API error messages
+        ERROR_MESSAGE=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.message // empty')
+        if [ -n "$ERROR_MESSAGE" ]; then
+          echo "::error::GitHub API error: $ERROR_MESSAGE"
+          echo "$DEPLOYMENT_RESPONSE"
+          exit 1
+        fi
+
+        DEPLOYMENT_ID=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.id')
+
+        if [ "$DEPLOYMENT_ID" = "null" ] || [ -z "$DEPLOYMENT_ID" ]; then
+          echo "::error::Failed to create deployment - no deployment ID in response"
+          echo "$DEPLOYMENT_RESPONSE"
+          exit 1
+        fi
+
+        # Export deployment ID for later status updates
+        echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
+
+        # Set initial status to "pending" (will be updated to success/failure after health check)
+        set +e  # Disable exit on error to capture exit code
+        STATUS_RESPONSE=$(gh api repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
+          -X POST \
+          -f state="pending" \
+          -f environment_url="${ENVIRONMENT_URL}" \
+          -f log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -f description="Deployment in progress" 2>&1)
+        GH_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
+
+        # Check if gh api command succeeded
+        if [ $GH_EXIT_CODE -ne 0 ]; then
+          echo "::error::GitHub API call failed to create deployment status"
+          echo "$STATUS_RESPONSE"
+          exit 1
+        fi
+
+        # Validate response is valid JSON
+        if ! echo "$STATUS_RESPONSE" | jq -e . >/dev/null 2>&1; then
+          echo "::error::Invalid JSON response from status creation"
+          echo "$STATUS_RESPONSE"
+          exit 1
+        fi
+
+        # Check for API error messages
+        ERROR_MESSAGE=$(echo "$STATUS_RESPONSE" | jq -r '.message // empty')
+        if [ -n "$ERROR_MESSAGE" ]; then
+          echo "::error::GitHub API error: $ERROR_MESSAGE"
+          echo "$STATUS_RESPONSE"
+          exit 1
+        fi
+
+        STATUS_ID=$(echo "$STATUS_RESPONSE" | jq -r '.id')
+
+        if [ "$STATUS_ID" = "null" ] || [ -z "$STATUS_ID" ]; then
+          echo "::error::Failed to create deployment status - no status ID in response"
+          echo "$STATUS_RESPONSE"
+          exit 1
+        fi
+
+        echo "::notice::Created deployment $DEPLOYMENT_ID with pending status (ID: $STATUS_ID)"
+        echo "::notice::Deployment status will be updated to success/failure after health check"

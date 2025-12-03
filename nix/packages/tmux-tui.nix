@@ -44,8 +44,22 @@ buildGoModule {
   pname = "tmux-tui";
   version = "0.1.0";
 
-  # Use the local source directory (cleaned to exclude .git, etc.)
-  src = lib.cleanSource ../../tmux-tui;
+  # Use the local source directory (filtered to exclude .git, etc.)
+  # Using builtins.path instead of lib.cleanSource to support git worktrees
+  src = builtins.path {
+    path = ../../tmux-tui;
+    name = "tmux-tui-source";
+    filter = path: type:
+      let
+        baseName = baseNameOf path;
+      in
+        # Exclude build artifacts, git, and temp files
+        baseName != ".git" &&
+        baseName != "result" &&
+        baseName != ".direnv" &&
+        !(lib.hasSuffix ".swp" baseName) &&
+        !(lib.hasSuffix "~" baseName);
+  };
 
   # vendorHash: SHA256 hash of Go module dependencies
   # Computed by running nix build and copying the hash from the error message

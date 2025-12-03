@@ -1,0 +1,30 @@
+{
+  "name": "@commons/design-system",
+  "version": "1.0.0",
+  "description": "Unified design system with refined minimalism + retro-futuristic aesthetic",
+  "type": "module",
+  "main": "./src/index.css",
+  "exports": {
+    ".": "./src/index.css",
+    "./tokens": "./src/tokens/index.css",
+    "./base": "./src/base/index.css",
+    "./components": "./src/components/index.css",
+    "./components/*": "./src/components/*.css",
+    "./layouts": "./src/layouts/index.css",
+    "./utilities": "./src/utilities/index.css",
+    "./themes/dark": "./src/themes/dark.css",
+    "./tailwind/preset": "./src/tailwind/preset.js"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "design-system",
+    "css",
+    "design-tokens",
+    "dark-theme",
+    "tailwind"
+  ],
+  "author": "",
+  "license": "ISC"
+}
