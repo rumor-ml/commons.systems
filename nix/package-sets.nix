@@ -28,7 +28,7 @@
 #
 { pkgs }:
 
-rec {
+let
   # Core development tools - essential utilities
   core = with pkgs; [
     bash
@@ -49,7 +49,8 @@ rec {
   nodejs = with pkgs; [
     nodejs      # Currently using default version, can pin to nodejs_20
     pnpm
-    firebase-tools  # For Firebase Emulator Suite
+    # firebase-tools removed: causes segfault in Nix evaluator on macOS
+    # Install via pnpm instead: pnpm add -g firebase-tools
   ];
 
   # Go toolchain and tools
@@ -65,6 +66,9 @@ rec {
   devtools = with pkgs; [
     tmux
   ];
+in
+{
+  inherit core cloud nodejs golang devtools;
 
   # Composite sets for different use cases
   # All tools - for the universal development shell
