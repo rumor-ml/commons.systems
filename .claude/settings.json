@@ -26,6 +26,7 @@
       "mcp__gh-workflow__gh_get_deployment_urls",
       "mcp__gh-workflow__gh_monitor_pr_checks",
       "mcp__gh-workflow__gh_get_failure_details",
+      "mcp__gh-issue__gh_get_issue_context",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git fetch:*)",

@@ -1,0 +1,19 @@
+{
+  "name": "@commons/fellspiral-site",
+  "version": "1.0.0",
+  "description": "Fellspiral static website",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@commons/auth": "workspace:*",
+    "@commons/design-system": "workspace:*",
+    "firebase": "^10.7.1"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,127 @@
+/**
+ * Dark Theme
+ * Default dark theme - refined minimalism + retro-futuristic
+ *
+ * This is the default theme and is already applied via the tokens.
+ * This file exists for:
+ * 1. Explicit theme switching in the future
+ * 2. Theme-specific overrides
+ * 3. Dark mode media query support
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* All color tokens are already dark by default */
+    /* This ensures dark theme is respected even if no theme class is set */
+  }
+}
+
+/* Dark theme class for explicit application */
+.theme-dark,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --color-bg-void: #0a0a0c;
+  --color-bg-base: #111114;
+  --color-bg-surface: #18181c;
+  --color-bg-elevated: #1f1f24;
+  --color-bg-hover: #26262c;
+  --color-bg-active: #2d2d35;
+
+  /* Text */
+  --color-text-primary: #f0f0f2;
+  --color-text-secondary: #a0a0a8;
+  --color-text-tertiary: #606068;
+  --color-text-disabled: #404048;
+
+  /* Primary - Electric Cyan */
+  --color-primary: #00d4ed;
+  --color-primary-hover: #00b8d4;
+  --color-primary-active: #009cb8;
+  --color-primary-muted: rgba(0, 212, 237, 0.1);
+  --color-primary-text: #000000;
+
+  /* Primary glow effects */
+  --color-primary-glow: 0 0 20px rgba(0, 212, 237, 0.4);
+  --color-primary-glow-intense: 0 0 30px rgba(0, 212, 237, 0.6);
+  --color-primary-glow-subtle: 0 0 10px rgba(0, 212, 237, 0.2);
+
+  /* Secondary - Soft Violet */
+  --color-secondary: #785fff;
+  --color-secondary-hover: #6346ff;
+  --color-secondary-active: #5237e6;
+  --color-secondary-muted: rgba(120, 95, 255, 0.1);
+
+  /* Tertiary - Warm Amber */
+  --color-tertiary: #ffb800;
+  --color-tertiary-hover: #e6a500;
+  --color-tertiary-active: #cc9200;
+  --color-tertiary-muted: rgba(255, 184, 0, 0.1);
+
+  /* Semantic colors */
+  --color-success: #10b981;
+  --color-success-hover: #0ea572;
+  --color-success-muted: rgba(16, 185, 129, 0.1);
+
+  --color-warning: #f59e0b;
+  --color-warning-hover: #dc8c09;
+  --color-warning-muted: rgba(245, 158, 11, 0.1);
+
+  --color-error: #ef4444;
+  --color-error-hover: #dc2626;
+  --color-error-muted: rgba(239, 68, 68, 0.1);
+
+  --color-info: var(--color-primary);
+  --color-info-hover: var(--color-primary-hover);
+  --color-info-muted: var(--color-primary-muted);
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-default: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+  --color-border-focus: var(--color-primary);
+
+  /* Overlays */
+  --color-overlay-light: rgba(10, 10, 12, 0.5);
+  --color-overlay-medium: rgba(10, 10, 12, 0.7);
+  --color-overlay-heavy: rgba(10, 10, 12, 0.9);
+
+  /* Interactive states */
+  --color-surface-interactive: var(--color-bg-surface);
+  --color-surface-interactive-hover: var(--color-bg-elevated);
+
+  /* Shadows - dark theme */
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4),
+               0 1px 2px -1px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
+               0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4),
+               0 4px 6px -4px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4),
+               0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+
+  --shadow-glow-subtle: var(--color-primary-glow-subtle);
+  --shadow-glow: var(--color-primary-glow);
+  --shadow-glow-intense: var(--color-primary-glow-intense);
+
+  --shadow-glow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4),
+                    0 1px 2px -1px rgba(0, 0, 0, 0.3),
+                    var(--shadow-glow-subtle);
+
+  --shadow-glow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
+                    0 2px 4px -2px rgba(0, 0, 0, 0.3),
+                    var(--shadow-glow);
+
+  --shadow-glow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4),
+                    0 4px 6px -4px rgba(0, 0, 0, 0.3),
+                    var(--shadow-glow-intense);
+
+  --shadow-focus: 0 0 0 3px var(--color-primary-muted),
+                  var(--shadow-glow);
+
+  --shadow-lift: 0 8px 16px -4px rgba(0, 0, 0, 0.5),
+                 0 4px 8px -4px rgba(0, 0, 0, 0.4);
+}

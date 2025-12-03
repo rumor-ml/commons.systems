@@ -1,0 +1,71 @@
+name: Manual Artifact Registry Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Show what would be deleted without deleting'
+        type: boolean
+        default: true
+
+env:
+  GCP_PROJECT_ID: chalanding
+  GCP_REGION: us-central1
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/190604485916/locations/global/workloadIdentityPools/github-actions/providers/github'
+          service_account: 'github-actions-terraform@chalanding.iam.gserviceaccount.com'
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get remote branches
+        id: branches
+        run: |
+          git fetch --prune origin
+          git ls-remote --heads origin | awk '{print $2}' | sed 's|refs/heads/||' > /tmp/branches.txt
+          echo "Found $(wc -l < /tmp/branches.txt) remote branches"
+
+      - name: Find and delete orphaned packages
+        run: |
+          DRY_RUN="${{ inputs.dry_run }}"
+          DELETED=0
+
+          # Generate expected service names from branches
+          > /tmp/expected.txt
+          while read branch; do
+            sanitized=$(echo "$branch" | sed 's|^claude/||' | tr '[:upper:]' '[:lower:]' | tr '/_' '-' | sed 's/[^a-z0-9-]//g' | cut -c1-63 | sed 's/-$//')
+            for site in fellspiral videobrowser audiobrowser print; do
+              [ "$branch" = "main" ] && echo "${site}-site" >> /tmp/expected.txt
+              [ "$branch" != "main" ] && echo "${site}-${sanitized}" >> /tmp/expected.txt
+            done
+          done < /tmp/branches.txt
+          sort -u /tmp/expected.txt > /tmp/expected-sorted.txt
+
+          # Check each repository
+          for repo in fellspiral-previews videobrowser-previews audiobrowser-previews print-previews; do
+            echo "=== $repo ==="
+            gcloud artifacts packages list --repository="$repo" --location=${{ env.GCP_REGION }} --project=${{ env.GCP_PROJECT_ID }} --format="value(name)" 2>/dev/null | while read pkg; do
+              if ! grep -qx "$pkg" /tmp/expected-sorted.txt; then
+                if [ "$DRY_RUN" = "true" ]; then
+                  echo "[DRY RUN] Would delete: $pkg"
+                else
+                  echo "Deleting: $pkg"
+                  gcloud artifacts packages delete "$pkg" --repository="$repo" --location=${{ env.GCP_REGION }} --project=${{ env.GCP_PROJECT_ID }} --quiet
+                  DELETED=$((DELETED + 1))
+                fi
+              fi
+            done
+          done
+
+          echo "Cleanup complete. Deleted: $DELETED packages"

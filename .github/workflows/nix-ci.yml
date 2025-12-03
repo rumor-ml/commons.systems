@@ -1,0 +1,46 @@
+name: Nix CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nix-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v22
+        with:
+          nix_version: "2.17.0"
+          enable_kvm: false
+
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v12
+        if: ${{ secrets.CACHIX_AUTH_TOKEN != '' }}
+        with:
+          name: commons-systems
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Check flake configuration
+        run: nix flake check
+
+      - name: Build tmux-tui package
+        run: nix build .#tmux-tui
+
+      - name: Build gh-workflow-mcp-server package
+        run: nix build .#gh-workflow-mcp-server
+
+      - name: Verify development shell
+        run: nix develop --command nix run .#check-env

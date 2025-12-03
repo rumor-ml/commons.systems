@@ -1,0 +1,75 @@
+package partials
+
+import (
+	"fmt"
+	"github.com/commons-systems/filesync"
+)
+
+templ SyncHistory(sessions []*filesync.SyncSession) {
+	if len(sessions) == 0 {
+		<div class="text-gray-500 text-center py-8">
+			No previous sync sessions
+		</div>
+	} else {
+		<div class="space-y-3">
+			for _, session := range sessions {
+				@SyncHistoryItem(session)
+			}
+		</div>
+	}
+}
+
+templ SyncHistoryItem(session *filesync.SyncSession) {
+	<div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+		<div class="flex items-start justify-between">
+			<div class="flex-1">
+				<div class="flex items-center gap-3">
+					<h3 class="font-medium text-gray-900">{ session.RootDir }</h3>
+					@StatusBadge(session.Status)
+				</div>
+				<div class="mt-2 grid grid-cols-2 gap-4 text-sm text-gray-600">
+					<div>
+						<span class="font-medium">Discovered:</span> { fmt.Sprintf("%d", session.Stats.Discovered) }
+					</div>
+					<div>
+						<span class="font-medium">Extracted:</span> { fmt.Sprintf("%d", session.Stats.Extracted) }
+					</div>
+					<div>
+						<span class="font-medium">Uploaded:</span> { fmt.Sprintf("%d", session.Stats.Uploaded) }
+					</div>
+					<div>
+						<span class="font-medium">Errors:</span> { fmt.Sprintf("%d", session.Stats.Errors) }
+					</div>
+				</div>
+				<div class="mt-2 text-xs text-gray-500">
+					Started: { session.StartedAt.Format("2006-01-02 15:04:05") }
+				</div>
+			</div>
+			<div>
+				<a
+					href={ templ.URL(fmt.Sprintf("/sync/%s", session.ID)) }
+					class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+				>
+					View Details
+				</a>
+			</div>
+		</div>
+	</div>
+}
+
+templ StatusBadge(status filesync.SessionStatus) {
+	switch status {
+		case filesync.SessionStatusRunning:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+				Running
+			</span>
+		case filesync.SessionStatusCompleted:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+				Completed
+			</span>
+		case filesync.SessionStatusFailed:
+			<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+				Failed
+			</span>
+	}
+}
