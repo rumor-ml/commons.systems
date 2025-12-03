@@ -1,24 +1,13 @@
 # gh-workflow-mcp-server: MCP server for GitHub Workflow monitoring
 #
-# This package uses stdenv.mkDerivation instead of buildGoModule or buildNpmPackage
-# because it packages a pre-built artifact rather than building from source.
+# This package uses buildNpmPackage to build from source rather than packaging
+# pre-built artifacts. This provides a more reproducible and idiomatic Nix approach.
 #
-# Why stdenv.mkDerivation (not buildGoModule):
-# - This is a Node.js/TypeScript project, not a Go project
-# - The TypeScript source is already compiled to JavaScript (in dist/)
-# - Dependencies are already installed (in node_modules/)
-# - We're packaging the pre-built artifacts, not building from source
-#
-# Pre-built artifact approach:
-# - The dist/ directory contains compiled JavaScript from TypeScript source
-# - The node_modules/ directory contains runtime dependencies
-# - We copy these artifacts into the Nix store as-is
-# - This is faster than rebuilding but requires dist/ and node_modules/ to exist
-#
-# Alternative approach (not used here):
-# - Could use buildNpmPackage to build from source
-# - Would require fetching dependencies via npm registry
-# - More reproducible but slower and more complex
+# Build process:
+# - buildNpmPackage automatically runs: npm ci && npm run build
+# - The build script in package.json is "tsc" (TypeScript compilation)
+# - lib.cleanSource removes .gitignore'd files (dist/, node_modules/)
+# - npmDepsHash is computed from package-lock.json dependencies
 #
 # Wrapper purpose:
 # - Creates a shell script that invokes Node.js with the correct entry point
@@ -26,34 +15,29 @@
 # - Makes the tool executable from anywhere via $PATH
 #
 { lib
-, stdenv
+, buildNpmPackage
 , nodejs
 }:
 
-stdenv.mkDerivation {
+buildNpmPackage {
   pname = "gh-workflow-mcp-server";
   version = "0.1.0";
 
-  # Use the local source directory without cleanSource to preserve dist/ and node_modules/
-  # These directories are built imperatively (pnpm build) but packaged here
-  src = ../../gh-workflow-mcp-server;
+  # Use lib.cleanSource to remove build artifacts and preserve source files
+  src = lib.cleanSource ../../gh-workflow-mcp-server;
 
-  # Skip build phase - we're using pre-built artifacts
-  dontBuild = true;
+  # Computed with: nix run nixpkgs#prefetch-npm-deps package-lock.json
+  npmDepsHash = "sha256-/gb/AnDr63ggwG3Ug6yT+T3+eJGd4zH7+xKkCNdfntw=";
 
-  installPhase = ''
-    # Create output directories
-    mkdir -p $out/bin $out/lib/gh-workflow-mcp-server
+  # buildNpmPackage automatically runs: npm ci && npm run build
+  # The build script in package.json is "tsc" (TypeScript compilation)
 
-    # Copy everything we need (dist/ and node_modules/ are in source)
-    cp -r dist $out/lib/gh-workflow-mcp-server/
-    cp -r node_modules $out/lib/gh-workflow-mcp-server/
-    cp package.json $out/lib/gh-workflow-mcp-server/
-
-    # Create executable wrapper
+  # Install the compiled output and create wrapper script
+  postInstall = ''
+    mkdir -p $out/bin
     cat > $out/bin/gh-workflow-mcp-server <<EOF
 #!/usr/bin/env bash
-exec ${nodejs}/bin/node $out/lib/gh-workflow-mcp-server/dist/index.js "\$@"
+exec ${nodejs}/bin/node $out/lib/node_modules/gh-workflow-mcp-server/dist/index.js "\$@"
 EOF
     chmod +x $out/bin/gh-workflow-mcp-server
   '';

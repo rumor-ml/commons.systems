@@ -310,7 +310,7 @@ Then register it in `shells/hooks/default.nix` in the appropriate order.
 
 Custom packages are tools not available in the standard Nix package repository (nixpkgs). They're built from source or wrapped with additional functionality.
 
-**buildGoModule vs stdenv.mkDerivation:**
+**buildGoModule vs buildNpmPackage vs stdenv.mkDerivation:**
 
 **Use `buildGoModule`** when:
 - You're building a Go project from source
@@ -324,7 +324,7 @@ buildGoModule rec {
   pname = "tmux-tui";
   version = "0.1.0";
 
-  src = ../.;  # Build from monorepo
+  src = lib.cleanSource ../../tmux-tui;
 
   vendorHash = "sha256-...";  # Hash of go.mod dependencies
 
@@ -333,47 +333,76 @@ buildGoModule rec {
 }
 ```
 
-**Use `stdenv.mkDerivation`** when:
-- You have a pre-built binary
-- You're wrapping an existing tool
-- You need custom build logic beyond standard Go builds
+**Use `buildNpmPackage`** when:
+- You're building a Node.js/TypeScript project from source
+- You have a package-lock.json for reproducible dependency resolution
+- You want Nix to manage npm dependencies
 
-Example: `gh-workflow-mcp-server.nix` uses a pre-built binary:
+Example: `gh-workflow-mcp-server.nix` builds from TypeScript source:
 
 ```nix
-stdenv.mkDerivation rec {
+buildNpmPackage {
   pname = "gh-workflow-mcp-server";
   version = "0.1.0";
 
-  src = ../.;
+  src = lib.cleanSource ../../gh-workflow-mcp-server;
 
-  installPhase = ''
+  npmDepsHash = "sha256-...";  # Hash of package-lock.json dependencies
+
+  # buildNpmPackage automatically runs: npm ci && npm run build
+
+  postInstall = ''
     mkdir -p $out/bin
-    # Copy pre-built binary from cmd/
-    cp cmd/gh-workflow-mcp-server/gh-workflow-mcp-server $out/bin/
+    cat > $out/bin/gh-workflow-mcp-server <<'EOF'
+#!/usr/bin/env bash
+exec ${nodejs}/bin/node $out/lib/node_modules/gh-workflow-mcp-server/dist/index.js "$@"
+EOF
+    chmod +x $out/bin/gh-workflow-mcp-server
   '';
 }
 ```
 
-**How vendorHash works:**
+**Use `stdenv.mkDerivation`** when:
+- You have a pre-built binary
+- You're wrapping an existing tool
+- You need custom build logic beyond standard language builders
 
-When building Go packages, Nix needs to download dependencies reproducibly. The `vendorHash` is a SHA256 hash of all dependencies listed in `go.mod`.
+**How lib.cleanSource works:**
 
-**When to update vendorHash:**
+Both `buildGoModule` and `buildNpmPackage` use `lib.cleanSource` to filter the source directory:
+- Removes files in `.gitignore` (like `dist/`, `node_modules/`, `vendor/`)
+- Ensures reproducible builds from source code only
+- Prevents accidental inclusion of build artifacts
 
-1. When you change `go.mod` (add/remove/update dependencies)
-2. When Nix complains about hash mismatch
+**How dependency hashes work:**
+
+When building packages, Nix needs to download dependencies reproducibly using content-addressed hashes:
+
+| Language | Hash Parameter | What It Hashes | Lock File |
+|----------|---------------|----------------|-----------|
+| Go | `vendorHash` | `go.mod` dependencies | `go.sum` |
+| Node.js | `npmDepsHash` | `package-lock.json` dependencies | `package-lock.json` |
+
+**When to update dependency hashes:**
+
+1. When you change dependencies (go.mod, package.json)
+2. When you update lock files (go.sum, package-lock.json)
+3. When Nix complains about hash mismatch
 
 **How to find the correct hash:**
 
 ```bash
-# Method 1: Let Nix tell you
+# Method 1: Let Nix tell you (works for both vendorHash and npmDepsHash)
 nix build .#tmux-tui
 # Error: hash mismatch, got: sha256-xyz...
-# Copy the "got" hash to vendorHash
+# Copy the "got" hash to vendorHash/npmDepsHash
 
 # Method 2: Use a placeholder
-vendorHash = pkgs.lib.fakeHash;  # Will output correct hash on build
+vendorHash = lib.fakeHash;    # For Go packages
+npmDepsHash = lib.fakeHash;   # For npm packages
+
+# Method 3: Use prefetch tools
+nix run nixpkgs#prefetch-npm-deps package-lock.json  # For npm
 ```
 
 **Wrapper purposes:**
@@ -637,7 +666,19 @@ shellHook = ''
 
 **Step 1**: Review `home/README.md` to understand what Home Manager will manage
 
-**Step 2**: Customize `home/home.nix` with your preferences
+**Step 2**: Configure git identity before activation
+
+```bash
+# Set your git identity (required)
+export GIT_AUTHOR_NAME="Your Name"
+export GIT_AUTHOR_EMAIL="you@example.com"
+
+# Or ensure it's already in your ~/.gitconfig:
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+**Step 3**: Customize `home/home.nix` with your preferences
 
 ```nix
 {
@@ -653,19 +694,19 @@ shellHook = ''
 }
 ```
 
-**Step 3**: Build the configuration
+**Step 4**: Build the configuration
 
 ```bash
 nix build .#homeConfigurations.yourusername.activationPackage
 ```
 
-**Step 4**: Activate Home Manager
+**Step 5**: Activate Home Manager
 
 ```bash
 ./result/activate
 ```
 
-**Step 5**: Apply future changes
+**Step 6**: Apply future changes
 
 ```bash
 home-manager switch --flake .#yourusername
