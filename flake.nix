@@ -1,9 +1,34 @@
+# Nix Flake Configuration for Commons.Systems Monorepo
+#
+# This flake provides:
+# - devShells: Reproducible development environments with all necessary tools
+#   Usage: nix develop (main dev shell) or nix develop .#ci (CI shell)
+#
+# - packages: Custom-built tools not available in nixpkgs
+#   Usage: nix build .#tmux-tui or nix build .#gh-workflow-mcp-server
+#
+# - apps: Utility scripts for environment management
+#   Usage: nix run .#check-env (verify environment) or nix run .#list-tools (show available tools)
+#
+# - homeConfigurations: Optional system-wide dotfile management via Home Manager
+#   Usage: home-manager switch --flake .#<system> (e.g., .#x86_64-darwin)
+#
+# Quick Start:
+#   nix develop          # Enter development shell
+#   nix run .#check-env  # Verify environment setup
+#   nix flake check      # Validate configuration
+#
+# Learn more: See nix/README.md for comprehensive documentation
 {
   description = "Fellspiral monorepo development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    home-manager = {
+      url = "github:nix-community/home-manager/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -17,156 +42,103 @@
     ];
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config = { allowUnfree = true; };
-        };
+  outputs = { self, nixpkgs, flake-utils, home-manager }:
+    let
+      # Per-system outputs
+      systemOutputs = flake-utils.lib.eachDefaultSystem (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config = { allowUnfree = true; };
+          };
 
-        commonTools = with pkgs; [
-          google-cloud-sdk
-          gh
-          nodejs
-          pnpm
-          terraform
-          bash
-          coreutils
-          git
-          jq
-          curl
-          # Go toolchain for tmux-tui and Go fullstack scaffolding
-          go
-          gopls
-          gotools
-          tmux
-          air
-          templ
-          firebase-tools  # For Firebase Emulator Suite
-        ];
+          # Import modular package sets
+          packageSets = pkgs.callPackage ./nix/package-sets.nix { };
 
-        devShell = pkgs.mkShell {
-          buildInputs = commonTools;
+          # Use the 'all' package set for universal development shell
+          commonTools = packageSets.all;
 
-          shellHook = ''
-            echo "Fellspiral development environment loaded"
-            echo ""
+          ciShell = pkgs.mkShell {
+            buildInputs = commonTools;
 
-            # Go config
-            export GOPATH="$HOME/go"
-            export PATH="$GOPATH/bin:$PATH"
-
-            # Playwright config
-            export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-            export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
-
-            # pnpm uses global store by default (~/.pnpm-store)
-            # This is shared across all worktrees automatically
-
-            # Smart pnpm install - only when lockfile changes
-            if [ ! -d "node_modules" ]; then
-              echo "Installing pnpm dependencies..."
-              pnpm install
-              echo "Dependencies installed"
-            elif [ "pnpm-lock.yaml" -nt "node_modules/.modules.yaml" ]; then
-              echo "pnpm-lock.yaml changed, reinstalling..."
-              pnpm install
-              echo "Dependencies updated"
-            fi
-
-            # Add node_modules/.bin to PATH
-            export PATH="$PWD/node_modules/.bin:$PATH"
-
-            if [ -f infrastructure/scripts/setup-workload-identity.sh ]; then
-              chmod +x infrastructure/scripts/*.sh
-            fi
-
-            # Install Playwright browsers if needed (after pnpm install has made npx available)
-            PLAYWRIGHT_CHROMIUM_DIR=$(find "$PLAYWRIGHT_BROWSERS_PATH" -maxdepth 1 -type d -name "chromium-*" 2>/dev/null | head -1)
-            if [ -z "$PLAYWRIGHT_CHROMIUM_DIR" ]; then
-              echo "Installing Playwright browsers..."
-              npx playwright install chromium
-            fi
-
-            # Build tmux-tui if needed
-            if [ -d "tmux-tui" ]; then
-              if [ ! -f "tmux-tui/build/tmux-tui" ] || [ "tmux-tui/cmd/tmux-tui/main.go" -nt "tmux-tui/build/tmux-tui" ]; then
-                echo "Building tmux-tui..."
-                (cd tmux-tui && go build -ldflags "-s -w" -o build/tmux-tui ./cmd/tmux-tui 2>&1 | grep -v "^#" || true)
+            shellHook = ''
+              if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+                export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
               fi
-            fi
+              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
-            # Build gh-workflow-mcp-server if needed
-            if [ -d "gh-workflow-mcp-server" ]; then
-              if [ ! -f "gh-workflow-mcp-server/dist/index.js" ] || [ "gh-workflow-mcp-server/src/index.ts" -nt "gh-workflow-mcp-server/dist/index.js" ]; then
-                echo "Building gh-workflow-mcp-server..."
-                (cd gh-workflow-mcp-server && npm run build 2>&1 || true)
-              fi
-            fi
-
-            # tmux-tui configuration with stable default + dev override
-            if [ -n "$TMUX" ] && [ -f "tmux-tui/tmux-tui.conf" ]; then
-              # Default: use stable ~/commons.systems installation
-              DEFAULT_TUI="$HOME/commons.systems/tmux-tui/scripts/spawn.sh"
-
-              # Dev override: use local version if TMUX_TUI_DEV is set
-              if [ -n "$TMUX_TUI_DEV" ] && [ -f "$PWD/tmux-tui/scripts/spawn.sh" ]; then
-                SPAWN_SCRIPT="$PWD/tmux-tui/scripts/spawn.sh"
-                echo "Using dev tmux-tui from: $PWD"
-              elif [ -f "$DEFAULT_TUI" ]; then
-                SPAWN_SCRIPT="$DEFAULT_TUI"
-              else
-                SPAWN_SCRIPT="$PWD/tmux-tui/scripts/spawn.sh"  # Fallback
+              if [ ! -d "node_modules" ]; then
+                pnpm install --frozen-lockfile
               fi
 
-              tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$SPAWN_SCRIPT"
+              export PATH="$PWD/node_modules/.bin:$PATH"
+            '';
 
-              # Load config from selected spawn script location (may differ from local tmux-tui/)
-              if ! tmux show-hooks -g 2>/dev/null | grep -q "run-shell.*spawn.sh"; then
-                TMUX_TUI_CONFIG="''${SPAWN_SCRIPT%/scripts/spawn.sh}/tmux-tui.conf"
-                if [ -f "$TMUX_TUI_CONFIG" ]; then
-                  echo "Loading tmux-tui configuration..."
-                  tmux source-file "$TMUX_TUI_CONFIG"
-                fi
-              fi
-            fi
+            NIXPKGS_ALLOW_UNFREE = "1";
+          };
 
-            echo ""
-            echo "Quick start:"
-            echo "  1. Run dev server: pnpm dev"
-            echo "  2. Run tests: pnpm test"
-            echo "  3. Add packages: pnpm add <pkg>"
-            echo ""
-          '';
+          # Custom packages
+          tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
+          gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
 
-          NIXPKGS_ALLOW_UNFREE = "1";
-        };
+          # Apps for tool discovery and environment checking
+          list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
+          check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
 
-        ciShell = pkgs.mkShell {
-          buildInputs = commonTools;
+          # Development shell using modular configuration
+          devShell = pkgs.callPackage ./nix/shells/default.nix {
+            inherit packageSets tmux-tui gh-workflow-mcp-server;
+          };
 
-          shellHook = ''
-            if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
-              export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-            fi
-            export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+        in {
+          packages = {
+            inherit tmux-tui gh-workflow-mcp-server;
+            default = tmux-tui;
+          };
 
-            if [ ! -d "node_modules" ]; then
-              pnpm install --frozen-lockfile
-            fi
+          apps = {
+            list-tools = {
+              type = "app";
+              program = "${list-tools}/bin/list-tools";
+            };
+            check-env = {
+              type = "app";
+              program = "${check-env}/bin/check-env";
+            };
+          };
 
-            export PATH="$PWD/node_modules/.bin:$PATH"
-          '';
+          devShells = {
+            default = devShell;
+            ci = ciShell;
+          };
+        }
+      );
 
-          NIXPKGS_ALLOW_UNFREE = "1";
-        };
+      # Home Manager configurations
+      # Creates username-based configurations for easy activation
+      homeConfigurations =
+        let
+          username = builtins.getEnv "USER";
+          mkHomeConfig = system: home-manager.lib.homeManagerConfiguration {
+            pkgs = import nixpkgs {
+              inherit system;
+              config = { allowUnfree = true; };
+            };
+            modules = [
+              ./nix/home/default.nix
+            ];
+          };
+        in {
+          # Primary config for current user (auto-detects system)
+          "${username}" = mkHomeConfig builtins.currentSystem;
 
-      in {
-        devShells = {
-          default = devShell;
-          ci = ciShell;
-        };
-      }
-    );
+          # System-specific variants (e.g., "n8@aarch64-darwin")
+        } // builtins.listToAttrs (
+          map (system: {
+            name = "${username}@${system}";
+            value = mkHomeConfig system;
+          }) flake-utils.lib.defaultSystems
+        );
+    in
+      systemOutputs // { inherit homeConfigurations; };
 }
