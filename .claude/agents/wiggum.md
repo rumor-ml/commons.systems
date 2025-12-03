@@ -111,8 +111,8 @@ This subroutine is used by all steps that need to commit changes.
 
 ## Step 3: PR Review
 
-- Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to execute `/pr-review-toolkit:review-pr` (no arguments)
-- Wait for review to complete and analyze the feedback:
+- Execute `/pr-review-toolkit:review-pr` using SlashCommand tool (no arguments)
+- Wait for all review agents to complete and analyze the feedback:
   - **If NO ISSUES**: Proceed to Step 4
   - **If ANY ISSUES exist** (including minor suggestions, style issues, or any feedback whatsoever):
     1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
@@ -131,8 +131,8 @@ This subroutine is used by all steps that need to commit changes.
 
 ## Step 4: Security Review
 
-- Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to execute `/security-review` (no arguments)
-- Wait for review to complete and analyze the feedback:
+- Execute `/security-review` using SlashCommand tool (no arguments)
+- Wait for security review to complete and analyze the feedback:
   - **If NO ISSUES**: Proceed to approval
   - **If ANY ISSUES exist**:
     1. Post the security feedback as a PR comment using: `gh pr comment <number> --body "<security feedback>"`
