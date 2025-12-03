@@ -86,8 +86,8 @@
           check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
 
           # Development shell using modular configuration
-          devShell = pkgs.callPackage ./nix/shells/default.nix {
-            inherit packageSets tmux-tui gh-workflow-mcp-server;
+          devShell = pkgs.mkShell {
+            buildInputs = packageSets.core ++ packageSets.cloud ++ packageSets.nodejs ++ packageSets.golang ++ packageSets.devtools;
           };
 
         in {
