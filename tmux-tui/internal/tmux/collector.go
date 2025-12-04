@@ -179,19 +179,25 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 	}
 
 	// Use pgrep to find child processes of the shell
+	debug.Log("CLAUDE_PANE_PGREP panePID=%s", panePID)
 	output, err := c.executor.ExecCommandOutput("pgrep", "-P", panePID)
 	if err != nil {
 		// pgrep returns exit code 1 when no processes found - this is expected
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			debug.Log("CLAUDE_PANE_NO_CHILDREN panePID=%s", panePID)
 			return false
 		}
 		// Actual error - log it
 		fmt.Fprintf(os.Stderr, "Warning: Failed to check for Claude process in pane %s: %v\n", panePID, err)
+		debug.Log("CLAUDE_PANE_PGREP_ERROR panePID=%s error=%v", panePID, err)
 		return false
 	}
 
+	childPIDsStr := strings.TrimSpace(string(output))
+	debug.Log("CLAUDE_PANE_CHILDREN panePID=%s children=%s", panePID, childPIDsStr)
+
 	// Check each child PID for "claude" in the command
-	childPIDs := strings.Split(strings.TrimSpace(string(output)), "\n")
+	childPIDs := strings.Split(childPIDsStr, "\n")
 	for _, childPID := range childPIDs {
 		if childPID == "" {
 			continue
@@ -216,7 +222,9 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 		}
 
 		command := strings.ToLower(strings.TrimSpace(string(output)))
+		debug.Log("CLAUDE_PANE_CHECK panePID=%s childPID=%s command=%s", panePID, childPID, command)
 		if strings.Contains(command, "claude") {
+			debug.Log("CLAUDE_PANE_DETECTED panePID=%s childPID=%s", panePID, childPID)
 			return true
 		}
 	}

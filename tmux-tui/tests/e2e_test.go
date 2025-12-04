@@ -875,15 +875,8 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	cleanupDaemon := startDaemon(t, socketName, sessionName)
 	defer cleanupDaemon()
 
-	// Launch TUI binary in the TUI pane (use session-qualified target)
-	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
-	cmd = tmuxCmd(socketName, "send-keys", "-t", sessionName+"."+tuiPane, tuiBinary, "Enter")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to start TUI: %v", err)
-	}
-	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
-
-	// Start Claude (real or fake) in the Claude pane
+	// Start Claude (real or fake) in the Claude pane BEFORE starting TUI
+	// This ensures the TUI's first GetTree() call will correctly detect the Claude pane
 	claudeBinary := getClaudeBinary(t)
 	scenario := "normal" // Default scenario
 	if useFakeClaude() {
@@ -930,10 +923,21 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	}
 	t.Log("Claude pane successfully detected by collector")
 
-	// Capture TUI output BEFORE sending prompt (baseline) - use session-qualified target
+	// NOW start the TUI (after Claude is running and detected)
+	// This ensures TUI's first GetTree() call will have isClaudePane=true in cache
+	t.Log("Starting TUI in the TUI pane...")
+	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
+	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start TUI: %v", err)
+	}
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
+
+	// Capture TUI output BEFORE creating alert (baseline) - use session-qualified target
 	tuiCaptureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName+"."+tuiPane, "-p", "-e")
 	tuiOutputBefore, _ := tuiCaptureCmd.Output()
-	t.Logf("TUI output before prompt:\n%s", string(tuiOutputBefore))
+	t.Logf("TUI output before alert:\n%s", string(tuiOutputBefore))
 
 	// Manually create alert file for the Claude pane (simulating Notification hook)
 	// This tests TUI behavior without relying on Claude hooks working in detached sessions
@@ -2077,16 +2081,8 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 	cleanupDaemon := startDaemon(t, socketName, sessionName)
 	defer cleanupDaemon()
 
-	// Start TUI in the TUI pane
-	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
-	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
-	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to start TUI: %v", err)
-	}
-	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
-
-	// Start Claude (real or fake) in the Claude pane
+	// Start Claude (real or fake) in the Claude pane BEFORE starting TUI
+	// This ensures the TUI's first GetTree() call will correctly detect the Claude pane
 	t.Log("Starting Claude...")
 	claudeBinary := getClaudeBinary(t)
 	scenario := "normal" // Default scenario
@@ -2126,6 +2122,17 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 	if !waitForClaudePaneDetection(t, socketName, sessionName, claudePane, 30*time.Second) {
 		t.Fatal("Pane was not detected as running Claude within timeout")
 	}
+
+	// NOW start the TUI (after Claude is running and detected)
+	// This ensures TUI's first GetTree() call will have isClaudePane=true in cache
+	t.Log("Starting TUI in the TUI pane...")
+	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
+	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start TUI: %v", err)
+	}
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
 
 	// Step 1: Manually create alert file with "idle" content to simulate idle state
 	t.Log("Creating alert file with 'idle' content (simulating Claude idle state)...")
