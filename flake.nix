@@ -109,6 +109,7 @@
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
+          iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
@@ -140,7 +141,7 @@
 
         in {
           packages = {
-            inherit tmux-tui gh-workflow-mcp-server gh-issue-mcp-server;
+            inherit tmux-tui gh-workflow-mcp-server gh-issue-mcp-server iac;
             default = tmux-tui;
           };
 
