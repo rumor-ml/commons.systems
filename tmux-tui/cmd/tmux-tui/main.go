@@ -155,10 +155,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.alertsMu.Unlock()
 
-			// Trigger tree refresh
+			// Continue watching daemon events (no tree refresh needed - alert state is managed by daemon)
 			if m.daemonClient != nil {
-				m.collector.ClearCache()
-				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
+				return m, watchDaemonCmd(m.daemonClient)
 			}
 			return m, nil
 
@@ -287,9 +286,13 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 		}
 	}
 
+	// Debug: Log the pane IDs in the tree
+	debug.Log("TUI_RECONCILE_DEBUG validPanes=%v alerts=%v", validPanes, alerts)
+
 	// Remove alerts for deleted panes
 	for paneID := range alerts {
 		if !validPanes[paneID] {
+			debug.Log("TUI_RECONCILE_REMOVING paneID=%s notInTree=true", paneID)
 			delete(alerts, paneID)
 		}
 	}
