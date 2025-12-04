@@ -321,33 +321,43 @@ jobs:
           DELETED_DEPLOYMENTS=0
 
           if [ "$CLEANUP_TYPE" = "all" ]; then
-            echo "Mode: Cleaning up ALL deployments in test environment"
+            echo "Mode: Cleaning up ALL non-production deployments"
 
-            # Paginate through all deployments in test environment
-            PAGE=1
-            while true; do
-              DEPLOYMENTS=$(gh api "repos/${REPO}/deployments?environment=test&per_page=100&page=${PAGE}" -q '.[].id' 2>/dev/null || echo "")
-              [ -z "$DEPLOYMENTS" ] && break
+            # Get list of all environments (test + any legacy preview-* environments)
+            ENVIRONMENTS=$(gh api "repos/${REPO}/environments" -q '.environments[].name | select(. != "production")' 2>/dev/null || echo "test")
+            [ -z "$ENVIRONMENTS" ] && ENVIRONMENTS="test"
 
-              while IFS= read -r deployment_id; do
-                [ -z "$deployment_id" ] && continue
-                echo "  Deactivating and deleting deployment ${deployment_id}"
+            # Process each environment
+            while IFS= read -r env_name; do
+              [ -z "$env_name" ] && continue
+              echo "Processing environment: ${env_name}"
 
-                # Mark inactive
-                gh api "repos/${REPO}/deployments/${deployment_id}/statuses" -X POST -f state="inactive" -f description="Cleanup" >/dev/null 2>&1 || true
+              # Paginate through all deployments in this environment
+              PAGE=1
+              while true; do
+                DEPLOYMENTS=$(gh api "repos/${REPO}/deployments?environment=${env_name}&per_page=100&page=${PAGE}" -q '.[].id' 2>/dev/null || echo "")
+                [ -z "$DEPLOYMENTS" ] && break
 
-                # Delete deployment
-                if gh api --method DELETE "repos/${REPO}/deployments/${deployment_id}" 2>/dev/null; then
-                  DELETED_DEPLOYMENTS=$((DELETED_DEPLOYMENTS + 1))
-                  echo "  ✅ Deleted"
-                else
-                  echo "  ⚠️ Failed to delete"
-                fi
-              done <<< "$DEPLOYMENTS"
+                while IFS= read -r deployment_id; do
+                  [ -z "$deployment_id" ] && continue
+                  echo "  Deactivating and deleting deployment ${deployment_id}"
 
-              PAGE=$((PAGE + 1))
-              [ $PAGE -gt 50 ] && break  # Safety limit
-            done
+                  # Mark inactive
+                  gh api "repos/${REPO}/deployments/${deployment_id}/statuses" -X POST -f state="inactive" -f description="Cleanup" >/dev/null 2>&1 || true
+
+                  # Delete deployment
+                  if gh api --method DELETE "repos/${REPO}/deployments/${deployment_id}" 2>/dev/null; then
+                    DELETED_DEPLOYMENTS=$((DELETED_DEPLOYMENTS + 1))
+                    echo "  ✅ Deleted"
+                  else
+                    echo "  ⚠️ Failed to delete"
+                  fi
+                done <<< "$DEPLOYMENTS"
+
+                PAGE=$((PAGE + 1))
+                [ $PAGE -gt 50 ] && break  # Safety limit
+              done
+            done <<< "$ENVIRONMENTS"
           else
             if [ -z "$BRANCH_NAME" ]; then
               echo "No branch name provided, skipping"
