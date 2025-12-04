@@ -1,7 +1,7 @@
 # Makefile for tmux-tui
 # Follows commons.systems monorepo build patterns
 
-.PHONY: build build-tui build-daemon test test-unit test-e2e clean dev
+.PHONY: build build-tui build-daemon test test-unit test-e2e test-e2e-real clean dev
 
 # Binary output location
 BINARY_NAME=tmux-tui
@@ -32,9 +32,17 @@ test-unit:
 	@$(GO) test -v -json ./cmd/... ./internal/... 2>/dev/null || echo "No unit tests found (expected for MVP)"
 
 test-e2e:
-	@echo "Running E2E tests..."
+	@echo "Running E2E tests (DEFAULT: fake Claude, no tokens used)..."
 	@command -v tmux >/dev/null || (echo "Error: tmux not found" && exit 1)
-	@$(GO) test -v -json -count=1 ./tests/...
+	@$(GO) test -v -count=1 -timeout 120s ./tests/... -run 'TestReal|TestUserPromptSubmit'
+	@echo "✓ Tests completed with fake Claude (no API tokens consumed)"
+
+test-e2e-real:
+	@echo "Running E2E tests with REAL Claude (--model haiku)..."
+	@command -v claude >/dev/null || (echo "Error: real Claude not found" && exit 1)
+	@echo "WARNING: This will consume API tokens!"
+	@USE_REAL_CLAUDE=1 $(GO) test -v -count=1 -timeout 120s ./tests/... -run 'TestReal|TestUserPromptSubmit'
+	@echo "✓ Tests completed with real Claude"
 
 clean:
 	@echo "Cleaning build artifacts..."

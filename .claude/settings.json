@@ -67,6 +67,7 @@
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(go tool cover:*)",
+      "Bash(go vet:*)",
       "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",

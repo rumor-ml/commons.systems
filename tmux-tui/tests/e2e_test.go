@@ -786,15 +786,12 @@ func TestStaleAlertFilesIgnored(t *testing.T) {
 // by the collector (isClaudePane check), which depends on timing of process hierarchy
 func TestRealClaudeAlertFlow(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping real Claude test in short mode")
+		t.Skip("Skipping E2E test in short mode")
 	}
 
-	// Skip if dependencies not available
+	// Verify tmux is available (we always need tmux)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
-	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
 	}
 
 	socketName := uniqueSocketName()
@@ -820,7 +817,11 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
 		killCmd.Run()
 	}()
-	time.Sleep(500 * time.Millisecond)
+
+	// Wait for tmux socket to be ready (5s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
 
 	// Create window 1 for Claude
 	t.Log("Creating window 1...")
@@ -870,20 +871,36 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	setOptCmd := tmuxCmd(socketName, "set-window-option", "-t", windowID, "@tui-pane", tuiPane)
 	setOptCmd.Run()
 
-	// Launch TUI binary in the TUI pane (use session-qualified target)
-	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
-	cmd = tmuxCmd(socketName, "send-keys", "-t", sessionName+"."+tuiPane, tuiBinary, "Enter")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to start TUI: %v", err)
-	}
-	time.Sleep(4 * time.Second) // Wait for TUI to initialize and alert watcher to start
+	// Start daemon (required for TUI to receive alert notifications)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon()
 
-	// Start Claude in the Claude pane (right pane) - use session-qualified target
-	// cd to project directory so Claude picks up hooks from .claude/settings.json
-	// Use --permission-mode default to avoid plan mode blocking the test
-	t.Log("Starting Claude interactive shell with haiku model...")
-	cmd = tmuxCmd(socketName, "send-keys", "-t", sessionName+"."+claudePane, "cd "+projectDir+" && claude --model haiku --permission-mode default", "Enter")
-	if err := cmd.Run(); err != nil {
+	// Start Claude (real or fake) in the Claude pane BEFORE starting TUI
+	// This ensures the TUI's first GetTree() call will correctly detect the Claude pane
+	claudeBinary := getClaudeBinary(t)
+	scenario := "normal" // Default scenario
+	if useFakeClaude() {
+		t.Log("Using fake Claude binary for testing")
+		scenario = "normal" // Use normal scenario
+	}
+
+	// Configure Claude (real Claude always uses haiku model)
+	model := ""
+	if !useFakeClaude() {
+		model = "haiku" // Real Claude: use fastest/cheapest model
+	}
+
+	cfg := ClaudeConfig{
+		Binary:         claudeBinary,
+		Model:          model,
+		PermissionMode: "default",
+		Scenario:       scenario,
+		Env: map[string]string{
+			"CLAUDE_E2E_TEST": "1",
+		},
+	}
+
+	if err := startClaude(t, socketName, sessionName, claudePane, projectDir, cfg); err != nil {
 		t.Fatalf("Failed to start Claude: %v", err)
 	}
 
@@ -892,23 +909,11 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	debugPanesOutput, _ := debugCmd.Output()
 	t.Logf("Panes in window 1: %s", strings.TrimSpace(string(debugPanesOutput)))
 
-	// Wait for Claude to initialize (Claude is in the Claude pane)
-	claudeReady := false
-	for i := 0; i < 30; i++ {
-		time.Sleep(1 * time.Second)
-		captureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName+"."+claudePane, "-p")
-		output, _ := captureCmd.Output()
-		paneContent := string(output)
-		if strings.Contains(paneContent, ">") || strings.Contains(paneContent, "What can I help") {
-			claudeReady = true
-			t.Logf("Claude ready after %d seconds", i+1)
-			break
-		}
-	}
-	if !claudeReady {
-		captureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName+"."+claudePane, "-p")
-		output, _ := captureCmd.Output()
-		t.Logf("Warning: Could not confirm Claude is ready. Pane content:\n%s", string(output))
+	// Wait for Claude to be ready (same timeout for real and fake)
+	timeouts := getTestTimeouts()
+	claudeTarget := fmt.Sprintf("%s.%s", sessionName, claudePane)
+	if !waitForClaudeReady(t, socketName, sessionName, claudePane, claudeTarget, timeouts.ClaudeInit) {
+		t.Fatal("Claude failed to become ready")
 	}
 
 	// Wait for pane to be detected as Claude pane
@@ -918,19 +923,46 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	}
 	t.Log("Claude pane successfully detected by collector")
 
-	// Capture TUI output BEFORE sending prompt (baseline) - use session-qualified target
+	// NOW start the TUI (after Claude is running and detected)
+	// This ensures TUI's first GetTree() call will have isClaudePane=true in cache
+	t.Log("Starting TUI in the TUI pane...")
+	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
+	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start TUI: %v", err)
+	}
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
+
+	// Capture TUI output BEFORE creating alert (baseline) - use session-qualified target
 	tuiCaptureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName+"."+tuiPane, "-p", "-e")
 	tuiOutputBefore, _ := tuiCaptureCmd.Output()
-	t.Logf("TUI output before prompt:\n%s", string(tuiOutputBefore))
+	t.Logf("TUI output before alert:\n%s", string(tuiOutputBefore))
 
 	// Manually create alert file for the Claude pane (simulating Notification hook)
 	// This tests TUI behavior without relying on Claude hooks working in detached sessions
 	t.Log("Creating alert file (simulating Notification hook)...")
-	alertFile := filepath.Join(getTestAlertDir(socketName), alertPrefix+claudePane)
-	if err := os.WriteFile(alertFile, []byte{}, 0644); err != nil {
+	alertDir := getTestAlertDir(socketName)
+	alertFile := filepath.Join(alertDir, alertPrefix+claudePane)
+	t.Logf("Alert file path: %s", alertFile)
+	t.Logf("Alert directory: %s", alertDir)
+	if err := os.WriteFile(alertFile, []byte("stop"), 0644); err != nil {
 		t.Fatalf("Failed to create alert file: %v", err)
 	}
 	defer os.Remove(alertFile)
+
+	// Verify alert file was created
+	if _, err := os.Stat(alertFile); err != nil {
+		t.Fatalf("Alert file not found after creation: %v", err)
+	}
+
+	// List all files in alert directory for debugging
+	entries, _ := os.ReadDir(alertDir)
+	t.Logf("Files in alert directory (%d):", len(entries))
+	for _, e := range entries {
+		info, _ := e.Info()
+		t.Logf("  - %s (size: %d)", e.Name(), info.Size())
+	}
 
 	// Wait for TUI to refresh and show the alert highlight
 	t.Log("Waiting for TUI to show alert highlight...")
@@ -1242,7 +1274,11 @@ func createTestTmuxSession(t *testing.T, socketName, name string) func() {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create tmux session %s: %v", name, err)
 	}
-	time.Sleep(200 * time.Millisecond)
+
+	// Wait for tmux socket to be ready (5s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
 
 	// Return cleanup function
 	return func() {
@@ -1354,13 +1390,28 @@ func createWindowWithClaude(t *testing.T, socketName, session, windowName string
 	windowTarget := fmt.Sprintf("%s:%s", session, windowName)
 	paneID := getPaneID(t, socketName, session, windowName)
 
-	// Start Claude with environment variables prefixed in the command
-	// This ensures the variables are in Claude's process environment (not just tmux's environment table)
+	// Start Claude (real or fake) using new infrastructure
 	t.Logf("Starting Claude in window %s with TMUX_PANE=%s", windowName, paneID)
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, paneID, claudeCommand)
-	cmd = tmuxCmd(socketName, "send-keys", "-t", windowTarget, claudeCmd, "Enter")
-	if err := cmd.Run(); err != nil {
+	claudeBinary := getClaudeBinary(t)
+
+	// Configure Claude (real Claude uses haiku model)
+	model := ""
+	if !useFakeClaude() {
+		model = "haiku"
+	}
+
+	cfg := ClaudeConfig{
+		Binary:         claudeBinary,
+		Model:          model,
+		PermissionMode: "default",
+		Scenario:       "normal",
+		Env: map[string]string{
+			"CLAUDE_E2E_TEST": "1",
+		},
+	}
+
+	if err := startClaude(t, socketName, session, paneID, projectDir, cfg); err != nil {
 		t.Fatalf("Failed to start Claude in window %s: %v", windowName, err)
 	}
 
@@ -1487,9 +1538,6 @@ func TestMultiWindowAlertIsolation(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
-	}
 
 	// Ensure alert directory exists and clean up any leftover alert files
 	os.MkdirAll(getTestAlertDir(socketName), 0755)
@@ -1611,9 +1659,6 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
-	}
 
 	os.MkdirAll(getTestAlertDir(socketName), 0755)
 
@@ -1654,12 +1699,28 @@ func TestSingleWindowMultiPaneIsolation(t *testing.T) {
 	// Get the pane target (session-qualified)
 	pane2Target := fmt.Sprintf("%s.%s", sessionName, pane2)
 
-	// Start Claude with environment variables prefixed in the command
+	// Start Claude (real or fake) in pane2 using new infrastructure
 	t.Logf("Starting Claude in pane2 with TMUX_PANE=%s", pane2)
 	projectDir, _ := filepath.Abs("../..")
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, pane2, claudeCommand)
-	cmd = tmuxCmd(socketName, "send-keys", "-t", pane2Target, claudeCmd, "Enter")
-	if err := cmd.Run(); err != nil {
+	claudeBinary := getClaudeBinary(t)
+
+	// Configure Claude (real Claude uses haiku model)
+	model := ""
+	if !useFakeClaude() {
+		model = "haiku"
+	}
+
+	cfg := ClaudeConfig{
+		Binary:         claudeBinary,
+		Model:          model,
+		PermissionMode: "default",
+		Scenario:       "normal",
+		Env: map[string]string{
+			"CLAUDE_E2E_TEST": "1",
+		},
+	}
+
+	if err := startClaude(t, socketName, sessionName, pane2, projectDir, cfg); err != nil {
 		t.Fatalf("Failed to start Claude in pane2: %v", err)
 	}
 
@@ -1732,9 +1793,6 @@ func TestRapidConcurrentPrompts(t *testing.T) {
 	// Skip if dependencies not available
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
-	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
 	}
 
 	os.MkdirAll(getTestAlertDir(socketName), 0755)
@@ -1822,9 +1880,6 @@ func TestAlertPersistenceThroughTUIRefresh(t *testing.T) {
 	// Skip if dependencies not available
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
-	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
 	}
 
 	os.MkdirAll(getTestAlertDir(socketName), 0755)
@@ -1958,12 +2013,9 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 		t.Skip("Skipping real Claude test in short mode")
 	}
 
-	// Skip if dependencies not available
+	// Verify tmux is available (we always need tmux)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not found")
-	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		t.Skip("claude not found")
 	}
 
 	// Setup
@@ -2025,26 +2077,42 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 	}
 	t.Logf("TUI pane: %s", tuiPane)
 
-	// Start TUI in the TUI pane
-	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
-	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
-	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to start TUI: %v", err)
-	}
-	time.Sleep(4 * time.Second) // Wait for TUI to initialize
+	// Start daemon (required for TUI to receive alert notifications)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon()
 
-	// Start Claude in the Claude pane
+	// Start Claude (real or fake) in the Claude pane BEFORE starting TUI
+	// This ensures the TUI's first GetTree() call will correctly detect the Claude pane
 	t.Log("Starting Claude...")
-	claudeTarget := fmt.Sprintf("%s.%s", sessionName, claudePane)
-	claudeCmd := fmt.Sprintf("cd %s && TMUX_PANE=%s CLAUDE_E2E_TEST=1 %s --permission-mode default", projectDir, claudePane, claudeCommand)
-	cmd = tmuxCmd(socketName, "send-keys", "-t", claudeTarget, claudeCmd, "Enter")
-	if err := cmd.Run(); err != nil {
+	claudeBinary := getClaudeBinary(t)
+	scenario := "normal" // Default scenario
+	if useFakeClaude() {
+		t.Log("Using fake Claude binary for testing")
+	}
+
+	// Configure Claude (real Claude always uses haiku model)
+	model := ""
+	if !useFakeClaude() {
+		model = "haiku" // Real Claude: use fastest/cheapest model
+	}
+
+	cfg := ClaudeConfig{
+		Binary:         claudeBinary,
+		Model:          model,
+		PermissionMode: "default",
+		Scenario:       scenario,
+		Env: map[string]string{
+			"CLAUDE_E2E_TEST": "1",
+		},
+	}
+
+	if err := startClaude(t, socketName, sessionName, claudePane, projectDir, cfg); err != nil {
 		t.Fatalf("Failed to start Claude: %v", err)
 	}
 
 	// Wait for Claude to be ready
 	timeouts := getTestTimeouts()
+	claudeTarget := fmt.Sprintf("%s.%s", sessionName, claudePane)
 	if !waitForClaudeReady(t, socketName, sessionName, claudePane, claudeTarget, timeouts.ClaudeInit) {
 		t.Fatal("Claude failed to become ready")
 	}
@@ -2054,6 +2122,17 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 	if !waitForClaudePaneDetection(t, socketName, sessionName, claudePane, 30*time.Second) {
 		t.Fatal("Pane was not detected as running Claude within timeout")
 	}
+
+	// NOW start the TUI (after Claude is running and detected)
+	// This ensures TUI's first GetTree() call will have isClaudePane=true in cache
+	t.Log("Starting TUI in the TUI pane...")
+	tuiBinary := filepath.Join(tuiDir, "build", "tmux-tui")
+	tuiTarget := fmt.Sprintf("%s.%s", sessionName, tuiPane)
+	cmd = tmuxCmd(socketName, "send-keys", "-t", tuiTarget, tuiBinary, "Enter")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to start TUI: %v", err)
+	}
+	time.Sleep(4 * time.Second) // Wait for TUI to initialize and connect to daemon
 
 	// Step 1: Manually create alert file with "idle" content to simulate idle state
 	t.Log("Creating alert file with 'idle' content (simulating Claude idle state)...")
