@@ -69,9 +69,13 @@ func CreateServiceAccount(projectID, repoOwner, repoName, wifProvider string) (s
 
 	// Add the binding if it doesn't exist
 	if !bindingExists {
-		exec.Run(fmt.Sprintf(
-			`gcloud iam service-accounts add-iam-policy-binding %s --member="%s" --role="roles/iam.workloadIdentityUser" --quiet`,
-			saEmail, member), true)
+		args := []string{
+			"iam", "service-accounts", "add-iam-policy-binding", saEmail,
+			"--member=" + member,
+			"--role=roles/iam.workloadIdentityUser",
+			"--quiet",
+		}
+		exec.RunCommand("gcloud", args, true)
 		output.Success("Workload Identity binding created")
 	}
 

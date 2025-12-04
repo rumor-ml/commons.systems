@@ -81,6 +81,72 @@ func RunWithInput(command string, input string) (*Result, error) {
 	}, nil
 }
 
+// RunCommand executes a command with args (no shell invocation)
+func RunCommand(name string, args []string, captureOutput bool) (*Result, error) {
+	cmd := exec.Command(name, args...)
+
+	var stdout, stderr bytes.Buffer
+
+	if captureOutput {
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return nil, fmt.Errorf("failed to execute command: %w", err)
+		}
+	}
+
+	return &Result{
+		Stdout:   strings.TrimSpace(stdout.String()),
+		Stderr:   strings.TrimSpace(stderr.String()),
+		ExitCode: exitCode,
+	}, nil
+}
+
+// RunCommandQuiet executes without stderr (no shell)
+func RunCommandQuiet(name string, args []string) (string, error) {
+	result, err := RunCommand(name, args, true)
+	if err != nil {
+		return "", err
+	}
+	return result.Stdout, nil
+}
+
+// RunCommandWithInput executes with stdin (no shell)
+func RunCommandWithInput(name string, args []string, input string) (*Result, error) {
+	cmd := exec.Command(name, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Stdin = strings.NewReader(input)
+
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return nil, fmt.Errorf("failed to execute command: %w", err)
+		}
+	}
+
+	return &Result{
+		Stdout:   strings.TrimSpace(stdout.String()),
+		Stderr:   strings.TrimSpace(stderr.String()),
+		ExitCode: exitCode,
+	}, nil
+}
+
 // CommandExists checks if a command is available in PATH
 func CommandExists(cmd string) bool {
 	_, err := exec.LookPath(cmd)

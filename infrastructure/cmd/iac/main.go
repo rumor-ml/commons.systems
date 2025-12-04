@@ -59,6 +59,12 @@ func main() {
 		cfg.ProjectID = os.Getenv("GCP_PROJECT_ID")
 	}
 
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Run the infrastructure setup
 	r := runner.New(cfg)
 	if err := r.Run(); err != nil {

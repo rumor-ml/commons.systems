@@ -45,9 +45,17 @@ func SetupWorkloadIdentity(projectID, repoOwner, repoName string) (string, error
 	attributeCondition := fmt.Sprintf("assertion.repository=='%s/%s'", repoOwner, repoName)
 
 	if providerExists == "" {
-		if _, err := exec.Run(fmt.Sprintf(
-			`gcloud iam workload-identity-pools providers create-oidc %s --workload-identity-pool=%s --location=global --project=%s --issuer-uri="https://token.actions.githubusercontent.com" --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" --attribute-condition="%s" --quiet`,
-			providerName, poolName, projectID, attributeCondition), true); err != nil {
+		args := []string{
+			"iam", "workload-identity-pools", "providers", "create-oidc", providerName,
+			"--workload-identity-pool=" + poolName,
+			"--location=global",
+			"--project=" + projectID,
+			"--issuer-uri=https://token.actions.githubusercontent.com",
+			"--attribute-mapping=google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository",
+			"--attribute-condition=" + attributeCondition,
+			"--quiet",
+		}
+		if _, err := exec.RunCommand("gcloud", args, true); err != nil {
 			return "", fmt.Errorf("failed to create workload identity provider: %w", err)
 		}
 		output.Success("Workload Identity Provider created")
@@ -55,9 +63,15 @@ func SetupWorkloadIdentity(projectID, repoOwner, repoName string) (string, error
 		output.Info("Provider already exists")
 		// Update the attribute condition to match the current repository
 		output.Info("Updating provider attribute condition...")
-		exec.Run(fmt.Sprintf(
-			`gcloud iam workload-identity-pools providers update-oidc %s --workload-identity-pool=%s --location=global --project=%s --attribute-condition="%s" --quiet`,
-			providerName, poolName, projectID, attributeCondition), true)
+		args := []string{
+			"iam", "workload-identity-pools", "providers", "update-oidc", providerName,
+			"--workload-identity-pool=" + poolName,
+			"--location=global",
+			"--project=" + projectID,
+			"--attribute-condition=" + attributeCondition,
+			"--quiet",
+		}
+		exec.RunCommand("gcloud", args, true)
 		output.Success("Provider updated with correct repository condition")
 	}
 

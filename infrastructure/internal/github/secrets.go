@@ -23,23 +23,20 @@ func SetupSecrets(projectID, repoOwner, repoName, wifProvider, saEmail string) e
 	repoFull := fmt.Sprintf("%s/%s", repoOwner, repoName)
 
 	// Create GCP_PROJECT_ID secret
-	if _, err := exec.RunWithInput(
-		fmt.Sprintf("gh secret set GCP_PROJECT_ID -R %s 2>&1", repoFull),
-		projectID); err != nil {
+	args := []string{"secret", "set", "GCP_PROJECT_ID", "-R", repoFull}
+	if _, err := exec.RunCommandWithInput("gh", args, projectID); err != nil {
 		return fmt.Errorf("failed to create GCP_PROJECT_ID secret: %w", err)
 	}
 
 	// Create GCP_WORKLOAD_IDENTITY_PROVIDER secret
-	if _, err := exec.RunWithInput(
-		fmt.Sprintf("gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER -R %s 2>&1", repoFull),
-		wifProvider); err != nil {
+	args = []string{"secret", "set", "GCP_WORKLOAD_IDENTITY_PROVIDER", "-R", repoFull}
+	if _, err := exec.RunCommandWithInput("gh", args, wifProvider); err != nil {
 		return fmt.Errorf("failed to create GCP_WORKLOAD_IDENTITY_PROVIDER secret: %w", err)
 	}
 
 	// Create GCP_SERVICE_ACCOUNT secret
-	if _, err := exec.RunWithInput(
-		fmt.Sprintf("gh secret set GCP_SERVICE_ACCOUNT -R %s 2>&1", repoFull),
-		saEmail); err != nil {
+	args = []string{"secret", "set", "GCP_SERVICE_ACCOUNT", "-R", repoFull}
+	if _, err := exec.RunCommandWithInput("gh", args, saEmail); err != nil {
 		return fmt.Errorf("failed to create GCP_SERVICE_ACCOUNT secret: %w", err)
 	}
 

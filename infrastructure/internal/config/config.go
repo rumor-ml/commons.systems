@@ -1,5 +1,12 @@
 package config
 
+import (
+	"fmt"
+	"regexp"
+)
+
+var repoNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
 // Config holds the configuration for the infrastructure setup
 type Config struct {
 	// Required configuration
@@ -28,4 +35,15 @@ func (c *Config) GetRegion() string {
 		return "us-central1"
 	}
 	return c.Region
+}
+
+// Validate checks config fields for security issues
+func (c *Config) Validate() error {
+	if !repoNamePattern.MatchString(c.RepoOwner) {
+		return fmt.Errorf("invalid repo-owner: must contain only alphanumeric, dots, hyphens, underscores")
+	}
+	if !repoNamePattern.MatchString(c.RepoName) {
+		return fmt.Errorf("invalid repo-name: must contain only alphanumeric, dots, hyphens, underscores")
+	}
+	return nil
 }
