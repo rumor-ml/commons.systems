@@ -70,7 +70,7 @@
 #     ...
 #   '';
 #
-{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server, iac }:
+{ pkgs, packageSets, tmux-tui, gh-workflow-mcp-server, gh-issue-mcp-server, iac }:
 
 let
   # Import all hooks
@@ -81,7 +81,7 @@ let
   tmuxTuiHook = pkgs.callPackage ../hooks/tmux-tui.nix { };
 
 in pkgs.mkShell {
-  buildInputs = packageSets.all ++ [ tmux-tui gh-workflow-mcp-server iac ];
+  buildInputs = packageSets.all ++ [ tmux-tui gh-workflow-mcp-server gh-issue-mcp-server iac ];
 
   # Shell initialization script that runs when entering 'nix develop'
   # Hooks execute in the order specified below

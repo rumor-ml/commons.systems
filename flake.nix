@@ -108,6 +108,7 @@
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
+          gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Apps for tool discovery and environment checking
@@ -117,7 +118,7 @@
           # Development shell with custom packages added
           # Inlined to avoid callPackage segfault issue (see commit 72d9d78)
           devShell = pkgs.mkShell {
-            buildInputs = commonPackages ++ [ tmux-tui gh-workflow-mcp-server ];
+            buildInputs = commonPackages ++ [ tmux-tui gh-workflow-mcp-server gh-issue-mcp-server ];
 
             shellHook = ''
               echo "╔═══════════════════════════════════════════════════════════╗"
@@ -127,6 +128,7 @@
               echo "Custom tools available:"
               echo "  • tmux-tui - Git-aware tmux pane manager"
               echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
+              echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
               echo ""
               echo "Quick start:"
               echo "  • Run dev server: pnpm dev"
@@ -139,7 +141,7 @@
 
         in {
           packages = {
-            inherit tmux-tui gh-workflow-mcp-server iac;
+            inherit tmux-tui gh-workflow-mcp-server gh-issue-mcp-server iac;
             default = tmux-tui;
           };
 
