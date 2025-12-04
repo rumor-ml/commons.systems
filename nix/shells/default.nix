@@ -1,3 +1,33 @@
+# =============================================================================
+# ⚠️  NOTICE: This file is currently not used in flake.nix
+# =============================================================================
+#
+# STATUS: Reference implementation (orphaned due to segfault workaround)
+#
+# This shell configuration represents the intended modular architecture for
+# development environments. However, due to a Nix evaluator segfault when using
+# callPackage (discovered in commit 72d9d78), flake.nix currently uses an
+# inlined package list instead of this file.
+#
+# Current Implementation:
+# - flake.nix lines 73-86: commonPackages variable with inlined package list
+# - flake.nix lines 116-137: devShell using commonPackages + custom tools
+# - This file: Reference for intended modular architecture
+#
+# Why This File is Kept:
+# - Documents sophisticated hook composition system
+# - Represents desired architecture once Nix fixes segfault
+# - Provides examples for future shell customization
+# - Maintains organizational knowledge
+#
+# How to Restore (when segfault is fixed):
+# 1. Verify: pkgs.callPackage ./nix/shells/default.nix { ... } doesn't crash
+# 2. Update flake.nix to use callPackage instead of inlined commonPackages
+# 3. Test thoroughly with: nix develop, nix flake check, CI workflow
+# 4. Remove this notice if restoration is successful
+#
+# =============================================================================
+#
 # Main Development Shell Configuration
 #
 # This shell provides a complete, reproducible development environment for the
