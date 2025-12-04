@@ -76,7 +76,10 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 
 	// Get initial file list
 	files, err := h.fileStore.ListBySession(r.Context(), sessionID)
-	if err == nil {
+	if err != nil {
+		// Continue streaming anyway - files may arrive via subscriptions
+		log.Printf("Failed to list initial files for session %s: %v", sessionID, err)
+	} else {
 		for _, file := range files {
 			fileEvent := streaming.SSEEvent{
 				Type:      streaming.EventTypeFile,
