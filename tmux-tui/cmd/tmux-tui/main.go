@@ -286,9 +286,13 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 		}
 	}
 
+	// Debug: Log the pane IDs in the tree
+	debug.Log("TUI_RECONCILE_DEBUG validPanes=%v alerts=%v", validPanes, alerts)
+
 	// Remove alerts for deleted panes
 	for paneID := range alerts {
 		if !validPanes[paneID] {
+			debug.Log("TUI_RECONCILE_REMOVING paneID=%s notInTree=true", paneID)
 			delete(alerts, paneID)
 		}
 	}

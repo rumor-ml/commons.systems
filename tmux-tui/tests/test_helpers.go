@@ -268,13 +268,20 @@ func waitForClaudePaneDetection(t *testing.T, socketName, session, paneID string
 			}
 			panePID := strings.TrimSpace(string(output))
 
-			// Check for Claude child processes
+			// Check for Claude child processes (real or fake)
+			// Try "claude" first
 			pgrepCmd := exec.Command("pgrep", "-P", panePID, "claude")
-			if err := pgrepCmd.Run(); err != nil {
-				return false, nil
+			if err := pgrepCmd.Run(); err == nil {
+				return true, nil
 			}
 
-			return true, nil
+			// Try "fake-claude-test" if real Claude not found
+			pgrepCmd = exec.Command("pgrep", "-P", panePID, "fake-claude-test")
+			if err := pgrepCmd.Run(); err == nil {
+				return true, nil
+			}
+
+			return false, nil
 		},
 		OnRetry: func(attempt int, elapsed time.Duration) {
 			if attempt%5 == 0 {
@@ -360,4 +367,185 @@ func CleanupAlertFiles(socketName string) error {
 		return fmt.Errorf("failed to remove alert directory %s: %w", alertDir, err)
 	}
 	return nil
+}
+
+// buildFakeClaude builds the fake Claude binary for testing
+func buildFakeClaude(t *testing.T) string {
+	t.Helper()
+
+	// Build once and cache in /tmp
+	fakeBinary := "/tmp/fake-claude-test"
+
+	// Check if already built
+	if _, err := os.Stat(fakeBinary); err == nil {
+		return fakeBinary
+	}
+
+	t.Log("Building fake Claude binary...")
+	buildCmd := exec.Command("go", "build", "-o", fakeBinary,
+		"./testdata/fake-claude")
+	buildCmd.Dir = "." // tests directory
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build fake Claude: %v\n%s", err, output)
+	}
+
+	t.Logf("Fake Claude built at: %s", fakeBinary)
+	return fakeBinary
+}
+
+// ClaudeConfig holds configuration for starting Claude (real or fake)
+type ClaudeConfig struct {
+	Binary         string            // Path to claude binary (real or fake)
+	Model          string            // --model flag value
+	PermissionMode string            // --permission-mode flag value
+	Scenario       string            // FAKE_CLAUDE_SCENARIO (for fake binary)
+	Env            map[string]string // Additional env vars
+}
+
+// startClaude starts Claude (real or fake) in a tmux pane
+func startClaude(t *testing.T, socketName, sessionName, paneID, projectDir string, cfg ClaudeConfig) error {
+	t.Helper()
+
+	windowTarget := fmt.Sprintf("%s.%s", sessionName, paneID)
+
+	// Build command
+	cmdParts := []string{
+		"cd", projectDir, "&&",
+	}
+
+	// Set environment variables
+	for k, v := range cfg.Env {
+		cmdParts = append(cmdParts, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Set FAKE_CLAUDE_SCENARIO if using fake binary
+	if cfg.Scenario != "" {
+		cmdParts = append(cmdParts, fmt.Sprintf("FAKE_CLAUDE_SCENARIO=%s", cfg.Scenario))
+	}
+
+	// Set TMUX_PANE for hooks
+	cmdParts = append(cmdParts, fmt.Sprintf("TMUX_PANE=%s", paneID))
+	cmdParts = append(cmdParts, "CLAUDE_E2E_TEST=1")
+
+	// Add Claude command
+	cmdParts = append(cmdParts, cfg.Binary)
+	if cfg.Model != "" {
+		cmdParts = append(cmdParts, "--model", cfg.Model)
+	}
+	if cfg.PermissionMode != "" {
+		cmdParts = append(cmdParts, "--permission-mode", cfg.PermissionMode)
+	}
+
+	command := strings.Join(cmdParts, " ")
+
+	t.Logf("Starting Claude: %s", command)
+
+	cmd := tmuxCmd(socketName, "send-keys", "-t", windowTarget, command, "Enter")
+	return cmd.Run()
+}
+
+// useFakeClaude returns true if tests should use fake Claude
+// DEFAULT BEHAVIOR: Always uses fake Claude unless USE_REAL_CLAUDE=1
+// This applies to both local dev and CI environments
+func useFakeClaude() bool {
+	if env := os.Getenv("USE_REAL_CLAUDE"); env == "1" || env == "true" {
+		return false
+	}
+	return true // DEFAULT: fake Claude for local dev and CI
+}
+
+// getClaudeBinary returns path to Claude binary (real or fake)
+func getClaudeBinary(t *testing.T) string {
+	t.Helper()
+
+	if useFakeClaude() {
+		return buildFakeClaude(t)
+	}
+
+	// Use real Claude
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skip("Real Claude not found, and USE_REAL_CLAUDE=1 was set")
+	}
+	return claudePath
+}
+
+// buildDaemon builds the tmux-tui-daemon binary for testing
+func buildDaemon(t *testing.T) string {
+	t.Helper()
+
+	// Build once and cache in parent directory's build folder
+	tuiDir, _ := filepath.Abs("..")
+	daemonBinary := filepath.Join(tuiDir, "build", "tmux-tui-daemon")
+
+	// Check if already built
+	if _, err := os.Stat(daemonBinary); err == nil {
+		return daemonBinary
+	}
+
+	t.Log("Building tmux-tui-daemon binary...")
+	buildCmd := exec.Command("go", "build", "-o", daemonBinary, "./cmd/tmux-tui-daemon")
+	buildCmd.Dir = tuiDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build daemon: %v\n%s", err, output)
+	}
+
+	t.Logf("Daemon built at: %s", daemonBinary)
+	return daemonBinary
+}
+
+// startDaemon starts the tmux-tui-daemon in a tmux pane
+// Returns a cleanup function to stop the daemon
+func startDaemon(t *testing.T, socketName, sessionName string) func() {
+	t.Helper()
+
+	daemonBinary := buildDaemon(t)
+
+	// Construct the $TMUX environment variable for the daemon
+	// Format: /path/to/socket,pid,pane_index
+	// The daemon uses this to determine its namespace
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	tmuxEnv := fmt.Sprintf("%s,$$,0", tmuxSocketPath) // $$ will be expanded by shell to the daemon's PID
+
+	// Start daemon in a detached tmux window with correct TMUX env
+	daemonWindow := fmt.Sprintf("%s:daemon", sessionName)
+	// Use send-keys to set TMUX env before starting daemon
+	createWindowCmd := tmuxCmd(socketName, "new-window", "-t", sessionName, "-n", "daemon", "-d")
+	if err := createWindowCmd.Run(); err != nil {
+		t.Fatalf("Failed to create daemon window: %v", err)
+	}
+
+	// Send command to start daemon with correct TMUX env
+	daemonTarget := fmt.Sprintf("%s:daemon", sessionName)
+	startCmd := fmt.Sprintf("TMUX='%s' %s", tmuxEnv, daemonBinary)
+	sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", daemonTarget, startCmd, "Enter")
+	if err := sendKeysCmd.Run(); err != nil {
+		t.Fatalf("Failed to start daemon: %v", err)
+	}
+
+	// Wait for daemon to be ready (socket should exist)
+	alertDir := getTestAlertDir(socketName)
+	daemonSocket := filepath.Join(alertDir, "daemon.sock")
+
+	ready := false
+	for i := 0; i < 20; i++ {
+		if _, err := os.Stat(daemonSocket); err == nil {
+			ready = true
+			t.Logf("Daemon ready after %d checks", i+1)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !ready {
+		t.Fatal("Daemon failed to start (socket not found)")
+	}
+
+	// Return cleanup function
+	return func() {
+		// Kill the daemon window
+		killCmd := tmuxCmd(socketName, "kill-window", "-t", daemonWindow)
+		killCmd.Run() // Ignore errors - window might already be gone
+	}
 }

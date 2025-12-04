@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/commons-systems/tmux-tui/internal/debug"
 )
 
 // Collector collects tmux and git information
@@ -82,7 +84,8 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		paneTitle := parts[8]
 		panePID := parts[9]
 
-		// Skip any pane running tmux-tui
+		// Skip only the TUI pane itself, not other panes in the same window
+		// (including Claude panes that receive alerts)
 		if command == "tmux-tui" {
 			continue
 		}
@@ -132,6 +135,15 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	// called on every GetTree() invocation (typically every 30s).
 	// CleanupExcept() removes both invalid PIDs and expired entries.
 	c.claudeCache.CleanupExcept(validPIDs)
+
+	// Debug: Log all panes found in the tree
+	for repo, branches := range tree {
+		for branch, panes := range branches {
+			for _, pane := range panes {
+				debug.Log("COLLECTOR_PANE repo=%s branch=%s paneID=%s command=%s isClaudePane=%v", repo, branch, pane.ID, pane.Command, pane.IsClaudePane)
+			}
+		}
+	}
 
 	return tree, nil
 }
