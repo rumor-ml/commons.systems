@@ -53,13 +53,41 @@
           };
 
           # Import modular package sets
-          packageSets = pkgs.callPackage ./nix/package-sets.nix { };
+          # Note: Currently unused due to callPackage segfault workaround (commit 72d9d78)
+          # Kept for reference and potential future use once Nix fixes the segfault issue
+          # The modular organization in nix/package-sets.nix represents the intended
+          # architecture. See commonPackages below for the current inlined workaround.
+          packageSets = import ./nix/package-sets.nix { inherit pkgs; };
 
-          # Use the 'all' package set for universal development shell
-          commonTools = packageSets.all;
+          # Common packages shared between dev and CI shells
+          #
+          # Why inlined instead of using nix/package-sets.nix?
+          # Using callPackage to import nix/shells/default.nix causes a segmentation
+          # fault in the Nix evaluator (discovered in commit 72d9d78). The issue appears
+          # to be related to complex attribute set manipulations in callPackage.
+          #
+          # Workaround: Define packages inline using simple let-binding. This avoids
+          # the callPackage mechanism while maintaining the same package list.
+          #
+          # TODO: Re-evaluate using modular approach once Nix fixes underlying issue
+          commonPackages = with pkgs; [
+            # Core tools
+            bash coreutils git gh jq curl
+            # Cloud tools
+            google-cloud-sdk terraform
+            # Node.js ecosystem
+            # Note: firebase-tools removed - causes segfault in Nix evaluator
+            # Install via pnpm instead: pnpm add -g firebase-tools
+            nodejs pnpm
+            # Go toolchain
+            go gopls gotools air templ
+            # Dev utilities
+            tmux
+          ];
 
+          # CI shell with inlined packages (avoiding callPackage issues)
           ciShell = pkgs.mkShell {
-            buildInputs = commonTools;
+            buildInputs = commonPackages;
 
             shellHook = ''
               if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
@@ -86,9 +114,28 @@
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
           check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
 
-          # Development shell using modular configuration
-          devShell = pkgs.callPackage ./nix/shells/default.nix {
-            inherit packageSets tmux-tui gh-workflow-mcp-server gh-issue-mcp-server;
+          # Development shell with custom packages added
+          # Inlined to avoid callPackage segfault issue (see commit 72d9d78)
+          devShell = pkgs.mkShell {
+            buildInputs = commonPackages ++ [ tmux-tui gh-workflow-mcp-server gh-issue-mcp-server ];
+
+            shellHook = ''
+              echo "╔═══════════════════════════════════════════════════════════╗"
+              echo "║     Commons.Systems Development Environment              ║"
+              echo "╚═══════════════════════════════════════════════════════════╝"
+              echo ""
+              echo "Custom tools available:"
+              echo "  • tmux-tui - Git-aware tmux pane manager"
+              echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
+              echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
+              echo ""
+              echo "Quick start:"
+              echo "  • Run dev server: pnpm dev"
+              echo "  • Run tests: pnpm test"
+              echo "  • Check environment: nix run .#check-env"
+            '';
+
+            NIXPKGS_ALLOW_UNFREE = "1";
           };
 
         in {
