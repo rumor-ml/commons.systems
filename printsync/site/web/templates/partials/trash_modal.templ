@@ -75,8 +75,7 @@ templ TrashModal(sessionID, fileID, fileName string) {
 					<button
 						type="button"
 						hx-post={ fmt.Sprintf("/api/sync/%s/trash-all", sessionID) }
-						hx-target="#file-list"
-						hx-swap="innerHTML"
+						hx-swap="none"
 						hx-on::after-request="document.getElementById('trash-modal').remove()"
 						hx-indicator="#trash-all-confirm-spinner"
 						class="btn btn--danger"

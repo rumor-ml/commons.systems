@@ -532,7 +532,15 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 	// Return success message HTML (SSE will handle individual file removals)
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	successMsg := fmt.Sprintf(`<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Trashed %d file(s)</p></div>`, len(fileIDs))
+
+	// Proper pluralization
+	fileWord := "file"
+	if len(fileIDs) > 1 {
+		fileWord = "files"
+	}
+
+	// Return message with OOB swap directive to target #trash-message
+	successMsg := fmt.Sprintf(`<div id="trash-message" hx-swap-oob="true" class="mt-4 p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Trashed %d %s</p></div>`, len(fileIDs), fileWord)
 	w.Write([]byte(successMsg))
 }
 

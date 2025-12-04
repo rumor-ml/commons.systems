@@ -54,7 +54,7 @@ export class TapExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, maxErrors = 10): ExtractionResult {
+  extract(logText: string, _maxErrors = 10): ExtractionResult {
     const lines = logText.split("\n");
     const failures: ExtractedError[] = [];
 
@@ -181,8 +181,6 @@ export class TapExtractor implements FrameworkExtractor {
           errorCode,
           rawOutput,
         });
-
-        if (failures.length >= maxErrors) break;
       }
     }
 

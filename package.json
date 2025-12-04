@@ -19,6 +19,7 @@
     "printsync/tests"
   ],
   "scripts": {
+    "postinstall": "npx playwright install chromium firefox",
     "dev": "npm run dev --workspace=fellspiral/site",
     "build": "npm run build --workspace=fellspiral/site",
     "test": "npm test --workspace=fellspiral/tests",

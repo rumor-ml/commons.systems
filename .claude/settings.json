@@ -11,12 +11,14 @@
       "gh", 
       "gcloud", 
       "nix", 
-      "go mod tidy"
+      "go mod tidy",
+      "pnpm"
     ]
   },
   "permissions": {
     "allow": [
       "WebSearch",
+      "Skill(sonnet)",
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
       "SlashCommand(/commit-merge-push)",
@@ -72,6 +74,7 @@
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
       "Bash(npm test:*)",
+      "Bash(pnpm test:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",
       "Bash(gcloud artifacts repositories list:*)",
@@ -83,6 +86,7 @@
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
+      "Bash(lsof:*)",
       "Bash(find:*)",
       "Bash(done:*)",
       "Bash(tree:*)",

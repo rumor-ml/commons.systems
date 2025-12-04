@@ -68,6 +68,47 @@ interface FailedJobSummary {
 }
 
 /**
+ * Parse GitHub API logs by step using ##[group] markers
+ * API logs format: "Timestamp Content" with ##[group]Run step-name markers
+ * Returns a map of step name to array of log lines (without timestamps)
+ *
+ * Note: GitHub Actions puts ##[endgroup] immediately after the shell/env setup,
+ * but the actual command output comes AFTER that, until the next ##[group]Run marker.
+ * So we capture everything from one "Run " marker until the next one.
+ */
+function parseLogsByStep(logText: string): Map<string, string[]> {
+  const stepLogs = new Map<string, string[]>();
+  const lines = logText.split("\n");
+
+  let currentStep: string | null = null;
+  const groupPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z )?##\[group\]Run (.+)$/;
+
+  for (const line of lines) {
+    // Check for step start: ##[group]Run step-name
+    const groupMatch = line.match(groupPattern);
+    if (groupMatch) {
+      // Start of a new "Run " step
+      currentStep = "Run " + groupMatch[2];
+      if (!stepLogs.has(currentStep)) {
+        stepLogs.set(currentStep, []);
+      }
+      continue;
+    }
+
+    // Add line to current step (strip timestamp)
+    // We add ALL lines until we hit the next "Run " marker
+    if (currentStep) {
+      // Strip GitHub Actions ISO timestamp prefix
+      const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
+      const content = line.replace(timestampPattern, '');
+      stepLogs.get(currentStep)!.push(content);
+    }
+  }
+
+  return stepLogs;
+}
+
+/**
  * Extract test summary from logs (e.g., "1 failed, 77 passed")
  * Playwright outputs these on separate lines, so we need to find and combine them
  */
@@ -223,9 +264,9 @@ export async function getFailureDetails(
     for (const job of failedJobs) {
       const failedSteps: FailedStepSummary[] = [];
 
-      // Get job logs
+      // Get job logs (request all lines - we need full logs for step parsing)
       try {
-        const logs = await getJobLogs(runId, job.databaseId, resolvedRepo);
+        const logs = await getJobLogs(runId, job.databaseId, resolvedRepo, Number.MAX_SAFE_INTEGER);
         const testSummary = extractTestSummary(logs);
 
         // Find failed steps (if step info is available)
@@ -236,37 +277,131 @@ export async function getFailureDetails(
           .map((step) => step.name) || [];
 
         if (failedStepNames.length > 0) {
-          // Extract errors for each failed step
-          for (const stepName of failedStepNames) {
-            const extraction = extractErrors(logs, 10);
-            const errorLines = formatExtractionResult(extraction);
-            failedSteps.push({
-              name: stepName,
-              conclusion: "failure",
-              error_lines: errorLines,
-              test_summary: extraction.summary || testSummary,
-            });
+          // Parse logs by step to get individual step content
+          const stepLogs = parseLogsByStep(logs);
 
-            totalChars += stepName.length + errorLines.join("\n").length;
-            if (extraction.summary || testSummary) {
-              totalChars += (extraction.summary || testSummary)!.length;
+          console.error(`[DEBUG] Parsed ${stepLogs.size} steps from logs`);
+          console.error(`[DEBUG] Failed step names: ${failedStepNames.join(', ')}`);
+          console.error(`[DEBUG] Parsed step keys: ${Array.from(stepLogs.keys()).join(', ')}`);
+
+          // Check if step parsing worked (map should have entries)
+          if (stepLogs.size > 0) {
+            for (const stepName of failedStepNames) {
+              console.error(`[DEBUG] Processing failed step: ${stepName}`);
+
+              // Find step in parsed logs - API logs use full "Run command" format
+              // while job.steps uses friendly names like "Run tests"
+              // GitHub uses the step "name" field (e.g., "Run tests") but ##[group] shows
+              // the actual command being run (e.g., "Run ./infrastructure/scripts/test-go-fullstack-app.sh printsync")
+              // We need to match these intelligently
+              let matchedStepKey: string | undefined;
+
+              // First try exact match
+              if (stepLogs.has(stepName)) {
+                matchedStepKey = stepName;
+                console.error(`[DEBUG] Exact match found: ${matchedStepKey}`);
+              } else {
+                // Look for best partial match
+                // Prioritize matches that contain the step name or vice versa
+                for (const [key, _] of stepLogs) {
+                  if (key.includes(stepName) || stepName.includes(key)) {
+                    matchedStepKey = key;
+                    console.error(`[DEBUG] Partial match found: ${matchedStepKey}`);
+                    break;
+                  }
+                }
+
+                // If no partial match and step name suggests it's a test step,
+                // find the step that contains actual test framework output
+                if (!matchedStepKey && (stepName.toLowerCase().includes("test") || stepName.toLowerCase().includes("e2e"))) {
+                  console.error(`[DEBUG] Trying smart matching for test step...`);
+                  // Try each "Run " step and check if it contains test framework output
+                  for (const [key, content] of stepLogs) {
+                    if (!key.startsWith("Run ")) continue;
+
+                    const stepText = content.join("\n");
+                    const extraction = extractErrors(stepText, Number.MAX_SAFE_INTEGER);
+
+                    console.error(`[DEBUG] Checking ${key} - framework: ${extraction.framework}`);
+
+                    // If this step has recognizable test output, it's probably the test step
+                    if (extraction.framework !== "unknown") {
+                      matchedStepKey = key;
+                      console.error(`[DEBUG] Smart match found: ${matchedStepKey}`);
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (!matchedStepKey) {
+                console.error(`[DEBUG] No match found for ${stepName}, skipping`);
+                continue; // Skip this step, couldn't find it in logs
+              }
+
+              const stepContent = stepLogs.get(matchedStepKey)!;
+              const stepText = stepContent.join("\n");
+
+              console.error(`[DEBUG] Step content lines: ${stepContent.length}`);
+              console.error(`[DEBUG] Step text length: ${stepText.length}`);
+
+              // Check if this is a test step by trying to parse test results
+              const extraction = extractErrors(stepText, Number.MAX_SAFE_INTEGER);
+
+              console.error(`[DEBUG] Extraction framework: ${extraction.framework}`);
+              console.error(`[DEBUG] Extraction errors: ${extraction.errors.length}`);
+              console.error(`[DEBUG] Extraction summary: ${extraction.summary}`);
+
+              if (extraction.framework !== "unknown") {
+                // Test step - return parsed test failures or reporting error
+                const errorLines = formatExtractionResult(extraction);
+                console.error(`[DEBUG] Adding test step with ${errorLines.length} error lines`);
+                failedSteps.push({
+                  name: stepName,
+                  conclusion: "failure",
+                  error_lines: errorLines,
+                  test_summary: extraction.summary || testSummary,
+                });
+
+                totalChars += stepName.length + errorLines.join("\n").length;
+                if (extraction.summary || testSummary) {
+                  totalChars += (extraction.summary || testSummary)!.length;
+                }
+              } else {
+                // Not a test step - return full step content
+                console.error(`[DEBUG] Adding non-test step with ${stepContent.length} lines`);
+                failedSteps.push({
+                  name: stepName,
+                  conclusion: "failure",
+                  error_lines: stepContent,
+                  test_summary: null,
+                });
+                totalChars += stepName.length + stepText.length;
+              }
             }
-            if (totalChars > input.max_chars) break;
+          } else {
+            // Step parsing failed - return last 100 lines of log
+            const lines = logs.split("\n");
+            const last100Lines = lines.slice(-100);
+            failedSteps.push({
+              name: "Unable to parse steps",
+              conclusion: job.conclusion,
+              error_lines: last100Lines,
+              test_summary: null,
+            });
+            totalChars += last100Lines.join("\n").length;
           }
         } else {
-          // No step info, just extract general errors
-          const extraction = extractErrors(logs, 15);
-          const errorLines = formatExtractionResult(extraction);
+          // No step info available - return last 100 lines of log
+          const lines = logs.split("\n");
+          const last100Lines = lines.slice(-100);
           failedSteps.push({
-            name: "General failure",
+            name: "No step information available",
             conclusion: job.conclusion,
-            error_lines: errorLines,
-            test_summary: extraction.summary || testSummary,
+            error_lines: last100Lines,
+            test_summary: null,
           });
-          totalChars += errorLines.join("\n").length;
-          if (extraction.summary || testSummary) {
-            totalChars += (extraction.summary || testSummary)!.length;
-          }
+          totalChars += last100Lines.join("\n").length;
         }
       } catch (error) {
         console.error(`Failed to retrieve logs for job ${job.name}:`, error);
@@ -312,10 +447,10 @@ export async function getFailureDetails(
         // Add step name and conclusion
         parts.push(`    Step: ${step.name} (${step.conclusion})`);
 
-        // Add error lines
+        // Add all error lines - no artificial limits
         if (step.error_lines.length > 0) {
-          const errorPreview = step.error_lines.slice(0, 10).join("\n      ");
-          parts.push(`      ${errorPreview}`);
+          const errorContent = step.error_lines.join("\n      ");
+          parts.push(`      ${errorContent}`);
         }
 
         return parts.join("\n");

@@ -17,7 +17,7 @@ const extractors: FrameworkExtractor[] = [
 /**
  * Extract errors from logs using framework-specific extractors
  * Returns the result from the first high-confidence match
- * If no framework matches, returns an error indicating unknown format
+ * If no framework matches, returns the raw log text (job may have failed for non-test reasons)
  */
 export function extractErrors(logText: string, maxErrors = 10): ExtractionResult {
   // Try each extractor in order, use first high-confidence match
@@ -28,12 +28,16 @@ export function extractErrors(logText: string, maxErrors = 10): ExtractionResult
     }
   }
 
-  // No high-confidence match - return error
+  // No high-confidence match - job likely failed for non-test reasons
+  // Return the last 100 lines of the log for context
+  const lines = logText.split("\n");
+  const contextLines = lines.slice(-100);
+
   return {
     framework: "unknown",
     errors: [{
-      message: "Could not detect test framework. No known test output patterns found.",
-      rawOutput: logText.split("\n").slice(0, 20), // First 20 lines for context
+      message: "No test framework detected. Job may have failed during setup, build, or other non-test step.",
+      rawOutput: contextLines,
     }],
   };
 }

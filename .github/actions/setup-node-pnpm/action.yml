@@ -6,6 +6,10 @@ inputs:
     description: Whether to install Playwright browsers
     required: false
     default: 'false'
+  install-firebase:
+    description: Whether to install Firebase CLI for emulators
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -33,7 +37,12 @@ runs:
       shell: bash
       run: pnpm install --frozen-lockfile
 
-    - name: Install Playwright chromium
+    - name: Install Playwright browsers
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: npx playwright install chromium --with-deps
+      run: npx playwright install chromium firefox --with-deps
+
+    - name: Install Firebase CLI
+      if: inputs.install-firebase == 'true'
+      shell: bash
+      run: pnpm add -g firebase-tools

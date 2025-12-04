@@ -1,5 +1,5 @@
 // printsync/tests/e2e/homepage.spec.ts
-import { test, expect } from '../../../playwright.fixtures';
+import { test, expect } from '../fixtures/printsync-fixtures';
 
 test.describe('Homepage', () => {
   test('loads successfully', async ({ page }) => {

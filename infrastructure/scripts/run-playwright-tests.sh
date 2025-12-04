@@ -33,7 +33,8 @@ if [ ! -d "$TEST_DIR" ]; then
 fi
 cd "$TEST_DIR"
 
-if DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --project chromium; then
+# Let playwright.config.ts determine browser based on platform
+if DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test; then
   echo "✅ Tests passed: $SITE_NAME"
 else
   TEST_EXIT_CODE=$?

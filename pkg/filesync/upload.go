@@ -320,6 +320,30 @@ func convertMetadata(extracted *ExtractedMetadata) FileMetadata {
 	return fm
 }
 
+// DeleteLocal deletes the local source file (moves to system trash).
+// This is called after a file has been successfully uploaded to clean up local storage.
+// The operation is idempotent - returns nil if the file doesn't exist.
+func (u *GCSUploader) DeleteLocal(ctx context.Context, localPath string) error {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Delete the local file
+	err := os.Remove(localPath)
+	if err != nil {
+		// If file doesn't exist, that's fine (idempotent)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to delete local file %s: %w", localPath, err)
+	}
+
+	return nil
+}
+
 // sendProgress safely sends a progress update to the channel
 func sendProgress(ch chan<- Progress, p Progress) {
 	if ch == nil {

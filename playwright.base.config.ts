@@ -10,10 +10,18 @@ export interface SiteConfig {
     local: string;
     ci: string;
   };
+  env?: Record<string, string>;
+  timeout?: number;
+  expect?: { timeout?: number };
 }
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
   const isDeployed = process.env.DEPLOYED === 'true';
+
+  // Set environment variables for test process
+  if (site.env) {
+    Object.assign(process.env, site.env);
+  }
 
   const baseURL = isDeployed
     ? process.env.DEPLOYED_URL || site.deployedUrl || `https://${site.siteName}.commons.systems`
@@ -25,7 +33,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
     workers: process.env.CI ? 4 : undefined,
-    timeout: 60000,
+    timeout: site.timeout || 60000,
 
     reporter: process.env.CI
       ? [['json']]  // JSON to stdout in CI
@@ -40,9 +48,18 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
       screenshot: 'only-on-failure',
       video: 'off',
       headless: true,
+      ...(site.env || {}),
     },
 
-    projects: [
+    expect: site.expect,
+
+    projects: process.platform === 'darwin' ? [
+      // On macOS, use Firefox to avoid chrome-headless-shell Mach port issues
+      {
+        name: 'firefox',
+        use: { ...devices['Desktop Firefox'] },
+      },
+    ] : [
       {
         name: 'chromium',
         use: {
@@ -52,7 +69,6 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
           },
         },
       },
-      // Additional browsers can be enabled per-project if needed
     ],
 
     webServer: isDeployed ? undefined : {
@@ -62,6 +78,10 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
       url: `http://localhost:${site.port}`,
       reuseExistingServer: true,
       timeout: 120 * 1000,
+      env: {
+        ...process.env,
+        ...(site.env || {}),
+      },
     },
   });
 }
