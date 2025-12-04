@@ -94,7 +94,7 @@ func TrashModal(sessionID, fileID, fileName string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-target=\"#file-list\" hx-swap=\"innerHTML\" hx-on::after-request=\"document.getElementById('trash-modal').remove()\" hx-indicator=\"#trash-all-confirm-spinner\" class=\"btn btn--danger\"><span>Trash All</span> <span id=\"trash-all-confirm-spinner\" class=\"htmx-indicator spinner spinner--sm\"></span></button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-swap=\"none\" hx-on::after-request=\"document.getElementById('trash-modal').remove()\" hx-indicator=\"#trash-all-confirm-spinner\" class=\"btn btn--danger\"><span>Trash All</span> <span id=\"trash-all-confirm-spinner\" class=\"htmx-indicator spinner spinner--sm\"></span></button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -106,7 +106,7 @@ func TrashModal(sessionID, fileID, fileName string) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/files/%s/trash", fileID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/trash_modal.templ`, Line: 91, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/trash_modal.templ`, Line: 90, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -119,7 +119,7 @@ func TrashModal(sessionID, fileID, fileName string) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#file-%s", fileID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/trash_modal.templ`, Line: 92, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/trash_modal.templ`, Line: 91, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {

@@ -55,7 +55,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register client with hub
-	client := h.hub.Register(sessionID)
+	client := h.hub.Register(r.Context(), sessionID)
 	defer h.hub.Unregister(sessionID, client)
 
 	// Send initial session state

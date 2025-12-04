@@ -85,7 +85,7 @@ func SyncMonitor(sessionID string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" hx-target=\"body\" hx-swap=\"beforeend\" class=\"btn btn--sm btn--danger btn--outline hidden\"><span>Trash All</span></button></div><!-- File list container --><div class=\"mt-6\"><h3 class=\"font-semibold text-text-primary mb-3\">Files</h3><div id=\"file-list\" class=\"space-y-2 max-h-96 overflow-y-auto\" sse-swap=\"file\" hx-swap=\"beforeend\"><!-- Files will be added here via SSE with beforeend swap --></div></div><!-- Complete message section --><div id=\"complete-message\" class=\"hidden\" sse-swap=\"complete\" hx-swap=\"innerHTML\"><!-- Will be populated by SSE when complete --></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" hx-target=\"body\" hx-swap=\"beforeend\" class=\"btn btn--sm btn--danger btn--outline hidden\"><span>Trash All</span></button></div><!-- Trash message section (populated by trash-all action via OOB swap) --><div id=\"trash-message\" class=\"hidden\"><!-- Will be populated by trash-all handler via hx-swap-oob --></div><!-- File list container --><div class=\"mt-6\"><h3 class=\"font-semibold text-text-primary mb-3\">Files</h3><div id=\"file-list\" class=\"space-y-2 max-h-96 overflow-y-auto\" sse-swap=\"file\" hx-swap=\"beforeend\"><!-- Files will be added here via SSE with beforeend swap --></div></div><!-- Complete message section --><div id=\"complete-message\" class=\"hidden\" sse-swap=\"complete\" hx-swap=\"innerHTML\"><!-- Will be populated by SSE when complete --></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
