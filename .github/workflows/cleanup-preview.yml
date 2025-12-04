@@ -308,46 +308,25 @@ jobs:
             exit 1
           fi
 
-      - name: Delete GitHub deployments and environment
+      - name: Delete GitHub deployments
         id: cleanup-deployments
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
           CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
           BRANCH_NAME: ${{ steps.targets.outputs.branch }}
           REPO: ${{ github.repository }}
         run: |
-          echo "🧹 Cleaning up GitHub deployments and environments"
+          echo "🧹 Cleaning up GitHub deployments from test environment"
 
-          SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
           DELETED_DEPLOYMENTS=0
-          DELETED_ENVIRONMENTS=0
 
-          # Build list of environments to clean
           if [ "$CLEANUP_TYPE" = "all" ]; then
-            # Get all preview environments
-            ENVIRONMENTS=$(gh api "repos/${REPO}/environments" -q '.environments[].name | select(startswith("preview-"))')
-          else
-            if [ -z "$BRANCH_NAME" ]; then
-              echo "No branch name provided, skipping"
-              exit 0
-            fi
-            # Sanitize branch name
-            SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-63)
-            ENVIRONMENTS=""
-            for site in "${SITES[@]}"; do
-              ENVIRONMENTS="${ENVIRONMENTS}preview-${SANITIZED_BRANCH}-${site}"$'\n'
-            done
-          fi
+            echo "Mode: Cleaning up ALL deployments in test environment"
 
-          # Process each environment
-          while IFS= read -r env_name; do
-            [ -z "$env_name" ] && continue
-            echo "Processing environment: ${env_name}"
-
-            # Paginate through all deployments
+            # Paginate through all deployments in test environment
             PAGE=1
             while true; do
-              DEPLOYMENTS=$(gh api "repos/${REPO}/deployments?environment=${env_name}&per_page=100&page=${PAGE}" -q '.[].id' 2>/dev/null || echo "")
+              DEPLOYMENTS=$(gh api "repos/${REPO}/deployments?environment=test&per_page=100&page=${PAGE}" -q '.[].id' 2>/dev/null || echo "")
               [ -z "$DEPLOYMENTS" ] && break
 
               while IFS= read -r deployment_id; do
@@ -360,26 +339,69 @@ jobs:
                 # Delete deployment
                 if gh api --method DELETE "repos/${REPO}/deployments/${deployment_id}" 2>/dev/null; then
                   DELETED_DEPLOYMENTS=$((DELETED_DEPLOYMENTS + 1))
+                  echo "  ✅ Deleted"
+                else
+                  echo "  ⚠️ Failed to delete"
                 fi
               done <<< "$DEPLOYMENTS"
 
               PAGE=$((PAGE + 1))
               [ $PAGE -gt 50 ] && break  # Safety limit
             done
-
-            # Delete environment
-            echo "  Deleting environment ${env_name}"
-            if gh api --method DELETE "repos/${REPO}/environments/${env_name}" 2>/dev/null; then
-              echo "  ✅ Environment deleted"
-              DELETED_ENVIRONMENTS=$((DELETED_ENVIRONMENTS + 1))
-            else
-              echo "  ⚠️ Could not delete environment (may have remaining deployments)"
+          else
+            if [ -z "$BRANCH_NAME" ]; then
+              echo "No branch name provided, skipping"
+              exit 0
             fi
-          done <<< "$ENVIRONMENTS"
+
+            echo "Mode: Cleaning up deployments for branch: ${BRANCH_NAME}"
+
+            # Get the commit SHA for the branch (if it still exists)
+            # Note: This may fail if the branch is already deleted, which is fine
+            BRANCH_REF=$(gh api "repos/${REPO}/git/refs/heads/${BRANCH_NAME}" -q '.object.sha' 2>/dev/null || echo "")
+
+            # Paginate through deployments in test environment
+            PAGE=1
+            while true; do
+              DEPLOYMENTS_JSON=$(gh api "repos/${REPO}/deployments?environment=test&per_page=100&page=${PAGE}" 2>/dev/null || echo "[]")
+              [ "$DEPLOYMENTS_JSON" = "[]" ] && break
+
+              # Filter deployments by branch name in description OR by ref (if we have it)
+              MATCHING_DEPLOYMENTS=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg branch "$BRANCH_NAME" --arg ref "$BRANCH_REF" \
+                '.[] | select(
+                  (.description | contains("(" + $branch + ")")) or
+                  (if $ref != "" then .ref == $ref else false end)
+                ) | .id')
+
+              [ -z "$MATCHING_DEPLOYMENTS" ] && {
+                PAGE=$((PAGE + 1))
+                [ $PAGE -gt 50 ] && break
+                continue
+              }
+
+              while IFS= read -r deployment_id; do
+                [ -z "$deployment_id" ] && continue
+                echo "  Deactivating and deleting deployment ${deployment_id}"
+
+                # Mark inactive
+                gh api "repos/${REPO}/deployments/${deployment_id}/statuses" -X POST -f state="inactive" -f description="Cleanup" >/dev/null 2>&1 || true
+
+                # Delete deployment
+                if gh api --method DELETE "repos/${REPO}/deployments/${deployment_id}" 2>/dev/null; then
+                  DELETED_DEPLOYMENTS=$((DELETED_DEPLOYMENTS + 1))
+                  echo "  ✅ Deleted"
+                else
+                  echo "  ⚠️ Failed to delete"
+                fi
+              done <<< "$MATCHING_DEPLOYMENTS"
+
+              PAGE=$((PAGE + 1))
+              [ $PAGE -gt 50 ] && break  # Safety limit
+            done
+          fi
 
           echo ""
           echo "**GitHub deployments deleted:** ${DELETED_DEPLOYMENTS}" >> $GITHUB_STEP_SUMMARY
-          echo "**GitHub environments deleted:** ${DELETED_ENVIRONMENTS}" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup Summary
         if: always()
