@@ -300,10 +300,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-fellspiral', steps.sanitize.outputs.sanitized) || 'production-fellspiral' }}
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-fellspiral.web.app', steps.sanitize.outputs.sanitized) || 'https://fellspiral.web.app' }}
           site_name: 'fellspiral'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+          branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
       - name: Deploy fellspiral to Firebase Hosting
         id: deploy
@@ -426,10 +425,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-videobrowser', steps.sanitize.outputs.sanitized) || 'production-videobrowser' }}
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-videobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://videobrowser.web.app' }}
           site_name: 'videobrowser'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+          branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
       - name: Deploy videobrowser to Firebase Hosting
         id: deploy
@@ -552,10 +550,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-audiobrowser', steps.sanitize.outputs.sanitized) || 'production-audiobrowser' }}
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-audiobrowser.web.app', steps.sanitize.outputs.sanitized) || 'https://audiobrowser.web.app' }}
           site_name: 'audiobrowser'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+          branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
       - name: Deploy audiobrowser to Firebase Hosting
         id: deploy
@@ -678,10 +675,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: ${{ github.event_name == 'pull_request' && format('preview-{0}-print', steps.sanitize.outputs.sanitized) || 'production-print' }}
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-print.web.app', steps.sanitize.outputs.sanitized) || 'https://print.web.app' }}
           site_name: 'print'
-          is_preview: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+          branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
       - name: Deploy print to Firebase Hosting
         id: deploy
