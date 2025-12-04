@@ -87,7 +87,7 @@ test_output_file="/tmp/claude/pre-push-test-output-$$.txt"
 if ! touch "$test_output_file" 2>/dev/null; then
   deny "Cannot create test output file at $test_output_file. Check /tmp/claude permissions and disk space."
 fi
-timeout 600 "$test_script" > "$test_output_file" 2>&1
+timeout 600 "$test_script" --changed-only > "$test_output_file" 2>&1
 test_exit_code=$?
 log "Test exit code: $test_exit_code"
 

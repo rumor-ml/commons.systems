@@ -139,8 +139,23 @@ This subroutine is used by all steps that need to commit changes.
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Proceed to Step 4
   - **If ANY ISSUES exist** (including minor suggestions, style issues, or any feedback whatsoever):
-    1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
-       - **CRITICAL**: The comment must be self-contained and actionable. For each issue, include:
+    1. Post the full feedback as a PR comment with explicit command documentation:
+       ```bash
+       gh pr comment <number> --body "$(cat <<'EOF'
+       ## PR Review - Issues Found
+
+       **Command Executed:** `/pr-review-toolkit:review-pr`
+
+       The following issues were identified during automated review:
+
+       <feedback>
+
+       ---
+       *Automated review via Wiggum*
+       EOF
+       )"
+       ```
+       - **CRITICAL**: The `<feedback>` section must be self-contained and actionable. For each issue, include:
          - The specific file path(s) and line number(s) affected
          - The exact change requested (not just a category like "documentation improvement")
          - Code snippets or examples where helpful
@@ -182,7 +197,22 @@ This subroutine is used by all steps that need to commit changes.
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Proceed to approval
   - **If ANY ISSUES exist**:
-    1. Post the security feedback as a PR comment using: `gh pr comment <number> --body "<security feedback>"`
+    1. Post the security feedback as a PR comment with explicit command documentation:
+       ```bash
+       gh pr comment <number> --body "$(cat <<'EOF'
+       ## Security Review - Issues Found
+
+       **Command Executed:** `/security-review`
+
+       The following security issues were identified:
+
+       <security feedback>
+
+       ---
+       *Automated review via Wiggum*
+       EOF
+       )"
+       ```
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address ALL security issues
     3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the security fixes
@@ -191,9 +221,54 @@ This subroutine is used by all steps that need to commit changes.
     6. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary of work completed]"
     7. Return to Step 1 (restart workflow monitoring)
 
+## Step 4b: Verify Review Commands Execution
+
+This step verifies that both `/pr-review-toolkit:review-pr` and `/security-review` were executed and documented in PR comments.
+
+### 1. Fetch all PR comments
+```bash
+gh pr view <number> --json comments --jq '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}'
+```
+
+### 2. Check for command execution evidence
+
+Check both:
+- **Agent context**: Review your own execution history in this session
+- **PR comments**: Search comments for explicit command mentions
+
+For each command:
+- `/pr-review-toolkit:review-pr` - search for this exact string in comments
+- `/security-review` - search for this exact string in comments
+
+### 3. Handle missing verification
+
+**For EACH missing command**, determine the cause:
+
+**Case A: Command was executed in context but comment not posted**
+- Evidence: You have execution results/feedback in your context from Step 3 or Step 4
+- Action: Post the missing comment NOW using the appropriate template:
+  - For PR Review: Use the success comment template from Step 3 (lines 118-137)
+  - For Security Review: Use the success comment template from Step 4 (lines 176-195)
+- Then: Continue verification for the other command
+
+**Case B: Command was NOT executed (no evidence in context)**
+- Evidence: No execution results or feedback in your context
+- Action:
+  1. If missing `/pr-review-toolkit:review-pr`: Return to Step 3
+  2. If missing `/security-review`: Return to Step 4
+  3. Re-execute the missing command(s) with explicit comment posting
+  4. Increment iteration counter
+  5. If iteration counter >= 10, exit with message: "Iteration limit reached. Progress made: [summary]"
+  6. Return to Step 1 (restart workflow monitoring)
+
+### 4. Verification success
+
+If BOTH commands are verified (found in comments):
+- Proceed to Approval section
+
 ## Approval
 
-If all steps pass (Step 1, 1b, 2, 3, and 4 complete with no issues):
+If all steps pass (Step 1, 1b, 2, 3, 4, and 4b complete with no issues):
 1. Post a comprehensive summary comment:
    ```bash
    gh pr comment <number> --body "$(cat <<'EOF'
@@ -204,8 +279,9 @@ If all steps pass (Step 1, 1b, 2, 3, and 4 complete with no issues):
    - ✅ Workflow monitoring
    - ✅ PR checks (CI/CD)
    - ✅ Code quality comments addressed
-   - ✅ PR review (6 specialized agents)
-   - ✅ Security review
+   - ✅ PR review (6 specialized agents) - **Command:** `/pr-review-toolkit:review-pr`
+   - ✅ Security review - **Command:** `/security-review`
+   - ✅ Review verification (commands documented in PR)
 
    **Result:** No issues identified across any review phase.
 
