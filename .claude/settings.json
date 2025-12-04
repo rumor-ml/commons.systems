@@ -1,7 +1,8 @@
 {
   "model": "sonnet",
   "enabledMcpjsonServers": [
-    "gh-workflow"
+    "gh-workflow",
+    "gh-issue"
   ],
   "sandbox": {
     "enabled": true,
