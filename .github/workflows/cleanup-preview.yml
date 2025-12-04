@@ -308,87 +308,78 @@ jobs:
             exit 1
           fi
 
-      - name: Mark GitHub deployments as inactive
+      - name: Delete GitHub deployments and environment
         id: cleanup-deployments
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           CLEANUP_TYPE: ${{ steps.targets.outputs.type }}
           BRANCH_NAME: ${{ steps.targets.outputs.branch }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "🧹 Marking GitHub deployments as inactive"
-
-          if [ -z "$BRANCH_NAME" ]; then
-            echo "No branch name provided, skipping deployment cleanup"
-            exit 0
-          fi
+          echo "🧹 Cleaning up GitHub deployments and environments"
 
           SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
-          DEACTIVATED_COUNT=0
+          DELETED_DEPLOYMENTS=0
+          DELETED_ENVIRONMENTS=0
 
-          # Sanitize branch name to match deployment workflow
-          SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | \
-            tr '[:upper:]' '[:lower:]' | \
-            sed 's/[^a-z0-9-]/-/g' | \
-            sed 's/-\+/-/g' | \
-            sed 's/^-//' | \
-            sed 's/-$//' | \
-            cut -c1-63)
+          # Build list of environments to clean
+          if [ "$CLEANUP_TYPE" = "all" ]; then
+            # Get all preview environments
+            ENVIRONMENTS=$(gh api "repos/${REPO}/environments" -q '.environments[].name | select(startswith("preview-"))')
+          else
+            if [ -z "$BRANCH_NAME" ]; then
+              echo "No branch name provided, skipping"
+              exit 0
+            fi
+            # Sanitize branch name
+            SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-63)
+            ENVIRONMENTS=""
+            for site in "${SITES[@]}"; do
+              ENVIRONMENTS="${ENVIRONMENTS}preview-${SANITIZED_BRANCH}-${site}"$'\n'
+            done
+          fi
 
-          # Build list of environments to deactivate
-          # PR deployments use format: preview-{branch}-{site}
-          ENVIRONMENTS_TO_DEACTIVATE=()
-          for site in "${SITES[@]}"; do
-            ENVIRONMENTS_TO_DEACTIVATE+=("preview-${SANITIZED_BRANCH}-${site}")
-          done
-
-          # Deactivate deployments for each environment
-          for env_name in "${ENVIRONMENTS_TO_DEACTIVATE[@]}"; do
+          # Process each environment
+          while IFS= read -r env_name; do
+            [ -z "$env_name" ] && continue
             echo "Processing environment: ${env_name}"
 
-            # Get all deployments for this environment with error handling
-            if ! DEPLOYMENTS_JSON=$(gh api "repos/${{ github.repository }}/deployments?environment=${env_name}&per_page=100" 2>&1); then
-              echo "  ⚠️ Failed to fetch deployments: $DEPLOYMENTS_JSON"
-              continue
-            fi
+            # Paginate through all deployments
+            PAGE=1
+            while true; do
+              DEPLOYMENTS=$(gh api "repos/${REPO}/deployments?environment=${env_name}&per_page=100&page=${PAGE}" -q '.[].id' 2>/dev/null || echo "")
+              [ -z "$DEPLOYMENTS" ] && break
 
-            # Validate JSON response
-            if ! echo "$DEPLOYMENTS_JSON" | jq -e '.' >/dev/null 2>&1; then
-              echo "  ⚠️ Invalid JSON response from GitHub API"
-              continue
-            fi
+              while IFS= read -r deployment_id; do
+                [ -z "$deployment_id" ] && continue
+                echo "  Deactivating and deleting deployment ${deployment_id}"
 
-            # Extract deployment IDs
-            DEPLOYMENTS=$(echo "$DEPLOYMENTS_JSON" | jq -r '.[].id' 2>/dev/null || echo "")
+                # Mark inactive
+                gh api "repos/${REPO}/deployments/${deployment_id}/statuses" -X POST -f state="inactive" -f description="Cleanup" >/dev/null 2>&1 || true
 
-            if [ -z "$DEPLOYMENTS" ]; then
-              echo "  No deployments found"
-              continue
-            fi
-
-            # Mark each deployment as inactive
-            while IFS= read -r deployment_id; do
-              if [ -n "$deployment_id" ]; then
-                echo "  Marking deployment $deployment_id as inactive"
-                if STATUS_JSON=$(gh api "repos/${{ github.repository }}/deployments/${deployment_id}/statuses" \
-                  -X POST \
-                  -f state="inactive" \
-                  -f description="Branch deleted" 2>&1); then
-                  # Validate response
-                  if echo "$STATUS_JSON" | jq -e '.id' >/dev/null 2>&1; then
-                    echo "  ✅ Deactivated"
-                    DEACTIVATED_COUNT=$((DEACTIVATED_COUNT + 1))
-                  else
-                    echo "  ⚠️ Unexpected API response: $STATUS_JSON"
-                  fi
-                else
-                  echo "  ⚠️ Failed to deactivate: $STATUS_JSON"
+                # Delete deployment
+                if gh api --method DELETE "repos/${REPO}/deployments/${deployment_id}" 2>/dev/null; then
+                  DELETED_DEPLOYMENTS=$((DELETED_DEPLOYMENTS + 1))
                 fi
-              fi
-            done <<< "$DEPLOYMENTS"
-          done
+              done <<< "$DEPLOYMENTS"
+
+              PAGE=$((PAGE + 1))
+              [ $PAGE -gt 50 ] && break  # Safety limit
+            done
+
+            # Delete environment
+            echo "  Deleting environment ${env_name}"
+            if gh api --method DELETE "repos/${REPO}/environments/${env_name}" 2>/dev/null; then
+              echo "  ✅ Environment deleted"
+              DELETED_ENVIRONMENTS=$((DELETED_ENVIRONMENTS + 1))
+            else
+              echo "  ⚠️ Could not delete environment (may have remaining deployments)"
+            fi
+          done <<< "$ENVIRONMENTS"
 
           echo ""
-          echo "**GitHub deployments deactivated:** ${DEACTIVATED_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "**GitHub deployments deleted:** ${DELETED_DEPLOYMENTS}" >> $GITHUB_STEP_SUMMARY
+          echo "**GitHub environments deleted:** ${DELETED_ENVIRONMENTS}" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup Summary
         if: always()
