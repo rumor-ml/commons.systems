@@ -13,6 +13,7 @@ import (
 // Collector collects tmux and git information
 type Collector struct {
 	claudeCache *ClaudePaneCache
+	executor    CommandExecutor
 }
 
 // NewCollector creates a new Collector instance
@@ -23,6 +24,19 @@ func NewCollector() (*Collector, error) {
 	}
 	return &Collector{
 		claudeCache: cache,
+		executor:    &RealCommandExecutor{},
+	}, nil
+}
+
+// NewCollectorWithExecutor creates a new Collector instance with a custom executor (for testing)
+func NewCollectorWithExecutor(executor CommandExecutor) (*Collector, error) {
+	cache, err := NewClaudePaneCache(30 * time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+	return &Collector{
+		claudeCache: cache,
+		executor:    executor,
 	}, nil
 }
 
@@ -36,8 +50,7 @@ func (c *Collector) GetTree() (RepoTree, error) {
 
 	// Query all panes in the current session
 	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command|pane_title|pane_pid
-	cmd := exec.Command("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}|#{pane_title}|#{pane_pid}")
-	output, err := cmd.Output()
+	output, err := c.executor.ExecCommandOutput("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}|#{pane_title}|#{pane_pid}")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list panes: %w", err)
 	}
@@ -154,8 +167,7 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 	}
 
 	// Use pgrep to find child processes of the shell
-	cmd := exec.Command("pgrep", "-P", panePID)
-	output, err := cmd.Output()
+	output, err := c.executor.ExecCommandOutput("pgrep", "-P", panePID)
 	if err != nil {
 		// pgrep returns exit code 1 when no processes found - this is expected
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
@@ -174,8 +186,7 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 		}
 
 		// Get the command for this child PID
-		cmd = exec.Command("ps", "-o", "command=", "-p", childPID)
-		output, err := cmd.Output()
+		output, err := c.executor.ExecCommandOutput("ps", "-o", "command=", "-p", childPID)
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() == 1 {
@@ -204,10 +215,17 @@ func (c *Collector) isClaudePaneUncached(panePID string) bool {
 // getGitInfo returns the repository name and branch for a given path
 func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	// Get repository root using --git-common-dir to handle worktrees correctly
-	cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
-	output, err := cmd.Output()
+	output, err := c.executor.ExecCommandOutput("git", "-C", path, "rev-parse", "--git-common-dir")
 	if err != nil {
-		// Git returns exit code 128 for various errors
+		// Check for GitError from mock executor
+		if gitErr, ok := err.(*GitError); ok {
+			if gitErr.NotARepo {
+				return "", ""
+			}
+			fmt.Fprintf(os.Stderr, "Git error for %s: %s\n", path, gitErr.Stderr)
+			return "", ""
+		}
+		// Real exec.ExitError handling
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
 			stderr := string(exitErr.Stderr)
 			if strings.Contains(stderr, "not a git repository") {
@@ -233,10 +251,17 @@ func (c *Collector) getGitInfo(path string) (repo, branch string) {
 	repo = filepath.Base(repoPath)
 
 	// Get current branch
-	cmd = exec.Command("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err = cmd.Output()
+	output, err = c.executor.ExecCommandOutput("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		// Git returns exit code 128 for various errors
+		// Check for GitError from mock executor
+		if gitErr, ok := err.(*GitError); ok {
+			if gitErr.NotARepo {
+				return repo, ""
+			}
+			fmt.Fprintf(os.Stderr, "Git error getting branch for %s: %s\n", path, gitErr.Stderr)
+			return repo, ""
+		}
+		// Real exec.ExitError handling
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
 			stderr := string(exitErr.Stderr)
 			if strings.Contains(stderr, "not a git repository") {

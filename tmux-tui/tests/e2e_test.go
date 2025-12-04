@@ -820,7 +820,11 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
 		killCmd.Run()
 	}()
-	time.Sleep(500 * time.Millisecond)
+
+	// Wait for tmux socket to be ready (5s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
 
 	// Create window 1 for Claude
 	t.Log("Creating window 1...")
@@ -1242,7 +1246,11 @@ func createTestTmuxSession(t *testing.T, socketName, name string) func() {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create tmux session %s: %v", name, err)
 	}
-	time.Sleep(200 * time.Millisecond)
+
+	// Wait for tmux socket to be ready (5s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
 
 	// Return cleanup function
 	return func() {

@@ -155,10 +155,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.alertsMu.Unlock()
 
-			// Trigger tree refresh
+			// Continue watching daemon events (no tree refresh needed - alert state is managed by daemon)
 			if m.daemonClient != nil {
-				m.collector.ClearCache()
-				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
+				return m, watchDaemonCmd(m.daemonClient)
 			}
 			return m, nil
 

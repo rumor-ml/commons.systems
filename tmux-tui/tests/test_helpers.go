@@ -48,6 +48,25 @@ func setGlobalTestEnv(socketName string) {
 	cmd.Run() // Ignore errors - may fail if server isn't running yet
 }
 
+// waitForTmuxSocket polls for the tmux socket to exist and be ready
+// Returns error if socket doesn't become available within timeout
+func waitForTmuxSocket(socketName string, timeout time.Duration) error {
+	socketPath := filepath.Join("/tmp", "tmux-"+fmt.Sprint(os.Getuid()), socketName)
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(socketPath); err == nil {
+			// Socket exists, verify it's responsive
+			cmd := exec.Command("tmux", "-L", socketName, "list-sessions")
+			if err := cmd.Run(); err == nil {
+				return nil
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("tmux socket %s not ready after %v", socketName, timeout)
+}
+
 // filterTmuxEnv removes TMUX and TMUX_PANE env vars to ensure test session isolation
 func filterTmuxEnv(env []string) []string {
 	filtered := make([]string, 0, len(env))
