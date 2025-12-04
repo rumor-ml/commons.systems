@@ -139,8 +139,23 @@ This subroutine is used by all steps that need to commit changes.
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Proceed to Step 4
   - **If ANY ISSUES exist** (including minor suggestions, style issues, or any feedback whatsoever):
-    1. Post the full feedback as a PR comment using: `gh pr comment <number> --body "<feedback>"`
-       - **CRITICAL**: The comment must be self-contained and actionable. For each issue, include:
+    1. Post the full feedback as a PR comment with explicit command documentation:
+       ```bash
+       gh pr comment <number> --body "$(cat <<'EOF'
+       ## PR Review - Issues Found
+
+       **Command Executed:** `/pr-review-toolkit:review-pr`
+
+       The following issues were identified during automated review:
+
+       <feedback>
+
+       ---
+       *Automated review via Wiggum*
+       EOF
+       )"
+       ```
+       - **CRITICAL**: The `<feedback>` section must be self-contained and actionable. For each issue, include:
          - The specific file path(s) and line number(s) affected
          - The exact change requested (not just a category like "documentation improvement")
          - Code snippets or examples where helpful
@@ -182,7 +197,22 @@ This subroutine is used by all steps that need to commit changes.
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Proceed to approval
   - **If ANY ISSUES exist**:
-    1. Post the security feedback as a PR comment using: `gh pr comment <number> --body "<security feedback>"`
+    1. Post the security feedback as a PR comment with explicit command documentation:
+       ```bash
+       gh pr comment <number> --body "$(cat <<'EOF'
+       ## Security Review - Issues Found
+
+       **Command Executed:** `/security-review`
+
+       The following security issues were identified:
+
+       <security feedback>
+
+       ---
+       *Automated review via Wiggum*
+       EOF
+       )"
+       ```
        - Ensure all `gh` commands use `dangerouslyDisableSandbox: true` per CLAUDE.md
     2. Use Task tool with `subagent_type="Plan"` and `model="opus"` to create a plan to address ALL security issues
     3. Use Task tool with `subagent_type="accept-edits"` and `model="sonnet"` to implement the security fixes
@@ -204,8 +234,8 @@ If all steps pass (Step 1, 1b, 2, 3, and 4 complete with no issues):
    - ✅ Workflow monitoring
    - ✅ PR checks (CI/CD)
    - ✅ Code quality comments addressed
-   - ✅ PR review (6 specialized agents)
-   - ✅ Security review
+   - ✅ PR review (6 specialized agents) - **Command:** `/pr-review-toolkit:review-pr`
+   - ✅ Security review - **Command:** `/security-review`
 
    **Result:** No issues identified across any review phase.
 
