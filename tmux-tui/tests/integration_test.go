@@ -877,3 +877,70 @@ func TestIntegration_WorkingEventClearsAlert(t *testing.T) {
 
 	t.Log("Working event clears alert test passed")
 }
+
+// TestIntegration_WorkingEventDoesNotClearOtherAlerts verifies that when a
+// "working" event is received for one pane, it ONLY clears that pane's alert
+// and does NOT affect alerts on other panes. This tests the fix for issue #192
+// where submitting a prompt in one pane incorrectly cleared idle status for all panes.
+func TestIntegration_WorkingEventDoesNotClearOtherAlerts(t *testing.T) {
+	m := realInitialModel()
+
+	// Clear any existing alerts first
+	m.alertsMu.Lock()
+	m.alerts = make(map[string]string)
+	m.alertsMu.Unlock()
+
+	// Set up 3 panes all in "idle" state
+	pane1 := "%test-pane-1"
+	pane2 := "%test-pane-2"
+	pane3 := "%test-pane-3"
+
+	// Add idle alerts for all panes
+	t.Log("Setting up 3 panes with idle alerts...")
+	for _, paneID := range []string{pane1, pane2, pane3} {
+		updatedModel, _ := m.Update(alertChangedMsg{paneID: paneID, eventType: "idle", created: true})
+		m = updatedModel.(realModel)
+	}
+
+	// Verify all alerts are stored
+	alerts := m.GetAlertsForTesting()
+	for _, paneID := range []string{pane1, pane2, pane3} {
+		if alerts[paneID] != "idle" {
+			t.Fatalf("Expected pane %s to have 'idle' alert, got %q", paneID, alerts[paneID])
+		}
+	}
+	t.Logf("✓ All 3 panes have idle alerts: %v", alerts)
+
+	// Send "working" event for pane2 only (simulating prompt submit)
+	t.Log("Sending 'working' event for pane2 (simulating UserPromptSubmit hook)...")
+	updatedModel, _ := m.Update(alertChangedMsg{paneID: pane2, eventType: "working", created: true})
+	m = updatedModel.(realModel)
+
+	// Verify pane2 alert is cleared
+	alerts = m.GetAlertsForTesting()
+	if _, exists := alerts[pane2]; exists {
+		t.Errorf("Expected pane2 alert to be cleared, but found: %q", alerts[pane2])
+	} else {
+		t.Log("✓ Pane2 alert cleared after 'working' event")
+	}
+
+	// CRITICAL: Verify pane1 and pane3 still have their alerts
+	if alerts[pane1] != "idle" {
+		t.Errorf("Expected pane1 to still have 'idle' alert, got %q", alerts[pane1])
+	} else {
+		t.Log("✓ Pane1 still has idle alert (not affected)")
+	}
+
+	if alerts[pane3] != "idle" {
+		t.Errorf("Expected pane3 to still have 'idle' alert, got %q", alerts[pane3])
+	} else {
+		t.Log("✓ Pane3 still has idle alert (not affected)")
+	}
+
+	// Final verification: exactly 2 alerts should remain
+	if len(alerts) != 2 {
+		t.Errorf("Expected exactly 2 alerts remaining, got %d: %v", len(alerts), alerts)
+	}
+
+	t.Log("Working event correctly cleared only target pane's alert, leaving others intact")
+}

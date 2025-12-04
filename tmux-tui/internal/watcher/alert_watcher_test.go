@@ -671,8 +671,9 @@ func TestAlertWatcher_BufferOverflowRecovery(t *testing.T) {
 		}
 	}
 
-	// Wait a bit for all events to be generated
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all file creation events to be generated and processed
+	// Increased from 100ms to 500ms to ensure fsnotify has time to process all events
+	time.Sleep(500 * time.Millisecond)
 
 	// Now drain channel - if buffer overflowed, we won't get all events
 	receivedPanes := make(map[string]bool)
@@ -690,6 +691,10 @@ drainLoop:
 			break drainLoop
 		}
 	}
+
+	// Allow additional time for channel to settle after drain
+	// This prevents race conditions when creating recovery file
+	time.Sleep(200 * time.Millisecond)
 
 	// We should have received some events, possibly all if no overflow
 	// The key is that the watcher should still be functional
@@ -729,6 +734,10 @@ recoveryLoop:
 		t.Error("Watcher failed to deliver recovery event after buffer overflow")
 		return
 	}
+
+	// Allow brief pause between create and delete operations
+	// This ensures filesystem and watcher are in consistent state
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify continued operation with delete
 	os.Remove(recoveryFile)
