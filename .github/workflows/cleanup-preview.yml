@@ -324,7 +324,16 @@ jobs:
             echo "Mode: Cleaning up ALL non-production deployments"
 
             # Get list of all environments (test + any legacy preview-* environments)
-            ENVIRONMENTS=$(gh api "repos/${REPO}/environments" -q '.environments[].name | select(. != "production")' 2>/dev/null || echo "test")
+            # Use pagination to get all environments
+            ENVIRONMENTS=""
+            ENV_PAGE=1
+            while true; do
+              PAGE_ENVS=$(gh api "repos/${REPO}/environments?per_page=100&page=${ENV_PAGE}" -q '.environments[].name | select(. != "production")' 2>/dev/null || echo "")
+              [ -z "$PAGE_ENVS" ] && break
+              ENVIRONMENTS="${ENVIRONMENTS}${PAGE_ENVS}"$'\n'
+              ENV_PAGE=$((ENV_PAGE + 1))
+              [ $ENV_PAGE -gt 10 ] && break  # Safety limit
+            done
             [ -z "$ENVIRONMENTS" ] && ENVIRONMENTS="test"
 
             # Process each environment
