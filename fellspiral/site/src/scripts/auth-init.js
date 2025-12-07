@@ -8,7 +8,7 @@ import {
   initAuthState,
   createAuthButton,
   createUserProfile,
-  onAuthStateChange
+  onAuthStateChange,
 } from '@commons/auth';
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';

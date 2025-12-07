@@ -326,7 +326,6 @@ function capitalizeFirstLetter(str) {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
-
 // Set view mode
 function setViewMode(mode) {
   state.viewMode = mode;
