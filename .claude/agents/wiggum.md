@@ -34,11 +34,11 @@ Check if a PR already exists for current branch:
 gh pr view --json number,headRefName
 ```
 
-If no PR exists, create PR to main:
+If no PR exists, create PR to main. Use the branch name as the PR title:
 ```bash
-gh pr create --base main --label "needs review"
+gh pr create --base main --label "needs review" --title "$(git rev-parse --abbrev-ref HEAD)"
 ```
-Auto-generate title from branch name and body from commit messages.
+The `--title` flag uses the current branch name. The body is auto-generated from commit messages.
 
 Extract and store the PR number for later use.
 
