@@ -11,7 +11,7 @@ export default createPlaywrightConfig({
   deployedUrl: 'https://fellspiral.commons.systems',
   webServerCommand: {
     local: 'cd ../site && npm run dev -- --port 3003',
-    ci: 'npx http-server ../site/dist -p 3003 -s',
+    ci: 'npx http-server ../dist -p 3003 -s',
   },
   env: {
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
