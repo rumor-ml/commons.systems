@@ -61,8 +61,7 @@ export const test = base.extend<AuthFixtures>({
         // Trigger storage event to notify auth listeners
         window.dispatchEvent(new StorageEvent('storage', {
           key: authKey,
-          newValue: JSON.stringify(authUser),
-          bubbles: true
+          newValue: JSON.stringify(authUser)
         }));
       }, data);
 
