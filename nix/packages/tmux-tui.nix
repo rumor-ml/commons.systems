@@ -70,8 +70,8 @@ buildGoModule {
   # This is more reliable than vendor directory
   proxyVendor = true;
 
-  # Build from cmd/tmux-tui
-  subPackages = [ "cmd/tmux-tui" ];
+  # Build from cmd/tmux-tui, cmd/tmux-tui-daemon, and cmd/tmux-tui-block
+  subPackages = [ "cmd/tmux-tui" "cmd/tmux-tui-daemon" "cmd/tmux-tui-block" ];
 
   # Strip debug symbols for smaller binary
   ldflags = [ "-s" "-w" ];
@@ -91,10 +91,17 @@ buildGoModule {
     # Make scripts executable
     chmod +x $out/share/tmux-tui/scripts/*.sh
 
-    # Wrap the binary to know where its resources are
+    # Wrap binaries to know where their resources are
     wrapProgram $out/bin/tmux-tui \
       --set TMUX_TUI_SCRIPTS $out/share/tmux-tui/scripts \
-      --set TMUX_TUI_CONFIG $out/share/tmux-tui/tmux-tui.conf
+      --set TMUX_TUI_CONFIG $out/share/tmux-tui/tmux-tui.conf \
+      --set TMUX_TUI_INSTALL_DIR $out/bin
+
+    wrapProgram $out/bin/tmux-tui-daemon \
+      --set TMUX_TUI_INSTALL_DIR $out/bin
+
+    wrapProgram $out/bin/tmux-tui-block \
+      --set TMUX_TUI_INSTALL_DIR $out/bin
   '';
 
   meta = with lib; {

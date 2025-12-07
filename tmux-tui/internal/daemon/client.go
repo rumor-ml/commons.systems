@@ -304,3 +304,43 @@ func (c *DaemonClient) ConnectWithRetry(ctx context.Context, maxRetries int) err
 
 	return fmt.Errorf("failed to connect after %d attempts", maxRetries)
 }
+
+// RequestBlockPicker sends a request to show the block picker for a pane
+func (c *DaemonClient) RequestBlockPicker(paneID string) error {
+	msg := Message{
+		Type:   MsgTypeShowBlockPicker,
+		PaneID: paneID,
+	}
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send show block picker message: %w", err)
+	}
+	debug.Log("CLIENT_REQUEST_BLOCK_PICKER id=%s paneID=%s", c.clientID, paneID)
+	return nil
+}
+
+// BlockPane sends a request to block a pane on a specific branch
+func (c *DaemonClient) BlockPane(paneID, branch string) error {
+	msg := Message{
+		Type:          MsgTypeBlockPane,
+		PaneID:        paneID,
+		BlockedBranch: branch,
+	}
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send block pane message: %w", err)
+	}
+	debug.Log("CLIENT_BLOCK_PANE id=%s paneID=%s branch=%s", c.clientID, paneID, branch)
+	return nil
+}
+
+// UnblockPane sends a request to unblock a pane
+func (c *DaemonClient) UnblockPane(paneID string) error {
+	msg := Message{
+		Type:   MsgTypeUnblockPane,
+		PaneID: paneID,
+	}
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send unblock pane message: %w", err)
+	}
+	debug.Log("CLIENT_UNBLOCK_PANE id=%s paneID=%s", c.clientID, paneID)
+	return nil
+}

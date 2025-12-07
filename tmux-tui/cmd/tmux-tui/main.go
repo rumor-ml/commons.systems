@@ -33,11 +33,17 @@ type model struct {
 	tree           tmux.RepoTree
 	alerts         map[string]string // Alert state received from daemon: paneID -> eventType
 	alertsMu       *sync.RWMutex     // Protects alerts map from race conditions
+	blockedPanes   map[string]string // Blocked pane state: paneID -> blockedOnBranch
+	blockedMu      *sync.RWMutex     // Protects blocked panes map
 	width          int
 	height         int
 	err            error
 	alertsDisabled bool   // true if daemon connection failed
 	alertError     string // daemon connection error
+	// Branch picker state
+	pickingBranch  bool             // true when showing branch picker
+	pickingForPane string           // pane ID being blocked
+	branchPicker   *ui.BranchPicker // the picker UI
 }
 
 func initialModel() model {
@@ -78,11 +84,15 @@ func initialModel() model {
 		tree:           tree,
 		alerts:         make(map[string]string),
 		alertsMu:       &sync.RWMutex{},
+		blockedPanes:   make(map[string]string),
+		blockedMu:      &sync.RWMutex{},
 		width:          80,
 		height:         24,
 		err:            err,
 		alertsDisabled: alertsDisabled,
 		alertError:     alertError,
+		pickingBranch:  false,
+		branchPicker:   ui.NewBranchPicker([]string{}, 80, 24),
 	}
 }
 
@@ -110,6 +120,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle picker navigation if active
+		if m.pickingBranch {
+			switch msg.String() {
+			case "up", "k":
+				m.branchPicker.MoveUp()
+				return m, nil
+			case "down", "j":
+				m.branchPicker.MoveDown()
+				return m, nil
+			case "enter":
+				// Confirm selection - send block request
+				selectedBranch := m.branchPicker.Selected()
+				if selectedBranch != "" && m.daemonClient != nil {
+					if err := m.daemonClient.BlockPane(m.pickingForPane, selectedBranch); err != nil {
+						fmt.Fprintf(os.Stderr, "Error blocking pane: %v\n", err)
+					}
+				}
+				m.pickingBranch = false
+				m.pickingForPane = ""
+				return m, nil
+			case "esc":
+				// Cancel picker
+				m.pickingBranch = false
+				m.pickingForPane = ""
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Normal key handling when picker is not active
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			// Clean up daemon client on quit
@@ -125,7 +165,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle daemon event
 		switch msg.msg.Type {
 		case daemon.MsgTypeFullState:
-			// Full state received - update alerts map
+			// Full state received - update alerts and blocked panes
 			m.alertsMu.Lock()
 			if msg.msg.Alerts != nil {
 				m.alerts = msg.msg.Alerts
@@ -133,7 +173,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.alerts = make(map[string]string)
 			}
 			m.alertsMu.Unlock()
-			debug.Log("TUI_DAEMON_STATE alerts=%d", len(msg.msg.Alerts))
+
+			m.blockedMu.Lock()
+			if msg.msg.BlockedPanes != nil {
+				m.blockedPanes = msg.msg.BlockedPanes
+			} else {
+				m.blockedPanes = make(map[string]string)
+			}
+			m.blockedMu.Unlock()
+
+			debug.Log("TUI_DAEMON_STATE alerts=%d blocked=%d", len(msg.msg.Alerts), len(msg.msg.BlockedPanes))
 			// Trigger tree refresh to update UI
 			if m.daemonClient != nil {
 				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
@@ -156,6 +205,62 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.alertsMu.Unlock()
 
 			// Continue watching daemon events (no tree refresh needed - alert state is managed by daemon)
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
+		case daemon.MsgTypeShowBlockPicker:
+			// Show branch picker for specified pane
+			debug.Log("TUI_SHOW_PICKER paneID=%s", msg.msg.PaneID)
+			m.pickingForPane = msg.msg.PaneID
+
+			// Extract all unique branches from tree
+			branchSet := make(map[string]bool)
+			for _, branches := range m.tree {
+				for branch := range branches {
+					branchSet[branch] = true
+				}
+			}
+			branches := make([]string, 0, len(branchSet))
+			for branch := range branchSet {
+				branches = append(branches, branch)
+			}
+			// Sort branches alphabetically for consistent display
+			sortBranches := func(branches []string) {
+				for i := 0; i < len(branches); i++ {
+					for j := i + 1; j < len(branches); j++ {
+						if branches[i] > branches[j] {
+							branches[i], branches[j] = branches[j], branches[i]
+						}
+					}
+				}
+			}
+			sortBranches(branches)
+
+			m.branchPicker.SetBranches(branches)
+			m.pickingBranch = true
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
+		case daemon.MsgTypeBlockChange:
+			// Block state changed for a pane
+			debug.Log("TUI_BLOCK_CHANGE paneID=%s branch=%s blocked=%v",
+				msg.msg.PaneID, msg.msg.BlockedBranch, msg.msg.Blocked)
+
+			m.blockedMu.Lock()
+			if msg.msg.Blocked {
+				m.blockedPanes[msg.msg.PaneID] = msg.msg.BlockedBranch
+			} else {
+				delete(m.blockedPanes, msg.msg.PaneID)
+			}
+			m.blockedMu.Unlock()
+
+			// Continue watching daemon
 			if m.daemonClient != nil {
 				return m, watchDaemonCmd(m.daemonClient)
 			}
@@ -237,8 +342,7 @@ func (m model) View() string {
 		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
 	}
 
-	// Copy alerts map with read lock for safe concurrent access
-	// We copy to prevent the renderer from accessing the map after lock release
+	// Copy alerts and blocked panes maps with read locks for safe concurrent access
 	m.alertsMu.RLock()
 	alertsCopy := make(map[string]string)
 	for k, v := range m.alerts {
@@ -246,7 +350,28 @@ func (m model) View() string {
 	}
 	m.alertsMu.RUnlock()
 
-	output := m.renderer.Render(m.tree, alertsCopy)
+	m.blockedMu.RLock()
+	blockedCopy := make(map[string]string)
+	for k, v := range m.blockedPanes {
+		blockedCopy[k] = v
+	}
+	m.blockedMu.RUnlock()
+
+	output := m.renderer.Render(m.tree, alertsCopy, blockedCopy)
+
+	// If picker is active, overlay it centered on screen
+	if m.pickingBranch {
+		pickerView := m.branchPicker.Render()
+		// Use lipgloss to center the picker
+		centeredPicker := lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			pickerView,
+		)
+		return centeredPicker
+	}
 
 	return warningBanner + output
 }

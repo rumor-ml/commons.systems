@@ -23,7 +23,8 @@ func TestTreeRenderer(t *testing.T) {
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
-	output := renderer.Render(tree, claudeAlerts)
+	blockedPanes := make(map[string]string)
+	output := renderer.Render(tree, claudeAlerts, blockedPanes)
 
 	// Verify output contains expected elements
 	expectedElements := []string{
@@ -55,16 +56,17 @@ func TestTreeRenderer(t *testing.T) {
 func TestTreeRendererEmpty(t *testing.T) {
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
+	blockedPanes := make(map[string]string)
 
 	// Test with nil tree
-	output := renderer.Render(nil, claudeAlerts)
+	output := renderer.Render(nil, claudeAlerts, blockedPanes)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for nil tree")
 	}
 
 	// Test with empty tree
 	emptyTree := make(tmux.RepoTree)
-	output = renderer.Render(emptyTree, claudeAlerts)
+	output = renderer.Render(emptyTree, claudeAlerts, blockedPanes)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for empty tree")
 	}
@@ -117,7 +119,8 @@ func TestIconForAlertTypeIntegration(t *testing.T) {
 	}
 
 	renderer := NewTreeRenderer(80)
-	output := renderer.Render(tree, claudeAlerts)
+	blockedPanes := make(map[string]string)
+	output := renderer.Render(tree, claudeAlerts, blockedPanes)
 
 	// Verify that output contains the styled window numbers with icons
 	// The exact ANSI codes may vary, but we can check that the icons appear
@@ -144,7 +147,8 @@ func TestTreeRendererFullHeight(t *testing.T) {
 	renderer := NewTreeRenderer(80)
 	renderer.SetHeight(20)
 	claudeAlerts := make(map[string]string)
-	output := renderer.Render(tree, claudeAlerts)
+	blockedPanes := make(map[string]string)
+	output := renderer.Render(tree, claudeAlerts, blockedPanes)
 
 	// Count the number of lines
 	lines := strings.Split(output, "\n")
