@@ -269,7 +269,7 @@ If BOTH commands are verified (found in comments):
 ## Approval
 
 If all steps pass (Step 1, 1b, 2, 3, 4, and 4b complete with no issues):
-1. Post a comprehensive summary comment:
+1. Post a comprehensive summary comment using the template below:
    ```bash
    gh pr comment <number> --body "$(cat <<'EOF'
    ✅ **All Reviews Complete - PR Approved**
@@ -279,9 +279,14 @@ If all steps pass (Step 1, 1b, 2, 3, 4, and 4b complete with no issues):
    - ✅ Workflow monitoring
    - ✅ PR checks (CI/CD)
    - ✅ Code quality comments addressed
-   - ✅ PR review (6 specialized agents) - **Command:** `/pr-review-toolkit:review-pr`
-   - ✅ Security review - **Command:** `/security-review`
+   - ✅ PR review (6 specialized agents)
+   - ✅ Security review
    - ✅ Review verification (commands documented in PR)
+
+   ## Required Commands Executed
+
+   - [x] `/pr-review-toolkit:review-pr` - Executed successfully
+   - [x] `/security-review` - Executed successfully
 
    **Result:** No issues identified across any review phase.
 
