@@ -37,17 +37,18 @@
             <a href="/#conditions" class="nav-item nav-item-child">Conditions</a>
           </div>
 
-          <div class="nav-section">
-            <div class="nav-section-title">Equipment</div>
-            <a href="/#weapons" class="nav-item nav-item-child">Weapons</a>
-            <a href="/#armor" class="nav-item nav-item-child">Armor</a>
-            <a href="/#skills" class="nav-item nav-item-child">Skills</a>
-            <a href="/#upgrades" class="nav-item nav-item-child">Upgrades</a>
+          <div class="nav-section nav-section-library">
+            <div class="nav-section-title nav-section-toggle" data-section="library">
+              <span class="toggle-icon">▶</span>
+              Library
+            </div>
+            <div id="libraryNavContainer" class="nav-section-content">
+              <!-- Populated by library-nav.js -->
+            </div>
           </div>
 
           <a href="/#simulator" class="nav-item">Combat Simulator</a>
           <a href="/#examples" class="nav-item">Examples</a>
-          <a href="/cards.html" class="nav-item active">Card Manager</a>
         </nav>
 
         <div class="nav-auth"></div>
@@ -64,58 +65,12 @@
       <main class="main-content card-manager">
         <div class="container-fluid">
           <div class="card-manager-layout">
-            <!-- Left Sidebar: Tree Navigation -->
-            <aside class="card-tree-sidebar">
-              <div class="sidebar-header">
-                <h2>Card Library</h2>
-                <div class="sidebar-actions">
-                  <button id="expandAllBtn" class="btn-icon" title="Expand All">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        d="M8 3a.5.5 0 01.5.5v4h4a.5.5 0 010 1h-4v4a.5.5 0 01-1 0v-4h-4a.5.5 0 010-1h4v-4A.5.5 0 018 3z"
-                      />
-                    </svg>
-                  </button>
-                  <button id="collapseAllBtn" class="btn-icon" title="Collapse All">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M3.5 7.5a.5.5 0 000 1h9a.5.5 0 000-1h-9z" />
-                    </svg>
-                  </button>
-                  <button id="refreshTreeBtn" class="btn-icon" title="Refresh">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36a.25.25 0 01.192-.41zm-11 2h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"
-                      />
-                      <path
-                        fill-rule="evenodd"
-                        d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 11-.771-.636A6.002 6.002 0 0113.917 7H12.9A5.002 5.002 0 008 3zM3.1 9a5.002 5.002 0 008.757 2.182.5.5 0 11.771.636A6.002 6.002 0 012.083 9H3.1z"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div class="tree-search">
-                <input
-                  type="text"
-                  id="treeSearch"
-                  placeholder="Search cards..."
-                  class="tree-search-input"
-                />
-              </div>
-
-              <div id="cardTree" class="card-tree">
-                <!-- Tree will be populated by JavaScript -->
-              </div>
-            </aside>
-
             <!-- Main Content Area -->
             <div class="card-content">
               <!-- Toolbar -->
               <div class="card-toolbar">
-                <h1>Card Management</h1>
                 <div class="toolbar-actions">
-                  <button id="addCardBtn" class="btn btn-primary">
+                  <button id="addCardBtn" class="btn btn-primary auth-controls">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                       <path
                         d="M8 3a.5.5 0 01.5.5v4h4a.5.5 0 010 1h-4v4a.5.5 0 01-1 0v-4h-4a.5.5 0 010-1h4v-4A.5.5 0 018 3z"
@@ -123,34 +78,12 @@
                     </svg>
                     Add Card
                   </button>
-                  <button id="importCardsBtn" class="btn btn-secondary">
+                  <button id="importCardsBtn" class="btn btn-secondary auth-controls">
                     Import from Rules.md
                   </button>
-                  <button id="exportCardsBtn" class="btn btn-secondary">Export JSON</button>
-                </div>
-              </div>
-
-              <!-- Stats Overview -->
-              <div class="stats-overview">
-                <div class="stat-card">
-                  <div class="stat-label">Total Cards</div>
-                  <div class="stat-value" id="statTotal">0</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">Equipment</div>
-                  <div class="stat-value" id="statEquipment">0</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">Skills</div>
-                  <div class="stat-value" id="statSkills">0</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">Upgrades</div>
-                  <div class="stat-value" id="statUpgrades">0</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">Foes</div>
-                  <div class="stat-value" id="statFoes">0</div>
+                  <button id="exportCardsBtn" class="btn btn-secondary auth-controls">
+                    Export JSON
+                  </button>
                 </div>
               </div>
 
@@ -175,19 +108,6 @@
                 </div>
 
                 <div class="filter-controls">
-                  <select id="filterType" class="filter-select">
-                    <option value="">All Types</option>
-                    <option value="Equipment">Equipment</option>
-                    <option value="Skill">Skill</option>
-                    <option value="Upgrade">Upgrade</option>
-                    <option value="Foe">Foe</option>
-                    <option value="Origin">Origin</option>
-                  </select>
-
-                  <select id="filterSubtype" class="filter-select">
-                    <option value="">All Subtypes</option>
-                  </select>
-
                   <input
                     type="text"
                     id="searchCards"
@@ -228,76 +148,44 @@
       </main>
     </div>
 
-        <div class="nav-section nav-section-library">
-          <div class="nav-section-title nav-section-toggle" data-section="library">
-            <span class="toggle-icon">▶</span>
-            Library
-          </div>
-          <div id="libraryNavContainer" class="nav-section-content">
-            <!-- Populated by library-nav.js -->
-          </div>
+    <!-- Card Editor Modal -->
+    <div id="cardEditorModal" class="modal">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modalTitle">Add Card</h2>
+          <button class="modal-close" id="closeModalBtn">&times;</button>
         </div>
         <div class="modal-body">
           <form id="cardForm">
             <input type="hidden" id="cardId" />
 
-        <a href="/#simulator" class="nav-item">Combat Simulator</a>
-        <a href="/#examples" class="nav-item">Examples</a>
-      </nav>
-
-      <div class="nav-auth"></div>
-    </aside>
-
-    <!-- Mobile Menu Toggle -->
-    <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle navigation">
-      <span></span>
-      <span></span>
-      <span></span>
-    </button>
-
-    <!-- Main Content -->
-    <main class="main-content card-manager">
-    <div class="container-fluid">
-      <div class="card-manager-layout">
-        <!-- Main Content Area -->
-        <div class="card-content">
-
-          <!-- Toolbar -->
-          <div class="card-toolbar">
-            <div class="toolbar-actions">
-              <button id="addCardBtn" class="btn btn-primary auth-controls">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 3a.5.5 0 01.5.5v4h4a.5.5 0 010 1h-4v4a.5.5 0 01-1 0v-4h-4a.5.5 0 010-1h4v-4A.5.5 0 018 3z"/>
-                </svg>
-                Add Card
-              </button>
-              <button id="importCardsBtn" class="btn btn-secondary auth-controls">Import from Rules.md</button>
-              <button id="exportCardsBtn" class="btn btn-secondary auth-controls">Export JSON</button>
-            </div>
-          </div>
-
-          <!-- Card List/Grid View -->
-          <div class="card-view-controls">
-            <div class="view-mode">
-              <button class="view-mode-btn active" data-mode="grid">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <rect x="1" y="1" width="6" height="6" />
-                  <rect x="9" y="1" width="6" height="6" />
-                  <rect x="1" y="9" width="6" height="6" />
-                  <rect x="9" y="9" width="6" height="6" />
-                </svg>
-              </button>
-              <button class="view-mode-btn" data-mode="list">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <rect x="1" y="2" width="14" height="2" />
-                  <rect x="1" y="7" width="14" height="2" />
-                  <rect x="1" y="12" width="14" height="2" />
-                </svg>
-              </button>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cardTitle">Title *</label>
+                <input type="text" id="cardTitle" name="title" required class="form-control" />
+              </div>
             </div>
 
-            <div class="filter-controls">
-              <input type="text" id="searchCards" placeholder="Search cards..." class="search-input">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cardType">Type *</label>
+                <select id="cardType" name="type" required class="form-control">
+                  <option value="">Select type...</option>
+                  <option value="Equipment">Equipment</option>
+                  <option value="Skill">Skill</option>
+                  <option value="Upgrade">Upgrade</option>
+                  <option value="Foe">Foe</option>
+                  <option value="Origin">Origin</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="cardSubtype">Subtype *</label>
+                <select id="cardSubtype" name="subtype" required class="form-control">
+                  <option value="">Select subtype...</option>
+                </select>
+              </div>
             </div>
 
             <div class="form-group">
@@ -360,93 +248,26 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-          <button type="button" class="btn btn-danger" id="deleteCardBtn" style="display: none">
+          <button
+            type="button"
+            class="btn btn-danger auth-controls"
+            id="deleteCardBtn"
+            style="display: none"
+          >
             Delete
           </button>
-          <button type="submit" form="cardForm" class="btn btn-primary" id="saveCardBtn">
+          <button
+            type="submit"
+            form="cardForm"
+            class="btn btn-primary auth-controls"
+            id="saveCardBtn"
+          >
             Save Card
           </button>
         </div>
       </div>
     </div>
 
-  <!-- Card Editor Modal -->
-  <div id="cardEditorModal" class="modal">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 id="modalTitle">Add Card</h2>
-        <button class="modal-close" id="closeModalBtn">&times;</button>
-      </div>
-      <div class="modal-body">
-        <form id="cardForm">
-          <input type="hidden" id="cardId">
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="cardTitle">Title *</label>
-              <input type="text" id="cardTitle" name="title" required class="form-control">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="cardType">Type *</label>
-              <select id="cardType" name="type" required class="form-control">
-                <option value="">Select type...</option>
-                <option value="Equipment">Equipment</option>
-                <option value="Skill">Skill</option>
-                <option value="Upgrade">Upgrade</option>
-                <option value="Foe">Foe</option>
-                <option value="Origin">Origin</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="cardSubtype">Subtype *</label>
-              <select id="cardSubtype" name="subtype" required class="form-control">
-                <option value="">Select subtype...</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label for="cardTags">Tags (comma separated)</label>
-            <input type="text" id="cardTags" name="tags" class="form-control" placeholder="2h, swept, precise">
-            <small class="form-help">Separate tags with commas</small>
-          </div>
-
-          <div class="form-group">
-            <label for="cardDescription">Description</label>
-            <textarea id="cardDescription" name="description" rows="3" class="form-control"></textarea>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="cardStat1">Stat 1</label>
-              <input type="text" id="cardStat1" name="stat1" class="form-control" placeholder="e.g., d8, 6 AC">
-            </div>
-
-            <div class="form-group">
-              <label for="cardStat2">Stat 2</label>
-              <input type="text" id="cardStat2" name="stat2" class="form-control" placeholder="e.g., 2 slot">
-            </div>
-
-            <div class="form-group">
-              <label for="cardCost">Cost</label>
-              <input type="text" id="cardCost" name="cost" class="form-control" placeholder="e.g., 5 pt">
-            </div>
-          </div>
-        </form>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-        <button type="button" class="btn btn-danger auth-controls" id="deleteCardBtn" style="display: none;">Delete</button>
-        <button type="submit" form="cardForm" class="btn btn-primary auth-controls" id="saveCardBtn">Save Card</button>
-      </div>
-    </div>
-  </div>
-
-  <script type="module" src="/scripts/cards.js"></script>
-</body>
+    <script type="module" src="/scripts/cards.js"></script>
+  </body>
 </html>
