@@ -33,7 +33,7 @@ async function globalSetup() {
     // Initialize Firebase Admin with emulator
     if (!admin.apps.length) {
       admin.initializeApp({
-        projectId: 'demo-test'
+        projectId: 'demo-test',
       });
     }
 
@@ -41,7 +41,7 @@ async function globalSetup() {
     const db = admin.firestore();
     db.settings({
       host: `${host}:${port}`,
-      ssl: false
+      ssl: false,
     });
 
     // Batch write cards to Firestore
@@ -53,7 +53,7 @@ async function globalSetup() {
       batch.set(docRef, {
         ...card,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     }
 
@@ -61,7 +61,6 @@ async function globalSetup() {
 
     console.log(`✓ Successfully seeded ${cardsData.length} cards`);
     console.log('✓ Global setup complete');
-
   } catch (error) {
     console.error('❌ Error during global setup:', error);
     // Don't fail setup if seeding fails - tests can handle empty state
