@@ -86,5 +86,18 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       name = "nixfmt";
       description = "Format Nix files";
     };
+
+    # === Pre-Push Hooks ===
+    # Run tests before allowing push
+    pre-push-tests = {
+      enable = true;
+      name = "pre-push-tests";
+      description = "Run tests on changed apps before push";
+      entry = "./infrastructure/scripts/run-all-local-tests.sh --changed-only";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
   };
 }
