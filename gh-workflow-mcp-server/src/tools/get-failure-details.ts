@@ -16,7 +16,6 @@ import {
 } from '../utils/gh-cli.js';
 import { ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
 import { extractErrors, formatExtractionResult } from '../extractors/index.js';
-import { extractStepLogs, stripLogMetadata } from '../utils/log-filtering.js';
 
 export const GetFailureDetailsInputSchema = z
   .object({
@@ -211,9 +210,9 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     for (const job of failedJobs) {
       const failedSteps: FailedStepSummary[] = [];
 
-      // Get job logs
+      // Get job logs (use large limit to capture full context for error detection)
       try {
-        const logs = await getJobLogs(runId, job.databaseId, resolvedRepo);
+        const logs = await getJobLogs(runId, job.databaseId, resolvedRepo, 10000);
         const testSummary = extractTestSummary(logs);
 
         // Find failed steps (if step info is available)
@@ -222,17 +221,15 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             ?.filter((step) => step.conclusion === 'failure' || step.conclusion === 'timed_out')
             .map((step) => step.name) || [];
 
+        // Job logs from GitHub API don't have step boundaries
+        // They are just timestamp + content, so we analyze the whole log
+        // The extractor will identify framework-specific patterns
+        const extraction = extractErrors(logs, 15);
+        const errorLines = formatExtractionResult(extraction);
+
         if (failedStepNames.length > 0) {
-          // Extract errors for each failed step
+          // We know which steps failed, include that info
           for (const stepName of failedStepNames) {
-            // Filter logs to just this step to reduce noise
-            const stepLogs = extractStepLogs(logs, stepName, 0);
-            const cleanLogs = stripLogMetadata(stepLogs);
-
-            // Extract errors from step-specific logs
-            const extraction = extractErrors(cleanLogs, 10);
-            const errorLines = formatExtractionResult(extraction);
-
             failedSteps.push({
               name: stepName,
               conclusion: 'failure',
@@ -247,10 +244,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             if (totalChars > input.max_chars) break;
           }
         } else {
-          // No step info, just extract general errors from full logs
-          const cleanLogs = stripLogMetadata(logs);
-          const extraction = extractErrors(cleanLogs, 15);
-          const errorLines = formatExtractionResult(extraction);
+          // No step info available
           failedSteps.push({
             name: 'General failure',
             conclusion: job.conclusion,
