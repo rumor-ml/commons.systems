@@ -5,9 +5,10 @@ test.describe('SSE Real-time Updates', () => {
   test('should update file status via SSE without page refresh', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with a pending file
-    const userID = 'test-user-sse-1';
+    const userID = testSession.userID;
     const rootDir = '/test/sse-files';
 
     const testFile = generateTestPDFFile({
@@ -74,9 +75,10 @@ test.describe('SSE Real-time Updates', () => {
   test('should use hx-swap-oob for in-place file row updates', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with multiple files
-    const userID = 'test-user-sse-2';
+    const userID = testSession.userID;
     const rootDir = '/test/sse-swap';
 
     const file1 = generateTestPDFFile({
@@ -160,9 +162,10 @@ test.describe('SSE Real-time Updates', () => {
   test('should update session statistics in real-time', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with files
-    const userID = 'test-user-sse-3';
+    const userID = testSession.userID;
     const rootDir = '/test/sse-stats';
 
     const testFiles = Array.from({ length: 3 }, (_, i) =>
@@ -240,9 +243,10 @@ test.describe('SSE Real-time Updates', () => {
   test('should handle SSE connection and reconnection', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a test session
-    const userID = 'test-user-sse-4';
+    const userID = testSession.userID;
     const rootDir = '/test/sse-connection';
 
     const testFile = generateTestPDFFile({

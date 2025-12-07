@@ -5,9 +5,10 @@ test.describe('Error Handling and Recovery', () => {
   test('should display error status and error message for failed file', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with a file that has error status
-    const userID = 'test-user-error-1';
+    const userID = testSession.userID;
     const rootDir = '/test/error-files';
 
     const errorFile = generateTestPDFFile({
@@ -71,9 +72,10 @@ test.describe('Error Handling and Recovery', () => {
   test('should handle retry functionality for error state files', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with an error file
-    const userID = 'test-user-error-2';
+    const userID = testSession.userID;
     const rootDir = '/test/error-retry';
 
     const errorFile = generateTestPDFFile({
@@ -129,9 +131,10 @@ test.describe('Error Handling and Recovery', () => {
   test('should display multiple error files correctly', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a session with multiple files in different error states
-    const userID = 'test-user-error-3';
+    const userID = testSession.userID;
     const rootDir = '/test/multi-error';
 
     const errorFile1 = generateTestPDFFile({

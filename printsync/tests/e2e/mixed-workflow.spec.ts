@@ -5,9 +5,10 @@ test.describe('Mixed Approve and Reject Workflow', () => {
   test('should handle mixed approve and reject actions on 4 files', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a custom session with 4 extracted files
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     // Generate 4 test PDF files
@@ -120,8 +121,9 @@ test.describe('Mixed Approve and Reject Workflow', () => {
   test('should show correct button states after mixed actions', async ({
     page,
     helpers,
+    testSession,
   }) => {
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     const files = Array.from({ length: 3 }, (_, i) => {

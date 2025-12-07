@@ -37,7 +37,10 @@ func main() {
 	defer gcsClient.Close()
 
 	// Initialize Firebase app for auth
-	firebaseApp, err := firebase.NewApp(ctx, nil)
+	firebaseConfig := &firebase.Config{
+		ProjectID: cfg.GCPProjectID,
+	}
+	firebaseApp, err := firebase.NewApp(ctx, firebaseConfig)
 	if err != nil {
 		log.Fatalf("Failed to create Firebase app: %v", err)
 	}

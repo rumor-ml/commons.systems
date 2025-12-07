@@ -5,9 +5,10 @@ test.describe('Trash Workflow', () => {
   test('should trash a single uploaded file and remove from GCS', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create session with one file
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     const file = generateTestPDFFile({
@@ -85,9 +86,10 @@ test.describe('Trash Workflow', () => {
   test('should trash all uploaded files with Trash All button', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create session with 3 files
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     const files = Array.from({ length: 3 }, (_, i) => {
@@ -172,9 +174,10 @@ test.describe('Trash Workflow', () => {
   test('should only trash uploaded/skipped files, not rejected ones', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create session with 3 files
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     const files = Array.from({ length: 3 }, (_, i) => {

@@ -5,9 +5,10 @@ test.describe('Bulk Approval with Upload All', () => {
   test('should approve all files with Upload All button', async ({
     page,
     helpers,
+    testSession,
   }) => {
     // Create a custom session with 4 extracted files
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     // Generate 4 test PDF files
@@ -91,8 +92,9 @@ test.describe('Bulk Approval with Upload All', () => {
   test('should handle Upload All with mixed file types', async ({
     page,
     helpers,
+    testSession,
   }) => {
-    const userID = `test-user-${Date.now()}`;
+    const userID = testSession.userID;
     const rootDir = '/test/documents';
 
     // Create 2 PDFs and 1 EPUB

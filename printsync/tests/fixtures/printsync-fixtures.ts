@@ -107,6 +107,18 @@ export const test = base.extend<{
         'Authorization': `Bearer ${testSession.authToken}`,
       },
     });
+
+    // Set auth token as cookie for EventSource/SSE connections
+    // EventSource cannot send custom headers, so we use cookies as fallback
+    await context.addCookies([{
+      name: 'firebase_token',
+      value: testSession.authToken,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    }]);
+
     const page = await context.newPage();
     await use(page);
     await context.close();
