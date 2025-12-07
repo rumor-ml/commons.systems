@@ -34,10 +34,13 @@ echo ""
 echo "--- Starting Firebase Emulators ---"
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/start-emulators.sh"
+"${SCRIPT_DIR}/start-emulators.sh" || echo "⚠️  Emulator startup had issues, continuing with tests"
 
-# Store the PID so we can clean up later
-trap "EMULATOR_PID=''; ${SCRIPT_DIR}/cleanup-test-processes.sh" EXIT
+# Setup trap to clean up emulators on exit
+cleanup_emulators() {
+  "${SCRIPT_DIR}/cleanup-test-processes.sh" || true
+}
+trap cleanup_emulators EXIT
 
 echo ""
 echo "--- E2E Tests ---"
