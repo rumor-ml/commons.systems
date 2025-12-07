@@ -32,8 +32,7 @@ const state = {
     search: ''
   },
   loading: false,
-  error: null,
-  updatingFromHash: false // Flag to prevent hash update loops
+  error: null
 };
 
 // Subtype mappings
@@ -117,7 +116,6 @@ async function init() {
       .then(() => {
         // Update UI with loaded data
         renderCards();
-        updateStats();
 
         // Apply hash route if present
         handleHashChange();
@@ -198,12 +196,8 @@ function setupEventListeners() {
     });
 
     // Filters
-    const filterType = document.getElementById('filterType');
-    const filterSubtype = document.getElementById('filterSubtype');
     const searchCards = document.getElementById('searchCards');
 
-    if (filterType) filterType.addEventListener('change', handleFilterChange);
-    if (filterSubtype) filterSubtype.addEventListener('change', handleFilterChange);
     if (searchCards) searchCards.addEventListener('input', handleFilterChange);
 
     // Modal
@@ -322,25 +316,6 @@ function handleHashChange() {
     state.filters.subtype = subtype;
   }
 
-  // Update filter dropdowns to match hash
-  const filterType = document.getElementById('filterType');
-  const filterSubtype = document.getElementById('filterSubtype');
-
-  // Set flag to prevent hash update loop
-  state.updatingFromHash = true;
-
-  if (filterType) {
-    filterType.value = state.filters.type;
-    updateSubtypeFilterOptions(state.filters.type);
-  }
-
-  if (filterSubtype) {
-    filterSubtype.value = state.filters.subtype;
-  }
-
-  // Clear flag after updating
-  state.updatingFromHash = false;
-
   // Apply filters
   applyFilters();
 }
@@ -365,70 +340,8 @@ function setViewMode(mode) {
 
 // Handle filter changes
 function handleFilterChange(e) {
-  state.filters.type = document.getElementById('filterType').value;
-  state.filters.subtype = document.getElementById('filterSubtype').value;
   state.filters.search = document.getElementById('searchCards').value.toLowerCase();
-
-  // Update subtype options when type changes
-  if (e.target.id === 'filterType') {
-    updateSubtypeFilterOptions(state.filters.type);
-    // Clear subtype when type changes (unless type is empty)
-    if (state.filters.type) {
-      state.filters.subtype = '';
-      document.getElementById('filterSubtype').value = '';
-    }
-  }
-
-  // Update hash to reflect current filters (but not search)
-  // Skip if we're currently updating from a hash change to prevent loops
-  if (!state.updatingFromHash) {
-    updateHashFromFilters();
-  }
-
   applyFilters();
-}
-
-// Update hash based on current filter state
-function updateHashFromFilters() {
-  const { type, subtype } = state.filters;
-
-  let newHash = '#library';
-
-  if (type) {
-    newHash += `/${type.toLowerCase()}`;
-    if (subtype) {
-      newHash += `/${subtype.toLowerCase()}`;
-    }
-  }
-
-  // Only update if hash actually changed (avoid triggering hashchange unnecessarily)
-  if (window.location.hash !== newHash) {
-    window.location.hash = newHash;
-  }
-}
-
-// Update subtype filter options
-function updateSubtypeFilterOptions(type) {
-  const subtypeSelect = document.getElementById('filterSubtype');
-  subtypeSelect.innerHTML = '<option value="">All Subtypes</option>';
-
-  if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
-      const option = document.createElement('option');
-      option.value = subtype;
-      option.textContent = subtype;
-      subtypeSelect.appendChild(option);
-    });
-  } else {
-    // Show all subtypes from all cards
-    const uniqueSubtypes = [...new Set(state.cards.map(c => c.subtype))].filter(Boolean).sort();
-    uniqueSubtypes.forEach(subtype => {
-      const option = document.createElement('option');
-      option.value = subtype;
-      option.textContent = subtype;
-      subtypeSelect.appendChild(option);
-    });
-  }
 }
 
 // Apply filters
@@ -460,6 +373,15 @@ function applyFilters() {
   });
 
   renderCards();
+  updateSearchPlaceholder();
+}
+
+// Update search placeholder with filtered count
+function updateSearchPlaceholder() {
+  const searchInput = document.getElementById('searchCards');
+  if (searchInput) {
+    searchInput.placeholder = `Search (${state.filteredCards.length} cards)...`;
+  }
 }
 
 // Render cards
@@ -540,21 +462,6 @@ function renderCardItem(card) {
       </div>
     </div>
   `;
-}
-
-// Update stats
-function updateStats() {
-  document.getElementById('statTotal').textContent = state.cards.length;
-
-  const statsByType = state.cards.reduce((acc, card) => {
-    acc[card.type] = (acc[card.type] || 0) + 1;
-    return acc;
-  }, {});
-
-  document.getElementById('statEquipment').textContent = statsByType.Equipment || 0;
-  document.getElementById('statSkills').textContent = statsByType.Skill || 0;
-  document.getElementById('statUpgrades').textContent = statsByType.Upgrade || 0;
-  document.getElementById('statFoes').textContent = statsByType.Foe || 0;
 }
 
 // Open card editor modal
@@ -652,7 +559,6 @@ async function handleCardSave(e) {
 
     closeCardEditor();
     applyFilters();
-    updateStats();
   } catch (error) {
     console.error('Error saving card:', error);
     alert(`Error saving card: ${error.message}`);
@@ -674,7 +580,6 @@ async function deleteCard() {
 
       closeCardEditor();
       applyFilters();
-      updateStats();
     } catch (error) {
       console.error('Error deleting card:', error);
       alert(`Error deleting card: ${error.message}`);
@@ -704,7 +609,6 @@ async function importCards() {
       state.filteredCards = [...state.cards];
 
       applyFilters();
-      updateStats();
 
       alert(
         `Import complete!\n` +

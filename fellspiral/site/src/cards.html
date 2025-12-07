@@ -70,7 +70,6 @@
 
           <!-- Toolbar -->
           <div class="card-toolbar">
-            <h1>Card Management</h1>
             <div class="toolbar-actions">
               <button id="addCardBtn" class="btn btn-primary auth-controls">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -80,30 +79,6 @@
               </button>
               <button id="importCardsBtn" class="btn btn-secondary auth-controls">Import from Rules.md</button>
               <button id="exportCardsBtn" class="btn btn-secondary auth-controls">Export JSON</button>
-            </div>
-          </div>
-
-          <!-- Stats Overview -->
-          <div class="stats-overview">
-            <div class="stat-card">
-              <div class="stat-label">Total Cards</div>
-              <div class="stat-value" id="statTotal">0</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Equipment</div>
-              <div class="stat-value" id="statEquipment">0</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Skills</div>
-              <div class="stat-value" id="statSkills">0</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Upgrades</div>
-              <div class="stat-value" id="statUpgrades">0</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Foes</div>
-              <div class="stat-value" id="statFoes">0</div>
             </div>
           </div>
 
@@ -128,19 +103,6 @@
             </div>
 
             <div class="filter-controls">
-              <select id="filterType" class="filter-select">
-                <option value="">All Types</option>
-                <option value="Equipment">Equipment</option>
-                <option value="Skill">Skill</option>
-                <option value="Upgrade">Upgrade</option>
-                <option value="Foe">Foe</option>
-                <option value="Origin">Origin</option>
-              </select>
-
-              <select id="filterSubtype" class="filter-select">
-                <option value="">All Subtypes</option>
-              </select>
-
               <input type="text" id="searchCards" placeholder="Search cards..." class="search-input">
             </div>
           </div>

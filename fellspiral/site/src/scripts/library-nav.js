@@ -115,7 +115,7 @@ export class LibraryNav {
   createTypeElement(type) {
     const typeData = this.tree[type];
     const typeId = `library-type-${type.toLowerCase()}`;
-    const isExpanded = this.expandState[typeId] !== false; // Expanded by default
+    const isExpanded = this.expandState[typeId] === true; // Collapsed by default
 
     // Create type container
     const typeDiv = document.createElement('div');
