@@ -41,7 +41,7 @@ test.describe('Card Manager Page', () => {
       { href: '/#trading-initiative', text: 'Trading Initiative' },
       { href: '/#conditions', text: 'Conditions' },
       { href: '/#simulator', text: 'Combat Simulator' },
-      { href: '/#examples', text: 'Examples' }
+      { href: '/#examples', text: 'Examples' },
     ];
 
     for (const navLink of navLinks) {

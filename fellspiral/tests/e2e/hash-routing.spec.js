@@ -132,7 +132,9 @@ test.describe('Hash Routing - Hash Updates', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await equipmentToggle.click();
 
     // Wait for hash to update
