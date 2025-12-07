@@ -29,7 +29,7 @@ test.describe('Card Manager Page', () => {
     // Wait for sidebar navigation to be ready
     await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
 
-    // Check nav links exist (Equipment section removed, Library section added)
+    // Check nav links exist
     const navLinks = [
       { href: '/#introduction', text: 'Introduction' },
       { href: '/#initiative', text: 'Initiative' },
@@ -41,7 +41,8 @@ test.describe('Card Manager Page', () => {
       { href: '/#trading-initiative', text: 'Trading Initiative' },
       { href: '/#conditions', text: 'Conditions' },
       { href: '/#simulator', text: 'Combat Simulator' },
-      { href: '/#examples', text: 'Examples' }
+      { href: '/#examples', text: 'Examples' },
+      { href: '/cards.html', text: 'Card Manager' },
     ];
 
     for (const navLink of navLinks) {
@@ -266,7 +267,7 @@ test.describe('Card Manager Page', () => {
 
   test('should handle missing elements gracefully', async ({ page }) => {
     const consoleErrors = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
@@ -279,7 +280,7 @@ test.describe('Card Manager Page', () => {
     await page.waitForTimeout(100);
 
     // Filter out expected warnings
-    const actualErrors = consoleErrors.filter(err => !err.includes('Warning'));
+    const actualErrors = consoleErrors.filter((err) => !err.includes('Warning'));
 
     // Log errors for debugging before assertion
     if (actualErrors.length > 0) {

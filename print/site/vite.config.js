@@ -9,12 +9,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/index.html'),
-        viewer: resolve(__dirname, 'src/viewer.html')
-      }
-    }
+        viewer: resolve(__dirname, 'src/viewer.html'),
+      },
+    },
   },
   server: {
     port: 3002,
-    open: true
-  }
+    open: true,
+  },
 });

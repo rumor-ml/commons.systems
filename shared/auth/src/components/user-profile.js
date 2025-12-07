@@ -23,7 +23,7 @@ export function createUserProfile(options = {}) {
     showUsername = true,
     showEmail = false,
     className = '',
-    avatarSize = 32
+    avatarSize = 32,
   } = options;
 
   // Create container

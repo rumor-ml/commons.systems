@@ -37,12 +37,12 @@
   --z-notification: 1700;
 
   /* Container widths */
-  --container-xs: 20rem;    /* 320px */
-  --container-sm: 36rem;    /* 576px */
-  --container-md: 48rem;    /* 768px */
-  --container-lg: 64rem;    /* 1024px */
-  --container-xl: 80rem;    /* 1280px */
-  --container-2xl: 96rem;   /* 1536px */
+  --container-xs: 20rem; /* 320px */
+  --container-sm: 36rem; /* 576px */
+  --container-md: 48rem; /* 768px */
+  --container-lg: 64rem; /* 1024px */
+  --container-xl: 80rem; /* 1280px */
+  --container-2xl: 96rem; /* 1536px */
 }
 
 /* ==========================================================================
@@ -51,8 +51,8 @@
 
 :root {
   /* Browser/OS Chrome Allowances - easily configurable */
-  --chrome-allowance-horizontal: 200px;   /* Horizontal (dock, taskbar) - landscape only */
-  --chrome-allowance-vertical: 80px;      /* Vertical (browser toolbar, tabs) */
+  --chrome-allowance-horizontal: 200px; /* Horizontal (dock, taskbar) - landscape only */
+  --chrome-allowance-vertical: 80px; /* Vertical (browser toolbar, tabs) */
 
   /* Effective viewport calculations */
   --viewport-width: calc(100vw - var(--chrome-allowance-horizontal));

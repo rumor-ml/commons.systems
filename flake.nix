@@ -29,6 +29,10 @@
       url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    pre-commit-hooks = {
+      url = "github:cachix/pre-commit-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -42,14 +46,24 @@
     ];
   };
 
-  outputs = { self, nixpkgs, flake-utils, home-manager }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      home-manager,
+      pre-commit-hooks,
+    }:
     let
       # Per-system outputs
-      systemOutputs = flake-utils.lib.eachDefaultSystem (system:
+      systemOutputs = flake-utils.lib.eachDefaultSystem (
+        system:
         let
           pkgs = import nixpkgs {
             inherit system;
-            config = { allowUnfree = true; };
+            config = {
+              allowUnfree = true;
+            };
           };
 
           # Import modular package sets
@@ -58,6 +72,12 @@
           # The modular organization in nix/package-sets.nix represents the intended
           # architecture. See commonPackages below for the current inlined workaround.
           packageSets = import ./nix/package-sets.nix { inherit pkgs; };
+
+          # Pre-commit checks configuration
+          pre-commit-check = import ./nix/checks.nix {
+            inherit pkgs pre-commit-hooks;
+            src = ./.;
+          };
 
           # Common packages shared between dev and CI shells
           #
@@ -72,15 +92,26 @@
           # TODO: Re-evaluate using modular approach once Nix fixes underlying issue
           commonPackages = with pkgs; [
             # Core tools
-            bash coreutils git gh jq curl
+            bash
+            coreutils
+            git
+            gh
+            jq
+            curl
             # Cloud tools
-            google-cloud-sdk terraform
+            google-cloud-sdk
+            terraform
             # Node.js ecosystem
             # Note: firebase-tools removed - causes segfault in Nix evaluator
             # Install via pnpm instead: pnpm add -g firebase-tools
-            nodejs pnpm
+            nodejs
+            pnpm
             # Go toolchain
-            go gopls gotools air templ
+            go
+            gopls
+            gotools
+            air
+            templ
             # Dev utilities
             tmux
           ];
@@ -108,6 +139,7 @@
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
+          gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Apps for tool discovery and environment checking
@@ -117,9 +149,14 @@
           # Development shell with custom packages added
           # Inlined to avoid callPackage segfault issue (see commit 72d9d78)
           devShell = pkgs.mkShell {
-            buildInputs = commonPackages ++ [ tmux-tui gh-workflow-mcp-server ];
+            buildInputs = commonPackages ++ [
+              tmux-tui
+              gh-workflow-mcp-server
+              gh-issue-mcp-server
+            ];
 
             shellHook = ''
+              ${pre-commit-check.shellHook}
               echo "╔═══════════════════════════════════════════════════════════╗"
               echo "║     Commons.Systems Development Environment              ║"
               echo "╚═══════════════════════════════════════════════════════════╝"
@@ -127,6 +164,7 @@
               echo "Custom tools available:"
               echo "  • tmux-tui - Git-aware tmux pane manager"
               echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
+              echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
               echo ""
               echo "Quick start:"
               echo "  • Run dev server: pnpm dev"
@@ -137,9 +175,15 @@
             NIXPKGS_ALLOW_UNFREE = "1";
           };
 
-        in {
+        in
+        {
           packages = {
-            inherit tmux-tui gh-workflow-mcp-server iac;
+            inherit
+              tmux-tui
+              gh-workflow-mcp-server
+              gh-issue-mcp-server
+              iac
+              ;
             default = tmux-tui;
           };
 
@@ -158,6 +202,10 @@
             default = devShell;
             ci = ciShell;
           };
+
+          checks = {
+            pre-commit-check = pre-commit-check;
+          };
         }
       );
 
@@ -166,26 +214,32 @@
       homeConfigurations =
         let
           username = builtins.getEnv "USER";
-          mkHomeConfig = system: home-manager.lib.homeManagerConfiguration {
-            pkgs = import nixpkgs {
-              inherit system;
-              config = { allowUnfree = true; };
+          mkHomeConfig =
+            system:
+            home-manager.lib.homeManagerConfiguration {
+              pkgs = import nixpkgs {
+                inherit system;
+                config = {
+                  allowUnfree = true;
+                };
+              };
+              modules = [
+                ./nix/home/default.nix
+              ];
             };
-            modules = [
-              ./nix/home/default.nix
-            ];
-          };
-        in {
+        in
+        {
           # Primary config for current user (auto-detects system)
           "${username}" = mkHomeConfig builtins.currentSystem;
 
           # System-specific variants (e.g., "n8@aarch64-darwin")
-        } // builtins.listToAttrs (
+        }
+        // builtins.listToAttrs (
           map (system: {
             name = "${username}@${system}";
             value = mkHomeConfig system;
           }) flake-utils.lib.defaultSystems
         );
     in
-      systemOutputs // { inherit homeConfigurations; };
+    systemOutputs // { inherit homeConfigurations; };
 }

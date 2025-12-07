@@ -7,12 +7,7 @@ test.describe('Core Concepts Section', () => {
 
   test('should display all concept sections', async ({ page }) => {
     // Check all concept sections are visible
-    const conceptSections = [
-      '#initiative',
-      '#roles',
-      '#damage',
-      '#rounds'
-    ];
+    const conceptSections = ['#initiative', '#roles', '#damage', '#rounds'];
 
     for (const sectionId of conceptSections) {
       const section = page.locator(sectionId);

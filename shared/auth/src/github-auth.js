@@ -9,7 +9,7 @@ import {
   GithubAuthProvider,
   signInWithPopup,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
 } from 'firebase/auth';
 
 let app = null;
@@ -65,7 +65,7 @@ export async function signInWithGitHub() {
     return {
       user: result.user,
       githubToken,
-      credential
+      credential,
     };
   } catch (error) {
     console.error('GitHub sign-in error:', error);

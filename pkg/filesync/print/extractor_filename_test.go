@@ -9,13 +9,13 @@ import (
 
 func TestFilenameExtractor_Extract(t *testing.T) {
 	tests := []struct {
-		name     string
-		filename string
-		wantTitle string
+		name       string
+		filename   string
+		wantTitle  string
 		wantAuthor string
 		wantSeries string
 		wantVolume string
-		wantISBN string
+		wantISBN   string
 	}{
 		{
 			name:       "author dash title pattern",
@@ -44,16 +44,16 @@ func TestFilenameExtractor_Extract(t *testing.T) {
 			wantVolume: "1",
 		},
 		{
-			name:       "ISBN in brackets",
-			filename:   "Some Book [ISBN-13: 9781234567890].pdf",
-			wantTitle:  "Some Book",
-			wantISBN:   "9781234567890",
+			name:      "ISBN in brackets",
+			filename:  "Some Book [ISBN-13: 9781234567890].pdf",
+			wantTitle: "Some Book",
+			wantISBN:  "9781234567890",
 		},
 		{
-			name:       "ISBN in parentheses",
-			filename:   "Another Book (ISBN: 1234567890).epub",
-			wantTitle:  "Another Book",
-			wantISBN:   "1234567890",
+			name:      "ISBN in parentheses",
+			filename:  "Another Book (ISBN: 1234567890).epub",
+			wantTitle: "Another Book",
+			wantISBN:  "1234567890",
 		},
 		{
 			name:      "no pattern match - use filename as title",

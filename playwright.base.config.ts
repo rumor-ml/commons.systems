@@ -40,11 +40,8 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     globalTeardown: site.globalTeardown,
 
     reporter: process.env.CI
-      ? [['json']]  // JSON to stdout in CI
-      : [
-          ['list'],
-          ['json', { outputFile: 'test-results.json' }],
-        ],
+      ? [['json']] // JSON to stdout in CI
+      : [['list'], ['json', { outputFile: 'test-results.json' }]],
 
     use: {
       baseURL,
@@ -69,23 +66,30 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
         use: {
           ...devices['Desktop Chrome'],
           launchOptions: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu',
+            ],
           },
         },
       },
     ],
 
-    webServer: isDeployed ? undefined : {
-      command: process.env.CI
-        ? site.webServerCommand?.ci || `cd ../site && npm run preview`
-        : site.webServerCommand?.local || `cd ../site && npm run dev`,
-      url: `http://localhost:${site.port}`,
-      reuseExistingServer: true,
-      timeout: 120 * 1000,
-      env: {
-        ...process.env,
-        ...(site.env || {}),
-      },
-    },
+    webServer: isDeployed
+      ? undefined
+      : {
+          command: process.env.CI
+            ? site.webServerCommand?.ci || `cd ../site && npm run preview`
+            : site.webServerCommand?.local || `cd ../site && npm run dev`,
+          url: `http://localhost:${site.port}`,
+          reuseExistingServer: true,
+          timeout: 120 * 1000,
+          env: {
+            ...process.env,
+            ...(site.env || {}),
+          },
+        },
   });
 }

@@ -8,7 +8,7 @@ import {
   createCard as createCardInDB,
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
-  importCards as importCardsFromData
+  importCards as importCardsFromData,
 } from './firebase.js';
 
 // Import auth initialization and state
@@ -29,11 +29,14 @@ const state = {
   filters: {
     type: '',
     subtype: '',
-    search: ''
+    search: '',
   },
   loading: false,
   error: null,
+<<<<<<< HEAD
   updatingFromHash: false // Flag to prevent hash update loops
+=======
+>>>>>>> origin/main
 };
 
 // Subtype mappings
@@ -42,7 +45,7 @@ const SUBTYPES = {
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
   Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc']
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
 };
 
 // Show error UI with retry option
@@ -122,7 +125,7 @@ async function init() {
         // Apply hash route if present
         handleHashChange();
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
       });
@@ -131,13 +134,10 @@ async function init() {
     console.error('Card Manager init error:', error);
 
     // Show user-friendly error UI
-    showErrorUI(
-      'Failed to initialize Card Manager. Please try again.',
-      () => {
-        document.querySelector('.error-banner')?.remove();
-        init();
-      }
-    );
+    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+      document.querySelector('.error-banner')?.remove();
+      init();
+    });
   }
 }
 
@@ -171,7 +171,9 @@ async function loadCards() {
     state.filteredCards = [...state.cards];
 
     // Show warning to user
-    showWarningBanner('Unable to connect to Firestore. Using local data only. Changes will not be saved.');
+    showWarningBanner(
+      'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
+    );
   }
 }
 
@@ -193,7 +195,7 @@ function setupEventListeners() {
     exportCardsBtn.addEventListener('click', exportCards);
 
     // View mode
-    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    document.querySelectorAll('.view-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
@@ -248,7 +250,7 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
+    navItems.forEach((item) => {
       item.addEventListener('click', () => {
         if (window.innerWidth <= 768) {
           sidebar.classList.remove('active');
@@ -258,11 +260,13 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
-      if (window.innerWidth <= 768 &&
-          document.body.contains(mobileMenuToggle) &&
-          !sidebar.contains(e.target) &&
-          !mobileMenuToggle?.contains(e.target) &&
-          sidebar.classList.contains('active')) {
+      if (
+        window.innerWidth <= 768 &&
+        document.body.contains(mobileMenuToggle) &&
+        !sidebar.contains(e.target) &&
+        !mobileMenuToggle?.contains(e.target) &&
+        sidebar.classList.contains('active')
+      ) {
         sidebar.classList.remove('active');
       }
     });
@@ -274,6 +278,7 @@ function setupMobileMenu() {
 // Setup auth state listener to show/hide auth-controls
 function setupAuthStateListener() {
   try {
+<<<<<<< HEAD
     onAuthStateChanged((user) => {
       if (user) {
         // User is logged in - show auth controls
@@ -282,24 +287,151 @@ function setupAuthStateListener() {
         // User is logged out - hide auth controls
         document.body.classList.remove('authenticated');
       }
+=======
+    const treeContainer = document.getElementById('cardTree');
+    if (!treeContainer) {
+      console.warn('Tree container not found');
+      return;
+    }
+
+    const tree = buildTree();
+    treeContainer.innerHTML = renderTreeNodes(tree);
+
+    // Attach tree node click handlers
+    treeContainer.querySelectorAll('.tree-node-content').forEach((node) => {
+      node.addEventListener('click', handleTreeNodeClick);
+>>>>>>> origin/main
     });
   } catch (error) {
     console.error('Error setting up auth state listener:', error);
   }
 }
 
+<<<<<<< HEAD
 // Setup hash routing
 function setupHashRouting() {
   window.addEventListener('hashchange', handleHashChange);
+=======
+// Build tree structure
+function buildTree() {
+  const tree = {};
+
+  state.cards.forEach((card) => {
+    const type = card.type || 'Unknown';
+    const subtype = card.subtype || 'Unknown';
+
+    if (!tree[type]) {
+      tree[type] = {
+        count: 0,
+        subtypes: {},
+      };
+    }
+
+    if (!tree[type].subtypes[subtype]) {
+      tree[type].subtypes[subtype] = {
+        count: 0,
+        cards: [],
+      };
+    }
+
+    tree[type].count++;
+    tree[type].subtypes[subtype].count++;
+    tree[type].subtypes[subtype].cards.push(card);
+  });
+
+  return tree;
+>>>>>>> origin/main
 }
 
 // Handle hash change events
 function handleHashChange() {
   const hash = window.location.hash.slice(1); // Remove '#'
 
+<<<<<<< HEAD
   if (!hash || !hash.startsWith('library')) {
     // Clear filters if no library hash
     return;
+=======
+  Object.keys(tree)
+    .sort()
+    .forEach((type) => {
+      const typeData = tree[type];
+      const typeId = `type-${type.toLowerCase()}`;
+
+      html += `
+      <div class="tree-node" data-level="type" data-value="${type}">
+        <div class="tree-node-content" data-node-id="${typeId}">
+          <span class="tree-node-toggle">▶</span>
+          <span class="tree-node-icon">📁</span>
+          <span class="tree-node-label">${type}</span>
+          <span class="tree-node-count">${typeData.count}</span>
+        </div>
+        <div class="tree-node-children" data-parent="${typeId}">
+    `;
+
+      Object.keys(typeData.subtypes)
+        .sort()
+        .forEach((subtype) => {
+          const subtypeData = typeData.subtypes[subtype];
+          const subtypeId = `subtype-${type.toLowerCase()}-${subtype.toLowerCase()}`;
+
+          html += `
+        <div class="tree-node tree-node-leaf" data-level="subtype" data-type="${type}" data-subtype="${subtype}">
+          <div class="tree-node-content" data-node-id="${subtypeId}">
+            <span class="tree-node-toggle empty"></span>
+            <span class="tree-node-icon">📄</span>
+            <span class="tree-node-label">${subtype}</span>
+            <span class="tree-node-count">${subtypeData.count}</span>
+          </div>
+        </div>
+      `;
+        });
+
+      html += `
+        </div>
+      </div>
+    `;
+    });
+
+  return html;
+}
+
+// Handle tree node click
+function handleTreeNodeClick(e) {
+  try {
+    const content = e.currentTarget;
+    if (!content) return;
+
+    const node = content.closest('.tree-node');
+    if (!node) return;
+
+    const level = node.dataset.level;
+
+    // Toggle expansion for type nodes
+    if (level === 'type') {
+      const toggle = content.querySelector('.tree-node-toggle');
+      const children = content.parentElement.querySelector('.tree-node-children');
+
+      if (toggle) toggle.classList.toggle('expanded');
+      if (children) children.classList.toggle('expanded');
+    }
+
+    // Apply selection
+    document.querySelectorAll('.tree-node-content').forEach((n) => n.classList.remove('selected'));
+    content.classList.add('selected');
+
+    // Filter cards based on selection
+    if (level === 'type') {
+      const type = node.dataset.value;
+      filterCardsByTree(type, null);
+    } else if (level === 'subtype') {
+      const type = node.dataset.type;
+      const subtype = node.dataset.subtype;
+      filterCardsByTree(type, subtype);
+    }
+  } catch (error) {
+    console.error('Error handling tree node click:', error);
+>>>>>>> origin/main
   }
 
   // Parse hash: #library, #library/equipment, #library/equipment/weapon
@@ -345,17 +477,70 @@ function handleHashChange() {
   applyFilters();
 }
 
+<<<<<<< HEAD
 // Helper to capitalize first letter
 function capitalizeFirstLetter(str) {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
+=======
+// Expand/collapse all tree nodes
+function expandCollapseAll(expand) {
+  document.querySelectorAll('.tree-node-toggle').forEach((toggle) => {
+    if (!toggle.classList.contains('empty')) {
+      if (expand) {
+        toggle.classList.add('expanded');
+      } else {
+        toggle.classList.remove('expanded');
+      }
+    }
+  });
+
+  document.querySelectorAll('.tree-node-children').forEach((children) => {
+    if (expand) {
+      children.classList.add('expanded');
+    } else {
+      children.classList.remove('expanded');
+    }
+  });
+}
+
+// Refresh tree and reload from Firestore
+async function refreshTree() {
+  try {
+    state.loading = true;
+    state.cards = await getAllCards();
+    state.filteredCards = [...state.cards];
+    state.loading = false;
+
+    renderTree();
+    applyFilters();
+    updateStats();
+  } catch (error) {
+    console.error('Error refreshing cards:', error);
+    state.loading = false;
+    alert(`Error refreshing cards: ${error.message}`);
+  }
+}
+
+// Handle tree search
+function handleTreeSearch(e) {
+  const query = e.target.value.toLowerCase();
+
+  document.querySelectorAll('.tree-node').forEach((node) => {
+    const label = node.querySelector('.tree-node-label').textContent.toLowerCase();
+    const match = label.includes(query);
+
+    node.style.display = match ? 'block' : 'none';
+  });
+}
+>>>>>>> origin/main
 
 // Set view mode
 function setViewMode(mode) {
   state.viewMode = mode;
 
-  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+  document.querySelectorAll('.view-mode-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -413,7 +598,7 @@ function updateSubtypeFilterOptions(type) {
   subtypeSelect.innerHTML = '<option value="">All Subtypes</option>';
 
   if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
+    SUBTYPES[type].forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -421,8 +606,8 @@ function updateSubtypeFilterOptions(type) {
     });
   } else {
     // Show all subtypes from all cards
-    const uniqueSubtypes = [...new Set(state.cards.map(c => c.subtype))].filter(Boolean).sort();
-    uniqueSubtypes.forEach(subtype => {
+    const uniqueSubtypes = [...new Set(state.cards.map((c) => c.subtype))].filter(Boolean).sort();
+    uniqueSubtypes.forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -433,7 +618,7 @@ function updateSubtypeFilterOptions(type) {
 
 // Apply filters
 function applyFilters() {
-  state.filteredCards = state.cards.filter(card => {
+  state.filteredCards = state.cards.filter((card) => {
     // Type filter
     if (state.filters.type && card.type !== state.filters.type) {
       return false;
@@ -449,7 +634,7 @@ function applyFilters() {
       const searchLower = state.filters.search;
       const titleMatch = card.title?.toLowerCase().includes(searchLower);
       const descMatch = card.description?.toLowerCase().includes(searchLower);
-      const tagsMatch = card.tags?.some(tag => tag.toLowerCase().includes(searchLower));
+      const tagsMatch = card.tags?.some((tag) => tag.toLowerCase().includes(searchLower));
 
       if (!titleMatch && !descMatch && !tagsMatch) {
         return false;
@@ -484,7 +669,7 @@ function renderCards() {
 
     // Render cards, skip broken ones
     const renderedCards = [];
-    state.filteredCards.forEach(card => {
+    state.filteredCards.forEach((card) => {
       try {
         renderedCards.push(renderCardItem(card));
       } catch (error) {
@@ -514,9 +699,10 @@ function renderCards() {
 // Render a single card item
 function renderCardItem(card) {
   const tags = Array.isArray(card.tags) ? card.tags : [];
-  const tagsHtml = tags.length > 0
-    ? `<div class="card-item-tags">${tags.map(tag => `<span class="card-tag">${tag}</span>`).join('')}</div>`
-    : '';
+  const tagsHtml =
+    tags.length > 0
+      ? `<div class="card-item-tags">${tags.map((tag) => `<span class="card-tag">${tag}</span>`).join('')}</div>`
+      : '';
 
   return `
     <div class="card-item" data-card-id="${card.id}">
@@ -577,7 +763,9 @@ function openCardEditor(card = null) {
     document.getElementById('cardType').value = card.type || '';
     updateSubtypeOptions();
     document.getElementById('cardSubtype').value = card.subtype || '';
-    document.getElementById('cardTags').value = Array.isArray(card.tags) ? card.tags.join(', ') : '';
+    document.getElementById('cardTags').value = Array.isArray(card.tags)
+      ? card.tags.join(', ')
+      : '';
     document.getElementById('cardDescription').value = card.description || '';
     document.getElementById('cardStat1').value = card.stat1 || '';
     document.getElementById('cardStat2').value = card.stat2 || '';
@@ -607,7 +795,7 @@ function updateSubtypeOptions() {
   subtypeSelect.innerHTML = '<option value="">Select subtype...</option>';
 
   if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
+    SUBTYPES[type].forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -625,11 +813,15 @@ async function handleCardSave(e) {
     title: document.getElementById('cardTitle').value.trim(),
     type: document.getElementById('cardType').value,
     subtype: document.getElementById('cardSubtype').value,
-    tags: document.getElementById('cardTags').value.split(',').map(t => t.trim()).filter(Boolean),
+    tags: document
+      .getElementById('cardTags')
+      .value.split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
     description: document.getElementById('cardDescription').value.trim(),
     stat1: document.getElementById('cardStat1').value.trim(),
     stat2: document.getElementById('cardStat2').value.trim(),
-    cost: document.getElementById('cardCost').value.trim()
+    cost: document.getElementById('cardCost').value.trim(),
   };
 
   try {
@@ -638,7 +830,7 @@ async function handleCardSave(e) {
       await updateCardInDB(id, cardData);
 
       // Update local state
-      const index = state.cards.findIndex(c => c.id === id);
+      const index = state.cards.findIndex((c) => c.id === id);
       if (index !== -1) {
         state.cards[index] = { ...state.cards[index], ...cardData };
       }
@@ -670,7 +862,7 @@ async function deleteCard() {
       await deleteCardInDB(id);
 
       // Remove from local state
-      state.cards = state.cards.filter(c => c.id !== id);
+      state.cards = state.cards.filter((c) => c.id !== id);
 
       closeCardEditor();
       applyFilters();
@@ -683,8 +875,8 @@ async function deleteCard() {
 }
 
 // Edit card (called from card item)
-window.editCard = function(cardId) {
-  const card = state.cards.find(c => c.id === cardId);
+window.editCard = function (cardId) {
+  const card = state.cards.find((c) => c.id === cardId);
   if (card) {
     openCardEditor(card);
   }
@@ -708,9 +900,9 @@ async function importCards() {
 
       alert(
         `Import complete!\n` +
-        `Created: ${results.created}\n` +
-        `Updated: ${results.updated}\n` +
-        `Errors: ${results.errors}`
+          `Created: ${results.created}\n` +
+          `Updated: ${results.updated}\n` +
+          `Errors: ${results.errors}`
       );
     } catch (error) {
       console.error('Error importing cards:', error);

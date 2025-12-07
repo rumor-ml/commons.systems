@@ -2,11 +2,11 @@
  * Shared types for framework-specific test failure extractors
  */
 
-export type TestFramework = "go" | "playwright" | "tap" | "unknown";
+export type TestFramework = 'go' | 'playwright' | 'tap' | 'unknown';
 
 export interface DetectionResult {
   framework: TestFramework;
-  confidence: "high" | "medium" | "low";
+  confidence: 'high' | 'medium' | 'low';
   isJsonOutput: boolean;
 }
 
@@ -16,12 +16,12 @@ export interface ExtractedError {
   lineNumber?: number;
   columnNumber?: number;
   message: string;
-  stack?: string;           // Full stack trace
-  codeSnippet?: string;     // Code context around failure (Playwright)
-  duration?: number;        // Test duration in ms
-  failureType?: string;     // e.g., 'testCodeFailure', 'timeout'
-  errorCode?: string;       // e.g., 'ERR_ASSERTION'
-  rawOutput: string[];      // All output lines for this test
+  stack?: string; // Full stack trace
+  codeSnippet?: string; // Code context around failure (Playwright)
+  duration?: number; // Test duration in ms
+  failureType?: string; // e.g., 'testCodeFailure', 'timeout'
+  errorCode?: string; // e.g., 'ERR_ASSERTION'
+  rawOutput: string[]; // All output lines for this test
 }
 
 export interface ExtractionResult {

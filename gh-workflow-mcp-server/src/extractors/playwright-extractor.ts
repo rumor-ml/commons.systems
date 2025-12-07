@@ -7,7 +7,7 @@ import type {
   ExtractionResult,
   ExtractedError,
   FrameworkExtractor,
-} from "./types.js";
+} from './types.js';
 
 interface PlaywrightJsonReport {
   config?: any;  // Config object (optional, may not be present in all reports)
@@ -47,7 +47,7 @@ interface PlaywrightTestResult {
 }
 
 export class PlaywrightExtractor implements FrameworkExtractor {
-  readonly name = "playwright" as const;
+  readonly name = 'playwright' as const;
 
   detect(logText: string): DetectionResult | null {
     // Check for JSON format (may be embedded in logs)
@@ -86,7 +86,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       // Check for Playwright-specific markers (line reporter)
       if (
         /[✘✓]/.test(line) ||
-        /\u2718|\u2714/.test(line) || // ✘ ✓ unicode
+        /\u2718|\u2714/.test(line) || // Unicode checkmarks
         /\[chromium\]|\[firefox\]|\[webkit\]/.test(line) ||
         /Error: expect\(/i.test(line) ||
         /›.*\.spec\.(ts|js):\d+/.test(line) ||
@@ -99,8 +99,17 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Detected Playwright but not JSON format - wrong reporter
     if (playwrightMarkerCount >= 3) {
       return {
-        framework: "playwright",
-        confidence: "high",
+        framework: 'playwright',
+        confidence: 'high',
+        isJsonOutput: false,
+      };
+    }
+
+    // Medium confidence with at least one marker
+    if (playwrightMarkerCount > 0) {
+      return {
+        framework: 'playwright',
+        confidence: 'medium',
         isJsonOutput: false,
       };
     }

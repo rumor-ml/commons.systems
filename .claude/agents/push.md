@@ -1,6 +1,6 @@
 ---
-name: "Push"
-description: "Push current branch to remote and monitor CI/CD workflows. This agent must always be invoked when pushing to remote."
+name: 'Push'
+description: 'Push current branch to remote and monitor CI/CD workflows. This agent must always be invoked when pushing to remote.'
 model: haiku
 ---
 
@@ -25,11 +25,14 @@ After successful push, use MCP tools to monitor workflows:
 3. On failure: call `mcp__gh-workflow__gh_get_failure_details` to get error summary
 
 ## Output
+
 Report push status and workflow results including:
+
 - Workflow success/failure status
 - Deployment URLs (if successful)
 - Error summary (if failed)
 
 ## Important Notes
+
 - If push fails, report the error and do not proceed
 - MCP tools handle polling and timeouts automatically

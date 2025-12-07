@@ -8,6 +8,8 @@ const (
 	MsgTypeFullState = "full_state"
 	// MsgTypeAlertChange is sent by daemon when an alert changes
 	MsgTypeAlertChange = "alert_change"
+	// MsgTypePaneFocus is sent by daemon when the active pane changes
+	MsgTypePaneFocus = "pane_focus"
 	// MsgTypePing is sent by client to check daemon health
 	MsgTypePing = "ping"
 	// MsgTypePong is sent by daemon in response to ping
@@ -16,10 +18,11 @@ const (
 
 // Message represents a message exchanged between daemon and clients
 type Message struct {
-	Type      string            `json:"type"`
-	ClientID  string            `json:"client_id,omitempty"`
-	Alerts    map[string]string `json:"alerts,omitempty"`     // Full alert state (for full_state messages)
-	PaneID    string            `json:"pane_id,omitempty"`    // For alert_change messages
-	EventType string            `json:"event_type,omitempty"` // For alert_change messages
-	Created   bool              `json:"created,omitempty"`    // For alert_change messages
+	Type         string            `json:"type"`
+	ClientID     string            `json:"client_id,omitempty"`
+	Alerts       map[string]string `json:"alerts,omitempty"`         // Full alert state (for full_state messages)
+	PaneID       string            `json:"pane_id,omitempty"`        // For alert_change messages
+	EventType    string            `json:"event_type,omitempty"`     // For alert_change messages
+	Created      bool              `json:"created,omitempty"`        // For alert_change messages
+	ActivePaneID string            `json:"active_pane_id,omitempty"` // For pane_focus messages
 }

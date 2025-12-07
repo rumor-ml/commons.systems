@@ -2,13 +2,11 @@
   "mcpServers": {
     "gh-workflow": {
       "type": "stdio",
-      "command": "node",
-      "args": ["gh-workflow-mcp-server/dist/index.js"]
+      "command": "gh-workflow-mcp-server"
     },
     "gh-issue": {
       "type": "stdio",
-      "command": "node",
-      "args": ["gh-issue-mcp-server/dist/index.js"]
+      "command": "gh-issue-mcp-server"
     }
   }
 }

@@ -7,13 +7,13 @@ import type {
   ExtractionResult,
   ExtractedError,
   FrameworkExtractor,
-} from "./types.js";
+} from './types.js';
 
 export class TapExtractor implements FrameworkExtractor {
-  readonly name = "tap" as const;
+  readonly name = 'tap' as const;
 
   detect(logText: string): DetectionResult | null {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     let tapMarkerCount = 0;
 
     // Sample first 100 lines for detection
@@ -36,8 +36,8 @@ export class TapExtractor implements FrameworkExtractor {
     // High confidence if we see multiple TAP markers
     if (tapMarkerCount >= 3) {
       return {
-        framework: "tap",
-        confidence: "high",
+        framework: 'tap',
+        confidence: 'high',
         isJsonOutput: false,
       };
     }
@@ -45,8 +45,8 @@ export class TapExtractor implements FrameworkExtractor {
     // Medium confidence with at least one marker
     if (tapMarkerCount > 0) {
       return {
-        framework: "tap",
-        confidence: "medium",
+        framework: 'tap',
+        confidence: 'medium',
         isJsonOutput: false,
       };
     }
@@ -54,7 +54,7 @@ export class TapExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, _maxErrors = 10): ExtractionResult {
+  extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split("\n");
     const failures: ExtractedError[] = [];
 
@@ -79,7 +79,7 @@ export class TapExtractor implements FrameworkExtractor {
         const rawOutput: string[] = [lines[i]];
         let duration: number | undefined;
         let failureType: string | undefined;
-        let errorMessage = "Test failed";
+        let errorMessage = 'Test failed';
         let errorCode: string | undefined;
         let stack: string | undefined;
         let fileName: string | undefined;
@@ -181,6 +181,8 @@ export class TapExtractor implements FrameworkExtractor {
           errorCode,
           rawOutput,
         });
+
+        if (failures.length >= maxErrors) break;
       }
     }
 
@@ -214,7 +216,7 @@ export class TapExtractor implements FrameworkExtractor {
     }
 
     return {
-      framework: "tap",
+      framework: 'tap',
       errors: failures,
       summary,
     };

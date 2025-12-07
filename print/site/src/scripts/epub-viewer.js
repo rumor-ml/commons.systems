@@ -22,7 +22,7 @@ export async function initEPUBViewer(fileURL, document) {
     rendition = book.renderTo(epubArea, {
       width: '100%',
       height: '100%',
-      spread: 'none'
+      spread: 'none',
     });
 
     await rendition.display();
@@ -32,7 +32,6 @@ export async function initEPUBViewer(fileURL, document) {
 
     // Load table of contents
     await loadTableOfContents();
-
   } catch (error) {
     console.error('EPUB loading error:', error);
     throw error;
@@ -73,7 +72,7 @@ async function loadTableOfContents() {
     const tocNav = document.getElementById('epubTocNav');
     tocNav.innerHTML = '';
 
-    navigation.toc.forEach(chapter => {
+    navigation.toc.forEach((chapter) => {
       const link = document.createElement('a');
       link.href = '#';
       link.textContent = chapter.label;
@@ -83,7 +82,6 @@ async function loadTableOfContents() {
       };
       tocNav.appendChild(link);
     });
-
   } catch (error) {
     console.error('TOC loading error:', error);
   }

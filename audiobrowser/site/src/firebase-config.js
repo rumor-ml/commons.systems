@@ -7,12 +7,12 @@
  */
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyDummyKeyWillBeReplacedByCI",
-  authDomain: "chalanding.firebaseapp.com",
-  projectId: "chalanding",
-  storageBucket: "rml-media",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123def456"
+  apiKey: 'AIzaSyDummyKeyWillBeReplacedByCI',
+  authDomain: 'chalanding.firebaseapp.com',
+  projectId: 'chalanding',
+  storageBucket: 'rml-media',
+  messagingSenderId: '123456789',
+  appId: '1:123456789:web:abc123def456',
 };
 
 // Note: The actual API key will be injected during the build process

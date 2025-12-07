@@ -2,33 +2,36 @@
  * Error handling utilities for Gh Issue MCP server
  */
 
-import type { ErrorResult } from "../types.js";
+import type { ErrorResult } from '../types.js';
 
 export class McpError extends Error {
-  constructor(message: string, public readonly code?: string) {
+  constructor(
+    message: string,
+    public readonly code?: string
+  ) {
     super(message);
-    this.name = "McpError";
+    this.name = 'McpError';
   }
 }
 
 export class TimeoutError extends McpError {
   constructor(message: string) {
-    super(message, "TIMEOUT");
-    this.name = "TimeoutError";
+    super(message, 'TIMEOUT');
+    this.name = 'TimeoutError';
   }
 }
 
 export class ValidationError extends McpError {
   constructor(message: string) {
-    super(message, "VALIDATION_ERROR");
-    this.name = "ValidationError";
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
   }
 }
 
 export class NetworkError extends McpError {
   constructor(message: string) {
-    super(message, "NETWORK_ERROR");
-    this.name = "NetworkError";
+    super(message, 'NETWORK_ERROR');
+    this.name = 'NetworkError';
   }
 }
 
@@ -38,8 +41,8 @@ export class GitHubCliError extends McpError {
     public readonly exitCode?: number,
     public readonly stderr?: string
   ) {
-    super(message, "GH_CLI_ERROR");
-    this.name = "GitHubCliError";
+    super(message, 'GH_CLI_ERROR');
+    this.name = 'GitHubCliError';
   }
 }
 
@@ -58,32 +61,34 @@ export class GitHubCliError extends McpError {
  */
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
-  let errorType = "UnknownError";
+  let errorType = 'UnknownError';
   let errorCode: string | undefined;
 
   // Categorize error types for better handling
   if (error instanceof TimeoutError) {
-    errorType = "TimeoutError";
-    errorCode = "TIMEOUT";
+    errorType = 'TimeoutError';
+    errorCode = 'TIMEOUT';
   } else if (error instanceof ValidationError) {
-    errorType = "ValidationError";
-    errorCode = "VALIDATION_ERROR";
+    errorType = 'ValidationError';
+    errorCode = 'VALIDATION_ERROR';
   } else if (error instanceof NetworkError) {
-    errorType = "NetworkError";
-    errorCode = "NETWORK_ERROR";
+    errorType = 'NetworkError';
+    errorCode = 'NETWORK_ERROR';
   } else if (error instanceof GitHubCliError) {
-    errorType = "GitHubCliError";
-    errorCode = "GH_CLI_ERROR";
+    errorType = 'GitHubCliError';
+    errorCode = 'GH_CLI_ERROR';
   } else if (error instanceof McpError) {
-    errorType = "McpError";
+    errorType = 'McpError';
     errorCode = error.code;
   }
 
   return {
-    content: [{
-      type: "text",
-      text: `Error: ${message}`
-    }],
+    content: [
+      {
+        type: 'text',
+        text: `Error: ${message}`,
+      },
+    ],
     isError: true,
     _meta: {
       errorType,

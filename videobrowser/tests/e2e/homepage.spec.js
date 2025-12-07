@@ -68,7 +68,7 @@ test.describe('Video Browser Homepage', () => {
     // Wait for either loading to disappear or file list to populate
     await expect(async () => {
       const isLoading = await loadingIndicator.isVisible();
-      const hasContent = await page.locator('.file-item, .empty-state, .error').count() > 0;
+      const hasContent = (await page.locator('.file-item, .empty-state, .error').count()) > 0;
       expect(isLoading || hasContent).toBe(true);
     }).toPass({ timeout: 10000 });
   });

@@ -249,39 +249,39 @@ func TestValidateGCSPath(t *testing.T) {
 
 func TestPathTemplate_Placeholders(t *testing.T) {
 	tests := []struct {
-		name     string
-		pattern  string
-		want     []string
+		name    string
+		pattern string
+		want    []string
 	}{
 		{
-			name:     "single placeholder",
-			pattern:  "path/{name}/file.txt",
-			want:     []string{"name"},
+			name:    "single placeholder",
+			pattern: "path/{name}/file.txt",
+			want:    []string{"name"},
 		},
 		{
-			name:     "multiple placeholders",
-			pattern:  "path/{author}/{title}.{ext}",
-			want:     []string{"author", "title", "ext"},
+			name:    "multiple placeholders",
+			pattern: "path/{author}/{title}.{ext}",
+			want:    []string{"author", "title", "ext"},
 		},
 		{
-			name:     "duplicate placeholders",
-			pattern:  "path/{name}/file_{name}.txt",
-			want:     []string{"name"},
+			name:    "duplicate placeholders",
+			pattern: "path/{name}/file_{name}.txt",
+			want:    []string{"name"},
 		},
 		{
-			name:     "no placeholders",
-			pattern:  "path/to/file.txt",
-			want:     []string{},
+			name:    "no placeholders",
+			pattern: "path/to/file.txt",
+			want:    []string{},
 		},
 		{
-			name:     "placeholder at start",
-			pattern:  "{root}/path/file.txt",
-			want:     []string{"root"},
+			name:    "placeholder at start",
+			pattern: "{root}/path/file.txt",
+			want:    []string{"root"},
 		},
 		{
-			name:     "placeholder at end",
-			pattern:  "path/to/{filename}",
-			want:     []string{"filename"},
+			name:    "placeholder at end",
+			pattern: "path/to/{filename}",
+			want:    []string{"filename"},
 		},
 	}
 
@@ -440,18 +440,18 @@ func TestPathTemplate_Execute(t *testing.T) {
 
 func TestCollisionResolver_Resolve(t *testing.T) {
 	tests := []struct {
-		name         string
-		basePath     string
+		name          string
+		basePath      string
 		existingPaths map[string]bool
-		want         string
-		wantErr      bool
+		want          string
+		wantErr       bool
 	}{
 		{
-			name:         "no collision",
-			basePath:     "file.txt",
+			name:          "no collision",
+			basePath:      "file.txt",
 			existingPaths: map[string]bool{},
-			want:         "file.txt",
-			wantErr:      false,
+			want:          "file.txt",
+			wantErr:       false,
 		},
 		{
 			name:     "collision - adds suffix _1",

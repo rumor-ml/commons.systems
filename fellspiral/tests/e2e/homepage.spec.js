@@ -32,12 +32,12 @@ test.describe('Homepage', () => {
     await expect(siteTitle).toBeVisible();
     await expect(siteTitle).toContainText('Fellspiral');
 
-    // Check nav links exist (Equipment section removed, Library section added)
+    // Check nav links exist
     const navLinks = [
       { href: '#introduction', text: 'Introduction' },
       { href: '#initiative', text: 'Initiative' },
       { href: '#simulator', text: 'Combat Simulator' },
-      { href: '#examples', text: 'Examples' }
+      { href: '#examples', text: 'Examples' },
     ];
     for (const navLink of navLinks) {
       const link = page.locator(`.sidebar-nav a[href="${navLink.href}"]`);
@@ -78,8 +78,16 @@ test.describe('Homepage', () => {
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 
-    // Check all major sections are present (Equipment sections removed)
-    const sections = ['#introduction', '#initiative', '#simulator', '#examples'];
+    // Check all major sections are present
+    const sections = [
+      '#introduction',
+      '#initiative',
+      '#weapons',
+      '#armor',
+      '#skills',
+      '#simulator',
+      '#examples',
+    ];
     for (const sectionId of sections) {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();
