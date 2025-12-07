@@ -33,6 +33,6 @@ pnpm --dir "${APP_PATH}/site" build
 echo ""
 echo "--- E2E Tests ---"
 cd "${APP_PATH}/tests"
-CI=true npx playwright test --project chromium
+CI=true npx playwright test
 
 echo "Tests passed for $APP_NAME"
