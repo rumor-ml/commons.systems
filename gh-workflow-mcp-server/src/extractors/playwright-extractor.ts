@@ -186,7 +186,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // ✘ N [browser] › file.spec.ts:line › test name (duration)
     // We capture everything up to the optional duration in parentheses
     const failPattern =
-      /^\s*[✘\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
+      /^\s*[\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
 
     for (let i = 0; i < lines.length; i++) {
       const match = lines[i].match(failPattern);
