@@ -1,19 +1,10 @@
 {
   "model": "sonnet",
-  "enabledMcpjsonServers": [
-    "gh-workflow",
-    "gh-issue"
-  ],
+  "enabledMcpjsonServers": ["gh-workflow", "gh-issue"],
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": [
-      "git", 
-      "gh", 
-      "gcloud", 
-      "nix", 
-      "go mod tidy"
-    ]
+    "excludedCommands": ["git", "gh", "gcloud", "nix", "go mod tidy"]
   },
   "permissions": {
     "allow": [

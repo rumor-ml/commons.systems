@@ -73,9 +73,9 @@ func TestTreeRendererEmpty(t *testing.T) {
 func TestIconForAlertType(t *testing.T) {
 	// Test that each event type returns the correct icon
 	testCases := []struct {
-		name          string
-		eventType     string
-		expectedIcon  string
+		name         string
+		eventType    string
+		expectedIcon string
 	}{
 		{"Stop event", watcher.EventTypeStop, StopIcon},
 		{"Permission event", watcher.EventTypePermission, PermissionIcon},

@@ -913,7 +913,15 @@ jobs:
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [local-tests, deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print, playwright-tests]
+    needs:
+      [
+        local-tests,
+        deploy-fellspiral,
+        deploy-videobrowser,
+        deploy-audiobrowser,
+        deploy-print,
+        playwright-tests,
+      ]
     if: always()
 
     steps:

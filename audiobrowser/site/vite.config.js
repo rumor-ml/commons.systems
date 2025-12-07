@@ -4,10 +4,10 @@ export default defineConfig({
   root: 'src',
   build: {
     outDir: '../dist',
-    emptyOutDir: true
+    emptyOutDir: true,
   },
   server: {
     port: 3002,
-    open: true
-  }
+    open: true,
+  },
 });

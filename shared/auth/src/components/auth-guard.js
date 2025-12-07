@@ -15,12 +15,7 @@ import { subscribeToAuthState } from '../auth-state.js';
  * @returns {Function} Unsubscribe function
  */
 export function createAuthGuard(options = {}) {
-  const {
-    element,
-    requireAuth = true,
-    fallback = null,
-    onAuthRequired = null
-  } = options;
+  const { element, requireAuth = true, fallback = null, onAuthRequired = null } = options;
 
   if (!element) {
     throw new Error('AuthGuard requires an element');
@@ -66,9 +61,7 @@ export function createAuthGuard(options = {}) {
  * @returns {Function} Unsubscribe function for all guards
  */
 export function createAuthGuards(elements, options = {}) {
-  const unsubscribers = elements.map((element) =>
-    createAuthGuard({ ...options, element })
-  );
+  const unsubscribers = elements.map((element) => createAuthGuard({ ...options, element }));
 
   // Return function that unsubscribes all
   return () => {
@@ -86,10 +79,8 @@ export function createAuthGuards(elements, options = {}) {
  * @returns {Function} Remove handler function
  */
 export function requireAuth(element, options = {}) {
-  const {
-    onAuthRequired = null,
-    message = 'You must be signed in to perform this action'
-  } = options;
+  const { onAuthRequired = null, message = 'You must be signed in to perform this action' } =
+    options;
 
   let isAuthenticated = false;
 

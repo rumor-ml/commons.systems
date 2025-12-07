@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	alertDir     = "/tmp/claude"
-	alertPrefix  = "tui-alert-"
+	alertDir    = "/tmp/claude"
+	alertPrefix = "tui-alert-"
 
 	// Event type constants - these match the notification matchers in .claude/settings.json
 	// EventTypeStop is written by the Stop hook (existing behavior)

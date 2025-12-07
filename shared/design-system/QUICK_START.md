@@ -16,22 +16,22 @@ pnpm add @commons/design-system
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My App</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My App</title>
 
-  <!-- Import complete design system -->
-  <style>
-    @import '@commons/design-system';
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1 class="text-heading-1">Hello World</h1>
-    <button class="btn btn--primary">Click Me</button>
-  </div>
-</body>
+    <!-- Import complete design system -->
+    <style>
+      @import '@commons/design-system';
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="text-heading-1">Hello World</h1>
+      <button class="btn btn--primary">Click Me</button>
+    </div>
+  </body>
 </html>
 ```
 
@@ -92,22 +92,13 @@ import '@commons/design-system/components/cards';
 ```html
 <div class="form-group">
   <label class="label" for="email">Email</label>
-  <input
-    type="email"
-    class="input"
-    id="email"
-    placeholder="you@example.com"
-  />
+  <input type="email" class="input" id="email" placeholder="you@example.com" />
   <span class="help-text">We'll never share your email.</span>
 </div>
 
 <div class="form-group">
   <label class="label" for="message">Message</label>
-  <textarea
-    class="textarea"
-    id="message"
-    placeholder="Your message..."
-  ></textarea>
+  <textarea class="textarea" id="message" placeholder="Your message..."></textarea>
 </div>
 
 <button class="btn btn--primary">Submit</button>
@@ -121,9 +112,7 @@ import '@commons/design-system/components/cards';
     <h3 class="card__title">Project Name</h3>
     <span class="card__badge">Active</span>
   </div>
-  <div class="card__body">
-    Hover to see the signature 4px lift effect with shadow.
-  </div>
+  <div class="card__body">Hover to see the signature 4px lift effect with shadow.</div>
   <div class="card__footer">
     <button class="btn btn--primary btn--sm">View Details</button>
   </div>
@@ -205,10 +194,7 @@ import designSystemPreset from '@commons/design-system/tailwind/preset';
 
 export default {
   presets: [designSystemPreset],
-  content: [
-    './index.html',
-    './src/**/*.{js,ts,jsx,tsx}',
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       // Your custom extensions
@@ -228,24 +214,30 @@ Then use Tailwind classes with design system tokens:
 ## Signature Effects in Action
 
 ### Cyan Focus Glow (Automatic)
+
 All focusable elements automatically get the cyan glow:
+
 ```html
-<input type="text" class="input" /> <!-- Tab to focus -->
-<button class="btn btn--primary">Button</button> <!-- Tab to focus -->
+<input type="text" class="input" />
+<!-- Tab to focus -->
+<button class="btn btn--primary">Button</button>
+<!-- Tab to focus -->
 ```
 
 ### Button Hover Glow
+
 Primary buttons glow cyan on hover:
+
 ```html
 <button class="btn btn--primary">Hover Me</button>
 ```
 
 ### Card Hover Lift
+
 Interactive cards lift 4px on hover:
+
 ```html
-<div class="card card--interactive">
-  Hover to see lift effect
-</div>
+<div class="card card--interactive">Hover to see lift effect</div>
 ```
 
 ## Demo Page

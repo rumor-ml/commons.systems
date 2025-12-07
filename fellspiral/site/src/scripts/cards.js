@@ -8,7 +8,7 @@ import {
   createCard as createCardInDB,
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
-  importCards as importCardsFromData
+  importCards as importCardsFromData,
 } from './firebase.js';
 
 // Import auth initialization
@@ -26,10 +26,10 @@ const state = {
   filters: {
     type: '',
     subtype: '',
-    search: ''
+    search: '',
   },
   loading: false,
-  error: null
+  error: null,
 };
 
 // Subtype mappings
@@ -38,7 +38,7 @@ const SUBTYPES = {
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
   Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc']
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
 };
 
 // Show error UI with retry option
@@ -108,7 +108,7 @@ async function init() {
         renderCards();
         updateStats();
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
       });
@@ -117,13 +117,10 @@ async function init() {
     console.error('Card Manager init error:', error);
 
     // Show user-friendly error UI
-    showErrorUI(
-      'Failed to initialize Card Manager. Please try again.',
-      () => {
-        document.querySelector('.error-banner')?.remove();
-        init();
-      }
-    );
+    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+      document.querySelector('.error-banner')?.remove();
+      init();
+    });
   }
 }
 
@@ -157,7 +154,9 @@ async function loadCards() {
     state.filteredCards = [...state.cards];
 
     // Show warning to user
-    showWarningBanner('Unable to connect to Firestore. Using local data only. Changes will not be saved.');
+    showWarningBanner(
+      'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
+    );
   }
 }
 
@@ -190,7 +189,7 @@ function setupEventListeners() {
     if (treeSearch) treeSearch.addEventListener('input', handleTreeSearch);
 
     // View mode
-    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    document.querySelectorAll('.view-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
@@ -245,7 +244,7 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
+    navItems.forEach((item) => {
       item.addEventListener('click', () => {
         if (window.innerWidth <= 768) {
           sidebar.classList.remove('active');
@@ -255,11 +254,13 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
-      if (window.innerWidth <= 768 &&
-          document.body.contains(mobileMenuToggle) &&
-          !sidebar.contains(e.target) &&
-          !mobileMenuToggle?.contains(e.target) &&
-          sidebar.classList.contains('active')) {
+      if (
+        window.innerWidth <= 768 &&
+        document.body.contains(mobileMenuToggle) &&
+        !sidebar.contains(e.target) &&
+        !mobileMenuToggle?.contains(e.target) &&
+        sidebar.classList.contains('active')
+      ) {
         sidebar.classList.remove('active');
       }
     });
@@ -281,7 +282,7 @@ function renderTree() {
     treeContainer.innerHTML = renderTreeNodes(tree);
 
     // Attach tree node click handlers
-    treeContainer.querySelectorAll('.tree-node-content').forEach(node => {
+    treeContainer.querySelectorAll('.tree-node-content').forEach((node) => {
       node.addEventListener('click', handleTreeNodeClick);
     });
   } catch (error) {
@@ -293,21 +294,21 @@ function renderTree() {
 function buildTree() {
   const tree = {};
 
-  state.cards.forEach(card => {
+  state.cards.forEach((card) => {
     const type = card.type || 'Unknown';
     const subtype = card.subtype || 'Unknown';
 
     if (!tree[type]) {
       tree[type] = {
         count: 0,
-        subtypes: {}
+        subtypes: {},
       };
     }
 
     if (!tree[type].subtypes[subtype]) {
       tree[type].subtypes[subtype] = {
         count: 0,
-        cards: []
+        cards: [],
       };
     }
 
@@ -323,11 +324,13 @@ function buildTree() {
 function renderTreeNodes(tree) {
   let html = '';
 
-  Object.keys(tree).sort().forEach(type => {
-    const typeData = tree[type];
-    const typeId = `type-${type.toLowerCase()}`;
+  Object.keys(tree)
+    .sort()
+    .forEach((type) => {
+      const typeData = tree[type];
+      const typeId = `type-${type.toLowerCase()}`;
 
-    html += `
+      html += `
       <div class="tree-node" data-level="type" data-value="${type}">
         <div class="tree-node-content" data-node-id="${typeId}">
           <span class="tree-node-toggle">▶</span>
@@ -338,11 +341,13 @@ function renderTreeNodes(tree) {
         <div class="tree-node-children" data-parent="${typeId}">
     `;
 
-    Object.keys(typeData.subtypes).sort().forEach(subtype => {
-      const subtypeData = typeData.subtypes[subtype];
-      const subtypeId = `subtype-${type.toLowerCase()}-${subtype.toLowerCase()}`;
+      Object.keys(typeData.subtypes)
+        .sort()
+        .forEach((subtype) => {
+          const subtypeData = typeData.subtypes[subtype];
+          const subtypeId = `subtype-${type.toLowerCase()}-${subtype.toLowerCase()}`;
 
-      html += `
+          html += `
         <div class="tree-node tree-node-leaf" data-level="subtype" data-type="${type}" data-subtype="${subtype}">
           <div class="tree-node-content" data-node-id="${subtypeId}">
             <span class="tree-node-toggle empty"></span>
@@ -352,13 +357,13 @@ function renderTreeNodes(tree) {
           </div>
         </div>
       `;
-    });
+        });
 
-    html += `
+      html += `
         </div>
       </div>
     `;
-  });
+    });
 
   return html;
 }
@@ -384,7 +389,7 @@ function handleTreeNodeClick(e) {
     }
 
     // Apply selection
-    document.querySelectorAll('.tree-node-content').forEach(n => n.classList.remove('selected'));
+    document.querySelectorAll('.tree-node-content').forEach((n) => n.classList.remove('selected'));
     content.classList.add('selected');
 
     // Filter cards based on selection
@@ -416,7 +421,7 @@ function filterCardsByTree(type, subtype) {
 
 // Expand/collapse all tree nodes
 function expandCollapseAll(expand) {
-  document.querySelectorAll('.tree-node-toggle').forEach(toggle => {
+  document.querySelectorAll('.tree-node-toggle').forEach((toggle) => {
     if (!toggle.classList.contains('empty')) {
       if (expand) {
         toggle.classList.add('expanded');
@@ -426,7 +431,7 @@ function expandCollapseAll(expand) {
     }
   });
 
-  document.querySelectorAll('.tree-node-children').forEach(children => {
+  document.querySelectorAll('.tree-node-children').forEach((children) => {
     if (expand) {
       children.classList.add('expanded');
     } else {
@@ -457,7 +462,7 @@ async function refreshTree() {
 function handleTreeSearch(e) {
   const query = e.target.value.toLowerCase();
 
-  document.querySelectorAll('.tree-node').forEach(node => {
+  document.querySelectorAll('.tree-node').forEach((node) => {
     const label = node.querySelector('.tree-node-label').textContent.toLowerCase();
     const match = label.includes(query);
 
@@ -469,7 +474,7 @@ function handleTreeSearch(e) {
 function setViewMode(mode) {
   state.viewMode = mode;
 
-  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+  document.querySelectorAll('.view-mode-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -497,7 +502,7 @@ function updateSubtypeFilterOptions(type) {
   subtypeSelect.innerHTML = '<option value="">All Subtypes</option>';
 
   if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
+    SUBTYPES[type].forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -505,8 +510,8 @@ function updateSubtypeFilterOptions(type) {
     });
   } else {
     // Show all subtypes from all cards
-    const uniqueSubtypes = [...new Set(state.cards.map(c => c.subtype))].filter(Boolean).sort();
-    uniqueSubtypes.forEach(subtype => {
+    const uniqueSubtypes = [...new Set(state.cards.map((c) => c.subtype))].filter(Boolean).sort();
+    uniqueSubtypes.forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -517,7 +522,7 @@ function updateSubtypeFilterOptions(type) {
 
 // Apply filters
 function applyFilters() {
-  state.filteredCards = state.cards.filter(card => {
+  state.filteredCards = state.cards.filter((card) => {
     // Type filter
     if (state.filters.type && card.type !== state.filters.type) {
       return false;
@@ -533,7 +538,7 @@ function applyFilters() {
       const searchLower = state.filters.search;
       const titleMatch = card.title?.toLowerCase().includes(searchLower);
       const descMatch = card.description?.toLowerCase().includes(searchLower);
-      const tagsMatch = card.tags?.some(tag => tag.toLowerCase().includes(searchLower));
+      const tagsMatch = card.tags?.some((tag) => tag.toLowerCase().includes(searchLower));
 
       if (!titleMatch && !descMatch && !tagsMatch) {
         return false;
@@ -568,7 +573,7 @@ function renderCards() {
 
     // Render cards, skip broken ones
     const renderedCards = [];
-    state.filteredCards.forEach(card => {
+    state.filteredCards.forEach((card) => {
       try {
         renderedCards.push(renderCardItem(card));
       } catch (error) {
@@ -598,9 +603,10 @@ function renderCards() {
 // Render a single card item
 function renderCardItem(card) {
   const tags = Array.isArray(card.tags) ? card.tags : [];
-  const tagsHtml = tags.length > 0
-    ? `<div class="card-item-tags">${tags.map(tag => `<span class="card-tag">${tag}</span>`).join('')}</div>`
-    : '';
+  const tagsHtml =
+    tags.length > 0
+      ? `<div class="card-item-tags">${tags.map((tag) => `<span class="card-tag">${tag}</span>`).join('')}</div>`
+      : '';
 
   return `
     <div class="card-item" data-card-id="${card.id}">
@@ -661,7 +667,9 @@ function openCardEditor(card = null) {
     document.getElementById('cardType').value = card.type || '';
     updateSubtypeOptions();
     document.getElementById('cardSubtype').value = card.subtype || '';
-    document.getElementById('cardTags').value = Array.isArray(card.tags) ? card.tags.join(', ') : '';
+    document.getElementById('cardTags').value = Array.isArray(card.tags)
+      ? card.tags.join(', ')
+      : '';
     document.getElementById('cardDescription').value = card.description || '';
     document.getElementById('cardStat1').value = card.stat1 || '';
     document.getElementById('cardStat2').value = card.stat2 || '';
@@ -691,7 +699,7 @@ function updateSubtypeOptions() {
   subtypeSelect.innerHTML = '<option value="">Select subtype...</option>';
 
   if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
+    SUBTYPES[type].forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -709,11 +717,15 @@ async function handleCardSave(e) {
     title: document.getElementById('cardTitle').value.trim(),
     type: document.getElementById('cardType').value,
     subtype: document.getElementById('cardSubtype').value,
-    tags: document.getElementById('cardTags').value.split(',').map(t => t.trim()).filter(Boolean),
+    tags: document
+      .getElementById('cardTags')
+      .value.split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
     description: document.getElementById('cardDescription').value.trim(),
     stat1: document.getElementById('cardStat1').value.trim(),
     stat2: document.getElementById('cardStat2').value.trim(),
-    cost: document.getElementById('cardCost').value.trim()
+    cost: document.getElementById('cardCost').value.trim(),
   };
 
   try {
@@ -722,7 +734,7 @@ async function handleCardSave(e) {
       await updateCardInDB(id, cardData);
 
       // Update local state
-      const index = state.cards.findIndex(c => c.id === id);
+      const index = state.cards.findIndex((c) => c.id === id);
       if (index !== -1) {
         state.cards[index] = { ...state.cards[index], ...cardData };
       }
@@ -755,7 +767,7 @@ async function deleteCard() {
       await deleteCardInDB(id);
 
       // Remove from local state
-      state.cards = state.cards.filter(c => c.id !== id);
+      state.cards = state.cards.filter((c) => c.id !== id);
 
       closeCardEditor();
       renderTree();
@@ -769,8 +781,8 @@ async function deleteCard() {
 }
 
 // Edit card (called from card item)
-window.editCard = function(cardId) {
-  const card = state.cards.find(c => c.id === cardId);
+window.editCard = function (cardId) {
+  const card = state.cards.find((c) => c.id === cardId);
   if (card) {
     openCardEditor(card);
   }
@@ -795,9 +807,9 @@ async function importCards() {
 
       alert(
         `Import complete!\n` +
-        `Created: ${results.created}\n` +
-        `Updated: ${results.updated}\n` +
-        `Errors: ${results.errors}`
+          `Created: ${results.created}\n` +
+          `Updated: ${results.updated}\n` +
+          `Errors: ${results.errors}`
       );
     } catch (error) {
       console.error('Error importing cards:', error);

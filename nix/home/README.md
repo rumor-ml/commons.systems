@@ -7,6 +7,7 @@ Home Manager is a system for managing user-specific configuration files (dotfile
 ### When to Use Home Manager
 
 Use Home Manager when you want to:
+
 - Version control your dotfiles and configuration
 - Share consistent configuration across multiple machines
 - Take advantage of Nix's declarative configuration approach
@@ -15,6 +16,7 @@ Use Home Manager when you want to:
 ### When NOT to Use Home Manager
 
 You might prefer traditional dotfiles if:
+
 - You want direct, immediate control over config files
 - You're working on a machine where you can't install Home Manager
 - You need to make quick, temporary changes without activating a new configuration
@@ -73,11 +75,13 @@ This Home Manager configuration currently manages:
 To override configuration locally without modifying the repository:
 
 1. Create a local override file:
+
    ```bash
    mkdir -p ~/.config/home-manager
    ```
 
 2. Create `~/.config/home-manager/override.nix`:
+
    ```nix
    { config, pkgs, ... }:
    {
@@ -112,6 +116,7 @@ To modify the shared configuration:
 ### Git
 
 Home Manager **merges** with your existing `~/.gitconfig`:
+
 - Settings defined in `nix/home/git.nix` will be applied
 - Settings in your existing `~/.gitconfig` that aren't overridden will be preserved
 - If there's a conflict, Home Manager settings take precedence
@@ -119,6 +124,7 @@ Home Manager **merges** with your existing `~/.gitconfig`:
 ### Tmux
 
 Home Manager **replaces** your existing `~/.tmux.conf`:
+
 - Your original `~/.tmux.conf` will be backed up
 - All tmux configuration should be defined in `nix/home/tmux.nix`
 - To keep custom settings, add them to `extraConfig` in `tmux.nix`
@@ -150,11 +156,13 @@ nix run .#homeConfigurations.default.activationPackage
 If your git configuration isn't showing up:
 
 1. Check that Home Manager activated successfully:
+
    ```bash
    home-manager switch --flake .#default
    ```
 
 2. Verify the configuration was written:
+
    ```bash
    cat ~/.config/git/config
    ```
@@ -166,10 +174,12 @@ If your git configuration isn't showing up:
 If you have conflicting configuration:
 
 **For Git:**
+
 - Home Manager merges, so conflicts are rare
 - Check `~/.gitconfig` and `~/.config/git/config` for conflicting values
 
 **For Tmux:**
+
 - Home Manager replaces the entire config
 - Move any custom settings from `~/.tmux.conf` to `nix/home/tmux.nix`
 - Your original file will be backed up to `~/.tmux.conf.backup`

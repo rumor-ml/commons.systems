@@ -3,17 +3,17 @@
  * Track a PR through the GitHub merge queue
  */
 
-import { z } from "zod";
-import type { ToolResult } from "../types.js";
+import { z } from 'zod';
+import type { ToolResult } from '../types.js';
 import {
   DEFAULT_MERGE_QUEUE_POLL_INTERVAL,
   DEFAULT_MERGE_QUEUE_TIMEOUT,
   MIN_POLL_INTERVAL,
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
-} from "../constants.js";
-import { resolveRepo, sleep, ghCliJson } from "../utils/gh-cli.js";
-import { TimeoutError, ValidationError, createErrorResult } from "../utils/errors.js";
+} from '../constants.js';
+import { resolveRepo, sleep, ghCliJson } from '../utils/gh-cli.js';
+import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
 
 export const MonitorMergeQueueInputSchema = z
   .object({
@@ -48,9 +48,7 @@ interface PRData {
   mergedAt?: string;
 }
 
-export async function monitorMergeQueue(
-  input: MonitorMergeQueueInput
-): Promise<ToolResult> {
+export async function monitorMergeQueue(input: MonitorMergeQueueInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
     const pollIntervalMs = input.poll_interval_seconds * 1000;
@@ -58,7 +56,7 @@ export async function monitorMergeQueue(
     const startTime = Date.now();
 
     let iterationCount = 0;
-    let lastStatus = "";
+    let lastStatus = '';
     const statusHistory: string[] = [];
 
     while (Date.now() - startTime < timeoutMs) {
@@ -67,20 +65,18 @@ export async function monitorMergeQueue(
       // Get PR details with merge queue information
       const pr = (await ghCliJson(
         [
-          "pr",
-          "view",
+          'pr',
+          'view',
           input.pr_number.toString(),
-          "--json",
-          "number,title,state,url,headRefName,baseRefName,mergeable,mergeStateStatus,mergedAt",
+          '--json',
+          'number,title,state,url,headRefName,baseRefName,mergeable,mergeStateStatus,mergedAt',
         ],
         { repo: resolvedRepo }
       )) as PRData;
 
       // Check if PR is merged
-      if (pr.state === "MERGED" || pr.mergedAt !== null) {
-        const mergedAt = pr.mergedAt
-          ? new Date(pr.mergedAt).toISOString()
-          : "unknown";
+      if (pr.state === 'MERGED' || pr.mergedAt !== null) {
+        const mergedAt = pr.mergedAt ? new Date(pr.mergedAt).toISOString() : 'unknown';
 
         const summary = [
           `PR #${pr.number} Successfully Merged: ${pr.title}`,
@@ -92,15 +88,15 @@ export async function monitorMergeQueue(
           ``,
           `Total monitoring time: ${Math.round((Date.now() - startTime) / 1000)}s`,
           `Checks performed: ${iterationCount}`,
-        ].join("\n");
+        ].join('\n');
 
         return {
-          content: [{ type: "text", text: summary }],
+          content: [{ type: 'text', text: summary }],
         };
       }
 
       // Check if PR is closed without merging
-      if (pr.state.toLowerCase() !== "open") {
+      if (pr.state.toLowerCase() !== 'open') {
         throw new ValidationError(
           `PR #${pr.number} was closed without merging (state: ${pr.state})`
         );
@@ -115,17 +111,15 @@ export async function monitorMergeQueue(
       }
 
       // Check merge state
-      if (pr.mergeStateStatus === "BLOCKED") {
+      if (pr.mergeStateStatus === 'BLOCKED') {
         // Still blocked, keep waiting
         await sleep(pollIntervalMs);
         continue;
       }
 
-      if (pr.mergeStateStatus === "BEHIND") {
+      if (pr.mergeStateStatus === 'BEHIND') {
         // Need to update branch
-        statusHistory.push(
-          `${new Date().toISOString()} - Branch needs update`
-        );
+        statusHistory.push(`${new Date().toISOString()} - Branch needs update`);
         await sleep(pollIntervalMs);
         continue;
       }

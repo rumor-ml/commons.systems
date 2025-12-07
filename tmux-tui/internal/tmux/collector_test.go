@@ -69,9 +69,9 @@ func TestCollectorGetTree(t *testing.T) {
 
 	// Mock git outputs for both repos
 	gitOutputs := map[string]string{
-		"-C /home/user/repo1 rev-parse --git-common-dir": "/home/user/repo1/.git",
+		"-C /home/user/repo1 rev-parse --git-common-dir":  "/home/user/repo1/.git",
 		"-C /home/user/repo1 rev-parse --abbrev-ref HEAD": "main",
-		"-C /home/user/repo2 rev-parse --git-common-dir": "/home/user/repo2/.git",
+		"-C /home/user/repo2 rev-parse --git-common-dir":  "/home/user/repo2/.git",
 		"-C /home/user/repo2 rev-parse --abbrev-ref HEAD": "feature-branch",
 	}
 
@@ -152,9 +152,9 @@ func TestCollectorExcludesPane(t *testing.T) {
 		"%3|@2|1|vim|0|0|/home/user/repo2|vim|host.local|1003\n"
 
 	gitOutputs := map[string]string{
-		"-C /home/user/repo1 rev-parse --git-common-dir": "/home/user/repo1/.git",
+		"-C /home/user/repo1 rev-parse --git-common-dir":  "/home/user/repo1/.git",
 		"-C /home/user/repo1 rev-parse --abbrev-ref HEAD": "main",
-		"-C /home/user/repo2 rev-parse --git-common-dir": "/home/user/repo2/.git",
+		"-C /home/user/repo2 rev-parse --git-common-dir":  "/home/user/repo2/.git",
 		"-C /home/user/repo2 rev-parse --abbrev-ref HEAD": "main",
 	}
 
