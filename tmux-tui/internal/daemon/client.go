@@ -315,6 +315,9 @@ func (c *DaemonClient) RequestBlockPicker(paneID string) error {
 		return fmt.Errorf("failed to send show block picker message: %w", err)
 	}
 	debug.Log("CLIENT_REQUEST_BLOCK_PICKER id=%s paneID=%s", c.clientID, paneID)
+
+	// Wait briefly to ensure daemon processes the message before we disconnect
+	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -329,6 +332,9 @@ func (c *DaemonClient) BlockPane(paneID, branch string) error {
 		return fmt.Errorf("failed to send block pane message: %w", err)
 	}
 	debug.Log("CLIENT_BLOCK_PANE id=%s paneID=%s branch=%s", c.clientID, paneID, branch)
+
+	// Wait briefly to ensure daemon processes the message before we disconnect
+	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -342,5 +348,41 @@ func (c *DaemonClient) UnblockPane(paneID string) error {
 		return fmt.Errorf("failed to send unblock pane message: %w", err)
 	}
 	debug.Log("CLIENT_UNBLOCK_PANE id=%s paneID=%s", c.clientID, paneID)
+
+	// Wait briefly to ensure daemon processes the message before we disconnect
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+// BlockBranch sends a request to block a branch with another branch
+func (c *DaemonClient) BlockBranch(branch, blockedByBranch string) error {
+	msg := Message{
+		Type:          MsgTypeBlockBranch,
+		Branch:        branch,
+		BlockedBranch: blockedByBranch,
+	}
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send block branch message: %w", err)
+	}
+	debug.Log("CLIENT_BLOCK_BRANCH id=%s branch=%s blockedBy=%s", c.clientID, branch, blockedByBranch)
+
+	// Wait briefly to ensure daemon processes the message before we disconnect
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+// UnblockBranch sends a request to unblock a branch
+func (c *DaemonClient) UnblockBranch(branch string) error {
+	msg := Message{
+		Type:   MsgTypeUnblockBranch,
+		Branch: branch,
+	}
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send unblock branch message: %w", err)
+	}
+	debug.Log("CLIENT_UNBLOCK_BRANCH id=%s branch=%s", c.clientID, branch)
+
+	// Wait briefly to ensure daemon processes the message before we disconnect
+	time.Sleep(100 * time.Millisecond)
 	return nil
 }

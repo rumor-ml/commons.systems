@@ -89,11 +89,12 @@ func (p *BranchPicker) Render() string {
 
 	var lines []string
 
-	// Title
-	lines = append(lines, titleStyle.Render("Select branch to block on:"))
+	// Title (fit within 40 cols - 4 for border/padding = 36)
+	title := "Block branch:"
+	lines = append(lines, titleStyle.Render(title))
 
 	// Branch list (limit visible items if too many)
-	maxVisible := 10
+	maxVisible := 8 // Reduced to fit better
 	startIdx := 0
 	endIdx := len(p.branches)
 
@@ -112,8 +113,14 @@ func (p *BranchPicker) Render() string {
 		}
 	}
 
+	// Max branch name length (40 cols - 4 border/padding - 2 for "> " = 34)
+	maxBranchLen := 34
 	for i := startIdx; i < endIdx; i++ {
 		branch := p.branches[i]
+		// Truncate if too long
+		if len(branch) > maxBranchLen {
+			branch = branch[:maxBranchLen-1] + "…"
+		}
 		if i == p.selected {
 			lines = append(lines, selectedItemStyle.Render("> "+branch))
 		} else {
@@ -121,9 +128,9 @@ func (p *BranchPicker) Render() string {
 		}
 	}
 
-	// Help text
-	lines = append(lines, helpStyle.Render("↑/k: up  ↓/j: down  enter: select  esc: cancel"))
+	// Help text (shortened to fit)
+	lines = append(lines, helpStyle.Render("↑/k ↓/j ⏎:ok esc:✗"))
 
 	content := strings.Join(lines, "\n")
-	return pickerStyle.Render(content)
+	return pickerStyle.Width(36).Render(content)
 }

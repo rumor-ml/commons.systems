@@ -32,7 +32,7 @@ func main() {
 	}
 	defer client.Close()
 
-	// Send request to show block picker
+	// Send request to show block picker (includes internal wait for daemon processing)
 	if err := client.RequestBlockPicker(paneID); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to request block picker: %v\n", err)
 		os.Exit(1)

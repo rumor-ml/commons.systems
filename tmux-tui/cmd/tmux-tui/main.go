@@ -29,23 +29,23 @@ type treeRefreshMsg struct {
 }
 
 type model struct {
-	collector      *tmux.Collector
-	renderer       *ui.TreeRenderer
-	daemonClient   *daemon.DaemonClient
-	tree           tmux.RepoTree
-	alerts         map[string]string // Alert state received from daemon: paneID -> eventType
-	alertsMu       *sync.RWMutex     // Protects alerts map from race conditions
-	blockedPanes   map[string]string // Blocked pane state: paneID -> blockedOnBranch
-	blockedMu      *sync.RWMutex     // Protects blocked panes map
-	width          int
-	height         int
-	err            error
-	alertsDisabled bool   // true if daemon connection failed
-	alertError     string // daemon connection error
+	collector       *tmux.Collector
+	renderer        *ui.TreeRenderer
+	daemonClient    *daemon.DaemonClient
+	tree            tmux.RepoTree
+	alerts          map[string]string // Alert state received from daemon: paneID -> eventType
+	alertsMu        *sync.RWMutex     // Protects alerts map from race conditions
+	blockedBranches map[string]string // Blocked branch state: branch -> blockedByBranch
+	blockedMu       *sync.RWMutex     // Protects blocked panes map
+	width           int
+	height          int
+	err             error
+	alertsDisabled  bool   // true if daemon connection failed
+	alertError      string // daemon connection error
 	// Branch picker state
-	pickingBranch  bool             // true when showing branch picker
-	pickingForPane string           // pane ID being blocked
-	branchPicker   *ui.BranchPicker // the picker UI
+	pickingBranch    bool             // true when showing branch picker
+	pickingForBranch string           // branch being blocked
+	branchPicker     *ui.BranchPicker // the picker UI
 }
 
 func initialModel() model {
@@ -80,21 +80,21 @@ func initialModel() model {
 	}
 
 	return model{
-		collector:      collector,
-		renderer:       renderer,
-		daemonClient:   daemonClient,
-		tree:           tree,
-		alerts:         make(map[string]string),
-		alertsMu:       &sync.RWMutex{},
-		blockedPanes:   make(map[string]string),
-		blockedMu:      &sync.RWMutex{},
-		width:          80,
-		height:         24,
-		err:            err,
-		alertsDisabled: alertsDisabled,
-		alertError:     alertError,
-		pickingBranch:  false,
-		branchPicker:   ui.NewBranchPicker([]string{}, 80, 24),
+		collector:       collector,
+		renderer:        renderer,
+		daemonClient:    daemonClient,
+		tree:            tree,
+		alerts:          make(map[string]string),
+		alertsMu:        &sync.RWMutex{},
+		blockedBranches: make(map[string]string),
+		blockedMu:       &sync.RWMutex{},
+		width:           80,
+		height:          24,
+		err:             err,
+		alertsDisabled:  alertsDisabled,
+		alertError:      alertError,
+		pickingBranch:   false,
+		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
 	}
 }
 
@@ -133,20 +133,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.branchPicker.MoveDown()
 				return m, nil
 			case "enter":
-				// Confirm selection - send block request
+				// Confirm selection - send block request for branch
 				selectedBranch := m.branchPicker.Selected()
-				if selectedBranch != "" && m.daemonClient != nil {
-					if err := m.daemonClient.BlockPane(m.pickingForPane, selectedBranch); err != nil {
-						fmt.Fprintf(os.Stderr, "Error blocking pane: %v\n", err)
+				if selectedBranch != "" && m.daemonClient != nil && m.pickingForBranch != "" {
+					if err := m.daemonClient.BlockBranch(m.pickingForBranch, selectedBranch); err != nil {
+						fmt.Fprintf(os.Stderr, "Error blocking branch: %v\n", err)
 					}
 				}
 				m.pickingBranch = false
-				m.pickingForPane = ""
+				m.pickingForBranch = ""
 				return m, nil
 			case "esc":
 				// Cancel picker
 				m.pickingBranch = false
-				m.pickingForPane = ""
+				m.pickingForBranch = ""
 				return m, nil
 			}
 			return m, nil
@@ -168,7 +168,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle daemon event
 		switch msg.msg.Type {
 		case daemon.MsgTypeFullState:
-			// Full state received - update alerts and blocked panes
+			// Full state received - update alerts and blocked branches
 			m.alertsMu.Lock()
 			if msg.msg.Alerts != nil {
 				m.alerts = msg.msg.Alerts
@@ -178,14 +178,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.alertsMu.Unlock()
 
 			m.blockedMu.Lock()
-			if msg.msg.BlockedPanes != nil {
-				m.blockedPanes = msg.msg.BlockedPanes
+			if msg.msg.BlockedBranches != nil {
+				m.blockedBranches = msg.msg.BlockedBranches
 			} else {
-				m.blockedPanes = make(map[string]string)
+				m.blockedBranches = make(map[string]string)
 			}
 			m.blockedMu.Unlock()
 
-			debug.Log("TUI_DAEMON_STATE alerts=%d blocked=%d", len(msg.msg.Alerts), len(msg.msg.BlockedPanes))
+			debug.Log("TUI_DAEMON_STATE alerts=%d blocked=%d", len(msg.msg.Alerts), len(msg.msg.BlockedBranches))
 			// Trigger tree refresh to update UI
 			if m.daemonClient != nil {
 				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
@@ -223,15 +223,59 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case daemon.MsgTypeShowBlockPicker:
-			// Show branch picker for specified pane
+			// Show branch picker for specified pane (or toggle off if already blocked)
 			debug.Log("TUI_SHOW_PICKER paneID=%s", msg.msg.PaneID)
-			m.pickingForPane = msg.msg.PaneID
 
-			// Extract all unique branches from tree
+			// Find which branch this pane is on
+			var currentBranch string
+			for _, branches := range m.tree {
+				for branch, panes := range branches {
+					for _, pane := range panes {
+						if pane.ID == msg.msg.PaneID {
+							currentBranch = branch
+							break
+						}
+					}
+					if currentBranch != "" {
+						break
+					}
+				}
+				if currentBranch != "" {
+					break
+				}
+			}
+
+			// Check if this branch is already blocked - if so, unblock it (toggle)
+			m.blockedMu.RLock()
+			_, isBlocked := m.blockedBranches[currentBranch]
+			m.blockedMu.RUnlock()
+
+			if isBlocked {
+				// Branch is already blocked - toggle it off
+				debug.Log("TUI_TOGGLE_UNBLOCK branch=%s", currentBranch)
+				if m.daemonClient != nil {
+					if err := m.daemonClient.UnblockBranch(currentBranch); err != nil {
+						fmt.Fprintf(os.Stderr, "Error unblocking branch: %v\n", err)
+					}
+				}
+				// Continue watching daemon
+				if m.daemonClient != nil {
+					return m, watchDaemonCmd(m.daemonClient)
+				}
+				return m, nil
+			}
+
+			// Branch is not blocked - show picker to block it
+			m.pickingForBranch = currentBranch
+
+			// Extract all unique branches from tree (excluding current branch)
 			branchSet := make(map[string]bool)
 			for _, branches := range m.tree {
 				for branch := range branches {
-					branchSet[branch] = true
+					// A branch cannot block itself
+					if branch != currentBranch {
+						branchSet[branch] = true
+					}
 				}
 			}
 			branches := make([]string, 0, len(branchSet))
@@ -260,17 +304,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case daemon.MsgTypeBlockChange:
-			// Block state changed for a pane
-			debug.Log("TUI_BLOCK_CHANGE paneID=%s branch=%s blocked=%v",
-				msg.msg.PaneID, msg.msg.BlockedBranch, msg.msg.Blocked)
+			// Block state changed for a branch
+			debug.Log("TUI_BLOCK_CHANGE branch=%s blockedBy=%s blocked=%v",
+				msg.msg.Branch, msg.msg.BlockedBranch, msg.msg.Blocked)
 
 			m.blockedMu.Lock()
 			if msg.msg.Blocked {
-				m.blockedPanes[msg.msg.PaneID] = msg.msg.BlockedBranch
+				m.blockedBranches[msg.msg.Branch] = msg.msg.BlockedBranch
 			} else {
-				delete(m.blockedPanes, msg.msg.PaneID)
+				delete(m.blockedBranches, msg.msg.Branch)
 			}
 			m.blockedMu.Unlock()
+
+			// Close picker in all TUI windows when a block is confirmed
+			if m.pickingBranch {
+				m.pickingBranch = false
+				m.pickingForBranch = ""
+			}
 
 			// Continue watching daemon
 			if m.daemonClient != nil {
@@ -372,10 +422,14 @@ func (m model) View() string {
 
 	m.blockedMu.RLock()
 	blockedCopy := make(map[string]string)
-	for k, v := range m.blockedPanes {
+	for k, v := range m.blockedBranches {
 		blockedCopy[k] = v
 	}
 	m.blockedMu.RUnlock()
+
+	if len(blockedCopy) > 0 {
+		debug.Log("TUI_VIEW_RENDER blockedBranches=%v", blockedCopy)
+	}
 
 	output := m.renderer.Render(m.tree, alertsCopy, blockedCopy)
 

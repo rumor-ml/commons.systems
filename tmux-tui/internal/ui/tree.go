@@ -93,7 +93,7 @@ func (r *TreeRenderer) RenderHeader() string {
 }
 
 // Render converts a RepoTree into a formatted tree string
-func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string, blockedPanes map[string]string) string {
+func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string, blockedBranches map[string]string) string {
 	if tree == nil || len(tree) == 0 {
 		return "No panes found in current tmux session"
 	}
@@ -109,7 +109,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 
 	for i, repo := range repos {
 		isLastRepo := i == len(repos)-1
-		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts, blockedPanes)...)
+		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts, blockedBranches)...)
 		// Add blank line separator between repos for visual clarity
 		if !isLastRepo {
 			lines = append(lines, "")
@@ -132,21 +132,17 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 	return strings.Join(lines, "\n")
 }
 
-func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string, blockedPanes map[string]string) []string {
+func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string, blockedBranches map[string]string) []string {
 	var lines []string
 	lines = append(lines, repoStyle.Render(repoName))
 
-	// Calculate blocked counts per branch
+	// Calculate blocked counts: how many branches are blocked BY each branch
 	blockedCounts := make(map[string]int)
-	for paneID, blockedBranch := range blockedPanes {
-		// Find which branch this pane belongs to in this repo
-		for _, panes := range branches {
-			for _, pane := range panes {
-				if pane.ID == paneID {
-					// Count this pane as blocked for the branch it's blocked on (not its current branch)
-					blockedCounts[blockedBranch]++
-					break
-				}
+	for blockedBranch, blockerBranch := range blockedBranches {
+		// Only count if both branches exist in this repo
+		if _, blocked := branches[blockedBranch]; blocked {
+			if _, blocker := branches[blockerBranch]; blocker {
+				blockedCounts[blockerBranch]++
 			}
 		}
 	}
@@ -174,26 +170,43 @@ func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pa
 			childPrefix = Space
 		}
 
-		// Format branch name with blocked count if > 0
-		branchDisplay := branch
+		// Check if this branch is blocked
+		_, isBranchBlocked := blockedBranches[branch]
+
+		// Add branch name (muted if blocked)
+		branchLine := branchPrefix + branch
+		if isBranchBlocked {
+			branchLine = blockedStyle.Render(branchLine)
+		}
+		lines = append(lines, branchLine)
+
+		// Add blocked count on separate line if > 0
 		if count := blockedCounts[branch]; count > 0 {
-			branchDisplay = fmt.Sprintf("%s (%d blocked)", branch, count)
+			countText := fmt.Sprintf("%d branches blocked", count)
+			lines = append(lines, childPrefix+countText)
 		}
 
-		lines = append(lines, branchPrefix+branchDisplay)
-		lines = append(lines, r.renderPanes(branches[branch], childPrefix, claudeAlerts, blockedPanes)...)
+		// Add panes
+		lines = append(lines, r.renderPanes(branches[branch], childPrefix, claudeAlerts, blockedBranches, branch)...)
 	}
 
 	return lines
 }
 
-func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]string, blockedPanes map[string]string) []string {
+func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]string, blockedBranches map[string]string, currentBranch string) []string {
 	var lines []string
 
 	// Sort panes by window index for consistent output
 	sort.Slice(panes, func(i, j int) bool {
 		return panes[i].WindowIndex < panes[j].WindowIndex
 	})
+
+	// Check if the entire branch is blocked
+	_, isBranchBlocked := blockedBranches[currentBranch]
+	if isBranchBlocked {
+		debug.Log("TUI_RENDER_BRANCH_BLOCKED branch=%s blockedBy=%s paneCount=%d",
+			currentBranch, blockedBranches[currentBranch], len(panes))
+	}
 
 	for i, pane := range panes {
 		isLastPane := i == len(panes)-1
@@ -202,17 +215,14 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 			panePrefix = LastItem
 		}
 
-		// Check if pane is blocked
-		_, isBlocked := blockedPanes[pane.ID]
-
 		// Build window number portion separately
 		windowNumber := fmt.Sprintf("%d:", pane.WindowIndex)
 
 		// Determine if bell should be shown and get alert type
-		// Blocked panes should NOT show bell/idle highlighting
+		// Blocked branches should NOT show bell/idle highlighting
 		var showBell bool
 		var alertType string
-		if !isBlocked {
+		if !isBranchBlocked {
 			if pane.IsClaudePane {
 				// For Claude panes, use persistent alert state
 				alertType, showBell = claudeAlerts[pane.ID]
@@ -241,8 +251,8 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		line := prefix + panePrefix + windowNumber + commandTitle
 
 		// Apply appropriate styling
-		if isBlocked {
-			// Blocked panes get muted gray style
+		if isBranchBlocked {
+			// Blocked branches get muted gray style for all panes
 			line = blockedStyle.Render(line)
 		} else if pane.WindowActive {
 			// Active panes get active style with full width
