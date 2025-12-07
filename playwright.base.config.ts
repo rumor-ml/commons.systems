@@ -13,6 +13,8 @@ export interface SiteConfig {
   env?: Record<string, string>;
   timeout?: number;
   expect?: { timeout?: number };
+  globalSetup?: string;
+  globalTeardown?: string;
 }
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
@@ -34,6 +36,8 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     retries: process.env.CI ? 1 : 0,
     workers: process.env.CI ? 4 : undefined,
     timeout: site.timeout || 60000,
+    globalSetup: site.globalSetup,
+    globalTeardown: site.globalTeardown,
 
     reporter: process.env.CI
       ? [['json']]  // JSON to stdout in CI

@@ -2,35 +2,43 @@
 set -euo pipefail
 
 # Stop Firebase emulators
-# This script kills the emulator processes and cleans up temp files
+# WARNING: Emulators are SHARED across all worktrees!
+# Stopping them will affect all active worktrees.
 
-PID_FILE="/tmp/claude/firebase-emulators.pid"
+SHARED_PID_FILE="/tmp/claude/firebase-emulators.pid"
+SHARED_LOG_FILE="/tmp/claude/firebase-emulators.log"
 
-if [ ! -f "$PID_FILE" ]; then
-  echo "No emulator PID file found at ${PID_FILE}"
+echo "⚠️  WARNING: Emulators are shared across all worktrees!"
+echo "   Stopping them will affect all active worktrees."
+echo ""
+
+if [ ! -f "$SHARED_PID_FILE" ]; then
+  echo "No emulator PID file found at ${SHARED_PID_FILE}"
   echo "Emulators may not be running or were started manually."
   exit 0
 fi
 
-EMULATOR_PID=$(cat "$PID_FILE")
+EMULATOR_PID=$(cat "$SHARED_PID_FILE")
 
-echo "Stopping Firebase emulators (PID: ${EMULATOR_PID})..."
+echo "Stopping shared Firebase emulators (PID: ${EMULATOR_PID})..."
 
 # Kill the emulator process
 if kill "$EMULATOR_PID" 2>/dev/null; then
-  echo "Successfully stopped emulator process ${EMULATOR_PID}"
+  echo "✓ Successfully stopped emulator process ${EMULATOR_PID}"
 else
-  echo "Process ${EMULATOR_PID} not found (may have already stopped)"
+  echo "⚠️  Process ${EMULATOR_PID} not found (may have already stopped)"
 fi
 
 # Clean up PID file
-rm -f "$PID_FILE"
-echo "Cleaned up PID file"
+rm -f "$SHARED_PID_FILE"
+echo "✓ Cleaned up PID file"
 
 # Clean up log file
-if [ -f "/tmp/claude/emulators.log" ]; then
-  rm -f /tmp/claude/emulators.log
-  echo "Cleaned up log file"
+if [ -f "$SHARED_LOG_FILE" ]; then
+  rm -f "$SHARED_LOG_FILE"
+  echo "✓ Cleaned up log file"
 fi
 
-echo "Firebase emulators stopped successfully"
+echo ""
+echo "✓ Firebase emulators stopped successfully"
+echo "  All worktrees are now disconnected from emulators"

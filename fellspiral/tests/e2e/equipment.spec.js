@@ -3,8 +3,10 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 test.describe('Equipment Section', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/#weapons');
-    // Wait for JavaScript to load
-    await page.waitForLoadState('networkidle');
+    // Wait for DOM to load (networkidle may not fire due to library nav activity)
+    await page.waitForLoadState('domcontentloaded');
+    // Wait for equipment section to be visible
+    await page.waitForSelector('#weapons', { timeout: 5000 });
   });
 
   test('should display all equipment sections', async ({ page }) => {

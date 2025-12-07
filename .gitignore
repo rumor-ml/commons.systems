@@ -73,3 +73,5 @@ commondir
 gitdir
 index
 index.lock
+firebase.emulator.json
+firebase.json.backup

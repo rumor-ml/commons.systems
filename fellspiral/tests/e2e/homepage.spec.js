@@ -32,13 +32,10 @@ test.describe('Homepage', () => {
     await expect(siteTitle).toBeVisible();
     await expect(siteTitle).toContainText('Fellspiral');
 
-    // Check nav links exist using href selectors to avoid ambiguity
+    // Check nav links exist (Equipment section removed, Library section added)
     const navLinks = [
       { href: '#introduction', text: 'Introduction' },
       { href: '#initiative', text: 'Initiative' },
-      { href: '#weapons', text: 'Weapons' },
-      { href: '#armor', text: 'Armor' },
-      { href: '#skills', text: 'Skills' },
       { href: '#simulator', text: 'Combat Simulator' },
       { href: '#examples', text: 'Examples' }
     ];
@@ -58,30 +55,31 @@ test.describe('Homepage', () => {
     await expect(initiativeSection).toBeInViewport();
   });
 
-  test('should have Card Manager link in sidebar', async ({ page }) => {
+  test('should have Library section in sidebar', async ({ page }) => {
     await page.goto('/');
 
     // Wait for sidebar navigation to be ready
     await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
 
-    // Check Card Manager link exists
-    const cardManagerLink = page.locator('.sidebar-nav a[href="/cards.html"]');
-    await expect(cardManagerLink).toBeVisible();
-    await expect(cardManagerLink).toContainText('Card Manager');
+    // Library section should exist
+    const librarySection = page.locator('.nav-section-library');
+    await expect(librarySection).toBeVisible();
 
-    // Click Card Manager link
-    await cardManagerLink.click();
+    // Library section toggle should be present
+    const librarySectionToggle = page.locator('.nav-section-title[data-section="library"]');
+    await expect(librarySectionToggle).toBeVisible();
+    await expect(librarySectionToggle).toContainText('Library');
 
-    // Should navigate to cards page (Firebase cleanUrls strips .html extension in deployed environment)
-    await page.waitForURL(/\/cards(\.html)?/);
-    await expect(page.url()).toMatch(/\/cards(\.html)?$/);
+    // Library nav container should exist
+    const libraryNavContainer = page.locator('#libraryNavContainer');
+    await expect(libraryNavContainer).toBeVisible();
   });
 
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 
-    // Check all major sections are present
-    const sections = ['#introduction', '#initiative', '#weapons', '#armor', '#skills', '#simulator', '#examples'];
+    // Check all major sections are present (Equipment sections removed)
+    const sections = ['#introduction', '#initiative', '#simulator', '#examples'];
     for (const sectionId of sections) {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();
@@ -120,8 +118,12 @@ test.describe('Homepage', () => {
       await toggle.click();
       await expect(sidebar).toHaveClass(/active/);
 
-      // Click on main content area
-      await page.locator('#introduction h1').click();
+      // Click outside the sidebar using mouse coordinates (right side of screen)
+      await page.mouse.click(350, 200);
+
+      // Wait a bit for the click handler to process
+      await page.waitForTimeout(100);
+
       await expect(sidebar).not.toHaveClass(/active/);
     });
   });

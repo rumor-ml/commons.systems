@@ -72,6 +72,9 @@ importers:
       '@playwright/test':
         specifier: ^1.40.0
         version: 1.57.0
+      firebase-admin:
+        specifier: ^12.0.0
+        version: 12.7.0
       http-server:
         specifier: ^14.1.1
         version: 14.1.1
