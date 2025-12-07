@@ -72,7 +72,7 @@ export const test = base.extend<AuthFixtures>({
       await page.evaluate(() => {
         // Clear all Firebase auth keys from localStorage
         const keys = Object.keys(localStorage);
-        keys.forEach(key => {
+        keys.forEach((key) => {
           if (key.startsWith('firebase:authUser:')) {
             localStorage.removeItem(key);
           }
