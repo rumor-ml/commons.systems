@@ -67,15 +67,16 @@ func playAlertSound() {
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
-	alertWatcher  *watcher.AlertWatcher
-	alerts        map[string]string // Current alert state: paneID -> eventType
-	previousState map[string]string // Previous state for bell firing logic
-	alertsMu      sync.RWMutex
-	clients       map[string]*clientConnection
-	clientsMu     sync.RWMutex
-	listener      net.Listener
-	done          chan struct{}
-	socketPath    string
+	alertWatcher     *watcher.AlertWatcher
+	paneFocusWatcher *watcher.PaneFocusWatcher
+	alerts           map[string]string // Current alert state: paneID -> eventType
+	previousState    map[string]string // Previous state for bell firing logic
+	alertsMu         sync.RWMutex
+	clients          map[string]*clientConnection
+	clientsMu        sync.RWMutex
+	listener         net.Listener
+	done             chan struct{}
+	socketPath       string
 }
 
 // loadExistingAlertsWithRetry attempts to load existing alerts with exponential backoff
@@ -126,23 +127,32 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		return nil, fmt.Errorf("failed to create alert watcher: %w", err)
 	}
 
+	// Create pane focus watcher with same directory
+	paneFocusWatcher, err := watcher.NewPaneFocusWatcher(watcher.WithPaneFocusDir(alertDir))
+	if err != nil {
+		alertWatcher.Close()
+		return nil, fmt.Errorf("failed to create pane focus watcher: %w", err)
+	}
+
 	// Load existing alerts with retry
 	const maxLoadRetries = 3
 	existingAlerts, err := loadExistingAlertsWithRetry(alertDir, maxLoadRetries)
 	if err != nil {
 		alertWatcher.Close()
+		paneFocusWatcher.Close()
 		return nil, fmt.Errorf("failed to recover alert state: %w", err)
 	}
 
 	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d", alertDir, socketPath, len(existingAlerts))
 
 	return &AlertDaemon{
-		alertWatcher:  alertWatcher,
-		alerts:        existingAlerts,
-		previousState: make(map[string]string),
-		clients:       make(map[string]*clientConnection),
-		done:          make(chan struct{}),
-		socketPath:    socketPath,
+		alertWatcher:     alertWatcher,
+		paneFocusWatcher: paneFocusWatcher,
+		alerts:           existingAlerts,
+		previousState:    make(map[string]string),
+		clients:          make(map[string]*clientConnection),
+		done:             make(chan struct{}),
+		socketPath:       socketPath,
 	}, nil
 }
 
@@ -164,6 +174,9 @@ func (d *AlertDaemon) Start() error {
 
 	// Start alert watcher
 	go d.watchAlerts()
+
+	// Start pane focus watcher
+	go d.watchPaneFocus()
 
 	// Accept client connections
 	go d.acceptClients()
@@ -193,6 +206,42 @@ func (d *AlertDaemon) watchAlerts() {
 			d.handleAlertEvent(event)
 		}
 	}
+}
+
+// watchPaneFocus monitors the pane focus watcher for events.
+func (d *AlertDaemon) watchPaneFocus() {
+	focusCh := d.paneFocusWatcher.Start()
+
+	for {
+		select {
+		case <-d.done:
+			return
+		case event, ok := <-focusCh:
+			if !ok {
+				debug.Log("DAEMON_PANE_WATCHER_STOPPED")
+				return
+			}
+
+			if event.Error != nil {
+				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v", event.Error)
+				continue
+			}
+
+			d.handlePaneFocusEvent(event)
+		}
+	}
+}
+
+// handlePaneFocusEvent processes a pane focus event and broadcasts to clients.
+func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
+	debug.Log("DAEMON_PANE_FOCUS_EVENT paneID=%s", event.PaneID)
+
+	// Broadcast to all clients
+	msg := Message{
+		Type:         MsgTypePaneFocus,
+		ActivePaneID: event.PaneID,
+	}
+	d.broadcast(msg)
 }
 
 // handleAlertEvent processes an alert event and broadcasts to clients.
@@ -369,6 +418,11 @@ func (d *AlertDaemon) Stop() error {
 	// Close alert watcher
 	if d.alertWatcher != nil {
 		d.alertWatcher.Close()
+	}
+
+	// Close pane focus watcher
+	if d.paneFocusWatcher != nil {
+		d.paneFocusWatcher.Close()
 	}
 
 	// Close all client connections

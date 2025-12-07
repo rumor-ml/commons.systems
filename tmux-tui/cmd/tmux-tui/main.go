@@ -143,6 +143,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case daemon.MsgTypePaneFocus:
+			// Pane focus changed - update active pane
+			debug.Log("TUI_PANE_FOCUS paneID=%s", msg.msg.ActivePaneID)
+			m.updateActivePane(msg.msg.ActivePaneID)
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
 		case daemon.MsgTypeAlertChange:
 			// Single alert changed
 			debug.Log("TUI_DAEMON_ALERT paneID=%s eventType=%s created=%v",
@@ -313,6 +322,21 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// updateActivePane updates the WindowActive flag across all panes in the tree.
+func (m *model) updateActivePane(activePaneID string) {
+	if m.tree == nil {
+		return
+	}
+
+	for _, branches := range m.tree {
+		for _, panes := range branches {
+			for i := range panes {
+				panes[i].WindowActive = (panes[i].ID == activePaneID)
+			}
+		}
+	}
 }
 
 func timeTickCmd() tea.Cmd {
