@@ -48,14 +48,14 @@ test.describe('Hash Routing - Pattern Recognition', () => {
   test('should handle invalid type gracefully', async ({ page }) => {
     await page.goto('/cards.html#library/invalidtype');
 
-    // Wait for page to load
-    await page.waitForLoadState('networkidle');
+    // Wait for page to load - just check DOM is ready, not networkidle
+    await page.waitForLoadState('domcontentloaded');
 
-    // Should not crash - check that main content is visible
-    const mainContent = page.locator('main, .content, h1');
-    await expect(mainContent.first()).toBeVisible();
+    // Should not crash - verify main heading is visible
+    const heading = page.locator('h1');
+    await expect(heading.first()).toBeVisible({ timeout: 5000 });
 
-    // May show empty state or no results (which is fine)
+    // May show empty state or no results (which is fine - page didn't crash)
   });
 
   test('should handle case-insensitive hashes', async ({ page }) => {

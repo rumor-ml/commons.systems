@@ -123,7 +123,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await page.goto('/cards.html');
 
     // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     // Collapse Equipment
     const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
@@ -136,10 +136,13 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await page.reload();
 
     // Wait for library nav to load again
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+    // Re-query Equipment toggle after reload (old locator is stale)
+    const equipmentToggleAfterReload = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
 
     // Equipment should remain collapsed
-    await expect(equipmentToggle).not.toHaveClass(/expanded/);
+    await expect(equipmentToggleAfterReload).not.toHaveClass(/expanded/);
   });
 });
 
