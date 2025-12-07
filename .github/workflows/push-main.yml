@@ -311,29 +311,7 @@ jobs:
 
       - name: Get deployment URL
         id: site-url
-        run: |
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
@@ -436,29 +414,7 @@ jobs:
 
       - name: Get deployment URL
         id: site-url
-        run: |
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
@@ -561,29 +517,7 @@ jobs:
 
       - name: Get deployment URL
         id: site-url
-        run: |
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
@@ -686,29 +620,7 @@ jobs:
 
       - name: Get deployment URL
         id: site-url
-        run: |
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
