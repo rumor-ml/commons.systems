@@ -12,9 +12,7 @@ import cardsData from '../data/cards.json';
  */
 export class LibraryNav {
   constructor(container, options = {}) {
-    this.container = typeof container === 'string'
-      ? document.querySelector(container)
-      : container;
+    this.container = typeof container === 'string' ? document.querySelector(container) : container;
 
     if (!this.container) {
       throw new Error('Library nav container not found');
@@ -23,7 +21,7 @@ export class LibraryNav {
     this.options = {
       onNavigate: options.onNavigate || (() => {}),
       storageKey: options.storageKey || 'fellspiral-library-nav-state',
-      ...options
+      ...options,
     };
 
     this.cards = [];
@@ -59,20 +57,20 @@ export class LibraryNav {
   buildTree() {
     this.tree = {};
 
-    this.cards.forEach(card => {
+    this.cards.forEach((card) => {
       const type = card.type || 'Unknown';
       const subtype = card.subtype || 'Unknown';
 
       if (!this.tree[type]) {
         this.tree[type] = {
           count: 0,
-          subtypes: {}
+          subtypes: {},
         };
       }
 
       if (!this.tree[type].subtypes[subtype]) {
         this.tree[type].subtypes[subtype] = {
-          count: 0
+          count: 0,
         };
       }
 
@@ -101,7 +99,7 @@ export class LibraryNav {
     // Sort types alphabetically
     const sortedTypes = Object.keys(this.tree).sort();
 
-    sortedTypes.forEach(type => {
+    sortedTypes.forEach((type) => {
       const typeElement = this.createTypeElement(type);
       this.container.appendChild(typeElement);
     });
@@ -152,7 +150,7 @@ export class LibraryNav {
     // Sort subtypes alphabetically
     const sortedSubtypes = Object.keys(typeData.subtypes).sort();
 
-    sortedSubtypes.forEach(subtype => {
+    sortedSubtypes.forEach((subtype) => {
       const subtypeElement = this.createSubtypeElement(type, subtype);
       subtypesDiv.appendChild(subtypeElement);
     });
@@ -207,7 +205,7 @@ export class LibraryNav {
 
     // Type clicks - expand/collapse AND navigate
     const typeToggles = this.container.querySelectorAll('.library-nav-type > .library-nav-toggle');
-    typeToggles.forEach(toggle => {
+    typeToggles.forEach((toggle) => {
       toggle.addEventListener('click', (e) => {
         const typeDiv = toggle.closest('.library-nav-type');
         const type = typeDiv.dataset.type;
@@ -223,7 +221,7 @@ export class LibraryNav {
 
     // Subtype clicks - navigate only (no children to expand)
     const subtypeItems = this.container.querySelectorAll('.library-nav-subtype-item');
-    subtypeItems.forEach(item => {
+    subtypeItems.forEach((item) => {
       item.addEventListener('click', (e) => {
         const subtypeDiv = item.closest('.library-nav-subtype');
         const type = subtypeDiv.dataset.type;
@@ -337,7 +335,7 @@ export async function initLibraryNav() {
         }
         window.location.href = `/cards.html${hash}`;
       }
-    }
+    },
   });
 
   await libraryNav.init();
