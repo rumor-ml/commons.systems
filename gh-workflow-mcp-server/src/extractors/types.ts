@@ -8,6 +8,7 @@ export interface DetectionResult {
   framework: TestFramework;
   confidence: 'high' | 'medium' | 'low';
   isJsonOutput: boolean;
+  isTimeout?: boolean;
 }
 
 export interface ExtractedError {

@@ -16,6 +16,7 @@ import {
 } from '../utils/gh-cli.js';
 import { ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
 import { extractErrors, formatExtractionResult } from '../extractors/index.js';
+import { extractStepLogs, stripLogMetadata } from '../utils/log-filtering.js';
 
 export const GetFailureDetailsInputSchema = z
   .object({
@@ -224,8 +225,14 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         if (failedStepNames.length > 0) {
           // Extract errors for each failed step
           for (const stepName of failedStepNames) {
-            const extraction = extractErrors(logs, 10);
+            // Filter logs to just this step to reduce noise
+            const stepLogs = extractStepLogs(logs, stepName, 0);
+            const cleanLogs = stripLogMetadata(stepLogs);
+
+            // Extract errors from step-specific logs
+            const extraction = extractErrors(cleanLogs, 10);
             const errorLines = formatExtractionResult(extraction);
+
             failedSteps.push({
               name: stepName,
               conclusion: 'failure',
@@ -240,8 +247,9 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             if (totalChars > input.max_chars) break;
           }
         } else {
-          // No step info, just extract general errors
-          const extraction = extractErrors(logs, 15);
+          // No step info, just extract general errors from full logs
+          const cleanLogs = stripLogMetadata(logs);
+          const extraction = extractErrors(cleanLogs, 15);
           const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
             name: 'General failure',
