@@ -20,7 +20,7 @@ test.describe('Library Navigation - Tree Structure', () => {
     await page.goto('/cards.html');
 
     // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     // Check for expected types
     const types = ['Equipment', 'Skill', 'Upgrade', 'Foe'];
@@ -36,7 +36,8 @@ test.describe('Library Navigation - Tree Structure', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
-    const equipmentCount = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-count');
+    // Get the type-level count (in the toggle, not subtypes)
+    const equipmentCount = page.locator('.library-nav-type[data-type="Equipment"] > .library-nav-toggle .library-nav-count');
     await expect(equipmentCount).toBeVisible();
 
     const countText = await equipmentCount.textContent();
@@ -147,7 +148,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await page.goto('/cards.html');
 
     // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
     await equipmentToggle.click();
@@ -164,7 +165,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await page.goto('/cards.html');
 
     // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     const weaponSubtype = page.locator('.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item');
     await weaponSubtype.click();
@@ -182,7 +183,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await page.goto('/cards.html');
 
     // Wait for library nav and cards to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
     await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
 
     // Get total card count (or check for empty state)

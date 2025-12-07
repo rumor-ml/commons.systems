@@ -978,6 +978,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize library navigation
   initLibraryNav();
 
+  // Nav section toggle handlers
+  const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
+  navSectionToggles.forEach(toggle => {
+    toggle.addEventListener('click', () => {
+      toggle.classList.toggle('expanded');
+    });
+  });
+
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const sidebar = document.getElementById('sidebar');

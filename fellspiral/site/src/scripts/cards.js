@@ -32,7 +32,8 @@ const state = {
     search: ''
   },
   loading: false,
-  error: null
+  error: null,
+  updatingFromHash: false // Flag to prevent hash update loops
 };
 
 // Subtype mappings
@@ -325,6 +326,9 @@ function handleHashChange() {
   const filterType = document.getElementById('filterType');
   const filterSubtype = document.getElementById('filterSubtype');
 
+  // Set flag to prevent hash update loop
+  state.updatingFromHash = true;
+
   if (filterType) {
     filterType.value = state.filters.type;
     updateSubtypeFilterOptions(state.filters.type);
@@ -333,6 +337,9 @@ function handleHashChange() {
   if (filterSubtype) {
     filterSubtype.value = state.filters.subtype;
   }
+
+  // Clear flag after updating
+  state.updatingFromHash = false;
 
   // Apply filters
   applyFilters();
@@ -365,9 +372,39 @@ function handleFilterChange(e) {
   // Update subtype options when type changes
   if (e.target.id === 'filterType') {
     updateSubtypeFilterOptions(state.filters.type);
+    // Clear subtype when type changes (unless type is empty)
+    if (state.filters.type) {
+      state.filters.subtype = '';
+      document.getElementById('filterSubtype').value = '';
+    }
+  }
+
+  // Update hash to reflect current filters (but not search)
+  // Skip if we're currently updating from a hash change to prevent loops
+  if (!state.updatingFromHash) {
+    updateHashFromFilters();
   }
 
   applyFilters();
+}
+
+// Update hash based on current filter state
+function updateHashFromFilters() {
+  const { type, subtype } = state.filters;
+
+  let newHash = '#library';
+
+  if (type) {
+    newHash += `/${type.toLowerCase()}`;
+    if (subtype) {
+      newHash += `/${subtype.toLowerCase()}`;
+    }
+  }
+
+  // Only update if hash actually changed (avoid triggering hashchange unnecessarily)
+  if (window.location.hash !== newHash) {
+    window.location.hash = newHash;
+  }
 }
 
 // Update subtype filter options
