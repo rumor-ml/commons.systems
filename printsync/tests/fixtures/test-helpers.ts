@@ -1,6 +1,8 @@
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
 import { AuthHelper } from './auth-helper';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 export interface FileData {
   localPath: string;
@@ -30,6 +32,7 @@ export class TestHelpers {
   private createdSessionIDs: string[] = [];
   private createdFileIDs: string[] = [];
   private createdUserIDs: string[] = [];
+  private createdFilePaths: string[] = [];
   private listeners = new Map<string, () => void>();
 
   constructor() {
@@ -52,9 +55,10 @@ export class TestHelpers {
     });
 
     // Initialize GCS client with emulator
+    // The Storage SDK uses STORAGE_EMULATOR_HOST env var directly
+    process.env.STORAGE_EMULATOR_HOST = storageHost;
     this.storage = new Storage({
       projectId: 'demo-test',
-      apiEndpoint: `http://${storageHost}`,
     });
 
     // Initialize Auth helper
@@ -99,6 +103,80 @@ export class TestHelpers {
   }
 
   /**
+   * Creates a physical test file on disk
+   * @param filePath Absolute path where the file should be created
+   * @param size File size in bytes (default: 1024)
+   */
+  private async createPhysicalFile(filePath: string, size: number = 1024): Promise<void> {
+    // Convert absolute /test paths to temp directory to avoid permission issues
+    let actualPath = filePath;
+    if (filePath.startsWith('/test/')) {
+      actualPath = filePath.replace('/test/', '/tmp/printsync-test-files/');
+    }
+
+    const dir = path.dirname(actualPath);
+    await fs.mkdir(dir, { recursive: true });
+
+    // Generate minimal valid file content based on extension
+    const ext = path.extname(filePath).toLowerCase();
+    let content: Buffer;
+
+    if (ext === '.pdf') {
+      // Minimal valid PDF with correct structure
+      const pdfContent = `%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 44 >>
+stream
+BT
+/F1 12 Tf
+100 700 Td
+(Test PDF) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000262 00000 n
+0000000341 00000 n
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+434
+%%EOF`;
+      content = Buffer.from(pdfContent);
+    } else if (ext === '.epub') {
+      // Minimal valid EPUB (just a ZIP with mimetype file)
+      const mimetype = 'application/epub+zip';
+      content = Buffer.from(mimetype);
+    } else {
+      // Default: random binary data
+      content = Buffer.alloc(size);
+      for (let i = 0; i < size; i++) {
+        content[i] = Math.floor(Math.random() * 256);
+      }
+    }
+
+    await fs.writeFile(actualPath, content);
+    this.createdFilePaths.push(actualPath);
+  }
+
+  /**
    * Creates a test file in Firestore
    * @param userID User ID for the file
    * @param sessionID Session ID to associate the file with
@@ -106,12 +184,22 @@ export class TestHelpers {
    * @returns File ID
    */
   async createTestFile(userID: string, sessionID: string, fileData: FileData): Promise<string> {
+    // Convert absolute /test paths to temp directory (same as createPhysicalFile)
+    let actualPath = fileData.localPath;
+    if (fileData.localPath && fileData.localPath.startsWith('/test/')) {
+      actualPath = fileData.localPath.replace('/test/', '/tmp/printsync-test-files/');
+    }
+
+    // Create physical file on disk if path is provided
+    if (fileData.localPath) {
+      await this.createPhysicalFile(fileData.localPath, 1024);
+    }
     const fileID = `test-file-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     const file = {
       userId: userID,
       sessionId: sessionID,
-      localPath: fileData.localPath,
+      localPath: actualPath,
       gcsPath: fileData.gcsPath || '',
       hash: fileData.hash,
       status: fileData.status,
@@ -203,19 +291,37 @@ export class TestHelpers {
     sessionID: string,
     files: FileData[]
   ): Promise<string[]> {
-    const fileIDsWithData = files.map(file => ({
-      id: `test-file-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-      data: {
-        userId: userID,
-        sessionId: sessionID,
-        localPath: file.localPath,
-        gcsPath: file.gcsPath || '',
-        hash: file.hash,
-        status: file.status,
-        metadata: file.metadata || {},
-        updatedAt: new Date(),
-      },
-    }));
+    // Create physical files first
+    await Promise.all(
+      files.map(file => {
+        if (file.localPath) {
+          return this.createPhysicalFile(file.localPath, 1024);
+        }
+        return Promise.resolve();
+      })
+    );
+
+    const fileIDsWithData = files.map(file => {
+      // Convert absolute /test paths to temp directory
+      let actualPath = file.localPath;
+      if (file.localPath && file.localPath.startsWith('/test/')) {
+        actualPath = file.localPath.replace('/test/', '/tmp/printsync-test-files/');
+      }
+
+      return {
+        id: `test-file-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        data: {
+          userId: userID,
+          sessionId: sessionID,
+          localPath: actualPath,
+          gcsPath: file.gcsPath || '',
+          hash: file.hash,
+          status: file.status,
+          metadata: file.metadata || {},
+          updatedAt: new Date(),
+        },
+      };
+    });
 
     // Parallel Firestore writes
     await Promise.all(
@@ -282,6 +388,22 @@ export class TestHelpers {
   }
 
   /**
+   * Clears ALL data from Firestore emulator (not just test-created data)
+   * Use this between tests to prevent path conflicts from previous test runs
+   */
+  async clearAllFirestoreData(): Promise<void> {
+    try {
+      const projectId = 'demo-test';
+      const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+      const deleteUrl = `http://${firestoreHost}/emulator/v1/projects/${projectId}/databases/(default)/documents`;
+
+      await fetch(deleteUrl, { method: 'DELETE' });
+    } catch (error: any) {
+      // Silently ignore errors - database might already be empty
+    }
+  }
+
+  /**
    * Cleans up all test data created by this helper instance
    */
   async cleanup(): Promise<void> {
@@ -301,12 +423,16 @@ export class TestHelpers {
       ),
       ...this.createdUserIDs.map(id =>
         this.authHelper.deleteUser(id).catch(() => {})
+      ),
+      ...this.createdFilePaths.map(filePath =>
+        fs.unlink(filePath).catch(() => {})
       )
     ]);
 
     this.createdFileIDs = [];
     this.createdSessionIDs = [];
     this.createdUserIDs = [];
+    this.createdFilePaths = [];
 
     // Cleanup auth helper
     await this.authHelper.cleanup();

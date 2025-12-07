@@ -22,6 +22,9 @@ export const test = base.extend<{
   helpers: async ({}, use) => {
     const helpers = new TestHelpers();
 
+    // Clear Firestore BEFORE each test to prevent path conflicts from previous tests
+    await helpers.clearAllFirestoreData();
+
     // Provide the helpers to the test
     await use(helpers);
 
