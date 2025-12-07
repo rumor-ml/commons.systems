@@ -68,49 +68,27 @@ runs:
         echo "::notice::Deploying ${SITE_NAME} from branch ${BRANCH_NAME} to ${ENVIRONMENT} environment"
 
         # Build JSON payload with required_contexts: []
-        if [ "$TRANSIENT_ENV" = "true" ]; then
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "${DESCRIPTION}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: [],
-              transient_environment: true
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
+        # Use jq conditional to include transient_environment only when true
+        set +e  # Disable exit on error to capture exit code
+        PAYLOAD=$(jq -n \
+          --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --arg environment "${ENVIRONMENT}" \
+          --arg description "${DESCRIPTION}" \
+          --argjson transient "${TRANSIENT_ENV}" \
+          '{
+            ref: $ref,
+            environment: $environment,
+            description: $description,
+            auto_merge: false,
+            required_contexts: []
+          } + if $transient then {transient_environment: true} else {} end' 2>&1)
+        JQ_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
 
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
-        else
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "${DESCRIPTION}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: []
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
-
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
+        if [ $JQ_EXIT_CODE -ne 0 ]; then
+          echo "::error::Failed to construct deployment payload with jq"
+          echo "$PAYLOAD"
+          exit 1
         fi
 
         # Validate payload is not empty
