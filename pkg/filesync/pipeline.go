@@ -1,7 +1,7 @@
 // Package filesync provides a pipeline orchestrator for synchronizing files to cloud storage.
 // The workflow is two-phase:
-//   1. Extraction: Files are discovered and metadata extracted. Files stop at "extracted" status.
-//   2. Upload: Users review extracted files and approve/reject. Approved files are uploaded.
+//  1. Extraction: Files are discovered and metadata extracted. Files stop at "extracted" status.
+//  2. Upload: Users review extracted files and approve/reject. Approved files are uploaded.
 //
 // This design allows user review of metadata before files are uploaded to permanent storage.
 package filesync

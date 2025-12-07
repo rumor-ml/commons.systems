@@ -8,8 +8,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": [
-    "playwright.base.config.ts",
-    "playwright.fixtures.ts"
-  ]
+  "include": ["playwright.base.config.ts", "playwright.fixtures.ts"]
 }

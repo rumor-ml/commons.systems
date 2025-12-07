@@ -8,6 +8,8 @@ const (
 	MsgTypeFullState = "full_state"
 	// MsgTypeAlertChange is sent by daemon when an alert changes
 	MsgTypeAlertChange = "alert_change"
+	// MsgTypePaneFocus is sent by daemon when the active pane changes
+	MsgTypePaneFocus = "pane_focus"
 	// MsgTypePing is sent by client to check daemon health
 	MsgTypePing = "ping"
 	// MsgTypePong is sent by daemon in response to ping
@@ -32,6 +34,7 @@ type Message struct {
 	PaneID        string            `json:"pane_id,omitempty"`        // For alert_change and block messages
 	EventType     string            `json:"event_type,omitempty"`     // For alert_change messages
 	Created       bool              `json:"created,omitempty"`        // For alert_change messages
+	ActivePaneID  string            `json:"active_pane_id,omitempty"` // For pane_focus messages
 	BlockedPanes  map[string]string `json:"blocked_panes,omitempty"`  // Full blocked state: paneID -> blockedOnBranch
 	BlockedBranch string            `json:"blocked_branch,omitempty"` // For block_pane messages
 	Blocked       bool              `json:"blocked,omitempty"`        // For block_change messages (true = blocked, false = unblocked)

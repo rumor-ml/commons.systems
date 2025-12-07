@@ -75,9 +75,9 @@ func TestTreeRendererEmpty(t *testing.T) {
 func TestIconForAlertType(t *testing.T) {
 	// Test that each event type returns the correct icon
 	testCases := []struct {
-		name          string
-		eventType     string
-		expectedIcon  string
+		name         string
+		eventType    string
+		expectedIcon string
 	}{
 		{"Stop event", watcher.EventTypeStop, StopIcon},
 		{"Permission event", watcher.EventTypePermission, PermissionIcon},
@@ -150,10 +150,10 @@ func TestTreeRendererFullHeight(t *testing.T) {
 	blockedPanes := make(map[string]string)
 	output := renderer.Render(tree, claudeAlerts, blockedPanes)
 
-	// Count the number of lines
+	// Count the number of lines (should be height - headerHeight = 20 - 2 = 18)
 	lines := strings.Split(output, "\n")
-	if len(lines) != 20 {
-		t.Errorf("Expected 20 lines (including padding), got %d", len(lines))
+	if len(lines) != 18 {
+		t.Errorf("Expected 18 lines (20 height - 2 header), got %d", len(lines))
 	}
 
 	// Verify content lines are present (should be 4: repo + branch + 2 panes)
@@ -161,7 +161,7 @@ func TestTreeRendererFullHeight(t *testing.T) {
 	// └── tmux-tui
 	//     ├── 0:zsh
 	//     └── 1:nvim
-	// ... plus 16 blank lines
+	// ... plus 15 blank lines
 	contentLines := 0
 	for _, line := range lines {
 		if line != "" {
@@ -170,5 +170,28 @@ func TestTreeRendererFullHeight(t *testing.T) {
 	}
 	if contentLines != 4 {
 		t.Errorf("Expected 4 content lines, got %d", contentLines)
+	}
+}
+
+func TestTreeRendererHeader(t *testing.T) {
+	renderer := NewTreeRenderer(80)
+	renderer.SetHeight(24)
+
+	header := renderer.RenderHeader()
+
+	// Verify header contains time separator (colon)
+	if !strings.Contains(header, ":") {
+		t.Errorf("Header should contain time separator ':'\nActual: %s", header)
+	}
+
+	// Verify header is not empty
+	if header == "" {
+		t.Error("Header should not be empty")
+	}
+
+	// The header should contain at least a date/time component
+	// Format is "Mon Jan 2 15:04:05" so we expect at least month, day, and time
+	if len(header) < 10 {
+		t.Errorf("Header seems too short to contain full date/time. Got: %s", header)
 	}
 }

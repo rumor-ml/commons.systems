@@ -46,7 +46,7 @@ test.describe('Card Manager Page', () => {
       { href: '/#upgrades', text: 'Upgrades' },
       { href: '/#simulator', text: 'Combat Simulator' },
       { href: '/#examples', text: 'Examples' },
-      { href: '/cards.html', text: 'Card Manager' }
+      { href: '/cards.html', text: 'Card Manager' },
     ];
 
     for (const navLink of navLinks) {
@@ -260,7 +260,7 @@ test.describe('Card Manager Page', () => {
 
   test('should handle missing elements gracefully', async ({ page }) => {
     const consoleErrors = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
@@ -273,7 +273,7 @@ test.describe('Card Manager Page', () => {
     await page.waitForTimeout(100);
 
     // Filter out expected warnings
-    const actualErrors = consoleErrors.filter(err => !err.includes('Warning'));
+    const actualErrors = consoleErrors.filter((err) => !err.includes('Warning'));
 
     // Log errors for debugging before assertion
     if (actualErrors.length > 0) {

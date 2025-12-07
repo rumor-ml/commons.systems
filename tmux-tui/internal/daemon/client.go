@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	heartbeatInterval = 5 * time.Second  // How often to send pings
-	heartbeatTimeout  = 3 * time.Second  // How long to wait for pong response
+	heartbeatInterval = 5 * time.Second // How often to send pings
+	heartbeatTimeout  = 3 * time.Second // How long to wait for pong response
 )
 
 // DaemonClient represents a client connection to the alert daemon.
@@ -24,14 +24,14 @@ type DaemonClient struct {
 	socketPath string
 	conn       net.Conn
 	encoder    *json.Encoder
-	encoderMu  sync.Mutex    // Protects encoder from concurrent writes
+	encoderMu  sync.Mutex // Protects encoder from concurrent writes
 	decoder    *json.Decoder
 	eventCh    chan Message
 	done       chan struct{}
 	mu         sync.Mutex
 	connected  bool
-	lastPong   time.Time     // Timestamp of last pong received
-	lastPongMu sync.RWMutex  // Protects lastPong
+	lastPong   time.Time    // Timestamp of last pong received
+	lastPongMu sync.RWMutex // Protects lastPong
 }
 
 // NewDaemonClient creates a new daemon client.

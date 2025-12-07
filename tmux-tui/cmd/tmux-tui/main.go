@@ -17,6 +17,8 @@ import (
 
 type tickMsg time.Time
 
+type timeTickMsg time.Time
+
 type daemonEventMsg struct {
 	msg daemon.Message
 }
@@ -99,6 +101,7 @@ func initialModel() model {
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		tickCmd(),
+		timeTickCmd(),
 		refreshTreeCmd(m.collector),
 	}
 
@@ -186,6 +189,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Trigger tree refresh to update UI
 			if m.daemonClient != nil {
 				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
+			}
+			return m, nil
+
+		case daemon.MsgTypePaneFocus:
+			// Pane focus changed - update active pane
+			debug.Log("TUI_PANE_FOCUS paneID=%s", msg.msg.ActivePaneID)
+			m.updateActivePane(msg.msg.ActivePaneID)
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
 			}
 			return m, nil
 
@@ -317,6 +329,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			refreshTreeCmd(m.collector),
 			tickCmd(),
 		)
+
+	case timeTickMsg:
+		// Time tick for header update (1s)
+		return m, timeTickCmd()
 	}
 
 	return m, nil
@@ -342,7 +358,11 @@ func (m model) View() string {
 		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
 	}
 
+	// Render header
+	header := m.renderer.RenderHeader()
+
 	// Copy alerts and blocked panes maps with read locks for safe concurrent access
+	// We copy to prevent the renderer from accessing the map after lock release
 	m.alertsMu.RLock()
 	alertsCopy := make(map[string]string)
 	for k, v := range m.alerts {
@@ -373,7 +393,7 @@ func (m model) View() string {
 		return centeredPicker
 	}
 
-	return warningBanner + output
+	return header + "\n" + warningBanner + output
 }
 
 // watchDaemonCmd watches for daemon events
@@ -427,6 +447,27 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 func tickCmd() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+// updateActivePane updates the WindowActive flag across all panes in the tree.
+func (m *model) updateActivePane(activePaneID string) {
+	if m.tree == nil {
+		return
+	}
+
+	for _, branches := range m.tree {
+		for _, panes := range branches {
+			for i := range panes {
+				panes[i].WindowActive = (panes[i].ID == activePaneID)
+			}
+		}
+	}
+}
+
+func timeTickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return timeTickMsg(t)
 	})
 }
 

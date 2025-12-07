@@ -3,10 +3,10 @@
  * Get comprehensive hierarchical context for a GitHub issue
  */
 
-import { z } from "zod";
-import type { ToolResult } from "../types.js";
-import { ghCliJson, resolveRepo } from "../utils/gh-cli.js";
-import { createErrorResult } from "../utils/errors.js";
+import { z } from 'zod';
+import type { ToolResult } from '../types.js';
+import { ghCliJson, resolveRepo } from '../utils/gh-cli.js';
+import { createErrorResult } from '../utils/errors.js';
 
 // Input schema
 export const GetIssueContextInputSchema = z
@@ -20,7 +20,7 @@ export type GetIssueContextInput = z.infer<typeof GetIssueContextInputSchema>;
 
 // Output types
 interface IssueData {
-  id: string;          // Node ID for GraphQL
+  id: string; // Node ID for GraphQL
   number: number;
   title: string;
   url: string;
@@ -29,23 +29,21 @@ interface IssueData {
 
 interface IssueContext {
   root: IssueData | null;
-  ancestors: IssueData[];     // [root, ..., parent] (excluding current)
+  ancestors: IssueData[]; // [root, ..., parent] (excluding current)
   current: IssueData;
   children: IssueData[];
   siblings: IssueData[];
 }
 
-export async function getIssueContext(
-  input: GetIssueContextInput
-): Promise<ToolResult> {
+export async function getIssueContext(input: GetIssueContextInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
     // Step 1: Fetch current issue details
-    const issue = await ghCliJson<IssueData>([
-      "issue", "view", input.issue_number,
-      "--json", "id,number,title,body,url"
-    ], { repo: resolvedRepo });
+    const issue = await ghCliJson<IssueData>(
+      ['issue', 'view', input.issue_number, '--json', 'id,number,title,body,url'],
+      { repo: resolvedRepo }
+    );
 
     // Step 2: Check for parent
     const parentQuery = `
@@ -64,12 +62,19 @@ export async function getIssueContext(
       }
     `;
 
-    const parentResult = await ghCliJson<any>([
-      "api", "graphql",
-      "-H", "GraphQL-Features: sub_issues",
-      "-f", `query=${parentQuery}`,
-      "-f", `issueId=${issue.id}`
-    ], {});
+    const parentResult = await ghCliJson<any>(
+      [
+        'api',
+        'graphql',
+        '-H',
+        'GraphQL-Features: sub_issues',
+        '-f',
+        `query=${parentQuery}`,
+        '-f',
+        `issueId=${issue.id}`,
+      ],
+      {}
+    );
 
     const parent = parentResult.data?.node?.parent || null;
 
@@ -81,12 +86,19 @@ export async function getIssueContext(
       ancestors.unshift(currentAncestor); // Add to front
 
       // Get parent of current ancestor
-      const ancestorParentResult = await ghCliJson<any>([
-        "api", "graphql",
-        "-H", "GraphQL-Features: sub_issues",
-        "-f", `query=${parentQuery}`,
-        "-f", `issueId=${currentAncestor.id}`
-      ], {});
+      const ancestorParentResult = await ghCliJson<any>(
+        [
+          'api',
+          'graphql',
+          '-H',
+          'GraphQL-Features: sub_issues',
+          '-f',
+          `query=${parentQuery}`,
+          '-f',
+          `issueId=${currentAncestor.id}`,
+        ],
+        {}
+      );
 
       currentAncestor = ancestorParentResult.data?.node?.parent || null;
     }
@@ -110,12 +122,19 @@ export async function getIssueContext(
       }
     `;
 
-    const childrenResult = await ghCliJson<any>([
-      "api", "graphql",
-      "-H", "GraphQL-Features: sub_issues",
-      "-f", `query=${childrenQuery}`,
-      "-f", `issueId=${issue.id}`
-    ], {});
+    const childrenResult = await ghCliJson<any>(
+      [
+        'api',
+        'graphql',
+        '-H',
+        'GraphQL-Features: sub_issues',
+        '-f',
+        `query=${childrenQuery}`,
+        '-f',
+        `issueId=${issue.id}`,
+      ],
+      {}
+    );
 
     const children = childrenResult.data?.node?.subIssues?.nodes || [];
 
@@ -123,12 +142,19 @@ export async function getIssueContext(
     let siblings: IssueData[] = [];
 
     if (parent) {
-      const siblingsResult = await ghCliJson<any>([
-        "api", "graphql",
-        "-H", "GraphQL-Features: sub_issues",
-        "-f", `query=${childrenQuery}`,
-        "-f", `issueId=${parent.id}`
-      ], {});
+      const siblingsResult = await ghCliJson<any>(
+        [
+          'api',
+          'graphql',
+          '-H',
+          'GraphQL-Features: sub_issues',
+          '-f',
+          `query=${childrenQuery}`,
+          '-f',
+          `issueId=${parent.id}`,
+        ],
+        {}
+      );
 
       const allSiblings = siblingsResult.data?.node?.subIssues?.nodes || [];
       siblings = allSiblings.filter((s: IssueData) => s.number !== issue.number);
@@ -149,9 +175,9 @@ export async function getIssueContext(
     return {
       content: [
         {
-          type: "text",
-          text: summary + "\n\n" + JSON.stringify(context, null, 2)
-        }
+          type: 'text',
+          text: summary + '\n\n' + JSON.stringify(context, null, 2),
+        },
       ],
     };
   } catch (error) {
@@ -164,23 +190,27 @@ function formatIssueContextSummary(context: IssueContext): string {
 
   lines.push(`Issue Context for #${context.current.number}: ${context.current.title}`);
   lines.push(`URL: ${context.current.url}`);
-  lines.push("");
+  lines.push('');
 
   if (context.root) {
     lines.push(`Root Issue: #${context.root.number} - ${context.root.title}`);
   }
 
   if (context.ancestors.length > 0) {
-    lines.push(`Ancestor Chain: ${context.ancestors.map(a => `#${a.number}`).join(" → ")}`);
+    lines.push(`Ancestor Chain: ${context.ancestors.map((a) => `#${a.number}`).join(' → ')}`);
   }
 
   if (context.children.length > 0) {
-    lines.push(`Children (${context.children.length}): ${context.children.map(c => `#${c.number}`).join(", ")}`);
+    lines.push(
+      `Children (${context.children.length}): ${context.children.map((c) => `#${c.number}`).join(', ')}`
+    );
   }
 
   if (context.siblings.length > 0) {
-    lines.push(`Siblings (${context.siblings.length}): ${context.siblings.map(s => `#${s.number}`).join(", ")}`);
+    lines.push(
+      `Siblings (${context.siblings.length}): ${context.siblings.map((s) => `#${s.number}`).join(', ')}`
+    );
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }

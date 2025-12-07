@@ -32,10 +32,10 @@ type GeoLocation struct {
 
 // NormalizedPath represents the normalized GCS path structure
 type NormalizedPath struct {
-	GCSPath        string
-	Directory      string
-	Filename       string
-	Deduplication  bool
+	GCSPath       string
+	Directory     string
+	Filename      string
+	Deduplication bool
 }
 
 // UploadResult represents the result of a file upload operation
@@ -75,13 +75,13 @@ type PipelineSession struct {
 type FileProcessingStatus string
 
 const (
-	FileProcessingStatusPending    FileProcessingStatus = "pending"
-	FileProcessingStatusExtracting FileProcessingStatus = "extracting"
+	FileProcessingStatusPending     FileProcessingStatus = "pending"
+	FileProcessingStatusExtracting  FileProcessingStatus = "extracting"
 	FileProcessingStatusNormalizing FileProcessingStatus = "normalizing"
-	FileProcessingStatusUploading  FileProcessingStatus = "uploading"
-	FileProcessingStatusCompleted  FileProcessingStatus = "completed"
-	FileProcessingStatusSkipped    FileProcessingStatus = "skipped"
-	FileProcessingStatusFailed     FileProcessingStatus = "failed"
+	FileProcessingStatusUploading   FileProcessingStatus = "uploading"
+	FileProcessingStatusCompleted   FileProcessingStatus = "completed"
+	FileProcessingStatusSkipped     FileProcessingStatus = "skipped"
+	FileProcessingStatusFailed      FileProcessingStatus = "failed"
 )
 
 // FileProcessingState represents the status of a file in the sync session (pipeline view)

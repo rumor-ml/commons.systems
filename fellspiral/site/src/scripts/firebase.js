@@ -14,7 +14,7 @@ import {
   doc,
   query,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
@@ -44,7 +44,7 @@ export async function getAllCards() {
     querySnapshot.forEach((doc) => {
       cards.push({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       });
     });
     return cards;
@@ -62,7 +62,7 @@ export async function getCard(cardId) {
     if (cardSnap.exists()) {
       return {
         id: cardSnap.id,
-        ...cardSnap.data()
+        ...cardSnap.data(),
       };
     } else {
       throw new Error('Card not found');
@@ -87,7 +87,7 @@ export async function createCard(cardData) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       lastModifiedBy: user.uid,
-      lastModifiedAt: serverTimestamp()
+      lastModifiedAt: serverTimestamp(),
     });
     return docRef.id;
   } catch (error) {
@@ -109,7 +109,7 @@ export async function updateCard(cardId, cardData) {
       ...cardData,
       updatedAt: serverTimestamp(),
       lastModifiedBy: user.uid,
-      lastModifiedAt: serverTimestamp()
+      lastModifiedAt: serverTimestamp(),
     });
   } catch (error) {
     console.error('Error updating card:', error);
@@ -139,15 +139,13 @@ export async function importCards(cards) {
     const results = {
       created: 0,
       updated: 0,
-      errors: 0
+      errors: 0,
     };
 
     for (const card of cards) {
       try {
         // Check if card with this title already exists
-        const existingCards = await getDocs(
-          query(cardsCollection, orderBy('title', 'asc'))
-        );
+        const existingCards = await getDocs(query(cardsCollection, orderBy('title', 'asc')));
 
         let existingCard = null;
         existingCards.forEach((doc) => {

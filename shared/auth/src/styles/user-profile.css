@@ -27,7 +27,10 @@
   border-radius: var(--user-profile-avatar-border-radius, var(--radius-full));
   object-fit: cover;
   flex-shrink: 0;
-  border: var(--user-profile-avatar-border, var(--border-width-2) solid var(--color-border-default));
+  border: var(
+    --user-profile-avatar-border,
+    var(--border-width-2) solid var(--color-border-default)
+  );
   transition: border-color var(--duration-normal) var(--ease-out-expo);
 }
 

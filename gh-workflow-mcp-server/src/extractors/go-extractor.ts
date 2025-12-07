@@ -7,11 +7,11 @@ import type {
   ExtractionResult,
   ExtractedError,
   FrameworkExtractor,
-} from "./types.js";
+} from './types.js';
 
 interface GoTestEvent {
   Time: string;
-  Action: "run" | "pass" | "fail" | "output" | "skip" | "pause" | "cont";
+  Action: 'run' | 'pass' | 'fail' | 'output' | 'skip' | 'pause' | 'cont';
   Package: string;
   Test?: string;
   Output?: string;
@@ -19,7 +19,7 @@ interface GoTestEvent {
 }
 
 export class GoExtractor implements FrameworkExtractor {
-  readonly name = "go" as const;
+  readonly name = 'go' as const;
 
   /**
    * Strip GitHub Actions timestamp prefix from a log line.
@@ -32,7 +32,7 @@ export class GoExtractor implements FrameworkExtractor {
   }
 
   detect(logText: string): DetectionResult | null {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     let jsonLineCount = 0;
     let textMarkerCount = 0;
 
@@ -44,7 +44,7 @@ export class GoExtractor implements FrameworkExtractor {
       const line = this.stripTimestamp(lines[i]);
 
       // Check for Go test JSON format
-      if (line.startsWith("{") && line.includes('"Time"') && line.includes('"Action"')) {
+      if (line.startsWith('{') && line.includes('"Time"') && line.includes('"Action"')) {
         jsonLineCount++;
       }
 
@@ -57,8 +57,8 @@ export class GoExtractor implements FrameworkExtractor {
     // High confidence if we see multiple JSON lines with Action field
     if (jsonLineCount >= 3) {
       return {
-        framework: "go",
-        confidence: "high",
+        framework: 'go',
+        confidence: 'high',
         isJsonOutput: true,
       };
     }
@@ -66,8 +66,8 @@ export class GoExtractor implements FrameworkExtractor {
     // High confidence for text format if we see multiple test markers
     if (textMarkerCount >= 2) {
       return {
-        framework: "go",
-        confidence: "high",
+        framework: 'go',
+        confidence: 'high',
         isJsonOutput: false,
       };
     }
@@ -75,8 +75,8 @@ export class GoExtractor implements FrameworkExtractor {
     // Medium confidence with at least one marker
     if (jsonLineCount > 0 || textMarkerCount > 0) {
       return {
-        framework: "go",
-        confidence: "medium",
+        framework: 'go',
+        confidence: 'medium',
         isJsonOutput: jsonLineCount > 0,
       };
     }
@@ -95,27 +95,25 @@ export class GoExtractor implements FrameworkExtractor {
   }
 
   private parseGoTestJson(logText: string, maxErrors: number): ExtractionResult {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
-    const testResults = new Map<string, "pass" | "fail">();
+    const testResults = new Map<string, 'pass' | 'fail'>();
     const testDurations = new Map<string, number>();
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
-      if (!line.startsWith("{")) continue;
+      if (!line.startsWith('{')) continue;
 
       try {
         const event = JSON.parse(line) as GoTestEvent;
 
         // Use a more specific key that includes both package and test
         // This ensures we don't mix up tests from different packages
-        const key = event.Test
-          ? `${event.Package}::${event.Test}`
-          : event.Package;
+        const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
 
         // Collect output lines for each test
-        if (event.Action === "output" && event.Output) {
+        if (event.Action === 'output' && event.Output) {
           if (!testOutputs.has(key)) {
             testOutputs.set(key, []);
           }
@@ -123,13 +121,13 @@ export class GoExtractor implements FrameworkExtractor {
         }
 
         // Track test results and duration
-        if (event.Action === "fail" && event.Test) {
-          testResults.set(key, "fail");
+        if (event.Action === 'fail' && event.Test) {
+          testResults.set(key, 'fail');
           if (event.Elapsed !== undefined) {
             testDurations.set(key, event.Elapsed * 1000); // Convert to ms
           }
-        } else if (event.Action === "pass" && event.Test) {
-          testResults.set(key, "pass");
+        } else if (event.Action === 'pass' && event.Test) {
+          testResults.set(key, 'pass');
         }
       } catch {
         // Skip invalid JSON lines
@@ -139,13 +137,13 @@ export class GoExtractor implements FrameworkExtractor {
 
     // Extract failures with their output
     for (const [key, result] of testResults.entries()) {
-      if (result === "fail") {
+      if (result === 'fail') {
         const outputs = testOutputs.get(key) || [];
-        const fullOutput = outputs.join("");
+        const fullOutput = outputs.join('');
 
         // Parse the test name from key (format: "package::testname")
-        const parts = key.split("::");
-        const testName = parts[1] || "";
+        const parts = key.split('::');
+        const testName = parts[1] || '';
 
         // Extract file:line references from output
         const fileLineMatch = fullOutput.match(/(\w+\.go):(\d+):/);
@@ -155,7 +153,9 @@ export class GoExtractor implements FrameworkExtractor {
         // Extract stack trace from panic output (look for goroutine patterns)
         let stack: string | undefined;
         // Match from "goroutine" to end or next "goroutine" or test marker
-        const goroutineMatch = fullOutput.match(/goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/);
+        const goroutineMatch = fullOutput.match(
+          /goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/
+        );
         if (goroutineMatch) {
           stack = goroutineMatch[0].trim();
         }
@@ -178,19 +178,19 @@ export class GoExtractor implements FrameworkExtractor {
     }
 
     // Generate summary
-    const failed = Array.from(testResults.values()).filter((r) => r === "fail").length;
-    const passed = Array.from(testResults.values()).filter((r) => r === "pass").length;
+    const failed = Array.from(testResults.values()).filter((r) => r === 'fail').length;
+    const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
     return {
-      framework: "go",
+      framework: 'go',
       errors: failures,
       summary,
     };
   }
 
   private parseGoTestText(logText: string, maxErrors: number): ExtractionResult {
-    const rawLines = logText.split("\n");
+    const rawLines = logText.split('\n');
     const lines = rawLines.map((line) => this.stripTimestamp(line));
     const failures: ExtractedError[] = [];
     const failPattern = /^---\s*FAIL:\s*(\S+)\s*\(([0-9.]+)s\)?/;
@@ -216,7 +216,7 @@ export class GoExtractor implements FrameworkExtractor {
           }
 
           // Collect indented lines (test output)
-          if (line.startsWith("    ") || line.startsWith("\t")) {
+          if (line.startsWith('    ') || line.startsWith('\t')) {
             rawOutput.push(line.trimEnd());
 
             // Extract file:line reference if present
@@ -231,17 +231,17 @@ export class GoExtractor implements FrameworkExtractor {
         }
 
         // Extract stack trace from panic output (look for goroutine patterns)
-        const fullOutput = rawOutput.join("\n");
+        const fullOutput = rawOutput.join('\n');
         // Match from "goroutine" to end or next "goroutine" or test marker
-        const goroutineMatch = fullOutput.match(/goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/);
+        const goroutineMatch = fullOutput.match(
+          /goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/
+        );
         if (goroutineMatch) {
           stack = goroutineMatch[0].trim();
         }
 
         // Build message from raw output
-        const message = rawOutput.length > 0
-          ? rawOutput.join("\n")
-          : `Test failed: ${testName}`;
+        const message = rawOutput.length > 0 ? rawOutput.join('\n') : `Test failed: ${testName}`;
 
         failures.push({
           testName,
@@ -275,7 +275,7 @@ export class GoExtractor implements FrameworkExtractor {
     }
 
     return {
-      framework: "go",
+      framework: 'go',
       errors: failures,
       summary,
     };

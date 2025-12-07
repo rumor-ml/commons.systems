@@ -188,17 +188,17 @@ func (e *OpenLibraryExtractor) queryByTitle(ctx context.Context, title string) (
 // parseBookData parses OpenLibrary book data into ExtractedMetadata
 func (e *OpenLibraryExtractor) parseBookData(data []byte) (*filesync.ExtractedMetadata, error) {
 	var book struct {
-		Title       string   `json:"title"`
-		Authors     []struct {
+		Title   string `json:"title"`
+		Authors []struct {
 			Name string `json:"name"`
 		} `json:"authors"`
-		AuthorName  []string `json:"author_name"`
-		Publishers  []string `json:"publishers"`
-		Publisher   []string `json:"publisher"`
-		Description interface{} `json:"description"`
-		Subjects    []string `json:"subjects"`
-		Subject     []string `json:"subject"`
-		FirstPublishYear int `json:"first_publish_year"`
+		AuthorName       []string    `json:"author_name"`
+		Publishers       []string    `json:"publishers"`
+		Publisher        []string    `json:"publisher"`
+		Description      interface{} `json:"description"`
+		Subjects         []string    `json:"subjects"`
+		Subject          []string    `json:"subject"`
+		FirstPublishYear int         `json:"first_publish_year"`
 	}
 
 	if err := json.Unmarshal(data, &book); err != nil {

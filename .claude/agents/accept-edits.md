@@ -1,6 +1,6 @@
 ---
-name: "accept-edits"
-description: "General-purpose implementation agent with auto-accept edits permission mode"
+name: 'accept-edits'
+description: 'General-purpose implementation agent with auto-accept edits permission mode'
 model: sonnet
 permissionMode: acceptEdits
 ---

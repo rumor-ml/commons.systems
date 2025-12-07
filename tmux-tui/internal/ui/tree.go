@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/debug"
@@ -35,6 +36,14 @@ var activeStyle = lipgloss.NewStyle().
 var blockedStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("245")) // Muted gray text
 
+var headerStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("244")).
+	Bold(true)
+
+var repoStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("14")).
+	Bold(true)
+
 // iconForAlertType returns the appropriate icon for a given alert type
 func iconForAlertType(alertType string) string {
 	switch alertType {
@@ -54,8 +63,9 @@ func iconForAlertType(alertType string) string {
 
 // TreeRenderer renders a tmux.RepoTree as a hierarchical tree
 type TreeRenderer struct {
-	width  int
-	height int
+	width        int
+	height       int
+	headerHeight int
 }
 
 // NewTreeRenderer creates a new TreeRenderer with the given width
@@ -71,6 +81,15 @@ func (r *TreeRenderer) SetWidth(width int) {
 // SetHeight updates the renderer height
 func (r *TreeRenderer) SetHeight(height int) {
 	r.height = height
+	// Header takes 2 lines: the actual header + separator newline
+	r.headerHeight = 2
+}
+
+// RenderHeader returns a formatted date/time header
+func (r *TreeRenderer) RenderHeader() string {
+	now := time.Now()
+	timeStr := now.Format("Mon Jan 2 15:04:05")
+	return headerStyle.Render(timeStr)
 }
 
 // Render converts a RepoTree into a formatted tree string
@@ -91,10 +110,22 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 	for i, repo := range repos {
 		isLastRepo := i == len(repos)-1
 		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts, blockedPanes)...)
+		// Add blank line separator between repos for visual clarity
+		if !isLastRepo {
+			lines = append(lines, "")
+		}
 	}
 
-	// Pad output to fill height
-	for len(lines) < r.height {
+	// Limit and pad output to fill height (accounting for header)
+	targetLines := r.height - r.headerHeight
+
+	// Truncate if content exceeds available height
+	if len(lines) > targetLines {
+		lines = lines[:targetLines]
+	}
+
+	// Pad if content is less than available height
+	for len(lines) < targetLines {
 		lines = append(lines, "")
 	}
 
@@ -103,7 +134,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 
 func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string, blockedPanes map[string]string) []string {
 	var lines []string
-	lines = append(lines, repoName)
+	lines = append(lines, repoStyle.Render(repoName))
 
 	// Calculate blocked counts per branch
 	blockedCounts := make(map[string]int)

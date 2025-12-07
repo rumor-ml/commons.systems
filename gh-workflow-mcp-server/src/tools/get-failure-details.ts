@@ -3,9 +3,9 @@
  * Get token-efficient summary of workflow failures
  */
 
-import { z } from "zod";
-import type { ToolResult } from "../types.js";
-import { MAX_RESPONSE_LENGTH } from "../constants.js";
+import { z } from 'zod';
+import type { ToolResult } from '../types.js';
+import { MAX_RESPONSE_LENGTH } from '../constants.js';
 import {
   getWorkflowRun,
   getWorkflowRunsForBranch,
@@ -13,9 +13,9 @@ import {
   getWorkflowJobs,
   getJobLogs,
   resolveRepo,
-} from "../utils/gh-cli.js";
-import { ValidationError, GitHubCliError, createErrorResult } from "../utils/errors.js";
-import { extractErrors, formatExtractionResult } from "../extractors/index.js";
+} from '../utils/gh-cli.js';
+import { ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
+import { extractErrors, formatExtractionResult } from '../extractors/index.js';
 
 export const GetFailureDetailsInputSchema = z
   .object({
@@ -72,7 +72,7 @@ interface FailedJobSummary {
  * Playwright outputs these on separate lines, so we need to find and combine them
  */
 function extractTestSummary(logText: string): string | null {
-  const lines = logText.split("\n");
+  const lines = logText.split('\n');
 
   // Patterns for individual summary lines
   const failedPattern = /(\d+)\s+failed/i;
@@ -117,10 +117,7 @@ function extractTestSummary(logText: string): string | null {
   return null;
 }
 
-
-export async function getFailureDetails(
-  input: GetFailureDetailsInput
-): Promise<ToolResult> {
+export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
     const identifierCount = [input.run_id, input.pr_number, input.branch].filter(
@@ -128,9 +125,7 @@ export async function getFailureDetails(
     ).length;
 
     if (identifierCount === 0) {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     const resolvedRepo = await resolveRepo(input.repo);
@@ -142,30 +137,22 @@ export async function getFailureDetails(
     } else if (input.pr_number) {
       const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
       if (!Array.isArray(checks) || checks.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for PR #${input.pr_number}`
-        );
+        throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }
       const firstCheck = checks[0];
       const runIdMatch = firstCheck.detailsUrl?.match(/\/runs\/(\d+)/);
       if (!runIdMatch) {
-        throw new ValidationError(
-          `Could not extract run ID from PR #${input.pr_number} checks`
-        );
+        throw new ValidationError(`Could not extract run ID from PR #${input.pr_number} checks`);
       }
       runId = parseInt(runIdMatch[1], 10);
     } else if (input.branch) {
       const runs = await getWorkflowRunsForBranch(input.branch, resolvedRepo, 1);
       if (!Array.isArray(runs) || runs.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for branch ${input.branch}`
-        );
+        throw new ValidationError(`No workflow runs found for branch ${input.branch}`);
       }
       runId = runs[0].databaseId;
     } else {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     // Get run details
@@ -178,24 +165,24 @@ export async function getFailureDetails(
 
     // Filter to failed jobs
     const failedJobs = jobs.filter(
-      (job) => job.conclusion === "failure" || job.conclusion === "timed_out"
+      (job) => job.conclusion === 'failure' || job.conclusion === 'timed_out'
     );
 
     // Check if run failed OR if any jobs have failed (for fail-fast support)
-    const runFailed = run.conclusion === "failure" || run.conclusion === "timed_out";
+    const runFailed = run.conclusion === 'failure' || run.conclusion === 'timed_out';
     const hasFailedJobs = failedJobs.length > 0;
 
     if (!runFailed && !hasFailedJobs) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: [
               `Workflow run did not fail: ${run.name}`,
               `Status: ${run.status}`,
-              `Conclusion: ${run.conclusion || "none"}`,
+              `Conclusion: ${run.conclusion || 'none'}`,
               `URL: ${run.url}`,
-            ].join("\n"),
+            ].join('\n'),
           },
         ],
       };
@@ -205,12 +192,12 @@ export async function getFailureDetails(
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: [
               `No failed jobs found in workflow run: ${run.name}`,
               `Overall conclusion: ${run.conclusion}`,
               `URL: ${run.url}`,
-            ].join("\n"),
+            ].join('\n'),
           },
         ],
       };
@@ -229,11 +216,10 @@ export async function getFailureDetails(
         const testSummary = extractTestSummary(logs);
 
         // Find failed steps (if step info is available)
-        const failedStepNames = job.steps
-          ?.filter(
-            (step) => step.conclusion === "failure" || step.conclusion === "timed_out"
-          )
-          .map((step) => step.name) || [];
+        const failedStepNames =
+          job.steps
+            ?.filter((step) => step.conclusion === 'failure' || step.conclusion === 'timed_out')
+            .map((step) => step.name) || [];
 
         if (failedStepNames.length > 0) {
           // Extract errors for each failed step
@@ -242,12 +228,12 @@ export async function getFailureDetails(
             const errorLines = formatExtractionResult(extraction);
             failedSteps.push({
               name: stepName,
-              conclusion: "failure",
+              conclusion: 'failure',
               error_lines: errorLines,
               test_summary: extraction.summary || testSummary,
             });
 
-            totalChars += stepName.length + errorLines.join("\n").length;
+            totalChars += stepName.length + errorLines.join('\n').length;
             if (extraction.summary || testSummary) {
               totalChars += (extraction.summary || testSummary)!.length;
             }
@@ -258,12 +244,12 @@ export async function getFailureDetails(
           const extraction = extractErrors(logs, 15);
           const errorLines = formatExtractionResult(extraction);
           failedSteps.push({
-            name: "General failure",
+            name: 'General failure',
             conclusion: job.conclusion,
             error_lines: errorLines,
             test_summary: extraction.summary || testSummary,
           });
-          totalChars += errorLines.join("\n").length;
+          totalChars += errorLines.join('\n').length;
           if (extraction.summary || testSummary) {
             totalChars += (extraction.summary || testSummary)!.length;
           }
@@ -271,20 +257,19 @@ export async function getFailureDetails(
       } catch (error) {
         console.error(`Failed to retrieve logs for job ${job.name}:`, error);
 
-        const errorMessage = error instanceof GitHubCliError
-          ? `GitHub CLI error: ${error.message}${error.stderr ? ` - ${error.stderr}` : ''}`
-          : error instanceof Error
-          ? `Error: ${error.message}`
-          : `Unknown error: ${String(error)}`;
+        const errorMessage =
+          error instanceof GitHubCliError
+            ? `GitHub CLI error: ${error.message}${error.stderr ? ` - ${error.stderr}` : ''}`
+            : error instanceof Error
+              ? `Error: ${error.message}`
+              : `Unknown error: ${String(error)}`;
 
         failedSteps.push({
-          name: "Unable to retrieve logs",
+          name: 'Unable to retrieve logs',
           conclusion: job.conclusion,
           error_lines: [
             errorMessage,
-            error instanceof GitHubCliError && error.exitCode
-              ? `Exit code: ${error.exitCode}`
-              : '',
+            error instanceof GitHubCliError && error.exitCode ? `Exit code: ${error.exitCode}` : '',
           ].filter(Boolean),
         });
       }
@@ -314,11 +299,11 @@ export async function getFailureDetails(
 
         // Add error lines
         if (step.error_lines.length > 0) {
-          const errorPreview = step.error_lines.slice(0, 10).join("\n      ");
+          const errorPreview = step.error_lines.slice(0, 10).join('\n      ');
           parts.push(`      ${errorPreview}`);
         }
 
-        return parts.join("\n");
+        return parts.join('\n');
       });
 
       return [
@@ -326,29 +311,28 @@ export async function getFailureDetails(
         `  Job: ${job.name} (${job.conclusion})`,
         `  URL: ${job.url}`,
         ...stepSummaries,
-      ].join("\n");
+      ].join('\n');
     });
 
     // Indicate if run is still in progress (fail-fast scenario)
-    const headerSuffix = run.status !== "completed" ? " (run still in progress)" : "";
+    const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
     const summary = [
       `Workflow Run Failed${headerSuffix}: ${run.name}`,
-      `Overall Status: ${run.status} / ${run.conclusion || "none"}`,
+      `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
       `URL: ${run.url}`,
       ``,
       `Failed Jobs (${failedJobSummaries.length}):`,
       ...jobSummaries,
-    ].join("\n");
+    ].join('\n');
 
     // Truncate if needed
     const finalSummary =
       summary.length > input.max_chars
-        ? summary.substring(0, input.max_chars) +
-          "\n\n... (truncated due to length limit)"
+        ? summary.substring(0, input.max_chars) + '\n\n... (truncated due to length limit)'
         : summary;
 
     return {
-      content: [{ type: "text", text: finalSummary }],
+      content: [{ type: 'text', text: finalSummary }],
     };
   } catch (error) {
     return createErrorResult(error);

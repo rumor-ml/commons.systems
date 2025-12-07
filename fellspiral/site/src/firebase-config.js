@@ -9,12 +9,12 @@
  */
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyDummyKeyWillBeReplacedByCI",
-  authDomain: "chalanding.firebaseapp.com",
-  projectId: "chalanding",
-  storageBucket: "chalanding.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123def456"
+  apiKey: 'AIzaSyDummyKeyWillBeReplacedByCI',
+  authDomain: 'chalanding.firebaseapp.com',
+  projectId: 'chalanding',
+  storageBucket: 'chalanding.appspot.com',
+  messagingSenderId: '123456789',
+  appId: '1:123456789:web:abc123def456',
 };
 
 // Note: The actual configuration will be injected during the CI/CD deployment

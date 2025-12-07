@@ -84,6 +84,7 @@ shared/design-system/
 ## ✅ Typography System
 
 **Geist Sans/Mono fonts from Vercel CDN:**
+
 - Primary: `Geist` sans-serif
 - Code: `Geist Mono` monospace
 - Type scale: 0.75rem → 3rem (8 sizes)
@@ -93,7 +94,7 @@ shared/design-system/
 ## ✅ Motion/Animation
 
 ```css
---ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);  /* Signature easing */
+--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* Signature easing */
 --duration-fast: 100ms;
 --duration-normal: 200ms;
 --duration-slow: 300ms;
@@ -102,16 +103,22 @@ shared/design-system/
 ## ✅ Signature Effects Implemented
 
 ### 1. Cyan Glow on Focus
+
 All focusable elements get cyan ring + glow:
+
 ```css
 :focus-visible {
   outline: 2px solid var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-muted), var(--shadow-glow);
+  box-shadow:
+    0 0 0 3px var(--color-primary-muted),
+    var(--shadow-glow);
 }
 ```
 
 ### 2. Hover Lift on Cards
+
 Interactive cards lift 4px on hover:
+
 ```css
 .card--interactive:hover {
   transform: translateY(-4px);
@@ -120,7 +127,9 @@ Interactive cards lift 4px on hover:
 ```
 
 ### 3. Button Glow
+
 Primary buttons get cyan shadow on hover:
+
 ```css
 .btn--primary:hover {
   box-shadow: var(--shadow-glow); /* 0 0 20px rgba(0, 212, 237, 0.4) */
@@ -131,6 +140,7 @@ Primary buttons get cyan shadow on hover:
 ## ✅ Component Library
 
 ### Buttons
+
 - Base styles with hover/active states
 - Variants: primary (cyan glow), secondary, outline, ghost, danger, success
 - Sizes: sm, default, lg, xl
@@ -138,6 +148,7 @@ Primary buttons get cyan shadow on hover:
 - Button groups
 
 ### Forms
+
 - Input, textarea, select with cyan focus glow
 - Checkboxes with cyan checked state
 - Radio buttons
@@ -146,6 +157,7 @@ Primary buttons get cyan shadow on hover:
 - Error/success states
 
 ### Cards
+
 - Base card with subtle borders
 - Interactive cards with 4px hover lift
 - Primary cards with cyan border
@@ -153,6 +165,7 @@ Primary buttons get cyan shadow on hover:
 - Card grids and lists
 
 ### Navigation
+
 - Nav items with hover states
 - Active state with cyan accent
 - Sidebar navigation
@@ -162,6 +175,7 @@ Primary buttons get cyan shadow on hover:
 - Dropdown menus
 
 ### Modals
+
 - Modal backdrop with blur
 - Smooth animations (scale + fade)
 - Sizes: sm, default, lg, xl, full
@@ -170,6 +184,7 @@ Primary buttons get cyan shadow on hover:
 - Alert dialogs with semantic colors
 
 ### Loading States
+
 - Spinners (regular, dots, pulse) with glow
 - Progress bars with cyan color
 - Indeterminate progress
@@ -179,12 +194,14 @@ Primary buttons get cyan shadow on hover:
 ## ✅ Layout System
 
 ### Container
+
 - Responsive max-width containers
 - Breakpoint sizes: xs → 2xl
 - Fluid variant
 - No-padding variant
 
 ### Grid/Flex
+
 - CSS Grid utilities (1-12 columns)
 - Auto-fit responsive grids
 - Gap utilities
@@ -211,6 +228,7 @@ Primary buttons get cyan shadow on hover:
 ## ✅ Tailwind Integration
 
 Preset file (`src/tailwind/preset.js`) includes:
+
 - All color tokens
 - Font families (Geist)
 - Spacing scale
@@ -247,22 +265,26 @@ Preset file (`src/tailwind/preset.js`) includes:
 ## Usage Examples
 
 ### Complete System
+
 ```css
 @import '@commons/design-system';
 ```
 
 ### Tokens Only
+
 ```css
 @import '@commons/design-system/tokens';
 ```
 
 ### Specific Components
+
 ```css
 @import '@commons/design-system/components/buttons';
 @import '@commons/design-system/components/cards';
 ```
 
 ### Tailwind Integration
+
 ```js
 import preset from '@commons/design-system/tailwind/preset';
 
@@ -275,6 +297,7 @@ export default {
 ## Demo
 
 Open `demo.html` in a browser to see all components in action with:
+
 - Color palette showcase
 - Button variants and sizes
 - Form elements with focus glow
