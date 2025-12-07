@@ -217,7 +217,7 @@ jobs:
       needs.detect-changes.outputs.fellspiral-changed == 'true' &&
       (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
-      service-url: ${{ steps.deploy.outputs.url }}
+      service-url: ${{ steps.site-url.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -269,38 +269,18 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-        run: |
-          ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral "${BRANCH_NAME}" "${COMMIT_SHA}"
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral "${BRANCH_NAME}" "${COMMIT_SHA}"
 
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+      - name: Validate deployment URL
+        id: site-url
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
         if: steps.deploy.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
           RUN_ID: ${{ github.run_id }}
         run: |
           echo "⚠️  Deployment failed on this worker. Triggering retry on new worker..."
@@ -346,7 +326,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'success'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
@@ -355,7 +335,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'failure'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
   deploy-videobrowser:
@@ -368,7 +348,7 @@ jobs:
       needs.detect-changes.outputs.videobrowser-changed == 'true' &&
       (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
-      service-url: ${{ steps.deploy.outputs.url }}
+      service-url: ${{ steps.site-url.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -420,38 +400,18 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-        run: |
-          ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser "${BRANCH_NAME}" "${COMMIT_SHA}"
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh videobrowser "${BRANCH_NAME}" "${COMMIT_SHA}"
 
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+      - name: Validate deployment URL
+        id: site-url
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
         if: steps.deploy.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
           RUN_ID: ${{ github.run_id }}
         run: |
           echo "⚠️  Deployment failed on this worker. Triggering retry on new worker..."
@@ -492,7 +452,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'success'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
@@ -501,7 +461,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'failure'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
   deploy-audiobrowser:
@@ -514,7 +474,7 @@ jobs:
       needs.detect-changes.outputs.audiobrowser-changed == 'true' &&
       (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
-      service-url: ${{ steps.deploy.outputs.url }}
+      service-url: ${{ steps.site-url.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -566,38 +526,18 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-        run: |
-          ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser "${BRANCH_NAME}" "${COMMIT_SHA}"
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh audiobrowser "${BRANCH_NAME}" "${COMMIT_SHA}"
 
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+      - name: Validate deployment URL
+        id: site-url
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
         if: steps.deploy.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
           RUN_ID: ${{ github.run_id }}
         run: |
           echo "⚠️  Deployment failed on this worker. Triggering retry on new worker..."
@@ -638,7 +578,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'success'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
@@ -647,7 +587,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'failure'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
   deploy-print:
@@ -660,7 +600,7 @@ jobs:
       needs.detect-changes.outputs.print-changed == 'true' &&
       (needs.local-tests.result == 'success' || needs.local-tests.result == 'skipped')
     outputs:
-      service-url: ${{ steps.deploy.outputs.url }}
+      service-url: ${{ steps.site-url.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -712,38 +652,18 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-        run: |
-          ./infrastructure/scripts/deploy-firebase-hosting.sh print "${BRANCH_NAME}" "${COMMIT_SHA}"
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh print "${BRANCH_NAME}" "${COMMIT_SHA}"
 
-          # Validate deployment URL file exists
-          if [ ! -f /tmp/deployment-url.txt ]; then
-            echo "::error::Deployment script did not create URL file"
-            exit 1
-          fi
-
-          # Read and validate URL
-          URL=$(cat /tmp/deployment-url.txt)
-          if [ -z "$URL" ]; then
-            echo "::error::Deployment URL is empty"
-            exit 1
-          fi
-
-          # Validate URL format - strict regex to prevent consecutive dots
-          if ! echo "$URL" | grep -qE '^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.web\.app$'; then
-            echo "::error::Invalid deployment URL format: $URL"
-            echo "::error::Expected format: https://<subdomain>.web.app (lowercase, no consecutive dots)"
-            exit 1
-          fi
-
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Deployed to: ${URL}"
+      - name: Validate deployment URL
+        id: site-url
+        uses: ./.github/actions/validate-deployment-url
 
       - name: Trigger retry workflow on new worker if deployment failed
         id: retry
         if: steps.deploy.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
           RUN_ID: ${{ github.run_id }}
         run: |
           echo "⚠️  Deployment failed on this worker. Triggering retry on new worker..."
@@ -784,7 +704,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'success'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment successful and verified'
 
       - name: Update deployment status to failure
@@ -793,7 +713,7 @@ jobs:
         with:
           deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
           state: 'failure'
-          environment_url: ${{ steps.deploy.outputs.url }}
+          environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
   # ==================== Step 3: Collect All Deployment URLs ====================
