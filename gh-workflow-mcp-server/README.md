@@ -54,6 +54,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 Monitor a GitHub Actions workflow run until completion.
 
 **Inputs:**
+
 - `run_id` (optional): Workflow run ID
 - `pr_number` (optional): PR number to monitor
 - `branch` (optional): Branch name to monitor
@@ -68,6 +69,7 @@ Monitor a GitHub Actions workflow run until completion.
 Monitor all status checks for a pull request until they complete.
 
 **Inputs:**
+
 - `pr_number`: PR number to monitor
 - `repo` (optional): Repository in format "owner/repo"
 - `poll_interval_seconds` (optional): Polling interval (default: 10)
@@ -80,6 +82,7 @@ Monitor all status checks for a pull request until they complete.
 Track a PR through the GitHub merge queue.
 
 **Inputs:**
+
 - `pr_number`: PR number to track
 - `repo` (optional): Repository in format "owner/repo"
 - `poll_interval_seconds` (optional): Polling interval (default: 15)
@@ -92,6 +95,7 @@ Track a PR through the GitHub merge queue.
 Extract deployment URLs from workflow run logs.
 
 **Inputs:**
+
 - `run_id` (optional): Workflow run ID
 - `pr_number` (optional): PR number
 - `branch` (optional): Branch name
@@ -104,6 +108,7 @@ Extract deployment URLs from workflow run logs.
 Get a token-efficient summary of workflow failures.
 
 **Inputs:**
+
 - `run_id` (optional): Workflow run ID
 - `pr_number` (optional): PR number
 - `branch` (optional): Branch name

@@ -3,8 +3,8 @@
  * Monitor a GitHub Actions workflow run until completion
  */
 
-import { z } from "zod";
-import type { ToolResult } from "../types.js";
+import { z } from 'zod';
+import type { ToolResult } from '../types.js';
 import {
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
@@ -13,7 +13,7 @@ import {
   MAX_TIMEOUT,
   COMPLETED_STATUSES,
   FAILURE_CONCLUSIONS,
-} from "../constants.js";
+} from '../constants.js';
 import {
   getWorkflowRun,
   getWorkflowRunsForPR,
@@ -22,8 +22,8 @@ import {
   resolveRepo,
   sleep,
   getWorkflowJobs,
-} from "../utils/gh-cli.js";
-import { TimeoutError, ValidationError, createErrorResult } from "../utils/errors.js";
+} from '../utils/gh-cli.js';
+import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
 
 export const MonitorRunInputSchema = z
   .object({
@@ -37,16 +37,13 @@ export const MonitorRunInputSchema = z
       .min(MIN_POLL_INTERVAL)
       .max(MAX_POLL_INTERVAL)
       .default(DEFAULT_POLL_INTERVAL),
-    timeout_seconds: z
-      .number()
-      .int()
-      .positive()
-      .max(MAX_TIMEOUT)
-      .default(DEFAULT_TIMEOUT),
+    timeout_seconds: z.number().int().positive().max(MAX_TIMEOUT).default(DEFAULT_TIMEOUT),
     fail_fast: z
       .boolean()
       .default(true)
-      .describe("Exit immediately on first failure detection. Set to false to wait for all checks to complete."),
+      .describe(
+        'Exit immediately on first failure detection. Set to false to wait for all checks to complete.'
+      ),
   })
   .strict();
 
@@ -81,9 +78,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     ).length;
 
     if (identifierCount === 0) {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     const resolvedRepo = await resolveRepo(input.repo);
@@ -100,26 +95,20 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     } else if (input.pr_number) {
       const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
       if (!Array.isArray(checks) || checks.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for PR #${input.pr_number}`
-        );
+        throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }
       // Get the most recent run - we'll need to extract run ID from the detailsUrl
       const firstCheck = checks[0];
       const runIdMatch = firstCheck.detailsUrl?.match(/\/runs\/(\d+)/);
       if (!runIdMatch) {
-        throw new ValidationError(
-          `Could not extract run ID from PR #${input.pr_number} checks`
-        );
+        throw new ValidationError(`Could not extract run ID from PR #${input.pr_number} checks`);
       }
       runIds = [parseInt(runIdMatch[1], 10)];
     } else if (input.branch) {
       // Get the HEAD commit SHA for the branch
       const headSha = await getBranchHeadSha(input.branch, resolvedRepo);
       if (!headSha) {
-        throw new ValidationError(
-          `Could not determine head SHA for branch ${input.branch}`
-        );
+        throw new ValidationError(`Could not determine head SHA for branch ${input.branch}`);
       }
 
       // Get all workflow runs for this commit (catches all trigger events including "dynamic")
@@ -133,9 +122,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       runIds = runs.map((r) => r.databaseId);
       monitoringMultipleRuns = runIds.length > 1;
     } else {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     // Poll until completion or timeout
@@ -149,9 +136,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       iterationCount++;
 
       // Fetch all runs in parallel
-      const fetchedRuns = await Promise.all(
-        runIds.map((id) => getWorkflowRun(id, resolvedRepo))
-      );
+      const fetchedRuns = await Promise.all(runIds.map((id) => getWorkflowRun(id, resolvedRepo)));
 
       // Update runs map
       fetchedRuns.forEach((runData, index) => {
@@ -212,9 +197,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
 
     // Get job details if not already fetched
     if (allJobs.size === 0) {
-      const jobsResults = await Promise.all(
-        runIds.map((id) => getWorkflowJobs(id, resolvedRepo))
-      );
+      const jobsResults = await Promise.all(runIds.map((id) => getWorkflowJobs(id, resolvedRepo)));
       jobsResults.forEach((jobsData: any, index) => {
         allJobs.set(runIds[index], jobsData.jobs || []);
       });
@@ -225,25 +208,25 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
 
     if (monitoringMultipleRuns) {
       // Multi-run output format
-      const headerSuffix = failedEarly ? " (early exit)" : "";
-      const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+      const headerSuffix = failedEarly ? ' (early exit)' : '';
+      const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
 
-      summaryLines.push(`Workflow Runs ${failedEarly ? "Failed" : "Completed"}${headerSuffix} (${runs.size} concurrent runs)`);
-      summaryLines.push("");
+      summaryLines.push(
+        `Workflow Runs ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix} (${runs.size} concurrent runs)`
+      );
+      summaryLines.push('');
 
       // Show each run with its jobs
       for (const [runId, run] of runs.entries()) {
         const jobs = allJobs.get(runId) || [];
         const startedAt = new Date(run.createdAt);
         const completedAt = new Date(run.updatedAt);
-        const durationSeconds = Math.round(
-          (completedAt.getTime() - startedAt.getTime()) / 1000
-        );
+        const durationSeconds = Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
 
-        const failureMarker = failedEarly && runId === failedRunId ? " ⚠️ FAILED" : "";
+        const failureMarker = failedEarly && runId === failedRunId ? ' ⚠️ FAILED' : '';
         summaryLines.push(`Run: ${run.workflowName || run.name}${failureMarker}`);
         summaryLines.push(`  Status: ${run.status}`);
-        summaryLines.push(`  Conclusion: ${run.conclusion || "none"}`);
+        summaryLines.push(`  Conclusion: ${run.conclusion || 'none'}`);
         summaryLines.push(`  Duration: ${durationSeconds}s`);
         summaryLines.push(`  URL: ${run.url}`);
         summaryLines.push(`  Jobs (${jobs.length}):`);
@@ -251,55 +234,57 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
         jobs.forEach((job) => {
           const jobDuration = job.completedAt
             ? Math.round(
-                (new Date(job.completedAt).getTime() -
-                  new Date(job.startedAt).getTime()) /
-                  1000
+                (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
               )
             : null;
-          summaryLines.push(`    - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`);
+          summaryLines.push(
+            `    - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ''}`
+          );
         });
-        summaryLines.push("");
+        summaryLines.push('');
       }
 
-      summaryLines.push(`Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`);
+      summaryLines.push(
+        `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
+      );
     } else {
       // Single-run output format (backward compatible)
       const run = runs.get(runIds[0])!;
       const jobs = allJobs.get(runIds[0]) || [];
       const startedAt = new Date(run.createdAt);
       const completedAt = new Date(run.updatedAt);
-      const durationSeconds = Math.round(
-        (completedAt.getTime() - startedAt.getTime()) / 1000
-      );
+      const durationSeconds = Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
 
       const jobSummaries = jobs.map((job) => {
         const jobDuration = job.completedAt
           ? Math.round(
-              (new Date(job.completedAt).getTime() -
-                new Date(job.startedAt).getTime()) /
-                1000
+              (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
             )
           : null;
-        return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ""}`;
+        return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ''}`;
       });
 
-      const headerSuffix = failedEarly ? " (early exit)" : "";
-      const monitoringSuffix = failedEarly ? " (fail-fast enabled)" : "";
+      const headerSuffix = failedEarly ? ' (early exit)' : '';
+      const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
 
-      summaryLines.push(`Workflow Run ${failedEarly ? "Failed" : "Completed"}${headerSuffix}: ${run.workflowName || run.name}`);
+      summaryLines.push(
+        `Workflow Run ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix}: ${run.workflowName || run.name}`
+      );
       summaryLines.push(`Status: ${run.status}`);
-      summaryLines.push(`Conclusion: ${run.conclusion || "none"}`);
+      summaryLines.push(`Conclusion: ${run.conclusion || 'none'}`);
       summaryLines.push(`Duration: ${durationSeconds}s`);
       summaryLines.push(`URL: ${run.url}`);
-      summaryLines.push("");
+      summaryLines.push('');
       summaryLines.push(`Jobs (${jobs.length}):`);
       summaryLines.push(...jobSummaries);
-      summaryLines.push("");
-      summaryLines.push(`Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`);
+      summaryLines.push('');
+      summaryLines.push(
+        `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
+      );
     }
 
     return {
-      content: [{ type: "text", text: summaryLines.join("\n") }],
+      content: [{ type: 'text', text: summaryLines.join('\n') }],
     };
   } catch (error) {
     return createErrorResult(error);

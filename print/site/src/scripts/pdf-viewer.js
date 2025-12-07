@@ -32,7 +32,6 @@ export async function initPDFViewer(fileURL, document) {
 
     // Render first page
     await renderPage(1);
-
   } catch (error) {
     console.error('PDF loading error:', error);
     throw error;
@@ -89,12 +88,11 @@ async function renderPage(pageNum) {
 
     await page.render({
       canvasContext: ctx,
-      viewport: viewport
+      viewport: viewport,
     }).promise;
 
     // Update page info
     document.getElementById('pdfPageInfo').textContent = `${pageNum} / ${pdfDoc.numPages}`;
-
   } catch (error) {
     console.error('Page rendering error:', error);
   } finally {

@@ -7,16 +7,16 @@ global.document = {
   addEventListener: () => {},
   querySelectorAll: () => [],
   querySelector: () => null,
-  getElementById: () => null
+  getElementById: () => null,
 };
 
 global.history = {
-  pushState: () => {}
+  pushState: () => {},
 };
 
 global.window = {
   pageYOffset: 0,
-  addEventListener: () => {}
+  addEventListener: () => {},
 };
 
 // Load and execute the main.js file
@@ -41,7 +41,9 @@ for (const budget of budgets) {
 
   for (const [playstyle, character] of Object.entries(builds)) {
     console.log(`\n🎭 ${character.name}`);
-    console.log(`   Points: ${character.pointsSpent}/${character.pointBudget} (${character.remainingPoints} remaining)`);
+    console.log(
+      `   Points: ${character.pointsSpent}/${character.pointBudget} (${character.remainingPoints} remaining)`
+    );
     console.log(`   Final AC: ${character.finalAC}`);
     console.log(`   Synergy Score: ${character.synergy}`);
 
@@ -78,7 +80,7 @@ const comparison = generateBuildComparison(optimalBudget);
 console.log('BUILD EFFECTIVENESS ANALYSIS:\n');
 
 for (const [playstyle, char] of Object.entries(comparison)) {
-  const weaponDamage = char.equipment.find(e => e.type === 'weapon')?.die || 0;
+  const weaponDamage = char.equipment.find((e) => e.type === 'weapon')?.die || 0;
   const totalArmor = char.finalAC - 6; // AC minus base
   const skillCount = char.skills.length;
 

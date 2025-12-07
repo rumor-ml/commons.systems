@@ -6,14 +6,10 @@
 :root {
   /* Standard elevation shadows */
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4),
-               0 1px 2px -1px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
-               0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4),
-               0 4px 6px -4px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4),
-               0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 
   /* Inner shadows for depth */
@@ -25,25 +21,21 @@
   --shadow-glow-intense: var(--color-primary-glow-intense);
 
   /* Combined elevation + glow (for lifted interactive elements) */
-  --shadow-glow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4),
-                    0 1px 2px -1px rgba(0, 0, 0, 0.3),
-                    var(--shadow-glow-subtle);
+  --shadow-glow-sm:
+    0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3), var(--shadow-glow-subtle);
 
-  --shadow-glow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
-                    0 2px 4px -2px rgba(0, 0, 0, 0.3),
-                    var(--shadow-glow);
+  --shadow-glow-md:
+    0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3), var(--shadow-glow);
 
-  --shadow-glow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4),
-                    0 4px 6px -4px rgba(0, 0, 0, 0.3),
-                    var(--shadow-glow-intense);
+  --shadow-glow-lg:
+    0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3),
+    var(--shadow-glow-intense);
 
   /* Focus ring with glow (signature) */
-  --shadow-focus: 0 0 0 3px var(--color-primary-muted),
-                  var(--shadow-glow);
+  --shadow-focus: 0 0 0 3px var(--color-primary-muted), var(--shadow-glow);
 
   /* Hover lift shadow (for cards) */
-  --shadow-lift: 0 8px 16px -4px rgba(0, 0, 0, 0.5),
-                 0 4px 8px -4px rgba(0, 0, 0, 0.4);
+  --shadow-lift: 0 8px 16px -4px rgba(0, 0, 0, 0.5), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
 }
 
 /* Light theme shadows */
@@ -66,17 +58,14 @@
     --shadow-glow-intense: var(--color-primary-glow-intense);
 
     /* Combined elevation + glow */
-    --shadow-glow-sm: 0 1px 3px rgba(0, 0, 0, 0.1),
-                      0 1px 2px rgba(0, 0, 0, 0.06),
-                      var(--shadow-glow-subtle);
+    --shadow-glow-sm:
+      0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06), var(--shadow-glow-subtle);
 
-    --shadow-glow-md: 0 4px 6px rgba(0, 0, 0, 0.1),
-                      0 2px 4px rgba(0, 0, 0, 0.06),
-                      var(--shadow-glow);
+    --shadow-glow-md:
+      0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06), var(--shadow-glow);
 
-    --shadow-glow-lg: 0 10px 15px rgba(0, 0, 0, 0.1),
-                      0 4px 6px rgba(0, 0, 0, 0.05),
-                      var(--shadow-glow-intense);
+    --shadow-glow-lg:
+      0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05), var(--shadow-glow-intense);
 
     /* Focus ring with glow */
     --shadow-focus: 0 0 0 3px rgba(8, 145, 178, 0.3);

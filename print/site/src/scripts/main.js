@@ -9,7 +9,7 @@ import {
   uploadFile,
   deleteFile,
   detectFileType,
-  formatFileSize
+  formatFileSize,
 } from './firebase.js';
 
 // State
@@ -34,11 +34,11 @@ const documentsContainer = document.getElementById('documents');
 
 // Icon map for file types
 const iconMap = {
-  'pdf': '📕',
-  'epub': '📘',
-  'md': '📗',
-  'cbz': '📙',
-  'cbr': '📙'
+  pdf: '📕',
+  epub: '📘',
+  md: '📗',
+  cbz: '📙',
+  cbr: '📙',
 };
 
 /**
@@ -52,7 +52,7 @@ function withTimeout(promise, timeoutMs) {
     promise,
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
-    )
+    ),
   ]);
 }
 
@@ -112,7 +112,7 @@ function renderDocuments() {
 
   documentsContainer.innerHTML = '';
 
-  documents.forEach(doc => {
+  documents.forEach((doc) => {
     const card = createDocumentCard(doc);
     documentsContainer.appendChild(card);
   });
@@ -229,8 +229,8 @@ async function handleUpload(e) {
       size: file.size,
       metadata: {
         contentType: file.type,
-        originalName: file.name
-      }
+        originalName: file.name,
+      },
     });
 
     // Success
@@ -239,7 +239,6 @@ async function handleUpload(e) {
       hideUploadForm();
       await loadDocuments();
     }, 1000);
-
   } catch (error) {
     console.error('Upload error:', error);
     uploadProgressText.textContent = `Upload failed: ${error.message}`;

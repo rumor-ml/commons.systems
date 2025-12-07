@@ -370,7 +370,6 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
-
   deploy-videobrowser:
     name: Deploy videobrowser
     runs-on: ubuntu-latest
@@ -472,7 +471,6 @@ jobs:
           state: 'failure'
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
-
 
   deploy-audiobrowser:
     name: Deploy audiobrowser
@@ -576,7 +574,6 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
-
   deploy-print:
     name: Deploy print
     runs-on: ubuntu-latest
@@ -678,7 +675,6 @@ jobs:
           state: 'failure'
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
-
 
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:
@@ -782,10 +778,17 @@ jobs:
     name: Rollback on Test Failure
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [
-      deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print,
-      e2e-fellspiral, e2e-videobrowser, e2e-audiobrowser, e2e-print
-    ]
+    needs:
+      [
+        deploy-fellspiral,
+        deploy-videobrowser,
+        deploy-audiobrowser,
+        deploy-print,
+        e2e-fellspiral,
+        e2e-videobrowser,
+        e2e-audiobrowser,
+        e2e-print,
+      ]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
@@ -831,16 +834,25 @@ jobs:
   merge-check:
     name: Merge Check - All Tests Passed
     runs-on: ubuntu-latest
-    needs: [
-      test-firebase-fellspiral, test-firebase-videobrowser,
-      test-firebase-audiobrowser, test-firebase-print,
-      test-go-fullstack-printsync,
-      test-go-tui-tmux-tui,
-      test-go-packages-filesync,
-      deploy-firestore-rules,
-      deploy-fellspiral, deploy-videobrowser, deploy-audiobrowser, deploy-print,
-      e2e-fellspiral, e2e-videobrowser, e2e-audiobrowser, e2e-print
-    ]
+    needs:
+      [
+        test-firebase-fellspiral,
+        test-firebase-videobrowser,
+        test-firebase-audiobrowser,
+        test-firebase-print,
+        test-go-fullstack-printsync,
+        test-go-tui-tmux-tui,
+        test-go-packages-filesync,
+        deploy-firestore-rules,
+        deploy-fellspiral,
+        deploy-videobrowser,
+        deploy-audiobrowser,
+        deploy-print,
+        e2e-fellspiral,
+        e2e-videobrowser,
+        e2e-audiobrowser,
+        e2e-print,
+      ]
     if: always()
 
     steps:

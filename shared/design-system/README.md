@@ -76,6 +76,7 @@ export default {
 ```
 
 **Button Variants:**
+
 - `.btn--primary` - Electric cyan with glow on hover (signature)
 - `.btn--secondary` - Soft violet
 - `.btn--outline` - Transparent with border
@@ -84,6 +85,7 @@ export default {
 - `.btn--success` - Success green
 
 **Button Sizes:**
+
 - `.btn--sm` - Small
 - `.btn--lg` - Large
 - `.btn--xl` - Extra large
@@ -99,6 +101,7 @@ export default {
 ```
 
 **Form Components:**
+
 - `.input` - Text input with cyan focus glow
 - `.textarea` - Multi-line text input
 - `.select` - Select dropdown
@@ -113,9 +116,7 @@ export default {
   <div class="card__header">
     <h3 class="card__title">Card Title</h3>
   </div>
-  <div class="card__body">
-    Card content goes here.
-  </div>
+  <div class="card__body">Card content goes here.</div>
   <div class="card__footer">
     <button class="btn btn--primary">Action</button>
   </div>
@@ -123,6 +124,7 @@ export default {
 ```
 
 **Card Features:**
+
 - `.card--interactive` - Hover lift effect (signature 4px lift)
 - `.card--primary` - Cyan border with glow
 - `.card--elevated` - Elevated shadow
@@ -138,6 +140,7 @@ export default {
 ```
 
 **Navigation Components:**
+
 - `.nav` - Basic navigation
 - `.nav-item` - Navigation item with hover states
 - `.nav-item--active` - Active state with cyan accent
@@ -154,9 +157,7 @@ export default {
       <h2 class="modal__title">Modal Title</h2>
       <button class="modal__close">×</button>
     </div>
-    <div class="modal__body">
-      Modal content...
-    </div>
+    <div class="modal__body">Modal content...</div>
     <div class="modal__footer">
       <button class="btn btn--ghost">Cancel</button>
       <button class="btn btn--primary">Confirm</button>
@@ -211,12 +212,12 @@ export default {
 --font-mono: 'Geist Mono', ...monospace fonts;
 
 /* Type scale */
---font-size-xs: 0.75rem;    /* 12px */
---font-size-sm: 0.875rem;   /* 14px */
---font-size-base: 1rem;     /* 16px */
---font-size-lg: 1.25rem;    /* 20px */
---font-size-xl: 1.5rem;     /* 24px */
---font-size-2xl: 2rem;      /* 32px */
+--font-size-xs: 0.75rem; /* 12px */
+--font-size-sm: 0.875rem; /* 14px */
+--font-size-base: 1rem; /* 16px */
+--font-size-lg: 1.25rem; /* 20px */
+--font-size-xl: 1.5rem; /* 24px */
+--font-size-2xl: 2rem; /* 32px */
 ```
 
 ### Spacing
@@ -224,12 +225,12 @@ export default {
 8px base scale:
 
 ```css
---spacing-1: 0.25rem;   /* 4px */
---spacing-2: 0.5rem;    /* 8px */
---spacing-3: 0.75rem;   /* 12px */
---spacing-4: 1rem;      /* 16px */
---spacing-6: 1.5rem;    /* 24px */
---spacing-8: 2rem;      /* 32px */
+--spacing-1: 0.25rem; /* 4px */
+--spacing-2: 0.5rem; /* 8px */
+--spacing-3: 0.75rem; /* 12px */
+--spacing-4: 1rem; /* 16px */
+--spacing-6: 1.5rem; /* 24px */
+--spacing-8: 2rem; /* 32px */
 ```
 
 ### Shadows
@@ -346,6 +347,7 @@ Primary buttons get cyan shadow on hover:
 ## Browser Support
 
 Modern browsers with CSS custom properties support:
+
 - Chrome 88+
 - Firefox 85+
 - Safari 14+

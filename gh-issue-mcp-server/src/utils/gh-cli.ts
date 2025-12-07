@@ -2,8 +2,8 @@
  * GitHub CLI wrapper utilities for safe command execution
  */
 
-import { execa } from "execa";
-import { GitHubCliError } from "./errors.js";
+import { execa } from 'execa';
+import { GitHubCliError } from './errors.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -13,10 +13,7 @@ export interface GhCliOptions {
 /**
  * Execute a GitHub CLI command safely with proper error handling
  */
-export async function ghCli(
-  args: string[],
-  options: GhCliOptions = {}
-): Promise<string> {
+export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
   try {
     const execaOptions: any = {
       timeout: options.timeout,
@@ -24,9 +21,9 @@ export async function ghCli(
     };
 
     // Add repo flag if provided
-    const fullArgs = options.repo ? ["--repo", options.repo, ...args] : args;
+    const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
-    const result = await execa("gh", fullArgs, execaOptions);
+    const result = await execa('gh', fullArgs, execaOptions);
 
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
@@ -36,7 +33,7 @@ export async function ghCli(
       );
     }
 
-    return result.stdout || "";
+    return result.stdout || '';
   } catch (error) {
     if (error instanceof GitHubCliError) {
       throw error;
@@ -51,10 +48,7 @@ export async function ghCli(
 /**
  * Execute a GitHub CLI command and parse JSON output
  */
-export async function ghCliJson<T>(
-  args: string[],
-  options: GhCliOptions = {}
-): Promise<T> {
+export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): Promise<T> {
   const output = await ghCli(args, options);
 
   try {
@@ -71,7 +65,7 @@ export async function ghCliJson<T>(
  */
 export async function getCurrentRepo(): Promise<string> {
   try {
-    const result = await ghCli(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+    const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
     throw new GitHubCliError(

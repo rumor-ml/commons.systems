@@ -47,7 +47,7 @@ let
 
   # Node.js ecosystem
   nodejs = with pkgs; [
-    nodejs      # Currently using default version, can pin to nodejs_20
+    nodejs # Currently using default version, can pin to nodejs_20
     pnpm
     # firebase-tools removed: causes segfault in Nix evaluator
     #
@@ -65,11 +65,11 @@ let
 
   # Go toolchain and tools
   golang = with pkgs; [
-    go          # Currently using default version, can pin to go_1_24
-    gopls       # Go language server
-    gotools     # Additional Go utilities
-    air         # Live reload for Go
-    templ       # Go template tool
+    go # Currently using default version, can pin to go_1_24
+    gopls # Go language server
+    gotools # Additional Go utilities
+    air # Live reload for Go
+    templ # Go template tool
   ];
 
   # Development utilities
@@ -78,7 +78,13 @@ let
   ];
 in
 {
-  inherit core cloud nodejs golang devtools;
+  inherit
+    core
+    cloud
+    nodejs
+    golang
+    devtools
+    ;
 
   # Composite sets for different use cases
   # All tools - for the universal development shell

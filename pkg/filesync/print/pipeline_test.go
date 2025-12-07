@@ -64,9 +64,9 @@ func createTestPrintFiles(t *testing.T) string {
 	tmpDir := t.TempDir()
 
 	files := map[string]string{
-		"book1.pdf":  "This is a test PDF book",
-		"book2.epub": "This is a test EPUB book",
-		"comic.cbz":  "This is a test comic",
+		"book1.pdf":        "This is a test PDF book",
+		"book2.epub":       "This is a test EPUB book",
+		"comic.cbz":        "This is a test comic",
 		"nested/book3.pdf": "This is a nested PDF book",
 	}
 

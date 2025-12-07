@@ -70,7 +70,7 @@ async function verifyCards() {
   console.log(`\nShowing first ${cardsSnapshot.size} cards:\n`);
 
   let errorCount = 0;
-  cardsSnapshot.forEach(doc => {
+  cardsSnapshot.forEach((doc) => {
     const data = doc.data();
 
     if (!data) {
@@ -108,7 +108,7 @@ verifyCards()
     }
     process.exit(0);
   })
-  .catch(error => {
+  .catch((error) => {
     console.error('\n❌ Unexpected error:', error.message);
     console.error('Full error:', error);
     process.exit(1);

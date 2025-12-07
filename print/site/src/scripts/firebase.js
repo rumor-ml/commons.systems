@@ -4,8 +4,28 @@
  * Storage uses private rml-media bucket with access controlled via Firebase Storage rules
  */
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, getMetadata, deleteObject, listAll } from 'firebase/storage';
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  getDoc,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  orderBy,
+  Timestamp,
+} from 'firebase/firestore';
+import {
+  getStorage,
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+  getMetadata,
+  deleteObject,
+  listAll,
+} from 'firebase/storage';
 import { getAuth } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 
@@ -42,16 +62,16 @@ export async function getAllDocuments() {
 
     // Filter to only document files and get metadata + URLs
     const documentPromises = result.items
-      .filter(itemRef => {
+      .filter((itemRef) => {
         const name = itemRef.name.toLowerCase();
-        return docExtensions.some(ext => name.endsWith(ext));
+        return docExtensions.some((ext) => name.endsWith(ext));
       })
       .map(async (itemRef) => {
         try {
           // Get metadata and download URL in parallel
           const [metadata, downloadUrl] = await Promise.all([
             getMetadata(itemRef),
-            getDownloadURL(itemRef)
+            getDownloadURL(itemRef),
           ]);
 
           const type = detectFileType(itemRef.name);
@@ -66,8 +86,8 @@ export async function getAllDocuments() {
             updated: new Date(metadata.updated),
             downloadUrl: downloadUrl,
             metadata: {
-              contentType: metadata.contentType
-            }
+              contentType: metadata.contentType,
+            },
           };
         } catch (error) {
           console.error(`Error fetching metadata for ${itemRef.name}:`, error);
@@ -77,7 +97,7 @@ export async function getAllDocuments() {
 
     // Wait for all metadata fetches to complete
     const documents = (await Promise.all(documentPromises))
-      .filter(doc => doc !== null)
+      .filter((doc) => doc !== null)
       .sort((a, b) => b.uploadedAt - a.uploadedAt); // Sort by upload date, newest first
 
     return documents;
@@ -95,10 +115,10 @@ export async function getAllDocumentsFromFirestore() {
   try {
     const q = query(collection(db, 'documents'), orderBy('uploadedAt', 'desc'));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    return querySnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      uploadedAt: doc.data().uploadedAt?.toDate()
+      uploadedAt: doc.data().uploadedAt?.toDate(),
     }));
   } catch (error) {
     console.error('Error getting documents:', error);
@@ -118,7 +138,7 @@ export async function getDocument(documentId) {
       const fileRef = ref(storage, documentId);
       const [metadata, downloadUrl] = await Promise.all([
         getMetadata(fileRef),
-        getDownloadURL(fileRef)
+        getDownloadURL(fileRef),
       ]);
 
       const fileName = documentId.split('/').pop();
@@ -134,8 +154,8 @@ export async function getDocument(documentId) {
         updated: new Date(metadata.updated),
         downloadUrl: downloadUrl,
         metadata: {
-          contentType: metadata.contentType
-        }
+          contentType: metadata.contentType,
+        },
       };
     }
 
@@ -150,7 +170,7 @@ export async function getDocument(documentId) {
     return {
       id: docSnap.id,
       ...docSnap.data(),
-      uploadedAt: docSnap.data().uploadedAt?.toDate()
+      uploadedAt: docSnap.data().uploadedAt?.toDate(),
     };
   } catch (error) {
     console.error('Error getting document:', error);
@@ -170,7 +190,7 @@ export async function createDocument(documentData) {
       uploadedAt: Timestamp.now(),
       lastRead: null,
       readProgress: 0,
-      bookmarks: []
+      bookmarks: [],
     });
     return docRef.id;
   } catch (error) {
@@ -223,7 +243,8 @@ export async function uploadFile(file, progressCallback) {
     const uploadTask = uploadBytesResumable(storageRef, file);
 
     return new Promise((resolve, reject) => {
-      uploadTask.on('state_changed',
+      uploadTask.on(
+        'state_changed',
         (snapshot) => {
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
           if (progressCallback) {
@@ -239,7 +260,7 @@ export async function uploadFile(file, progressCallback) {
             const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
             resolve({
               storagePath: `print/${fileName}`,
-              downloadURL
+              downloadURL,
             });
           } catch (error) {
             reject(error);
@@ -308,7 +329,7 @@ export async function updateReadProgress(documentId, progress) {
   try {
     await updateDocument(documentId, {
       lastRead: Timestamp.now(),
-      readProgress: Math.min(100, Math.max(0, progress))
+      readProgress: Math.min(100, Math.max(0, progress)),
     });
   } catch (error) {
     console.error('Error updating read progress:', error);
@@ -328,7 +349,7 @@ export async function addBookmark(documentId, bookmark) {
     const bookmarks = document.bookmarks || [];
     bookmarks.push({
       ...bookmark,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     });
     await updateDocument(documentId, { bookmarks });
   } catch (error) {
@@ -345,12 +366,12 @@ export async function addBookmark(documentId, bookmark) {
 export function detectFileType(filename) {
   const extension = filename.split('.').pop().toLowerCase();
   const typeMap = {
-    'pdf': 'pdf',
-    'epub': 'epub',
-    'md': 'md',
-    'markdown': 'md',
-    'cbz': 'cbz',
-    'cbr': 'cbr'
+    pdf: 'pdf',
+    epub: 'epub',
+    md: 'md',
+    markdown: 'md',
+    cbz: 'cbz',
+    cbr: 'cbr',
   };
   return typeMap[extension] || 'unknown';
 }

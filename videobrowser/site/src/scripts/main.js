@@ -49,7 +49,7 @@ function formatDate(isoString) {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
@@ -75,16 +75,16 @@ async function fetchVideos() {
     const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v'];
 
     const videoPromises = result.items
-      .filter(itemRef => {
+      .filter((itemRef) => {
         const name = itemRef.name.toLowerCase();
-        return videoExtensions.some(ext => name.endsWith(ext));
+        return videoExtensions.some((ext) => name.endsWith(ext));
       })
       .map(async (itemRef) => {
         try {
           // Get metadata and download URL in parallel
           const [metadata, downloadUrl] = await Promise.all([
             getMetadata(itemRef),
-            getDownloadURL(itemRef)
+            getDownloadURL(itemRef),
           ]);
 
           return {
@@ -94,7 +94,7 @@ async function fetchVideos() {
             updated: metadata.updated,
             contentType: metadata.contentType,
             downloadUrl: downloadUrl, // Signed URL from Firebase
-            ref: itemRef // Keep reference for future operations
+            ref: itemRef, // Keep reference for future operations
           };
         } catch (error) {
           console.error(`Error fetching metadata for ${itemRef.name}:`, error);
@@ -104,7 +104,7 @@ async function fetchVideos() {
 
     // Wait for all metadata fetches to complete
     const videos = (await Promise.all(videoPromises))
-      .filter(video => video !== null)
+      .filter((video) => video !== null)
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
     return videos;
@@ -128,7 +128,7 @@ function renderFileList(videos) {
     return;
   }
 
-  videos.forEach(video => {
+  videos.forEach((video) => {
     const item = document.createElement('div');
     item.className = 'file-item';
     if (currentVideo && currentVideo.name === video.name) {
@@ -170,7 +170,7 @@ function playVideo(video) {
   // Re-render file list to update active state
   const searchTerm = searchInput.value.toLowerCase().trim();
   const filtered = searchTerm
-    ? allVideos.filter(v => v.displayName.toLowerCase().includes(searchTerm))
+    ? allVideos.filter((v) => v.displayName.toLowerCase().includes(searchTerm))
     : allVideos;
   renderFileList(filtered);
 }
@@ -181,7 +181,7 @@ function playVideo(video) {
 function filterVideos() {
   const searchTerm = searchInput.value.toLowerCase().trim();
   const filtered = searchTerm
-    ? allVideos.filter(v => v.displayName.toLowerCase().includes(searchTerm))
+    ? allVideos.filter((v) => v.displayName.toLowerCase().includes(searchTerm))
     : allVideos;
 
   renderFileList(filtered);
@@ -208,7 +208,6 @@ async function loadVideos() {
     // Hide loading
     loadingIndicator.classList.add('hidden');
     refreshBtn.disabled = false;
-
   } catch (error) {
     loadingIndicator.classList.add('hidden');
     refreshBtn.disabled = false;
@@ -274,9 +273,7 @@ function setupKeyboardShortcuts() {
 function navigateVideoList(direction) {
   if (allVideos.length === 0) return;
 
-  const currentIndex = currentVideo
-    ? allVideos.findIndex(v => v.name === currentVideo.name)
-    : -1;
+  const currentIndex = currentVideo ? allVideos.findIndex((v) => v.name === currentVideo.name) : -1;
 
   let nextIndex = currentIndex + direction;
 

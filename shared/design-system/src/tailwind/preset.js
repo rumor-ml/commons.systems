@@ -10,10 +10,10 @@ export default {
   darkMode: 'media',
   theme: {
     screens: {
-      'sm': '375px',
-      'md': '768px',
-      'lg': '1024px',
-      'xl': '1440px',
+      sm: '375px',
+      md: '768px',
+      lg: '1024px',
+      xl: '1440px',
     },
     extend: {
       colors: {
@@ -73,8 +73,23 @@ export default {
       },
 
       fontFamily: {
-        sans: ['Geist', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Consolas', 'monospace'],
+        sans: [
+          'Geist',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'system-ui',
+          'sans-serif',
+        ],
+        mono: [
+          'Geist Mono',
+          'SF Mono',
+          'Monaco',
+          'Cascadia Code',
+          'Roboto Mono',
+          'Consolas',
+          'monospace',
+        ],
       },
 
       fontSize: {
@@ -170,7 +185,7 @@ export default {
       animation: {
         'fade-in': 'fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1)',
         'slide-up': 'slide-up 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-        'spin': 'spinner-rotate 500ms linear infinite',
+        spin: 'spinner-rotate 500ms linear infinite',
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
       },
     },

@@ -28,12 +28,14 @@ pnpm dev
 ```
 
 **Why Nix?**
+
 - **Reproducible**: Everyone gets the exact same tool versions
 - **Isolated**: Project dependencies don't interfere with your system
 - **Version Controlled**: Development environment lives in Git
 - **Fast Onboarding**: One command to get started
 
 **What you get:**
+
 - Go 1.21.5, Node.js 20.x, pnpm 8.x
 - Firebase CLI, GitHub CLI, Google Cloud SDK
 - tmux, ripgrep, jq, and other developer tools
@@ -42,15 +44,16 @@ pnpm dev
 
 **Comparison:**
 
-| Aspect | Nix | Codespaces |
-|--------|-----|------------|
-| Setup time | 1 command | Click + wait for container |
-| Tool versions | Exact, pinned | Container-defined |
-| Works offline | Yes | No |
-| Cost | Free | Free for 120 hours/month |
-| Ideal for | Daily development | Quick experiments |
+| Aspect        | Nix               | Codespaces                 |
+| ------------- | ----------------- | -------------------------- |
+| Setup time    | 1 command         | Click + wait for container |
+| Tool versions | Exact, pinned     | Container-defined          |
+| Works offline | Yes               | No                         |
+| Cost          | Free              | Free for 120 hours/month   |
+| Ideal for     | Daily development | Quick experiments          |
 
 **Learn more:**
+
 - Comprehensive guide: [nix/README.md](nix/README.md)
 - Home Manager setup: [nix/home/README.md](nix/home/README.md)
 
@@ -63,6 +66,7 @@ pnpm dev
    - Wait for container to build
 
 2. **Run the setup script**:
+
    ```bash
    python3 iac.py
    ```
@@ -86,29 +90,32 @@ This repository is structured as a monorepo hosting multiple apps with shared in
 ### App Infrastructure
 
 - Scaffolding
-    - Firebase
-    - Native go
-    - go server
+  - Firebase
+  - Native go
+  - go server
 - Shared infrastructure
-    - nix system configuration
-    - single script gcp iac
-    - GitHub CI/CD workflows
-    - Playwright browser server for CI/CD testing
+  - nix system configuration
+  - single script gcp iac
+  - GitHub CI/CD workflows
+  - Playwright browser server for CI/CD testing
 
 ## Code Standards
 
 ### HTML
+
 - Use semantic HTML5 elements
 - Include proper accessibility attributes
 - Keep markup clean and readable
 
 ### CSS
+
 - Follow BEM naming where appropriate
 - Use CSS custom properties (variables)
 - Mobile-first responsive design
 - Keep selectors specific but not complex
 
 ### JavaScript
+
 - Use modern ES6+ syntax
 - Write clear, self-documenting code
 - Add comments for complex logic
@@ -119,6 +126,7 @@ This repository is structured as a monorepo hosting multiple apps with shared in
 The Wiggum agent automates the complete PR lifecycle: creation, CI monitoring, code quality fixes, and review handling.
 
 ### Usage
+
 Invoke via: `Task(subagent_type="Wiggum")`
 
 ### Execution Flow
@@ -202,11 +210,11 @@ Optimize infrastructure for cost.
 
 ### Estimated Monthly Cost (Per Site)
 
-| Service | Cost | Notes |
-|---------|------|-------|
-| Cloud Run (scale-to-zero) | ~$0.10/month | Minimal idle time, fast cold starts |
-| Artifact Registry Storage | ~$0.05/month | Docker images with cleanup policies |
-| Cloud Run Requests | ~$0.03/month | 1000 requests |
-| Egress | ~$0.02/month | 1GB outbound traffic |
-| **Total per site** | **~$0.20/month** | With moderate traffic |
-| **Two sites (current)** | **~$0.40/month** | Fellspiral + Video Browser |
+| Service                   | Cost             | Notes                               |
+| ------------------------- | ---------------- | ----------------------------------- |
+| Cloud Run (scale-to-zero) | ~$0.10/month     | Minimal idle time, fast cold starts |
+| Artifact Registry Storage | ~$0.05/month     | Docker images with cleanup policies |
+| Cloud Run Requests        | ~$0.03/month     | 1000 requests                       |
+| Egress                    | ~$0.02/month     | 1GB outbound traffic                |
+| **Total per site**        | **~$0.20/month** | With moderate traffic               |
+| **Two sites (current)**   | **~$0.40/month** | Fellspiral + Video Browser          |

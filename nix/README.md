@@ -14,8 +14,9 @@ This directory contains the Nix configuration for the Commons Systems monorepo, 
 8. [Performance & Caching](#performance--caching)
 9. [Testing & Validation](#testing--validation)
 10. [CI Integration](#ci-integration)
-11. [Future Enhancements](#future-enhancements)
-12. [References](#references)
+11. [Pre-commit Hooks](#pre-commit-hooks)
+12. [Future Enhancements](#future-enhancements)
+13. [References](#references)
 
 ## Overview
 
@@ -43,6 +44,7 @@ This monorepo benefits from Nix in several key ways:
 ### Benefits Compared to Manual Setup
 
 **Traditional Setup:**
+
 ```bash
 # Install Go (which version?)
 brew install go
@@ -55,11 +57,13 @@ go install github.com/cli/cli/v2/cmd/gh@latest
 ```
 
 **Nix Setup:**
+
 ```bash
 nix develop  # Everything configured, reproducible, isolated
 ```
 
 With Nix, you get:
+
 - Exact version pinning (Go 1.21.5, not "whatever brew has")
 - No global pollution (tools are scoped to the project)
 - Instant rollback (bad update? Revert the flake.lock)
@@ -138,6 +142,7 @@ nix develop
 First run takes 5-15 minutes as Nix downloads and builds everything. Subsequent runs are instant (everything is cached).
 
 You'll see initialization messages:
+
 ```
 Setting up Git worktree environment...
 Initializing Go environment...
@@ -212,6 +217,7 @@ Tools are organized into logical categories rather than one large list:
 **How tools are composed:**
 
 The main dev shell combines all categories:
+
 ```nix
 buildInputs = with pkgs; [
   packageSets.developerTools
@@ -223,6 +229,7 @@ buildInputs = with pkgs; [
 ```
 
 A minimal CI shell might only include:
+
 ```nix
 buildInputs = with pkgs; [
   packageSets.developerTools
@@ -273,6 +280,7 @@ tmuxHooks     # Last: Start tmux session (needs all tools available)
 **When to add new hooks:**
 
 Add a new hook when you have initialization logic that:
+
 - Runs every time the shell starts
 - Sets up environment variables or tool state
 - Has clear dependencies or ordering requirements
@@ -313,6 +321,7 @@ Custom packages are tools not available in the standard Nix package repository (
 **buildGoModule vs buildNpmPackage vs stdenv.mkDerivation:**
 
 **Use `buildGoModule`** when:
+
 - You're building a Go project from source
 - You need Nix to manage Go dependencies
 - You want reproducible Go module resolution
@@ -334,6 +343,7 @@ buildGoModule rec {
 ```
 
 **Use `buildNpmPackage`** when:
+
 - You're building a Node.js/TypeScript project from source
 - You have a package-lock.json for reproducible dependency resolution
 - You want Nix to manage npm dependencies
@@ -363,6 +373,7 @@ EOF
 ```
 
 **Use `stdenv.mkDerivation`** when:
+
 - You have a pre-built binary
 - You're wrapping an existing tool
 - You need custom build logic beyond standard language builders
@@ -370,6 +381,7 @@ EOF
 **How lib.cleanSource works:**
 
 Both `buildGoModule` and `buildNpmPackage` use `lib.cleanSource` to filter the source directory:
+
 - Removes files in `.gitignore` (like `dist/`, `node_modules/`, `vendor/`)
 - Ensures reproducible builds from source code only
 - Prevents accidental inclusion of build artifacts
@@ -378,10 +390,10 @@ Both `buildGoModule` and `buildNpmPackage` use `lib.cleanSource` to filter the s
 
 When building packages, Nix needs to download dependencies reproducibly using content-addressed hashes:
 
-| Language | Hash Parameter | What It Hashes | Lock File |
-|----------|---------------|----------------|-----------|
-| Go | `vendorHash` | `go.mod` dependencies | `go.sum` |
-| Node.js | `npmDepsHash` | `package-lock.json` dependencies | `package-lock.json` |
+| Language | Hash Parameter | What It Hashes                   | Lock File           |
+| -------- | -------------- | -------------------------------- | ------------------- |
+| Go       | `vendorHash`   | `go.mod` dependencies            | `go.sum`            |
+| Node.js  | `npmDepsHash`  | `package-lock.json` dependencies | `package-lock.json` |
 
 **When to update dependency hashes:**
 
@@ -432,13 +444,13 @@ Home Manager is a Nix-based tool for managing user configuration files (dotfiles
 
 **System-wide config vs project config:**
 
-| Aspect | Dev Shell | Home Manager |
-|--------|-----------|--------------|
-| Scope | Project-specific | System-wide |
-| Activation | `nix develop` | `home-manager switch` |
-| Files managed | None (environment only) | Dotfiles (~/.bashrc, ~/.config/*) |
-| Tool availability | Only in shell | Globally available |
-| Commitment | Low (try it, exit anytime) | High (takes over config) |
+| Aspect            | Dev Shell                  | Home Manager                       |
+| ----------------- | -------------------------- | ---------------------------------- |
+| Scope             | Project-specific           | System-wide                        |
+| Activation        | `nix develop`              | `home-manager switch`              |
+| Files managed     | None (environment only)    | Dotfiles (~/.bashrc, ~/.config/\*) |
+| Tool availability | Only in shell              | Globally available                 |
+| Commitment        | Low (try it, exit anytime) | High (takes over config)           |
 
 **When to use Home Manager:**
 
@@ -457,6 +469,7 @@ Home Manager is a Nix-based tool for managing user configuration files (dotfiles
 **Backward compatibility:**
 
 The configuration is designed so that:
+
 - Dev shell never requires Home Manager
 - Home Manager can be added/removed without affecting dev shell
 - Both can coexist peacefully
@@ -487,6 +500,7 @@ Without this, you'd need to manually define outputs for each system. Flake-utils
 ```
 
 This ensures the configuration works on:
+
 - Developer laptops (macOS ARM, macOS Intel)
 - CI runners (Linux x86_64)
 - Production servers (Linux ARM, Linux x86_64)
@@ -910,23 +924,27 @@ developerTools = with pkgs; [
 **Solutions**:
 
 1. **Exit and re-enter the shell**:
+
    ```bash
    exit
    nix develop
    ```
 
 2. **Rebuild the dev shell**:
+
    ```bash
    nix develop --rebuild
    ```
 
 3. **Check the tool is actually in packageSets**:
+
    ```bash
    nix eval .#devShells.x86_64-darwin.default.buildInputs
    # (adjust system as needed)
    ```
 
 4. **Verify tool exists in nixpkgs**:
+
    ```bash
    nix search nixpkgs ripgrep
    ```
@@ -987,6 +1005,7 @@ git commit -m "Update Nix flake inputs"
 **Symptom**: Home Manager complains about existing dotfiles
 
 **Example**:
+
 ```
 error: Existing file '/Users/you/.bashrc' is in the way
 ```
@@ -994,6 +1013,7 @@ error: Existing file '/Users/you/.bashrc' is in the way
 **Solutions**:
 
 1. **Backup and remove existing files**:
+
    ```bash
    mv ~/.bashrc ~/.bashrc.backup
    mv ~/.gitconfig ~/.gitconfig.backup
@@ -1001,11 +1021,13 @@ error: Existing file '/Users/you/.bashrc' is in the way
    ```
 
 2. **Import existing config into Home Manager**:
+
    ```nix
    programs.bash.initExtra = builtins.readFile ~/.bashrc.backup;
    ```
 
 3. **Use Home Manager for new files only**:
+
    ```nix
    # Don't manage bash, only new things
    programs.bash.enable = false;
@@ -1026,12 +1048,14 @@ error: Existing file '/Users/you/.bashrc' is in the way
 Nix caches everything automatically in `/nix/store`. Once you build something, it's cached forever (until garbage collected).
 
 **Cache behavior**:
+
 - First `nix develop`: 5-15 minutes (downloads and builds everything)
 - Subsequent `nix develop`: Instant (uses cached store paths)
 - After changing `flake.lock`: Only changed packages rebuild
 - After changing source code: Only affected packages rebuild
 
 **Check cache usage**:
+
 ```bash
 # Show what's in your store
 nix store ls
@@ -1044,6 +1068,7 @@ du -sh /nix/store
 ```
 
 **Garbage collection** (free up space):
+
 ```bash
 # Remove unused store paths
 nix-collect-garbage
@@ -1074,6 +1099,7 @@ Cachix is a hosted Nix cache service that dramatically speeds up CI builds.
 1. **Create Cachix account**: https://cachix.org
 
 2. **Create a cache**:
+
    ```bash
    cachix create commons-systems
    ```
@@ -1085,6 +1111,7 @@ Cachix is a hosted Nix cache service that dramatically speeds up CI builds.
 5. **CI automatically uses it**: See `.github/workflows/nix-ci.yml`
 
 **Push from local machine**:
+
 ```bash
 # Install cachix CLI
 nix-env -iA cachix -f https://cachix.org/api/v1/install
@@ -1098,6 +1125,7 @@ cachix push commons-systems ./result
 ```
 
 **Check cache stats**:
+
 ```bash
 cachix status commons-systems
 ```
@@ -1191,6 +1219,7 @@ echo "All tests passed!"
 ```
 
 Run with:
+
 ```bash
 chmod +x nix/test.sh
 ./nix/test.sh
@@ -1209,11 +1238,13 @@ The `.github/workflows/nix-ci.yml` workflow:
 5. **Tests dev shell** by running the environment check
 
 **Workflow runs on**:
+
 - Every push to `main`
 - Every pull request
 - Manual trigger via GitHub UI
 
 **Benefits**:
+
 - Catches Nix configuration errors before merge
 - Validates packages build on Linux
 - Ensures dev shell works in CI
@@ -1226,6 +1257,7 @@ Cachix is optional but recommended for faster CI builds.
 **Step 1**: Create Cachix account at https://cachix.org
 
 **Step 2**: Create a cache:
+
 ```bash
 cachix create commons-systems
 ```
@@ -1233,12 +1265,14 @@ cachix create commons-systems
 **Step 3**: Get auth token from Cachix dashboard
 
 **Step 4**: Add to GitHub secrets:
+
 - Go to: Repository → Settings → Secrets and variables → Actions
 - Click "New repository secret"
 - Name: `CACHIX_AUTH_TOKEN`
 - Value: (paste token)
 
 **Step 5**: Push initial cache:
+
 ```bash
 nix build .#tmux-tui
 cachix push commons-systems ./result
@@ -1248,6 +1282,7 @@ cachix push commons-systems ./result
 ```
 
 **CI will now**:
+
 - Pull from Cachix (fast)
 - Build if cache miss
 - Push to Cachix for next run
@@ -1265,7 +1300,7 @@ Edit `.github/workflows/nix-ci.yml`:
 - name: Build gh-workflow-mcp-server package
   run: nix build .#gh-workflow-mcp-server
 
-- name: Build my-new-package  # Add this
+- name: Build my-new-package # Add this
   run: nix build .#my-new-package
 ```
 
@@ -1274,9 +1309,11 @@ Edit `.github/workflows/nix-ci.yml`:
 If you need to temporarily disable the Nix CI workflow:
 
 **Option 1**: Via GitHub UI
+
 - Go to: Actions → Nix CI → ⋯ menu → Disable workflow
 
 **Option 2**: Edit workflow file
+
 ```yaml
 name: Nix CI
 
@@ -1287,11 +1324,105 @@ on:
 ```
 
 **Option 3**: Delete the file (not recommended)
+
 ```bash
 git rm .github/workflows/nix-ci.yml
 ```
 
 The workflow is designed to be non-blocking - it won't prevent merges if it fails (unless you configure branch protection rules).
+
+## Pre-commit Hooks
+
+This repo uses [pre-commit-hooks.nix](https://github.com/cachix/pre-commit-hooks.nix) to enforce code quality standards. Hooks run automatically:
+
+1. **On git commit** - When in the `nix develop` shell
+2. **Via `nix flake check`** - In CI and for manual validation
+
+### Available Hooks
+
+| Hook                       | Language      | Description                         |
+| -------------------------- | ------------- | ----------------------------------- |
+| `gofmt`                    | Go            | Format Go code                      |
+| `prettier`                 | JS/TS/CSS/etc | Format JavaScript, TypeScript, etc. |
+| `nixfmt-rfc-style`         | Nix           | Format Nix files                    |
+| `trim-trailing-whitespace` | All           | Remove trailing whitespace          |
+| `end-of-file-fixer`        | All           | Ensure files end with newline       |
+| `check-yaml`               | YAML          | Validate YAML syntax                |
+| `check-json`               | JSON          | Validate JSON syntax                |
+
+### Configuration Files
+
+- **`nix/checks.nix`** - Hook definitions and excludes
+- **`.prettierrc.json`** - Prettier formatting rules
+- **`.prettierignore`** - Files/directories excluded from prettier
+
+### Running Hooks
+
+**Automatic (on commit):**
+
+When you enter `nix develop`, pre-commit hooks are automatically installed. They run on every `git commit`.
+
+**Manual (all files):**
+
+```bash
+nix develop --command pre-commit run --all-files
+```
+
+**Run specific hook:**
+
+```bash
+nix develop --command pre-commit run gofmt --all-files
+nix develop --command pre-commit run prettier --all-files
+```
+
+**Via Nix flake check:**
+
+```bash
+nix flake check
+```
+
+### Disabling Hooks
+
+**Skip for a single commit:**
+
+```bash
+git commit --no-verify -m "message"
+```
+
+**Skip for a shell session:**
+
+```bash
+export PRE_COMMIT_ALLOW_NO_CONFIG=1
+```
+
+### Excluded Directories
+
+The following directories are excluded from all hooks:
+
+- `scaffolding/` - Template code with placeholders
+- `190-*/` - Orphaned worktree directories
+
+### Adding New Hooks
+
+Edit `nix/checks.nix`:
+
+```nix
+hooks = {
+  # ... existing hooks
+
+  # Add a new hook
+  my-hook = {
+    enable = true;
+    name = "my-hook";
+    description = "Description of what it does";
+    entry = "${pkgs.my-tool}/bin/my-tool";
+    files = "\\.ext$";  # File pattern to match
+    pass_filenames = true;
+  };
+};
+```
+
+After adding, run `nix flake check` to validate.
 
 ## Future Enhancements
 
@@ -1333,10 +1464,7 @@ Potential expansions to the Nix configuration:
    - Auto-start Redis, RabbitMQ, etc.
    - Manage service dependencies
 
-8. **Pre-commit Hooks**:
-   - Integrate with pre-commit framework
-   - Run formatters, linters automatically
-   - Use `pre-commit-hooks.nix`
+8. ~~**Pre-commit Hooks**~~: ✅ Implemented! See [Pre-commit Hooks](#pre-commit-hooks) section.
 
 9. **IDE Integration**:
    - Generate direnv configuration

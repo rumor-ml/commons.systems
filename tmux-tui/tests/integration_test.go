@@ -344,7 +344,7 @@ func TestIntegration_NoRaceBetweenFastAndSlowPath(t *testing.T) {
 
 	// Send Ctrl+C to quit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(2 * time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	// If we get here without panic or race detector warnings, test passed
 	t.Log("No race conditions detected under load")
@@ -405,7 +405,7 @@ func TestIntegration_ConcurrentAlertUpdates(t *testing.T) {
 
 	// Quit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(2 * time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	t.Log("Concurrent alert updates completed without race conditions")
 }
@@ -645,7 +645,7 @@ func TestIntegration_E2EAlertLifecycle(t *testing.T) {
 
 	// Cleanup and quit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(2 * time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	t.Log("E2E alert lifecycle completed successfully")
 }
@@ -708,7 +708,7 @@ func TestIntegration_MultipleAlertsSameTime(t *testing.T) {
 
 	// Quit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(2 * time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	t.Log("Multiple simultaneous alerts handled successfully")
 }
@@ -737,7 +737,6 @@ func TestIntegration_ViewOutputContainsAlerts(t *testing.T) {
 
 	t.Logf("View output length: %d characters", len(output))
 }
-
 
 // TestIntegration_ReconcileAlertsWithEmptyTree verifies that stale alerts are
 // cleaned up when all panes disappear

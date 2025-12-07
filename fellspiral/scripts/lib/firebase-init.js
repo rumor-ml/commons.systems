@@ -49,7 +49,10 @@ export function initializeFirebase() {
     try {
       credFileContent = readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8');
     } catch (error) {
-      console.error(`\n❌ Failed to read credentials file at ${process.env.GOOGLE_APPLICATION_CREDENTIALS}:`, error.message);
+      console.error(
+        `\n❌ Failed to read credentials file at ${process.env.GOOGLE_APPLICATION_CREDENTIALS}:`,
+        error.message
+      );
       console.error('\nFull error details:', error);
       process.exit(1);
     }
@@ -80,16 +83,27 @@ export function initializeFirebase() {
     console.log('Using service account file credentials');
   } else {
     if (!process.env.FIREBASE_PROJECT_ID) {
-      console.error('\n❌ FIREBASE_PROJECT_ID environment variable is required when using Application Default Credentials');
-      console.error('Set FIREBASE_PROJECT_ID to your Firebase project ID, or use one of these alternatives:');
+      console.error(
+        '\n❌ FIREBASE_PROJECT_ID environment variable is required when using Application Default Credentials'
+      );
+      console.error(
+        'Set FIREBASE_PROJECT_ID to your Firebase project ID, or use one of these alternatives:'
+      );
       console.error('  - GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable (inline JSON)');
-      console.error('  - GOOGLE_APPLICATION_CREDENTIALS environment variable (path to service account file)');
+      console.error(
+        '  - GOOGLE_APPLICATION_CREDENTIALS environment variable (path to service account file)'
+      );
       process.exit(1);
     }
 
-    console.log(`Using gcloud Application Default Credentials for project: ${process.env.FIREBASE_PROJECT_ID}`);
+    console.log(
+      `Using gcloud Application Default Credentials for project: ${process.env.FIREBASE_PROJECT_ID}`
+    );
     try {
-      initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
+      initializeApp({
+        credential: applicationDefault(),
+        projectId: process.env.FIREBASE_PROJECT_ID,
+      });
     } catch (initError) {
       console.error('\n❌ Firebase SDK initialization failed:', initError.message);
       if (initError.code === 'auth/invalid-credential') {

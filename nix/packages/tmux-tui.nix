@@ -34,10 +34,11 @@
 #   tmux to be globally installed
 # - It also sets environment variables pointing to bundled scripts/config
 #
-{ lib
-, buildGoModule
-, tmux
-, makeWrapper
+{
+  lib,
+  buildGoModule,
+  tmux,
+  makeWrapper,
 }:
 
 buildGoModule {
@@ -49,16 +50,17 @@ buildGoModule {
   src = builtins.path {
     path = ../../tmux-tui;
     name = "tmux-tui-source";
-    filter = path: type:
+    filter =
+      path: type:
       let
         baseName = baseNameOf path;
       in
-        # Exclude build artifacts, git, and temp files
-        baseName != ".git" &&
-        baseName != "result" &&
-        baseName != ".direnv" &&
-        !(lib.hasSuffix ".swp" baseName) &&
-        !(lib.hasSuffix "~" baseName);
+      # Exclude build artifacts, git, and temp files
+      baseName != ".git"
+      && baseName != "result"
+      && baseName != ".direnv"
+      && !(lib.hasSuffix ".swp" baseName)
+      && !(lib.hasSuffix "~" baseName);
   };
 
   # vendorHash: SHA256 hash of Go module dependencies
@@ -74,10 +76,16 @@ buildGoModule {
   subPackages = [ "cmd/tmux-tui" ];
 
   # Strip debug symbols for smaller binary
-  ldflags = [ "-s" "-w" ];
+  ldflags = [
+    "-s"
+    "-w"
+  ];
 
   # tmux is needed at runtime
-  buildInputs = [ tmux makeWrapper ];
+  buildInputs = [
+    tmux
+    makeWrapper
+  ];
 
   # Post-install: copy scripts and config to derivation output
   postInstall = ''

@@ -49,7 +49,9 @@ function parseCards(content) {
         // This allows "# Equipment: Weapons" to set both type=Equipment and subtype=Weapons
       }
       // Subtype headers (# Weapons, # Armor, # Attack, etc.)
-      else if (header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)) {
+      else if (
+        header.match(/^(Weapons?|Armors?|Attack|Defense|Tenacity|Core|Undead|Vampire|Human)$/)
+      ) {
         // Normalize plural forms to singular (e.g., "Weapons" -> "Weapon")
         currentSubtype = header.replace(/s$/, ''); // Remove trailing 's'
       }
@@ -62,7 +64,10 @@ function parseCards(content) {
     // Detect table headers
     if (line.startsWith('| title |')) {
       inTable = true;
-      headers = line.split('|').map(h => h.trim()).filter(h => h);
+      headers = line
+        .split('|')
+        .map((h) => h.trim())
+        .filter((h) => h);
       continue;
     }
 
@@ -73,7 +78,10 @@ function parseCards(content) {
 
     // Parse table rows
     if (inTable && line.startsWith('|')) {
-      const values = line.split('|').map(v => v.trim()).filter(v => v);
+      const values = line
+        .split('|')
+        .map((v) => v.trim())
+        .filter((v) => v);
 
       // Allow rows with at least 1 column (title is required, type/subtype can be inferred from headers)
       if (values.length >= 1 && values[0]) {
@@ -93,8 +101,8 @@ function parseCards(content) {
               card.tags = value
                 .replace(/<br>/g, '\n')
                 .split('\n')
-                .map(t => t.replace(/^-\s+/, '').trim())
-                .filter(t => t);
+                .map((t) => t.replace(/^-\s+/, '').trim())
+                .filter((t) => t);
             } else {
               card.tags = value ? [value] : [];
             }
@@ -133,7 +141,10 @@ function parseCards(content) {
           }
 
           // Generate a base ID from card title (lowercase, alphanumeric only, hyphens for separators)
-          const baseId = card.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          const baseId = card.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
           let id = baseId;
           let counter = 1;
 
@@ -147,9 +158,10 @@ function parseCards(content) {
           if (cardMap.has(id)) {
             const existingCard = cardMap.get(id);
             // Check if it's the same card (same type, subtype, description)
-            const isSameCard = existingCard.type === card.type &&
-                              existingCard.subtype === card.subtype &&
-                              existingCard.description === card.description;
+            const isSameCard =
+              existingCard.type === card.type &&
+              existingCard.subtype === card.subtype &&
+              existingCard.description === card.description;
 
             if (!isSameCard) {
               // Different card with same name - add suffix
@@ -199,7 +211,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   const failureRate = validationSkipped / (totalAttempted || 1);
   if (failureRate > 0.1) {
-    console.error(`\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`);
+    console.error(
+      `\n❌ Too many validation failures (${validationSkipped}/${totalAttempted} cards failed)`
+    );
     console.error('This indicates a problem with the source data in rules.md');
     process.exit(1);
   }
@@ -217,7 +231,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Group by type
   const cardsByType = {};
   let typeGroupingErrors = 0;
-  cards.forEach(card => {
+  cards.forEach((card) => {
     if (!card || typeof card !== 'object') {
       console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
       typeGroupingErrors++;
@@ -232,17 +246,19 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 
   if (typeGroupingErrors > 0) {
-    console.warn(`⚠️  ${typeGroupingErrors} card(s) could not be categorized by type. Statistics may be incomplete.\n`);
+    console.warn(
+      `⚠️  ${typeGroupingErrors} card(s) could not be categorized by type. Statistics may be incomplete.\n`
+    );
   }
 
   console.log('Cards by type:');
   let subtypeGroupingErrors = 0;
-  Object.keys(cardsByType).forEach(type => {
+  Object.keys(cardsByType).forEach((type) => {
     console.log(`  ${type}: ${cardsByType[type].length}`);
 
     // Group by subtype
     const bySubtype = {};
-    cardsByType[type].forEach(card => {
+    cardsByType[type].forEach((card) => {
       if (!card || typeof card !== 'object') {
         console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
         subtypeGroupingErrors++;
@@ -256,13 +272,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       bySubtype[subtype]++;
     });
 
-    Object.keys(bySubtype).forEach(subtype => {
+    Object.keys(bySubtype).forEach((subtype) => {
       console.log(`    ${subtype}: ${bySubtype[subtype]}`);
     });
   });
 
   if (subtypeGroupingErrors > 0) {
-    console.warn(`⚠️  ${subtypeGroupingErrors} card(s) could not be categorized by subtype. Statistics may be incomplete.\n`);
+    console.warn(
+      `⚠️  ${subtypeGroupingErrors} card(s) could not be categorized by subtype. Statistics may be incomplete.\n`
+    );
   }
 
   // Output JSON
@@ -292,11 +310,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     totalCards: cards.length,
     cardsByType: {},
     cardsBySubtype: {},
-    lastUpdated: new Date().toISOString()
+    lastUpdated: new Date().toISOString(),
   };
 
   let summaryErrors = 0;
-  cards.forEach(card => {
+  cards.forEach((card) => {
     if (!card || typeof card !== 'object') {
       console.warn(`⚠️  Warning: Invalid card object encountered, skipping`);
       summaryErrors++;
@@ -311,7 +329,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 
   if (summaryErrors > 0) {
-    console.warn(`⚠️  ${summaryErrors} card(s) could not be added to summary. Summary statistics may be incomplete.\n`);
+    console.warn(
+      `⚠️  ${summaryErrors} card(s) could not be added to summary. Summary statistics may be incomplete.\n`
+    );
   }
 
   const summaryPath = join(__dirname, '../site/src/data/cards-summary.json');
@@ -325,7 +345,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   const totalWarnings = typeGroupingErrors + subtypeGroupingErrors + summaryErrors;
   if (totalWarnings > 0) {
-    console.warn(`\n⚠️  Completed with ${totalWarnings} warning(s) - some cards may not be fully categorized.`);
+    console.warn(
+      `\n⚠️  Completed with ${totalWarnings} warning(s) - some cards may not be fully categorized.`
+    );
   }
 }
 

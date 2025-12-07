@@ -37,7 +37,7 @@ async function init() {
     const document = await getDocument(documentId);
 
     // Get file URL (use downloadUrl if available, otherwise fetch it)
-    const fileURL = document.downloadUrl || await getFileURL(document.storagePath);
+    const fileURL = document.downloadUrl || (await getFileURL(document.storagePath));
 
     // Hide loading
     viewerLoading.hidden = true;
@@ -72,7 +72,6 @@ async function init() {
 
     // Set up keyboard navigation
     setupKeyboardNav(documentType);
-
   } catch (error) {
     console.error('Viewer initialization error:', error);
     showError(`Failed to load document: ${error.message}`);

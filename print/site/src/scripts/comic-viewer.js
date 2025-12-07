@@ -19,7 +19,7 @@ export async function initComicViewer(fileURL, document) {
 
     // Extract image files
     const imageFiles = Object.keys(zip.files)
-      .filter(filename => {
+      .filter((filename) => {
         const ext = filename.split('.').pop().toLowerCase();
         return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
       })
@@ -43,7 +43,6 @@ export async function initComicViewer(fileURL, document) {
 
     // Load first page
     await loadPage(0);
-
   } catch (error) {
     console.error('Comic loading error:', error);
     throw error;

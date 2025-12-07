@@ -1,24 +1,21 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type CallToolResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from '@modelcontextprotocol/sdk/types.js';
 
-import {
-  getIssueContext,
-  GetIssueContextInputSchema,
-} from "./tools/get-issue-context.js";
+import { getIssueContext, GetIssueContextInputSchema } from './tools/get-issue-context.js';
 
-import { createErrorResult } from "./utils/errors.js";
+import { createErrorResult } from './utils/errors.js';
 
 const server = new Server(
   {
-    name: "gh-issue-mcp-server",
-    version: "0.1.0",
+    name: 'gh-issue-mcp-server',
+    version: '0.1.0',
   },
   {
     capabilities: {
@@ -32,23 +29,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "gh_get_issue_context",
+        name: 'gh_get_issue_context',
         description:
-          "Get comprehensive hierarchical context for a GitHub issue. Fetches the issue details, all ancestors (parent chain to root), all children (sub-issues), and all siblings. Returns structured JSON with the complete issue hierarchy.",
+          'Get comprehensive hierarchical context for a GitHub issue. Fetches the issue details, all ancestors (parent chain to root), all children (sub-issues), and all siblings. Returns structured JSON with the complete issue hierarchy.',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             issue_number: {
-              type: ["string", "number"],
+              type: ['string', 'number'],
               description: "Issue number (e.g., 123 or '123')",
             },
             repo: {
-              type: "string",
-              description:
-                'Repository in format "owner/repo" (defaults to current repository)',
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
             },
           },
-          required: ["issue_number"],
+          required: ['issue_number'],
         },
       },
     ],
@@ -61,7 +57,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 
   try {
     switch (name) {
-      case "gh_get_issue_context": {
+      case 'gh_get_issue_context': {
         const validated = GetIssueContextInputSchema.parse(args);
         return await getIssueContext(validated);
       }
@@ -78,10 +74,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("GitHub Issue MCP server running on stdio");
+  console.error('GitHub Issue MCP server running on stdio');
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  console.error('Fatal error in main():', error);
   process.exit(1);
 });

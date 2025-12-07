@@ -1,5 +1,10 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
-import { VIEWPORTS, setupMobileViewport, setupTabletViewport, setupDesktopViewport } from './test-helpers.js';
+import {
+  VIEWPORTS,
+  setupMobileViewport,
+  setupTabletViewport,
+  setupDesktopViewport,
+} from './test-helpers.js';
 
 test.describe('Responsive Design', () => {
   const viewports = [

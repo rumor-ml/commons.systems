@@ -234,10 +234,10 @@ func TestOpenLibraryExtractor_ExtractWithMetadata(t *testing.T) {
 
 func TestOpenLibraryExtractor_ParseBookData(t *testing.T) {
 	tests := []struct {
-		name         string
-		jsonData     string
-		wantTitle    string
-		wantAuthor   string
+		name          string
+		jsonData      string
+		wantTitle     string
+		wantAuthor    string
 		wantPublisher string
 	}{
 		{

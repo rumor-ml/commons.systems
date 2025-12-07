@@ -69,7 +69,9 @@
 }
 
 @keyframes spinner-dots-bounce {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     transform: scale(0.7);
     opacity: 0.5;
   }
@@ -125,12 +127,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--color-primary-muted),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, var(--color-primary-muted), transparent);
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
 }
 
@@ -252,7 +249,8 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
