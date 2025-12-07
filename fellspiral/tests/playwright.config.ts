@@ -7,11 +7,11 @@ const __dirname = dirname(__filename);
 
 export default createPlaywrightConfig({
   siteName: 'fellspiral',
-  port: 3000,
+  port: 3003,
   deployedUrl: 'https://fellspiral.commons.systems',
   webServerCommand: {
-    local: 'cd ../site && npm run dev',
-    ci: 'npx http-server ../site/dist -p 3000 -s',
+    local: 'cd ../site && npm run dev -- --port 3003',
+    ci: 'npx http-server ../site/dist -p 3003 -s',
   },
   env: {
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
