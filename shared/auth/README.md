@@ -31,12 +31,7 @@ Run `npm install` at the repository root to link the workspace.
 ### 1. Initialize Authentication
 
 ```javascript
-import {
-  initAuth,
-  initAuthState,
-  createAuthButton,
-  createUserProfile
-} from '@commons/auth';
+import { initAuth, initAuthState, createAuthButton, createUserProfile } from '@commons/auth';
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';
 
@@ -59,14 +54,14 @@ const authButton = createAuthButton({
   },
   onSignOut: () => {
     console.log('Signed out');
-  }
+  },
 });
 
 // Create user profile display
 const userProfile = createUserProfile({
   showAvatar: true,
   showName: true,
-  showUsername: true
+  showUsername: true,
 });
 
 // Add to DOM
@@ -83,12 +78,12 @@ import { createAuthGuard, requireAuth } from '@commons/auth';
 const unsubscribe = createAuthGuard({
   element: document.getElementById('admin-panel'),
   requireAuth: true,
-  fallback: document.getElementById('login-prompt')
+  fallback: document.getElementById('login-prompt'),
 });
 
 // Or prevent interactions without auth
 const cleanup = requireAuth(addButton, {
-  message: 'Please sign in to add items'
+  message: 'Please sign in to add items',
 });
 ```
 
@@ -102,9 +97,9 @@ Initialize Firebase Authentication with GitHub provider.
 
 ```javascript
 initAuth({
-  apiKey: "...",
-  authDomain: "...",
-  projectId: "...",
+  apiKey: '...',
+  authDomain: '...',
+  projectId: '...',
   // ... other Firebase config
 });
 ```
@@ -195,6 +190,7 @@ const { user, isAuthenticated, isLoading } = getAuthState();
 Create a login/logout button component.
 
 **Options:**
+
 - `loginText` (string): Text for login state (default: "Sign in with GitHub")
 - `logoutText` (string): Text for logout state (default: "Sign out")
 - `className` (string): Additional CSS classes
@@ -212,7 +208,7 @@ const button = createAuthButton({
   },
   onError: (error) => {
     alert(error.message);
-  }
+  },
 });
 ```
 
@@ -221,6 +217,7 @@ const button = createAuthButton({
 Create a user profile display component.
 
 **Options:**
+
 - `showAvatar` (boolean): Show avatar image (default: true)
 - `showName` (boolean): Show display name (default: true)
 - `showUsername` (boolean): Show GitHub username (default: true)
@@ -236,7 +233,7 @@ const profile = createUserProfile({
   showName: true,
   showEmail: false,
   avatarSize: 48,
-  className: 'user-profile--large'
+  className: 'user-profile--large',
 });
 ```
 
@@ -245,6 +242,7 @@ const profile = createUserProfile({
 Create an auth guard that controls content visibility.
 
 **Options:**
+
 - `element` (HTMLElement): Element to guard (required)
 - `requireAuth` (boolean): If true, show when authenticated; if false, show when not (default: true)
 - `fallback` (HTMLElement): Element to show when condition not met
@@ -259,7 +257,7 @@ const unsubscribe = createAuthGuard({
   fallback: document.getElementById('login-message'),
   onAuthRequired: () => {
     console.log('User needs to sign in');
-  }
+  },
 });
 ```
 
@@ -268,6 +266,7 @@ const unsubscribe = createAuthGuard({
 Make an element require authentication for interaction.
 
 **Options:**
+
 - `onAuthRequired` (function): Callback when user tries to interact without auth
 - `message` (string): Message to show (default: "You must be signed in...")
 
@@ -278,7 +277,7 @@ const cleanup = requireAuth(deleteButton, {
   message: 'Please sign in to delete items',
   onAuthRequired: () => {
     // Show login modal
-  }
+  },
 });
 ```
 
@@ -332,6 +331,7 @@ The components use CSS custom properties for theming:
 ### CSS Classes
 
 **Auth Button:**
+
 - `.auth-button` - Base button
 - `.auth-button--compact` - Smaller padding
 - `.auth-button--large` - Larger padding
@@ -341,6 +341,7 @@ The components use CSS custom properties for theming:
 - `.auth-button--unauthenticated` - Unauthenticated state
 
 **User Profile:**
+
 - `.user-profile` - Base profile
 - `.user-profile--compact` - Smaller size
 - `.user-profile--large` - Larger size
@@ -385,12 +386,16 @@ export function initializeAuth() {
   const authContainer = document.createElement('div');
   authContainer.className = 'header__auth';
 
-  authContainer.appendChild(createUserProfile({
-    className: 'user-profile--compact user-profile--dark'
-  }));
-  authContainer.appendChild(createAuthButton({
-    className: 'auth-button--compact auth-button--dark'
-  }));
+  authContainer.appendChild(
+    createUserProfile({
+      className: 'user-profile--compact user-profile--dark',
+    })
+  );
+  authContainer.appendChild(
+    createAuthButton({
+      className: 'auth-button--compact auth-button--dark',
+    })
+  );
 
   header.appendChild(authContainer);
 }
@@ -415,7 +420,7 @@ async function createDocument(data) {
   return await addDoc(collection, {
     ...data,
     createdBy: user.uid,
-    createdAt: serverTimestamp()
+    createdAt: serverTimestamp(),
   });
 }
 ```
@@ -425,18 +430,21 @@ async function createDocument(data) {
 The repository includes security rules that require authentication:
 
 **Firestore** (`firestore.rules`):
+
 ```
 allow read: if isAuthenticated();
 allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid;
 ```
 
 **Storage** (`storage.rules`):
+
 ```
 allow read: if isAuthenticated();
 allow write: if isAuthenticated();
 ```
 
 Deploy rules with:
+
 ```bash
 firebase deploy --only firestore:rules,storage:rules
 ```
@@ -463,7 +471,7 @@ createAuthButton({
       default:
         alert(`Error: ${error.message}`);
     }
-  }
+  },
 });
 ```
 

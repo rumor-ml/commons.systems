@@ -27,13 +27,17 @@ function test(name, fn) {
 
 function assertEquals(actual, expected, message) {
   if (actual !== expected) {
-    throw new Error(`${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    throw new Error(
+      `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+    );
   }
 }
 
 function assertArrayEquals(actual, expected, message) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    throw new Error(
+      `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+    );
   }
 }
 
@@ -210,7 +214,10 @@ test('Add timestamps to cards', () => {
   const { cards } = parseCards(markdown);
   assertTrue(cards[0].createdAt !== undefined, 'Should have createdAt timestamp');
   assertTrue(cards[0].updatedAt !== undefined, 'Should have updatedAt timestamp');
-  assertTrue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(cards[0].createdAt), 'createdAt should be ISO format');
+  assertTrue(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(cards[0].createdAt),
+    'createdAt should be ISO format'
+  );
 });
 
 // Test 10: Handle empty tables

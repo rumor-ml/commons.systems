@@ -211,7 +211,9 @@ body.authenticated .auth-controls {
 .search-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-muted), var(--color-primary-glow-subtle);
+  box-shadow:
+    0 0 0 2px var(--color-primary-muted),
+    var(--color-primary-glow-subtle);
 }
 
 .search-input {
@@ -517,7 +519,9 @@ body.authenticated .auth-controls {
 .form-control:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-muted), var(--color-primary-glow-subtle);
+  box-shadow:
+    0 0 0 2px var(--color-primary-muted),
+    var(--color-primary-glow-subtle);
 }
 
 textarea.form-control {

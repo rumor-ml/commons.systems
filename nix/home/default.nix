@@ -17,7 +17,12 @@
 # Note: home.username and home.homeDirectory will be automatically detected
 # from your environment when you run home-manager switch.
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   imports = [
@@ -28,9 +33,7 @@
   # User identity - these will be set automatically from environment
   home.username = lib.mkDefault (builtins.getEnv "USER");
   home.homeDirectory = lib.mkDefault (
-    if pkgs.stdenv.isDarwin
-    then "/Users/${config.home.username}"
-    else "/home/${config.home.username}"
+    if pkgs.stdenv.isDarwin then "/Users/${config.home.username}" else "/home/${config.home.username}"
   );
 
   # Let Home Manager manage itself

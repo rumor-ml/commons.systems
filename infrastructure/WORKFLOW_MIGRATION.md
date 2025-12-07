@@ -9,6 +9,7 @@ This document describes the refactoring of GitHub Actions workflows to manage st
 ### Before: Interdependent Workflows
 
 The previous architecture used `workflow_run` triggers to chain workflows together:
+
 - `ci.yml` → triggered by `deploy-feature-branch.yml` OR `push`
 - `infrastructure.yml` → triggered by `ci.yml`
 - `deploy.yml` (fellspiral) → triggered by `infrastructure.yml`
@@ -61,15 +62,19 @@ Created reusable scripts in `infrastructure/scripts/`:
 ## Workflows Updated
 
 ### New Workflows
+
 - ✅ `push.yml` - Main pipeline handling all push events
 
 ### Updated Workflows
+
 - ✅ `health-check.yml` - Refactored to run sites in parallel with health checks first
 
 ### Unchanged Workflows (No Dependencies)
+
 - ✅ `cleanup-preview.yml` - Branch cleanup (triggered on delete)
 
 ### Deprecated Workflows (Can be deleted)
+
 - ❌ `ci.yml` - Replaced by `push.yml` local tests
 - ❌ `ci-videobrowser.yml` - Replaced by `push.yml` local tests
 - ❌ `infrastructure.yml` - Integrated into `push.yml`
@@ -93,6 +98,7 @@ Created reusable scripts in `infrastructure/scripts/`:
    - Verify Playwright tests run
 
 3. **Delete old workflows** (after confirming new workflow works)
+
    ```bash
    rm .github/workflows/ci.yml
    rm .github/workflows/ci-videobrowser.yml
@@ -118,6 +124,7 @@ Created reusable scripts in `infrastructure/scripts/`:
 ## Rollback Plan
 
 If issues arise, you can temporarily re-enable old workflows by:
+
 1. Reverting the commit that added `push.yml`
 2. Restoring old workflow files from git history
 3. Investigating and fixing issues with new workflow

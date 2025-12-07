@@ -77,7 +77,7 @@ export function initializeAuth() {
     showUsername: false,
     showEmail: false,
     avatarSize: 32,
-    className: 'user-profile--compact'
+    className: 'user-profile--compact',
   });
 
   // Create auth button
@@ -96,7 +96,7 @@ export function initializeAuth() {
       // Show user-friendly error message
       const errorMessage = getErrorMessage(error.code);
       alert(errorMessage);
-    }
+    },
   });
 
   // Add components to container

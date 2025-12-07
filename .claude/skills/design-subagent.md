@@ -23,7 +23,9 @@ Create a new subagent when:
 ## Separation of Concerns: Commands vs Agents
 
 ### Commands (`.claude/commands/`)
+
 Focus on **orchestration and flow control**:
+
 - Define inputs (arguments, issue numbers, file paths)
 - Specify expected outputs from each step
 - Coordinate agent invocations (sequential vs parallel)
@@ -31,18 +33,22 @@ Focus on **orchestration and flow control**:
 - Aggregate results from multiple agents
 
 Commands should NOT contain:
+
 - Detailed methodology for how to perform analysis
 - Domain knowledge or heuristics
 - Step-by-step execution instructions
 
 ### Agents (`.claude/agents/<name>/`)
+
 Focus on **execution methodology**:
+
 - Deep domain expertise and heuristics
 - Step-by-step analysis procedures
 - Quality criteria and validation rules
 - Output format specifications
 
 Agents should NOT contain:
+
 - Awareness of other agents in the pipeline
 - Flow control logic
 - Input parsing from user arguments
@@ -80,4 +86,3 @@ Is task primarily:
 5. **Wrong Model for Task**
    - BAD: Using opus for file counting (expensive, slow)
    - BAD: Using haiku for architecture decisions (insufficient reasoning)
-

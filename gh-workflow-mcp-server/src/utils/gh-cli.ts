@@ -2,9 +2,9 @@
  * GitHub CLI wrapper utilities for safe command execution
  */
 
-import { execa } from "execa";
-import { GitHubCliError } from "./errors.js";
-import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from "../constants.js";
+import { execa } from 'execa';
+import { GitHubCliError } from './errors.js';
+import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from '../constants.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -14,10 +14,7 @@ export interface GhCliOptions {
 /**
  * Execute a GitHub CLI command safely with proper error handling
  */
-export async function ghCli(
-  args: string[],
-  options: GhCliOptions = {}
-): Promise<string> {
+export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
   try {
     const execaOptions: any = {
       timeout: options.timeout,
@@ -25,9 +22,9 @@ export async function ghCli(
     };
 
     // Add repo flag if provided
-    const fullArgs = options.repo ? ["--repo", options.repo, ...args] : args;
+    const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
-    const result = await execa("gh", fullArgs, execaOptions);
+    const result = await execa('gh', fullArgs, execaOptions);
 
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
@@ -37,7 +34,7 @@ export async function ghCli(
       );
     }
 
-    return result.stdout || "";
+    return result.stdout || '';
   } catch (error) {
     if (error instanceof GitHubCliError) {
       throw error;
@@ -52,10 +49,7 @@ export async function ghCli(
 /**
  * Execute a GitHub CLI command and parse JSON output
  */
-export async function ghCliJson<T>(
-  args: string[],
-  options: GhCliOptions = {}
-): Promise<T> {
+export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): Promise<T> {
   const output = await ghCli(args, options);
 
   try {
@@ -72,7 +66,7 @@ export async function ghCliJson<T>(
  */
 export async function getCurrentRepo(): Promise<string> {
   try {
-    const result = await ghCli(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+    const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
     throw new GitHubCliError(
@@ -97,7 +91,13 @@ export async function resolveRepo(repo?: string): Promise<string> {
 export async function getWorkflowRun(runId: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
   return ghCliJson(
-    ["run", "view", runId.toString(), "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName"],
+    [
+      'run',
+      'view',
+      runId.toString(),
+      '--json',
+      'databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName',
+    ],
     { repo: resolvedRepo }
   );
 }
@@ -105,14 +105,22 @@ export async function getWorkflowRun(runId: number, repo?: string) {
 /**
  * Get workflow runs for a branch
  */
-export async function getWorkflowRunsForBranch(branch: string, repo?: string, limit = 1): Promise<any[]> {
+export async function getWorkflowRunsForBranch(
+  branch: string,
+  repo?: string,
+  limit = 1
+): Promise<any[]> {
   const resolvedRepo = await resolveRepo(repo);
   return ghCliJson<any[]>(
     [
-      "run", "list",
-      "--branch", branch,
-      "--limit", limit.toString(),
-      "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha"
+      'run',
+      'list',
+      '--branch',
+      branch,
+      '--limit',
+      limit.toString(),
+      '--json',
+      'databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha',
     ],
     { repo: resolvedRepo }
   );
@@ -124,7 +132,7 @@ export async function getWorkflowRunsForBranch(branch: string, repo?: string, li
 export async function getBranchHeadSha(branch: string, repo?: string): Promise<string> {
   const resolvedRepo = await resolveRepo(repo);
   const result = await ghCli(
-    ["api", `repos/${resolvedRepo}/branches/${branch}`, "--jq", ".commit.sha"],
+    ['api', `repos/${resolvedRepo}/branches/${branch}`, '--jq', '.commit.sha'],
     {} // No repo flag needed - it's in the API path
   );
   return result.trim();
@@ -142,13 +150,20 @@ export async function getBranchHeadSha(branch: string, repo?: string): Promise<s
  * @param limit - Maximum number of runs to fetch (default: 20)
  * @returns Array of workflow runs matching the commit SHA
  */
-export async function getWorkflowRunsForCommit(headSha: string, repo?: string, limit = 20): Promise<any[]> {
+export async function getWorkflowRunsForCommit(
+  headSha: string,
+  repo?: string,
+  limit = 20
+): Promise<any[]> {
   const resolvedRepo = await resolveRepo(repo);
   const allRuns = await ghCliJson<any[]>(
     [
-      "run", "list",
-      "--limit", limit.toString(),
-      "--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha,event"
+      'run',
+      'list',
+      '--limit',
+      limit.toString(),
+      '--json',
+      'databaseId,name,status,conclusion,url,createdAt,updatedAt,workflowName,headSha,event',
     ],
     { repo: resolvedRepo }
   );
@@ -175,7 +190,7 @@ export async function getWorkflowRunsForCommit(headSha: string, repo?: string, l
  * @returns Normalized workflow run status ("in_progress" or "completed")
  */
 export function mapStateToStatus(state: string): string {
-  return PR_CHECK_IN_PROGRESS_STATES.includes(state) ? "in_progress" : "completed";
+  return PR_CHECK_IN_PROGRESS_STATES.includes(state) ? 'in_progress' : 'completed';
 }
 
 /**
@@ -213,8 +228,11 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
   const resolvedRepo = await resolveRepo(repo);
   const checks = await ghCliJson<any[]>(
     [
-      "pr", "checks", prNumber.toString(),
-      "--json", "name,state,link,startedAt,completedAt,workflow"
+      'pr',
+      'checks',
+      prNumber.toString(),
+      '--json',
+      'name,state,link,startedAt,completedAt,workflow',
     ],
     { repo: resolvedRepo }
   );
@@ -238,8 +256,11 @@ export async function getPR(prNumber: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
   return ghCliJson(
     [
-      "pr", "view", prNumber.toString(),
-      "--json", "number,title,state,url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus"
+      'pr',
+      'view',
+      prNumber.toString(),
+      '--json',
+      'number,title,state,url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus',
     ],
     { repo: resolvedRepo }
   );
@@ -251,7 +272,7 @@ export async function getPR(prNumber: number, repo?: string) {
  * the overall workflow run is still in progress.
  */
 export async function getJobLogs(
-  _runId: number,  // Unused - kept for API compatibility
+  _runId: number, // Unused - kept for API compatibility
   jobId: number,
   repo?: string,
   tailLines = 2000
@@ -262,14 +283,14 @@ export async function getJobLogs(
   // even when the overall workflow run is still in progress.
   // The `gh run view --log` command blocks until the entire run completes.
   const fullLogs = await ghCliWithRetry(
-    ["api", `repos/${resolvedRepo}/actions/jobs/${jobId}/logs`],
-    {}  // No repo flag needed - it's in the API path
+    ['api', `repos/${resolvedRepo}/actions/jobs/${jobId}/logs`],
+    {} // No repo flag needed - it's in the API path
   );
 
-  const lines = fullLogs.split("\n");
+  const lines = fullLogs.split('\n');
   if (lines.length > tailLines) {
     const truncatedCount = lines.length - tailLines;
-    return `... (${truncatedCount} lines truncated)\n` + lines.slice(-tailLines).join("\n");
+    return `... (${truncatedCount} lines truncated)\n` + lines.slice(-tailLines).join('\n');
   }
   return fullLogs;
 }
@@ -279,13 +300,7 @@ export async function getJobLogs(
  */
 export async function getWorkflowJobs(runId: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
-  return ghCliJson(
-    [
-      "run", "view", runId.toString(),
-      "--json", "jobs"
-    ],
-    { repo: resolvedRepo }
-  );
+  return ghCliJson(['run', 'view', runId.toString(), '--json', 'jobs'], { repo: resolvedRepo });
 }
 
 /**
@@ -302,13 +317,13 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
     return (
-      msg.includes("network") ||
-      msg.includes("timeout") ||
-      msg.includes("econnreset") ||
-      msg.includes("socket") ||
-      msg.includes("502") ||
-      msg.includes("503") ||
-      msg.includes("504")
+      msg.includes('network') ||
+      msg.includes('timeout') ||
+      msg.includes('econnreset') ||
+      msg.includes('socket') ||
+      msg.includes('502') ||
+      msg.includes('503') ||
+      msg.includes('504')
     );
   }
   return false;
@@ -340,5 +355,5 @@ export async function ghCliWithRetry(
     }
   }
 
-  throw lastError || new Error("Unexpected retry failure");
+  throw lastError || new Error('Unexpected retry failure');
 }

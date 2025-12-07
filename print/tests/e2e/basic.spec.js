@@ -22,7 +22,10 @@ test.describe('Print Library Homepage', () => {
 
   // Firebase-dependent tests only run when deployed (local uses static http-server without Firebase)
   test('should show loading state initially then resolve', async ({ page }) => {
-    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
+    test.skip(
+      !process.env.DEPLOYED,
+      'Firebase-dependent test - only available in deployed environment'
+    );
     await page.goto('/');
 
     // Loading indicator should be visible initially
@@ -31,10 +34,13 @@ test.describe('Print Library Homepage', () => {
 
     // Wait for loading to disappear and content state to appear
     // Reduced timeout to 10 seconds - document loading should be fast
-    await page.waitForFunction(() => {
-      const loadingEl = document.querySelector('#loading');
-      return loadingEl && loadingEl.hidden;
-    }, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const loadingEl = document.querySelector('#loading');
+        return loadingEl && loadingEl.hidden;
+      },
+      { timeout: 10000 }
+    );
 
     // Verify loading is now hidden
     await expect(loading).toBeHidden();
@@ -68,10 +74,13 @@ test.describe('Print Library Homepage', () => {
   });
 
   test('should successfully load Firebase data', async ({ page }) => {
-    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
+    test.skip(
+      !process.env.DEPLOYED,
+      'Firebase-dependent test - only available in deployed environment'
+    );
     // Capture console errors for debugging Firebase issues
     const consoleMessages = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       consoleMessages.push(`${msg.type()}: ${msg.text()}`);
     });
 
@@ -80,16 +89,19 @@ test.describe('Print Library Homepage', () => {
     // Wait for one of the SUCCESS states to become visible (docs or empty)
     // Firebase initialization should be quick - timeout errors indicate misconfiguration
     try {
-      await page.waitForFunction(() => {
-        const empty = document.querySelector('#emptyState');
-        const docs = document.querySelector('#documents');
+      await page.waitForFunction(
+        () => {
+          const empty = document.querySelector('#emptyState');
+          const docs = document.querySelector('#documents');
 
-        return (empty && !empty.hidden) || (docs && !docs.hidden);
-      }, { timeout: 10000 });
+          return (empty && !empty.hidden) || (docs && !docs.hidden);
+        },
+        { timeout: 10000 }
+      );
     } catch (e) {
       // Print console messages to help debug Firebase errors
       console.log('Browser console output:');
-      consoleMessages.forEach(msg => console.log('  ', msg));
+      consoleMessages.forEach((msg) => console.log('  ', msg));
       throw e;
     }
 
@@ -118,14 +130,20 @@ test.describe('Print Library Homepage', () => {
   });
 
   test('should not hang on loading state indefinitely', async ({ page }) => {
-    test.skip(!process.env.DEPLOYED, 'Firebase-dependent test - only available in deployed environment');
+    test.skip(
+      !process.env.DEPLOYED,
+      'Firebase-dependent test - only available in deployed environment'
+    );
     await page.goto('/');
 
     // Loading should resolve within 10 seconds
-    await page.waitForFunction(() => {
-      const loading = document.querySelector('#loading');
-      return loading && loading.hidden;
-    }, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const loading = document.querySelector('#loading');
+        return loading && loading.hidden;
+      },
+      { timeout: 10000 }
+    );
 
     // Verify a final state is reached
     const emptyState = page.locator('#emptyState');

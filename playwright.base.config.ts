@@ -40,11 +40,8 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     globalTeardown: site.globalTeardown,
 
     reporter: process.env.CI
-      ? [['json']]  // JSON to stdout in CI
-      : [
-          ['list'],
-          ['json', { outputFile: 'test-results.json' }],
-        ],
+      ? [['json']] // JSON to stdout in CI
+      : [['list'], ['json', { outputFile: 'test-results.json' }]],
 
     use: {
       baseURL,
@@ -69,7 +66,12 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
         use: {
           ...devices['Desktop Chrome'],
           launchOptions: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu',
+            ],
           },
         },
       },

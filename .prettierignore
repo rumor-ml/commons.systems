@@ -1,0 +1,29 @@
+# Build outputs
+dist/
+build/
+node_modules/
+
+# Nix
+result
+result-*
+.direnv/
+
+# Scaffolding templates (contain placeholder code)
+scaffolding/
+
+# Orphaned worktree directories
+190-*/
+
+# Go files (handled by gofmt)
+*.go
+
+# Templ files (handled by templ fmt)
+*.templ
+
+# Generated files
+*.min.js
+*.min.css
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json

@@ -2188,4 +2188,3 @@ func TestUserPromptSubmitClearsIdleHighlight(t *testing.T) {
 
 	t.Log("UserPromptSubmit clears idle highlight test passed")
 }
-

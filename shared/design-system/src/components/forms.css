@@ -68,8 +68,9 @@
 .input--error:focus,
 .textarea--error:focus,
 .select--error:focus {
-  box-shadow: 0 0 0 3px var(--color-error-muted),
-              0 0 20px rgba(239, 68, 68, 0.3);
+  box-shadow:
+    0 0 0 3px var(--color-error-muted),
+    0 0 20px rgba(239, 68, 68, 0.3);
 }
 
 /* Success state */

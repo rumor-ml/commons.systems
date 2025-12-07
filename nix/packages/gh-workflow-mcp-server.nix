@@ -10,8 +10,9 @@
 # - npmDepsHash is computed from package-lock.json dependencies
 # - The package.json bin entry is automatically handled by buildNpmPackage
 #
-{ lib
-, buildNpmPackage
+{
+  lib,
+  buildNpmPackage,
 }:
 
 buildNpmPackage {
@@ -23,17 +24,18 @@ buildNpmPackage {
   src = builtins.path {
     path = ../../gh-workflow-mcp-server;
     name = "gh-workflow-mcp-server-source";
-    filter = path: type:
+    filter =
+      path: type:
       let
         baseName = baseNameOf path;
       in
-        # Exclude build artifacts, git, and temp files
-        baseName != ".git" &&
-        baseName != "node_modules" &&
-        baseName != "dist" &&
-        baseName != ".direnv" &&
-        !(lib.hasSuffix ".swp" baseName) &&
-        !(lib.hasSuffix "~" baseName);
+      # Exclude build artifacts, git, and temp files
+      baseName != ".git"
+      && baseName != "node_modules"
+      && baseName != "dist"
+      && baseName != ".direnv"
+      && !(lib.hasSuffix ".swp" baseName)
+      && !(lib.hasSuffix "~" baseName);
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps package-lock.json

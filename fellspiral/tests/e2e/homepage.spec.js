@@ -37,7 +37,7 @@ test.describe('Homepage', () => {
       { href: '#introduction', text: 'Introduction' },
       { href: '#initiative', text: 'Initiative' },
       { href: '#simulator', text: 'Combat Simulator' },
-      { href: '#examples', text: 'Examples' }
+      { href: '#examples', text: 'Examples' },
     ];
     for (const navLink of navLinks) {
       const link = page.locator(`.sidebar-nav a[href="${navLink.href}"]`);

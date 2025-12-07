@@ -24,7 +24,7 @@ export function createAuthButton(options = {}) {
     className = '',
     onSignIn = null,
     onSignOut = null,
-    onError = null
+    onError = null,
   } = options;
 
   // Create button element
@@ -93,7 +93,7 @@ export function createAuthButton(options = {}) {
   function getButtonState() {
     return {
       isAuthenticated: button.dataset.authenticated === 'true',
-      isLoading
+      isLoading,
     };
   }
 

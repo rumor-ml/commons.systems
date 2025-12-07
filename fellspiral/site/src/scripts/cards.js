@@ -8,7 +8,7 @@ import {
   createCard as createCardInDB,
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
-  importCards as importCardsFromData
+  importCards as importCardsFromData,
 } from './firebase.js';
 
 // Import auth initialization and state
@@ -29,10 +29,10 @@ const state = {
   filters: {
     type: '',
     subtype: '',
-    search: ''
+    search: '',
   },
   loading: false,
-  error: null
+  error: null,
 };
 
 // Subtype mappings
@@ -41,7 +41,7 @@ const SUBTYPES = {
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
   Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc']
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
 };
 
 // Show error UI with retry option
@@ -120,7 +120,7 @@ async function init() {
         // Apply hash route if present
         handleHashChange();
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
       });
@@ -129,13 +129,10 @@ async function init() {
     console.error('Card Manager init error:', error);
 
     // Show user-friendly error UI
-    showErrorUI(
-      'Failed to initialize Card Manager. Please try again.',
-      () => {
-        document.querySelector('.error-banner')?.remove();
-        init();
-      }
-    );
+    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+      document.querySelector('.error-banner')?.remove();
+      init();
+    });
   }
 }
 
@@ -169,7 +166,9 @@ async function loadCards() {
     state.filteredCards = [...state.cards];
 
     // Show warning to user
-    showWarningBanner('Unable to connect to Firestore. Using local data only. Changes will not be saved.');
+    showWarningBanner(
+      'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
+    );
   }
 }
 
@@ -191,7 +190,7 @@ function setupEventListeners() {
     exportCardsBtn.addEventListener('click', exportCards);
 
     // View mode
-    document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    document.querySelectorAll('.view-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
@@ -242,7 +241,7 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
+    navItems.forEach((item) => {
       item.addEventListener('click', () => {
         if (window.innerWidth <= 768) {
           sidebar.classList.remove('active');
@@ -252,11 +251,13 @@ function setupMobileMenu() {
 
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
-      if (window.innerWidth <= 768 &&
-          document.body.contains(mobileMenuToggle) &&
-          !sidebar.contains(e.target) &&
-          !mobileMenuToggle?.contains(e.target) &&
-          sidebar.classList.contains('active')) {
+      if (
+        window.innerWidth <= 768 &&
+        document.body.contains(mobileMenuToggle) &&
+        !sidebar.contains(e.target) &&
+        !mobileMenuToggle?.contains(e.target) &&
+        sidebar.classList.contains('active')
+      ) {
         sidebar.classList.remove('active');
       }
     });
@@ -330,7 +331,7 @@ function capitalizeFirstLetter(str) {
 function setViewMode(mode) {
   state.viewMode = mode;
 
-  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+  document.querySelectorAll('.view-mode-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -346,7 +347,7 @@ function handleFilterChange(e) {
 
 // Apply filters
 function applyFilters() {
-  state.filteredCards = state.cards.filter(card => {
+  state.filteredCards = state.cards.filter((card) => {
     // Type filter
     if (state.filters.type && card.type !== state.filters.type) {
       return false;
@@ -362,7 +363,7 @@ function applyFilters() {
       const searchLower = state.filters.search;
       const titleMatch = card.title?.toLowerCase().includes(searchLower);
       const descMatch = card.description?.toLowerCase().includes(searchLower);
-      const tagsMatch = card.tags?.some(tag => tag.toLowerCase().includes(searchLower));
+      const tagsMatch = card.tags?.some((tag) => tag.toLowerCase().includes(searchLower));
 
       if (!titleMatch && !descMatch && !tagsMatch) {
         return false;
@@ -406,7 +407,7 @@ function renderCards() {
 
     // Render cards, skip broken ones
     const renderedCards = [];
-    state.filteredCards.forEach(card => {
+    state.filteredCards.forEach((card) => {
       try {
         renderedCards.push(renderCardItem(card));
       } catch (error) {
@@ -436,9 +437,10 @@ function renderCards() {
 // Render a single card item
 function renderCardItem(card) {
   const tags = Array.isArray(card.tags) ? card.tags : [];
-  const tagsHtml = tags.length > 0
-    ? `<div class="card-item-tags">${tags.map(tag => `<span class="card-tag">${tag}</span>`).join('')}</div>`
-    : '';
+  const tagsHtml =
+    tags.length > 0
+      ? `<div class="card-item-tags">${tags.map((tag) => `<span class="card-tag">${tag}</span>`).join('')}</div>`
+      : '';
 
   return `
     <div class="card-item" data-card-id="${card.id}">
@@ -484,7 +486,9 @@ function openCardEditor(card = null) {
     document.getElementById('cardType').value = card.type || '';
     updateSubtypeOptions();
     document.getElementById('cardSubtype').value = card.subtype || '';
-    document.getElementById('cardTags').value = Array.isArray(card.tags) ? card.tags.join(', ') : '';
+    document.getElementById('cardTags').value = Array.isArray(card.tags)
+      ? card.tags.join(', ')
+      : '';
     document.getElementById('cardDescription').value = card.description || '';
     document.getElementById('cardStat1').value = card.stat1 || '';
     document.getElementById('cardStat2').value = card.stat2 || '';
@@ -514,7 +518,7 @@ function updateSubtypeOptions() {
   subtypeSelect.innerHTML = '<option value="">Select subtype...</option>';
 
   if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach(subtype => {
+    SUBTYPES[type].forEach((subtype) => {
       const option = document.createElement('option');
       option.value = subtype;
       option.textContent = subtype;
@@ -532,11 +536,15 @@ async function handleCardSave(e) {
     title: document.getElementById('cardTitle').value.trim(),
     type: document.getElementById('cardType').value,
     subtype: document.getElementById('cardSubtype').value,
-    tags: document.getElementById('cardTags').value.split(',').map(t => t.trim()).filter(Boolean),
+    tags: document
+      .getElementById('cardTags')
+      .value.split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
     description: document.getElementById('cardDescription').value.trim(),
     stat1: document.getElementById('cardStat1').value.trim(),
     stat2: document.getElementById('cardStat2').value.trim(),
-    cost: document.getElementById('cardCost').value.trim()
+    cost: document.getElementById('cardCost').value.trim(),
   };
 
   try {
@@ -545,7 +553,7 @@ async function handleCardSave(e) {
       await updateCardInDB(id, cardData);
 
       // Update local state
-      const index = state.cards.findIndex(c => c.id === id);
+      const index = state.cards.findIndex((c) => c.id === id);
       if (index !== -1) {
         state.cards[index] = { ...state.cards[index], ...cardData };
       }
@@ -576,7 +584,7 @@ async function deleteCard() {
       await deleteCardInDB(id);
 
       // Remove from local state
-      state.cards = state.cards.filter(c => c.id !== id);
+      state.cards = state.cards.filter((c) => c.id !== id);
 
       closeCardEditor();
       applyFilters();
@@ -588,8 +596,8 @@ async function deleteCard() {
 }
 
 // Edit card (called from card item)
-window.editCard = function(cardId) {
-  const card = state.cards.find(c => c.id === cardId);
+window.editCard = function (cardId) {
+  const card = state.cards.find((c) => c.id === cardId);
   if (card) {
     openCardEditor(card);
   }
@@ -612,9 +620,9 @@ async function importCards() {
 
       alert(
         `Import complete!\n` +
-        `Created: ${results.created}\n` +
-        `Updated: ${results.updated}\n` +
-        `Errors: ${results.errors}`
+          `Created: ${results.created}\n` +
+          `Updated: ${results.updated}\n` +
+          `Errors: ${results.errors}`
       );
     } catch (error) {
       console.error('Error importing cards:', error);

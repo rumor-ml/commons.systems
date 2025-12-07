@@ -63,7 +63,9 @@ test.describe('Authentication', () => {
     const authButton = page.locator('.auth-button');
 
     // Wait for auth initialization (button should not show "Loading...")
-    await expect(authButton.locator('.auth-button__text')).not.toContainText('Loading', { timeout: 10000 });
+    await expect(authButton.locator('.auth-button__text')).not.toContainText('Loading', {
+      timeout: 10000,
+    });
 
     // Verify button is enabled after auth state initializes
     await expect(authButton).toBeEnabled({ timeout: 5000 });
