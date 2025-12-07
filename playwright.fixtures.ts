@@ -22,8 +22,8 @@ export const test = base.extend<AuthFixtures>({
           data: {
             email,
             password,
-            returnSecureToken: true
-          }
+            returnSecureToken: true,
+          },
         }
       );
       const data = await response.json();
@@ -38,8 +38,8 @@ export const test = base.extend<AuthFixtures>({
           data: {
             email,
             password,
-            returnSecureToken: true
-          }
+            returnSecureToken: true,
+          },
         }
       );
       const data = await response.json();
@@ -51,7 +51,7 @@ export const test = base.extend<AuthFixtures>({
           email: authData.email,
           emailVerified: authData.emailVerified || false,
           displayName: authData.displayName || null,
-          photoURL: authData.photoUrl || null
+          photoURL: authData.photoUrl || null,
         };
 
         // Set in localStorage (Firebase auth uses this)
@@ -59,10 +59,12 @@ export const test = base.extend<AuthFixtures>({
         localStorage.setItem(authKey, JSON.stringify(authUser));
 
         // Trigger storage event to notify auth listeners
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: authKey,
-          newValue: JSON.stringify(authUser)
-        }));
+        window.dispatchEvent(
+          new StorageEvent('storage', {
+            key: authKey,
+            newValue: JSON.stringify(authUser),
+          })
+        );
       }, data);
 
       await page.reload();
@@ -82,7 +84,7 @@ export const test = base.extend<AuthFixtures>({
     };
 
     await use({ createTestUser, signInTestUser, signOutTestUser });
-  }
+  },
 });
 
 export { expect };
