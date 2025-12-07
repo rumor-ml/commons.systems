@@ -57,9 +57,9 @@ while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 /tmp/claude/emulators.log
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -74,9 +74,9 @@ while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 /tmp/claude/emulators.log
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -91,9 +91,9 @@ while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 /tmp/claude/emulators.log
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL

@@ -34,7 +34,7 @@ echo ""
 echo "--- Starting Firebase Emulators ---"
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/start-emulators.sh" || echo "⚠️  Emulator startup had issues, continuing with tests"
+"${SCRIPT_DIR}/start-emulators.sh"
 
 # Setup trap to clean up emulators on exit
 cleanup_emulators() {
