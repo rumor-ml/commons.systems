@@ -11,14 +11,19 @@ model: haiku
    - Run `gh pr view --json number -q '.number'` to get the PR number
    - If no PR found, return error: "No PR found for current branch"
 
-3. Monitor merge queue:
+3. Wait for PR checks to complete:
+   - Use `mcp__gh-workflow__gh_monitor_pr_checks` with the PR number
+   - Wait for all status checks to complete (default timeout: 10 minutes)
+   - If checks fail, report the error and do NOT proceed to merge queue monitoring
+
+4. Monitor merge queue:
    - Use `mcp__gh-workflow__gh_monitor_merge_queue` with the PR number
    - Wait for merge completion (default timeout: 30 minutes)
 
-4. On successful merge:
+5. On successful merge:
    - Move worktree directory to `~/worktrees/old/<branch-name>`
    - Report success: "Worktree moved to ~/worktrees/old/<branch-name>"
 
-5. On failure or timeout:
+6. On failure or timeout:
    - Report the error status
    - Do NOT move the worktree

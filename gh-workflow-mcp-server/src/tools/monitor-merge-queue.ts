@@ -45,7 +45,6 @@ interface PRData {
   baseRefName: string;
   mergeable: string;
   mergeStateStatus: string;
-  merged: boolean;
   mergedAt?: string;
 }
 
@@ -72,13 +71,13 @@ export async function monitorMergeQueue(
           "view",
           input.pr_number.toString(),
           "--json",
-          "number,title,state,url,headRefName,baseRefName,mergeable,mergeStateStatus,merged,mergedAt",
+          "number,title,state,url,headRefName,baseRefName,mergeable,mergeStateStatus,mergedAt",
         ],
         { repo: resolvedRepo }
       )) as PRData;
 
       // Check if PR is merged
-      if (pr.merged) {
+      if (pr.state === "MERGED" || pr.mergedAt !== null) {
         const mergedAt = pr.mergedAt
           ? new Date(pr.mergedAt).toISOString()
           : "unknown";
