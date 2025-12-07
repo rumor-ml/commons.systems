@@ -10,26 +10,24 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
 PORT_OFFSET=$(($HASH % 100))
 
-# Calculate unique ports per worktree
-# Port ranges ensure no conflicts between concurrent worktrees:
-#   Auth: 9099-9199 (100 ports)
-#   Firestore: 8081-8181 (100 ports)
-#   Storage: 9199-9299 (100 ports)
-#   UI: 4000-4100 (100 ports)
-#   App: 8080-8180 (100 ports)
-AUTH_PORT=$((9099 + $PORT_OFFSET))
-FIRESTORE_PORT=$((8081 + $PORT_OFFSET))
-STORAGE_PORT=$((9199 + $PORT_OFFSET))
-UI_PORT=$((4000 + $PORT_OFFSET))
+# SHARED EMULATOR PORTS - Same across all worktrees
+# Multiple worktrees connect to the same emulator instance
+AUTH_PORT=9099
+FIRESTORE_PORT=8081
+STORAGE_PORT=9199
+UI_PORT=4000
+
+# UNIQUE APP SERVER PORT - Different per worktree
+# Prevents conflicts when running multiple app servers concurrently
 APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
 
-# Export port variables for emulators
+# Export port variables for emulators (shared)
 export FIREBASE_AUTH_PORT="$AUTH_PORT"
 export FIREBASE_FIRESTORE_PORT="$FIRESTORE_PORT"
 export FIREBASE_STORAGE_PORT="$STORAGE_PORT"
 export FIREBASE_UI_PORT="$UI_PORT"
 
-# Export all port variables for apps
+# Export app port variables (unique per worktree)
 export TEST_PORT="$APP_PORT"
 export PORT="$APP_PORT"  # For Go app
 
@@ -39,11 +37,11 @@ export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
 export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
 # Print allocated ports for debugging
-echo "Allocated ports for worktree '${WORKTREE_NAME}' (offset: ${PORT_OFFSET}):"
-echo "  App server: $APP_PORT"
-echo "  Firebase Auth: $AUTH_PORT"
-echo "  Firestore: $FIRESTORE_PORT"
-echo "  Storage: $STORAGE_PORT"
-echo "  UI: $UI_PORT"
+echo "Port allocation for worktree '${WORKTREE_NAME}':"
+echo "  App server: $APP_PORT (unique per worktree)"
+echo "  Firebase Auth: $AUTH_PORT (shared)"
+echo "  Firestore: $FIRESTORE_PORT (shared)"
+echo "  Storage: $STORAGE_PORT (shared)"
+echo "  UI: $UI_PORT (shared)"
 echo ""
-echo "All ports are unique per worktree - concurrent testing enabled!"
+echo "Emulators are shared across worktrees - efficient resource usage!"

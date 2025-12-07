@@ -2,48 +2,43 @@
 set -euo pipefail
 
 # Stop Firebase emulators
-# This script kills the emulator processes and cleans up temp files
+# WARNING: Emulators are SHARED across all worktrees!
+# Stopping them will affect all active worktrees.
 
-# Source port allocation script to get the correct port for this worktree
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/allocate-test-ports.sh"
+SHARED_PID_FILE="/tmp/claude/firebase-emulators.pid"
+SHARED_LOG_FILE="/tmp/claude/firebase-emulators.log"
 
-PID_FILE="/tmp/claude/firebase-emulators-${AUTH_PORT}.pid"
-LOG_FILE="/tmp/claude/emulators-${AUTH_PORT}.log"
+echo "⚠️  WARNING: Emulators are shared across all worktrees!"
+echo "   Stopping them will affect all active worktrees."
+echo ""
 
-if [ ! -f "$PID_FILE" ]; then
-  echo "No emulator PID file found at ${PID_FILE}"
-  echo "Emulators for this worktree may not be running or were started manually."
+if [ ! -f "$SHARED_PID_FILE" ]; then
+  echo "No emulator PID file found at ${SHARED_PID_FILE}"
+  echo "Emulators may not be running or were started manually."
   exit 0
 fi
 
-EMULATOR_PID=$(cat "$PID_FILE")
+EMULATOR_PID=$(cat "$SHARED_PID_FILE")
 
-echo "Stopping Firebase emulators on port ${AUTH_PORT} (PID: ${EMULATOR_PID})..."
+echo "Stopping shared Firebase emulators (PID: ${EMULATOR_PID})..."
 
 # Kill the emulator process
 if kill "$EMULATOR_PID" 2>/dev/null; then
-  echo "Successfully stopped emulator process ${EMULATOR_PID}"
+  echo "✓ Successfully stopped emulator process ${EMULATOR_PID}"
 else
-  echo "Process ${EMULATOR_PID} not found (may have already stopped)"
+  echo "⚠️  Process ${EMULATOR_PID} not found (may have already stopped)"
 fi
 
 # Clean up PID file
-rm -f "$PID_FILE"
-echo "Cleaned up PID file"
+rm -f "$SHARED_PID_FILE"
+echo "✓ Cleaned up PID file"
 
 # Clean up log file
-if [ -f "$LOG_FILE" ]; then
-  rm -f "$LOG_FILE"
-  echo "Cleaned up log file"
+if [ -f "$SHARED_LOG_FILE" ]; then
+  rm -f "$SHARED_LOG_FILE"
+  echo "✓ Cleaned up log file"
 fi
 
-# Restore original firebase.json if backup exists
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-FIREBASE_BACKUP="${REPO_ROOT}/firebase.json.backup"
-if [ -f "$FIREBASE_BACKUP" ]; then
-  mv "$FIREBASE_BACKUP" "${REPO_ROOT}/firebase.json"
-  echo "Restored original firebase.json"
-fi
-
-echo "Firebase emulators stopped successfully"
+echo ""
+echo "✓ Firebase emulators stopped successfully"
+echo "  All worktrees are now disconnected from emulators"
