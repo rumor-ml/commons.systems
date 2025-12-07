@@ -83,20 +83,18 @@ test.describe('Auth-Aware UI - Body Class Management', () => {
   test('body should not have authenticated class on page load', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for page to be fully loaded
-    await page.waitForLoadState('networkidle');
+    // Wait for page to load
+    await page.waitForSelector('.card-toolbar', { timeout: 5000 });
 
     const body = page.locator('body');
-    const bodyClasses = await body.getAttribute('class');
-
-    expect(bodyClasses).not.toContain('authenticated');
+    await expect(body).not.toHaveClass(/authenticated/);
   });
 
   test('body should not have authenticated class on homepage', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for page to be fully loaded
-    await page.waitForLoadState('networkidle');
+    // Wait for page to load
+    await page.waitForSelector('#introduction', { timeout: 5000 });
 
     const body = page.locator('body');
     await expect(body).not.toHaveClass(/authenticated/);
