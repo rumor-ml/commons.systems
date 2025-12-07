@@ -20,9 +20,9 @@ const (
 type Message struct {
 	Type         string            `json:"type"`
 	ClientID     string            `json:"client_id,omitempty"`
-	Alerts       map[string]string `json:"alerts,omitempty"`        // Full alert state (for full_state messages)
-	PaneID       string            `json:"pane_id,omitempty"`       // For alert_change messages
-	EventType    string            `json:"event_type,omitempty"`    // For alert_change messages
-	Created      bool              `json:"created,omitempty"`       // For alert_change messages
+	Alerts       map[string]string `json:"alerts,omitempty"`         // Full alert state (for full_state messages)
+	PaneID       string            `json:"pane_id,omitempty"`        // For alert_change messages
+	EventType    string            `json:"event_type,omitempty"`     // For alert_change messages
+	Created      bool              `json:"created,omitempty"`        // For alert_change messages
 	ActivePaneID string            `json:"active_pane_id,omitempty"` // For pane_focus messages
 }
