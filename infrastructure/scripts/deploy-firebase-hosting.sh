@@ -86,6 +86,9 @@ if [ "$BRANCH_NAME" = "main" ]; then
   # Get production URL
   DEPLOYMENT_URL="https://${FIREBASE_SITE_ID}.web.app"
 
+  # Save deployment URL for GitHub Actions
+  echo "$DEPLOYMENT_URL" > /tmp/deployment-url.txt
+
   echo ""
   echo "✅ Production deployment complete!"
   echo "🌐 URL: ${DEPLOYMENT_URL}"
@@ -182,6 +185,11 @@ else
     echo "🔍 Preview URL: ${DEPLOYMENT_URL}"
     echo "⏰ Expires: 7 days from now"
 
+    # Save deployment URL immediately for GitHub Actions retry workflow
+    # This must happen BEFORE health checks so retry workflow has the URL even if checks fail
+    echo "$DEPLOYMENT_URL" > /tmp/deployment-url.txt
+    echo "📝 Saved deployment URL to /tmp/deployment-url.txt for retry workflow"
+
     # Verify the deployment is accessible with exponential backoff
     echo ""
     echo "🔍 Verifying deployment readiness..."
@@ -219,8 +227,8 @@ else
   fi
 fi
 
-# Save deployment URL for GitHub Actions
-echo "$DEPLOYMENT_URL" > /tmp/deployment-url.txt
+# Note: Deployment URL is saved earlier in both production and preview paths
+# to ensure retry workflow has access to it even if health checks fail
 
 echo ""
 echo "========================================="

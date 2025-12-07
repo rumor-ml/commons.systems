@@ -140,6 +140,20 @@ make test-e2e
 - ✅ Script and config file validation
 
 ### Manual Testing
+
+#### Quick Restart for Testing
+```bash
+# Restart all TUI panes with the current branch version
+./scripts/restart-tui.sh
+```
+
+This script:
+- Stops the daemon
+- Rebuilds binaries from current branch
+- Kills all existing TUI panes
+- Respawns TUI panes in all windows
+
+#### Manual Verification Checklist
 After building, verify:
 - [ ] `nix develop` auto-sources config (when in tmux)
 - [ ] New tmux window spawns TUI in 40-column left pane
@@ -208,7 +222,8 @@ tmux-tui/
 │   └── tmux-tui/
 │       └── main.go          # TUI entry point
 ├── scripts/
-│   └── spawn.sh             # Tmux hook script
+│   ├── spawn.sh             # Tmux hook script
+│   └── restart-tui.sh       # Testing script - restart all TUI panes
 ├── tests/
 │   └── e2e_test.go          # E2E tests
 ├── tmux-tui.conf            # Tmux configuration

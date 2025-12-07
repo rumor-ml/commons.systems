@@ -206,8 +206,6 @@ jobs:
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
-      # Print tests are handled separately in deploy-print job
-
   # ==================== Step 2: Deploy Sites to Firebase Hosting ====================
   deploy-fellspiral:
     name: Deploy Fellspiral (Preview)
@@ -261,10 +259,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-fellspiral'
           environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-fellspiral.web.app'
           site_name: 'fellspiral'
-          is_preview: 'true'
+          branch_name: ${{ github.ref_name }}
 
       - name: Deploy to Firebase Hosting Preview
         id: deploy
@@ -413,10 +410,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-videobrowser'
           environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-videobrowser.web.app'
           site_name: 'videobrowser'
-          is_preview: 'true'
+          branch_name: ${{ github.ref_name }}
 
       - name: Deploy to Firebase Hosting Preview
         id: deploy
@@ -560,10 +556,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-audiobrowser'
           environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-audiobrowser.web.app'
           site_name: 'audiobrowser'
-          is_preview: 'true'
+          branch_name: ${{ github.ref_name }}
 
       - name: Deploy to Firebase Hosting Preview
         id: deploy
@@ -707,10 +702,9 @@ jobs:
         id: create-deployment
         uses: ./.github/actions/create-deployment
         with:
-          environment: 'preview-${{ steps.sanitize.outputs.sanitized }}-print'
           environment_url: 'https://preview-${{ steps.sanitize.outputs.sanitized }}-print.web.app'
           site_name: 'print'
-          is_preview: 'true'
+          branch_name: ${{ github.ref_name }}
 
       - name: Deploy to Firebase Hosting Preview
         id: deploy

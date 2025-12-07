@@ -1,7 +1,8 @@
 {
   "model": "sonnet",
   "enabledMcpjsonServers": [
-    "gh-workflow"
+    "gh-workflow",
+    "gh-issue"
   ],
   "sandbox": {
     "enabled": true,
@@ -24,6 +25,7 @@
       "mcp__gh-workflow__gh_get_deployment_urls",
       "mcp__gh-workflow__gh_monitor_pr_checks",
       "mcp__gh-workflow__gh_get_failure_details",
+      "mcp__gh-workflow__gh_monitor_merge_queue",
       "mcp__gh-issue__gh_get_issue_context",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
@@ -67,6 +69,7 @@
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(go tool cover:*)",
+      "Bash(go vet:*)",
       "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",

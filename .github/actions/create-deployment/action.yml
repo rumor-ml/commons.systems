@@ -1,19 +1,15 @@
 name: 'Create GitHub Deployment'
 description: 'Creates a GitHub deployment with status updates'
 inputs:
-  environment:
-    description: 'Deployment environment name'
-    required: true
   environment_url:
     description: 'URL of the deployment'
     required: true
   site_name:
     description: 'Name of the site being deployed'
     required: true
-  is_preview:
-    description: 'Whether this is a preview deployment'
-    required: false
-    default: 'false'
+  branch_name:
+    description: 'Branch name being deployed (for description)'
+    required: true
 
 outputs:
   deployment_id:
@@ -29,17 +25,12 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         SITE_NAME: ${{ inputs.site_name }}
-        ENVIRONMENT: ${{ inputs.environment }}
+        BRANCH_NAME: ${{ inputs.branch_name }}
         ENVIRONMENT_URL: ${{ inputs.environment_url }}
       run: |
         set -euo pipefail
 
         # Validate inputs
-        if [ -z "${ENVIRONMENT// /}" ]; then
-          echo "::error::environment input is empty or contains only whitespace"
-          exit 1
-        fi
-
         if [ -z "${ENVIRONMENT_URL// /}" ]; then
           echo "::error::environment_url input is empty or contains only whitespace"
           exit 1
@@ -58,52 +49,46 @@ runs:
           exit 1
         fi
 
-        # Build JSON payload with required_contexts: []
-        TRANSIENT_ENV="${{ inputs.is_preview == 'true' }}"
+        if [ -z "${BRANCH_NAME// /}" ]; then
+          echo "::error::branch_name input is empty or contains only whitespace"
+          exit 1
+        fi
 
-        if [ "$TRANSIENT_ENV" = "true" ]; then
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: [],
-              transient_environment: true
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
-
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
+        # Determine environment based on branch (main = production, else = test)
+        if [ "$BRANCH_NAME" = "main" ]; then
+          ENVIRONMENT="production"
+          DESCRIPTION="Deploy ${SITE_NAME}"
+          TRANSIENT_ENV="false"
         else
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "Deploy ${SITE_NAME} to ${ENVIRONMENT}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: []
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
+          ENVIRONMENT="test"
+          DESCRIPTION="Deploy ${SITE_NAME} (${BRANCH_NAME})"
+          TRANSIENT_ENV="true"
+        fi
 
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
+        echo "::notice::Deploying ${SITE_NAME} from branch ${BRANCH_NAME} to ${ENVIRONMENT} environment"
+
+        # Build JSON payload with required_contexts: []
+        # Use jq conditional to include transient_environment only when true
+        set +e  # Disable exit on error to capture exit code
+        PAYLOAD=$(jq -n \
+          --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --arg environment "${ENVIRONMENT}" \
+          --arg description "${DESCRIPTION}" \
+          --argjson transient "${TRANSIENT_ENV}" \
+          '{
+            ref: $ref,
+            environment: $environment,
+            description: $description,
+            auto_merge: false,
+            required_contexts: []
+          } + if $transient then {transient_environment: true} else {} end' 2>&1)
+        JQ_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
+
+        if [ $JQ_EXIT_CODE -ne 0 ]; then
+          echo "::error::Failed to construct deployment payload with jq"
+          echo "$PAYLOAD"
+          exit 1
         fi
 
         # Validate payload is not empty
