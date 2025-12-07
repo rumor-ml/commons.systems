@@ -52,6 +52,13 @@ test.describe('Library Navigation - Tree Structure', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
+    // Expand Equipment to show subtypes (collapsed by default)
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+    await equipmentToggle.click();
+    await page.waitForTimeout(300);
+
     // Equipment should have Weapon and Armor subtypes
     const equipmentType = page.locator('.library-nav-type[data-type="Equipment"]');
     const weaponSubtype = equipmentType.locator('.library-nav-subtype[data-subtype="Weapon"]');
@@ -63,7 +70,7 @@ test.describe('Library Navigation - Tree Structure', () => {
 });
 
 test.describe('Library Navigation - Expand/Collapse', () => {
-  test('types should be expanded by default', async ({ page }) => {
+  test('types should be collapsed by default', async ({ page }) => {
     await page.goto('/cards.html');
 
     // Wait for library nav to load
@@ -72,40 +79,40 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
     );
-    await expect(equipmentToggle).toHaveClass(/expanded/);
-
-    const subtypesContainer = page.locator(
-      '.library-nav-type[data-type="Equipment"] .library-nav-subtypes'
-    );
-    await expect(subtypesContainer).toHaveClass(/expanded/);
-  });
-
-  test('should collapse type when clicking toggle', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
-
-    const equipmentToggle = page.locator(
-      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
-    );
-
-    // Initially expanded
-    await expect(equipmentToggle).toHaveClass(/expanded/);
-
-    // Click to collapse
-    await equipmentToggle.click();
-
-    // Wait for animation
-    await page.waitForTimeout(300);
-
-    // Should be collapsed
     await expect(equipmentToggle).not.toHaveClass(/expanded/);
 
     const subtypesContainer = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-subtypes'
     );
     await expect(subtypesContainer).not.toHaveClass(/expanded/);
+  });
+
+  test('should expand type when clicking toggle', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Wait for library nav to load
+    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+
+    // Initially collapsed (default state)
+    await expect(equipmentToggle).not.toHaveClass(/expanded/);
+
+    // Click to expand
+    await equipmentToggle.click();
+
+    // Wait for animation
+    await page.waitForTimeout(300);
+
+    // Should be expanded
+    await expect(equipmentToggle).toHaveClass(/expanded/);
+
+    const subtypesContainer = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-subtypes'
+    );
+    await expect(subtypesContainer).toHaveClass(/expanded/);
   });
 
   test('should persist expand state in localStorage', async ({ page }) => {
