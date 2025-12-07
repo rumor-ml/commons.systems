@@ -335,7 +335,6 @@ export async function initLibraryNav() {
       // If we're on cards.html, trigger filtering
       if (window.location.pathname.includes('cards.html')) {
         // This will be handled by cards.js hash change listener
-        console.log('Navigate to:', type, subtype);
       } else {
         // If we're on index.html, navigate to cards.html
         let hash = '#library';
