@@ -206,8 +206,6 @@ jobs:
       - name: Test ${{ matrix.site }}
         run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
-      # Print tests are handled separately in deploy-print job
-
   # ==================== Step 2: Deploy Sites to Firebase Hosting ====================
   deploy-fellspiral:
     name: Deploy Fellspiral (Preview)
