@@ -2,5 +2,20 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "auth": {
+      "port": 9128
+    },
+    "firestore": {
+      "port": 8110
+    },
+    "storage": {
+      "port": 9228
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4029
+    }
   }
 }

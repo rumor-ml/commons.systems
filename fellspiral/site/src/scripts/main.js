@@ -1,5 +1,7 @@
 // Import auth initialization
 import { initializeAuth } from './auth-init.js';
+// Import library navigation
+import { initLibraryNav } from './library-nav.js';
 
 // Combat Simulator Data and Logic
 const characters = {
@@ -972,6 +974,9 @@ function closeMobileSidebar() {
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
+
+  // Initialize library navigation
+  initLibraryNav();
 
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');

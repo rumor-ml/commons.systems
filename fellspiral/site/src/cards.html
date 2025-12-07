@@ -37,17 +37,18 @@
           <a href="/#conditions" class="nav-item nav-item-child">Conditions</a>
         </div>
 
-        <div class="nav-section">
-          <div class="nav-section-title">Equipment</div>
-          <a href="/#weapons" class="nav-item nav-item-child">Weapons</a>
-          <a href="/#armor" class="nav-item nav-item-child">Armor</a>
-          <a href="/#skills" class="nav-item nav-item-child">Skills</a>
-          <a href="/#upgrades" class="nav-item nav-item-child">Upgrades</a>
+        <div class="nav-section nav-section-library">
+          <div class="nav-section-title nav-section-toggle" data-section="library">
+            <span class="toggle-icon">▶</span>
+            Library
+          </div>
+          <div id="libraryNavContainer" class="nav-section-content">
+            <!-- Populated by library-nav.js -->
+          </div>
         </div>
 
         <a href="/#simulator" class="nav-item">Combat Simulator</a>
         <a href="/#examples" class="nav-item">Examples</a>
-        <a href="/cards.html" class="nav-item active">Card Manager</a>
       </nav>
 
       <div class="nav-auth"></div>
@@ -64,40 +65,6 @@
     <main class="main-content card-manager">
     <div class="container-fluid">
       <div class="card-manager-layout">
-
-        <!-- Left Sidebar: Tree Navigation -->
-        <aside class="card-tree-sidebar">
-          <div class="sidebar-header">
-            <h2>Card Library</h2>
-            <div class="sidebar-actions">
-              <button id="expandAllBtn" class="btn-icon" title="Expand All">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 3a.5.5 0 01.5.5v4h4a.5.5 0 010 1h-4v4a.5.5 0 01-1 0v-4h-4a.5.5 0 010-1h4v-4A.5.5 0 018 3z"/>
-                </svg>
-              </button>
-              <button id="collapseAllBtn" class="btn-icon" title="Collapse All">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M3.5 7.5a.5.5 0 000 1h9a.5.5 0 000-1h-9z"/>
-                </svg>
-              </button>
-              <button id="refreshTreeBtn" class="btn-icon" title="Refresh">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36a.25.25 0 01.192-.41zm-11 2h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"/>
-                  <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 11-.771-.636A6.002 6.002 0 0113.917 7H12.9A5.002 5.002 0 008 3zM3.1 9a5.002 5.002 0 008.757 2.182.5.5 0 11.771.636A6.002 6.002 0 012.083 9H3.1z"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="tree-search">
-            <input type="text" id="treeSearch" placeholder="Search cards..." class="tree-search-input">
-          </div>
-
-          <div id="cardTree" class="card-tree">
-            <!-- Tree will be populated by JavaScript -->
-          </div>
-        </aside>
-
         <!-- Main Content Area -->
         <div class="card-content">
 
@@ -105,14 +72,14 @@
           <div class="card-toolbar">
             <h1>Card Management</h1>
             <div class="toolbar-actions">
-              <button id="addCardBtn" class="btn btn-primary">
+              <button id="addCardBtn" class="btn btn-primary auth-controls">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 3a.5.5 0 01.5.5v4h4a.5.5 0 010 1h-4v4a.5.5 0 01-1 0v-4h-4a.5.5 0 010-1h4v-4A.5.5 0 018 3z"/>
                 </svg>
                 Add Card
               </button>
-              <button id="importCardsBtn" class="btn btn-secondary">Import from Rules.md</button>
-              <button id="exportCardsBtn" class="btn btn-secondary">Export JSON</button>
+              <button id="importCardsBtn" class="btn btn-secondary auth-controls">Import from Rules.md</button>
+              <button id="exportCardsBtn" class="btn btn-secondary auth-controls">Export JSON</button>
             </div>
           </div>
 
@@ -269,8 +236,8 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-        <button type="button" class="btn btn-danger" id="deleteCardBtn" style="display: none;">Delete</button>
-        <button type="submit" form="cardForm" class="btn btn-primary" id="saveCardBtn">Save Card</button>
+        <button type="button" class="btn btn-danger auth-controls" id="deleteCardBtn" style="display: none;">Delete</button>
+        <button type="submit" form="cardForm" class="btn btn-primary auth-controls" id="saveCardBtn">Save Card</button>
       </div>
     </div>
   </div>
