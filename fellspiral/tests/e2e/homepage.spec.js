@@ -118,8 +118,12 @@ test.describe('Homepage', () => {
       await toggle.click();
       await expect(sidebar).toHaveClass(/active/);
 
-      // Click on main content area
-      await page.locator('#introduction h1').click();
+      // Click outside the sidebar using mouse coordinates (right side of screen)
+      await page.mouse.click(350, 200);
+
+      // Wait a bit for the click handler to process
+      await page.waitForTimeout(100);
+
       await expect(sidebar).not.toHaveClass(/active/);
     });
   });

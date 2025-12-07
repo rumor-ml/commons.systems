@@ -86,8 +86,11 @@ test.describe('Authentication', () => {
 
     const authButton = page.locator('.auth-button');
 
-    // Wait for page load
-    await page.waitForLoadState('networkidle');
+    // Wait for DOM to load (networkidle may not fire due to library nav activity)
+    await page.waitForLoadState('domcontentloaded');
+
+    // Wait for auth button to be visible
+    await expect(authButton).toBeVisible({ timeout: 5000 });
 
     // Wait a bit for any async state updates
     await page.waitForTimeout(2000);
