@@ -73,7 +73,11 @@ buildGoModule {
   proxyVendor = true;
 
   # Build from cmd/tmux-tui, cmd/tmux-tui-daemon, and cmd/tmux-tui-block
-  subPackages = [ "cmd/tmux-tui" "cmd/tmux-tui-daemon" "cmd/tmux-tui-block" ];
+  subPackages = [
+    "cmd/tmux-tui"
+    "cmd/tmux-tui-daemon"
+    "cmd/tmux-tui-block"
+  ];
 
   # Strip debug symbols for smaller binary
   ldflags = [
