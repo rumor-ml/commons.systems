@@ -40,7 +40,7 @@ test.describe('Homepage', () => {
       { href: '#armor', text: 'Armor' },
       { href: '#skills', text: 'Skills' },
       { href: '#simulator', text: 'Combat Simulator' },
-      { href: '#examples', text: 'Examples' }
+      { href: '#examples', text: 'Examples' },
     ];
     for (const navLink of navLinks) {
       const link = page.locator(`.sidebar-nav a[href="${navLink.href}"]`);
@@ -81,7 +81,15 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     // Check all major sections are present
-    const sections = ['#introduction', '#initiative', '#weapons', '#armor', '#skills', '#simulator', '#examples'];
+    const sections = [
+      '#introduction',
+      '#initiative',
+      '#weapons',
+      '#armor',
+      '#skills',
+      '#simulator',
+      '#examples',
+    ];
     for (const sectionId of sections) {
       const section = page.locator(sectionId);
       await expect(section).toBeVisible();

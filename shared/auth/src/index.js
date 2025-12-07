@@ -28,30 +28,15 @@ export {
   onAuthStateChange,
   getCurrentUser,
   isAuthenticated,
-  getGitHubToken
+  getGitHubToken,
 } from './github-auth.js';
 
 // State management
-export {
-  initAuthState,
-  getAuthState,
-  subscribeToAuthState,
-  clearAuthState
-} from './auth-state.js';
+export { initAuthState, getAuthState, subscribeToAuthState, clearAuthState } from './auth-state.js';
 
 // UI Components
-export {
-  createAuthButton,
-  destroyAuthButton
-} from './components/auth-button.js';
+export { createAuthButton, destroyAuthButton } from './components/auth-button.js';
 
-export {
-  createUserProfile,
-  destroyUserProfile
-} from './components/user-profile.js';
+export { createUserProfile, destroyUserProfile } from './components/user-profile.js';
 
-export {
-  createAuthGuard,
-  createAuthGuards,
-  requireAuth
-} from './components/auth-guard.js';
+export { createAuthGuard, createAuthGuards, requireAuth } from './components/auth-guard.js';

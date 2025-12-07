@@ -28,7 +28,7 @@ type statsAccumulator struct {
 	// Batching control
 	mu            sync.Mutex
 	lastFlush     time.Time
-	lastFlushOps  int64         // Total operations at last flush
+	lastFlushOps  int64 // Total operations at last flush
 	batchInterval time.Duration
 	batchSize     int64
 

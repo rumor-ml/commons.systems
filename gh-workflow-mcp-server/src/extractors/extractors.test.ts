@@ -2,30 +2,30 @@
  * Unit tests for framework extractors
  */
 
-import { describe, test } from "node:test";
-import assert from "node:assert";
-import { GoExtractor } from "./go-extractor.js";
-import { PlaywrightExtractor } from "./playwright-extractor.js";
-import { TapExtractor } from "./tap-extractor.js";
-import { extractErrors, formatExtractionResult } from "./index.js";
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
+import { GoExtractor } from './go-extractor.js';
+import { PlaywrightExtractor } from './playwright-extractor.js';
+import { TapExtractor } from './tap-extractor.js';
+import { extractErrors, formatExtractionResult } from './index.js';
 
-describe("GoExtractor", () => {
+describe('GoExtractor', () => {
   const extractor = new GoExtractor();
 
-  describe("detect", () => {
-    test("detects Go JSON output with high confidence", () => {
+  describe('detect', () => {
+    test('detects Go JSON output with high confidence', () => {
       const jsonOutput = `
 {"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"github.com/example/pkg","Test":"TestFoo"}
 {"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"github.com/example/pkg","Test":"TestFoo","Output":"=== RUN   TestFoo\\n"}
 {"Time":"2024-01-01T10:00:02Z","Action":"fail","Package":"github.com/example/pkg","Test":"TestFoo"}
 `;
       const result = extractor.detect(jsonOutput);
-      assert.strictEqual(result?.framework, "go");
-      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.framework, 'go');
+      assert.strictEqual(result?.confidence, 'high');
       assert.strictEqual(result?.isJsonOutput, true);
     });
 
-    test("detects Go text output with high confidence", () => {
+    test('detects Go text output with high confidence', () => {
       const textOutput = `
 === RUN   TestFoo
 --- FAIL: TestFoo (0.01s)
@@ -36,20 +36,20 @@ FAIL
 FAIL	github.com/example/pkg	0.012s
 `;
       const result = extractor.detect(textOutput);
-      assert.strictEqual(result?.framework, "go");
-      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.framework, 'go');
+      assert.strictEqual(result?.confidence, 'high');
       assert.strictEqual(result?.isJsonOutput, false);
     });
 
-    test("returns null for non-Go output", () => {
-      const output = "Some random log output\nNo Go markers here";
+    test('returns null for non-Go output', () => {
+      const output = 'Some random log output\nNo Go markers here';
       const result = extractor.detect(output);
       assert.strictEqual(result, null);
     });
   });
 
-  describe("extract - JSON", () => {
-    test("extracts test failures from JSON output", () => {
+  describe('extract - JSON', () => {
+    test('extracts test failures from JSON output', () => {
       const jsonOutput = `
 {"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"github.com/example/pkg","Test":"TestFoo"}
 {"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"github.com/example/pkg","Test":"TestFoo","Output":"=== RUN   TestFoo\n"}
@@ -62,23 +62,23 @@ FAIL	github.com/example/pkg	0.012s
 `;
       const result = extractor.extract(jsonOutput);
 
-      assert.strictEqual(result.framework, "go");
+      assert.strictEqual(result.framework, 'go');
       assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].testName, "TestFoo");
+      assert.strictEqual(result.errors[0].testName, 'TestFoo');
       // Note: fileName/lineNumber extraction from JSON output needs improvement
       // assert.strictEqual(result.errors[0].fileName, "foo_test.go");
       // assert.strictEqual(result.errors[0].lineNumber, 42);
-      assert.ok(result.errors[0].message.includes("TestFoo"));
+      assert.ok(result.errors[0].message.includes('TestFoo'));
       assert.strictEqual(result.errors[0].duration, 10); // 0.01s = 10ms
       // Note: rawOutput collection from JSON needs debugging
       // assert.ok(result.errors[0].rawOutput);
       // assert.ok(result.errors[0].rawOutput.length > 0);
-      assert.strictEqual(result.summary, "1 failed, 1 passed");
+      assert.strictEqual(result.summary, '1 failed, 1 passed');
     });
   });
 
-  describe("extract - Text", () => {
-    test("extracts test failures from text output", () => {
+  describe('extract - Text', () => {
+    test('extracts test failures from text output', () => {
       const textOutput = `
 === RUN   TestFoo
 --- FAIL: TestFoo (0.01s)
@@ -92,15 +92,15 @@ FAIL	github.com/example/pkg	0.012s
 `;
       const result = extractor.extract(textOutput);
 
-      assert.strictEqual(result.framework, "go");
+      assert.strictEqual(result.framework, 'go');
       assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].testName, "TestFoo");
-      assert.strictEqual(result.errors[0].fileName, "foo_test.go");
+      assert.strictEqual(result.errors[0].testName, 'TestFoo');
+      assert.strictEqual(result.errors[0].fileName, 'foo_test.go');
       assert.strictEqual(result.errors[0].lineNumber, 42);
-      assert.ok(result.errors[0].message.includes("Expected: 5"));
+      assert.ok(result.errors[0].message.includes('Expected: 5'));
     });
 
-    test("respects maxErrors limit", () => {
+    test('respects maxErrors limit', () => {
       const textOutput = `
 --- FAIL: TestOne (0.01s)
     Error 1
@@ -115,31 +115,31 @@ FAIL	github.com/example/pkg	0.012s
   });
 });
 
-describe("PlaywrightExtractor", () => {
+describe('PlaywrightExtractor', () => {
   const extractor = new PlaywrightExtractor();
 
-  describe("detect", () => {
-    test("detects Playwright output with high confidence", () => {
+  describe('detect', () => {
+    test('detects Playwright output with high confidence', () => {
       const output = `
   ✓  1 [chromium] › example.spec.ts:10 › should pass
   ✘  2 [chromium] › example.spec.ts:20 › should fail
   ✓  3 [firefox] › other.spec.ts:15 › another test
 `;
       const result = extractor.detect(output);
-      assert.strictEqual(result?.framework, "playwright");
-      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.framework, 'playwright');
+      assert.strictEqual(result?.confidence, 'high');
       assert.strictEqual(result?.isJsonOutput, false);
     });
 
-    test("returns null for non-Playwright output", () => {
-      const output = "Some random log output\nNo Playwright markers";
+    test('returns null for non-Playwright output', () => {
+      const output = 'Some random log output\nNo Playwright markers';
       const result = extractor.detect(output);
       assert.strictEqual(result, null);
     });
   });
 
-  describe("extract", () => {
-    test("extracts test failures from Playwright output", () => {
+  describe('extract', () => {
+    test('extracts test failures from Playwright output', () => {
       const output = `
 Running 3 tests using 1 worker
 
@@ -164,16 +164,16 @@ Running 3 tests using 1 worker
 `;
       const result = extractor.extract(output);
 
-      assert.strictEqual(result.framework, "playwright");
+      assert.strictEqual(result.framework, 'playwright');
       assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].testName, "[chromium] should fail");
-      assert.strictEqual(result.errors[0].fileName, "example.spec.ts");
+      assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
+      assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 20);
-      assert.ok(result.errors[0].message.includes("expect(received).toBe(expected)"));
-      assert.strictEqual(result.summary, "1 failed, 2 passed");
+      assert.ok(result.errors[0].message.includes('expect(received).toBe(expected)'));
+      assert.strictEqual(result.summary, '1 failed, 2 passed');
     });
 
-    test("respects maxErrors limit", () => {
+    test('respects maxErrors limit', () => {
       const output = `
   ✘  1 [chromium] › test1.spec.ts:10 › fail 1
   ✘  2 [chromium] › test2.spec.ts:20 › fail 2
@@ -185,69 +185,79 @@ Running 3 tests using 1 worker
   });
 });
 
-describe("PlaywrightExtractor - JSON", () => {
+describe('PlaywrightExtractor - JSON', () => {
   const extractor = new PlaywrightExtractor();
 
-  describe("detect JSON", () => {
-    test("detects Playwright JSON output with high confidence", () => {
+  describe('detect JSON', () => {
+    test('detects Playwright JSON output with high confidence', () => {
       const jsonOutput = `{"suites":[{"title":"","file":"test.spec.ts","column":0,"line":0,"specs":[]}]}`;
       const result = extractor.detect(jsonOutput);
-      assert.strictEqual(result?.framework, "playwright");
-      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.framework, 'playwright');
+      assert.strictEqual(result?.confidence, 'high');
       assert.strictEqual(result?.isJsonOutput, true);
     });
   });
 
-  describe("extract JSON", () => {
-    test("extracts test failures from Playwright JSON output", () => {
+  describe('extract JSON', () => {
+    test('extracts test failures from Playwright JSON output', () => {
       const jsonOutput = JSON.stringify({
-        suites: [{
-          title: "example.spec.ts",
-          file: "example.spec.ts",
-          line: 5,
-          column: 0,
-          specs: [{
-            title: "should fail",
-            ok: false,
-            tests: [{
-              expectedStatus: "passed",
-              status: "failed",
-              projectName: "chromium",
-              results: [{
-                duration: 1234,
-                status: "failed",
-                error: {
-                  message: "expect(received).toBe(expected)",
-                  stack: "Error: expect(received).toBe(expected)\n    at example.spec.ts:10:5",
-                  snippet: "  8 | test('should fail', async () => {\n  9 |   const value = 'hello';\n> 10 |   expect(value).toBe('world');\n    |                 ^\n  11 | });"
-                }
-              }]
-            }]
-          }]
-        }]
+        suites: [
+          {
+            title: 'example.spec.ts',
+            file: 'example.spec.ts',
+            line: 5,
+            column: 0,
+            specs: [
+              {
+                title: 'should fail',
+                ok: false,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'failed',
+                    projectName: 'chromium',
+                    results: [
+                      {
+                        duration: 1234,
+                        status: 'failed',
+                        error: {
+                          message: 'expect(received).toBe(expected)',
+                          stack:
+                            'Error: expect(received).toBe(expected)\n    at example.spec.ts:10:5',
+                          snippet:
+                            "  8 | test('should fail', async () => {\n  9 |   const value = 'hello';\n> 10 |   expect(value).toBe('world');\n    |                 ^\n  11 | });",
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       });
       const result = extractor.extract(jsonOutput);
 
-      assert.strictEqual(result.framework, "playwright");
+      assert.strictEqual(result.framework, 'playwright');
       assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].testName, "[chromium] should fail");
-      assert.strictEqual(result.errors[0].fileName, "example.spec.ts");
+      assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
+      assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 5);
       assert.strictEqual(result.errors[0].columnNumber, 0);
-      assert.strictEqual(result.errors[0].message, "expect(received).toBe(expected)");
+      assert.strictEqual(result.errors[0].message, 'expect(received).toBe(expected)');
       assert.ok(result.errors[0].stack);
       assert.ok(result.errors[0].codeSnippet);
       assert.strictEqual(result.errors[0].duration, 1234);
-      assert.strictEqual(result.errors[0].failureType, "failed");
+      assert.strictEqual(result.errors[0].failureType, 'failed');
     });
   });
 });
 
-describe("TapExtractor", () => {
+describe('TapExtractor', () => {
   const extractor = new TapExtractor();
 
-  describe("detect", () => {
-    test("detects TAP output with high confidence", () => {
+  describe('detect', () => {
+    test('detects TAP output with high confidence', () => {
       const tapOutput = `TAP version 14
 # Subtest: test suite
 ok 1 - should pass
@@ -257,20 +267,20 @@ not ok 2 - should fail
   ...
 1..2`;
       const result = extractor.detect(tapOutput);
-      assert.strictEqual(result?.framework, "tap");
-      assert.strictEqual(result?.confidence, "high");
+      assert.strictEqual(result?.framework, 'tap');
+      assert.strictEqual(result?.confidence, 'high');
       assert.strictEqual(result?.isJsonOutput, false);
     });
 
-    test("returns null for non-TAP output", () => {
-      const output = "Some random log output\nNo TAP markers";
+    test('returns null for non-TAP output', () => {
+      const output = 'Some random log output\nNo TAP markers';
       const result = extractor.detect(output);
       assert.strictEqual(result, null);
     });
   });
 
-  describe("extract", () => {
-    test("extracts test failures from TAP output", () => {
+  describe('extract', () => {
+    test('extracts test failures from TAP output', () => {
       const tapOutput = `TAP version 14
 # Subtest: test suite
 ok 1 - should pass
@@ -290,22 +300,22 @@ not ok 2 - should fail
 # fail 1`;
       const result = extractor.extract(tapOutput);
 
-      assert.strictEqual(result.framework, "tap");
+      assert.strictEqual(result.framework, 'tap');
       assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].testName, "should fail");
-      assert.strictEqual(result.errors[0].fileName, "test.js");
+      assert.strictEqual(result.errors[0].testName, 'should fail');
+      assert.strictEqual(result.errors[0].fileName, 'test.js');
       assert.strictEqual(result.errors[0].lineNumber, 42);
       assert.strictEqual(result.errors[0].columnNumber, 10);
-      assert.strictEqual(result.errors[0].message, "Expected values to be equal");
-      assert.strictEqual(result.errors[0].errorCode, "ERR_ASSERTION");
-      assert.strictEqual(result.errors[0].failureType, "testCodeFailure");
+      assert.strictEqual(result.errors[0].message, 'Expected values to be equal');
+      assert.strictEqual(result.errors[0].errorCode, 'ERR_ASSERTION');
+      assert.strictEqual(result.errors[0].failureType, 'testCodeFailure');
       assert.strictEqual(result.errors[0].duration, 456.789);
       assert.ok(result.errors[0].stack);
-      assert.ok(result.errors[0].stack.includes("Error: Expected values to be equal"));
-      assert.strictEqual(result.summary, "1 failed, 1 passed");
+      assert.ok(result.errors[0].stack.includes('Error: Expected values to be equal'));
+      assert.strictEqual(result.summary, '1 failed, 1 passed');
     });
 
-    test("respects maxErrors limit", () => {
+    test('respects maxErrors limit', () => {
       const tapOutput = `not ok 1 - test one
   ---
   error: 'Error 1'
@@ -324,8 +334,8 @@ not ok 3 - test three
   });
 });
 
-describe("extractErrors (orchestration)", () => {
-  test("uses Go extractor for Go JSON output", () => {
+describe('extractErrors (orchestration)', () => {
+  test('uses Go extractor for Go JSON output', () => {
     const jsonOutput = `
 {"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"pkg","Test":"TestFoo"}
 {"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"pkg","Test":"TestFoo","Output":"=== RUN TestFoo\n"}
@@ -333,10 +343,10 @@ describe("extractErrors (orchestration)", () => {
 {"Time":"2024-01-01T10:00:03Z","Action":"run","Package":"pkg","Test":"TestBar"}
 `;
     const result = extractErrors(jsonOutput);
-    assert.strictEqual(result.framework, "go");
+    assert.strictEqual(result.framework, 'go');
   });
 
-  test("uses Go extractor for Go text output", () => {
+  test('uses Go extractor for Go text output', () => {
     const textOutput = `
 === RUN   TestFoo
 --- FAIL: TestFoo (0.01s)
@@ -345,10 +355,10 @@ describe("extractErrors (orchestration)", () => {
 FAIL
 `;
     const result = extractErrors(textOutput);
-    assert.strictEqual(result.framework, "go");
+    assert.strictEqual(result.framework, 'go');
   });
 
-  test("uses Playwright extractor for Playwright output", () => {
+  test('uses Playwright extractor for Playwright output', () => {
     const output = `
 Running 3 tests using 1 worker
   ✓  1 [chromium] › test1.spec.ts:10 › should pass
@@ -357,10 +367,10 @@ Running 3 tests using 1 worker
   ✓  3 [firefox] › test2.spec.ts:15 › another test
 `;
     const result = extractErrors(output);
-    assert.strictEqual(result.framework, "playwright");
+    assert.strictEqual(result.framework, 'playwright');
   });
 
-  test("uses TAP extractor for TAP output", () => {
+  test('uses TAP extractor for TAP output', () => {
     const tapOutput = `TAP version 14
 ok 1 - should pass
 not ok 2 - should fail
@@ -368,122 +378,123 @@ not ok 2 - should fail
   error: 'test failed'
   ...`;
     const result = extractErrors(tapOutput);
-    assert.strictEqual(result.framework, "tap");
+    assert.strictEqual(result.framework, 'tap');
   });
 
-  test("returns unknown framework error for unrecognized output", () => {
+  test('returns unknown framework error for unrecognized output', () => {
     const output = `
 Some random log output
 No test framework markers here
 Just plain text
 `;
     const result = extractErrors(output);
-    assert.strictEqual(result.framework, "unknown");
+    assert.strictEqual(result.framework, 'unknown');
     assert.strictEqual(result.errors.length, 1);
-    assert.ok(result.errors[0].message.includes("Could not detect test framework"));
+    assert.ok(result.errors[0].message.includes('Could not detect test framework'));
   });
 });
 
-describe("formatExtractionResult", () => {
-  test("formats Go test failures with duration and stack trace", () => {
+describe('formatExtractionResult', () => {
+  test('formats Go test failures with duration and stack trace', () => {
     const result = {
-      framework: "go" as const,
+      framework: 'go' as const,
       errors: [
         {
-          testName: "TestFoo",
-          fileName: "foo_test.go",
+          testName: 'TestFoo',
+          fileName: 'foo_test.go',
           lineNumber: 42,
-          message: "Expected: 5\nGot: 3",
+          message: 'Expected: 5\nGot: 3',
           duration: 123,
-          stack: "goroutine 1 [running]:\nmain.TestFoo()\n    /path/to/foo_test.go:42",
-          rawOutput: ["Expected: 5", "Got: 3"],
+          stack: 'goroutine 1 [running]:\nmain.TestFoo()\n    /path/to/foo_test.go:42',
+          rawOutput: ['Expected: 5', 'Got: 3'],
         },
       ],
     };
 
     const formatted = formatExtractionResult(result);
-    assert.ok(formatted.some((line) => line.includes("--- FAIL: TestFoo")));
-    assert.ok(formatted.some((line) => line.includes("foo_test.go:42")));
-    assert.ok(formatted.some((line) => line.includes("Duration: 123ms")));
-    assert.ok(formatted.some((line) => line.includes("Stack trace:")));
-    assert.ok(formatted.some((line) => line.includes("goroutine 1")));
+    assert.ok(formatted.some((line) => line.includes('--- FAIL: TestFoo')));
+    assert.ok(formatted.some((line) => line.includes('foo_test.go:42')));
+    assert.ok(formatted.some((line) => line.includes('Duration: 123ms')));
+    assert.ok(formatted.some((line) => line.includes('Stack trace:')));
+    assert.ok(formatted.some((line) => line.includes('goroutine 1')));
   });
 
-  test("formats Playwright test failures with code snippet", () => {
+  test('formats Playwright test failures with code snippet', () => {
     const result = {
-      framework: "playwright" as const,
+      framework: 'playwright' as const,
       errors: [
         {
-          testName: "[chromium] should fail",
-          fileName: "test.spec.ts",
+          testName: '[chromium] should fail',
+          fileName: 'test.spec.ts',
           lineNumber: 20,
           columnNumber: 5,
-          message: "Error: expect(received).toBe(expected)",
-          codeSnippet: "  18 |   test('should fail', async () => {\n> 19 |     expect(value).toBe('world');\n     |                   ^",
+          message: 'Error: expect(received).toBe(expected)',
+          codeSnippet:
+            "  18 |   test('should fail', async () => {\n> 19 |     expect(value).toBe('world');\n     |                   ^",
           duration: 456,
-          failureType: "failed",
-          rawOutput: ["Error: expect(received).toBe(expected)"],
+          failureType: 'failed',
+          rawOutput: ['Error: expect(received).toBe(expected)'],
         },
       ],
     };
 
     const formatted = formatExtractionResult(result);
-    assert.ok(formatted.some((line) => line.includes("--- FAIL: [chromium] should fail")));
-    assert.ok(formatted.some((line) => line.includes("test.spec.ts:20:5")));
-    assert.ok(formatted.some((line) => line.includes("Duration: 456ms")));
-    assert.ok(formatted.some((line) => line.includes("Type: failed")));
-    assert.ok(formatted.some((line) => line.includes("Code snippet:")));
+    assert.ok(formatted.some((line) => line.includes('--- FAIL: [chromium] should fail')));
+    assert.ok(formatted.some((line) => line.includes('test.spec.ts:20:5')));
+    assert.ok(formatted.some((line) => line.includes('Duration: 456ms')));
+    assert.ok(formatted.some((line) => line.includes('Type: failed')));
+    assert.ok(formatted.some((line) => line.includes('Code snippet:')));
   });
 
-  test("formats TAP test failures with error code", () => {
+  test('formats TAP test failures with error code', () => {
     const result = {
-      framework: "tap" as const,
+      framework: 'tap' as const,
       errors: [
         {
-          testName: "should equal",
-          fileName: "test.js",
+          testName: 'should equal',
+          fileName: 'test.js',
           lineNumber: 10,
           columnNumber: 3,
-          message: "Expected values to be equal",
-          errorCode: "ERR_ASSERTION",
-          failureType: "testCodeFailure",
+          message: 'Expected values to be equal',
+          errorCode: 'ERR_ASSERTION',
+          failureType: 'testCodeFailure',
           duration: 789,
-          rawOutput: ["not ok 1 - should equal"],
+          rawOutput: ['not ok 1 - should equal'],
         },
       ],
     };
 
     const formatted = formatExtractionResult(result);
-    assert.ok(formatted.some((line) => line.includes("--- FAIL: should equal")));
-    assert.ok(formatted.some((line) => line.includes("test.js:10:3")));
-    assert.ok(formatted.some((line) => line.includes("Duration: 789ms")));
-    assert.ok(formatted.some((line) => line.includes("Type: testCodeFailure")));
-    assert.ok(formatted.some((line) => line.includes("Code: ERR_ASSERTION")));
+    assert.ok(formatted.some((line) => line.includes('--- FAIL: should equal')));
+    assert.ok(formatted.some((line) => line.includes('test.js:10:3')));
+    assert.ok(formatted.some((line) => line.includes('Duration: 789ms')));
+    assert.ok(formatted.some((line) => line.includes('Type: testCodeFailure')));
+    assert.ok(formatted.some((line) => line.includes('Code: ERR_ASSERTION')));
   });
 
-  test("handles empty errors", () => {
+  test('handles empty errors', () => {
     const result = {
-      framework: "unknown" as const,
+      framework: 'unknown' as const,
       errors: [],
     };
 
     const formatted = formatExtractionResult(result);
-    assert.deepStrictEqual(formatted, ["No errors detected"]);
+    assert.deepStrictEqual(formatted, ['No errors detected']);
   });
 
-  test("handles errors without test names", () => {
+  test('handles errors without test names', () => {
     const result = {
-      framework: "unknown" as const,
+      framework: 'unknown' as const,
       errors: [
         {
-          message: "Error: Something went wrong",
-          rawOutput: ["Error: Something went wrong"],
+          message: 'Error: Something went wrong',
+          rawOutput: ['Error: Something went wrong'],
         },
       ],
     };
 
     const formatted = formatExtractionResult(result);
-    assert.ok(formatted.some((line) => line.includes("Error: Something went wrong")));
-    assert.ok(!formatted.some((line) => line.includes("--- FAIL:")));
+    assert.ok(formatted.some((line) => line.includes('Error: Something went wrong')));
+    assert.ok(!formatted.some((line) => line.includes('--- FAIL:')));
   });
 });

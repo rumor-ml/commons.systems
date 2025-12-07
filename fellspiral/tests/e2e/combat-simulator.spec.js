@@ -65,7 +65,7 @@ test.describe('Combat Simulator', () => {
     await page.selectOption('#combatant2', 'skeleton');
 
     // Setup dialog handler to capture alert
-    page.on('dialog', async dialog => {
+    page.on('dialog', async (dialog) => {
       expect(dialog.message()).toContain('different combatants');
       await dialog.accept();
     });

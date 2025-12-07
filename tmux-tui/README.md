@@ -29,20 +29,24 @@ nix develop
 ## Usage
 
 ### Quick Start
+
 1. From the project root (in tmux): `nix develop`
 2. Create a new tmux window: `Ctrl+b c`
 3. The TUI automatically appears in a 40-column left pane!
 
 ### Automatic Spawn
+
 When you're in the Nix development environment and inside tmux, every new window automatically gets a TUI pane on the left (40 columns wide).
 
 ### Manual Control
+
 - **Reopen TUI**: Press `Prefix + t` (default: Ctrl+b, then t)
 - **Close TUI**: Press `Ctrl+C` in the TUI pane
 - **Disable globally**: Exit the Nix shell or unset the tmux hook
 - **Rebuild manually**: `cd tmux-tui && make build` (usually not needed)
 
 ### Environment Variables
+
 - `TMUX_TUI_SPAWN_SCRIPT`: Path to spawn.sh (set automatically by Nix shellHook)
 
 ## Development
@@ -107,7 +111,9 @@ make clean  # or: go clean && rm -rf build/
    - The keybinding runs the same `spawn.sh` script
 
 ### Automatic Build Detection
+
 The shellHook intelligently rebuilds only when needed:
+
 - Binary doesn't exist: **builds**
 - `main.go` modified since last build: **rebuilds**
 - Binary up-to-date: **skips build**
@@ -115,6 +121,7 @@ The shellHook intelligently rebuilds only when needed:
 ### Pane Tracking
 
 The spawn script uses tmux window options to track the TUI pane:
+
 - Stores pane ID in `@tui-pane` window option
 - Checks if pane exists before creating a new one
 - Prevents duplicate TUI instances in the same window
@@ -122,6 +129,7 @@ The spawn script uses tmux window options to track the TUI pane:
 ## Testing
 
 ### Run Tests
+
 ```bash
 # All tests (unit + E2E)
 make test
@@ -131,6 +139,7 @@ make test-e2e
 ```
 
 ### Test Coverage
+
 - ✅ TUI initialization
 - ✅ Ctrl+C quit behavior
 - ✅ View rendering (40-column width)
@@ -140,7 +149,25 @@ make test-e2e
 - ✅ Script and config file validation
 
 ### Manual Testing
+
+#### Quick Restart for Testing
+
+```bash
+# Restart all TUI panes with the current branch version
+./scripts/restart-tui.sh
+```
+
+This script:
+
+- Stops the daemon
+- Rebuilds binaries from current branch
+- Kills all existing TUI panes
+- Respawns TUI panes in all windows
+
+#### Manual Verification Checklist
+
 After building, verify:
+
 - [ ] `nix develop` auto-sources config (when in tmux)
 - [ ] New tmux window spawns TUI in 40-column left pane
 - [ ] Cursor starts in right pane (main work area)
@@ -154,6 +181,7 @@ After building, verify:
 ### TUI doesn't spawn in new windows
 
 **Diagnosis:**
+
 ```bash
 # Check if in Nix shell
 echo $IN_NIX_SHELL
@@ -173,6 +201,7 @@ tmux show-environment -g | grep TMUX_TUI_SPAWN_SCRIPT
 ### Multiple TUI panes appear
 
 **Diagnosis:**
+
 ```bash
 # Check window option
 tmux show-window-options | grep tui-pane
@@ -183,6 +212,7 @@ tmux show-window-options | grep tui-pane
 ### TUI crashes immediately
 
 **Diagnosis:**
+
 ```bash
 # Run TUI directly to see errors
 ./build/tmux-tui
@@ -193,6 +223,7 @@ tmux show-window-options | grep tui-pane
 ### Keybinding doesn't work
 
 **Diagnosis:**
+
 ```bash
 # Check keybinding is set
 tmux list-keys | grep "bind-key.*t"
@@ -208,7 +239,8 @@ tmux-tui/
 │   └── tmux-tui/
 │       └── main.go          # TUI entry point
 ├── scripts/
-│   └── spawn.sh             # Tmux hook script
+│   ├── spawn.sh             # Tmux hook script
+│   └── restart-tui.sh       # Testing script - restart all TUI panes
 ├── tests/
 │   └── e2e_test.go          # E2E tests
 ├── tmux-tui.conf            # Tmux configuration
@@ -221,6 +253,7 @@ tmux-tui/
 ## Contributing
 
 This is part of the commons.systems monorepo. Follow monorepo conventions:
+
 - Use `make build` (or `go build`) for building
 - Use `make test` (or `go test`) for testing
 - Keep changes isolated to the `tmux-tui/` directory
@@ -229,6 +262,7 @@ This is part of the commons.systems monorepo. Follow monorepo conventions:
 ## Future Enhancements
 
 Ideas for future development (not currently implemented):
+
 - Git status and branch info
 - Running dev servers display
 - Task manager integration

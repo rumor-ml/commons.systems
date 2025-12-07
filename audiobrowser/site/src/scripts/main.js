@@ -56,7 +56,7 @@ function formatDate(timestamp) {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
@@ -82,10 +82,7 @@ function formatDuration(seconds) {
 async function fetchAudioFiles() {
   try {
     // Query Firestore for audio metadata
-    const audioQuery = query(
-      collection(db, AUDIO_COLLECTION),
-      orderBy('title', 'asc')
-    );
+    const audioQuery = query(collection(db, AUDIO_COLLECTION), orderBy('title', 'asc'));
 
     const querySnapshot = await getDocs(audioQuery);
 
@@ -112,7 +109,7 @@ async function fetchAudioFiles() {
           genre: data.genre || '',
           year: data.year || '',
           metadata: data, // Store full metadata
-          downloadUrl: downloadUrl // Signed URL from Firebase Storage
+          downloadUrl: downloadUrl, // Signed URL from Firebase Storage
         };
       } catch (error) {
         console.error(`Error fetching download URL for ${doc.id}:`, error);
@@ -121,8 +118,7 @@ async function fetchAudioFiles() {
     });
 
     // Wait for all promises to resolve
-    const audioFiles = (await Promise.all(audioPromises))
-      .filter(audio => audio !== null);
+    const audioFiles = (await Promise.all(audioPromises)).filter((audio) => audio !== null);
 
     return audioFiles;
   } catch (error) {
@@ -145,7 +141,7 @@ function renderFileList(audioFiles) {
     return;
   }
 
-  audioFiles.forEach(audio => {
+  audioFiles.forEach((audio) => {
     const item = document.createElement('div');
     item.className = 'file-item';
     if (currentAudio && currentAudio.id === audio.id) {
@@ -201,7 +197,7 @@ function playAudio(audio) {
   // Re-render file list to update active state
   const searchTerm = searchInput.value.toLowerCase().trim();
   const filtered = searchTerm
-    ? allAudioFiles.filter(a => matchesSearch(a, searchTerm))
+    ? allAudioFiles.filter((a) => matchesSearch(a, searchTerm))
     : allAudioFiles;
   renderFileList(filtered);
 }
@@ -225,7 +221,7 @@ function matchesSearch(audio, searchTerm) {
 function filterAudioFiles() {
   const searchTerm = searchInput.value.toLowerCase().trim();
   const filtered = searchTerm
-    ? allAudioFiles.filter(a => matchesSearch(a, searchTerm))
+    ? allAudioFiles.filter((a) => matchesSearch(a, searchTerm))
     : allAudioFiles;
 
   renderFileList(filtered);
@@ -252,7 +248,6 @@ async function loadAudioFiles() {
     // Hide loading
     loadingIndicator.classList.add('hidden');
     refreshBtn.disabled = false;
-
   } catch (error) {
     loadingIndicator.classList.add('hidden');
     refreshBtn.disabled = false;
@@ -318,9 +313,7 @@ function setupKeyboardShortcuts() {
 function navigateAudioList(direction) {
   if (allAudioFiles.length === 0) return;
 
-  const currentIndex = currentAudio
-    ? allAudioFiles.findIndex(a => a.id === currentAudio.id)
-    : -1;
+  const currentIndex = currentAudio ? allAudioFiles.findIndex((a) => a.id === currentAudio.id) : -1;
 
   let nextIndex = currentIndex + direction;
 

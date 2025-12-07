@@ -17,11 +17,12 @@
 # - terraform: Infrastructure provisioning
 # - gh (optional): GitHub secrets management
 #
-{ lib
-, buildGoModule
-, google-cloud-sdk
-, terraform
-, makeWrapper
+{
+  lib,
+  buildGoModule,
+  google-cloud-sdk,
+  terraform,
+  makeWrapper,
 }:
 
 buildGoModule {
@@ -43,7 +44,10 @@ buildGoModule {
   subPackages = [ "cmd/iac" ];
 
   # Strip debug symbols for smaller binary
-  ldflags = [ "-s" "-w" ];
+  ldflags = [
+    "-s"
+    "-w"
+  ];
 
   # Runtime dependencies
   nativeBuildInputs = [ makeWrapper ];
@@ -52,7 +56,12 @@ buildGoModule {
   postInstall = ''
     # Wrap the binary to include necessary tools in PATH
     wrapProgram $out/bin/iac \
-      --prefix PATH : ${lib.makeBinPath [ google-cloud-sdk terraform ]}
+      --prefix PATH : ${
+        lib.makeBinPath [
+          google-cloud-sdk
+          terraform
+        ]
+      }
   '';
 
   meta = with lib; {

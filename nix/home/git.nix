@@ -5,7 +5,12 @@
 # so any settings you have defined manually will be preserved unless
 # explicitly overridden here.
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   programs.git = {
@@ -20,13 +25,17 @@
     #   2. Override in Home Manager: programs.git.userName = lib.mkForce "Your Name";
     #   3. Keep existing ~/.gitconfig values (Home Manager merges, not replaces)
     userName = lib.mkDefault (
-      let envName = builtins.getEnv "GIT_AUTHOR_NAME";
-      in if envName != "" then envName else "Nathan Buesgens"
+      let
+        envName = builtins.getEnv "GIT_AUTHOR_NAME";
+      in
+      if envName != "" then envName else "Nathan Buesgens"
     );
 
     userEmail = lib.mkDefault (
-      let envEmail = builtins.getEnv "GIT_AUTHOR_EMAIL";
-      in if envEmail != "" then envEmail else "nathan@natb1.com"
+      let
+        envEmail = builtins.getEnv "GIT_AUTHOR_EMAIL";
+      in
+      if envEmail != "" then envEmail else "nathan@natb1.com"
     );
 
     # Core settings

@@ -92,16 +92,16 @@ func TestEPUBMetadataExtractor_Extract(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tests := []struct {
-		name         string
-		filename     string
-		metadata     map[string]string
-		wantTitle    string
-		wantAuthor   string
+		name          string
+		filename      string
+		metadata      map[string]string
+		wantTitle     string
+		wantAuthor    string
 		wantPublisher string
-		wantSeries   string
-		wantVolume   string
-		wantISBN     string
-		wantErr      bool
+		wantSeries    string
+		wantVolume    string
+		wantISBN      string
+		wantErr       bool
 	}{
 		{
 			name:     "basic metadata",

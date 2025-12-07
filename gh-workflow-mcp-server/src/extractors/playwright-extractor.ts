@@ -7,7 +7,7 @@ import type {
   ExtractionResult,
   ExtractedError,
   FrameworkExtractor,
-} from "./types.js";
+} from './types.js';
 
 interface PlaywrightJsonReport {
   suites: PlaywrightSuite[];
@@ -46,10 +46,10 @@ interface PlaywrightTestResult {
 }
 
 export class PlaywrightExtractor implements FrameworkExtractor {
-  readonly name = "playwright" as const;
+  readonly name = 'playwright' as const;
 
   detect(logText: string): DetectionResult | null {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     let playwrightMarkerCount = 0;
 
     // Check for JSON format first
@@ -58,8 +58,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       try {
         JSON.parse(trimmed);
         return {
-          framework: "playwright",
-          confidence: "high",
+          framework: 'playwright',
+          confidence: 'high',
           isJsonOutput: true,
         };
       } catch {
@@ -88,8 +88,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // High confidence if we see multiple Playwright markers
     if (playwrightMarkerCount >= 3) {
       return {
-        framework: "playwright",
-        confidence: "high",
+        framework: 'playwright',
+        confidence: 'high',
         isJsonOutput: false,
       };
     }
@@ -97,8 +97,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Medium confidence with at least one marker
     if (playwrightMarkerCount > 0) {
       return {
-        framework: "playwright",
-        confidence: "medium",
+        framework: 'playwright',
+        confidence: 'medium',
         isJsonOutput: false,
       };
     }
@@ -172,20 +172,21 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     return {
-      framework: "playwright",
+      framework: 'playwright',
       errors: failures,
       summary: failures.length > 0 ? `${failures.length} failed` : undefined,
     };
   }
 
   private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     const failures: ExtractedError[] = [];
 
     // Playwright failure line format:
     // ✘ N [browser] › file.spec.ts:line › test name (duration)
     // We capture everything up to the optional duration in parentheses
-    const failPattern = /^\s*[✘\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
+    const failPattern =
+      /^\s*[\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
 
     for (let i = 0; i < lines.length; i++) {
       const match = lines[i].match(failPattern);
@@ -197,7 +198,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
         // Collect error context until next test or end
         const rawOutput: string[] = [];
-        let errorMessage = "Test failed";
+        let errorMessage = 'Test failed';
         let stack: string | undefined;
 
         for (let j = i + 1; j < lines.length && j < i + 20; j++) {
@@ -213,7 +214,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             rawOutput.push(line);
 
             // Extract error message from expect() or Error: lines
-            if (!errorMessage || errorMessage === "Test failed") {
+            if (!errorMessage || errorMessage === 'Test failed') {
               if (/Error: expect\(/i.test(line)) {
                 errorMessage = line.trim();
               } else if (/Error:/i.test(line)) {
@@ -230,7 +231,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         }
 
         // Use first raw output line as message if we didn't find an explicit error
-        if (errorMessage === "Test failed" && rawOutput.length > 0) {
+        if (errorMessage === 'Test failed' && rawOutput.length > 0) {
           errorMessage = rawOutput[0];
         }
 
@@ -288,7 +289,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     return {
-      framework: "playwright",
+      framework: 'playwright',
       errors: failures,
       summary,
     };

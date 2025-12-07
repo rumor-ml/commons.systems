@@ -3,12 +3,7 @@
  * Sets up GitHub OAuth and injects auth UI components
  */
 
-import {
-  initAuth,
-  initAuthState,
-  createAuthButton,
-  createUserProfile
-} from '@commons/auth';
+import { initAuth, initAuthState, createAuthButton, createUserProfile } from '@commons/auth';
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';
 import { firebaseConfig } from '../firebase-config.js';
@@ -68,7 +63,7 @@ export function initializeAuth() {
     showUsername: false,
     showEmail: false,
     avatarSize: 32,
-    className: 'user-profile--compact'
+    className: 'user-profile--compact',
   });
 
   // Create auth button
@@ -87,7 +82,7 @@ export function initializeAuth() {
       // Show user-friendly error message
       const errorMessage = getErrorMessage(error.code);
       alert(errorMessage);
-    }
+    },
   });
 
   // Add components to container

@@ -54,6 +54,35 @@ runs:
           exit 1
         fi
 
+        # Helper function to validate API responses
+        validate_api_response() {
+          local response="$1"
+          local field="$2"
+          local context="$3"
+
+          if ! echo "$response" | jq -e . >/dev/null 2>&1; then
+            echo "::error::Invalid JSON response from $context"
+            echo "$response"
+            return 1
+          fi
+
+          local error_msg=$(echo "$response" | jq -r '.message // empty')
+          if [ -n "$error_msg" ]; then
+            echo "::error::GitHub API error: $error_msg"
+            echo "$response"
+            return 1
+          fi
+
+          local value=$(echo "$response" | jq -r ".$field")
+          if [ "$value" = "null" ] || [ -z "$value" ]; then
+            echo "::error::Failed to $context - no $field in response"
+            echo "$response"
+            return 1
+          fi
+
+          echo "$value"
+        }
+
         # Determine environment based on branch (main = production, else = test)
         if [ "$BRANCH_NAME" = "main" ]; then
           ENVIRONMENT="production"
@@ -68,49 +97,27 @@ runs:
         echo "::notice::Deploying ${SITE_NAME} from branch ${BRANCH_NAME} to ${ENVIRONMENT} environment"
 
         # Build JSON payload with required_contexts: []
-        if [ "$TRANSIENT_ENV" = "true" ]; then
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "${DESCRIPTION}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: [],
-              transient_environment: true
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
+        # Use jq conditional to include transient_environment only when true
+        set +e  # Disable exit on error to capture exit code
+        PAYLOAD=$(jq -n \
+          --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --arg environment "${ENVIRONMENT}" \
+          --arg description "${DESCRIPTION}" \
+          --argjson transient "${TRANSIENT_ENV}" \
+          '{
+            ref: $ref,
+            environment: $environment,
+            description: $description,
+            auto_merge: false,
+            required_contexts: []
+          } + if $transient then {transient_environment: true} else {} end' 2>&1)
+        JQ_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
 
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
-        else
-          set +e  # Disable exit on error to capture exit code
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.event.pull_request.head.sha || github.sha }}" \
-            --arg environment "${ENVIRONMENT}" \
-            --arg description "${DESCRIPTION}" \
-            '{
-              ref: $ref,
-              environment: $environment,
-              description: $description,
-              auto_merge: false,
-              required_contexts: []
-            }' 2>&1)
-          JQ_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
-
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to construct deployment payload with jq"
-            echo "$PAYLOAD"
-            exit 1
-          fi
+        if [ $JQ_EXIT_CODE -ne 0 ]; then
+          echo "::error::Failed to construct deployment payload with jq"
+          echo "$PAYLOAD"
+          exit 1
         fi
 
         # Validate payload is not empty
@@ -133,28 +140,7 @@ runs:
           exit 1
         fi
 
-        # Validate response is valid JSON
-        if ! echo "$DEPLOYMENT_RESPONSE" | jq -e . >/dev/null 2>&1; then
-          echo "::error::Invalid JSON response from deployment creation"
-          echo "$DEPLOYMENT_RESPONSE"
-          exit 1
-        fi
-
-        # Check for API error messages
-        ERROR_MESSAGE=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.message // empty')
-        if [ -n "$ERROR_MESSAGE" ]; then
-          echo "::error::GitHub API error: $ERROR_MESSAGE"
-          echo "$DEPLOYMENT_RESPONSE"
-          exit 1
-        fi
-
-        DEPLOYMENT_ID=$(echo "$DEPLOYMENT_RESPONSE" | jq -r '.id')
-
-        if [ "$DEPLOYMENT_ID" = "null" ] || [ -z "$DEPLOYMENT_ID" ]; then
-          echo "::error::Failed to create deployment - no deployment ID in response"
-          echo "$DEPLOYMENT_RESPONSE"
-          exit 1
-        fi
+        DEPLOYMENT_ID=$(validate_api_response "$DEPLOYMENT_RESPONSE" "id" "create deployment") || exit 1
 
         # Export deployment ID for later status updates
         echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
@@ -177,28 +163,7 @@ runs:
           exit 1
         fi
 
-        # Validate response is valid JSON
-        if ! echo "$STATUS_RESPONSE" | jq -e . >/dev/null 2>&1; then
-          echo "::error::Invalid JSON response from status creation"
-          echo "$STATUS_RESPONSE"
-          exit 1
-        fi
-
-        # Check for API error messages
-        ERROR_MESSAGE=$(echo "$STATUS_RESPONSE" | jq -r '.message // empty')
-        if [ -n "$ERROR_MESSAGE" ]; then
-          echo "::error::GitHub API error: $ERROR_MESSAGE"
-          echo "$STATUS_RESPONSE"
-          exit 1
-        fi
-
-        STATUS_ID=$(echo "$STATUS_RESPONSE" | jq -r '.id')
-
-        if [ "$STATUS_ID" = "null" ] || [ -z "$STATUS_ID" ]; then
-          echo "::error::Failed to create deployment status - no status ID in response"
-          echo "$STATUS_RESPONSE"
-          exit 1
-        fi
+        STATUS_ID=$(validate_api_response "$STATUS_RESPONSE" "id" "create deployment status") || exit 1
 
         echo "::notice::Created deployment $DEPLOYMENT_ID with pending status (ID: $STATUS_ID)"
         echo "::notice::Deployment status will be updated to success/failure after health check"

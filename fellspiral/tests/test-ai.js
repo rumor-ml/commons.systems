@@ -9,16 +9,16 @@ global.document = {
   addEventListener: () => {},
   querySelectorAll: () => [],
   querySelector: () => null,
-  getElementById: () => null
+  getElementById: () => null,
 };
 
 global.history = {
-  pushState: () => {}
+  pushState: () => {},
 };
 
 global.window = {
   pageYOffset: 0,
-  addEventListener: () => {}
+  addEventListener: () => {},
 };
 
 // Load and execute the main.js file
@@ -39,7 +39,7 @@ const testCloak = { name: 'Cloak', type: 'armor', ac: 1, slots: 1 };
 
 const mockCombatant = {
   equipmentSlots: [testWeapon, testArmor, testCloak],
-  skillSlots: []
+  skillSlots: [],
 };
 
 const weaponValue = evaluateEquipmentValue(testWeapon, mockCombatant);
@@ -69,12 +69,12 @@ const testCombatant = {
   equipmentSlots: [
     { name: 'Long Sword', type: 'weapon', die: 10, slots: 2 },
     { name: 'Chain Mail', type: 'armor', ac: 3, slots: 1 },
-    { name: 'Cloak', type: 'armor', ac: 1, slots: 1 }
+    { name: 'Cloak', type: 'armor', ac: 1, slots: 1 },
   ],
   skillSlots: [
     { name: 'Surgical', type: 'attack', slots: 1 },
-    { name: 'Grit', type: 'tenacity', slots: 1 }
-  ]
+    { name: 'Grit', type: 'tenacity', slots: 1 },
+  ],
 };
 
 const chosenSlots = chooseDefenderSlots(testCombatant, 2, false);
@@ -88,13 +88,13 @@ console.log(`  ✓ AI correctly prioritized low-value slots\n`);
 console.log('Test 4: Full Combat Simulation with AI');
 const log = runCombatSimulation('skeleton', 'ghoul');
 console.log('Combat Log Summary:');
-console.log('  Total rounds:', log.filter(l => l.includes('ROUND')).length);
-console.log('  AI decisions made:', log.filter(l => l.includes('AI Decision')).length);
-console.log('  Initiative changes:', log.filter(l => l.includes('INITIATIVE')).length);
+console.log('  Total rounds:', log.filter((l) => l.includes('ROUND')).length);
+console.log('  AI decisions made:', log.filter((l) => l.includes('AI Decision')).length);
+console.log('  Initiative changes:', log.filter((l) => l.includes('INITIATIVE')).length);
 
 // Check if AI decisions are being made
-const hasAIDecisions = log.some(l => l.includes('AI Decision'));
-const hasInitiative = log.some(l => l.includes('INITIATIVE'));
+const hasAIDecisions = log.some((l) => l.includes('AI Decision'));
+const hasInitiative = log.some((l) => l.includes('INITIATIVE'));
 
 if (hasAIDecisions) {
   console.log('  ✓ AI is making tactical decisions');

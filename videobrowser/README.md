@@ -28,6 +28,7 @@ User Browser → Firebase SDK (client-side)
 ```
 
 **Why Firebase Storage?**
+
 - ✅ No backend API required
 - ✅ Automatic signed URL generation
 - ✅ Client-side access control via security rules
@@ -45,6 +46,7 @@ python3 setup.py
 ```
 
 The script will:
+
 1. ✅ Enable all required GCP APIs (including Firebase APIs)
 2. ✅ Set up Workload Identity Federation
 3. ✅ Create service accounts
@@ -63,6 +65,7 @@ After running `setup.py`, Firebase will be fully configured and ready to use.
 Firebase configuration and storage rules are **automatically deployed** via CI/CD:
 
 **The deployment workflow** (`.github/workflows/deploy-videobrowser.yml`) automatically:
+
 1. Fetches Firebase configuration via GCP API
 2. Injects config into `firebase-config.js` during build
 3. Deploys Firebase Storage security rules
@@ -200,12 +203,14 @@ Firebase Storage automatically generates time-limited signed URLs that allow acc
 ### Key Code Snippets
 
 **Listing videos:**
+
 ```javascript
 const videosRef = ref(storage, 'video/');
 const result = await listAll(videosRef);
 ```
 
 **Getting signed URL:**
+
 ```javascript
 const downloadUrl = await getDownloadURL(itemRef);
 videoElement.src = downloadUrl;
@@ -235,6 +240,7 @@ videoElement.src = downloadUrl;
 ### CORS errors
 
 Firebase Storage handles CORS automatically. If you see CORS errors, check:
+
 1. Firebase is properly initialized
 2. Bucket name matches in config
 3. Browser is not blocking third-party cookies
@@ -244,12 +250,14 @@ Firebase Storage handles CORS automatically. If you see CORS errors, check:
 This application was migrated from direct public GCS API access to Firebase Storage:
 
 **Before:**
+
 - Direct calls to `storage.googleapis.com/storage/v1/b/...`
 - Required public bucket access
 - URLs: `https://storage.googleapis.com/rml-media/video/...`
 - Manual configuration management
 
 **After:**
+
 - Firebase SDK client-side calls
 - Private bucket with security rules
 - Automatic signed URL generation
@@ -258,6 +266,7 @@ This application was migrated from direct public GCS API access to Firebase Stor
 - **Automated** security rules deployment
 
 **Infrastructure as Code:**
+
 - All automation is inline in `.github/workflows/deploy-videobrowser.yml`
 - Firebase config fetched programmatically via GCP APIs
 - Storage rules deployed via Firebase Management API

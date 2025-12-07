@@ -17,6 +17,8 @@ import (
 
 type tickMsg time.Time
 
+type timeTickMsg time.Time
+
 type daemonEventMsg struct {
 	msg daemon.Message
 }
@@ -89,6 +91,7 @@ func initialModel() model {
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		tickCmd(),
+		timeTickCmd(),
 		refreshTreeCmd(m.collector),
 	}
 
@@ -221,6 +224,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			refreshTreeCmd(m.collector),
 			tickCmd(),
 		)
+
+	case timeTickMsg:
+		// Time tick for header update (1s)
+		return m, timeTickCmd()
 	}
 
 	return m, nil
@@ -246,6 +253,9 @@ func (m model) View() string {
 		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
 	}
 
+	// Render header
+	header := m.renderer.RenderHeader()
+
 	// Copy alerts map with read lock for safe concurrent access
 	// We copy to prevent the renderer from accessing the map after lock release
 	m.alertsMu.RLock()
@@ -257,7 +267,7 @@ func (m model) View() string {
 
 	output := m.renderer.Render(m.tree, alertsCopy)
 
-	return warningBanner + output
+	return header + "\n" + warningBanner + output
 }
 
 // watchDaemonCmd watches for daemon events
@@ -327,6 +337,12 @@ func (m *model) updateActivePane(activePaneID string) {
 			}
 		}
 	}
+}
+
+func timeTickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return timeTickMsg(t)
+	})
 }
 
 // GetAlertsForTesting returns a copy of current alert state (testing only)

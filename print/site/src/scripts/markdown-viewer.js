@@ -18,7 +18,6 @@ export async function initMarkdownViewer(fileURL, document) {
     // Parse and render markdown
     const html = marked.parse(markdownText);
     document.getElementById('markdownContent').innerHTML = html;
-
   } catch (error) {
     console.error('Markdown loading error:', error);
     throw error;

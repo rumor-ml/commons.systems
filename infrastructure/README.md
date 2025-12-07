@@ -38,6 +38,7 @@ Run the tool interactively to set up infrastructure for the first time:
 ```
 
 This will:
+
 1. Check prerequisites (gcloud, terraform)
 2. Authenticate to GCP
 3. Enable required APIs
@@ -56,6 +57,7 @@ For automated deployments in GitHub Actions:
 ```
 
 CI mode:
+
 - Skips GCP setup (assumes already configured)
 - Auto-approves Terraform changes
 - Non-interactive
@@ -137,6 +139,7 @@ The tool creates Firebase Hosting sites based on `firebase.json`:
 - print-dfb47
 
 If a site name is reserved, the tool will:
+
 1. Check if a related site exists in your project
 2. Use the suggested alternative name from the API
 3. Update `firebase.json` with the actual site names
@@ -242,14 +245,15 @@ go build -o bin/iac ./cmd/iac
 
 The Go tool is a direct replacement for `iac.py`:
 
-| iac.py | iac (Go) |
-|--------|----------|
-| `python3 iac.py` | `./bin/iac` |
-| `python3 iac.py --ci` | `./bin/iac --ci` |
-| `python3 iac.py --iac` | `./bin/iac --skip-gcp-setup` |
+| iac.py                            | iac (Go)                     |
+| --------------------------------- | ---------------------------- |
+| `python3 iac.py`                  | `./bin/iac`                  |
+| `python3 iac.py --ci`             | `./bin/iac --ci`             |
+| `python3 iac.py --iac`            | `./bin/iac --skip-gcp-setup` |
 | `python3 iac.py --skip-terraform` | `./bin/iac --skip-terraform` |
 
 All functionality is preserved with improved:
+
 - Type safety (Go vs Python)
 - Performance (compiled vs interpreted)
 - Error handling (explicit vs exceptions)

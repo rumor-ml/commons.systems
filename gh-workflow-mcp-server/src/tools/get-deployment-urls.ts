@@ -3,9 +3,9 @@
  * Extract deployment URLs from workflow run logs
  */
 
-import { z } from "zod";
-import type { ToolResult } from "../types.js";
-import { URL_PATTERN, DEPLOYMENT_URL_KEYWORDS } from "../constants.js";
+import { z } from 'zod';
+import type { ToolResult } from '../types.js';
+import { URL_PATTERN, DEPLOYMENT_URL_KEYWORDS } from '../constants.js';
 import {
   getWorkflowRun,
   getWorkflowRunsForBranch,
@@ -13,8 +13,8 @@ import {
   getWorkflowJobs,
   getJobLogs,
   resolveRepo,
-} from "../utils/gh-cli.js";
-import { ValidationError, createErrorResult } from "../utils/errors.js";
+} from '../utils/gh-cli.js';
+import { ValidationError, createErrorResult } from '../utils/errors.js';
 
 export const GetDeploymentUrlsInputSchema = z
   .object({
@@ -50,7 +50,7 @@ interface DeploymentUrl {
 
 function extractDeploymentUrls(logText: string, jobName: string): DeploymentUrl[] {
   const urls: DeploymentUrl[] = [];
-  const lines = logText.split("\n");
+  const lines = logText.split('\n');
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].toLowerCase();
@@ -62,17 +62,17 @@ function extractDeploymentUrls(logText: string, jobName: string): DeploymentUrl[
 
     if (hasDeploymentKeyword) {
       // Extract URLs from this line and nearby lines
-      const contextLines = lines.slice(Math.max(0, i - 1), i + 2).join(" ");
+      const contextLines = lines.slice(Math.max(0, i - 1), i + 2).join(' ');
       const urlMatches = contextLines.match(URL_PATTERN);
 
       if (urlMatches) {
         for (const url of urlMatches) {
           // Filter out common non-deployment URLs
           if (
-            !url.includes("github.com") &&
-            !url.includes("githubusercontent.com") &&
-            !url.includes("npmjs.com") &&
-            !url.includes("nodejs.org")
+            !url.includes('github.com') &&
+            !url.includes('githubusercontent.com') &&
+            !url.includes('npmjs.com') &&
+            !url.includes('nodejs.org')
           ) {
             urls.push({
               url: url,
@@ -88,9 +88,7 @@ function extractDeploymentUrls(logText: string, jobName: string): DeploymentUrl[
   return urls;
 }
 
-export async function getDeploymentUrls(
-  input: GetDeploymentUrlsInput
-): Promise<ToolResult> {
+export async function getDeploymentUrls(input: GetDeploymentUrlsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
     const identifierCount = [input.run_id, input.pr_number, input.branch].filter(
@@ -98,9 +96,7 @@ export async function getDeploymentUrls(
     ).length;
 
     if (identifierCount === 0) {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     const resolvedRepo = await resolveRepo(input.repo);
@@ -112,30 +108,22 @@ export async function getDeploymentUrls(
     } else if (input.pr_number) {
       const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
       if (!Array.isArray(checks) || checks.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for PR #${input.pr_number}`
-        );
+        throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }
       const firstCheck = checks[0];
       const runIdMatch = firstCheck.detailsUrl?.match(/\/runs\/(\d+)/);
       if (!runIdMatch) {
-        throw new ValidationError(
-          `Could not extract run ID from PR #${input.pr_number} checks`
-        );
+        throw new ValidationError(`Could not extract run ID from PR #${input.pr_number} checks`);
       }
       runId = parseInt(runIdMatch[1], 10);
     } else if (input.branch) {
       const runs = await getWorkflowRunsForBranch(input.branch, resolvedRepo, 1);
       if (!Array.isArray(runs) || runs.length === 0) {
-        throw new ValidationError(
-          `No workflow runs found for branch ${input.branch}`
-        );
+        throw new ValidationError(`No workflow runs found for branch ${input.branch}`);
       }
       runId = runs[0].databaseId;
     } else {
-      throw new ValidationError(
-        "Must provide at least one of: run_id, pr_number, or branch"
-      );
+      throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
     // Get run details
@@ -168,12 +156,12 @@ export async function getDeploymentUrls(
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: [
               `No deployment URLs found in workflow run: ${run.name}`,
               `Run URL: ${run.url}`,
-              `Status: ${run.status} / ${run.conclusion || "none"}`,
-            ].join("\n"),
+              `Status: ${run.status} / ${run.conclusion || 'none'}`,
+            ].join('\n'),
           },
         ],
       };
@@ -189,10 +177,10 @@ export async function getDeploymentUrls(
       ``,
       `Deployment URLs:`,
       ...urlSummaries,
-    ].join("\n");
+    ].join('\n');
 
     return {
-      content: [{ type: "text", text: summary }],
+      content: [{ type: 'text', text: summary }],
     };
   } catch (error) {
     return createErrorResult(error);
