@@ -117,6 +117,8 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
     );
+
+    // Equipment starts collapsed by default, clicking it should expand it
     await equipmentToggle.click();
 
     // Wait for state to be saved
@@ -128,7 +130,8 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 
     expect(storageState).toBeTruthy();
     const parsedState = JSON.parse(storageState);
-    expect(parsedState['library-type-equipment']).toBe(false);
+    // After clicking collapsed Equipment, it should be expanded (true)
+    expect(parsedState['library-type-equipment']).toBe(true);
   });
 
   test('should restore expand state on page reload', async ({ page }) => {
@@ -137,10 +140,20 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-    // Collapse Equipment
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
     );
+
+    // First expand Equipment to set a known state
+    const initiallyExpanded = await equipmentToggle.evaluate((el) =>
+      el.classList.contains('expanded')
+    );
+    if (!initiallyExpanded) {
+      await equipmentToggle.click();
+      await page.waitForTimeout(300);
+    }
+
+    // Now collapse it
     await equipmentToggle.click();
 
     // Wait for state to save
@@ -187,6 +200,18 @@ test.describe('Library Navigation - Navigation Interaction', () => {
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+    // First expand Equipment to make subtypes visible
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+    await equipmentToggle.click();
+
+    // Wait for subtypes to appear
+    await page.waitForSelector(
+      '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"]',
+      { timeout: 5000 }
+    );
 
     const weaponSubtype = page.locator(
       '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item'
