@@ -31,6 +31,15 @@ echo "--- Building ---"
 pnpm --dir "${APP_PATH}/site" build
 
 echo ""
+echo "--- Starting Firebase Emulators ---"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/start-emulators.sh"
+
+# Store the PID so we can clean up later
+trap "EMULATOR_PID=''; ${SCRIPT_DIR}/cleanup-test-processes.sh" EXIT
+
+echo ""
 echo "--- E2E Tests ---"
 cd "${APP_PATH}/tests"
 CI=true npx playwright test
