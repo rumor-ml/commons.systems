@@ -54,28 +54,31 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
 
     expect: site.expect,
 
-    projects: process.platform === 'darwin' ? [
-      // On macOS, use Firefox to avoid chrome-headless-shell Mach port issues
-      {
-        name: 'firefox',
-        use: { ...devices['Desktop Firefox'] },
-      },
-    ] : [
-      {
-        name: 'chromium',
-        use: {
-          ...devices['Desktop Chrome'],
-          launchOptions: {
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-gpu',
-            ],
-          },
-        },
-      },
-    ],
+    projects:
+      process.platform === 'darwin'
+        ? [
+            // On macOS, use Firefox to avoid chrome-headless-shell Mach port issues
+            {
+              name: 'firefox',
+              use: { ...devices['Desktop Firefox'] },
+            },
+          ]
+        : [
+            {
+              name: 'chromium',
+              use: {
+                ...devices['Desktop Chrome'],
+                launchOptions: {
+                  args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                  ],
+                },
+              },
+            },
+          ],
 
     webServer: isDeployed
       ? undefined
