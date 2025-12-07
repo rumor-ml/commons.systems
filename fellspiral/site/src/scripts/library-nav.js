@@ -7,15 +7,6 @@
 import { getAllCards } from './firebase.js';
 import cardsData from '../data/cards.json';
 
-// Subtype mappings
-const SUBTYPES = {
-  Equipment: ['Weapon', 'Armor'],
-  Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
-  Upgrade: ['Weapon', 'Armor'],
-  Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc']
-};
-
 /**
  * LibraryNav class - manages the library navigation tree
  */

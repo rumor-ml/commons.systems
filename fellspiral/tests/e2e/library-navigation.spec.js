@@ -189,18 +189,12 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
     await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
 
-    // Get total card count (or check for empty state)
-    const initialCards = await page.locator('.card-item').count();
-
     // Navigate to Equipment
     const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
     await equipmentToggle.click();
 
     // Wait for filtering
     await page.waitForTimeout(500);
-
-    // Card count should be different (filtered) or we should see filtered cards
-    const filteredCards = await page.locator('.card-item').count();
 
     // Either we have fewer cards or we're showing the filtered set
     // (The actual count depends on data, so we just verify filtering happened)
