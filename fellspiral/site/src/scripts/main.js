@@ -1164,6 +1164,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize library navigation (populates library section)
   initLibraryNav();
 
+  // HTMX event listener to reinitialize components after page swap
+  document.body.addEventListener('htmx:afterSwap', () => {
+    // Reinitialize authentication
+    initializeAuth();
+
+    // Reinitialize sidebar navigation
+    initSidebarNav();
+
+    // Reinitialize library navigation
+    initLibraryNav();
+  });
+
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const sidebar = document.getElementById('sidebar');

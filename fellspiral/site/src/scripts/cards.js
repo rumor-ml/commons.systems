@@ -661,3 +661,9 @@ if (document.readyState === 'loading') {
 } else {
   initializeApp();
 }
+
+// HTMX event listener to reinitialize components after page swap
+document.body.addEventListener('htmx:afterSwap', () => {
+  // Reinitialize the entire app after HTMX swaps content
+  initializeApp();
+});

@@ -8,11 +8,12 @@
     <meta name="description" content="Manage cards for Fellspiral tactical tabletop RPG" />
     <link rel="stylesheet" href="/styles/main.css" />
     <link rel="stylesheet" href="/styles/cards.css" />
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   </head>
   <body>
     <div class="layout">
       <!-- Sidebar Navigation -->
-      <aside class="sidebar" id="sidebar">
+      <aside class="sidebar" id="sidebar" hx-boost="true">
         <div class="sidebar-header">
           <h1 class="site-title">Fellspiral</h1>
           <p class="site-tagline">Tactical Tabletop RPG</p>
