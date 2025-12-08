@@ -11,7 +11,7 @@ const port = parseInt(process.env.TEST_PORT || '8080', 10);
 
 const config = createPlaywrightConfig({
   siteName: 'printsync',
-  port,  // Now configurable!
+  port, // Now configurable!
   deployedUrl: 'https://printsync.commons.systems',
   webServerCommand: {
     local: 'cd ../site && air',
@@ -24,7 +24,7 @@ const config = createPlaywrightConfig({
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
     STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || 'localhost:9199',
     GCP_PROJECT_ID: 'demo-test', // Must match the project ID used in test fixtures (test-helpers.ts)
-    PORT: process.env.TEST_PORT || '8080',  // Pass PORT to Go app
+    PORT: process.env.TEST_PORT || '8080', // Pass PORT to Go app
   },
   // Increase timeout for tests that interact with emulators
   timeout: 60000,
@@ -32,6 +32,11 @@ const config = createPlaywrightConfig({
     timeout: 10000,
   },
 });
+
+// Override base config for printsync: run tests serially to prevent
+// race conditions with shared Firebase emulators
+config.fullyParallel = false;
+config.workers = 1;
 
 // Add global setup to ensure emulators are running before tests
 config.globalSetup = resolve(__dirname, './global-setup.ts');

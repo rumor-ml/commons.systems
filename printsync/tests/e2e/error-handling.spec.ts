@@ -34,16 +34,21 @@ test.describe('Error Handling and Recovery', () => {
       errorMessage: 'Failed to extract metadata: corrupted file header',
     });
 
+    // Authenticate as user
+    await helpers.setPageAuth(page, userID);
+
     // Navigate to sync detail page
     await page.goto(`/sync/${sessionID}`);
-    await page.waitForLoadState('networkidle');
+    // Use domcontentloaded instead of networkidle - SSE keeps connection open forever
+    await page.waitForLoadState('domcontentloaded');
 
     // Find the file row
     const fileRow = page.locator(`#file-${fileID}`);
     await expect(fileRow).toBeVisible();
 
     // Verify error status is displayed
-    const errorStatus = fileRow.locator('text=Error').or(fileRow.locator('text=Failed'));
+    // Use .first() because 'text=Error' may also match file paths containing 'error'
+    const errorStatus = fileRow.locator('text=Error').first();
     await expect(errorStatus).toBeVisible();
 
     // Try to verify error message is visible (if implemented)
@@ -100,9 +105,13 @@ test.describe('Error Handling and Recovery', () => {
       errorMessage: 'Temporary network error',
     });
 
+    // Authenticate as user
+    await helpers.setPageAuth(page, userID);
+
     // Navigate to sync detail page
     await page.goto(`/sync/${sessionID}`);
-    await page.waitForLoadState('networkidle');
+    // Use domcontentloaded instead of networkidle - SSE keeps connection open forever
+    await page.waitForLoadState('domcontentloaded');
 
     const fileRow = page.locator(`#file-${fileID}`);
     await expect(fileRow).toBeVisible();
@@ -128,11 +137,7 @@ test.describe('Error Handling and Recovery', () => {
     }
   });
 
-  test('should display multiple error files correctly', async ({
-    page,
-    helpers,
-    testSession,
-  }) => {
+  test('should display multiple error files correctly', async ({ page, helpers, testSession }) => {
     // Create a session with multiple files in different error states
     const userID = testSession.userID;
     const rootDir = '/test/multi-error';
@@ -149,7 +154,7 @@ test.describe('Error Handling and Recovery', () => {
 
     const okFile = generateTestPDFFile({
       localPath: '/test/multi-error/ok.pdf',
-      status: 'pending',
+      status: 'extracted',
     });
 
     const sessionID = await helpers.createTestSession(userID, rootDir, [
@@ -186,9 +191,13 @@ test.describe('Error Handling and Recovery', () => {
       errorMessage: 'Metadata extraction failed',
     });
 
+    // Authenticate as user
+    await helpers.setPageAuth(page, userID);
+
     // Navigate to sync detail page
     await page.goto(`/sync/${sessionID}`);
-    await page.waitForLoadState('networkidle');
+    // Use domcontentloaded instead of networkidle - SSE keeps connection open forever
+    await page.waitForLoadState('domcontentloaded');
 
     // Verify all three files are visible
     const fileRow1 = page.locator(`#file-${fileID1}`);
@@ -200,14 +209,15 @@ test.describe('Error Handling and Recovery', () => {
     await expect(fileRow3).toBeVisible();
 
     // Verify error files show error status
-    const errorStatus1 = fileRow1.locator('text=Error').or(fileRow1.locator('text=Failed'));
-    const errorStatus2 = fileRow2.locator('text=Error').or(fileRow2.locator('text=Failed'));
+    // Use .first() because 'text=Error' may also match file paths containing 'error'
+    const errorStatus1 = fileRow1.locator('text=Error').first();
+    const errorStatus2 = fileRow2.locator('text=Error').first();
 
     await expect(errorStatus1).toBeVisible();
     await expect(errorStatus2).toBeVisible();
 
-    // Verify OK file doesn't show error status
-    const nonErrorStatus = fileRow3.locator('text=Pending').or(fileRow3.locator('text=Ready'));
+    // Verify OK file doesn't show error status (shows Ready since status is 'extracted')
+    const nonErrorStatus = fileRow3.locator('text=Ready');
     const hasNonErrorStatus = await nonErrorStatus.isVisible().catch(() => false);
 
     if (hasNonErrorStatus) {

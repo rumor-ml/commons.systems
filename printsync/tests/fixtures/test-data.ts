@@ -2,11 +2,13 @@ import { randomUUID } from 'crypto';
 
 /**
  * Generates test PDF metadata with optional overrides
+ * Each invocation generates unique title/author to avoid GCS path conflicts
  */
 export function generateTestPDFMetadata(overrides?: Record<string, any>) {
+  const uniqueId = randomUUID().substring(0, 8);
   return {
-    title: 'Test PDF Document',
-    author: 'Test Author',
+    title: `Test PDF ${uniqueId}`,
+    author: `Author ${uniqueId}`,
     subject: 'Test Subject',
     keywords: 'test, pdf, document',
     creator: 'Test Creator',
@@ -22,11 +24,13 @@ export function generateTestPDFMetadata(overrides?: Record<string, any>) {
 
 /**
  * Generates test EPUB metadata with optional overrides
+ * Each invocation generates unique title/author to avoid GCS path conflicts
  */
 export function generateTestEPUBMetadata(overrides?: Record<string, any>) {
+  const uniqueId = randomUUID().substring(0, 8);
   return {
-    title: 'Test EPUB Book',
-    author: 'Test Author',
+    title: `Test EPUB ${uniqueId}`,
+    author: `Author ${uniqueId}`,
     publisher: 'Test Publisher',
     language: 'en',
     isbn: '978-1234567890',

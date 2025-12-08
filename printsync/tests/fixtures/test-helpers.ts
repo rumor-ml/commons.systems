@@ -16,6 +16,10 @@ export interface FileData {
   };
 }
 
+export interface FileDataWithGcs extends FileData {
+  gcsPath: string;
+}
+
 export interface SessionData {
   userID: string;
   rootDir: string;
@@ -72,11 +76,7 @@ export class TestHelpers {
    * @param files Array of file data objects
    * @returns Session ID
    */
-  async createTestSession(
-    userID: string,
-    rootDir: string,
-    files: FileData[]
-  ): Promise<string> {
+  async createTestSession(userID: string, rootDir: string, files: FileData[]): Promise<string> {
     const sessionID = `test-session-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     const sessionData = {
@@ -219,11 +219,7 @@ startxref
    * @param status Expected status
    * @param timeout Timeout in milliseconds (default: 30000)
    */
-  async waitForFileStatus(
-    fileID: string,
-    status: string,
-    timeout: number = 30000
-  ): Promise<void> {
+  async waitForFileStatus(fileID: string, status: string, timeout: number = 30000): Promise<void> {
     // First check if file already has the target status
     const initialDoc = await this.firestore.collection('printsync-files').doc(fileID).get();
     if (initialDoc.exists && initialDoc.data()?.status === status) {
@@ -274,9 +270,7 @@ startxref
     status: string,
     timeout: number = 30000
   ): Promise<void> {
-    await Promise.all(
-      fileIDs.map(fileID => this.waitForFileStatus(fileID, status, timeout))
-    );
+    await Promise.all(fileIDs.map((fileID) => this.waitForFileStatus(fileID, status, timeout)));
   }
 
   /**
@@ -286,14 +280,10 @@ startxref
    * @param files Array of file data objects
    * @returns Array of file IDs
    */
-  async createTestFiles(
-    userID: string,
-    sessionID: string,
-    files: FileData[]
-  ): Promise<string[]> {
+  async createTestFiles(userID: string, sessionID: string, files: FileData[]): Promise<string[]> {
     // Create physical files first
     await Promise.all(
-      files.map(file => {
+      files.map((file) => {
         if (file.localPath) {
           return this.createPhysicalFile(file.localPath, 1024);
         }
@@ -301,7 +291,7 @@ startxref
       })
     );
 
-    const fileIDsWithData = files.map(file => {
+    const fileIDsWithData = files.map((file) => {
       // Convert absolute /test paths to temp directory
       let actualPath = file.localPath;
       if (file.localPath && file.localPath.startsWith('/test/')) {
@@ -330,8 +320,8 @@ startxref
       )
     );
 
-    this.createdFileIDs.push(...fileIDsWithData.map(f => f.id));
-    return fileIDsWithData.map(f => f.id);
+    this.createdFileIDs.push(...fileIDsWithData.map((f) => f.id));
+    return fileIDsWithData.map((f) => f.id);
   }
 
   /**
@@ -343,6 +333,38 @@ startxref
     const token = await this.authHelper.createUserAndGetToken(userID);
     this.createdUserIDs.push(userID);
     return token;
+  }
+
+  /**
+   * Injects authentication into a Playwright page context
+   * This sets both the Authorization header and firebase_token cookie
+   * @param page Playwright page object
+   * @param userID User ID to authenticate as
+   */
+  async setPageAuth(page: any, userID: string): Promise<void> {
+    // Create auth token for the user
+    const authToken = await this.createAuthToken(userID);
+
+    // Get the browser context from the page
+    const context = page.context();
+
+    // Set Authorization header for API calls
+    await context.setExtraHTTPHeaders({
+      Authorization: `Bearer ${authToken}`,
+    });
+
+    // Set auth token as cookie for EventSource/SSE connections
+    // EventSource cannot send custom headers, so we use cookies as fallback
+    await context.addCookies([
+      {
+        name: 'firebase_token',
+        value: authToken,
+        domain: 'localhost',
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ]);
   }
 
   /**
@@ -415,18 +437,22 @@ startxref
 
     // Parallel cleanup
     await Promise.all([
-      ...this.createdFileIDs.map(id =>
-        this.firestore.collection('printsync-files').doc(id).delete().catch(() => {})
+      ...this.createdFileIDs.map((id) =>
+        this.firestore
+          .collection('printsync-files')
+          .doc(id)
+          .delete()
+          .catch(() => {})
       ),
-      ...this.createdSessionIDs.map(id =>
-        this.firestore.collection('printsync-sessions').doc(id).delete().catch(() => {})
+      ...this.createdSessionIDs.map((id) =>
+        this.firestore
+          .collection('printsync-sessions')
+          .doc(id)
+          .delete()
+          .catch(() => {})
       ),
-      ...this.createdUserIDs.map(id =>
-        this.authHelper.deleteUser(id).catch(() => {})
-      ),
-      ...this.createdFilePaths.map(filePath =>
-        fs.unlink(filePath).catch(() => {})
-      )
+      ...this.createdUserIDs.map((id) => this.authHelper.deleteUser(id).catch(() => {})),
+      ...this.createdFilePaths.map((filePath) => fs.unlink(filePath).catch(() => {})),
     ]);
 
     this.createdFileIDs = [];

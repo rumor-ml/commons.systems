@@ -22,8 +22,9 @@ export const test = base.extend<{
   helpers: async ({}, use) => {
     const helpers = new TestHelpers();
 
-    // Clear Firestore BEFORE each test to prevent path conflicts from previous tests
-    await helpers.clearAllFirestoreData();
+    // NOTE: Do NOT call clearAllFirestoreData() here - it causes race conditions when
+    // tests run in parallel (worker A's session gets deleted by worker B's clearAll).
+    // The per-test cleanup in helpers.cleanup() is sufficient.
 
     // Provide the helpers to the test
     await use(helpers);
@@ -101,27 +102,12 @@ export const test = base.extend<{
   },
 
   /**
-   * Override page fixture to inject Firebase auth token in all requests
-   * This makes authenticated API calls work in e2e tests
+   * Page fixture - creates an unauthenticated browser context by default.
+   * Tests that need authentication should use helpers.createAuthenticatedPage()
+   * or explicitly set auth headers after creating the page.
    */
-  page: async ({ browser, testSession }, use) => {
-    const context = await browser.newContext({
-      extraHTTPHeaders: {
-        'Authorization': `Bearer ${testSession.authToken}`,
-      },
-    });
-
-    // Set auth token as cookie for EventSource/SSE connections
-    // EventSource cannot send custom headers, so we use cookies as fallback
-    await context.addCookies([{
-      name: 'firebase_token',
-      value: testSession.authToken,
-      domain: 'localhost',
-      path: '/',
-      httpOnly: true,
-      sameSite: 'Lax',
-    }]);
-
+  page: async ({ browser }, use) => {
+    const context = await browser.newContext();
     const page = await context.newPage();
     await use(page);
     await context.close();
