@@ -198,8 +198,8 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await expect(page).toHaveURL(/#library\/equipment$/);
 
     // Cards should be filtered to Equipment type
-    // Verify by checking that filtered cards are shown
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
+    // Verify by checking that filtered cards are shown (wait for visible items)
+    await page.waitForSelector('.card-item', { timeout: 5000 });
   });
 
   test('should navigate to subtype listing when clicking subtype', async ({ page }) => {
@@ -228,8 +228,8 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await expect(page).toHaveURL(/#library\/equipment\/weapon$/);
 
     // Cards should be filtered to Equipment > Weapon
-    // Verify by checking that filtered cards are shown
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
+    // Verify by checking that filtered cards are shown (wait for visible items)
+    await page.waitForSelector('.card-item', { timeout: 5000 });
   });
 
   test('should filter cards based on navigation', async ({ page }) => {
@@ -237,7 +237,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
 
     // Wait for library nav and cards to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
+    await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Navigate to Equipment
     const equipmentToggle = page.locator(
@@ -251,7 +251,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     // Verify URL hash was updated to equipment
     await expect(page).toHaveURL(/#library\/equipment$/);
 
-    // Verify filtered cards are shown
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
+    // Verify filtered cards are shown (wait for visible items)
+    await page.waitForSelector('.card-item', { timeout: 5000 });
   });
 });
