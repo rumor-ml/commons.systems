@@ -14,15 +14,34 @@ const (
 	MsgTypePing = "ping"
 	// MsgTypePong is sent by daemon in response to ping
 	MsgTypePong = "pong"
+	// MsgTypeShowBlockPicker is sent to request TUI show branch picker for a pane
+	MsgTypeShowBlockPicker = "show_block_picker"
+	// MsgTypeBlockPane is sent by client to block a pane on a specific branch (deprecated - use BlockBranch)
+	MsgTypeBlockPane = "block_pane"
+	// MsgTypeUnblockPane is sent by client to unblock a pane (deprecated - use UnblockBranch)
+	MsgTypeUnblockPane = "unblock_pane"
+	// MsgTypeBlockBranch is sent by client to block a branch with another branch
+	MsgTypeBlockBranch = "block_branch"
+	// MsgTypeUnblockBranch is sent by client to unblock a branch
+	MsgTypeUnblockBranch = "unblock_branch"
+	// MsgTypeBlockedState is sent by daemon with full blocked state
+	MsgTypeBlockedState = "blocked_state"
+	// MsgTypeBlockChange is sent by daemon when a block state changes
+	MsgTypeBlockChange = "block_change"
 )
 
 // Message represents a message exchanged between daemon and clients
 type Message struct {
-	Type         string            `json:"type"`
-	ClientID     string            `json:"client_id,omitempty"`
-	Alerts       map[string]string `json:"alerts,omitempty"`         // Full alert state (for full_state messages)
-	PaneID       string            `json:"pane_id,omitempty"`        // For alert_change messages
-	EventType    string            `json:"event_type,omitempty"`     // For alert_change messages
-	Created      bool              `json:"created,omitempty"`        // For alert_change messages
-	ActivePaneID string            `json:"active_pane_id,omitempty"` // For pane_focus messages
+	Type            string            `json:"type"`
+	ClientID        string            `json:"client_id,omitempty"`
+	Alerts          map[string]string `json:"alerts,omitempty"`           // Full alert state (for full_state messages)
+	PaneID          string            `json:"pane_id,omitempty"`          // For alert_change and block messages
+	EventType       string            `json:"event_type,omitempty"`       // For alert_change messages
+	Created         bool              `json:"created,omitempty"`          // For alert_change messages
+	ActivePaneID    string            `json:"active_pane_id,omitempty"`   // For pane_focus messages
+	BlockedPanes    map[string]string `json:"blocked_panes,omitempty"`    // Deprecated: paneID -> blockedOnBranch
+	BlockedBranches map[string]string `json:"blocked_branches,omitempty"` // Full blocked state: branch -> blockedByBranch
+	Branch          string            `json:"branch,omitempty"`           // For block_branch messages
+	BlockedBranch   string            `json:"blocked_branch,omitempty"`   // For block_branch messages
+	Blocked         bool              `json:"blocked,omitempty"`          // For block_change messages (true = blocked, false = unblocked)
 }

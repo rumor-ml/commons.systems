@@ -58,12 +58,27 @@ if [ -S "$DAEMON_SOCKET" ]; then
   rm -f "$DAEMON_SOCKET"
 fi
 
+# Wait a moment for cleanup
+sleep 0.2
+
 # Step 2: Rebuild binaries
 echo -e "\n${YELLOW}Step 2: Rebuilding binaries...${NC}"
 cd "$PROJECT_ROOT"
 make clean >/dev/null 2>&1
 make build
 echo -e "${GREEN}✓ Binaries rebuilt${NC}"
+
+# Step 2.5: Start the daemon
+echo -e "\n${YELLOW}Step 2.5: Starting daemon...${NC}"
+"$PROJECT_ROOT/build/tmux-tui-daemon" >/dev/null 2>&1 &
+sleep 0.5
+
+# Check if daemon started
+if [ -S "$DAEMON_SOCKET" ]; then
+  echo -e "${GREEN}✓ Daemon started${NC}"
+else
+  echo -e "${RED}Warning: Daemon may not have started correctly${NC}"
+fi
 
 # Step 3: Kill all existing TUI panes
 echo -e "\n${YELLOW}Step 3: Killing existing TUI panes...${NC}"
@@ -101,15 +116,18 @@ fi
 
 TUI_PANES_SPAWNED=0
 
-for WINDOW_ID in $WINDOWS; do
+# Re-fetch window list (some may have closed if TUI pane was the only pane)
+CURRENT_WINDOWS=$(tmux list-windows -F "#{window_id}")
+
+for WINDOW_ID in $CURRENT_WINDOWS; do
   # Save current window
   CURRENT_WINDOW=$(tmux display-message -p "#{window_id}")
 
   # Switch to target window
-  tmux select-window -t "$WINDOW_ID"
+  tmux select-window -t "$WINDOW_ID" 2>/dev/null || continue
 
-  # Run spawn script
-  "$SPAWN_SCRIPT"
+  # Run spawn script with flag to skip auto-claude launch
+  TMUX_TUI_RESTART=1 "$SPAWN_SCRIPT"
 
   # Check if TUI pane was created
   NEW_TUI_PANE=$(tmux show-window-option -t "$WINDOW_ID" @tui-pane 2>/dev/null | cut -d' ' -f2 | tr -d '"' || echo "")
@@ -118,11 +136,22 @@ for WINDOW_ID in $WINDOWS; do
     TUI_PANES_SPAWNED=$((TUI_PANES_SPAWNED + 1))
   fi
 
-  # Return to original window
-  tmux select-window -t "$CURRENT_WINDOW"
+  # Return to original window (if it still exists)
+  tmux select-window -t "$CURRENT_WINDOW" 2>/dev/null || true
 done
 
 echo -e "${GREEN}✓ Spawned $TUI_PANES_SPAWNED TUI pane(s)${NC}"
+
+# Step 5: Set environment variables for keybindings
+echo -e "\n${YELLOW}Step 5: Setting environment variables...${NC}"
+
+# Set TMUX_TUI_INSTALL_DIR so keybindings can find tmux-tui-block
+tmux set-environment -g TMUX_TUI_INSTALL_DIR "$PROJECT_ROOT/build"
+tmux set-environment -g TMUX_TUI_SPAWN_SCRIPT "$PROJECT_ROOT/scripts/spawn.sh"
+
+echo -e "${GREEN}✓ Environment variables set:${NC}"
+echo -e "  TMUX_TUI_INSTALL_DIR=$PROJECT_ROOT/build"
+echo -e "  TMUX_TUI_SPAWN_SCRIPT=$PROJECT_ROOT/scripts/spawn.sh"
 
 # Summary
 echo -e "\n${GREEN}=== Done! ===${NC}"

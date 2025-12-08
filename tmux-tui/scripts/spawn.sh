@@ -76,11 +76,12 @@ else
 fi
 
 # Run claude in the main pane ONLY for new windows (1 pane before split)
-if [ "$IS_NEW_WINDOW" = "1" ]; then
+# Skip if called from restart-tui.sh (TMUX_TUI_RESTART=1)
+if [ "$IS_NEW_WINDOW" = "1" ] && [ "$TMUX_TUI_RESTART" != "1" ]; then
   echo "$(date): Running claude in CURRENT_PANE=$CURRENT_PANE (new window detected)" >> /tmp/claude/spawn-debug.log
   tmux send-keys -t "$CURRENT_PANE" "claude || exec zsh" Enter
 else
-  echo "$(date): Skipping claude (IS_NEW_WINDOW=$IS_NEW_WINDOW, not a new window)" >> /tmp/claude/spawn-debug.log
+  echo "$(date): Skipping claude (IS_NEW_WINDOW=$IS_NEW_WINDOW, TMUX_TUI_RESTART=$TMUX_TUI_RESTART)" >> /tmp/claude/spawn-debug.log
 fi
 
 # Return focus to original pane
