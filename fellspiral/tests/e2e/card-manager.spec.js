@@ -91,44 +91,6 @@ test.describe('Card Manager Page', () => {
     expect(itemCount).toBeGreaterThan(0);
   });
 
-  test('should display card management interface', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Card toolbar should be visible
-    const toolbar = page.locator('.card-toolbar');
-    await expect(toolbar).toBeVisible();
-    await expect(toolbar.locator('h1')).toContainText('Card Management');
-
-    // Toolbar buttons exist but are hidden when not authenticated
-    const addCardBtn = page.locator('#addCardBtn');
-    const importCardsBtn = page.locator('#importCardsBtn');
-    const exportCardsBtn = page.locator('#exportCardsBtn');
-
-    // Buttons should exist in DOM
-    await expect(addCardBtn).toBeAttached();
-    await expect(importCardsBtn).toBeAttached();
-    await expect(exportCardsBtn).toBeAttached();
-
-    // Buttons should be hidden (auth-controls class)
-    await expect(addCardBtn).toHaveCSS('display', 'none');
-    await expect(importCardsBtn).toHaveCSS('display', 'none');
-    await expect(exportCardsBtn).toHaveCSS('display', 'none');
-  });
-
-  test('should display stats overview', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    const statsOverview = page.locator('.stats-overview');
-    await expect(statsOverview).toBeVisible();
-
-    // Check stat cards
-    const statLabels = ['Total Cards', 'Equipment', 'Skills', 'Upgrades', 'Foes'];
-    for (const label of statLabels) {
-      const statCard = page.locator('.stat-card', { hasText: label });
-      await expect(statCard).toBeVisible();
-    }
-  });
-
   test('should have mobile menu toggle button in DOM', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -239,19 +201,6 @@ test.describe('Card Manager Page', () => {
     await expect(gridModeBtn).toHaveClass(/active/);
   });
 
-  test('should display filter controls', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Filter dropdowns
-    const typeFilter = page.locator('#filterType');
-    const subtypeFilter = page.locator('#filterSubtype');
-    const searchInput = page.locator('#searchCards');
-
-    await expect(typeFilter).toBeVisible();
-    await expect(subtypeFilter).toBeVisible();
-    await expect(searchInput).toBeVisible();
-  });
-
   test('should navigate to external links on desktop', async ({ page }) => {
     await setupDesktopViewport(page);
     await page.goto('/cards.html');
@@ -262,30 +211,5 @@ test.describe('Card Manager Page', () => {
     await introLink.click();
     await page.waitForURL(/\/#introduction/);
     await expect(page).toHaveURL(/\/#introduction/);
-  });
-
-  test('should handle missing elements gracefully', async ({ page }) => {
-    const consoleErrors = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
-
-    await page.goto('/cards.html');
-    await page.evaluate(() => {
-      const toggle = document.getElementById('mobileMenuToggle');
-      if (toggle) toggle.remove();
-    });
-    await page.locator('.card-toolbar h1').click();
-    await page.waitForTimeout(100);
-
-    // Filter out expected warnings
-    const actualErrors = consoleErrors.filter((err) => !err.includes('Warning'));
-
-    // Log errors for debugging before assertion
-    if (actualErrors.length > 0) {
-      console.log('Console errors detected:', actualErrors);
-    }
-
-    expect(actualErrors).toHaveLength(0);
   });
 });

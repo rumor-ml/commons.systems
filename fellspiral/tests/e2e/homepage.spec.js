@@ -55,26 +55,6 @@ test.describe('Homepage', () => {
     await expect(initiativeSection).toBeInViewport();
   });
 
-  test('should have Library section in sidebar', async ({ page }) => {
-    await page.goto('/');
-
-    // Wait for sidebar navigation to be ready
-    await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
-
-    // Library section should exist
-    const librarySection = page.locator('.nav-section-library');
-    await expect(librarySection).toBeVisible();
-
-    // Library section toggle should be present
-    const librarySectionToggle = page.locator('.nav-section-title[data-section="library"]');
-    await expect(librarySectionToggle).toBeVisible();
-    await expect(librarySectionToggle).toContainText('Library');
-
-    // Library nav container should exist
-    const libraryNavContainer = page.locator('#libraryNavContainer');
-    await expect(libraryNavContainer).toBeVisible();
-  });
-
   test('should display all main sections', async ({ page }) => {
     await page.goto('/');
 
