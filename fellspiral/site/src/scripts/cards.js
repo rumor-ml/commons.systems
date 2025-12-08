@@ -14,6 +14,8 @@ import {
 // Import auth initialization and state
 import { initializeAuth, onAuthStateChanged } from './auth-init.js';
 
+// Import shared navigation
+import { initSidebarNav } from './sidebar-nav.js';
 // Import library navigation
 import { initLibraryNav } from './library-nav.js';
 
@@ -96,7 +98,10 @@ async function init() {
     // Initialize authentication
     initializeAuth();
 
-    // Initialize library navigation
+    // Initialize shared sidebar navigation (generates nav DOM)
+    initSidebarNav();
+
+    // Initialize library navigation (populates library section)
     await initLibraryNav();
 
     // Setup auth state listener

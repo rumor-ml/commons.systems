@@ -1,5 +1,7 @@
 // Import auth initialization
 import { initializeAuth } from './auth-init.js';
+// Import shared navigation
+import { initSidebarNav } from './sidebar-nav.js';
 // Import library navigation
 import { initLibraryNav } from './library-nav.js';
 
@@ -1156,16 +1158,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
 
-  // Initialize library navigation
-  initLibraryNav();
+  // Initialize shared sidebar navigation (generates nav DOM)
+  initSidebarNav();
 
-  // Nav section toggle handlers
-  const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
-  navSectionToggles.forEach((toggle) => {
-    toggle.addEventListener('click', () => {
-      toggle.classList.toggle('expanded');
-    });
-  });
+  // Initialize library navigation (populates library section)
+  initLibraryNav();
 
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
