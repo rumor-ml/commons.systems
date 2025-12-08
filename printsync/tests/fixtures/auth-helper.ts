@@ -14,7 +14,7 @@ export class AuthHelper {
     if (!authEmulatorHost) {
       throw new Error(
         'FIREBASE_AUTH_EMULATOR_HOST environment variable not set. ' +
-        'Did you run: ./infrastructure/scripts/start-emulators.sh'
+          'Did you run: ./infrastructure/scripts/start-emulators.sh'
       );
     }
 
@@ -41,24 +41,23 @@ export class AuthHelper {
    * @param claims Optional custom claims to add to the token
    * @returns ID token string that can be used in Authorization: Bearer header
    */
-  async createUserAndGetToken(
-    uid: string,
-    claims: Record<string, unknown> = {}
-  ): Promise<string> {
+  async createUserAndGetToken(uid: string, claims: Record<string, unknown> = {}): Promise<string> {
     try {
       // Try to create the user (will fail if already exists, which is ok)
-      await this.auth.createUser({
-        uid,
-        email: `${uid}@test.example.com`,
-        emailVerified: true,
-      }).catch(err => {
-        // User already exists - this is fine in tests
-        if (err.code === 'auth/uid-already-exists') {
-          console.log(`ℹ User ${uid} already exists in emulator`);
-        } else {
-          throw err;
-        }
-      });
+      await this.auth
+        .createUser({
+          uid,
+          email: `${uid}@test.example.com`,
+          emailVerified: true,
+        })
+        .catch((err) => {
+          // User already exists - this is fine in tests
+          if (err.code === 'auth/uid-already-exists') {
+            console.log(`ℹ User ${uid} already exists in emulator`);
+          } else {
+            throw err;
+          }
+        });
 
       // Generate a custom token (first step of OAuth flow)
       const customToken = await this.auth.createCustomToken(uid, claims);
