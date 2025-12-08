@@ -29,6 +29,7 @@ Firebase emulators (Auth, Firestore, Storage) are automatically started before t
 ## Test Architecture
 
 Tests use Firebase Auth Emulator for authentication:
+
 - Auth tokens are automatically generated for each test
 - Tokens are injected via Playwright HTTP headers
 - No manual authentication setup required
