@@ -40,6 +40,7 @@ npm install
 ```
 
 This will start:
+
 - Firestore emulator on port 8081
 - Storage emulator on port 9199
 
@@ -126,86 +127,107 @@ test('upload flow', async ({ helpers }) => {
 ### TestHelpers
 
 #### Constructor
+
 ```typescript
-new TestHelpers()
+new TestHelpers();
 ```
+
 Initializes Firestore and GCS clients using emulator environment variables.
 
 #### Methods
 
 **createTestSession(userID, rootDir, files): Promise\<string\>**
+
 - Creates a session document in Firestore
 - Returns the session ID
 - Tracks for automatic cleanup
 
 **createTestFile(sessionID, fileData): Promise\<string\>**
+
 - Creates a file document in Firestore
 - Returns the file ID
 - Tracks for automatic cleanup
 
 **waitForFileStatus(fileID, status, timeout?): Promise\<void\>**
+
 - Polls Firestore until file reaches expected status
 - Default timeout: 30000ms
 - Throws on timeout
 
 **assertFileInFirestore(fileID, expectedState): Promise\<void\>**
+
 - Verifies file document exists with expected fields
 - Throws if file not found or fields don't match
 
 **assertFileInGCS(bucket, path): Promise\<void\>**
+
 - Verifies object exists in GCS bucket
 - Throws if object not found
 
 **cleanup(): Promise\<void\>**
+
 - Deletes all created sessions and files
 - Called automatically by fixture
 
 **getFirestore(): Firestore**
+
 - Returns Firestore client instance
 
 **getStorage(): Storage**
+
 - Returns Storage client instance
 
 ### Test Data Generators
 
 **generateTestPDFMetadata(overrides?): Object**
+
 - Returns PDF metadata fixture
 - Accepts partial overrides
 
 **generateTestEPUBMetadata(overrides?): Object**
+
 - Returns EPUB metadata fixture
 - Accepts partial overrides
 
 **generateTestUserID(): string**
+
 - Returns `test-user-{uuid}`
 
 **generateTestSessionID(): string**
+
 - Returns `test-session-{uuid}`
 
 **generateTestFileHash(): string**
+
 - Returns SHA256-like hash string
 
 **generateTestFileContent(size?): Buffer**
+
 - Returns buffer of test content
 - Default size: 1024 bytes
 
 **generateTestPDFFile(overrides?): TestFileData**
+
 - Returns complete PDF file data object
 
 **generateTestEPUBFile(overrides?): TestFileData**
+
 - Returns complete EPUB file data object
 
 **generateTestFileBatch(count, type): TestFileData[]**
+
 - Returns array of test files
 - type: 'pdf' | 'epub'
 
 ### Playwright Fixtures
 
 **helpers: TestHelpers**
+
 - Auto-created TestHelpers instance
 - Auto-cleans up after test
 
 **testSession: TestSession**
+
 - Pre-seeded session with 2 PDFs and 1 EPUB
 - Includes sessionID, userID, and fileIDs
 
