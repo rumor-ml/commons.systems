@@ -9,6 +9,7 @@ This test suite validates the complete PrintSync workflow, from file discovery t
 ## Test Files
 
 ### Basic Workflows
+
 - **`homepage.spec.ts`** - Homepage and navigation tests
 - **`approval-flow.spec.ts`** - Single file approval and upload workflow
 - **`bulk-approval.spec.ts`** - Bulk approval operations for multiple files
@@ -17,6 +18,7 @@ This test suite validates the complete PrintSync workflow, from file discovery t
 - **`trash-workflow.spec.ts`** - Trash and restore operations
 
 ### Advanced Tests
+
 - **`error-handling.spec.ts`** - Error states, error messages, and recovery mechanisms
 - **`sse-realtime.spec.ts`** - Server-Sent Events (SSE) real-time updates using HTMX
 - **`concurrent-operations.spec.ts`** - Session isolation, duplicate detection, and concurrent operations
@@ -24,6 +26,7 @@ This test suite validates the complete PrintSync workflow, from file discovery t
 ## Prerequisites
 
 ### Required Software
+
 - Node.js 18+ and pnpm
 - Go 1.22+
 - Firebase CLI (`npm install -g firebase-tools`)
@@ -61,6 +64,7 @@ firebase emulators:start --only firestore,storage --project demo-test
 ```
 
 The emulators will start on:
+
 - Firestore: `localhost:8082`
 - Cloud Storage: `localhost:9199`
 - Emulator UI: `localhost:4000`
@@ -73,6 +77,7 @@ make build
 ```
 
 This will:
+
 - Generate Go code from templ templates
 - Build CSS with Tailwind
 - Compile the Go binary
@@ -108,11 +113,13 @@ pnpm exec playwright test --debug
 The test suite uses the following environment variables:
 
 ### Required (automatically set by test script)
+
 - `FIRESTORE_EMULATOR_HOST=localhost:8082` - Firestore emulator host
 - `STORAGE_EMULATOR_HOST=localhost:9199` - Cloud Storage emulator host
 - `GCLOUD_PROJECT=demo-test` - GCP project ID for emulators
 
 ### Optional
+
 - `HEADLESS=true` - Run tests in headless mode (default in CI)
 - `CI=true` - Enables CI-specific behavior
 
@@ -157,6 +164,7 @@ test('my test', async ({ page, testSession, helpers }) => {
 **Problem**: Emulators fail to start or ports are already in use
 
 **Solution**:
+
 ```bash
 # Kill processes on emulator ports
 lsof -ti:8082 | xargs kill -9  # Firestore
@@ -169,11 +177,13 @@ lsof -ti:4000 | xargs kill -9  # UI
 **Problem**: Tests timeout waiting for file status changes
 
 **Possible causes**:
+
 1. PrintSync server not running or crashed
 2. Emulators not accessible
 3. Firestore writes not completing
 
 **Solution**:
+
 ```bash
 # Check emulator logs
 cat /tmp/claude/emulators.log
@@ -190,6 +200,7 @@ await helpers.waitForFileStatus(fileID, 'uploaded', 60000); // 60s
 **Problem**: Browser fails to launch or tests fail to run
 
 **Solution**:
+
 ```bash
 # Reinstall browsers
 pnpm exec playwright install --force
@@ -204,8 +215,10 @@ pnpm exec playwright install
 **Problem**: Test data from previous runs affects new tests
 
 **Solution**:
+
 - Fixtures automatically clean up after each test
 - If cleanup fails, manually clear emulator data:
+
 ```bash
 # Restart emulators (clears all data)
 firebase emulators:start --only firestore,storage --project demo-test
@@ -214,14 +227,17 @@ firebase emulators:start --only firestore,storage --project demo-test
 ### Tests Pass Locally but Fail in CI
 
 **Possible causes**:
+
 1. Different environment variables
 2. Timing issues (slower CI environment)
 3. Missing dependencies
 
 **Solution**:
+
 - Check CI logs for specific error messages
 - Download test artifacts from failed CI runs
 - Run tests with `CI=true` locally to simulate CI environment:
+
 ```bash
 CI=true pnpm test:e2e
 ```
@@ -233,6 +249,7 @@ Tests run automatically in GitHub Actions for every push and pull request.
 ### Workflow: `push-main.yml`
 
 The `test-go-fullstack-printsync` job:
+
 1. Checks out code
 2. Sets up Go and Node.js
 3. Installs dependencies
@@ -245,6 +262,7 @@ The `test-go-fullstack-printsync` job:
 ### Viewing CI Artifacts
 
 When tests fail in CI:
+
 1. Go to the failed workflow run
 2. Scroll to "Artifacts" section at the bottom
 3. Download:
@@ -254,6 +272,7 @@ When tests fail in CI:
 ### CI Test Script
 
 The test script (`infrastructure/scripts/test-go-fullstack-app.sh`) does:
+
 1. Start Firebase emulators in background
 2. Build the PrintSync application
 3. Start the PrintSync server
@@ -319,6 +338,7 @@ test.describe('My Feature Tests', () => {
 ## Coverage
 
 Current test coverage includes:
+
 - File approval and upload workflows
 - File rejection workflows
 - Bulk operations
@@ -332,6 +352,7 @@ Current test coverage includes:
 ## Future Enhancements
 
 Potential areas for additional testing:
+
 - File metadata editing
 - Search and filtering
 - Pagination for large file lists
