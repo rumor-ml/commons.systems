@@ -649,13 +649,49 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
-// Initialize application
+// Initialize card-specific functionality only (no sidebar reinit)
+// Called when navigating to cards.html via HTMX
+export async function initCardsPage() {
+  try {
+    // Initialize authentication
+    initializeAuth();
+
+    // Setup auth state listener
+    setupAuthStateListener();
+
+    // Setup hash routing
+    setupHashRouting();
+
+    // Setup UI components
+    setupEventListeners();
+    renderCards();
+
+    // Load data asynchronously
+    loadCards()
+      .then(() => {
+        renderCards();
+        handleHashChange();
+      })
+      .catch((error) => {
+        console.error('Failed to load cards:', error);
+        showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      });
+  } catch (error) {
+    console.error('Card Manager init error:', error);
+    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+      document.querySelector('.error-banner')?.remove();
+      initCardsPage();
+    });
+  }
+}
+
+// Initialize full application (includes sidebar)
 function initializeApp() {
   setupMobileMenu();
   init();
 }
 
-// Initialize on page load
+// Initialize on page load (only when directly loading cards.html)
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {

@@ -105,6 +105,11 @@ export class LibraryNav {
     });
 
     this.attachEventListeners();
+
+    // Tell HTMX to process dynamically created anchor tags for boosted navigation
+    if (typeof htmx !== 'undefined') {
+      htmx.process(this.container);
+    }
   }
 
   /**
@@ -125,6 +130,10 @@ export class LibraryNav {
     typeToggle.className = `library-nav-item library-nav-toggle ${isExpanded ? 'expanded' : ''}`;
     typeToggle.dataset.toggle = typeId;
     typeToggle.href = `/cards.html#library/${type.toLowerCase()}`;
+    // Disable HTMX boost on cards.html since we handle hash navigation manually
+    if (window.location.pathname.includes('cards.html')) {
+      typeToggle.setAttribute('hx-boost', 'false');
+    }
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';
@@ -179,6 +188,10 @@ export class LibraryNav {
     subtypeItem.className = `library-nav-item library-nav-subtype-item ${isSubtypeExpanded ? 'expanded' : ''}`;
     subtypeItem.dataset.toggle = subtypeId;
     subtypeItem.href = `/cards.html#library/${type.toLowerCase()}/${subtype.toLowerCase()}`;
+    // Disable HTMX boost on cards.html since we handle hash navigation manually
+    if (window.location.pathname.includes('cards.html')) {
+      subtypeItem.setAttribute('hx-boost', 'false');
+    }
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';

@@ -1165,15 +1165,22 @@ document.addEventListener('DOMContentLoaded', () => {
   initLibraryNav();
 
   // HTMX event listener to reinitialize components after page swap
-  document.body.addEventListener('htmx:afterSwap', () => {
-    // Reinitialize authentication
+  // Note: Since we only swap main content (not sidebar), we don't reinitialize sidebar/library nav
+  document.body.addEventListener('htmx:afterSwap', async (event) => {
+    // Reinitialize authentication (needed for auth controls in new content)
     initializeAuth();
 
-    // Reinitialize sidebar navigation
-    initSidebarNav();
-
-    // Reinitialize library navigation
-    initLibraryNav();
+    // Check if we navigated to cards.html - if so, dynamically load and init cards functionality
+    if (window.location.pathname.includes('cards.html')) {
+      try {
+        const cardsModule = await import('./cards.js');
+        if (cardsModule.initCardsPage) {
+          cardsModule.initCardsPage();
+        }
+      } catch (e) {
+        console.warn('Could not load cards module:', e);
+      }
+    }
   });
 
   // Mobile menu toggle

@@ -13,7 +13,14 @@
   <body>
     <div class="layout">
       <!-- Sidebar Navigation -->
-      <aside class="sidebar" id="sidebar" hx-boost="true">
+      <aside
+        class="sidebar"
+        id="sidebar"
+        hx-boost="true"
+        hx-target=".main-content"
+        hx-select=".main-content"
+        hx-swap="innerHTML"
+      >
         <div class="sidebar-header">
           <h1 class="site-title">Fellspiral</h1>
           <p class="site-tagline">Tactical Tabletop RPG</p>
