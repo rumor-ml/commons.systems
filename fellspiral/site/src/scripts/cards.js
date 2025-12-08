@@ -97,7 +97,7 @@ async function init() {
     initializeAuth();
 
     // Initialize library navigation
-    initLibraryNav();
+    await initLibraryNav();
 
     // Setup auth state listener
     setupAuthStateListener();

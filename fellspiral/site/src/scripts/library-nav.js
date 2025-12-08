@@ -341,7 +341,7 @@ export async function initLibraryNav() {
   await libraryNav.init();
 
   // Ensure the LIBRARY section is expanded by default
-  const librarySection = container.closest('.nav-section');
+  const librarySection = libraryNav.container.closest('.nav-section');
   if (librarySection) {
     const toggle = librarySection.querySelector('.nav-section-toggle');
     if (toggle && !toggle.classList.contains('expanded')) {
