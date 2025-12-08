@@ -664,18 +664,18 @@ export async function initCardsPage() {
 
     // Setup UI components
     setupEventListeners();
-    renderCards();
 
-    // Load data asynchronously
-    loadCards()
-      .then(() => {
-        renderCards();
-        handleHashChange();
-      })
-      .catch((error) => {
-        console.error('Failed to load cards:', error);
-        showWarningBanner('Failed to load cards from cloud. Using cached data.');
-      });
+    // Load data and then render - await to ensure cards load before showing UI
+    try {
+      await loadCards();
+      renderCards();
+      handleHashChange();
+    } catch (error) {
+      console.error('Failed to load cards:', error);
+      showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      renderCards(); // Still render with fallback data
+      handleHashChange();
+    }
   } catch (error) {
     console.error('Card Manager init error:', error);
     showErrorUI('Failed to initialize Card Manager. Please try again.', () => {

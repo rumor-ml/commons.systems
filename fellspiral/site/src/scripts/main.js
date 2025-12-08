@@ -1175,7 +1175,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const cardsModule = await import('./cards.js');
         if (cardsModule.initCardsPage) {
-          cardsModule.initCardsPage();
+          await cardsModule.initCardsPage();
         }
       } catch (e) {
         console.warn('Could not load cards module:', e);
