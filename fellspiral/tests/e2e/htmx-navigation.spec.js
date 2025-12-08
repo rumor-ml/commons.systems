@@ -22,8 +22,9 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Wait for navigation to complete - URL should change to cards.html with hash
     await page.waitForURL(/cards\.html#library\/equipment$/, { timeout: 10000 });
 
-    // Wait for cards to load (either cards visible or empty state)
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 10000 });
+    // Wait for cards to ACTUALLY load - not just empty state
+    // The key is to wait for .card-item specifically, with a longer timeout
+    await page.waitForSelector('.card-item', { timeout: 15000 });
 
     // Check if cards are visible (should be Equipment cards)
     const cardItems = await page.locator('.card-item').count();
@@ -48,8 +49,8 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Wait for navigation to complete
     await page.waitForURL(/cards\.html#library\/skill$/, { timeout: 10000 });
 
-    // Wait for cards to load
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 10000 });
+    // Wait for cards to ACTUALLY load - not just empty state
+    await page.waitForSelector('.card-item', { timeout: 15000 });
 
     // Check if cards are visible
     const cardItems = await page.locator('.card-item').count();
@@ -85,8 +86,8 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Wait for navigation to complete
     await page.waitForURL(/cards\.html#library\/equipment\/weapon$/, { timeout: 10000 });
 
-    // Wait for cards to load
-    await page.waitForSelector('.card-item, .empty-state', { timeout: 10000 });
+    // Wait for cards to ACTUALLY load - not just empty state
+    await page.waitForSelector('.card-item', { timeout: 15000 });
 
     // Check if cards are visible
     const cardItems = await page.locator('.card-item').count();
@@ -124,5 +125,67 @@ test.describe('HTMX Cross-Page Navigation', () => {
 
     // Equipment should be expanded (since we just clicked it)
     await expect(equipmentToggle).toHaveClass(/expanded/);
+  });
+
+  test('should load cards with correct filter after fresh HTMX navigation', async ({ page }) => {
+    // This test verifies that navigating via HTMX loads cards properly
+    // by checking the actual card content matches the expected filter
+
+    // Start at homepage
+    await page.goto('/');
+
+    // Wait for library navigation to load
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+    // Click Foe type in library nav
+    const foeToggle = page.locator('.library-nav-type[data-type="Foe"] .library-nav-toggle');
+    await foeToggle.click();
+
+    // Wait for navigation to complete
+    await page.waitForURL(/cards\.html#library\/foe$/, { timeout: 10000 });
+
+    // Wait for cards to load
+    await page.waitForSelector('.card-item', { timeout: 15000 });
+
+    // Verify ALL visible cards are Foe type (not just first one)
+    const allCardTypes = await page.locator('.card-item .card-item-type').allTextContents();
+    expect(allCardTypes.length).toBeGreaterThan(0);
+
+    for (const cardType of allCardTypes) {
+      expect(cardType).toContain('Foe');
+    }
+  });
+
+  test('should navigate multiple times and load correct cards each time', async ({ page }) => {
+    // Test multiple consecutive navigations work correctly
+
+    // Start at homepage
+    await page.goto('/');
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+    // First navigation: Equipment
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+    await equipmentToggle.click();
+    await page.waitForURL(/cards\.html#library\/equipment$/, { timeout: 10000 });
+    await page.waitForSelector('.card-item', { timeout: 15000 });
+
+    let firstCardType = await page.locator('.card-item .card-item-type').first().textContent();
+    expect(firstCardType).toContain('Equipment');
+
+    // Second navigation: Skill (from cards page, not homepage)
+    const skillToggle = page.locator('.library-nav-type[data-type="Skill"] .library-nav-toggle');
+    await skillToggle.click();
+
+    // On cards.html, this should use hash navigation, not HTMX
+    await page.waitForURL(/cards\.html#library\/skill$/, { timeout: 10000 });
+
+    // Wait for cards to re-filter
+    await page.waitForTimeout(500); // Give time for filtering
+    await page.waitForSelector('.card-item', { timeout: 15000 });
+
+    firstCardType = await page.locator('.card-item .card-item-type').first().textContent();
+    expect(firstCardType).toContain('Skill');
   });
 });
