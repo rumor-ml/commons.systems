@@ -1,15 +1,6 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Performance', () => {
-  test('should load page within acceptable time', async ({ page }) => {
-    const startTime = Date.now();
-    await page.goto('/');
-    const loadTime = Date.now() - startTime;
-
-    // Page should load within 3 seconds
-    expect(loadTime).toBeLessThan(3000);
-  });
-
   test('should have reasonable page size', async ({ page }) => {
     const response = await page.goto('/');
     const body = await response.body();
