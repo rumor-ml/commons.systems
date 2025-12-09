@@ -183,9 +183,6 @@ async function loadCards() {
 
     state.filteredCards = [...state.cards];
     state.loading = false;
-
-    // Update DOM to display loaded cards and hide loading spinner
-    renderCards();
   } catch (error) {
     console.error('Error loading cards:', error);
     state.error = error.message;
@@ -196,9 +193,7 @@ async function loadCards() {
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
-    // Update DOM to reflect fallback state and hide loading spinner
-    renderCards();
-
+    // Note: renderCards() is called by initCardsPage().then()/.catch() handlers
     // Show warning to user
     showWarningBanner(
       'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
