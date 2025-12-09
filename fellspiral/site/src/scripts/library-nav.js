@@ -7,15 +7,6 @@
 import { getAllCards } from './firebase.js';
 import cardsData from '../data/cards.json';
 
-// Subtype mappings
-const SUBTYPES = {
-  Equipment: ['Weapon', 'Armor'],
-  Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
-  Upgrade: ['Weapon', 'Armor'],
-  Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
-};
-
 /**
  * LibraryNav class - manages the library navigation tree
  */
@@ -114,6 +105,11 @@ export class LibraryNav {
     });
 
     this.attachEventListeners();
+
+    // Tell HTMX to process dynamically created anchor tags for boosted navigation
+    if (typeof htmx !== 'undefined') {
+      htmx.process(this.container);
+    }
   }
 
   /**
@@ -122,17 +118,22 @@ export class LibraryNav {
   createTypeElement(type) {
     const typeData = this.tree[type];
     const typeId = `library-type-${type.toLowerCase()}`;
-    const isExpanded = this.expandState[typeId] !== false; // Expanded by default
+    const isExpanded = this.expandState[typeId] === true; // Collapsed by default
 
     // Create type container
     const typeDiv = document.createElement('div');
     typeDiv.className = 'library-nav-type';
     typeDiv.dataset.type = type;
 
-    // Create type toggle/header
-    const typeToggle = document.createElement('div');
+    // Create type toggle/header - now an anchor tag
+    const typeToggle = document.createElement('a');
     typeToggle.className = `library-nav-item library-nav-toggle ${isExpanded ? 'expanded' : ''}`;
     typeToggle.dataset.toggle = typeId;
+    typeToggle.href = `/cards.html#library-${type.toLowerCase()}`;
+    // Disable HTMX boost on cards.html since we handle hash navigation manually
+    if (window.location.pathname.includes('cards.html')) {
+      typeToggle.setAttribute('hx-boost', 'false');
+    }
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';
@@ -182,9 +183,15 @@ export class LibraryNav {
     subtypeDiv.dataset.type = type;
     subtypeDiv.dataset.subtype = subtype;
 
-    const subtypeItem = document.createElement('div');
+    // Create subtype item - now an anchor tag
+    const subtypeItem = document.createElement('a');
     subtypeItem.className = `library-nav-item library-nav-subtype-item ${isSubtypeExpanded ? 'expanded' : ''}`;
     subtypeItem.dataset.toggle = subtypeId;
+    subtypeItem.href = `/cards.html#library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
+    // Disable HTMX boost on cards.html since we handle hash navigation manually
+    if (window.location.pathname.includes('cards.html')) {
+      subtypeItem.setAttribute('hx-boost', 'false');
+    }
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';
@@ -212,32 +219,40 @@ export class LibraryNav {
   attachEventListeners() {
     if (!this.container) return;
 
+    const isOnCardsPage = window.location.pathname.includes('cards.html');
+
     // Type clicks - expand/collapse AND navigate
     const typeToggles = this.container.querySelectorAll('.library-nav-type > .library-nav-toggle');
     typeToggles.forEach((toggle) => {
       toggle.addEventListener('click', (e) => {
-        const typeDiv = toggle.closest('.library-nav-type');
-        const type = typeDiv.dataset.type;
-        const toggleId = toggle.dataset.toggle;
-
         // Toggle expansion
+        const toggleId = toggle.dataset.toggle;
         this.toggleExpand(toggleId);
 
-        // Navigate to type listing
-        this.navigate({ type });
+        // On cards.html, handle hash navigation manually to prevent HTMX from doing a body swap
+        // This keeps the expand state intact
+        if (isOnCardsPage) {
+          e.preventDefault();
+          const type = toggle.closest('.library-nav-type').dataset.type;
+          window.location.hash = `library-${type.toLowerCase()}`;
+        }
+        // On other pages (index.html), let HTMX handle the navigation to cards.html
       });
     });
 
-    // Subtype clicks - navigate only (no children to expand)
+    // Subtype clicks - navigate
     const subtypeItems = this.container.querySelectorAll('.library-nav-subtype-item');
     subtypeItems.forEach((item) => {
       item.addEventListener('click', (e) => {
-        const subtypeDiv = item.closest('.library-nav-subtype');
-        const type = subtypeDiv.dataset.type;
-        const subtype = subtypeDiv.dataset.subtype;
-
-        // Navigate to subtype listing
-        this.navigate({ type, subtype });
+        // On cards.html, handle hash navigation manually
+        if (isOnCardsPage) {
+          e.preventDefault();
+          const subtypeDiv = item.closest('.library-nav-subtype');
+          const type = subtypeDiv.dataset.type;
+          const subtype = subtypeDiv.dataset.subtype;
+          window.location.hash = `library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
+        }
+        // On other pages, let HTMX handle navigation
       });
     });
   }
@@ -265,7 +280,8 @@ export class LibraryNav {
   }
 
   /**
-   * Navigate to a filtered view
+   * Navigate to a filtered view (deprecated - now using HTMX)
+   * Kept for backwards compatibility with hash change events
    */
   navigate({ type, subtype }) {
     // Construct hash
@@ -277,8 +293,10 @@ export class LibraryNav {
       hash += `/${subtype.toLowerCase()}`;
     }
 
-    // Update URL
-    window.location.hash = hash;
+    // Update URL (only for hash-based navigation within same page)
+    if (window.location.pathname.includes('cards.html')) {
+      window.location.hash = hash;
+    }
 
     // Call callback
     this.options.onNavigate({ type, subtype });
@@ -330,40 +348,23 @@ export async function initLibraryNav() {
 
   const libraryNav = new LibraryNav(container, {
     onNavigate: ({ type, subtype }) => {
-      // If we're on cards.html, trigger filtering
+      // If we're on cards.html, trigger filtering via hash change
       if (window.location.pathname.includes('cards.html')) {
         // This will be handled by cards.js hash change listener
-      } else {
-        // If we're on index.html, navigate to cards.html
-        let hash = '#library';
-        if (type) {
-          hash += `/${type.toLowerCase()}`;
-        }
-        if (subtype) {
-          hash += `/${subtype.toLowerCase()}`;
-        }
-        window.location.href = `/cards.html${hash}`;
       }
+      // If we're on index.html, HTMX will handle the navigation to cards.html
+      // No need to manually set window.location.href
     },
   });
 
   await libraryNav.init();
 
-  // Set up the LIBRARY section toggle click handler
-  // Section starts collapsed by default (CSS hides content without .expanded)
-  const librarySection = container.closest('.nav-section');
+  // Ensure the LIBRARY section is expanded by default
+  const librarySection = libraryNav.container.closest('.nav-section');
   if (librarySection) {
     const toggle = librarySection.querySelector('.nav-section-toggle');
-    const content = librarySection.querySelector('.nav-section-content');
-
-    // Add click handler for the library section toggle
-    if (toggle) {
-      toggle.addEventListener('click', () => {
-        toggle.classList.toggle('expanded');
-        if (content) {
-          content.classList.toggle('expanded');
-        }
-      });
+    if (toggle && !toggle.classList.contains('expanded')) {
+      toggle.classList.add('expanded');
     }
   }
 

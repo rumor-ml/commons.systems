@@ -1,7 +1,5 @@
-#!/bin/sh
-# POSIX-compatible script - must work when sourced by /bin/sh
-# Do not use bash-specific features like 'pipefail'
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Get worktree root directory path
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"

@@ -1,5 +1,7 @@
 // Import auth initialization
 import { initializeAuth } from './auth-init.js';
+// Import shared navigation
+import { initSidebarNav } from './sidebar-nav.js';
 // Import library navigation
 import { initLibraryNav } from './library-nav.js';
 
@@ -934,7 +936,7 @@ function runCombatSimulation(char1Key, char2Key) {
     conditions: [],
   };
 
-  log.push('⚔️  COMBAT BEGINS  ⚔️\n');
+  log.push('Combat begins!\n');
   log.push(
     `${combatant1.name} (AC ${combatant1.currentAC}) vs ${combatant2.name} (AC ${combatant2.currentAC})\n`
   );
@@ -942,7 +944,7 @@ function runCombatSimulation(char1Key, char2Key) {
   // Simulate combat rounds
   while (combatant1.alive && combatant2.alive && round.value < 20) {
     round.value++;
-    log.push(`\n═══ ROUND ${round.value} ═══`);
+    log.push(`\n=== ROUND ${round.value} ===`);
 
     // Each combatant attacks
     log.push(`\n--- ${combatant1.name}'s Turn ---`);
@@ -956,344 +958,214 @@ function runCombatSimulation(char1Key, char2Key) {
     log.push('\n--- End of Round ---');
   }
 
-  log.push('\n═══════════════════');
+  log.push('\n====================');
   if (combatant1.alive && !combatant2.alive) {
-    log.push(`\n🏆 WINNER: ${combatant1.name}!`);
+    log.push(`\nWINNER: ${combatant1.name}!`);
   } else if (!combatant1.alive && combatant2.alive) {
-    log.push(`\n🏆 WINNER: ${combatant2.name}!`);
-  } else if (!combatant1.alive && !combatant2.alive) {
-    log.push('\n⚔️ DRAW - Both defeated!');
+    log.push(`\nWINNER: ${combatant2.name}!`);
   } else {
-    log.push('\n⏱️ Combat reached maximum rounds!');
+    log.push(`\nDRAW - Combat ended after ${round.value} rounds`);
   }
 
-  return log;
+  return log.join('\n');
 }
 
 function simulateAttack(attacker, defender, log) {
+  // Find weapon
   const weapon = attacker.equipmentSlots.find((e) => e.type === 'weapon');
   if (!weapon) {
-    log.push(`${attacker.name} has no weapon!`);
+    log.push(`${attacker.name} has no weapon and cannot attack!`);
     return;
   }
 
-  log.push(`\n${attacker.name} attacks with ${weapon.name}`);
-
-  // AI decides whether to use an attack skill
+  // Check for attack skill use
   const attackSkill = shouldUseAttackSkill(attacker, defender, weapon);
-  if (attackSkill) {
-    log.push(`  🎯 AI Decision: Using ${attackSkill.name} skill`);
-  }
 
-  const defenseRoll = rollDie(20);
+  // Roll attack
+  const d20 = rollDie(20);
   const weaponRoll = rollDie(weapon.die);
-  const isCrit = weaponRoll === weapon.die;
+  let attackBonus = 0;
 
-  // AI decides whether to use a defense skill
-  const defenseSkill = shouldUseDefenseSkill(defender, attacker, defenseRoll, weapon.die);
-  if (defenseSkill) {
-    const defenseSkillRoll = rollDie(20);
-    log.push(
-      `  🛡️ AI Decision: ${defender.name} uses ${defenseSkill.name} (rolled ${defenseSkillRoll})`
-    );
+  if (attackSkill) {
+    log.push(`${attacker.name} uses ${attackSkill.name}!`);
+    if (attackSkill.name === 'Surgical') {
+      attackBonus = 1;
+    }
   }
 
-  const totalAttack = defenseRoll + weaponRoll;
-  const isStrike = totalAttack > defender.currentAC;
+  const total = d20 + weaponRoll + attackBonus;
+  const hit = total > defender.currentAC;
+  const crit = d20 >= 18;
 
   log.push(
-    `  Rolls: Defense ${defenseRoll} + Weapon ${weaponRoll} (d${weapon.die}) = ${totalAttack} vs AC ${defender.currentAC}`
+    `${attacker.name} attacks with ${weapon.name}: d20(${d20}) + d${weapon.die}(${weaponRoll})${attackBonus ? ` + ${attackBonus}` : ''} = ${total} vs AC ${defender.currentAC}`
   );
 
-  if (isStrike) {
-    log.push(`  ⚔️ STRIKE! ${isCrit ? '💥 (CRITICAL!)' : ''}`);
-
-    // On crit, attacker gains initiative
-    if (isCrit) {
-      attacker.hasInitiative = true;
-      defender.hasInitiative = false;
-      log.push(`  🎭 ${attacker.name} gains INITIATIVE!`);
-    } else {
-      // By default, defender has initiative
-      attacker.hasInitiative = false;
-      defender.hasInitiative = true;
+  if (hit) {
+    // Determine slots of damage
+    let damage = 1;
+    if (attackSkill && attackSkill.name === 'Surgical') {
+      damage = 2;
     }
 
-    // Apply damage with AI decision-making
-    applyDamageWithAI(attacker, defender, log, attackSkill);
+    // Check for tenacity skill use
+    const tenacitySkill = shouldUseTenacitySkill(defender, defender.hasInitiative);
+    if (tenacitySkill) {
+      log.push(`${defender.name} uses ${tenacitySkill.name} to absorb the blow!`);
+      // Remove the tenacity skill instead
+      const skillIndex = defender.skillSlots.findIndex((s) => s.name === tenacitySkill.name);
+      if (skillIndex !== -1) {
+        defender.skillSlots.splice(skillIndex, 1);
+      }
+      damage = 0;
+    }
+
+    if (damage > 0) {
+      log.push(`HIT! ${crit ? 'CRITICAL! ' : ''}${damage} slot${damage > 1 ? 's' : ''} of damage!`);
+
+      // Apply damage
+      for (let i = 0; i < damage; i++) {
+        if (defender.equipmentSlots.length > 0) {
+          // Remove lowest value equipment
+          const slots = defender.equipmentSlots.map((eq, idx) => ({
+            index: idx,
+            item: eq,
+            value: evaluateEquipmentValue(eq, defender),
+          }));
+          slots.sort((a, b) => a.value - b.value);
+          const removed = defender.equipmentSlots.splice(slots[0].index, 1)[0];
+          log.push(`  ${defender.name} loses: ${removed.name}`);
+
+          // Recalculate AC if armor was lost
+          if (removed.type === 'armor') {
+            defender.currentAC -= removed.ac || 0;
+            log.push(`  ${defender.name}'s AC reduced to ${defender.currentAC}`);
+          }
+        } else if (defender.skillSlots.length > 0) {
+          // Remove lowest value skill
+          const slots = defender.skillSlots.map((sk, idx) => ({
+            index: idx,
+            item: sk,
+            value: evaluateSkillValue(sk, defender),
+          }));
+          slots.sort((a, b) => a.value - b.value);
+          const removed = defender.skillSlots.splice(slots[0].index, 1)[0];
+          log.push(`  ${defender.name} loses skill: ${removed.name}`);
+        } else {
+          log.push(`  ${defender.name} has no slots remaining - DEFEATED!`);
+          defender.alive = false;
+          break;
+        }
+      }
+
+      // Initiative changes on crit
+      if (crit && defender.alive) {
+        attacker.hasInitiative = true;
+        defender.hasInitiative = false;
+        log.push(`${attacker.name} gains initiative from critical hit!`);
+      }
+    }
   } else {
-    log.push(`  🛡️ MISS - Attack didn't exceed AC`);
-    // Defender maintains initiative
+    log.push(`MISS! ${defender.name} defends successfully.`);
+    // Defender keeps initiative on miss
     defender.hasInitiative = true;
     attacker.hasInitiative = false;
   }
 }
 
-/**
- * Applies damage using AI to choose which slots are lost
- */
-function applyDamageWithAI(attacker, defender, log, attackSkill) {
-  let slotsToLose = 1; // Base damage
-
-  // Check if attack skill adds damage (simplified)
-  if (attackSkill?.name === 'All In') {
-    slotsToLose += 2;
-    log.push(`  💪 All In adds 2 additional slots of damage!`);
-  }
-
-  // Check if defender should use tenacity skill
-  const tenacitySkill = shouldUseTenacitySkill(defender, defender.hasInitiative);
-  if (tenacitySkill) {
-    log.push(`  💪 AI Decision: ${defender.name} uses ${tenacitySkill.name} to absorb damage`);
-
-    // Remove the tenacity skill
-    const skillIndex = defender.skillSlots.findIndex((s) => s.name === tenacitySkill.name);
-    if (skillIndex !== -1) {
-      defender.skillSlots.splice(skillIndex, 1);
-      log.push(
-        `  ⚡ ${defender.name} loses ${tenacitySkill.name} skill but preserves other resources`
-      );
-    }
-
-    if (tenacitySkill.name === 'Grit') {
-      // Maintain initiative
-      log.push(`  🎭 ${defender.name} maintains initiative!`);
-    }
-
-    slotsToLose--; // Tenacity skill absorbed one slot
-    if (slotsToLose <= 0) return;
-  }
-
-  // If attacker has initiative, they choose the first slot
-  if (attacker.hasInitiative) {
-    const initiativeAction = chooseInitiativeAction(attacker, defender);
-
-    if (initiativeAction.action === 'condition') {
-      log.push(
-        `  🎭 AI Decision: ${attacker.name} imposes ${initiativeAction.condition} condition`
-      );
-      defender.conditions.push(initiativeAction.condition);
-      slotsToLose--;
-    } else if (initiativeAction.action === 'slot') {
-      const target = initiativeAction.target;
-      log.push(`  🎯 AI Decision: ${attacker.name} targets ${target.item.name} (high value)`);
-
-      // Remove the targeted slot
-      if (target.type === 'equipment') {
-        const removed = defender.equipmentSlots.splice(target.index, 1)[0];
-        log.push(`  💥 ${defender.name} loses ${removed.name}`);
-
-        if (removed.type === 'armor') {
-          defender.currentAC -= removed.ac || 0;
-          log.push(`  📉 ${defender.name}'s AC reduced to ${defender.currentAC}`);
-        }
-      } else if (target.type === 'skill') {
-        const removed = defender.skillSlots.splice(target.index, 1)[0];
-        log.push(`  💥 ${defender.name} loses ${removed.name} skill`);
-      }
-
-      slotsToLose--;
-    }
-  }
-
-  // Defender chooses remaining slots (AI picks least valuable)
-  if (slotsToLose > 0) {
-    const chosenSlots = chooseDefenderSlots(defender, slotsToLose, attacker.hasInitiative);
-
-    if (chosenSlots.length === 0) {
-      // No slots left - shot to the heart!
-      log.push(`  💀 ${defender.name} takes SHOT TO THE HEART!`);
-      defender.alive = false;
-      return;
-    }
-
-    log.push(`  🤖 AI Decision: ${defender.name} sacrifices least valuable slots:`);
-
-    // Sort slots by index (descending) to remove from end first (avoids index shift issues)
-    const equipmentSlotsToRemove = chosenSlots
-      .filter((s) => s.type === 'equipment')
-      .sort((a, b) => b.index - a.index);
-
-    const skillSlotsToRemove = chosenSlots
-      .filter((s) => s.type === 'skill')
-      .sort((a, b) => b.index - a.index);
-
-    // Remove equipment slots
-    for (const slot of equipmentSlotsToRemove) {
-      const removed = defender.equipmentSlots.splice(slot.index, 1)[0];
-      log.push(`    ↳ ${removed.name} (value: ${slot.value.toFixed(0)})`);
-
-      if (removed.type === 'armor') {
-        defender.currentAC -= removed.ac || 0;
-        log.push(`    📉 AC reduced to ${defender.currentAC}`);
-      }
-    }
-
-    // Remove skill slots
-    for (const slot of skillSlotsToRemove) {
-      const removed = defender.skillSlots.splice(slot.index, 1)[0];
-      log.push(`    ↳ ${removed.name} skill (value: ${slot.value.toFixed(0)})`);
-    }
-  }
-
-  // Check if defender has any resources left
-  if (defender.equipmentSlots.length === 0 && defender.skillSlots.length === 0) {
-    log.push(`  💀 ${defender.name} has no resources left - SHOT TO THE HEART!`);
-    defender.alive = false;
-  }
-}
-
-// Navigation and UI functionality
-// Helper function to close mobile sidebar
-function closeMobileSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  if (sidebar && window.innerWidth <= 768) {
-    sidebar.classList.remove('active');
-  }
-}
-
+// Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
 
-  // Initialize library navigation
-  initLibraryNav();
+  // Initialize shared sidebar navigation (generates nav DOM)
+  initSidebarNav();
 
-  // Nav section toggle handlers
-  const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
-  navSectionToggles.forEach((toggle) => {
-    toggle.addEventListener('click', () => {
-      toggle.classList.toggle('expanded');
-    });
+  // Initialize library navigation (populates library section)
+  initLibraryNav().catch((error) => {
+    console.error('Failed to initialize library navigation:', error);
   });
+
+  // Combat simulator
+  const simulateBtn = document.getElementById('simulateBtn');
+  const combatLog = document.getElementById('combatLog');
+  const logContent = document.getElementById('logContent');
+  const combatant1Select = document.getElementById('combatant1');
+  const combatant2Select = document.getElementById('combatant2');
+
+  if (simulateBtn && combatLog && logContent && combatant1Select && combatant2Select) {
+    simulateBtn.addEventListener('click', () => {
+      const char1 = combatant1Select.value;
+      const char2 = combatant2Select.value;
+      const result = runCombatSimulation(char1, char2);
+      logContent.textContent = result;
+      combatLog.style.display = 'block';
+    });
+  }
 
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const sidebar = document.getElementById('sidebar');
 
   if (mobileMenuToggle && sidebar) {
-    mobileMenuToggle.addEventListener('click', () => {
+    mobileMenuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
       sidebar.classList.toggle('active');
+    });
+
+    // Nav section toggle handlers (for library section expand/collapse)
+    const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
+    navSectionToggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('expanded');
+        const content = toggle.parentElement.querySelector('.nav-section-content');
+        if (content) {
+          content.classList.toggle('expanded');
+        }
+      });
     });
 
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
     navItems.forEach((item) => {
-      item.addEventListener('click', closeMobileSidebar);
-    });
-
-    // Close mobile menu for external links
-    document.querySelectorAll('.nav-item:not([href^="#"])').forEach((link) => {
-      link.addEventListener('click', closeMobileSidebar);
+      item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('active');
+        }
+      });
     });
 
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
       if (
         window.innerWidth <= 768 &&
-        document.body.contains(mobileMenuToggle) &&
         !sidebar.contains(e.target) &&
-        !mobileMenuToggle?.contains(e.target) &&
+        !mobileMenuToggle.contains(e.target) &&
         sidebar.classList.contains('active')
       ) {
         sidebar.classList.remove('active');
       }
     });
   }
-
-  // Active navigation highlighting
-  const navItems = document.querySelectorAll('.nav-item');
-  const sections = document.querySelectorAll('.content-section');
-
-  function highlightNavigation() {
-    try {
-      if (!sections || sections.length === 0 || !navItems || navItems.length === 0) {
-        return;
-      }
-
-      let currentSection = '';
-
-      sections.forEach((section) => {
-        const sectionTop = section.offsetTop;
-        const sectionHeight = section.clientHeight;
-
-        if (window.scrollY >= sectionTop - 100) {
-          currentSection = section.getAttribute('id');
-        }
-      });
-
-      navItems.forEach((item) => {
-        item.classList.remove('active');
-        if (item.getAttribute('href') === `#${currentSection}`) {
-          item.classList.add('active');
-        }
-      });
-    } catch (error) {
-      console.error('Error highlighting navigation:', error);
-    }
-  }
-
-  // Smooth scroll for navigation links
-  document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
-    anchor.addEventListener('click', (e) => {
-      try {
-        e.preventDefault();
-        const href = anchor.getAttribute('href');
-        const target = document.querySelector(href);
-        if (target) {
-          target.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          });
-          // Update URL hash
-          history.pushState(null, null, href);
-          highlightNavigation();
-        }
-      } catch (error) {
-        console.error('Error in smooth scroll:', error);
-      }
-    });
-  });
-
-  // Highlight navigation on scroll (protected)
-  try {
-    window.addEventListener('scroll', highlightNavigation);
-    highlightNavigation(); // Initial highlight
-  } catch (error) {
-    console.error('Error setting up scroll listener:', error);
-  }
-
-  // Combat Simulator functionality
-  const simulateBtn = document.getElementById('simulateBtn');
-  const combatLog = document.getElementById('combatLog');
-  const logContent = document.getElementById('logContent');
-
-  if (simulateBtn) {
-    simulateBtn.addEventListener('click', () => {
-      const char1 = document.getElementById('combatant1').value;
-      const char2 = document.getElementById('combatant2').value;
-
-      if (char1 === char2) {
-        alert('Please select different combatants!');
-        return;
-      }
-
-      // Run simulation
-      const log = runCombatSimulation(char1, char2);
-
-      // Display log
-      logContent.textContent = log.join('\n');
-      combatLog.style.display = 'block';
-
-      // Scroll to log
-      combatLog.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-  }
 });
 
-// Export for testing
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    // Add testable functions here if needed
-  };
-}
+// Handle HTMX navigation - reinitialize pages when navigating
+document.body.addEventListener('htmx:afterSwap', async (event) => {
+  // Check if we're navigating to the cards page
+  if (
+    event.detail.target?.classList?.contains('main-content') &&
+    window.location.pathname.includes('cards.html')
+  ) {
+    // Dynamically import and initialize the cards page
+    const { initCardsPage } = await import('./cards.js');
+    initCardsPage();
+  }
+
+  // Re-initialize sidebar navigation on any page swap
+  initSidebarNav();
+
+  // Re-initialize library navigation on page swap
+  initLibraryNav().catch((error) => {
+    console.error('Failed to initialize library navigation after swap:', error);
+  });
+});

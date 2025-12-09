@@ -176,4 +176,4 @@ export async function importCards(cards) {
   }
 }
 
-export { db };
+export { db, auth };

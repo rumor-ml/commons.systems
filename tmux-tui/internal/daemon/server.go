@@ -72,11 +72,55 @@ type AlertDaemon struct {
 	alerts           map[string]string // Current alert state: paneID -> eventType
 	previousState    map[string]string // Previous state for bell firing logic
 	alertsMu         sync.RWMutex
+	blockedBranches  map[string]string // Blocked branch state: branch -> blockedByBranch
+	blockedMu        sync.RWMutex
 	clients          map[string]*clientConnection
 	clientsMu        sync.RWMutex
 	listener         net.Listener
 	done             chan struct{}
 	socketPath       string
+	blockedPath      string // Path to persist blocked state JSON
+}
+
+// loadBlockedBranches loads the blocked branches state from JSON file
+func loadBlockedBranches(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No file yet - return empty map
+			return make(map[string]string), nil
+		}
+		return nil, fmt.Errorf("failed to read blocked branches file: %w", err)
+	}
+
+	var blockedBranches map[string]string
+	if err := json.Unmarshal(data, &blockedBranches); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal blocked branches: %w", err)
+	}
+
+	return blockedBranches, nil
+}
+
+// saveBlockedBranches saves the blocked branches state to JSON file
+func (d *AlertDaemon) saveBlockedBranches() error {
+	d.blockedMu.RLock()
+	blockedCopy := make(map[string]string)
+	for k, v := range d.blockedBranches {
+		blockedCopy[k] = v
+	}
+	d.blockedMu.RUnlock()
+
+	data, err := json.MarshalIndent(blockedCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal blocked branches: %w", err)
+	}
+
+	if err := os.WriteFile(d.blockedPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write blocked branches file: %w", err)
+	}
+
+	debug.Log("DAEMON_BLOCKED_SAVED path=%s count=%d", d.blockedPath, len(blockedCopy))
+	return nil
 }
 
 // loadExistingAlertsWithRetry attempts to load existing alerts with exponential backoff
@@ -143,16 +187,27 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		return nil, fmt.Errorf("failed to recover alert state: %w", err)
 	}
 
-	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d", alertDir, socketPath, len(existingAlerts))
+	// Load blocked branches state
+	blockedPath := namespace.BlockedBranchesFile()
+	blockedBranches, err := loadBlockedBranches(blockedPath)
+	if err != nil {
+		alertWatcher.Close()
+		return nil, fmt.Errorf("failed to load blocked branches: %w", err)
+	}
+
+	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d blocked_branches=%d",
+		alertDir, socketPath, len(existingAlerts), len(blockedBranches))
 
 	return &AlertDaemon{
 		alertWatcher:     alertWatcher,
 		paneFocusWatcher: paneFocusWatcher,
 		alerts:           existingAlerts,
 		previousState:    make(map[string]string),
+		blockedBranches:  blockedBranches,
 		clients:          make(map[string]*clientConnection),
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
+		blockedPath:      blockedPath,
 	}, nil
 }
 
@@ -346,7 +401,7 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	d.clients[clientID] = client
 	d.clientsMu.Unlock()
 
-	// Send full state
+	// Send full state (alerts + blocked branches)
 	d.alertsMu.RLock()
 	alertsCopy := make(map[string]string)
 	for k, v := range d.alerts {
@@ -354,9 +409,17 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	}
 	d.alertsMu.RUnlock()
 
+	d.blockedMu.RLock()
+	blockedCopy := make(map[string]string)
+	for k, v := range d.blockedBranches {
+		blockedCopy[k] = v
+	}
+	d.blockedMu.RUnlock()
+
 	fullStateMsg := Message{
-		Type:   MsgTypeFullState,
-		Alerts: alertsCopy,
+		Type:            MsgTypeFullState,
+		Alerts:          alertsCopy,
+		BlockedBranches: blockedCopy,
 	}
 	if err := client.sendMessage(fullStateMsg); err != nil {
 		debug.Log("DAEMON_SEND_STATE_ERROR client=%s error=%v", clientID, err)
@@ -365,9 +428,9 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		return
 	}
 
-	debug.Log("DAEMON_SENT_STATE client=%s alerts=%d", clientID, len(alertsCopy))
+	debug.Log("DAEMON_SENT_STATE client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
 
-	// Handle incoming messages (ping)
+	// Handle incoming messages
 	for {
 		var msg Message
 		if err := decoder.Decode(&msg); err != nil {
@@ -377,7 +440,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			return
 		}
 
-		if msg.Type == MsgTypePing {
+		switch msg.Type {
+		case MsgTypePing:
 			pongMsg := Message{Type: MsgTypePong}
 			if err := client.sendMessage(pongMsg); err != nil {
 				debug.Log("DAEMON_PONG_ERROR client=%s error=%v", clientID, err)
@@ -385,6 +449,53 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 				conn.Close()
 				return
 			}
+
+		case MsgTypeShowBlockPicker:
+			// Broadcast to all clients to show picker for this pane
+			debug.Log("DAEMON_SHOW_PICKER paneID=%s", msg.PaneID)
+			d.broadcast(Message{
+				Type:   MsgTypeShowBlockPicker,
+				PaneID: msg.PaneID,
+			})
+
+		case MsgTypeBlockBranch:
+			// Block a branch with another branch
+			debug.Log("DAEMON_BLOCK_BRANCH branch=%s blockedBy=%s", msg.Branch, msg.BlockedBranch)
+			d.blockedMu.Lock()
+			d.blockedBranches[msg.Branch] = msg.BlockedBranch
+			d.blockedMu.Unlock()
+
+			// Save to disk
+			if err := d.saveBlockedBranches(); err != nil {
+				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+			}
+
+			// Broadcast change to all clients (this will close pickers in all TUI windows)
+			d.broadcast(Message{
+				Type:          MsgTypeBlockChange,
+				Branch:        msg.Branch,
+				BlockedBranch: msg.BlockedBranch,
+				Blocked:       true,
+			})
+
+		case MsgTypeUnblockBranch:
+			// Unblock a branch
+			debug.Log("DAEMON_UNBLOCK_BRANCH branch=%s", msg.Branch)
+			d.blockedMu.Lock()
+			delete(d.blockedBranches, msg.Branch)
+			d.blockedMu.Unlock()
+
+			// Save to disk
+			if err := d.saveBlockedBranches(); err != nil {
+				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+			}
+
+			// Broadcast change to all clients
+			d.broadcast(Message{
+				Type:    MsgTypeBlockChange,
+				Branch:  msg.Branch,
+				Blocked: false,
+			})
 		}
 	}
 }

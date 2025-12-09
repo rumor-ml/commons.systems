@@ -33,6 +33,9 @@ var bellStyle = lipgloss.NewStyle().
 var activeStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("240"))
 
+var blockedStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("245")) // Muted gray text
+
 var headerStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("244")).
 	Bold(true)
@@ -90,7 +93,7 @@ func (r *TreeRenderer) RenderHeader() string {
 }
 
 // Render converts a RepoTree into a formatted tree string
-func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string) string {
+func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string, blockedBranches map[string]string) string {
 	if tree == nil || len(tree) == 0 {
 		return "No panes found in current tmux session"
 	}
@@ -106,7 +109,7 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 
 	for i, repo := range repos {
 		isLastRepo := i == len(repos)-1
-		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts)...)
+		lines = append(lines, r.renderRepo(repo, tree[repo], isLastRepo, claudeAlerts, blockedBranches)...)
 		// Add blank line separator between repos for visual clarity
 		if !isLastRepo {
 			lines = append(lines, "")
@@ -129,16 +132,34 @@ func (r *TreeRenderer) Render(tree tmux.RepoTree, claudeAlerts map[string]string
 	return strings.Join(lines, "\n")
 }
 
-func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string) []string {
+func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pane, isLastRepo bool, claudeAlerts map[string]string, blockedBranches map[string]string) []string {
 	var lines []string
 	lines = append(lines, repoStyle.Render(repoName))
 
-	// Sort branches for consistent output
+	// Calculate blocked counts: how many branches are blocked BY each branch
+	blockedCounts := make(map[string]int)
+	for blockedBranch, blockerBranch := range blockedBranches {
+		// Only count if both branches exist in this repo
+		if _, blocked := branches[blockedBranch]; blocked {
+			if _, blocker := branches[blockerBranch]; blocker {
+				blockedCounts[blockerBranch]++
+			}
+		}
+	}
+
+	// Sort branches: by blocked count (descending), then alphabetically
 	branchNames := make([]string, 0, len(branches))
 	for branch := range branches {
 		branchNames = append(branchNames, branch)
 	}
-	sort.Strings(branchNames)
+	sort.Slice(branchNames, func(i, j int) bool {
+		countI := blockedCounts[branchNames[i]]
+		countJ := blockedCounts[branchNames[j]]
+		if countI != countJ {
+			return countI > countJ // Descending by blocked count
+		}
+		return branchNames[i] < branchNames[j] // Ascending alphabetically
+	})
 
 	for i, branch := range branchNames {
 		isLastBranch := i == len(branchNames)-1
@@ -149,20 +170,43 @@ func (r *TreeRenderer) renderRepo(repoName string, branches map[string][]tmux.Pa
 			childPrefix = Space
 		}
 
-		lines = append(lines, branchPrefix+branch)
-		lines = append(lines, r.renderPanes(branches[branch], childPrefix, claudeAlerts)...)
+		// Check if this branch is blocked
+		_, isBranchBlocked := blockedBranches[branch]
+
+		// Add branch name (muted if blocked)
+		branchLine := branchPrefix + branch
+		if isBranchBlocked {
+			branchLine = blockedStyle.Render(branchLine)
+		}
+		lines = append(lines, branchLine)
+
+		// Add blocked count on separate line if > 0
+		if count := blockedCounts[branch]; count > 0 {
+			countText := fmt.Sprintf("%d branches blocked", count)
+			lines = append(lines, childPrefix+countText)
+		}
+
+		// Add panes
+		lines = append(lines, r.renderPanes(branches[branch], childPrefix, claudeAlerts, blockedBranches, branch)...)
 	}
 
 	return lines
 }
 
-func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]string) []string {
+func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlerts map[string]string, blockedBranches map[string]string, currentBranch string) []string {
 	var lines []string
 
 	// Sort panes by window index for consistent output
 	sort.Slice(panes, func(i, j int) bool {
 		return panes[i].WindowIndex < panes[j].WindowIndex
 	})
+
+	// Check if the entire branch is blocked
+	_, isBranchBlocked := blockedBranches[currentBranch]
+	if isBranchBlocked {
+		debug.Log("TUI_RENDER_BRANCH_BLOCKED branch=%s blockedBy=%s paneCount=%d",
+			currentBranch, blockedBranches[currentBranch], len(panes))
+	}
 
 	for i, pane := range panes {
 		isLastPane := i == len(panes)-1
@@ -175,17 +219,20 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		windowNumber := fmt.Sprintf("%d:", pane.WindowIndex)
 
 		// Determine if bell should be shown and get alert type
+		// Blocked branches should NOT show bell/idle highlighting
 		var showBell bool
 		var alertType string
-		if pane.IsClaudePane {
-			// For Claude panes, use persistent alert state
-			alertType, showBell = claudeAlerts[pane.ID]
-			// Log render state for Claude panes
-			debug.Log("TUI_RENDER_PANE id=%s isClaudePane=%v alertType=%s showBell=%v", pane.ID, pane.IsClaudePane, alertType, showBell)
-		} else {
-			// For non-Claude panes, use default tmux bell behavior
-			showBell = pane.WindowBell
-			alertType = watcher.EventTypeStop // Default for non-Claude panes
+		if !isBranchBlocked {
+			if pane.IsClaudePane {
+				// For Claude panes, use persistent alert state
+				alertType, showBell = claudeAlerts[pane.ID]
+				// Log render state for Claude panes
+				debug.Log("TUI_RENDER_PANE id=%s isClaudePane=%v alertType=%s showBell=%v", pane.ID, pane.IsClaudePane, alertType, showBell)
+			} else {
+				// For non-Claude panes, use default tmux bell behavior
+				showBell = pane.WindowBell
+				alertType = watcher.EventTypeStop // Default for non-Claude panes
+			}
 		}
 
 		// Apply bell style with icon ONLY to window number if bell is active
@@ -203,8 +250,12 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		// Assemble the line from parts
 		line := prefix + panePrefix + windowNumber + commandTitle
 
-		// For active panes: apply activeStyle with full width
-		if pane.WindowActive {
+		// Apply appropriate styling
+		if isBranchBlocked {
+			// Blocked branches get muted gray style for all panes
+			line = blockedStyle.Render(line)
+		} else if pane.WindowActive {
+			// Active panes get active style with full width
 			line = activeStyle.Width(r.width).Render(line)
 		}
 

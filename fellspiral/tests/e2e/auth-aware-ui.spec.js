@@ -140,22 +140,6 @@ test.describe('Auth-Aware UI - Read-Only Mode', () => {
     await expect(cardList).toBeVisible();
   });
 
-  test('should allow using filter controls when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Wait for page to load
-    await page.waitForSelector('#filterType', { timeout: 5000 });
-
-    // Filter controls should be visible and functional
-    const typeFilter = page.locator('#filterType');
-    await expect(typeFilter).toBeVisible();
-    await expect(typeFilter).toBeEnabled();
-
-    // Should be able to change filter
-    await typeFilter.selectOption('Equipment');
-    await expect(typeFilter).toHaveValue('Equipment');
-  });
-
   test('should allow using search when logged out', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -169,17 +153,5 @@ test.describe('Auth-Aware UI - Read-Only Mode', () => {
     // Should be able to type in search
     await searchInput.fill('sword');
     await expect(searchInput).toHaveValue('sword');
-  });
-
-  test('should allow viewing stats when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    const statsOverview = page.locator('.stats-overview');
-    await expect(statsOverview).toBeVisible();
-
-    // Stats should display numbers
-    const statValues = page.locator('.stat-value');
-    const firstStatValue = statValues.first();
-    await expect(firstStatValue).toBeVisible();
   });
 });

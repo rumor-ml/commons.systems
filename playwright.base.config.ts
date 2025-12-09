@@ -40,7 +40,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     globalTeardown: site.globalTeardown,
 
     reporter: process.env.CI
-      ? [['json']] // JSON to stdout in CI
+      ? [['list'], ['json', { outputFile: 'test-results.json' }], ['github']]
       : [['list'], ['json', { outputFile: 'test-results.json' }]],
 
     use: {

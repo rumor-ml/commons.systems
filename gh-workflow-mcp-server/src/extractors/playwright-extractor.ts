@@ -77,7 +77,18 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       }
     }
 
-    // Check if this looks like Playwright output but using wrong reporter
+    // Check for Playwright config JSON (indicates timeout during execution)
+    // This happens when Playwright is killed before tests run
+    if (/"config":\s*{/.test(logText) && /"configFile":/.test(logText)) {
+      return {
+        framework: 'playwright',
+        confidence: 'high',
+        isJsonOutput: false,
+        isTimeout: true,
+      };
+    }
+
+    // Sample first 200 lines for text detection
     const lines = logText.split('\n');
     const sampleSize = Math.min(200, lines.length);
     let playwrightMarkerCount = 0;
@@ -92,7 +103,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         /\[chromium\]|\[firefox\]|\[webkit\]/.test(line) ||
         /Error: expect\(/i.test(line) ||
         /›.*\.spec\.(ts|js):\d+/.test(line) ||
-        /\d+\)\s+\[chromium\]|\[firefox\]|\[webkit\]/.test(line)
+        /Running.*global.*setup/i.test(line) ||
+        /npx playwright test/i.test(line)
       ) {
         playwrightMarkerCount++;
       }
@@ -119,11 +131,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, _maxErrors = 10): ExtractionResult {
+  extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
+    // Handle timeout case (config JSON without test results)
+    if (detection?.isTimeout) {
+      return this.parsePlaywrightTimeout(logText);
+    }
+
     if (detection?.isJsonOutput) {
-      return this.parsePlaywrightJson(logText);
+      return this.parsePlaywrightJson(logText, maxErrors);
     } else if (detection) {
       // Playwright detected but wrong reporter format
       return {
@@ -155,7 +172,101 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     };
   }
 
-  private parsePlaywrightJson(logText: string): ExtractionResult {
+  private parsePlaywrightTimeout(logText: string): ExtractionResult {
+    const lines = logText.split('\n');
+
+    // Look for global setup completion to confirm tests were about to run
+    let globalSetupComplete = false;
+    let webServerCommand: string | undefined;
+    let timeGap: number | undefined;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      if (/global.*setup.*complete/i.test(line)) {
+        globalSetupComplete = true;
+      }
+
+      // Extract webServer command if present
+      if (/command.*http-server|npm run dev/i.test(line)) {
+        webServerCommand = line.trim();
+      }
+
+      // Try to detect time gap (when config JSON appears long after global setup)
+      if (globalSetupComplete && /"config":\s*{/.test(line)) {
+        // Config JSON appeared - this indicates timeout during test execution
+        const setupMatch = lines
+          .slice(0, i)
+          .reverse()
+          .find((l) => /global.*setup.*complete/i.test(l));
+        if (setupMatch) {
+          // Extract timestamps if possible to show time gap
+          const setupTimeMatch = setupMatch.match(/(\d{2}:\d{2}:\d{2})/);
+          const configTimeMatch = line.match(/(\d{2}:\d{2}:\d{2})/);
+          if (setupTimeMatch && configTimeMatch) {
+            const setupTime = setupTimeMatch[1];
+            const configTime = configTimeMatch[1];
+            timeGap = this.parseTimeDiff(setupTime, configTime);
+          }
+        }
+      }
+    }
+
+    // Build helpful error message
+    let message = 'Playwright was interrupted during test execution. ';
+
+    if (globalSetupComplete) {
+      message += 'Global setup completed successfully but no test results were produced. ';
+    }
+
+    if (timeGap && timeGap > 60) {
+      message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
+      message += 'suggesting the webServer failed to start or tests hung. ';
+    }
+
+    message +=
+      '\n\nCommon causes:\n' +
+      '  • webServer port already in use (check for port conflicts)\n' +
+      '  • webServer failed to bind to specified port\n' +
+      '  • webServer command failed silently\n' +
+      '  • Test timeout exceeded\n' +
+      '\n' +
+      'Debug steps:\n' +
+      '  1. Check if the port is available in the test environment\n' +
+      '  2. Try using a different port\n' +
+      '  3. Check webServer logs for binding errors\n' +
+      '  4. Increase timeout if tests are legitimately slow';
+
+    if (webServerCommand) {
+      message += `\n\nwebServer command: ${webServerCommand}`;
+    }
+
+    return {
+      framework: 'playwright',
+      errors: [
+        {
+          message,
+          failureType: 'timeout',
+          rawOutput: lines.slice(-50), // Include last 50 lines for context
+        },
+      ],
+      summary: 'Playwright timeout (no tests executed)',
+    };
+  }
+
+  /**
+   * Parse time difference between two HH:MM:SS strings
+   * Returns difference in seconds
+   */
+  private parseTimeDiff(time1: string, time2: string): number {
+    const parse = (t: string) => {
+      const [h, m, s] = t.split(':').map(Number);
+      return h * 3600 + m * 60 + s;
+    };
+    return Math.abs(parse(time2) - parse(time1));
+  }
+
+  private parsePlaywrightJson(logText: string, maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
 
     try {

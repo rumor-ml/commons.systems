@@ -41,26 +41,7 @@ echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestor
 # --- Type-specific setup ---
 case "$APP_TYPE" in
   firebase)
-    # Static Firebase app with optional emulator support
-    # Check if tests need Firebase emulators (global-setup.ts exists and uses Firestore)
-    if [ -f "${APP_PATH_ABS}/tests/global-setup.ts" ]; then
-      echo "Starting Firebase emulators for test data seeding..."
-      source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
-
-      # Export emulator env vars
-      export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-      export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-      export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
-      export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
-
-      # Set up cleanup trap
-      cleanup() {
-        echo "Stopping emulators..."
-        "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
-      }
-      trap cleanup EXIT
-    fi
-
+    # Static Firebase app
     echo "Building..."
     pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
@@ -117,4 +98,4 @@ elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   make test-e2e
 fi
 
-echo "✅ Tests passed: $APP_NAME"
+echo "Tests passed: $APP_NAME"

@@ -1,11 +1,12 @@
 # Makefile for tmux-tui
 # Follows commons.systems monorepo build patterns
 
-.PHONY: build build-tui build-daemon test test-unit test-e2e test-e2e-real clean dev
+.PHONY: build build-tui build-daemon build-block test test-unit test-e2e test-e2e-real clean dev
 
 # Binary output location
 BINARY_NAME=tmux-tui
 DAEMON_NAME=tmux-tui-daemon
+BLOCK_NAME=tmux-tui-block
 BUILD_DIR=./build
 
 # Go build flags
@@ -13,7 +14,7 @@ GO=go
 GOFLAGS=-v
 LDFLAGS=-ldflags "-s -w"
 
-build: build-tui build-daemon
+build: build-tui build-daemon build-block
 
 build-tui:
 	@echo "Building tmux-tui..."
@@ -24,6 +25,11 @@ build-daemon:
 	@echo "Building tmux-tui-daemon..."
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(DAEMON_NAME) ./cmd/tmux-tui-daemon
+
+build-block:
+	@echo "Building tmux-tui-block..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BLOCK_NAME) ./cmd/tmux-tui-block
 
 test: test-unit test-e2e
 
