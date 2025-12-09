@@ -351,6 +351,9 @@ function handleHashChange() {
 
   if (!hash || !hash.startsWith('library')) {
     // Clear filters if no library hash
+    state.filters.type = '';
+    state.filters.subtype = '';
+    applyFilters();
     return;
   }
 
@@ -409,6 +412,9 @@ function handleFilterChange(e) {
 
 // Apply filters
 function applyFilters() {
+  // Clear loading state when applying filters (filters run after data is loaded)
+  state.loading = false;
+
   state.filteredCards = state.cards.filter((card) => {
     // Type filter
     if (state.filters.type && card.type !== state.filters.type) {

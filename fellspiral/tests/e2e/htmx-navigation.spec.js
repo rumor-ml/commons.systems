@@ -251,4 +251,58 @@ test.describe('HTMX Cross-Page Navigation', () => {
       expect(gridBox?.height).toBeGreaterThan(100); // Should have some height
     }
   );
+
+  (shouldSkip ? test.skip : test)(
+    'should have correct card styling after HTMX navigation',
+    async ({ page }) => {
+      // Navigate from homepage
+      await page.goto('/');
+      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+      // Click Equipment
+      const equipmentToggle = page.locator(
+        '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+      );
+      await equipmentToggle.click();
+
+      // Wait for cards
+      await page.waitForURL(/cards(\.html)?#library-equipment$/, { timeout: 10000 });
+      await page.waitForSelector('.card-item', { timeout: 15000 });
+
+      // Verify styling - the card-item-type element should have proper background styling
+      const typeElement = page.locator('.card-item .card-item-type').first();
+      const bgColor = await typeElement.evaluate(
+        (el) => window.getComputedStyle(el).backgroundColor
+      );
+      // Should not be transparent/default (rgb(0, 0, 0) or rgba(0, 0, 0, 0))
+      expect(bgColor).not.toBe('rgba(0, 0, 0, 0)');
+      expect(bgColor).not.toBe('rgb(0, 0, 0)');
+
+      // Also verify loading state is not visible
+      const loadingVisible = await page.locator('.loading-state').isVisible();
+      expect(loadingVisible).toBe(false);
+    }
+  );
+
+  (shouldSkip ? test.skip : test)(
+    'should not show infinite loading on repeated navigation',
+    async ({ page }) => {
+      await page.goto('/');
+      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+      // First navigation
+      await page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle').click();
+      await page.waitForURL(/cards(\.html)?#library-equipment$/, { timeout: 10000 });
+      await page.waitForSelector('.card-item', { timeout: 15000 });
+
+      // Second navigation (different type)
+      await page.locator('.library-nav-type[data-type="Skill"] .library-nav-toggle').click();
+      await page.waitForURL(/cards(\.html)?#library-skill$/, { timeout: 10000 });
+      await page.waitForSelector('.card-item', { timeout: 15000 });
+
+      // Verify no loading spinner stuck
+      const loadingVisible = await page.locator('.loading-state').isVisible();
+      expect(loadingVisible).toBe(false);
+    }
+  );
 });
