@@ -79,6 +79,11 @@ test.describe('Card Manager Page', () => {
   test('should display library navigation in main sidebar', async ({ page }) => {
     await page.goto('/cards.html');
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.waitFor({ state: 'visible' });
+    await libraryToggle.click();
+
     // Wait for library navigation to load
     await page.waitForSelector('#libraryNavContainer', { timeout: 5000 });
 

@@ -12,12 +12,20 @@ test.describe('Library Navigation - Tree Structure', () => {
     const librarySection = page.locator('.nav-section-library');
     await expect(librarySection).toBeVisible();
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
+
     const libraryContainer = page.locator('#libraryNavContainer');
     await expect(libraryContainer).toBeVisible();
   });
 
   test('should display all card types', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -32,6 +40,10 @@ test.describe('Library Navigation - Tree Structure', () => {
 
   test('should display card counts for each type', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -48,6 +60,10 @@ test.describe('Library Navigation - Tree Structure', () => {
 
   test('should display subtypes for each type', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -66,6 +82,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('types should be expanded by default', async ({ page }) => {
     await page.goto('/cards.html');
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
+
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
@@ -82,6 +102,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 
   test('should collapse type when clicking toggle', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -111,6 +135,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('should persist expand state in localStorage', async ({ page }) => {
     await page.goto('/cards.html');
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
+
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
@@ -134,6 +162,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('should restore expand state on page reload', async ({ page }) => {
     await page.goto('/cards.html');
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
+
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
@@ -148,6 +180,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 
     // Reload page
     await page.reload();
+
+    // Re-expand library section after reload (CSS hides it by default)
+    const libraryToggleAfterReload = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggleAfterReload.click();
 
     // Wait for library nav to load again
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -165,6 +201,10 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 test.describe('Library Navigation - Navigation Interaction', () => {
   test('should navigate to type listing when clicking type', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -185,6 +225,10 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   test('should navigate to subtype listing when clicking subtype', async ({ page }) => {
     await page.goto('/cards.html');
 
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
+
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
@@ -204,6 +248,10 @@ test.describe('Library Navigation - Navigation Interaction', () => {
 
   test('should filter cards based on navigation', async ({ page }) => {
     await page.goto('/cards.html');
+
+    // Click the library toggle to expand the section (CSS hides it by default)
+    const libraryToggle = page.locator('.nav-section-library .nav-section-toggle');
+    await libraryToggle.click();
 
     // Wait for library nav and cards to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
