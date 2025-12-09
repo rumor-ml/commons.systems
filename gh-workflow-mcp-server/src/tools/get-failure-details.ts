@@ -68,47 +68,6 @@ interface FailedJobSummary {
 }
 
 /**
- * Parse GitHub API logs by step using ##[group] markers
- * API logs format: "Timestamp Content" with ##[group]Run step-name markers
- * Returns a map of step name to array of log lines (without timestamps)
- *
- * Note: GitHub Actions puts ##[endgroup] immediately after the shell/env setup,
- * but the actual command output comes AFTER that, until the next ##[group]Run marker.
- * So we capture everything from one "Run " marker until the next one.
- */
-function _parseLogsByStep(logText: string): Map<string, string[]> {
-  const stepLogs = new Map<string, string[]>();
-  const lines = logText.split('\n');
-
-  let currentStep: string | null = null;
-  const groupPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z )?##\[group\]Run (.+)$/;
-
-  for (const line of lines) {
-    // Check for step start: ##[group]Run step-name
-    const groupMatch = line.match(groupPattern);
-    if (groupMatch) {
-      // Start of a new "Run " step
-      currentStep = 'Run ' + groupMatch[2];
-      if (!stepLogs.has(currentStep)) {
-        stepLogs.set(currentStep, []);
-      }
-      continue;
-    }
-
-    // Add line to current step (strip timestamp)
-    // We add ALL lines until we hit the next "Run " marker
-    if (currentStep) {
-      // Strip GitHub Actions ISO timestamp prefix
-      const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
-      const content = line.replace(timestampPattern, '');
-      stepLogs.get(currentStep)!.push(content);
-    }
-  }
-
-  return stepLogs;
-}
-
-/**
  * Extract test summary from logs (e.g., "1 failed, 77 passed")
  * Playwright outputs these on separate lines, so we need to find and combine them
  */
