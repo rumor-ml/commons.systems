@@ -2,19 +2,22 @@
  * Error handling utilities for Git MCP server
  */
 
-import type { ErrorResult } from "../types.js";
+import type { ErrorResult } from '../types.js';
 
 export class McpError extends Error {
-  constructor(message: string, public readonly code?: string) {
+  constructor(
+    message: string,
+    public readonly code?: string
+  ) {
     super(message);
-    this.name = "McpError";
+    this.name = 'McpError';
   }
 }
 
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
   return {
-    content: [{ type: "text", text: `Error: ${message}` }],
+    content: [{ type: 'text', text: `Error: ${message}` }],
     isError: true,
   };
 }

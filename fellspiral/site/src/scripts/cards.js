@@ -11,11 +11,8 @@ import {
   importCards as importCardsFromData,
 } from './firebase.js';
 
-// Import auth initialization and state
-import { initializeAuth, onAuthStateChanged } from './auth-init.js';
-
-// Import library navigation
-import { initLibraryNav } from './library-nav.js';
+// Import auth initialization
+import { initializeAuth } from './auth-init.js';
 
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
@@ -33,10 +30,6 @@ const state = {
   },
   loading: false,
   error: null,
-<<<<<<< HEAD
-  updatingFromHash: false // Flag to prevent hash update loops
-=======
->>>>>>> origin/main
 };
 
 // Subtype mappings
@@ -100,30 +93,20 @@ async function init() {
     // Initialize authentication
     initializeAuth();
 
-    // Initialize library navigation
-    initLibraryNav();
-
-    // Setup auth state listener
-    setupAuthStateListener();
-
-    // Setup hash routing
-    setupHashRouting();
-
     // Setup UI components - these don't need data
     setupEventListeners();
     // Note: setupMobileMenu is called separately before init() to ensure
     // it runs synchronously before any async operations
+    renderTree(); // Will show "no cards" initially
     renderCards(); // Will show empty state
 
     // Load data asynchronously WITHOUT blocking page load
     loadCards()
       .then(() => {
         // Update UI with loaded data
+        renderTree();
         renderCards();
         updateStats();
-
-        // Apply hash route if present
-        handleHashChange();
       })
       .catch((error) => {
         console.error('Failed to load cards:', error);
@@ -193,6 +176,17 @@ function setupEventListeners() {
     addCardBtn.addEventListener('click', () => openCardEditor());
     importCardsBtn.addEventListener('click', importCards);
     exportCardsBtn.addEventListener('click', exportCards);
+
+    // Tree controls
+    const expandAllBtn = document.getElementById('expandAllBtn');
+    const collapseAllBtn = document.getElementById('collapseAllBtn');
+    const refreshTreeBtn = document.getElementById('refreshTreeBtn');
+    const treeSearch = document.getElementById('treeSearch');
+
+    if (expandAllBtn) expandAllBtn.addEventListener('click', () => expandCollapseAll(true));
+    if (collapseAllBtn) collapseAllBtn.addEventListener('click', () => expandCollapseAll(false));
+    if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', refreshTree);
+    if (treeSearch) treeSearch.addEventListener('input', handleTreeSearch);
 
     // View mode
     document.querySelectorAll('.view-mode-btn').forEach((btn) => {
@@ -275,19 +269,9 @@ function setupMobileMenu() {
   }
 }
 
-// Setup auth state listener to show/hide auth-controls
-function setupAuthStateListener() {
+// Build and render tree
+function renderTree() {
   try {
-<<<<<<< HEAD
-    onAuthStateChanged((user) => {
-      if (user) {
-        // User is logged in - show auth controls
-        document.body.classList.add('authenticated');
-      } else {
-        // User is logged out - hide auth controls
-        document.body.classList.remove('authenticated');
-      }
-=======
     const treeContainer = document.getElementById('cardTree');
     if (!treeContainer) {
       console.warn('Tree container not found');
@@ -300,18 +284,12 @@ function setupAuthStateListener() {
     // Attach tree node click handlers
     treeContainer.querySelectorAll('.tree-node-content').forEach((node) => {
       node.addEventListener('click', handleTreeNodeClick);
->>>>>>> origin/main
     });
   } catch (error) {
-    console.error('Error setting up auth state listener:', error);
+    console.error('Error rendering tree:', error);
   }
 }
 
-<<<<<<< HEAD
-// Setup hash routing
-function setupHashRouting() {
-  window.addEventListener('hashchange', handleHashChange);
-=======
 // Build tree structure
 function buildTree() {
   const tree = {};
@@ -340,18 +318,12 @@ function buildTree() {
   });
 
   return tree;
->>>>>>> origin/main
 }
 
-// Handle hash change events
-function handleHashChange() {
-  const hash = window.location.hash.slice(1); // Remove '#'
+// Render tree nodes
+function renderTreeNodes(tree) {
+  let html = '';
 
-<<<<<<< HEAD
-  if (!hash || !hash.startsWith('library')) {
-    // Clear filters if no library hash
-    return;
-=======
   Object.keys(tree)
     .sort()
     .forEach((type) => {
@@ -431,59 +403,22 @@ function handleTreeNodeClick(e) {
     }
   } catch (error) {
     console.error('Error handling tree node click:', error);
->>>>>>> origin/main
   }
+}
 
-  // Parse hash: #library, #library/equipment, #library/equipment/weapon
-  const parts = hash.split('/');
+// Filter cards by tree selection
+function filterCardsByTree(type, subtype) {
+  state.filters.type = type || '';
+  state.filters.subtype = subtype || '';
 
-  if (parts.length === 1) {
-    // #library - show all cards
-    state.filters.type = '';
-    state.filters.subtype = '';
-  } else if (parts.length === 2) {
-    // #library/equipment - filter by type
-    const type = capitalizeFirstLetter(parts[1]);
-    state.filters.type = type;
-    state.filters.subtype = '';
-  } else if (parts.length >= 3) {
-    // #library/equipment/weapon - filter by type and subtype
-    const type = capitalizeFirstLetter(parts[1]);
-    const subtype = capitalizeFirstLetter(parts[2]);
-    state.filters.type = type;
-    state.filters.subtype = subtype;
-  }
+  // Update filter dropdowns
+  document.getElementById('filterType').value = type || '';
+  updateSubtypeFilterOptions(type);
+  document.getElementById('filterSubtype').value = subtype || '';
 
-  // Update filter dropdowns to match hash
-  const filterType = document.getElementById('filterType');
-  const filterSubtype = document.getElementById('filterSubtype');
-
-  // Set flag to prevent hash update loop
-  state.updatingFromHash = true;
-
-  if (filterType) {
-    filterType.value = state.filters.type;
-    updateSubtypeFilterOptions(state.filters.type);
-  }
-
-  if (filterSubtype) {
-    filterSubtype.value = state.filters.subtype;
-  }
-
-  // Clear flag after updating
-  state.updatingFromHash = false;
-
-  // Apply filters
   applyFilters();
 }
 
-<<<<<<< HEAD
-// Helper to capitalize first letter
-function capitalizeFirstLetter(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
-
-=======
 // Expand/collapse all tree nodes
 function expandCollapseAll(expand) {
   document.querySelectorAll('.tree-node-toggle').forEach((toggle) => {
@@ -534,7 +469,6 @@ function handleTreeSearch(e) {
     node.style.display = match ? 'block' : 'none';
   });
 }
->>>>>>> origin/main
 
 // Set view mode
 function setViewMode(mode) {
@@ -557,39 +491,9 @@ function handleFilterChange(e) {
   // Update subtype options when type changes
   if (e.target.id === 'filterType') {
     updateSubtypeFilterOptions(state.filters.type);
-    // Clear subtype when type changes (unless type is empty)
-    if (state.filters.type) {
-      state.filters.subtype = '';
-      document.getElementById('filterSubtype').value = '';
-    }
-  }
-
-  // Update hash to reflect current filters (but not search)
-  // Skip if we're currently updating from a hash change to prevent loops
-  if (!state.updatingFromHash) {
-    updateHashFromFilters();
   }
 
   applyFilters();
-}
-
-// Update hash based on current filter state
-function updateHashFromFilters() {
-  const { type, subtype } = state.filters;
-
-  let newHash = '#library';
-
-  if (type) {
-    newHash += `/${type.toLowerCase()}`;
-    if (subtype) {
-      newHash += `/${subtype.toLowerCase()}`;
-    }
-  }
-
-  // Only update if hash actually changed (avoid triggering hashchange unnecessarily)
-  if (window.location.hash !== newHash) {
-    window.location.hash = newHash;
-  }
 }
 
 // Update subtype filter options
@@ -708,7 +612,7 @@ function renderCardItem(card) {
     <div class="card-item" data-card-id="${card.id}">
       <div class="card-item-header">
         <h3 class="card-item-title">${card.title}</h3>
-        <div class="card-item-actions auth-controls">
+        <div class="card-item-actions">
           <button class="btn-icon" onclick="event.stopPropagation(); editCard('${card.id}')" title="Edit">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.5 1.207L1 11.707V13h1.293L12.793 2.5 11.5 1.207z"/>
@@ -843,6 +747,7 @@ async function handleCardSave(e) {
     }
 
     closeCardEditor();
+    renderTree();
     applyFilters();
     updateStats();
   } catch (error) {
@@ -865,6 +770,7 @@ async function deleteCard() {
       state.cards = state.cards.filter((c) => c.id !== id);
 
       closeCardEditor();
+      renderTree();
       applyFilters();
       updateStats();
     } catch (error) {
@@ -895,6 +801,7 @@ async function importCards() {
       state.cards = await getAllCards();
       state.filteredCards = [...state.cards];
 
+      renderTree();
       applyFilters();
       updateStats();
 

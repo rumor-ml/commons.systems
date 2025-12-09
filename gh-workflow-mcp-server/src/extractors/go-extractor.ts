@@ -92,32 +92,35 @@ export class GoExtractor implements FrameworkExtractor {
     } else if (detection) {
       // Go tests detected but not using JSON format
       return {
-        framework: "go",
-        errors: [{
-          message: "Go tests detected but not using JSON output format. Please run tests with -json flag.",
-          rawOutput: [
-            "To fix this, run go test with the -json flag:",
-            "",
-            "  go test -json ./...",
-            "",
-            "Or update your test command in CI to include -json:",
-            "  go test -v -json -cover ./...",
-            "",
-            "Current logs appear to be using standard text output format.",
-          ],
-        }],
+        framework: 'go',
+        errors: [
+          {
+            message:
+              'Go tests detected but not using JSON output format. Please run tests with -json flag.',
+            rawOutput: [
+              'To fix this, run go test with the -json flag:',
+              '',
+              '  go test -json ./...',
+              '',
+              'Or update your test command in CI to include -json:',
+              '  go test -v -json -cover ./...',
+              '',
+              'Current logs appear to be using standard text output format.',
+            ],
+          },
+        ],
       };
     }
 
     // No Go tests detected
     return {
-      framework: "unknown",
+      framework: 'unknown',
       errors: [],
     };
   }
 
   private parseGoTestJson(logText: string): ExtractionResult {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
     const testResults = new Map<string, 'pass' | 'fail'>();

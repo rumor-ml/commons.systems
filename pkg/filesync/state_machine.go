@@ -11,7 +11,7 @@ type StateTransition struct {
 // validTransitions defines all valid state transitions in the file sync workflow
 var validTransitions = map[StateTransition]bool{
 	// Initial extraction flow
-	{FileStatusPending, FileStatusExtracting}:  true,
+	{FileStatusPending, FileStatusExtracting}:   true,
 	{FileStatusExtracting, FileStatusExtracted}: true,
 	{FileStatusExtracting, FileStatusError}:     true,
 

@@ -10,7 +10,7 @@ import type {
 } from './types.js';
 
 interface PlaywrightJsonReport {
-  config?: any;  // Config object (optional, may not be present in all reports)
+  config?: any; // Config object (optional, may not be present in all reports)
   suites: PlaywrightSuite[];
 }
 
@@ -64,19 +64,21 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         console.error(`[DEBUG] JSON parsed successfully, has suites: ${!!parsed.suites}`);
         if (parsed.suites && Array.isArray(parsed.suites)) {
           return {
-            framework: "playwright",
-            confidence: "high",
+            framework: 'playwright',
+            confidence: 'high',
             isJsonOutput: true,
           };
         }
       } catch (err) {
         // Not valid JSON or extraction failed
-        console.error(`[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(
+          `[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
     // Check if this looks like Playwright output but using wrong reporter
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     const sampleSize = Math.min(200, lines.length);
     let playwrightMarkerCount = 0;
 
@@ -125,27 +127,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     } else if (detection) {
       // Playwright detected but wrong reporter format
       return {
-        framework: "playwright",
-        errors: [{
-          message: "Playwright tests detected but logs are not in JSON format. Please configure Playwright to use the JSON reporter.",
-          rawOutput: [
-            "To fix this, update your Playwright configuration:",
-            "",
-            "In playwright.config.ts/js, add:",
-            "  reporter: [['json', { outputFile: 'results.json' }]]",
-            "",
-            "Or use the --reporter=json flag:",
-            "  npx playwright test --reporter=json",
-            "",
-            "Current logs appear to be using the 'line' or 'list' reporter.",
-          ],
-        }],
+        framework: 'playwright',
+        errors: [
+          {
+            message:
+              'Playwright tests detected but logs are not in JSON format. Please configure Playwright to use the JSON reporter.',
+            rawOutput: [
+              'To fix this, update your Playwright configuration:',
+              '',
+              'In playwright.config.ts/js, add:',
+              "  reporter: [['json', { outputFile: 'results.json' }]]",
+              '',
+              'Or use the --reporter=json flag:',
+              '  npx playwright test --reporter=json',
+              '',
+              "Current logs appear to be using the 'line' or 'list' reporter.",
+            ],
+          },
+        ],
       };
     }
 
     // No Playwright detected at all
     return {
-      framework: "unknown",
+      framework: 'unknown',
       errors: [],
     };
   }
@@ -218,23 +223,24 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         countTests(suite);
       }
 
-      const summary = totalFailed > 0
-        ? `${totalFailed} failed, ${totalPassed} passed`
-        : `${totalPassed} passed`;
+      const summary =
+        totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
 
       return {
-        framework: "playwright",
+        framework: 'playwright',
         errors: failures,
         summary,
       };
     } catch (err) {
       // JSON parsing failed
       return {
-        framework: "playwright",
-        errors: [{
-          message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
-          rawOutput: [logText.substring(0, 500)],
-        }],
+        framework: 'playwright',
+        errors: [
+          {
+            message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
+            rawOutput: [logText.substring(0, 500)],
+          },
+        ],
       };
     }
   }
@@ -244,11 +250,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * Looks for a JSON object that has "config" or "suites" as top-level keys
    */
   private extractJsonFromLogs(logText: string): string {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
 
     // Strip GitHub Actions timestamps from each line
     const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
-    const cleanLines = lines.map(line => line.replace(timestampPattern, ''));
+    const cleanLines = lines.map((line) => line.replace(timestampPattern, ''));
 
     // Find start of JSON - look for standalone { followed by "config" or "suites"
     let jsonStart = -1;

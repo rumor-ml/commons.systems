@@ -55,7 +55,7 @@ export class TapExtractor implements FrameworkExtractor {
   }
 
   extract(logText: string, maxErrors = 10): ExtractionResult {
-    const lines = logText.split("\n");
+    const lines = logText.split('\n');
     const failures: ExtractedError[] = [];
 
     // TAP failure line format:

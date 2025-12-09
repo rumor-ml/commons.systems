@@ -37,7 +37,9 @@ test.describe('Library Navigation - Tree Structure', () => {
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
     // Get the type-level count (in the toggle, not subtypes)
-    const equipmentCount = page.locator('.library-nav-type[data-type="Equipment"] > .library-nav-toggle .library-nav-count');
+    const equipmentCount = page.locator(
+      '.library-nav-type[data-type="Equipment"] > .library-nav-toggle .library-nav-count'
+    );
     await expect(equipmentCount).toBeVisible();
 
     const countText = await equipmentCount.textContent();
@@ -67,10 +69,14 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await expect(equipmentToggle).toHaveClass(/expanded/);
 
-    const subtypesContainer = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-subtypes');
+    const subtypesContainer = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-subtypes'
+    );
     await expect(subtypesContainer).toHaveClass(/expanded/);
   });
 
@@ -80,7 +86,9 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
 
     // Initially expanded
     await expect(equipmentToggle).toHaveClass(/expanded/);
@@ -94,7 +102,9 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Should be collapsed
     await expect(equipmentToggle).not.toHaveClass(/expanded/);
 
-    const subtypesContainer = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-subtypes');
+    const subtypesContainer = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-subtypes'
+    );
     await expect(subtypesContainer).not.toHaveClass(/expanded/);
   });
 
@@ -104,7 +114,9 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await equipmentToggle.click();
 
     // Wait for state to be saved
@@ -126,7 +138,9 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     // Collapse Equipment
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await equipmentToggle.click();
 
     // Wait for state to save
@@ -139,7 +153,9 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
     // Re-query Equipment toggle after reload (old locator is stale)
-    const equipmentToggleAfterReload = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggleAfterReload = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
 
     // Equipment should remain collapsed
     await expect(equipmentToggleAfterReload).not.toHaveClass(/expanded/);
@@ -153,7 +169,9 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await equipmentToggle.click();
 
     // Hash should update
@@ -170,7 +188,9 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-    const weaponSubtype = page.locator('.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item');
+    const weaponSubtype = page.locator(
+      '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item'
+    );
     await weaponSubtype.click();
 
     await expect(page).toHaveURL(/#library\/equipment\/weapon$/);
@@ -193,7 +213,9 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     const initialCards = await page.locator('.card-item').count();
 
     // Navigate to Equipment
-    const equipmentToggle = page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle');
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
     await equipmentToggle.click();
 
     // Wait for filtering

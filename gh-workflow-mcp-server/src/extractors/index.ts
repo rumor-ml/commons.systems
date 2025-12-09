@@ -30,15 +30,18 @@ export function extractErrors(logText: string, maxErrors = 10): ExtractionResult
 
   // No high-confidence match - job likely failed for non-test reasons
   // Return the last 100 lines of the log for context
-  const lines = logText.split("\n");
+  const lines = logText.split('\n');
   const contextLines = lines.slice(-100);
 
   return {
-    framework: "unknown",
-    errors: [{
-      message: "No test framework detected. Job may have failed during setup, build, or other non-test step.",
-      rawOutput: contextLines,
-    }],
+    framework: 'unknown',
+    errors: [
+      {
+        message:
+          'No test framework detected. Job may have failed during setup, build, or other non-test step.',
+        rawOutput: contextLines,
+      },
+    ],
   };
 }
 

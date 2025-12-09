@@ -78,7 +78,7 @@ interface FailedJobSummary {
  */
 function parseLogsByStep(logText: string): Map<string, string[]> {
   const stepLogs = new Map<string, string[]>();
-  const lines = logText.split("\n");
+  const lines = logText.split('\n');
 
   let currentStep: string | null = null;
   const groupPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z )?##\[group\]Run (.+)$/;
@@ -88,7 +88,7 @@ function parseLogsByStep(logText: string): Map<string, string[]> {
     const groupMatch = line.match(groupPattern);
     if (groupMatch) {
       // Start of a new "Run " step
-      currentStep = "Run " + groupMatch[2];
+      currentStep = 'Run ' + groupMatch[2];
       if (!stepLogs.has(currentStep)) {
         stepLogs.set(currentStep, []);
       }
@@ -299,19 +299,23 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
                 // If no partial match and step name suggests it's a test step,
                 // find the step that contains actual test framework output
-                if (!matchedStepKey && (stepName.toLowerCase().includes("test") || stepName.toLowerCase().includes("e2e"))) {
+                if (
+                  !matchedStepKey &&
+                  (stepName.toLowerCase().includes('test') ||
+                    stepName.toLowerCase().includes('e2e'))
+                ) {
                   console.error(`[DEBUG] Trying smart matching for test step...`);
                   // Try each "Run " step and check if it contains test framework output
                   for (const [key, content] of stepLogs) {
-                    if (!key.startsWith("Run ")) continue;
+                    if (!key.startsWith('Run ')) continue;
 
-                    const stepText = content.join("\n");
+                    const stepText = content.join('\n');
                     const extraction = extractErrors(stepText, Number.MAX_SAFE_INTEGER);
 
                     console.error(`[DEBUG] Checking ${key} - framework: ${extraction.framework}`);
 
                     // If this step has recognizable test output, it's probably the test step
-                    if (extraction.framework !== "unknown") {
+                    if (extraction.framework !== 'unknown') {
                       matchedStepKey = key;
                       console.error(`[DEBUG] Smart match found: ${matchedStepKey}`);
                       break;
@@ -326,7 +330,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
               }
 
               const stepContent = stepLogs.get(matchedStepKey)!;
-              const stepText = stepContent.join("\n");
+              const stepText = stepContent.join('\n');
 
               console.error(`[DEBUG] Step content lines: ${stepContent.length}`);
               console.error(`[DEBUG] Step text length: ${stepText.length}`);
@@ -338,18 +342,18 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
               console.error(`[DEBUG] Extraction errors: ${extraction.errors.length}`);
               console.error(`[DEBUG] Extraction summary: ${extraction.summary}`);
 
-              if (extraction.framework !== "unknown") {
+              if (extraction.framework !== 'unknown') {
                 // Test step - return parsed test failures or reporting error
                 const errorLines = formatExtractionResult(extraction);
                 console.error(`[DEBUG] Adding test step with ${errorLines.length} error lines`);
                 failedSteps.push({
                   name: stepName,
-                  conclusion: "failure",
+                  conclusion: 'failure',
                   error_lines: errorLines,
                   test_summary: extraction.summary || testSummary,
                 });
 
-                totalChars += stepName.length + errorLines.join("\n").length;
+                totalChars += stepName.length + errorLines.join('\n').length;
                 if (extraction.summary || testSummary) {
                   totalChars += (extraction.summary || testSummary)!.length;
                 }
@@ -358,7 +362,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
                 console.error(`[DEBUG] Adding non-test step with ${stepContent.length} lines`);
                 failedSteps.push({
                   name: stepName,
-                  conclusion: "failure",
+                  conclusion: 'failure',
                   error_lines: stepContent,
                   test_summary: null,
                 });
@@ -367,27 +371,27 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             }
           } else {
             // Step parsing failed - return last 100 lines of log
-            const lines = logs.split("\n");
+            const lines = logs.split('\n');
             const last100Lines = lines.slice(-100);
             failedSteps.push({
-              name: "Unable to parse steps",
+              name: 'Unable to parse steps',
               conclusion: job.conclusion,
               error_lines: last100Lines,
               test_summary: null,
             });
-            totalChars += last100Lines.join("\n").length;
+            totalChars += last100Lines.join('\n').length;
           }
         } else {
           // No step info available - return last 100 lines of log
-          const lines = logs.split("\n");
+          const lines = logs.split('\n');
           const last100Lines = lines.slice(-100);
           failedSteps.push({
-            name: "No step information available",
+            name: 'No step information available',
             conclusion: job.conclusion,
             error_lines: last100Lines,
             test_summary: null,
           });
-          totalChars += last100Lines.join("\n").length;
+          totalChars += last100Lines.join('\n').length;
         }
       } catch (error) {
         console.error(`Failed to retrieve logs for job ${job.name}:`, error);
@@ -434,7 +438,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
         // Add all error lines - no artificial limits
         if (step.error_lines.length > 0) {
-          const errorContent = step.error_lines.join("\n      ");
+          const errorContent = step.error_lines.join('\n      ');
           parts.push(`      ${errorContent}`);
         }
 

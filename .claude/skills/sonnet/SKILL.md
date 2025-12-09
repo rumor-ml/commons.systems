@@ -12,6 +12,7 @@ Use Sonnet model for specific subagents that normally run with Opus. This provid
 ## When to Use This Skill
 
 **IMPORTANT**: Only use this skill when the user explicitly requests to use Sonnet. Examples:
+
 - "Use Sonnet for the code review"
 - "Run the plan agent with Sonnet"
 - "Use Sonnet model for this"
@@ -34,6 +35,7 @@ When invoking any of the supported subagents, add the `model` parameter set to `
 ### Examples
 
 **Plan agent with Sonnet:**
+
 ```
 Task(
   subagent_type="Plan",
@@ -44,6 +46,7 @@ Task(
 ```
 
 **Code reviewer with Sonnet:**
+
 ```
 Task(
   subagent_type="pr-review-toolkit:code-reviewer",
@@ -54,6 +57,7 @@ Task(
 ```
 
 **Code simplifier with Sonnet:**
+
 ```
 Task(
   subagent_type="pr-review-toolkit:code-simplifier",
@@ -64,6 +68,7 @@ Task(
 ```
 
 **Resolve Conflicts with Sonnet:**
+
 ```
 Task(
   subagent_type="Resolve Conflicts",

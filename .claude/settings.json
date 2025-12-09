@@ -4,14 +4,7 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": [
-      "git",
-      "gh",
-      "gcloud",
-      "nix",
-      "go mod tidy",
-      "pnpm"
-    ]
+    "excludedCommands": ["git", "gh", "gcloud", "nix", "go mod tidy", "pnpm"]
   },
   "permissions": {
     "allow": [

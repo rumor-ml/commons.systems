@@ -1161,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Nav section toggle handlers
   const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
-  navSectionToggles.forEach(toggle => {
+  navSectionToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => {
       toggle.classList.toggle('expanded');
     });
