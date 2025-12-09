@@ -40,33 +40,53 @@ export class TestHelpers {
   private listeners = new Map<string, () => void>();
 
   constructor() {
+    console.log('[TestHelpers] Initializing... ENV vars:', {
+      FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '(not set)',
+      STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || '(not set)',
+      FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || '(not set)',
+      GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || '(not set)',
+    });
+
     // Check for emulator environment variables
     const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST;
     const storageHost = process.env.STORAGE_EMULATOR_HOST;
 
     if (!firestoreHost) {
+      console.error('[TestHelpers] FIRESTORE_EMULATOR_HOST not set!');
       throw new Error('FIRESTORE_EMULATOR_HOST environment variable not set');
     }
     if (!storageHost) {
+      console.error('[TestHelpers] STORAGE_EMULATOR_HOST not set!');
       throw new Error('STORAGE_EMULATOR_HOST environment variable not set');
     }
 
-    // Initialize Firestore client with emulator
-    this.firestore = new Firestore({
-      projectId: 'demo-test',
-      host: firestoreHost,
-      ssl: false,
-    });
+    try {
+      console.log('[TestHelpers] Initializing Firestore with host:', firestoreHost);
+      // Initialize Firestore client with emulator
+      this.firestore = new Firestore({
+        projectId: 'demo-test',
+        host: firestoreHost,
+        ssl: false,
+      });
+      console.log('[TestHelpers] Firestore initialized successfully');
 
-    // Initialize GCS client with emulator
-    // The Storage SDK uses STORAGE_EMULATOR_HOST env var directly
-    process.env.STORAGE_EMULATOR_HOST = storageHost;
-    this.storage = new Storage({
-      projectId: 'demo-test',
-    });
+      console.log('[TestHelpers] Initializing Storage with host:', storageHost);
+      // Initialize GCS client with emulator
+      // The Storage SDK uses STORAGE_EMULATOR_HOST env var directly
+      process.env.STORAGE_EMULATOR_HOST = storageHost;
+      this.storage = new Storage({
+        projectId: 'demo-test',
+      });
+      console.log('[TestHelpers] Storage initialized successfully');
 
-    // Initialize Auth helper
-    this.authHelper = new AuthHelper();
+      console.log('[TestHelpers] Initializing AuthHelper...');
+      // Initialize Auth helper
+      this.authHelper = new AuthHelper();
+      console.log('[TestHelpers] AuthHelper initialized successfully');
+    } catch (error) {
+      console.error('[TestHelpers] Initialization failed:', error);
+      throw error;
+    }
   }
 
   /**
