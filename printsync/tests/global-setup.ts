@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import * as net from 'net';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,16 +49,29 @@ async function globalSetup() {
 
 /**
  * Check if a port is in use
- * Uses lsof command with hardcoded port numbers (no user input)
+ * Uses Node.js net module for cross-platform compatibility (works on macOS and Linux)
  */
 async function isPortInUse(port: number): Promise<boolean> {
-  try {
-    // Port is a number, not user input - safe to use
-    execSync(`lsof -i :${port}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timeout = 1000;
+
+    socket.setTimeout(timeout);
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.connect(port, 'localhost');
+  });
 }
 
 export default globalSetup;
