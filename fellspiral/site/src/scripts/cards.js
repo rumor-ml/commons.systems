@@ -832,10 +832,87 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
+// Parse URL hash and apply filters
+function parseHashAndFilter() {
+  const hash = window.location.hash;
+
+  // Match #library, #library/type, or #library/type/subtype
+  const match = hash.match(/^#library(?:\/([^/]+))?(?:\/([^/]+))?$/i);
+
+  if (!match) {
+    return;
+  }
+
+  const rawType = match[1] || '';
+  const rawSubtype = match[2] || '';
+
+  // Convert to proper case (first letter uppercase)
+  const type = rawType ? rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase() : '';
+  const subtype = rawSubtype
+    ? rawSubtype.charAt(0).toUpperCase() + rawSubtype.slice(1).toLowerCase()
+    : '';
+
+  // Apply filters
+  state.filters.type = type;
+  state.filters.subtype = subtype;
+
+  // Update filter dropdowns
+  const filterType = document.getElementById('filterType');
+  const filterSubtype = document.getElementById('filterSubtype');
+
+  if (filterType) {
+    filterType.value = type;
+  }
+
+  if (type) {
+    updateSubtypeFilterOptions(type);
+  }
+
+  if (filterSubtype) {
+    filterSubtype.value = subtype;
+  }
+
+  applyFilters();
+}
+
+// Update URL hash when filters change
+function updateHashFromFilters() {
+  const type = state.filters.type;
+  const subtype = state.filters.subtype;
+
+  let hash = '#library';
+  if (type) {
+    hash += `/${type.toLowerCase()}`;
+  }
+  if (subtype) {
+    hash += `/${subtype.toLowerCase()}`;
+  }
+
+  // Update hash without triggering hashchange event
+  if (window.location.hash !== hash) {
+    history.replaceState(null, '', hash);
+  }
+}
+
 // Initialize application
 function initializeApp() {
   setupMobileMenu();
   init();
+
+  // Handle initial hash on page load (after data loads)
+  // We need to wait for cards to load before filtering
+  const originalLoadCards = loadCards;
+  window._hashRoutingInitialized = false;
+
+  // Listen for hash changes
+  window.addEventListener('hashchange', parseHashAndFilter);
+
+  // Parse initial hash after DOM is ready and cards are loaded
+  // The hash parsing is deferred to allow cards to load first
+  setTimeout(() => {
+    parseHashAndFilter();
+    window._hashRoutingInitialized = true;
+  }, 100);
 }
 
 // Initialize on page load
