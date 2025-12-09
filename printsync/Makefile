@@ -20,7 +20,7 @@ test-unit:
 
 test-e2e:
 	@echo "Running Playwright E2E tests..."
-	@cd tests && pnpm test
+	@cd tests && /bin/bash -c "pnpm test"
 
 clean:
 	@echo "Cleaning build artifacts..."
