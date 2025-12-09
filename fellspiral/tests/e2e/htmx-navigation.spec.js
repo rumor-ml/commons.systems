@@ -212,4 +212,43 @@ test.describe('HTMX Cross-Page Navigation', () => {
       expect(firstCardType).toContain('Skill');
     }
   );
+
+  (shouldSkip ? test.skip : test)(
+    'should preserve card-manager class after HTMX navigation for correct layout',
+    async ({ page }) => {
+      // Test that the card-manager class is present on main element after HTMX swap
+      // This class is required for proper card layout CSS
+
+      // Start at homepage
+      await page.goto('/');
+      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+      // Click Equipment type to trigger HTMX navigation
+      const equipmentToggle = page.locator(
+        '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+      );
+      await equipmentToggle.click();
+
+      // Wait for navigation
+      await page.waitForURL(/cards(\.html)?#library-equipment$/, { timeout: 10000 });
+
+      // Wait for cards to load
+      await page.waitForSelector('.card-item', { timeout: 15000 });
+
+      // Verify the card-manager class is present on main element
+      // This is critical for proper layout - the class sets min-height: 100vh and background
+      const mainContent = page.locator('.main-content');
+      await expect(mainContent).toHaveClass(/card-manager/);
+
+      // Also verify the layout structure is correct
+      const cardManagerLayout = page.locator('.card-manager-layout');
+      await expect(cardManagerLayout).toBeVisible();
+
+      // Verify the card grid has proper dimensions (not collapsed)
+      const cardGrid = page.locator('#cardList.card-grid');
+      await expect(cardGrid).toBeVisible();
+      const gridBox = await cardGrid.boundingBox();
+      expect(gridBox?.height).toBeGreaterThan(100); // Should have some height
+    }
+  );
 });
