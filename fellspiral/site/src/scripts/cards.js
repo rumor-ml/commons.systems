@@ -667,51 +667,40 @@ function exportCards() {
 // Initialize card-specific functionality only (no sidebar reinit)
 // Called when navigating to cards.html via HTMX
 export async function initCardsPage() {
-  console.log('[initCardsPage] Starting initialization...');
   try {
     // Initialize authentication
-    console.log('[initCardsPage] Initializing auth...');
     initializeAuth();
 
     // Setup auth state listener
-    console.log('[initCardsPage] Setting up auth listener...');
     setupAuthStateListener();
 
     // Setup hash routing
-    console.log('[initCardsPage] Setting up hash routing...');
     setupHashRouting();
 
     // Setup UI components
-    console.log('[initCardsPage] Setting up event listeners...');
     setupEventListeners();
 
     // Set loading state before rendering to keep loading indicator visible
-    console.log('[initCardsPage] Setting loading state and rendering...');
     state.loading = true;
     renderCards(); // Will keep loading state visible
-    console.log('[initCardsPage] Initial render complete, loading state:', state.loading);
 
     // Load data asynchronously WITHOUT blocking
-    console.log('[initCardsPage] Starting loadCards() (non-blocking)...');
     loadCards()
       .then(() => {
-        console.log('[initCardsPage] loadCards() resolved, cards loaded:', state.cards.length);
         // Update UI with loaded data
         renderCards();
         // Apply hash route if present
         handleHashChange();
       })
       .catch((error) => {
-        console.error('[initCardsPage] loadCards() failed:', error);
+        console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
         // Still render cards with fallback data
         renderCards();
         handleHashChange();
       });
-
-    console.log('[initCardsPage] Initialization complete (loadCards running async)');
   } catch (error) {
-    console.error('[initCardsPage] Initialization error:', error);
+    console.error('Failed to initialize Card Manager:', error);
     showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
       document.querySelector('.error-banner')?.remove();
       initCardsPage();

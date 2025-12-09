@@ -1170,26 +1170,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // HTMX event listener to reinitialize components after page swap
   // Note: Since we only swap main content (not sidebar), we don't reinitialize sidebar/library nav
   document.body.addEventListener('htmx:afterSwap', async (event) => {
-    console.log('[HTMX] afterSwap event fired, pathname:', window.location.pathname);
-
     // Reinitialize authentication (needed for auth controls in new content)
     initializeAuth();
 
     // Check if we navigated to cards.html - if so, dynamically load and init cards functionality
     if (window.location.pathname.includes('cards.html')) {
-      console.log('[HTMX] Detected navigation to cards.html, importing cards module...');
       try {
         const cardsModule = await import('./cards.js');
-        console.log('[HTMX] Cards module imported:', cardsModule);
         if (cardsModule.initCardsPage) {
-          console.log('[HTMX] Calling initCardsPage()...');
           await cardsModule.initCardsPage();
-          console.log('[HTMX] initCardsPage() completed');
         } else {
-          console.error('[HTMX] cardsModule.initCardsPage is not defined!');
+          console.error('cardsModule.initCardsPage is not defined');
         }
       } catch (e) {
-        console.error('[HTMX] Failed to load/init cards module:', e);
+        console.error('Failed to load/init cards module:', e);
       }
     }
   });
