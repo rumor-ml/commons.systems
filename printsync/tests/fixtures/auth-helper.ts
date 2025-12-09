@@ -20,7 +20,9 @@ export class AuthHelper {
 
     // Initialize Firebase Admin SDK with emulator
     // The SDK automatically connects to the emulator when FIREBASE_AUTH_EMULATOR_HOST is set
-    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+    // Always use 'demo-test' to match TestHelpers.firestore projectId
+    // Do NOT use process.env.GCP_PROJECT_ID - CI sets it to production project
+    const projectId = 'demo-test';
     this.app = admin.initializeApp(
       {
         projectId,
