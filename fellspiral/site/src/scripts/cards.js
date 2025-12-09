@@ -36,7 +36,20 @@ const state = {
   },
   loading: false,
   error: null,
+  initialized: false, // Track if we've set up global listeners
 };
+
+// Reset state for fresh initialization
+function resetState() {
+  state.cards = [];
+  state.filteredCards = [];
+  state.selectedNode = null;
+  state.viewMode = 'grid';
+  state.filters = { type: '', subtype: '', search: '' };
+  state.loading = false;
+  state.error = null;
+  // Don't reset initialized - that tracks global listeners
+}
 
 // Subtype mappings
 const SUBTYPES = {
@@ -325,9 +338,11 @@ function setupAuthStateListener() {
   }
 }
 
-// Setup hash routing
+// Setup hash routing (only once per page load)
 function setupHashRouting() {
-  window.addEventListener('hashchange', handleHashChange);
+  if (!state.initialized) {
+    window.addEventListener('hashchange', handleHashChange);
+  }
 }
 
 // Handle hash change events
@@ -702,14 +717,19 @@ function exportCards() {
 // Called when navigating to cards.html via HTMX
 export async function initCardsPage() {
   try {
+    // Reset state for fresh initialization (clears any stale loading state)
+    resetState();
+
     // Initialize authentication
     initializeAuth();
 
     // Initialize shared sidebar navigation (generates nav DOM)
     initSidebarNav();
 
-    // Setup auth state listener
-    setupAuthStateListener();
+    // Setup auth state listener (only once)
+    if (!state.initialized) {
+      setupAuthStateListener();
+    }
 
     // Initialize library navigation (populates library section)
     // Don't await - let it load in background to avoid blocking card display
@@ -717,32 +737,36 @@ export async function initCardsPage() {
       console.error('Failed to initialize library navigation:', error);
     });
 
-    // Setup hash routing
+    // Setup hash routing (only once - uses state.initialized check internally)
     setupHashRouting();
 
-    // Setup UI components
-    setupEventListeners();
-    setupMobileMenu();
+    // Setup UI components (only once per module load)
+    if (!state.initialized) {
+      setupEventListeners();
+      setupMobileMenu();
+    }
+
+    // Mark as initialized to prevent duplicate global listeners
+    state.initialized = true;
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
     renderCards(); // Will keep loading state visible
 
-    // Load data asynchronously WITHOUT blocking
-    loadCards()
-      .then(() => {
-        // Update UI with loaded data
-        renderCards();
-        // Apply hash route if present
-        handleHashChange();
-      })
-      .catch((error) => {
-        console.error('Failed to load cards:', error);
-        showWarningBanner('Failed to load cards from cloud. Using cached data.');
-        // Still render cards with fallback data
-        renderCards();
-        handleHashChange();
-      });
+    // Load data and AWAIT completion to ensure consistent state
+    try {
+      await loadCards();
+      // Update UI with loaded data
+      renderCards();
+      // Apply hash route if present
+      handleHashChange();
+    } catch (error) {
+      console.error('Failed to load cards:', error);
+      showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      // Still render cards with fallback data
+      renderCards();
+      handleHashChange();
+    }
   } catch (error) {
     console.error('Failed to initialize Card Manager:', error);
     showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
