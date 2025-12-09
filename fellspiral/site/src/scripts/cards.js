@@ -327,6 +327,7 @@ function handleHashChange() {
   }
 
   // Parse hash using - as separator (valid CSS selector character)
+  // This ensures HTMX's querySelector-based scrolling works correctly
   // Format: #library, #library-equipment, #library-equipment-weapon
   if (hash === 'library') {
     // #library - show all cards
