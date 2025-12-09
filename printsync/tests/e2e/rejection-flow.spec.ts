@@ -72,6 +72,9 @@ test.describe('File Rejection Workflow', () => {
       const rejectButton = fileRow.locator('button:has-text("Reject")');
       await expect(rejectButton).toBeVisible();
       await rejectButton.click();
+
+      // Wait for rejection to complete before clicking next button
+      await helpers.waitForFileStatus(fileID, 'rejected', 10000);
     }
 
     // Verify both files are rejected in Firestore

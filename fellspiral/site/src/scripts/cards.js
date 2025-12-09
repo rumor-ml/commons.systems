@@ -242,6 +242,18 @@ function setupMobileMenu() {
       sidebar.classList.toggle('active');
     });
 
+    // Nav section toggle handlers (for library section expand/collapse)
+    const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
+    navSectionToggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('expanded');
+        const content = toggle.parentElement.querySelector('.nav-section-content');
+        if (content) {
+          content.classList.toggle('expanded');
+        }
+      });
+    });
+
     // Close sidebar when clicking a nav link on mobile
     const navItems = sidebar.querySelectorAll('.nav-item');
     navItems.forEach((item) => {
