@@ -9,6 +9,7 @@ import {
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
+  auth,
 } from './firebase.js';
 
 // Import auth initialization and state
@@ -162,9 +163,17 @@ async function loadCards() {
     if (cards.length > 0) {
       state.cards = cards;
     } else {
-      // If no cards in Firestore, seed from JSON data
-      await importCardsFromData(cardsData);
-      state.cards = await getAllCards();
+      // If no cards in Firestore, only attempt to seed if user is authenticated
+      // This avoids expensive failed import attempts on production with empty Firestore
+      if (auth.currentUser) {
+        console.log('Firestore empty - seeding with JSON data (authenticated user)');
+        await importCardsFromData(cardsData);
+        state.cards = await getAllCards();
+      } else {
+        // Not authenticated - use static data immediately to avoid slow import attempts
+        console.log('Firestore empty - using static JSON data (not authenticated)');
+        state.cards = cardsData || [];
+      }
     }
 
     state.filteredCards = [...state.cards];
