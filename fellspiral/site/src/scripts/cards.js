@@ -193,6 +193,9 @@ async function loadCards() {
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
+    // Update DOM to reflect fallback state and hide loading spinner
+    renderCards();
+
     // Show warning to user
     showWarningBanner(
       'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
