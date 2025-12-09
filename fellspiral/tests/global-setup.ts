@@ -44,9 +44,22 @@ async function globalSetup() {
       ssl: false,
     });
 
+    const cardsCollection = db.collection('cards');
+
+    // Clear existing cards data to ensure fresh state
+    console.log('   Clearing existing cards from emulator...');
+    const existingCards = await cardsCollection.get();
+    const deleteBatch = db.batch();
+    existingCards.docs.forEach((doc) => {
+      deleteBatch.delete(doc.ref);
+    });
+    if (!existingCards.empty) {
+      await deleteBatch.commit();
+      console.log(`   Deleted ${existingCards.size} existing cards`);
+    }
+
     // Batch write cards to Firestore
     const batch = db.batch();
-    const cardsCollection = db.collection('cards');
 
     for (const card of cardsData) {
       const docRef = cardsCollection.doc(card.id);

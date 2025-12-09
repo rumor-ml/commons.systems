@@ -515,7 +515,7 @@
   },
   {
     "title": "Krovnaya Striga",
-    "type": "Foe",
+    "type": "Origin",
     "subtype": "Vampire",
     "tags": [
       "Bat 12: teleport, on success pin",
@@ -586,7 +586,7 @@
   },
   {
     "title": "Skeleton",
-    "type": "Foe",
+    "type": "Origin",
     "subtype": "Undead",
     "tags": ["6 AC"],
     "description": "",
@@ -612,7 +612,7 @@
   },
   {
     "title": "Skeleton Commander",
-    "type": "Foe",
+    "type": "Origin",
     "subtype": "Undead",
     "tags": ["6 AC"],
     "description": "",
@@ -651,7 +651,7 @@
   },
   {
     "title": "Ghoul",
-    "type": "Foe",
+    "type": "Origin",
     "subtype": "Vampire",
     "tags": ["Claw x2: d6, 2 slot, on crit also pin", "Bite: evade or bleed until resist"],
     "description": "6 AC",

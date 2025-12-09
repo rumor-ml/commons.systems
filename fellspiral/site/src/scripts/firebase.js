@@ -15,8 +15,9 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 
 // Initialize Firebase
@@ -27,6 +28,20 @@ const db = getFirestore(app);
 
 // Get auth instance
 const auth = getAuth(app);
+
+// Connect to emulators in test/dev environment
+if (
+  import.meta.env.MODE === 'development' ||
+  import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+) {
+  const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+  const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+
+  const [firestoreHostname, firestorePort] = firestoreHost.split(':');
+  connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+
+  connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+}
 
 // Collection reference
 const cardsCollection = collection(db, 'cards');
