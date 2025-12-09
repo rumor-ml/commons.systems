@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "source ../../infrastructure/scripts/allocate-test-ports.sh && playwright test",
-    "test:ui": "source ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --ui",
-    "test:headed": "source ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --headed",
+    "test": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test",
+    "test:ui": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --ui",
+    "test:headed": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --headed",
     "test:deployed": "DEPLOYED=true playwright test"
   },
   "devDependencies": {
