@@ -23,7 +23,7 @@ permissions:
   id-token: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
   packages: read
   deployments: write
 

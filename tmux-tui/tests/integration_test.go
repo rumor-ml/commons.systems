@@ -203,7 +203,9 @@ func (m realModel) View() string {
 	}
 	m.alertsMu.RUnlock()
 
-	return m.renderer.Render(m.tree, alertsCopy)
+	// No blocked branches in integration tests
+	blockedBranches := make(map[string]string)
+	return m.renderer.Render(m.tree, alertsCopy, blockedBranches)
 }
 
 func (m realModel) GetAlertsForTesting() map[string]string {

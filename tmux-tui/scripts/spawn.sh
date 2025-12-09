@@ -1,14 +1,28 @@
 #!/bin/bash
 # spawn.sh - Spawn tmux-tui in a 40-column left pane
 # Follows tmux-git-window-name pattern
+#
+# Environment variables (set by after-new-window hook):
+#   TMUX_NEW_WINDOW_HOOK=1 - indicates called from new-window hook
+#   HOOK_WINDOW - the window ID from the hook
 
 # Check if we're in tmux
 if [ -z "$TMUX" ]; then
   exit 0
 fi
 
-# Get current window ID
+# Get the target window ID
 WINDOW_ID=$(tmux display-message -p "#{window_id}")
+
+# Detect if this is a new window by checking pane count
+# A new window will have exactly 1 pane before we split
+PANE_COUNT=$(tmux list-panes -t "$WINDOW_ID" | wc -l | tr -d ' ')
+IS_NEW_WINDOW=0
+if [ "$PANE_COUNT" = "1" ]; then
+  IS_NEW_WINDOW=1
+fi
+
+echo "$(date): WINDOW_ID=$WINDOW_ID PANE_COUNT=$PANE_COUNT IS_NEW_WINDOW=$IS_NEW_WINDOW" >> /tmp/claude/spawn-debug.log
 
 # Check for existing TUI pane
 EXISTING_TUI_PANE=$(tmux show-window-option -t "$WINDOW_ID" @tui-pane 2>/dev/null | cut -d' ' -f2 | tr -d '"')
@@ -35,14 +49,17 @@ if [ -f "$DAEMON_BIN" ]; then
   "$DAEMON_BIN" >/dev/null 2>&1 &
 fi
 
-# Save current pane ID to return focus later
-CURRENT_PANE=$(tmux display-message -p "#{pane_id}")
+# Get the current pane in THIS window (before split, there's only one pane)
+CURRENT_PANE=$(tmux list-panes -t "$WINDOW_ID" -F "#{pane_id}" | head -1)
 
-# Create 40-column left pane
-tmux split-window -h -b -l 40 -c "#{pane_current_path}" >/dev/null 2>&1 || exit 0
+# Debug: Log to temp file
+echo "$(date): WINDOW_ID=$WINDOW_ID CURRENT_PANE=$CURRENT_PANE" >> /tmp/claude/spawn-debug.log
 
-# Get the new pane ID (it will be the pane before the current one)
-NEW_PANE=$(tmux display-message -p "#{pane_id}")
+# Create 40-column left pane and capture its ID
+NEW_PANE=$(tmux split-window -h -b -l 40 -t "$WINDOW_ID" -c "#{pane_current_path}" -P -F "#{pane_id}") || exit 0
+
+# Debug: Log new pane
+echo "$(date): NEW_PANE=$NEW_PANE" >> /tmp/claude/spawn-debug.log
 
 # Store TUI pane ID in window option
 tmux set-window-option -t "$WINDOW_ID" @tui-pane "$NEW_PANE" >/dev/null 2>&1
@@ -56,6 +73,15 @@ else
   # Binary not found, clean up and exit
   tmux kill-pane -t "$NEW_PANE" >/dev/null 2>&1
   exit 0
+fi
+
+# Run claude in the main pane ONLY for new windows (1 pane before split)
+# Skip if called from restart-tui.sh (TMUX_TUI_RESTART=1)
+if [ "$IS_NEW_WINDOW" = "1" ] && [ "$TMUX_TUI_RESTART" != "1" ]; then
+  echo "$(date): Running claude in CURRENT_PANE=$CURRENT_PANE (new window detected)" >> /tmp/claude/spawn-debug.log
+  tmux send-keys -t "$CURRENT_PANE" "claude || exec zsh" Enter
+else
+  echo "$(date): Skipping claude (IS_NEW_WINDOW=$IS_NEW_WINDOW, TMUX_TUI_RESTART=$TMUX_TUI_RESTART)" >> /tmp/claude/spawn-debug.log
 fi
 
 # Return focus to original pane

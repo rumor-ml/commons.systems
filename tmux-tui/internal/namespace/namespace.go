@@ -55,3 +55,14 @@ func DaemonSocket() string {
 func DaemonPID() string {
 	return filepath.Join(GetSessionNamespace(), "daemon.pid")
 }
+
+// BlockedPanesFile returns the path to the blocked panes JSON file for this session.
+// Deprecated: Use BlockedBranchesFile instead.
+func BlockedPanesFile() string {
+	return filepath.Join(GetSessionNamespace(), "tui-blocked-panes.json")
+}
+
+// BlockedBranchesFile returns the path to the blocked branches JSON file for this session.
+func BlockedBranchesFile() string {
+	return filepath.Join(GetSessionNamespace(), "tui-blocked-branches.json")
+}
