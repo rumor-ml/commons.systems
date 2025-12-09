@@ -151,21 +151,25 @@ async function init() {
   }
 }
 
+// Helper to wrap a promise with a timeout
+function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(errorMessage)), ms)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
+
 // Load cards from Firestore
 async function loadCards() {
+  const FIRESTORE_TIMEOUT_MS = 5000;
+
   try {
     state.loading = true;
     state.error = null;
 
     // Try to load from Firestore with a timeout to prevent hanging
     // On slow/unresponsive Firestore connections, fall back to static data quickly
-    const FIRESTORE_TIMEOUT_MS = 5000;
-    const cardsPromise = getAllCards();
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Firestore query timeout')), FIRESTORE_TIMEOUT_MS)
-    );
-
-    const cards = await Promise.race([cardsPromise, timeoutPromise]);
+    const cards = await withTimeout(getAllCards(), FIRESTORE_TIMEOUT_MS, 'Firestore query timeout');
 
     if (cards.length > 0) {
       state.cards = cards;
@@ -173,8 +177,17 @@ async function loadCards() {
       // If no cards in Firestore, only attempt to seed if user is authenticated
       // This avoids expensive failed import attempts on production with empty Firestore
       if (auth.currentUser) {
-        await importCardsFromData(cardsData);
-        state.cards = await getAllCards();
+        // Also apply timeout to import and subsequent fetch
+        await withTimeout(
+          importCardsFromData(cardsData),
+          FIRESTORE_TIMEOUT_MS,
+          'Import cards timeout'
+        );
+        state.cards = await withTimeout(
+          getAllCards(),
+          FIRESTORE_TIMEOUT_MS,
+          'Firestore query timeout after import'
+        );
       } else {
         // Not authenticated - use static data immediately to avoid slow import attempts
         state.cards = cardsData || [];
@@ -182,22 +195,22 @@ async function loadCards() {
     }
 
     state.filteredCards = [...state.cards];
-    state.loading = false;
   } catch (error) {
     console.error('Error loading cards:', error);
     state.error = error.message;
-    state.loading = false;
 
     // Fallback to static data if Firestore fails
     console.warn('Falling back to static JSON data');
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
-    // Note: renderCards() is called by initCardsPage().then()/.catch() handlers
     // Show warning to user
     showWarningBanner(
       'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
     );
+  } finally {
+    // ALWAYS clear loading state, even if there's an unexpected error
+    state.loading = false;
   }
 }
 
