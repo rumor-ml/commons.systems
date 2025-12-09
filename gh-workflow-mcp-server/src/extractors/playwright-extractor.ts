@@ -266,7 +266,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return Math.abs(parse(time2) - parse(time1));
   }
 
-  private parsePlaywrightJson(logText: string, maxErrors: number): ExtractionResult {
+  private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
 
     try {

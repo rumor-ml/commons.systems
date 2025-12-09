@@ -76,7 +76,7 @@ interface FailedJobSummary {
  * but the actual command output comes AFTER that, until the next ##[group]Run marker.
  * So we capture everything from one "Run " marker until the next one.
  */
-function parseLogsByStep(logText: string): Map<string, string[]> {
+function _parseLogsByStep(logText: string): Map<string, string[]> {
   const stepLogs = new Map<string, string[]>();
   const lines = logText.split('\n');
 
