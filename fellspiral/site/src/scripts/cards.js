@@ -688,6 +688,7 @@ export async function initCardsPage() {
 
     // Setup UI components
     setupEventListeners();
+    setupMobileMenu();
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
