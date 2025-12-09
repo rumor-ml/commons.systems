@@ -114,7 +114,10 @@ async function init() {
     setupEventListeners();
     // Note: setupMobileMenu is called separately before init() to ensure
     // it runs synchronously before any async operations
-    renderCards(); // Will show empty state
+
+    // Set loading state before rendering to keep loading indicator visible
+    state.loading = true;
+    renderCards(); // Will keep loading state visible
 
     // Load data asynchronously WITHOUT blocking page load
     loadCards()
@@ -128,6 +131,9 @@ async function init() {
       .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
+        // Still render cards with fallback data
+        renderCards();
+        handleHashChange();
       });
   } catch (error) {
     // Log initialization errors for debugging
@@ -397,6 +403,12 @@ function renderCards() {
 
     if (!cardList || !emptyState) {
       console.warn('Card list or empty state element not found');
+      return;
+    }
+
+    // If still loading, keep the loading state visible (don't hide cardList)
+    if (state.loading) {
+      emptyState.style.display = 'none';
       return;
     }
 
