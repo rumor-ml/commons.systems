@@ -157,8 +157,15 @@ async function loadCards() {
     state.loading = true;
     state.error = null;
 
-    // Try to load from Firestore
-    const cards = await getAllCards();
+    // Try to load from Firestore with a timeout to prevent hanging
+    // On slow/unresponsive Firestore connections, fall back to static data quickly
+    const FIRESTORE_TIMEOUT_MS = 5000;
+    const cardsPromise = getAllCards();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Firestore query timeout')), FIRESTORE_TIMEOUT_MS)
+    );
+
+    const cards = await Promise.race([cardsPromise, timeoutPromise]);
 
     if (cards.length > 0) {
       state.cards = cards;
