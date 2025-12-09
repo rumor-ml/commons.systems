@@ -9,10 +9,16 @@ import {
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
+  auth,
 } from './firebase.js';
 
-// Import auth initialization
-import { initializeAuth } from './auth-init.js';
+// Import auth initialization and state
+import { initializeAuth, onAuthStateChanged } from './auth-init.js';
+
+// Import shared navigation
+import { initSidebarNav } from './sidebar-nav.js';
+// Import library navigation
+import { initLibraryNav } from './library-nav.js';
 
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
@@ -30,7 +36,20 @@ const state = {
   },
   loading: false,
   error: null,
+  initialized: false, // Track if we've set up global listeners
 };
+
+// Reset state for fresh initialization
+function resetState() {
+  state.cards = [];
+  state.filteredCards = [];
+  state.selectedNode = null;
+  state.viewMode = 'grid';
+  state.filters = { type: '', subtype: '', search: '' };
+  state.loading = false;
+  state.error = null;
+  // Don't reset initialized - that tracks global listeners
+}
 
 // Subtype mappings
 const SUBTYPES = {
@@ -93,24 +112,45 @@ async function init() {
     // Initialize authentication
     initializeAuth();
 
+    // Initialize shared sidebar navigation (generates nav DOM)
+    initSidebarNav();
+
+    // Setup auth state listener
+    setupAuthStateListener();
+
+    // Initialize library navigation (populates library section)
+    // Don't await - let it load in background to avoid blocking card display
+    initLibraryNav().catch((error) => {
+      console.error('Failed to initialize library navigation:', error);
+    });
+
+    // Setup hash routing
+    setupHashRouting();
+
     // Setup UI components - these don't need data
     setupEventListeners();
     // Note: setupMobileMenu is called separately before init() to ensure
     // it runs synchronously before any async operations
-    renderTree(); // Will show "no cards" initially
-    renderCards(); // Will show empty state
+
+    // Set loading state before rendering to keep loading indicator visible
+    state.loading = true;
+    renderCards(); // Will keep loading state visible
 
     // Load data asynchronously WITHOUT blocking page load
     loadCards()
       .then(() => {
         // Update UI with loaded data
-        renderTree();
         renderCards();
-        updateStats();
+
+        // Apply hash route if present
+        handleHashChange();
       })
       .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
+        // Still render cards with fallback data
+        renderCards();
+        handleHashChange();
       });
   } catch (error) {
     // Log initialization errors for debugging
@@ -124,29 +164,53 @@ async function init() {
   }
 }
 
+// Helper to wrap a promise with a timeout
+function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(errorMessage)), ms)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
+
 // Load cards from Firestore
 async function loadCards() {
+  const FIRESTORE_TIMEOUT_MS = 5000;
+
   try {
     state.loading = true;
     state.error = null;
 
-    // Try to load from Firestore
-    const cards = await getAllCards();
+    // Try to load from Firestore with a timeout to prevent hanging
+    // On slow/unresponsive Firestore connections, fall back to static data quickly
+    const cards = await withTimeout(getAllCards(), FIRESTORE_TIMEOUT_MS, 'Firestore query timeout');
 
     if (cards.length > 0) {
       state.cards = cards;
     } else {
-      // If no cards in Firestore, seed from JSON data
-      await importCardsFromData(cardsData);
-      state.cards = await getAllCards();
+      // If no cards in Firestore, only attempt to seed if user is authenticated
+      // This avoids expensive failed import attempts on production with empty Firestore
+      if (auth.currentUser) {
+        // Also apply timeout to import and subsequent fetch
+        await withTimeout(
+          importCardsFromData(cardsData),
+          FIRESTORE_TIMEOUT_MS,
+          'Import cards timeout'
+        );
+        state.cards = await withTimeout(
+          getAllCards(),
+          FIRESTORE_TIMEOUT_MS,
+          'Firestore query timeout after import'
+        );
+      } else {
+        // Not authenticated - use static data immediately to avoid slow import attempts
+        state.cards = cardsData || [];
+      }
     }
 
     state.filteredCards = [...state.cards];
-    state.loading = false;
   } catch (error) {
     console.error('Error loading cards:', error);
     state.error = error.message;
-    state.loading = false;
 
     // Fallback to static data if Firestore fails
     console.warn('Falling back to static JSON data');
@@ -157,6 +221,9 @@ async function loadCards() {
     showWarningBanner(
       'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
     );
+  } finally {
+    // ALWAYS clear loading state, even if there's an unexpected error
+    state.loading = false;
   }
 }
 
@@ -177,29 +244,14 @@ function setupEventListeners() {
     importCardsBtn.addEventListener('click', importCards);
     exportCardsBtn.addEventListener('click', exportCards);
 
-    // Tree controls
-    const expandAllBtn = document.getElementById('expandAllBtn');
-    const collapseAllBtn = document.getElementById('collapseAllBtn');
-    const refreshTreeBtn = document.getElementById('refreshTreeBtn');
-    const treeSearch = document.getElementById('treeSearch');
-
-    if (expandAllBtn) expandAllBtn.addEventListener('click', () => expandCollapseAll(true));
-    if (collapseAllBtn) collapseAllBtn.addEventListener('click', () => expandCollapseAll(false));
-    if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', refreshTree);
-    if (treeSearch) treeSearch.addEventListener('input', handleTreeSearch);
-
     // View mode
     document.querySelectorAll('.view-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
     // Filters
-    const filterType = document.getElementById('filterType');
-    const filterSubtype = document.getElementById('filterSubtype');
     const searchCards = document.getElementById('searchCards');
 
-    if (filterType) filterType.addEventListener('change', handleFilterChange);
-    if (filterSubtype) filterSubtype.addEventListener('change', handleFilterChange);
     if (searchCards) searchCards.addEventListener('input', handleFilterChange);
 
     // Modal
@@ -269,205 +321,75 @@ function setupMobileMenu() {
   }
 }
 
-// Build and render tree
-function renderTree() {
+// Setup auth state listener to show/hide auth-controls
+function setupAuthStateListener() {
   try {
-    const treeContainer = document.getElementById('cardTree');
-    if (!treeContainer) {
-      console.warn('Tree container not found');
-      return;
-    }
-
-    const tree = buildTree();
-    treeContainer.innerHTML = renderTreeNodes(tree);
-
-    // Attach tree node click handlers
-    treeContainer.querySelectorAll('.tree-node-content').forEach((node) => {
-      node.addEventListener('click', handleTreeNodeClick);
+    onAuthStateChanged((user) => {
+      if (user) {
+        // User is logged in - show auth controls
+        document.body.classList.add('authenticated');
+      } else {
+        // User is logged out - hide auth controls
+        document.body.classList.remove('authenticated');
+      }
     });
   } catch (error) {
-    console.error('Error rendering tree:', error);
+    console.error('Error setting up auth state listener:', error);
   }
 }
 
-// Build tree structure
-function buildTree() {
-  const tree = {};
-
-  state.cards.forEach((card) => {
-    const type = card.type || 'Unknown';
-    const subtype = card.subtype || 'Unknown';
-
-    if (!tree[type]) {
-      tree[type] = {
-        count: 0,
-        subtypes: {},
-      };
-    }
-
-    if (!tree[type].subtypes[subtype]) {
-      tree[type].subtypes[subtype] = {
-        count: 0,
-        cards: [],
-      };
-    }
-
-    tree[type].count++;
-    tree[type].subtypes[subtype].count++;
-    tree[type].subtypes[subtype].cards.push(card);
-  });
-
-  return tree;
-}
-
-// Render tree nodes
-function renderTreeNodes(tree) {
-  let html = '';
-
-  Object.keys(tree)
-    .sort()
-    .forEach((type) => {
-      const typeData = tree[type];
-      const typeId = `type-${type.toLowerCase()}`;
-
-      html += `
-      <div class="tree-node" data-level="type" data-value="${type}">
-        <div class="tree-node-content" data-node-id="${typeId}">
-          <span class="tree-node-toggle">▶</span>
-          <span class="tree-node-icon">📁</span>
-          <span class="tree-node-label">${type}</span>
-          <span class="tree-node-count">${typeData.count}</span>
-        </div>
-        <div class="tree-node-children" data-parent="${typeId}">
-    `;
-
-      Object.keys(typeData.subtypes)
-        .sort()
-        .forEach((subtype) => {
-          const subtypeData = typeData.subtypes[subtype];
-          const subtypeId = `subtype-${type.toLowerCase()}-${subtype.toLowerCase()}`;
-
-          html += `
-        <div class="tree-node tree-node-leaf" data-level="subtype" data-type="${type}" data-subtype="${subtype}">
-          <div class="tree-node-content" data-node-id="${subtypeId}">
-            <span class="tree-node-toggle empty"></span>
-            <span class="tree-node-icon">📄</span>
-            <span class="tree-node-label">${subtype}</span>
-            <span class="tree-node-count">${subtypeData.count}</span>
-          </div>
-        </div>
-      `;
-        });
-
-      html += `
-        </div>
-      </div>
-    `;
-    });
-
-  return html;
-}
-
-// Handle tree node click
-function handleTreeNodeClick(e) {
-  try {
-    const content = e.currentTarget;
-    if (!content) return;
-
-    const node = content.closest('.tree-node');
-    if (!node) return;
-
-    const level = node.dataset.level;
-
-    // Toggle expansion for type nodes
-    if (level === 'type') {
-      const toggle = content.querySelector('.tree-node-toggle');
-      const children = content.parentElement.querySelector('.tree-node-children');
-
-      if (toggle) toggle.classList.toggle('expanded');
-      if (children) children.classList.toggle('expanded');
-    }
-
-    // Apply selection
-    document.querySelectorAll('.tree-node-content').forEach((n) => n.classList.remove('selected'));
-    content.classList.add('selected');
-
-    // Filter cards based on selection
-    if (level === 'type') {
-      const type = node.dataset.value;
-      filterCardsByTree(type, null);
-    } else if (level === 'subtype') {
-      const type = node.dataset.type;
-      const subtype = node.dataset.subtype;
-      filterCardsByTree(type, subtype);
-    }
-  } catch (error) {
-    console.error('Error handling tree node click:', error);
+// Setup hash routing (only once per page load)
+function setupHashRouting() {
+  if (!state.initialized) {
+    window.addEventListener('hashchange', handleHashChange);
   }
 }
 
-// Filter cards by tree selection
-function filterCardsByTree(type, subtype) {
-  state.filters.type = type || '';
-  state.filters.subtype = subtype || '';
+// Handle hash change events
+function handleHashChange() {
+  const hash = window.location.hash.slice(1); // Remove '#'
 
-  // Update filter dropdowns
-  document.getElementById('filterType').value = type || '';
-  updateSubtypeFilterOptions(type);
-  document.getElementById('filterSubtype').value = subtype || '';
+  if (!hash || !hash.startsWith('library')) {
+    // Clear filters if no library hash
+    state.filters.type = '';
+    state.filters.subtype = '';
+    applyFilters();
+    return;
+  }
 
+  // Parse hash using - as separator (valid CSS selector character)
+  // This ensures HTMX's querySelector-based scrolling works correctly
+  // Format: #library, #library-equipment, #library-equipment-weapon
+  if (hash === 'library') {
+    // #library - show all cards
+    state.filters.type = '';
+    state.filters.subtype = '';
+  } else if (hash.startsWith('library-')) {
+    // Remove 'library-' prefix and split remaining parts
+    const remainder = hash.slice('library-'.length);
+    const parts = remainder.split('-');
+
+    if (parts.length === 1) {
+      // #library-equipment - filter by type
+      const type = capitalizeFirstLetter(parts[0]);
+      state.filters.type = type;
+      state.filters.subtype = '';
+    } else if (parts.length >= 2) {
+      // #library-equipment-weapon - filter by type and subtype
+      const type = capitalizeFirstLetter(parts[0]);
+      const subtype = capitalizeFirstLetter(parts[1]);
+      state.filters.type = type;
+      state.filters.subtype = subtype;
+    }
+  }
+
+  // Apply filters
   applyFilters();
 }
 
-// Expand/collapse all tree nodes
-function expandCollapseAll(expand) {
-  document.querySelectorAll('.tree-node-toggle').forEach((toggle) => {
-    if (!toggle.classList.contains('empty')) {
-      if (expand) {
-        toggle.classList.add('expanded');
-      } else {
-        toggle.classList.remove('expanded');
-      }
-    }
-  });
-
-  document.querySelectorAll('.tree-node-children').forEach((children) => {
-    if (expand) {
-      children.classList.add('expanded');
-    } else {
-      children.classList.remove('expanded');
-    }
-  });
-}
-
-// Refresh tree and reload from Firestore
-async function refreshTree() {
-  try {
-    state.loading = true;
-    state.cards = await getAllCards();
-    state.filteredCards = [...state.cards];
-    state.loading = false;
-
-    renderTree();
-    applyFilters();
-    updateStats();
-  } catch (error) {
-    console.error('Error refreshing cards:', error);
-    state.loading = false;
-    alert(`Error refreshing cards: ${error.message}`);
-  }
-}
-
-// Handle tree search
-function handleTreeSearch(e) {
-  const query = e.target.value.toLowerCase();
-
-  document.querySelectorAll('.tree-node').forEach((node) => {
-    const label = node.querySelector('.tree-node-label').textContent.toLowerCase();
-    const match = label.includes(query);
-
-    node.style.display = match ? 'block' : 'none';
-  });
+// Helper to capitalize first letter
+function capitalizeFirstLetter(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
 // Set view mode
@@ -484,44 +406,15 @@ function setViewMode(mode) {
 
 // Handle filter changes
 function handleFilterChange(e) {
-  state.filters.type = document.getElementById('filterType').value;
-  state.filters.subtype = document.getElementById('filterSubtype').value;
   state.filters.search = document.getElementById('searchCards').value.toLowerCase();
-
-  // Update subtype options when type changes
-  if (e.target.id === 'filterType') {
-    updateSubtypeFilterOptions(state.filters.type);
-  }
-
   applyFilters();
-}
-
-// Update subtype filter options
-function updateSubtypeFilterOptions(type) {
-  const subtypeSelect = document.getElementById('filterSubtype');
-  subtypeSelect.innerHTML = '<option value="">All Subtypes</option>';
-
-  if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach((subtype) => {
-      const option = document.createElement('option');
-      option.value = subtype;
-      option.textContent = subtype;
-      subtypeSelect.appendChild(option);
-    });
-  } else {
-    // Show all subtypes from all cards
-    const uniqueSubtypes = [...new Set(state.cards.map((c) => c.subtype))].filter(Boolean).sort();
-    uniqueSubtypes.forEach((subtype) => {
-      const option = document.createElement('option');
-      option.value = subtype;
-      option.textContent = subtype;
-      subtypeSelect.appendChild(option);
-    });
-  }
 }
 
 // Apply filters
 function applyFilters() {
+  // Clear loading state when applying filters (filters run after data is loaded)
+  state.loading = false;
+
   state.filteredCards = state.cards.filter((card) => {
     // Type filter
     if (state.filters.type && card.type !== state.filters.type) {
@@ -549,6 +442,15 @@ function applyFilters() {
   });
 
   renderCards();
+  updateSearchPlaceholder();
+}
+
+// Update search placeholder with filtered count
+function updateSearchPlaceholder() {
+  const searchInput = document.getElementById('searchCards');
+  if (searchInput) {
+    searchInput.placeholder = `Search (${state.filteredCards.length} cards)...`;
+  }
 }
 
 // Render cards
@@ -559,6 +461,12 @@ function renderCards() {
 
     if (!cardList || !emptyState) {
       console.warn('Card list or empty state element not found');
+      return;
+    }
+
+    // If still loading, keep the loading state visible (don't hide cardList)
+    if (state.loading) {
+      emptyState.style.display = 'none';
       return;
     }
 
@@ -612,7 +520,7 @@ function renderCardItem(card) {
     <div class="card-item" data-card-id="${card.id}">
       <div class="card-item-header">
         <h3 class="card-item-title">${card.title}</h3>
-        <div class="card-item-actions">
+        <div class="card-item-actions auth-controls">
           <button class="btn-icon" onclick="event.stopPropagation(); editCard('${card.id}')" title="Edit">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.5 1.207L1 11.707V13h1.293L12.793 2.5 11.5 1.207z"/>
@@ -630,21 +538,6 @@ function renderCardItem(card) {
       </div>
     </div>
   `;
-}
-
-// Update stats
-function updateStats() {
-  document.getElementById('statTotal').textContent = state.cards.length;
-
-  const statsByType = state.cards.reduce((acc, card) => {
-    acc[card.type] = (acc[card.type] || 0) + 1;
-    return acc;
-  }, {});
-
-  document.getElementById('statEquipment').textContent = statsByType.Equipment || 0;
-  document.getElementById('statSkills').textContent = statsByType.Skill || 0;
-  document.getElementById('statUpgrades').textContent = statsByType.Upgrade || 0;
-  document.getElementById('statFoes').textContent = statsByType.Foe || 0;
 }
 
 // Open card editor modal
@@ -747,9 +640,7 @@ async function handleCardSave(e) {
     }
 
     closeCardEditor();
-    renderTree();
     applyFilters();
-    updateStats();
   } catch (error) {
     console.error('Error saving card:', error);
     alert(`Error saving card: ${error.message}`);
@@ -770,9 +661,7 @@ async function deleteCard() {
       state.cards = state.cards.filter((c) => c.id !== id);
 
       closeCardEditor();
-      renderTree();
       applyFilters();
-      updateStats();
     } catch (error) {
       console.error('Error deleting card:', error);
       alert(`Error deleting card: ${error.message}`);
@@ -801,9 +690,7 @@ async function importCards() {
       state.cards = await getAllCards();
       state.filteredCards = [...state.cards];
 
-      renderTree();
       applyFilters();
-      updateStats();
 
       alert(
         `Import complete!\n` +
@@ -832,15 +719,70 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
-// Initialize application
-function initializeApp() {
-  setupMobileMenu();
-  init();
+// Initialize card-specific functionality only (no sidebar reinit)
+// Called when navigating to cards.html via HTMX
+export async function initCardsPage() {
+  try {
+    // Reset state for fresh initialization (clears any stale loading state)
+    resetState();
+
+    // Initialize authentication
+    initializeAuth();
+
+    // Initialize shared sidebar navigation (generates nav DOM)
+    initSidebarNav();
+
+    // Setup auth state listener (only once)
+    if (!state.initialized) {
+      setupAuthStateListener();
+    }
+
+    // Initialize library navigation (populates library section)
+    // Don't await - let it load in background to avoid blocking card display
+    initLibraryNav().catch((error) => {
+      console.error('Failed to initialize library navigation:', error);
+    });
+
+    // Setup hash routing (only once - uses state.initialized check internally)
+    setupHashRouting();
+
+    // Setup UI components (only once per module load)
+    if (!state.initialized) {
+      setupEventListeners();
+      setupMobileMenu();
+    }
+
+    // Mark as initialized to prevent duplicate global listeners
+    state.initialized = true;
+
+    // Set loading state before rendering to keep loading indicator visible
+    state.loading = true;
+    renderCards(); // Will keep loading state visible
+
+    // Load data and AWAIT completion to ensure consistent state
+    try {
+      await loadCards();
+      // Update UI with loaded data
+      renderCards();
+      // Apply hash route if present
+      handleHashChange();
+    } catch (error) {
+      console.error('Failed to load cards:', error);
+      showWarningBanner('Failed to load cards from cloud. Using cached data.');
+      // Still render cards with fallback data
+      renderCards();
+      handleHashChange();
+    }
+  } catch (error) {
+    console.error('Failed to initialize Card Manager:', error);
+    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+      document.querySelector('.error-banner')?.remove();
+      initCardsPage();
+    });
+  }
 }
 
-// Initialize on page load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
-} else {
-  initializeApp();
-}
+// Note: Initialization is now handled explicitly by:
+// 1. cards.html <script> tag for direct page loads
+// 2. main.js htmx:afterSwap handler for HTMX navigation
+// This prevents double initialization when dynamically importing the module

@@ -29,7 +29,7 @@ test.describe('Card Manager Page', () => {
     // Wait for sidebar navigation to be ready
     await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
 
-    // Check nav links exist
+    // Check nav links exist (Equipment section removed, Library section added)
     const navLinks = [
       { href: '/#introduction', text: 'Introduction' },
       { href: '/#initiative', text: 'Initiative' },
@@ -40,13 +40,8 @@ test.describe('Card Manager Page', () => {
       { href: '/#actions', text: 'Actions' },
       { href: '/#trading-initiative', text: 'Trading Initiative' },
       { href: '/#conditions', text: 'Conditions' },
-      { href: '/#weapons', text: 'Weapons' },
-      { href: '/#armor', text: 'Armor' },
-      { href: '/#skills', text: 'Skills' },
-      { href: '/#upgrades', text: 'Upgrades' },
       { href: '/#simulator', text: 'Combat Simulator' },
       { href: '/#examples', text: 'Examples' },
-      { href: '/cards.html', text: 'Card Manager' },
     ];
 
     for (const navLink of navLinks) {
@@ -56,11 +51,17 @@ test.describe('Card Manager Page', () => {
     }
   });
 
-  test('should have active class on Card Manager link', async ({ page }) => {
+  test('should have Library section in sidebar', async ({ page }) => {
     await page.goto('/cards.html');
 
-    const cardManagerLink = page.locator('.sidebar-nav a[href="/cards.html"]');
-    await expect(cardManagerLink).toHaveClass(/active/);
+    // Library section should exist
+    const librarySection = page.locator('.nav-section-library');
+    await expect(librarySection).toBeVisible();
+
+    // Library section toggle should be present
+    const librarySectionToggle = page.locator('.nav-section-title[data-section="library"]');
+    await expect(librarySectionToggle).toBeVisible();
+    await expect(librarySectionToggle).toContainText('Library');
   });
 
   test('should navigate to homepage sections when clicking nav links', async ({ page }) => {
@@ -74,58 +75,20 @@ test.describe('Card Manager Page', () => {
     await expect(page.url()).toContain('/#initiative');
   });
 
-  test('should display card tree sidebar', async ({ page }) => {
+  test('should display library navigation in main sidebar', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Card tree sidebar should be visible
-    const cardTreeSidebar = page.locator('.card-tree-sidebar');
-    await expect(cardTreeSidebar).toBeVisible();
+    // Wait for library navigation to load
+    await page.waitForSelector('#libraryNavContainer', { timeout: 5000 });
 
-    // Check header elements
-    const treeHeader = cardTreeSidebar.locator('.sidebar-header');
-    await expect(treeHeader).toBeVisible();
-    await expect(treeHeader.locator('h2')).toContainText('Card Library');
+    // Library nav container should be visible
+    const libraryNavContainer = page.locator('#libraryNavContainer');
+    await expect(libraryNavContainer).toBeVisible();
 
-    // Check tree controls
-    const expandBtn = page.locator('#expandAllBtn');
-    const collapseBtn = page.locator('#collapseAllBtn');
-    const refreshBtn = page.locator('#refreshTreeBtn');
-
-    await expect(expandBtn).toBeVisible();
-    await expect(collapseBtn).toBeVisible();
-    await expect(refreshBtn).toBeVisible();
-  });
-
-  test('should display card management interface', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Card toolbar should be visible
-    const toolbar = page.locator('.card-toolbar');
-    await expect(toolbar).toBeVisible();
-    await expect(toolbar.locator('h1')).toContainText('Card Management');
-
-    // Toolbar buttons
-    const addCardBtn = page.locator('#addCardBtn');
-    const importCardsBtn = page.locator('#importCardsBtn');
-    const exportCardsBtn = page.locator('#exportCardsBtn');
-
-    await expect(addCardBtn).toBeVisible();
-    await expect(importCardsBtn).toBeVisible();
-    await expect(exportCardsBtn).toBeVisible();
-  });
-
-  test('should display stats overview', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    const statsOverview = page.locator('.stats-overview');
-    await expect(statsOverview).toBeVisible();
-
-    // Check stat cards
-    const statLabels = ['Total Cards', 'Equipment', 'Skills', 'Upgrades', 'Foes'];
-    for (const label of statLabels) {
-      const statCard = page.locator('.stat-card', { hasText: label });
-      await expect(statCard).toBeVisible();
-    }
+    // Should have library nav items (types)
+    const libraryNavItems = page.locator('.library-nav-type');
+    const itemCount = await libraryNavItems.count();
+    expect(itemCount).toBeGreaterThan(0);
   });
 
   test('should have mobile menu toggle button in DOM', async ({ page }) => {
@@ -195,7 +158,12 @@ test.describe('Card Manager Page', () => {
       await toggle.click();
       await expect(sidebar).toHaveClass(/active/);
 
-      await page.locator('.card-toolbar h1').click();
+      // Click outside the sidebar using mouse coordinates (right side of screen)
+      await page.mouse.click(350, 200);
+
+      // Wait a bit for the click handler to process
+      await page.waitForTimeout(100);
+
       await expect(sidebar).not.toHaveClass(/active/);
     });
 
@@ -233,19 +201,6 @@ test.describe('Card Manager Page', () => {
     await expect(gridModeBtn).toHaveClass(/active/);
   });
 
-  test('should display filter controls', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    // Filter dropdowns
-    const typeFilter = page.locator('#filterType');
-    const subtypeFilter = page.locator('#filterSubtype');
-    const searchInput = page.locator('#searchCards');
-
-    await expect(typeFilter).toBeVisible();
-    await expect(subtypeFilter).toBeVisible();
-    await expect(searchInput).toBeVisible();
-  });
-
   test('should navigate to external links on desktop', async ({ page }) => {
     await setupDesktopViewport(page);
     await page.goto('/cards.html');
@@ -256,30 +211,5 @@ test.describe('Card Manager Page', () => {
     await introLink.click();
     await page.waitForURL(/\/#introduction/);
     await expect(page).toHaveURL(/\/#introduction/);
-  });
-
-  test('should handle missing elements gracefully', async ({ page }) => {
-    const consoleErrors = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
-
-    await page.goto('/cards.html');
-    await page.evaluate(() => {
-      const toggle = document.getElementById('mobileMenuToggle');
-      if (toggle) toggle.remove();
-    });
-    await page.locator('.card-toolbar h1').click();
-    await page.waitForTimeout(100);
-
-    // Filter out expected warnings
-    const actualErrors = consoleErrors.filter((err) => !err.includes('Warning'));
-
-    // Log errors for debugging before assertion
-    if (actualErrors.length > 0) {
-      console.log('Console errors detected:', actualErrors);
-    }
-
-    expect(actualErrors).toHaveLength(0);
   });
 });

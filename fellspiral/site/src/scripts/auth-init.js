@@ -3,10 +3,24 @@
  * Sets up GitHub OAuth and injects auth UI components
  */
 
-import { initAuth, initAuthState, createAuthButton, createUserProfile } from '@commons/auth';
+import {
+  initAuth,
+  initAuthState,
+  createAuthButton,
+  createUserProfile,
+  onAuthStateChange,
+} from '@commons/auth';
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';
 import { firebaseConfig } from '../firebase-config.js';
+
+/**
+ * Export onAuthStateChanged for use by other modules
+ * @param {function} callback - Callback function that receives user object
+ */
+export function onAuthStateChanged(callback) {
+  return onAuthStateChange(callback);
+}
 
 /**
  * Initialize authentication and inject UI components

@@ -23,6 +23,6 @@ make build
 echo ""
 echo "--- E2E Tests ---"
 cd "../tests"
-CI=true npx playwright test --project chromium
+CI=true npx playwright test
 
 echo "Tests passed for $APP_NAME"

@@ -1,5 +1,9 @@
 // Import auth initialization
 import { initializeAuth } from './auth-init.js';
+// Import shared navigation
+import { initSidebarNav } from './sidebar-nav.js';
+// Import library navigation
+import { initLibraryNav } from './library-nav.js';
 
 // Combat Simulator Data and Logic
 const characters = {
@@ -1153,6 +1157,64 @@ function closeMobileSidebar() {
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize authentication
   initializeAuth();
+
+  // Initialize shared sidebar navigation (generates nav DOM)
+  initSidebarNav();
+
+  // Initialize library navigation (populates library section)
+  // Don't await - let it load in background
+  initLibraryNav().catch((error) => {
+    console.error('Failed to initialize library navigation:', error);
+  });
+
+  // HTMX event listener to reinitialize components after page swap
+  // Note: Since we only swap main content (not sidebar), we don't reinitialize sidebar/library nav
+  document.body.addEventListener('htmx:afterSwap', async (event) => {
+    // Reinitialize authentication (needed for auth controls in new content)
+    initializeAuth();
+
+    // Check if we navigated to cards page - if so, dynamically load and init cards functionality
+    // Note: Production uses /cards (rewritten from /cards.html), dev uses /cards.html
+    const pathname = window.location.pathname;
+    if (pathname.includes('cards.html') || pathname.endsWith('/cards') || pathname === '/cards') {
+      try {
+        const cardsModule = await import('./cards.js');
+        if (cardsModule.initCardsPage) {
+          await cardsModule.initCardsPage();
+        } else {
+          console.error('cardsModule.initCardsPage is not defined');
+          throw new Error('initCardsPage function not exported from cards module');
+        }
+      } catch (e) {
+        console.error('Failed to load/init cards module:', e);
+        // Handle initialization failure - hide loading spinner and show error state
+        const cardList = document.getElementById('cardList');
+        const emptyState = document.getElementById('emptyState');
+        if (cardList) {
+          // Use safe DOM methods to avoid XSS
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'error-state';
+          errorDiv.style.cssText =
+            'padding: 2rem; text-align: center; color: var(--text-secondary);';
+
+          const errorMsg = document.createElement('p');
+          errorMsg.textContent = 'Failed to load card manager. Please refresh the page.';
+          errorDiv.appendChild(errorMsg);
+
+          const errorDetail = document.createElement('p');
+          errorDetail.style.cssText = 'font-size: 0.875rem; margin-top: 0.5rem;';
+          errorDetail.textContent = 'Error: ' + (e.message || 'Unknown error');
+          errorDiv.appendChild(errorDetail);
+
+          cardList.replaceChildren(errorDiv);
+          cardList.style.display = 'block';
+        }
+        if (emptyState) {
+          emptyState.style.display = 'none';
+        }
+      }
+    }
+  });
 
   // Mobile menu toggle
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');

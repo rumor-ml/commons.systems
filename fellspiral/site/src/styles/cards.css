@@ -22,40 +22,25 @@
 
 .card-manager-layout {
   display: flex;
+  flex-direction: column;
   height: 100vh;
 }
 
 /* ==========================================================================
-   Tree Sidebar
+   Auth Controls - Hidden by default, shown when authenticated
    ========================================================================== */
 
-.card-tree-sidebar {
-  width: var(--sidebar-width);
-  background: var(--color-bg-surface);
-  border-right: 1px solid var(--color-border-default);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.auth-controls {
+  display: none !important;
 }
 
-.sidebar-header {
-  padding: 1rem;
-  border-bottom: 1px solid var(--color-border-default);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+body.authenticated .auth-controls {
+  display: inline-flex !important;
 }
 
-.sidebar-header h2 {
-  margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-}
-
-.sidebar-actions {
-  display: flex;
-  gap: 0.5rem;
-}
+/* ==========================================================================
+   Icon Buttons
+   ========================================================================== */
 
 .btn-icon {
   background: none;
@@ -71,112 +56,6 @@
   background: var(--color-bg-hover);
   color: var(--color-primary);
   box-shadow: var(--color-primary-glow-subtle);
-}
-
-/* Tree Search */
-.tree-search {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border-default);
-}
-
-.tree-search-input {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--border-radius-md);
-  font-size: var(--font-size-sm);
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
-}
-
-.tree-search-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow:
-    0 0 0 2px var(--color-primary-muted),
-    var(--color-primary-glow-subtle);
-}
-
-/* Card Tree */
-.card-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem 0;
-}
-
-.tree-node {
-  user-select: none;
-}
-
-.tree-node-content {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tree-node-content:hover {
-  background: var(--color-bg-elevated);
-}
-
-.tree-node-content.selected {
-  background: var(--color-primary-muted);
-  color: var(--color-primary);
-  font-weight: var(--font-weight-medium);
-  box-shadow: inset 3px 0 0 var(--color-primary);
-}
-
-.tree-node-toggle {
-  width: 16px;
-  height: 16px;
-  margin-right: 0.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s;
-}
-
-.tree-node-toggle.expanded {
-  transform: rotate(90deg);
-}
-
-.tree-node-toggle.empty {
-  visibility: hidden;
-}
-
-.tree-node-icon {
-  width: 16px;
-  height: 16px;
-  margin-right: 0.5rem;
-  color: var(--color-text-secondary);
-}
-
-.tree-node-label {
-  flex: 1;
-  font-size: var(--font-size-sm);
-}
-
-.tree-node-count {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  background: var(--color-bg-elevated);
-  padding: 0.125rem 0.5rem;
-  border-radius: var(--border-radius-full);
-}
-
-.tree-node-children {
-  padding-left: var(--tree-indent);
-  display: none;
-}
-
-.tree-node-children.expanded {
-  display: block;
-}
-
-.tree-node-leaf {
-  padding-left: calc(var(--tree-indent) + 16px);
 }
 
 /* ==========================================================================
@@ -510,6 +389,40 @@
 
 .empty-state p {
   margin-bottom: 1.5rem;
+}
+
+/* ==========================================================================
+   Loading State
+   ========================================================================== */
+
+.loading-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--color-text-tertiary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.loading-state p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--color-bg-elevated);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ==========================================================================
