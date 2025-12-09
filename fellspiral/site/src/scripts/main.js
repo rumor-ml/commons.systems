@@ -1173,8 +1173,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reinitialize authentication (needed for auth controls in new content)
     initializeAuth();
 
-    // Check if we navigated to cards.html - if so, dynamically load and init cards functionality
-    if (window.location.pathname.includes('cards.html')) {
+    // Check if we navigated to cards page - if so, dynamically load and init cards functionality
+    // Note: Production uses /cards (rewritten from /cards.html), dev uses /cards.html
+    const pathname = window.location.pathname;
+    if (pathname.includes('cards.html') || pathname.endsWith('/cards') || pathname === '/cards') {
       try {
         const cardsModule = await import('./cards.js');
         if (cardsModule.initCardsPage) {
