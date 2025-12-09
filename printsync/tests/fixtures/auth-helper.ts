@@ -18,6 +18,20 @@ export class AuthHelper {
       );
     }
 
+    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
+    // In CI, this env var points to a service account key file. Firebase Admin SDK
+    // tries to load it BEFORE checking if we're connecting to an emulator, causing
+    // "Invalid contents in the credentials file" error.
+    // The emulator doesn't need credentials, so we explicitly remove the env var.
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      console.log(
+        '⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS to use emulator (was:',
+        process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        ')'
+      );
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
+
     // Initialize Firebase Admin SDK with emulator
     // The SDK automatically connects to the emulator when FIREBASE_AUTH_EMULATOR_HOST is set
     // Always use 'demo-test' to match TestHelpers.firestore projectId

@@ -84,15 +84,16 @@ test.describe('Card Manager Page', () => {
     await libraryToggle.waitFor({ state: 'visible' });
     await libraryToggle.click();
 
-    // Wait for library navigation to load
-    await page.waitForSelector('#libraryNavContainer', { timeout: 5000 });
+    // Wait for toggle to have expanded class (CSS transition)
+    await expect(libraryToggle).toHaveClass(/expanded/, { timeout: 5000 });
 
-    // Library nav container should be visible
+    // Wait for library navigation to load and become visible
     const libraryNavContainer = page.locator('#libraryNavContainer');
-    await expect(libraryNavContainer).toBeVisible();
+    await expect(libraryNavContainer).toBeVisible({ timeout: 10000 });
 
     // Should have library nav items (types)
     const libraryNavItems = page.locator('.library-nav-type');
+    await libraryNavItems.first().waitFor({ state: 'visible', timeout: 10000 });
     const itemCount = await libraryNavItems.count();
     expect(itemCount).toBeGreaterThan(0);
   });
