@@ -65,6 +65,7 @@
       "Bash(templ generate:*)",
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
+      "Bash(npx prettier:*)",
       "Bash(npm test:*)",
       "Bash(npm run build:*)",
       "Bash(pnpm test:*)",

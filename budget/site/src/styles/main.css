@@ -1,0 +1,104 @@
+/* Import design system */
+@import '@commons/design-system';
+
+/* Tailwind base */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styles */
+body {
+  @apply bg-bg-base text-text-primary;
+  min-height: 100vh;
+}
+
+/* App container */
+.app-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Header */
+.app-header {
+  @apply mb-8;
+}
+
+.app-title {
+  @apply text-4xl font-bold text-text-primary mb-2;
+}
+
+.app-subtitle {
+  @apply text-text-secondary;
+}
+
+/* Main layout - chart and legend side by side */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Summary cards */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  @apply bg-bg-elevated rounded-lg shadow-md p-4;
+}
+
+.summary-label {
+  @apply text-text-secondary text-sm uppercase tracking-wide mb-1;
+}
+
+.summary-value {
+  @apply text-2xl font-bold;
+}
+
+.summary-value.positive {
+  @apply text-success;
+}
+
+.summary-value.negative {
+  @apply text-error;
+}
+
+.summary-value.neutral {
+  @apply text-text-primary;
+}
+
+/* Chart container adjustments */
+.chart-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Observable Plot overrides for dark theme */
+svg {
+  background: transparent;
+}
+
+/* Ensure checkboxes work with design system */
+input[type='checkbox'] {
+  cursor: pointer;
+}
+
+/* Loading spinner from design system */
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline-block;
+}
