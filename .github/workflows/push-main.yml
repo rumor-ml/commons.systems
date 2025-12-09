@@ -92,6 +92,7 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
+          install-firebase: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
