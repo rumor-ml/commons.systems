@@ -719,15 +719,7 @@ export async function initCardsPage() {
   }
 }
 
-// Initialize full application (includes sidebar)
-function initializeApp() {
-  setupMobileMenu();
-  init();
-}
-
-// Initialize on page load (only when directly loading cards.html)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
-} else {
-  initializeApp();
-}
+// Note: Initialization is now handled explicitly by:
+// 1. cards.html <script> tag for direct page loads
+// 2. main.js htmx:afterSwap handler for HTMX navigation
+// This prevents double initialization when dynamically importing the module

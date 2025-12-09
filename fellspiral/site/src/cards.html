@@ -250,6 +250,15 @@
       </div>
     </div>
 
-    <script type="module" src="/scripts/cards.js"></script>
+    <script type="module">
+      import { initCardsPage } from '/scripts/cards.js';
+
+      // Initialize cards page when directly loaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => initCardsPage());
+      } else {
+        initCardsPage();
+      }
+    </script>
   </body>
 </html>
