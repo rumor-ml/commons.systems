@@ -349,12 +349,21 @@ export async function initLibraryNav() {
 
   await libraryNav.init();
 
-  // Ensure the LIBRARY section is expanded by default
+  // Set up the LIBRARY section toggle click handler
+  // Section starts collapsed by default (CSS hides content without .expanded)
   const librarySection = container.closest('.nav-section');
   if (librarySection) {
     const toggle = librarySection.querySelector('.nav-section-toggle');
-    if (toggle && !toggle.classList.contains('expanded')) {
-      toggle.classList.add('expanded');
+    const content = librarySection.querySelector('.nav-section-content');
+
+    // Add click handler for the library section toggle
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('expanded');
+        if (content) {
+          content.classList.toggle('expanded');
+        }
+      });
     }
   }
 
