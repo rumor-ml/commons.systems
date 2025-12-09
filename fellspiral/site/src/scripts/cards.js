@@ -183,6 +183,9 @@ async function loadCards() {
 
     state.filteredCards = [...state.cards];
     state.loading = false;
+
+    // Update DOM to display loaded cards and hide loading spinner
+    renderCards();
   } catch (error) {
     console.error('Error loading cards:', error);
     state.error = error.message;
