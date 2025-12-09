@@ -42,4 +42,11 @@ config.workers = 1;
 config.globalSetup = resolve(__dirname, './global-setup.ts');
 config.globalTeardown = resolve(__dirname, './global-teardown.ts');
 
+// Override reporter for CI visibility - use list for streaming output
+// The base config uses JSON-only in CI which produces no output until completion
+// This causes exit 137 (SIGKILL) scenarios to show no test progress
+config.reporter = process.env.CI
+  ? [['list'], ['json', { outputFile: 'test-results.json' }]]
+  : [['list'], ['json', { outputFile: 'test-results.json' }]];
+
 export default config;
