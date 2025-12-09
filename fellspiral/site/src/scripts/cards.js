@@ -731,7 +731,8 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
-// Note: initCardsPage is exported earlier in the file
+// Export init function as initCardsPage for use in cards.html
+export const initCardsPage = init;
 
 // Note: Initialization is now handled explicitly by:
 // 1. cards.html <script> tag for direct page loads
