@@ -51,6 +51,25 @@ case "$APP_TYPE" in
     export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
     export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
 
+    # Debug: Verify emulator environment
+    echo "=== CI Debug: Emulator Environment ==="
+    echo "FIRESTORE_EMULATOR_HOST: $FIRESTORE_EMULATOR_HOST"
+    echo "FIREBASE_AUTH_EMULATOR_HOST: $FIREBASE_AUTH_EMULATOR_HOST"
+    echo "STORAGE_EMULATOR_HOST: $STORAGE_EMULATOR_HOST"
+    echo "GCP_PROJECT_ID: $GCP_PROJECT_ID"
+    echo "CI environment: ${CI:-false}"
+    echo "======================================"
+
+    # Debug: Check if cards.json exists (for fellspiral tests)
+    CARDS_JSON="${APP_PATH_ABS}/site/src/data/cards.json"
+    if [ -f "$CARDS_JSON" ]; then
+      CARD_COUNT=$(jq '. | length' "$CARDS_JSON" 2>/dev/null || echo "unknown")
+      echo "=== CI Debug: Test Data ==="
+      echo "cards.json found at: $CARDS_JSON"
+      echo "Card count: $CARD_COUNT"
+      echo "==========================="
+    fi
+
     # Set up cleanup trap
     cleanup() {
       echo "Stopping emulators..."

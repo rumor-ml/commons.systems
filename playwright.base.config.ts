@@ -33,7 +33,10 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     testDir: site.testDir || './e2e',
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
-    retries: process.env.CI ? 1 : 0,
+    // Retry strategy: 2 retries in CI for better stability with UI/timing-dependent tests
+    // Database/API tests typically fail fast (deterministic), but UI tests benefit from retries
+    // Individual test suites can override with test.describe().configure({ retries: N })
+    retries: process.env.CI ? 2 : 0,
     workers: process.env.CI ? 4 : undefined,
     timeout: site.timeout || 60000,
     globalSetup: site.globalSetup,

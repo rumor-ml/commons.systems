@@ -183,67 +183,56 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 });
 
 test.describe('Library Navigation - Navigation Interaction', () => {
-  // Skip in CI: Tests require deployed site to have cards in Firestore.
-  // These tests work locally where cards are loaded from cards.json.
-  // TODO: Seed test data in deployed Firestore or mock card responses.
-  const shouldSkip = process.env.CI;
+  test('should navigate to type listing when clicking type', async ({ page }) => {
+    await page.goto('/cards.html');
 
-  (shouldSkip ? test.skip : test)(
-    'should navigate to type listing when clicking type',
-    async ({ page }) => {
-      await page.goto('/cards.html');
+    // Wait for library nav to load
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-      // Wait for library nav to load
-      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+    await equipmentToggle.click();
 
-      const equipmentToggle = page.locator(
-        '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
-      );
-      await equipmentToggle.click();
+    // Hash should update
+    await expect(page).toHaveURL(/#library-equipment$/);
 
-      // Hash should update
-      await expect(page).toHaveURL(/#library-equipment$/);
+    // Cards should be filtered to Equipment type
+    // Verify by checking that filtered cards are shown (wait for visible items)
+    await page.waitForSelector('.card-item', { timeout: 5000 });
+  });
 
-      // Cards should be filtered to Equipment type
-      // Verify by checking that filtered cards are shown (wait for visible items)
-      await page.waitForSelector('.card-item', { timeout: 5000 });
-    }
-  );
+  test('should navigate to subtype listing when clicking subtype', async ({ page }) => {
+    await page.goto('/cards.html');
 
-  (shouldSkip ? test.skip : test)(
-    'should navigate to subtype listing when clicking subtype',
-    async ({ page }) => {
-      await page.goto('/cards.html');
+    // Wait for library nav to load
+    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-      // Wait for library nav to load
-      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // First expand Equipment to make subtypes visible
+    const equipmentToggle = page.locator(
+      '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
+    );
+    await equipmentToggle.click();
 
-      // First expand Equipment to make subtypes visible
-      const equipmentToggle = page.locator(
-        '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
-      );
-      await equipmentToggle.click();
+    // Wait for subtypes to appear
+    await page.waitForSelector(
+      '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"]',
+      { timeout: 5000 }
+    );
 
-      // Wait for subtypes to appear
-      await page.waitForSelector(
-        '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"]',
-        { timeout: 5000 }
-      );
+    const weaponSubtype = page.locator(
+      '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item'
+    );
+    await weaponSubtype.click();
 
-      const weaponSubtype = page.locator(
-        '.library-nav-subtype[data-type="Equipment"][data-subtype="Weapon"] .library-nav-subtype-item'
-      );
-      await weaponSubtype.click();
+    await expect(page).toHaveURL(/#library-equipment-weapon$/);
 
-      await expect(page).toHaveURL(/#library-equipment-weapon$/);
+    // Cards should be filtered to Equipment > Weapon
+    // Verify by checking that filtered cards are shown (wait for visible items)
+    await page.waitForSelector('.card-item', { timeout: 5000 });
+  });
 
-      // Cards should be filtered to Equipment > Weapon
-      // Verify by checking that filtered cards are shown (wait for visible items)
-      await page.waitForSelector('.card-item', { timeout: 5000 });
-    }
-  );
-
-  (shouldSkip ? test.skip : test)('should filter cards based on navigation', async ({ page }) => {
+  test('should filter cards based on navigation', async ({ page }) => {
     await page.goto('/cards.html');
 
     // Wait for library nav and cards to load

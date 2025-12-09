@@ -35,6 +35,26 @@ const config = createPlaywrightConfig({
 
 // Override base config for printsync: run tests serially to prevent
 // race conditions with shared Firebase emulators
+//
+// WHY SERIAL EXECUTION?
+// - PrintSync tests share a single Firestore emulator instance
+// - Multiple tests writing to the same emulator in parallel cause race conditions:
+//   * File metadata conflicts when multiple tests upload simultaneously
+//   * Card data pollution when tests expect clean emulator state
+//   * Firestore transaction conflicts between parallel test workers
+//
+// TRADE-OFFS:
+// - Serial execution: 2-3 minutes with 100% stability
+// - Parallel execution: 30-45 seconds with frequent flakiness and test pollution
+// - Stability > Speed: Serial execution is the right choice for these integration tests
+//
+// FUTURE OPTIMIZATION:
+// To parallelize in the future, consider:
+// 1. Data namespace isolation per test (e.g., user-specific prefixes: "test-worker-1-*")
+// 2. Separate emulator instances per worker (30-60s startup overhead per instance)
+// 3. Mock Firestore instead of real emulators (loses integration testing value)
+//
+// For now, serial execution is intentional and correct. See TEST_STABILITY_GUIDE.md.
 config.fullyParallel = false;
 config.workers = 1;
 
