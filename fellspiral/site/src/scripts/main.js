@@ -1162,7 +1162,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initSidebarNav();
 
   // Initialize library navigation (populates library section)
-  initLibraryNav();
+  // Don't await - let it load in background
+  initLibraryNav().catch((error) => {
+    console.error('Failed to initialize library navigation:', error);
+  });
 
   // HTMX event listener to reinitialize components after page swap
   // Note: Since we only swap main content (not sidebar), we don't reinitialize sidebar/library nav

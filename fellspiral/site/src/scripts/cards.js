@@ -101,11 +101,14 @@ async function init() {
     // Initialize shared sidebar navigation (generates nav DOM)
     initSidebarNav();
 
-    // Initialize library navigation (populates library section)
-    await initLibraryNav();
-
     // Setup auth state listener
     setupAuthStateListener();
+
+    // Initialize library navigation (populates library section)
+    // Don't await - let it load in background to avoid blocking card display
+    initLibraryNav().catch((error) => {
+      console.error('Failed to initialize library navigation:', error);
+    });
 
     // Setup hash routing
     setupHashRouting();
