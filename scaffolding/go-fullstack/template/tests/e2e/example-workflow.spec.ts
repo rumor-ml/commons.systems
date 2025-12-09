@@ -149,9 +149,9 @@ test.describe('Example Workflow', () => {
     // === This test demonstrates automatic cleanup ===
 
     // Create multiple items
-    const item1 = await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 1' });
-    const item2 = await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 2' });
-    const item3 = await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 3' });
+    await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 1' });
+    await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 2' });
+    await helpers.createItem('{{APP_NAME}}-items', { name: 'Item 3' });
 
     // Verify they exist
     const items = await helpers.queryCollection('{{APP_NAME}}-items', {});
