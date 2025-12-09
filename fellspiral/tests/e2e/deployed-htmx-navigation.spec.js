@@ -30,7 +30,7 @@ test.describe('Deployed Site - HTMX Navigation', () => {
     await equipmentToggle.click();
 
     // Wait for HTMX navigation to complete - URL should change to cards with hash
-    await page.waitForURL(/cards(\.html)?#library\/equipment$/, { timeout: 10000 });
+    await page.waitForURL(/cards(\.html)?#library-equipment$/, { timeout: 10000 });
 
     // CRITICAL: Verify we don't get stuck in infinite loading spinner
     // Loading should complete within 15 seconds
@@ -77,7 +77,7 @@ test.describe('Deployed Site - HTMX Navigation', () => {
     const skillToggle = page.locator('.library-nav-type[data-type="Skill"] .library-nav-toggle');
     await skillToggle.click();
 
-    await page.waitForURL(/cards(\.html)?#library\/skill$/, { timeout: 10000 });
+    await page.waitForURL(/cards(\.html)?#library-skill$/, { timeout: 10000 });
 
     // Wait for loading to complete
     await page.waitForFunction(
@@ -121,7 +121,7 @@ test.describe('Deployed Site - HTMX Navigation', () => {
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
     );
     await equipmentToggle.click();
-    await page.waitForURL(/cards(\.html)?#library\/equipment$/, { timeout: 10000 });
+    await page.waitForURL(/cards(\.html)?#library-equipment$/, { timeout: 10000 });
 
     // Wait for loading to complete
     await page.waitForFunction(
@@ -143,7 +143,7 @@ test.describe('Deployed Site - HTMX Navigation', () => {
     // Navigate to Foe type
     const foeToggle = page.locator('.library-nav-type[data-type="Foe"] .library-nav-toggle');
     await foeToggle.click();
-    await page.waitForURL(/cards(\.html)?#library\/foe$/, { timeout: 10000 });
+    await page.waitForURL(/cards(\.html)?#library-foe$/, { timeout: 10000 });
 
     // Wait for loading to complete again
     await page.waitForFunction(

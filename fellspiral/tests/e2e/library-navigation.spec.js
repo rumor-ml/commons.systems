@@ -202,7 +202,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
       await equipmentToggle.click();
 
       // Hash should update
-      await expect(page).toHaveURL(/#library\/equipment$/);
+      await expect(page).toHaveURL(/#library-equipment$/);
 
       // Cards should be filtered to Equipment type
       // Verify by checking that filtered cards are shown (wait for visible items)
@@ -235,7 +235,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
       );
       await weaponSubtype.click();
 
-      await expect(page).toHaveURL(/#library\/equipment\/weapon$/);
+      await expect(page).toHaveURL(/#library-equipment-weapon$/);
 
       // Cards should be filtered to Equipment > Weapon
       // Verify by checking that filtered cards are shown (wait for visible items)
@@ -260,7 +260,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     await page.waitForTimeout(500);
 
     // Verify URL hash was updated to equipment
-    await expect(page).toHaveURL(/#library\/equipment$/);
+    await expect(page).toHaveURL(/#library-equipment$/);
 
     // Verify filtered cards are shown (wait for visible items)
     await page.waitForSelector('.card-item', { timeout: 5000 });

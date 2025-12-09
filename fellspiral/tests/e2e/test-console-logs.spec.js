@@ -35,7 +35,7 @@ test('capture console logs during HTMX navigation on deployed site', async ({ pa
 
   console.log('\n=== Step 4: Wait for URL change ===');
   try {
-    await page.waitForURL(/cards.*#library\/equipment$/, { timeout: 10000 });
+    await page.waitForURL(/cards.*#library-equipment$/, { timeout: 10000 });
     console.log('URL changed to:', page.url());
   } catch (e) {
     console.error('URL did not change:', e.message);

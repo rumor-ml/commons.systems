@@ -326,24 +326,29 @@ function handleHashChange() {
     return;
   }
 
-  // Parse hash: #library, #library/equipment, #library/equipment/weapon
-  const parts = hash.split('/');
-
-  if (parts.length === 1) {
+  // Parse hash using - as separator (valid CSS selector character)
+  // Format: #library, #library-equipment, #library-equipment-weapon
+  if (hash === 'library') {
     // #library - show all cards
     state.filters.type = '';
     state.filters.subtype = '';
-  } else if (parts.length === 2) {
-    // #library/equipment - filter by type
-    const type = capitalizeFirstLetter(parts[1]);
-    state.filters.type = type;
-    state.filters.subtype = '';
-  } else if (parts.length >= 3) {
-    // #library/equipment/weapon - filter by type and subtype
-    const type = capitalizeFirstLetter(parts[1]);
-    const subtype = capitalizeFirstLetter(parts[2]);
-    state.filters.type = type;
-    state.filters.subtype = subtype;
+  } else if (hash.startsWith('library-')) {
+    // Remove 'library-' prefix and split remaining parts
+    const remainder = hash.slice('library-'.length);
+    const parts = remainder.split('-');
+
+    if (parts.length === 1) {
+      // #library-equipment - filter by type
+      const type = capitalizeFirstLetter(parts[0]);
+      state.filters.type = type;
+      state.filters.subtype = '';
+    } else if (parts.length >= 2) {
+      // #library-equipment-weapon - filter by type and subtype
+      const type = capitalizeFirstLetter(parts[0]);
+      const subtype = capitalizeFirstLetter(parts[1]);
+      state.filters.type = type;
+      state.filters.subtype = subtype;
+    }
   }
 
   // Apply filters

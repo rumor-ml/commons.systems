@@ -129,7 +129,7 @@ export class LibraryNav {
     const typeToggle = document.createElement('a');
     typeToggle.className = `library-nav-item library-nav-toggle ${isExpanded ? 'expanded' : ''}`;
     typeToggle.dataset.toggle = typeId;
-    typeToggle.href = `/cards.html#library/${type.toLowerCase()}`;
+    typeToggle.href = `/cards.html#library-${type.toLowerCase()}`;
     // Disable HTMX boost on cards.html since we handle hash navigation manually
     if (window.location.pathname.includes('cards.html')) {
       typeToggle.setAttribute('hx-boost', 'false');
@@ -187,7 +187,7 @@ export class LibraryNav {
     const subtypeItem = document.createElement('a');
     subtypeItem.className = `library-nav-item library-nav-subtype-item ${isSubtypeExpanded ? 'expanded' : ''}`;
     subtypeItem.dataset.toggle = subtypeId;
-    subtypeItem.href = `/cards.html#library/${type.toLowerCase()}/${subtype.toLowerCase()}`;
+    subtypeItem.href = `/cards.html#library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
     // Disable HTMX boost on cards.html since we handle hash navigation manually
     if (window.location.pathname.includes('cards.html')) {
       subtypeItem.setAttribute('hx-boost', 'false');
@@ -234,7 +234,7 @@ export class LibraryNav {
         if (isOnCardsPage) {
           e.preventDefault();
           const type = toggle.closest('.library-nav-type').dataset.type;
-          window.location.hash = `library/${type.toLowerCase()}`;
+          window.location.hash = `library-${type.toLowerCase()}`;
         }
         // On other pages (index.html), let HTMX handle the navigation to cards.html
       });
@@ -250,7 +250,7 @@ export class LibraryNav {
           const subtypeDiv = item.closest('.library-nav-subtype');
           const type = subtypeDiv.dataset.type;
           const subtype = subtypeDiv.dataset.subtype;
-          window.location.hash = `library/${type.toLowerCase()}/${subtype.toLowerCase()}`;
+          window.location.hash = `library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
         }
         // On other pages, let HTMX handle navigation
       });
