@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
+import { getCardsCollectionName } from '../lib/firestore-collections.js';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -44,7 +45,7 @@ if (
 }
 
 // Collection reference
-const cardsCollection = collection(db, 'cards');
+const cardsCollection = collection(db, getCardsCollectionName());
 
 /**
  * Card Database Operations
@@ -95,7 +96,7 @@ export async function getAllCards() {
 // Get a single card by ID
 export async function getCard(cardId) {
   try {
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     const cardSnap = await getDoc(cardRef);
     if (cardSnap.exists()) {
       return {
@@ -142,7 +143,7 @@ export async function updateCard(cardId, cardData) {
       throw new Error('User must be authenticated to update cards');
     }
 
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     await updateDoc(cardRef, {
       ...cardData,
       updatedAt: serverTimestamp(),
@@ -163,7 +164,7 @@ export async function deleteCard(cardId) {
       throw new Error('User must be authenticated to delete cards');
     }
 
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     await deleteDoc(cardRef);
   } catch (error) {
     console.error('Error deleting card:', error);

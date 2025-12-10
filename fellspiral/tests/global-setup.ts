@@ -6,6 +6,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -73,7 +74,9 @@ async function globalSetup() {
     });
     console.log(`   ✓ Connected to Firestore emulator at ${host}:${port}`);
 
-    const cardsCollection = db.collection('cards');
+    const collectionName = getCardsCollectionName();
+    const cardsCollection = db.collection(collectionName);
+    console.log(`   Using collection: ${collectionName}`);
 
     // Clear existing cards data to ensure fresh state
     console.log('   Clearing existing cards from emulator...');

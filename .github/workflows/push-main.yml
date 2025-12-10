@@ -326,6 +326,21 @@ jobs:
           site_name: 'fellspiral'
           branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
+      - name: Inject environment variables for build
+        working-directory: fellspiral
+        run: |
+          # Create .env file for Vite
+          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > .env
+          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> .env
+
+          # Show what we're building
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            echo "Building for PR #${{ github.event.pull_request.number }}"
+            echo "Collection will be: cards_pr_${{ github.event.pull_request.number }}"
+          else
+            echo "Building for branch: ${{ github.ref_name }}"
+          fi
+
       - name: Deploy fellspiral to Firebase Hosting
         id: deploy
         continue-on-error: true
@@ -396,7 +411,6 @@ jobs:
     name: Seed Firestore - fellspiral
     runs-on: ubuntu-latest
     needs: [deploy-fellspiral, deploy-firestore-rules]
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -416,11 +430,23 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Seed Firestore with card data
+      - name: Seed Firestore with namespaced collection
         working-directory: fellspiral
         env:
           FIRESTORE_PROJECT_ID: chalanding
-        run: node scripts/seed-firestore.js
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # Show which collection we're seeding
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Seeding collection: cards_pr_$PR_NUMBER"
+          elif [ "$BRANCH_NAME" != "main" ]; then
+            echo "Seeding collection: cards_preview_$BRANCH_NAME"
+          else
+            echo "Seeding collection: cards (production)"
+          fi
+
+          node scripts/seed-firestore.js
 
   deploy-videobrowser:
     name: Deploy videobrowser
@@ -751,6 +777,8 @@ jobs:
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CI: true
 
   e2e-videobrowser:
