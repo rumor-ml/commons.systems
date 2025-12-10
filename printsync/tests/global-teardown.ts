@@ -17,10 +17,11 @@ async function globalTeardown() {
 
   try {
     // Kill any process using the test port
+    // Use stdio: 'pipe' to suppress "Killed" message that causes exit code 137
     execSync(`lsof -ti :${port} | xargs kill -9 2>/dev/null || true`, {
-      stdio: 'inherit',
+      stdio: 'pipe',
     });
-    console.log(`✓ Killed processes on port ${port}`);
+    console.log(`✓ Cleaned up processes on port ${port}`);
   } catch (error) {
     // Non-critical - process may not exist
     console.log(`ℹ No processes found on port ${port}`);

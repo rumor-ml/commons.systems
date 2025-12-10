@@ -15,6 +15,14 @@ async function globalSetup() {
   console.log(`   Environment: ${process.env.CI ? 'CI' : 'Local'}`);
   console.log(`   Working directory: ${process.cwd()}`);
 
+  // Skip seeding when testing deployed site (E2E tests use production Firestore)
+  if (process.env.DEPLOYED_URL) {
+    console.log('⏭️  Skipping data seeding - testing deployed site with production Firestore');
+    console.log(`   Deployed URL: ${process.env.DEPLOYED_URL}`);
+    console.log('✅ Global setup complete (no seeding needed)');
+    return;
+  }
+
   // Get emulator host from environment or use default
   const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
   const [host, port] = firestoreHost.split(':');
