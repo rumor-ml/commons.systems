@@ -11,21 +11,9 @@ import { execSync } from 'child_process';
  * - No user input is involved
  */
 async function globalTeardown() {
-  console.log('Cleaning up test processes...');
-
-  const port = parseInt(process.env.TEST_PORT || '8080', 10);
-
-  try {
-    // Kill any process using the test port
-    // Use stdio: 'pipe' to suppress "Killed" message that causes exit code 137
-    execSync(`lsof -ti :${port} | xargs kill -9 2>/dev/null || true`, {
-      stdio: 'pipe',
-    });
-    console.log(`✓ Cleaned up processes on port ${port}`);
-  } catch (error) {
-    // Non-critical - process may not exist
-    console.log(`ℹ No processes found on port ${port}`);
-  }
+  // Playwright automatically cleans up web server processes
+  // No manual cleanup needed - attempting to force-kill can cause exit code 137
+  console.log('✓ Test teardown complete (Playwright handles cleanup)');
 }
 
 export default globalTeardown;
