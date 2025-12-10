@@ -129,8 +129,7 @@ async function init() {
 
     // Setup UI components - these don't need data
     setupEventListeners();
-    // Note: setupMobileMenu is called separately before init() to ensure
-    // it runs synchronously before any async operations
+    setupMobileMenu();
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
