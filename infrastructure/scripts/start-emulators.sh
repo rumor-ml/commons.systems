@@ -40,7 +40,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Start emulators in the background (using default ports from firebase.json)
-npx firebase emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > "$SHARED_LOG_FILE" 2>&1 &
+npx firebase-tools emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > "$SHARED_LOG_FILE" 2>&1 &
 EMULATOR_PID=$!
 
 # Save PID for cleanup (shared across worktrees)
