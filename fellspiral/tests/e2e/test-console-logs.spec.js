@@ -1,6 +1,7 @@
 import { test } from '@playwright/test';
 
-test('capture console logs during HTMX navigation on deployed site', async ({ page }) => {
+// Skip this diagnostic test - it's for debugging console logs only
+test.skip('capture console logs during HTMX navigation on deployed site', async ({ page }) => {
   const deployedUrl =
     'https://fellspiral--220-fellspiral-card-library-improvements-7lj9anbp.web.app';
 
