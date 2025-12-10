@@ -73,10 +73,9 @@ pnpm dev
 
    **The script handles everything**:
    - Gathers all inputs upfront (project ID defaults to gcloud config)
-   - Enables all required GCP APIs (Firebase, Cloud Run, Artifact Registry, etc.)
+   - Enables all required GCP APIs (Firebase, Cloud Storage, etc.)
    - Sets up Workload Identity Federation
    - Creates service accounts with IAM permissions
-   - Configures Artifact Registry
    - Initializes Firebase on your GCP project
    - Creates GitHub secrets automatically
    <!-- TODO: must handle github auth app creation -->
@@ -210,11 +209,11 @@ Optimize infrastructure for cost.
 
 ### Estimated Monthly Cost (Per Site)
 
-| Service                   | Cost             | Notes                               |
-| ------------------------- | ---------------- | ----------------------------------- |
-| Cloud Run (scale-to-zero) | ~$0.10/month     | Minimal idle time, fast cold starts |
-| Artifact Registry Storage | ~$0.05/month     | Docker images with cleanup policies |
-| Cloud Run Requests        | ~$0.03/month     | 1000 requests                       |
-| Egress                    | ~$0.02/month     | 1GB outbound traffic                |
-| **Total per site**        | **~$0.20/month** | With moderate traffic               |
-| **Two sites (current)**   | **~$0.40/month** | Fellspiral + Video Browser          |
+| Service                  | Cost             | Notes                                         |
+| ------------------------ | ---------------- | --------------------------------------------- |
+| Firebase Hosting         | Free             | Generous free tier for hosting                |
+| Cloud Storage            | ~$0.02/month     | Firebase Storage for media files              |
+| Firestore                | ~$0.01/month     | Database with free tier                       |
+| Egress                   | ~$0.02/month     | 1GB outbound traffic                          |
+| **Total per site**       | **~$0.05/month** | With moderate traffic                         |
+| **Four sites (current)** | **~$0.20/month** | Fellspiral, Videobrowser, Audiobrowser, Print |
