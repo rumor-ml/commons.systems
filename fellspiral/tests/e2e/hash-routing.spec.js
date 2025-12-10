@@ -9,8 +9,22 @@ import { test, expect } from '../../../playwright.fixtures.ts';
  * Verify cards are filtered by checking visible card content
  */
 async function verifyCardFiltering(page, expectedType, expectedSubtype = null) {
-  // Wait for cards to actually load (not just the container)
+  // Wait for the loading state to disappear
+  // The initial HTML has <div class="loading-state"> inside #cardList
+  // Once cards are loaded, this is replaced with actual card-item elements
+  await page.waitForFunction(
+    () => {
+      const loadingState = document.querySelector('#cardList .loading-state');
+      return !loadingState; // Loading state should be gone
+    },
+    { timeout: 15000 }
+  );
+
+  // Wait for at least one card-item to be present in the DOM
   await page.waitForSelector('.card-item', { timeout: 10000 });
+
+  // Wait for cards to stabilize after filtering (hash change triggers re-render)
+  await page.waitForTimeout(500);
 
   const cards = page.locator('.card-item');
   const count = await cards.count();
@@ -33,6 +47,15 @@ async function verifyCardFiltering(page, expectedType, expectedSubtype = null) {
 test.describe('Hash Routing - Pattern Recognition', () => {
   test('should filter all cards on #library', async ({ page }) => {
     await page.goto('/cards.html#library');
+
+    // Wait for loading state to disappear
+    await page.waitForFunction(
+      () => {
+        const loadingState = document.querySelector('#cardList .loading-state');
+        return !loadingState;
+      },
+      { timeout: 15000 }
+    );
 
     // Wait for cards to load
     await page.waitForSelector('.card-item', { timeout: 10000 });
@@ -111,27 +134,41 @@ test.describe('Hash Routing - Hash Updates', () => {
 
   test('should update hash when clicking subtype in library nav', async ({ page }) => {
     await page.goto('/cards.html#library-equipment');
+
+    // Wait for loading state to disappear
+    await page.waitForFunction(
+      () => {
+        const loadingState = document.querySelector('#cardList .loading-state');
+        return !loadingState;
+      },
+      { timeout: 15000 }
+    );
+
     await page.waitForSelector('.card-item', { timeout: 10000 });
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
 
     // First, make sure Equipment section is expanded (it should be since we're on #library-equipment)
-    // If not, click the toggle to expand it
+    // Wait for the section to be visible and check if it's expanded
     const equipmentSection = page.locator('.library-nav-type[data-type="Equipment"]');
+    await equipmentSection.waitFor({ state: 'visible', timeout: 5000 });
+
     const isExpanded = await equipmentSection
       .locator('.library-nav-toggle')
       .getAttribute('aria-expanded');
 
     if (isExpanded !== 'true') {
       await equipmentSection.locator('.library-nav-toggle').click();
-      await page.waitForTimeout(300); // Wait for expand animation
+      await page.waitForTimeout(500); // Wait for expand animation
     }
 
-    // Click Weapon subtype link
+    // Wait for the Weapon subtype link to be visible
     const weaponLink = page
       .locator('.library-nav-type[data-type="Equipment"] .library-nav-subtype a')
       .filter({ hasText: 'Weapon' });
+
+    await weaponLink.waitFor({ state: 'visible', timeout: 5000 });
     await weaponLink.click();
 
     // Wait for hash to update
@@ -159,24 +196,32 @@ test.describe('Hash Routing - Hash Updates', () => {
 
   test('should support browser back/forward', async ({ page }) => {
     await page.goto('/cards.html#library');
+    await page.waitForFunction(() => !document.querySelector('#cardList .loading-state'), {
+      timeout: 15000,
+    });
     await page.waitForSelector('.card-item', { timeout: 10000 });
 
     await page.goto('/cards.html#library-equipment');
     await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.waitForTimeout(300); // Wait for filtering to complete
 
     await page.goto('/cards.html#library-equipment-weapon');
     await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.waitForTimeout(300); // Wait for filtering to complete
 
     // Go back
     await page.goBack();
+    await page.waitForTimeout(300); // Wait for hash change to process
     await expect(page).toHaveURL(/#library-equipment$/);
 
     // Go back again
     await page.goBack();
+    await page.waitForTimeout(300); // Wait for hash change to process
     await expect(page).toHaveURL(/#library$/);
 
     // Go forward
     await page.goForward();
+    await page.waitForTimeout(300); // Wait for hash change to process
     await expect(page).toHaveURL(/#library-equipment$/);
   });
 
