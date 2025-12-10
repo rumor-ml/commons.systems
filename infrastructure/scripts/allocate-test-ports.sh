@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 # Get worktree root directory path
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
