@@ -56,8 +56,7 @@ const SUBTYPES = {
   Equipment: ['Weapon', 'Armor'],
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
-  Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc', 'Undead', 'Vampire', 'Beast', 'Demon'],
 };
 
 // Show error UI with retry option
