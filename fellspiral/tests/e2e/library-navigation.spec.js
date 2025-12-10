@@ -291,6 +291,21 @@ test.describe('Library Navigation - Data Reflection', () => {
       }
     });
 
+    // Get actual types from the navigation
+    const typeElements = page.locator('.library-nav-type');
+    const actualTypeNames = await typeElements.evaluateAll((els) =>
+      els.map((el) => el.dataset.type).filter(Boolean)
+    );
+    const actualTypeCount = await typeElements.count();
+
+    // Log for debugging
+    if (actualTypeCount !== expectedTypes.size) {
+      console.log('Expected types:', Array.from(expectedTypes).sort());
+      console.log('Actual types in DOM:', actualTypeNames.sort());
+      console.log('Expected count:', expectedTypes.size);
+      console.log('Actual count:', actualTypeCount);
+    }
+
     // Verify all expected types are present in the navigation
     for (const type of expectedTypes) {
       const typeElement = page.locator(`.library-nav-type[data-type="${type}"]`);
@@ -298,9 +313,7 @@ test.describe('Library Navigation - Data Reflection', () => {
     }
 
     // Verify no unexpected types are present
-    const typeElements = page.locator('.library-nav-type');
-    const typeCount = await typeElements.count();
-    expect(typeCount).toBe(expectedTypes.size);
+    expect(actualTypeCount).toBe(expectedTypes.size);
   });
 
   test('navigation should reflect actual subtypes for each type', async ({ page }) => {
