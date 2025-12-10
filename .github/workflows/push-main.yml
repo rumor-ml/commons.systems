@@ -422,8 +422,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: fellspiral
-        run: npm install firebase-admin
+        run: npm install -g firebase-admin
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
