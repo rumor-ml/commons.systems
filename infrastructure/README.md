@@ -104,30 +104,27 @@ The tool enables these GCP APIs:
 1. `compute.googleapis.com` - Compute Engine
 2. `storage.googleapis.com` - Cloud Storage
 3. `cloudresourcemanager.googleapis.com` - Resource Manager
-4. `run.googleapis.com` - Cloud Run
-5. `artifactregistry.googleapis.com` - Artifact Registry
-6. `secretmanager.googleapis.com` - Secret Manager
-7. `iam.googleapis.com` - IAM
-8. `iamcredentials.googleapis.com` - IAM Credentials
-9. `sts.googleapis.com` - Security Token Service
-10. `firebase.googleapis.com` - Firebase
-11. `firebaserules.googleapis.com` - Firebase Rules
-12. `firebasestorage.googleapis.com` - Firebase Storage
-13. `firebasehosting.googleapis.com` - Firebase Hosting
-14. `identitytoolkit.googleapis.com` - Identity Platform
+4. `secretmanager.googleapis.com` - Secret Manager
+5. `iam.googleapis.com` - IAM
+6. `iamcredentials.googleapis.com` - IAM Credentials
+7. `sts.googleapis.com` - Security Token Service
+8. `firebase.googleapis.com` - Firebase
+9. `firebaserules.googleapis.com` - Firebase Rules
+10. `firebasestorage.googleapis.com` - Firebase Storage
+11. `firebasehosting.googleapis.com` - Firebase Hosting
+12. `identitytoolkit.googleapis.com` - Identity Platform
 
 ## IAM Roles Granted
 
 The service account receives these project-level roles:
 
 1. `roles/secretmanager.admin` - Manage secrets
-2. `roles/artifactregistry.admin` - Manage artifact repositories
-3. `roles/run.admin` - Manage Cloud Run services
-4. `roles/iam.serviceAccountUser` - Use service accounts
-5. `roles/storage.admin` - Manage Cloud Storage
-6. `roles/compute.loadBalancerAdmin` - Manage load balancers
-7. `roles/compute.networkAdmin` - Manage networks
-8. `roles/iam.serviceAccountTokenCreator` - Create service account tokens
+2. `roles/iam.serviceAccountUser` - Use service accounts
+3. `roles/storage.admin` - Manage Cloud Storage
+4. `roles/compute.loadBalancerAdmin` - Manage load balancers
+5. `roles/compute.networkAdmin` - Manage networks
+6. `roles/iam.serviceAccountTokenCreator` - Create service account tokens
+7. `roles/firebase.admin` - Manage Firebase services
 
 ## Firebase Sites
 

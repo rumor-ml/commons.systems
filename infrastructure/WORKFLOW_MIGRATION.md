@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the refactoring of GitHub Actions workflows to manage step dependencies within workflows rather than making workflows interdependent.
+This document describes the migration from Cloud Run to Firebase Hosting deployments, and the refactoring of GitHub Actions workflows to manage step dependencies within workflows rather than making workflows interdependent.
 
 ## What Changed
 
@@ -47,17 +47,39 @@ The new architecture uses a single `push.yml` workflow with clearly defined job 
    - Rollback Videobrowser (depends on: Deploy Videobrowser, E2E Tests Videobrowser)
    - Each site rolls back independently if its tests fail
 
+## Deployment Platform Migration
+
+### From Cloud Run to Firebase Hosting
+
+The repository has completed a migration from Google Cloud Run to Firebase Hosting for all Firebase-based sites (fellspiral, videobrowser, audiobrowser, print).
+
+**Benefits of Firebase Hosting:**
+
+- Automatic CDN distribution
+- Built-in preview channels for branch deployments
+- Simpler deployment process (no Docker required)
+- Better integration with Firebase services
+- Automatic HTTPS and custom domain support
+
+**Legacy Cloud Run files removed:**
+
+- Manual deployment workflows (`deploy-*-manual.yml`)
+- Cloud Run deployment scripts (`deploy-site.sh`, `get-deployment-url.sh`)
+- Docker infrastructure (Dockerfiles for Firebase sites, Artifact Registry)
+
+**Note:** Go fullstack apps like `printsync` still use Docker for local development and testing.
+
 ## Common Logic Extracted
 
 Created reusable scripts in `infrastructure/scripts/`:
 
 - `check-changes.sh` - Detect file changes in paths
-- `sanitize-branch-name.sh` - Convert branch names to service names
-- `health-check.sh` - Wait for services to be healthy
-- `get-deployment-url.sh` - Get deployment URLs
-- `deploy-site.sh` - Deploy sites to Cloud Run
+- `sanitize-branch-name.sh` - Convert branch names to channel names
+- `health-check.sh` - Wait for deployments to be healthy
+- `deploy-firebase-hosting.sh` - Deploy sites to Firebase Hosting
 - `run-local-tests.sh` - Run local tests
 - `run-playwright-tests.sh` - Run E2E tests with local browsers
+- `cleanup-stale-channels.sh` - Clean up old Firebase preview channels
 
 ## Workflows Updated
 
