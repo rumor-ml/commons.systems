@@ -392,6 +392,36 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
+  seed-firestore-fellspiral:
+    name: Seed Firestore - fellspiral
+    runs-on: ubuntu-latest
+    needs: [deploy-fellspiral, deploy-firestore-rules]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: fellspiral
+        run: npm install firebase-admin
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Seed Firestore with card data
+        working-directory: fellspiral
+        env:
+          FIRESTORE_PROJECT_ID: chalanding
+        run: node scripts/seed-firestore.js
+
   deploy-videobrowser:
     name: Deploy videobrowser
     runs-on: ubuntu-latest
