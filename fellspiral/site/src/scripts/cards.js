@@ -9,6 +9,7 @@ import {
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
+  withTimeout,
   auth,
 } from './firebase.js';
 
@@ -56,8 +57,7 @@ const SUBTYPES = {
   Equipment: ['Weapon', 'Armor'],
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
-  Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc', 'Undead', 'Vampire', 'Beast', 'Demon'],
 };
 
 // Show error UI with retry option
@@ -163,14 +163,6 @@ async function init() {
   }
 }
 
-// Helper to wrap a promise with a timeout
-function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(errorMessage)), ms)
-  );
-  return Promise.race([promise, timeoutPromise]);
-}
-
 // Load cards from Firestore
 async function loadCards() {
   const FIRESTORE_TIMEOUT_MS = 5000;
@@ -179,29 +171,22 @@ async function loadCards() {
     state.loading = true;
     state.error = null;
 
-    // Try to load from Firestore with a timeout to prevent hanging
-    // On slow/unresponsive Firestore connections, fall back to static data quickly
-    const cards = await withTimeout(getAllCards(), FIRESTORE_TIMEOUT_MS, 'Firestore query timeout');
+    // Try to load from Firestore (now has built-in 5s timeout)
+    const cards = await getAllCards();
 
     if (cards.length > 0) {
       state.cards = cards;
     } else {
-      // If no cards in Firestore, only attempt to seed if user is authenticated
-      // This avoids expensive failed import attempts on production with empty Firestore
+      // If no cards in Firestore, only attempt to seed if authenticated
       if (auth.currentUser) {
-        // Also apply timeout to import and subsequent fetch
         await withTimeout(
           importCardsFromData(cardsData),
           FIRESTORE_TIMEOUT_MS,
           'Import cards timeout'
         );
-        state.cards = await withTimeout(
-          getAllCards(),
-          FIRESTORE_TIMEOUT_MS,
-          'Firestore query timeout after import'
-        );
+        state.cards = await getAllCards();
       } else {
-        // Not authenticated - use static data immediately to avoid slow import attempts
+        // Not authenticated - use static data to avoid slow import attempts
         state.cards = cardsData || [];
       }
     }
@@ -216,12 +201,9 @@ async function loadCards() {
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
-    // Show warning to user
-    showWarningBanner(
-      'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
-    );
+    showWarningBanner('Unable to connect to Firestore. Using local data only.');
   } finally {
-    // ALWAYS clear loading state, even if there's an unexpected error
+    // ALWAYS clear loading state
     state.loading = false;
   }
 }

@@ -15,8 +15,9 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 
 // Initialize Firebase
@@ -28,6 +29,20 @@ const db = getFirestore(app);
 // Get auth instance
 const auth = getAuth(app);
 
+// Connect to emulators in test/dev environment
+if (
+  import.meta.env.MODE === 'development' ||
+  import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+) {
+  const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+  const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+
+  const [firestoreHostname, firestorePort] = firestoreHost.split(':');
+  connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+
+  connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+}
+
 // Collection reference
 const cardsCollection = collection(db, 'cards');
 
@@ -35,11 +50,34 @@ const cardsCollection = collection(db, 'cards');
  * Card Database Operations
  */
 
-// Get all cards from Firestore
+/**
+ * Helper to wrap a promise with a timeout
+ * @param {Promise} promise - The promise to wrap
+ * @param {number} ms - Timeout in milliseconds
+ * @param {string} errorMessage - Error message on timeout
+ * @returns {Promise} Race between promise and timeout
+ */
+export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(errorMessage)), ms)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
+
+// Get all cards from Firestore with timeout protection
 export async function getAllCards() {
+  const FIRESTORE_TIMEOUT_MS = 5000;
+
   try {
     const q = query(cardsCollection, orderBy('title', 'asc'));
-    const querySnapshot = await getDocs(q);
+
+    // Wrap query with timeout to prevent hanging on slow/unresponsive Firestore
+    const querySnapshot = await withTimeout(
+      getDocs(q),
+      FIRESTORE_TIMEOUT_MS,
+      'Firestore query timeout'
+    );
+
     const cards = [];
     querySnapshot.forEach((doc) => {
       cards.push({
