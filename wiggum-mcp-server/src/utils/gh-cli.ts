@@ -119,7 +119,7 @@ export async function getPRComments(prNumber: number, repo?: string): Promise<an
       '--json',
       'comments',
       '-q',
-      '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt, id: .id}',
+      '.comments | map({author: .author.login, body: .body, createdAt: .createdAt, id: .id})',
     ],
     { repo: resolvedRepo }
   );
