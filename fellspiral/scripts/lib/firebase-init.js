@@ -65,22 +65,48 @@ export function initializeFirebase() {
       console.error('\nFull error details:', error);
       process.exit(1);
     }
-    if (!serviceAccount.project_id) {
-      console.error('\n❌ Service account JSON is missing required "project_id" field');
-      console.error('Your service account is missing the project_id field.');
-      process.exit(1);
-    }
-    try {
-      initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
-    } catch (initError) {
-      console.error('\n❌ Firebase SDK initialization failed:', initError.message);
-      if (initError.code === 'auth/invalid-credential') {
-        console.error('Your credentials are invalid or malformed.');
+
+    // Check if this is a service account file (has project_id) or workload identity file
+    if (serviceAccount.project_id) {
+      // Traditional service account JSON
+      try {
+        initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
+      } catch (initError) {
+        console.error('\n❌ Firebase SDK initialization failed:', initError.message);
+        if (initError.code === 'auth/invalid-credential') {
+          console.error('Your credentials are invalid or malformed.');
+        }
+        console.error('\nFull error details:', initError);
+        process.exit(1);
       }
-      console.error('\nFull error details:', initError);
-      process.exit(1);
+      console.log('Using service account file credentials');
+    } else {
+      // Workload Identity Federation credentials (no project_id field)
+      // Use Application Default Credentials with explicit project ID
+      const projectId =
+        process.env.FIRESTORE_PROJECT_ID ||
+        process.env.FIREBASE_PROJECT_ID ||
+        process.env.GCP_PROJECT_ID;
+      if (!projectId) {
+        console.error('\n❌ Project ID is required when using Workload Identity Federation');
+        console.error('Set one of: FIRESTORE_PROJECT_ID, FIREBASE_PROJECT_ID, or GCP_PROJECT_ID');
+        process.exit(1);
+      }
+      console.log(`Using Workload Identity Federation for project: ${projectId}`);
+      try {
+        initializeApp({
+          credential: applicationDefault(),
+          projectId: projectId,
+        });
+      } catch (initError) {
+        console.error('\n❌ Firebase SDK initialization failed:', initError.message);
+        if (initError.code === 'auth/invalid-credential') {
+          console.error('Your credentials are invalid or malformed.');
+        }
+        console.error('\nFull error details:', initError);
+        process.exit(1);
+      }
     }
-    console.log('Using service account file credentials');
   } else {
     if (!process.env.FIREBASE_PROJECT_ID) {
       console.error(

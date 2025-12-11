@@ -55,7 +55,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register client with hub
-	client := h.hub.Register(sessionID)
+	client := h.hub.Register(r.Context(), sessionID)
 	defer h.hub.Unregister(sessionID, client)
 
 	// Send initial session state
@@ -70,13 +70,18 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := h.writeSSEEventHTML(w, r.Context(), initialEvent); err != nil {
+		log.Printf("ERROR: StreamSession for session %s - failed to write initial session event: %v", sessionID, err)
 		return
 	}
 	flusher.Flush()
 
 	// Get initial file list
 	files, err := h.fileStore.ListBySession(r.Context(), sessionID)
-	if err == nil {
+	log.Printf("DEBUG: ListBySession(sessionID=%s) returned %d files, err=%v", sessionID, len(files), err)
+	if err != nil {
+		// Continue streaming anyway - files may arrive via subscriptions
+		log.Printf("ERROR: Failed to list initial files for session %s: %v", sessionID, err)
+	} else {
 		for _, file := range files {
 			fileEvent := streaming.SSEEvent{
 				Type:      streaming.EventTypeFile,
@@ -91,6 +96,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			if err := h.writeSSEEventHTML(w, r.Context(), fileEvent); err != nil {
+				log.Printf("ERROR: StreamSession for session %s - failed to write file event for %s: %v", sessionID, file.ID, err)
 				return
 			}
 		}
@@ -111,10 +117,12 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		case event, ok := <-client.Events:
 			if !ok {
 				// Channel closed, streaming ended
+				log.Printf("DEBUG: StreamSession for session %s - channel closed, ending stream", sessionID)
 				return
 			}
 
 			if err := h.writeSSEEventHTML(w, r.Context(), event); err != nil {
+				log.Printf("ERROR: StreamSession for session %s - failed to write event %s: %v", sessionID, event.Type, err)
 				return
 			}
 			flusher.Flush()

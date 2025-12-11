@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test a Go fullstack app (build + E2E)
+# Test a Go fullstack app - delegates to unified runner
 set -e
 
 if [ -z "$1" ]; then
@@ -7,22 +7,5 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-if [ ! -d "$1" ]; then
-  echo "Error: Directory '$1' does not exist"
-  exit 1
-fi
-
-APP_PATH="$1"
-APP_NAME=$(basename "$APP_PATH")
-
-cd "${APP_PATH}/site"
-
-echo "--- Building ---"
-make build
-
-echo ""
-echo "--- E2E Tests ---"
-cd "../tests"
-CI=true npx playwright test
-
-echo "Tests passed for $APP_NAME"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/run-e2e-tests.sh" "go-fullstack" "$1"

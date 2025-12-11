@@ -9,6 +9,7 @@ import {
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
+  withTimeout,
   auth,
 } from './firebase.js';
 
@@ -37,6 +38,7 @@ const state = {
   loading: false,
   error: null,
   initialized: false, // Track if we've set up global listeners
+  initializing: false, // Track if init is in progress to prevent race conditions
 };
 
 // Reset state for fresh initialization
@@ -56,8 +58,7 @@ const SUBTYPES = {
   Equipment: ['Weapon', 'Armor'],
   Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
   Upgrade: ['Weapon', 'Armor'],
-  Foe: ['Undead', 'Vampire', 'Beast', 'Demon'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc'],
+  Origin: ['Human', 'Elf', 'Dwarf', 'Orc', 'Undead', 'Vampire', 'Beast', 'Demon'],
 };
 
 // Show error UI with retry option
@@ -108,9 +109,59 @@ function showWarningBanner(message) {
 
 // Initialize the app
 async function init() {
+  // Guard against concurrent initialization
+  if (state.initializing) {
+    console.log('[Cards] Already initializing, skipping duplicate init call');
+    return;
+  }
+
+  // Guard against double initialization
+  if (state.initialized) {
+    console.log('[Cards] Re-initializing after HTMX navigation');
+
+    // CRITICAL: Clear hardcoded loading spinner from HTMX-swapped HTML
+    const cardList = document.getElementById('cardList');
+    if (cardList) {
+      const hardcodedSpinner = cardList.querySelector('.loading-state');
+      if (hardcodedSpinner) {
+        console.log('[Cards] Removing hardcoded spinner from HTMX swap');
+        hardcodedSpinner.remove();
+      }
+    }
+
+    // Show fresh loading state while we load data
+    state.loading = true;
+    renderCards(); // This will show the loading spinner
+
+    // Load data
+    try {
+      await loadCards(); // This sets state.loading = false in finally block
+    } catch (error) {
+      console.error('[Cards] Error refreshing data:', error);
+      state.loading = false; // Ensure loading state is cleared even on error
+    }
+
+    // Apply filters and render cards
+    handleHashChange(); // This will call applyFilters() -> renderCards()
+    return;
+  }
+
   try {
-    // Initialize authentication
-    initializeAuth();
+    console.log('[Cards] Starting initialization');
+    state.initializing = true;
+
+    // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
+    const cardList = document.getElementById('cardList');
+    if (cardList) {
+      const hardcodedSpinner = cardList.querySelector('.loading-state');
+      if (hardcodedSpinner) {
+        console.log('[Cards] Removing hardcoded spinner from HTML');
+        hardcodedSpinner.remove();
+      }
+    }
+
+    // Note: Authentication is initialized globally in main.js DOMContentLoaded
+    // Don't call initializeAuth() here to avoid duplicates
 
     // Initialize shared sidebar navigation (generates nav DOM)
     initSidebarNav();
@@ -124,13 +175,16 @@ async function init() {
       console.error('Failed to initialize library navigation:', error);
     });
 
-    // Setup hash routing
+    // Setup hash routing (only once)
     setupHashRouting();
 
-    // Setup UI components - these don't need data
+    // Setup UI components - these don't need data (only once)
     setupEventListeners();
-    // Note: setupMobileMenu is called separately before init() to ensure
-    // it runs synchronously before any async operations
+    setupMobileMenu();
+
+    // Mark as fully initialized
+    state.initialized = true;
+    console.log('[Cards] Event listeners and UI setup complete');
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
@@ -139,17 +193,13 @@ async function init() {
     // Load data asynchronously WITHOUT blocking page load
     loadCards()
       .then(() => {
-        // Update UI with loaded data
-        renderCards();
-
-        // Apply hash route if present
+        // Apply hash route if present (this will filter and render)
         handleHashChange();
       })
       .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
-        // Still render cards with fallback data
-        renderCards();
+        // Still apply hash route with fallback data
         handleHashChange();
       });
   } catch (error) {
@@ -159,17 +209,13 @@ async function init() {
     // Show user-friendly error UI
     showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
       document.querySelector('.error-banner')?.remove();
+      state.initialized = false; // Reset so retry can work
       init();
     });
+  } finally {
+    state.initializing = false;
+    console.log('[Cards] Initialization complete');
   }
-}
-
-// Helper to wrap a promise with a timeout
-function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(errorMessage)), ms)
-  );
-  return Promise.race([promise, timeoutPromise]);
 }
 
 // Load cards from Firestore
@@ -180,29 +226,22 @@ async function loadCards() {
     state.loading = true;
     state.error = null;
 
-    // Try to load from Firestore with a timeout to prevent hanging
-    // On slow/unresponsive Firestore connections, fall back to static data quickly
-    const cards = await withTimeout(getAllCards(), FIRESTORE_TIMEOUT_MS, 'Firestore query timeout');
+    // Try to load from Firestore (now has built-in 5s timeout)
+    const cards = await getAllCards();
 
     if (cards.length > 0) {
       state.cards = cards;
     } else {
-      // If no cards in Firestore, only attempt to seed if user is authenticated
-      // This avoids expensive failed import attempts on production with empty Firestore
+      // If no cards in Firestore, only attempt to seed if authenticated
       if (auth.currentUser) {
-        // Also apply timeout to import and subsequent fetch
         await withTimeout(
           importCardsFromData(cardsData),
           FIRESTORE_TIMEOUT_MS,
           'Import cards timeout'
         );
-        state.cards = await withTimeout(
-          getAllCards(),
-          FIRESTORE_TIMEOUT_MS,
-          'Firestore query timeout after import'
-        );
+        state.cards = await getAllCards();
       } else {
-        // Not authenticated - use static data immediately to avoid slow import attempts
+        // Not authenticated - use static data to avoid slow import attempts
         state.cards = cardsData || [];
       }
     }
@@ -217,12 +256,9 @@ async function loadCards() {
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
-    // Show warning to user
-    showWarningBanner(
-      'Unable to connect to Firestore. Using local data only. Changes will not be saved.'
-    );
+    showWarningBanner('Unable to connect to Firestore. Using local data only.');
   } finally {
-    // ALWAYS clear loading state, even if there's an unexpected error
+    // ALWAYS clear loading state
     state.loading = false;
   }
 }
@@ -292,6 +328,18 @@ function setupMobileMenu() {
     mobileMenuToggle.addEventListener('click', (e) => {
       e.stopPropagation();
       sidebar.classList.toggle('active');
+    });
+
+    // Nav section toggle handlers (for library section expand/collapse)
+    const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
+    navSectionToggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('expanded');
+        const content = toggle.parentElement.querySelector('.nav-section-content');
+        if (content) {
+          content.classList.toggle('expanded');
+        }
+      });
     });
 
     // Close sidebar when clicking a nav link on mobile
@@ -464,15 +512,41 @@ function renderCards() {
       return;
     }
 
-    // If still loading, keep the loading state visible (don't hide cardList)
+    // If still loading, show loading spinner
     if (state.loading) {
       emptyState.style.display = 'none';
+      cardList.style.display = 'grid';
+
+      // Always remove existing spinner first (handles HTMX-swapped HTML)
+      const existingSpinner = cardList.querySelector('.loading-state');
+      if (existingSpinner) {
+        existingSpinner.remove();
+      }
+
+      // Create fresh loading spinner
+      const spinner = document.createElement('div');
+      spinner.className = 'loading-state';
+      const spinnerEl = document.createElement('div');
+      spinnerEl.className = 'spinner';
+      const text = document.createElement('p');
+      text.textContent = 'Loading cards...';
+      spinner.appendChild(spinnerEl);
+      spinner.appendChild(text);
+      cardList.innerHTML = '';
+      cardList.appendChild(spinner);
       return;
+    }
+
+    // Not loading - remove loading spinner if present
+    const loadingState = cardList.querySelector('.loading-state');
+    if (loadingState) {
+      loadingState.remove();
     }
 
     if (state.filteredCards.length === 0) {
       cardList.style.display = 'none';
       emptyState.style.display = 'block';
+      cardList.innerHTML = '';
       return;
     }
 
@@ -719,68 +793,8 @@ function exportCards() {
   URL.revokeObjectURL(url);
 }
 
-// Initialize card-specific functionality only (no sidebar reinit)
-// Called when navigating to cards.html via HTMX
-export async function initCardsPage() {
-  try {
-    // Reset state for fresh initialization (clears any stale loading state)
-    resetState();
-
-    // Initialize authentication
-    initializeAuth();
-
-    // Initialize shared sidebar navigation (generates nav DOM)
-    initSidebarNav();
-
-    // Setup auth state listener (only once)
-    if (!state.initialized) {
-      setupAuthStateListener();
-    }
-
-    // Initialize library navigation (populates library section)
-    // Don't await - let it load in background to avoid blocking card display
-    initLibraryNav().catch((error) => {
-      console.error('Failed to initialize library navigation:', error);
-    });
-
-    // Setup hash routing (only once - uses state.initialized check internally)
-    setupHashRouting();
-
-    // Setup UI components (only once per module load)
-    if (!state.initialized) {
-      setupEventListeners();
-      setupMobileMenu();
-    }
-
-    // Mark as initialized to prevent duplicate global listeners
-    state.initialized = true;
-
-    // Set loading state before rendering to keep loading indicator visible
-    state.loading = true;
-    renderCards(); // Will keep loading state visible
-
-    // Load data and AWAIT completion to ensure consistent state
-    try {
-      await loadCards();
-      // Update UI with loaded data
-      renderCards();
-      // Apply hash route if present
-      handleHashChange();
-    } catch (error) {
-      console.error('Failed to load cards:', error);
-      showWarningBanner('Failed to load cards from cloud. Using cached data.');
-      // Still render cards with fallback data
-      renderCards();
-      handleHashChange();
-    }
-  } catch (error) {
-    console.error('Failed to initialize Card Manager:', error);
-    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
-      document.querySelector('.error-banner')?.remove();
-      initCardsPage();
-    });
-  }
-}
+// Export init function as initCardsPage for use in cards.html
+export const initCardsPage = init;
 
 // Note: Initialization is now handled explicitly by:
 // 1. cards.html <script> tag for direct page loads

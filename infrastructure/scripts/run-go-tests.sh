@@ -22,7 +22,7 @@ trap cleanup EXIT
 
 echo "=== Starting Firestore Emulator ==="
 # Start emulator in background with explicit project ID
-firebase emulators:start --only firestore --project=demo-test > /tmp/emulator.log 2>&1 &
+npx firebase-tools emulators:start --only firestore --project=demo-test > /tmp/emulator.log 2>&1 &
 EMULATOR_PID=$!
 
 echo "Waiting for Firestore emulator to be ready..."

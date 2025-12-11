@@ -92,6 +92,14 @@ templ SyncMonitor(sessionID string) {
 			</button>
 		</div>
 
+		<!-- Trash message section (populated by trash-all action via OOB swap) -->
+		<div
+			id="trash-message"
+			class="hidden"
+		>
+			<!-- Will be populated by trash-all handler via hx-swap-oob -->
+		</div>
+
 		<!-- File list container -->
 		<div class="mt-6">
 			<h3 class="font-semibold text-text-primary mb-3">Files</h3>

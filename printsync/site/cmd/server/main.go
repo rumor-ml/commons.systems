@@ -37,9 +37,17 @@ func main() {
 	defer gcsClient.Close()
 
 	// Initialize Firebase app for auth
-	firebaseApp, err := firebase.NewApp(ctx, nil)
+	firebaseConfig := &firebase.Config{
+		ProjectID: cfg.GCPProjectID,
+	}
+	firebaseApp, err := firebase.NewApp(ctx, firebaseConfig)
 	if err != nil {
 		log.Fatalf("Failed to create Firebase app: %v", err)
+	}
+
+	// Log if using Firebase Auth Emulator
+	if authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"); authEmulator != "" {
+		log.Printf("INFO: Using Firebase Auth Emulator at %s", authEmulator)
 	}
 
 	// Create session and file stores

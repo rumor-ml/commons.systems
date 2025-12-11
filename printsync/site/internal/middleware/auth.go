@@ -20,20 +20,30 @@ type AuthInfo struct {
 func FirebaseAuth(firebaseApp *firebase.App) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract Bearer token from Authorization header
+			var idToken string
+
+			// Try Authorization header first
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
-				return
+			if authHeader != "" {
+				parts := strings.Split(authHeader, " ")
+				if len(parts) == 2 && parts[0] == "Bearer" {
+					idToken = parts[1]
+				}
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || parts[0] != "Bearer" {
-				http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
-				return
+			// Fallback to cookie (for SSE/EventSource connections)
+			if idToken == "" {
+				cookie, err := r.Cookie("firebase_token")
+				if err == nil && cookie != nil {
+					idToken = cookie.Value
+				}
 			}
 
-			idToken := parts[1]
+			// If no token found via either method, reject the request
+			if idToken == "" {
+				http.Error(w, "Missing authentication", http.StatusUnauthorized)
+				return
+			}
 
 			// Verify token with Firebase Auth
 			authClient, err := firebaseApp.Auth(r.Context())

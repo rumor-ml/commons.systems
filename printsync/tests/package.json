@@ -3,13 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
+    "test": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test",
+    "test:ui": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --ui",
+    "test:headed": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --headed",
     "test:deployed": "DEPLOYED=true playwright test"
   },
   "devDependencies": {
+    "@google-cloud/firestore": "^7.1.0",
+    "@google-cloud/storage": "^7.7.0",
     "@playwright/test": "^1.40.0",
-    "typescript": "^5.3.0"
+    "firebase-admin": "^12.0.0",
+    "typescript": "^5.3.0",
+    "uuid": "^9.0.1"
   }
 }

@@ -3,15 +3,26 @@
  * Runs once before all tests to seed Firestore emulator with test data
  */
 
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function globalSetup() {
   console.log('🔧 Running global test setup...');
+  console.log(`   Environment: ${process.env.CI ? 'CI' : 'Local'}`);
+  console.log(`   Working directory: ${process.cwd()}`);
+
+  // Skip seeding when testing deployed site (E2E tests use production Firestore)
+  if (process.env.DEPLOYED_URL) {
+    console.log('⏭️  Skipping data seeding - testing deployed site with production Firestore');
+    console.log(`   Deployed URL: ${process.env.DEPLOYED_URL}`);
+    console.log('✅ Global setup complete (no seeding needed)');
+    return;
+  }
 
   // Get emulator host from environment or use default
   const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
@@ -20,13 +31,28 @@ async function globalSetup() {
   console.log(`📦 Seeding Firestore emulator at ${firestoreHost}...`);
 
   try {
-    // Load cards data
+    // Load cards data with detailed path logging
     const cardsPath = join(__dirname, '../site/src/data/cards.json');
+    const absoluteCardsPath = resolve(cardsPath);
+
+    console.log(`   Checking for cards.json at: ${absoluteCardsPath}`);
+
+    if (!existsSync(absoluteCardsPath)) {
+      throw new Error(`cards.json not found at ${absoluteCardsPath}`);
+    }
+
+    console.log(`   ✓ Found cards.json file`);
+
     const cardsData = JSON.parse(readFileSync(cardsPath, 'utf-8'));
 
-    console.log(`   Found ${cardsData.length} cards to seed`);
+    if (!Array.isArray(cardsData) || cardsData.length === 0) {
+      throw new Error(`Invalid cards data: expected non-empty array, got ${typeof cardsData}`);
+    }
+
+    console.log(`   ✓ Loaded ${cardsData.length} cards from file`);
 
     // Import Firestore Admin SDK
+    console.log(`   Connecting to Firestore Admin SDK...`);
     const adminModule = await import('firebase-admin');
     const admin = adminModule.default;
 
@@ -35,6 +61,9 @@ async function globalSetup() {
       admin.initializeApp({
         projectId: 'demo-test',
       });
+      console.log(`   ✓ Initialized Firebase Admin (projectId: demo-test)`);
+    } else {
+      console.log(`   ✓ Using existing Firebase Admin app`);
     }
 
     // Connect to Firestore emulator
@@ -43,10 +72,40 @@ async function globalSetup() {
       host: `${host}:${port}`,
       ssl: false,
     });
+    console.log(`   ✓ Connected to Firestore emulator at ${host}:${port}`);
+
+    const collectionName = getCardsCollectionName();
+    const cardsCollection = db.collection(collectionName);
+    console.log(`   Using collection: ${collectionName}`);
+
+    // Clear existing cards data to ensure fresh state
+    console.log('   Clearing existing cards from emulator...');
+    const existingCards = await cardsCollection.get();
+
+    if (!existingCards.empty) {
+      const deleteBatch = db.batch();
+      let deleteCount = 0;
+      existingCards.docs.forEach((doc) => {
+        deleteBatch.delete(doc.ref);
+        deleteCount++;
+      });
+      await deleteBatch.commit();
+      console.log(`   Deleted ${deleteCount} existing cards`);
+
+      // Verify deletion was successful
+      const verifyCards = await cardsCollection.get();
+      if (!verifyCards.empty) {
+        console.warn(`   WARNING: Still ${verifyCards.size} cards after deletion!`);
+      } else {
+        console.log('   Verified: All existing cards cleared');
+      }
+    } else {
+      console.log('   No existing cards found');
+    }
 
     // Batch write cards to Firestore
+    console.log(`   Writing ${cardsData.length} cards to Firestore...`);
     const batch = db.batch();
-    const cardsCollection = db.collection('cards');
 
     for (const card of cardsData) {
       const docRef = cardsCollection.doc(card.id);
@@ -59,12 +118,21 @@ async function globalSetup() {
 
     await batch.commit();
 
-    console.log(`✓ Successfully seeded ${cardsData.length} cards`);
-    console.log('✓ Global setup complete');
+    console.log(`✅ SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
+    console.log('✅ Global setup complete');
   } catch (error) {
-    console.error('❌ Error during global setup:', error);
-    // Don't fail setup if seeding fails - tests can handle empty state
-    console.log('⚠️  Continuing without test data seeding');
+    console.error('❌ FAILURE: Error during global setup');
+    console.error('   Error details:', error);
+    console.error('   Error message:', error instanceof Error ? error.message : String(error));
+    console.error(
+      '   Error stack:',
+      error instanceof Error ? error.stack : 'No stack trace available'
+    );
+
+    // Don't fail setup silently - throw the error to make it visible
+    throw new Error(
+      `Global setup failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 

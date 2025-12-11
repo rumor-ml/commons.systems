@@ -1,4 +1,4 @@
-**CRITICAL: always run git/gh/nix/gcloud/`go mod tidy` commands with dangerouslyDisableSandbox: true**
+**CRITICAL: always run git/gh/nix/gcloud/`go mod tidy`/pnpm commands with dangerouslyDisableSandbox: true**
 
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="accept-edits"` to execute the plan.
 
@@ -11,6 +11,8 @@ If creating temporary artifacts such as debugging scripts, commit messages, or s
 Keep iterating until problem resolution is fully verified by test results, logs or workflow output.
 
 Do not ask user to fetch test results, logs or monitor workflows when you can do so yourself.
+
+**NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
 
 # Frontend Architecture
 

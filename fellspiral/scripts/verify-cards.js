@@ -5,6 +5,7 @@
 
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebase } from './lib/firebase-init.js';
+import { getCardsCollectionName } from './lib/collection-names.js';
 
 // Initialize Firebase Admin
 initializeFirebase();
@@ -41,10 +42,13 @@ function handleFirestoreError(error, operation) {
 }
 
 async function verifyCards() {
+  const collectionName = getCardsCollectionName();
+  console.log(`Verifying collection: ${collectionName}`);
+
   // Get total count first
   let countSnapshot;
   try {
-    countSnapshot = await db.collection('cards').count().get();
+    countSnapshot = await db.collection(collectionName).count().get();
   } catch (error) {
     handleFirestoreError(error, 'get card count');
   }
@@ -62,7 +66,7 @@ async function verifyCards() {
   // Get sample cards
   let cardsSnapshot;
   try {
-    cardsSnapshot = await db.collection('cards').limit(5).get();
+    cardsSnapshot = await db.collection(collectionName).limit(5).get();
   } catch (error) {
     handleFirestoreError(error, 'fetch sample cards');
   }
