@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/styles/main.css" />
     <link rel="stylesheet" href="/styles/cards.css" />
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script type="module" src="/scripts/main.js"></script>
   </head>
   <body>
     <div class="layout">
@@ -259,13 +260,7 @@
         initCardsPage();
       }
 
-      // Re-initialize after HTMX swaps the content
-      document.body.addEventListener('htmx:afterSwap', (event) => {
-        // Only re-init if the swapped content contains our card manager
-        if (event.detail.target.querySelector('.card-manager')) {
-          initCardsPage();
-        }
-      });
+      // Note: HTMX navigation re-initialization is handled by main.js
     </script>
   </body>
 </html>

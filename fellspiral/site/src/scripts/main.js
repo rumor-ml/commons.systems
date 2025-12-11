@@ -1151,11 +1151,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Handle HTMX navigation - reinitialize pages when navigating
 document.body.addEventListener('htmx:afterSwap', async (event) => {
+  console.log('[HTMX] afterSwap event fired', {
+    target: event.detail.target,
+    hasMainContent: event.detail.target?.classList?.contains('main-content'),
+    hasCardManager: event.detail.target?.querySelector('.card-manager'),
+  });
+
   // Check if we're navigating to the cards page
+  // Check the swapped content, not the URL (HTMX doesn't change URL!)
   if (
     event.detail.target?.classList?.contains('main-content') &&
-    window.location.pathname.includes('cards.html')
+    event.detail.target?.querySelector('.card-manager')
   ) {
+    console.log('[HTMX] Initializing cards page after swap');
     // Dynamically import and initialize the cards page
     const { initCardsPage } = await import('./cards.js');
     initCardsPage();
