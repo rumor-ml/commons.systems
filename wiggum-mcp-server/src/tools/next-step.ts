@@ -441,8 +441,7 @@ function handleApproval(state: CurrentStateWithPR): ToolResult {
 Final actions:
 1. Post comprehensive summary comment to PR #${state.pr.number} using gh pr comment
 2. Remove "${NEEDS_REVIEW_LABEL}" label: gh pr edit ${state.pr.number} --remove-label "${NEEDS_REVIEW_LABEL}"
-3. Approve PR using: gh pr review ${state.pr.number} --approve
-4. Exit with success message: "All reviews complete with no issues identified. PR approved."
+3. Exit with success message: "All reviews complete with no issues identified. PR is ready for human review."
 
 **IMPORTANT**: ALL gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md`,
     context: {

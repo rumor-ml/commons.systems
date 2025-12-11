@@ -187,12 +187,12 @@ Instructions will check if both review commands are documented in PR comments.
 - If missing: instructions will tell you to re-run the missing command
 - If present: call `wiggum_next_step` to proceed
 
-### Approval
+### Completion
 
 Instructions will tell you to:
 
 1. Post comprehensive summary comment using `gh pr comment`
-2. Approve PR using `gh pr review --approve`
+2. Remove "needs-review" label using `gh pr edit`
 3. Exit with success message
 
 **CRITICAL: ALL `gh` commands must use `dangerouslyDisableSandbox: true`**
