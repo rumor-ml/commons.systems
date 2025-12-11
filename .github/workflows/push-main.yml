@@ -92,6 +92,7 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
+          install-firebase: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
@@ -174,6 +175,7 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
+          install-firebase: 'true'
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y make
@@ -183,6 +185,26 @@ jobs:
 
       - name: Run tests
         run: ./infrastructure/scripts/test-go-fullstack-app.sh printsync
+
+      - name: Upload emulator logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-logs-printsync
+          path: /tmp/claude/emulators.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-printsync
+          path: |
+            printsync/test-results/
+            printsync/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ==================== Go Package Tests ====================
   test-go-packages-filesync:
@@ -304,6 +326,21 @@ jobs:
           site_name: 'fellspiral'
           branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
+      - name: Inject environment variables for build
+        working-directory: fellspiral
+        run: |
+          # Create .env file for Vite (in site/ directory where Vite command runs)
+          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > site/.env
+          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> site/.env
+
+          # Show what we're building
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            echo "Building for PR #${{ github.event.pull_request.number }}"
+            echo "Collection will be: cards_pr_${{ github.event.pull_request.number }}"
+          else
+            echo "Building for branch: ${{ github.ref_name }}"
+          fi
+
       - name: Deploy fellspiral to Firebase Hosting
         id: deploy
         continue-on-error: true
@@ -369,6 +406,55 @@ jobs:
           state: 'failure'
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
+
+  seed-firestore-fellspiral:
+    name: Seed Firestore - fellspiral
+    runs-on: ubuntu-latest
+    needs: [deploy-fellspiral, deploy-firestore-rules]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          # Install firebase-admin in temp directory to avoid workspace protocol issues
+          mkdir -p /tmp/seed-deps
+          cd /tmp/seed-deps
+          npm install firebase-admin
+
+          # Copy all dependencies to fellspiral/node_modules for ES module resolution
+          mkdir -p $GITHUB_WORKSPACE/fellspiral/node_modules
+          cp -r /tmp/seed-deps/node_modules/* $GITHUB_WORKSPACE/fellspiral/node_modules/
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Seed Firestore with namespaced collection
+        working-directory: fellspiral
+        env:
+          FIRESTORE_PROJECT_ID: chalanding
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # Show which collection we're seeding
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Seeding collection: cards_pr_$PR_NUMBER"
+          elif [ "$BRANCH_NAME" != "main" ]; then
+            echo "Seeding collection: cards_preview_$BRANCH_NAME"
+          else
+            echo "Seeding collection: cards (production)"
+          fi
+
+          node scripts/seed-firestore.js
 
   deploy-videobrowser:
     name: Deploy videobrowser
@@ -681,7 +767,8 @@ jobs:
     name: E2E Tests - fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [deploy-fellspiral]
+    needs: [deploy-fellspiral, seed-firestore-fellspiral]
+    if: needs.seed-firestore-fellspiral.result == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -699,6 +786,8 @@ jobs:
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CI: true
 
   e2e-videobrowser:

@@ -10,6 +10,7 @@ import (
 const (
 	EventTypeProgress  = "progress"
 	EventTypeSession   = "session"
+	EventTypeActions   = "actions"
 	EventTypeFile      = "file"
 	EventTypeComplete  = "complete"
 	EventTypeHeartbeat = "heartbeat"
@@ -37,6 +38,12 @@ type SessionEvent struct {
 	CompletedAt *time.Time             `json:"completedAt,omitempty"`
 }
 
+// ActionsEvent represents action buttons state update
+type ActionsEvent struct {
+	SessionID string                `json:"sessionId"`
+	Stats     filesync.SessionStats `json:"stats"`
+}
+
 // FileEvent represents a file status change
 type FileEvent struct {
 	ID        string                `json:"id"`
@@ -45,6 +52,7 @@ type FileEvent struct {
 	Status    filesync.FileStatus   `json:"status"`
 	Metadata  filesync.FileMetadata `json:"metadata,omitempty"`
 	Error     string                `json:"error,omitempty"`
+	IsUpdate  bool                  `json:"isUpdate"`
 }
 
 // CompleteEvent represents a terminal event

@@ -241,20 +241,18 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             if (extraction.summary || testSummary) {
               totalChars += (extraction.summary || testSummary)!.length;
             }
-            if (totalChars > input.max_chars) break;
           }
         } else {
           // No step info available
+          const lines = logs.split('\n');
+          const last100Lines = lines.slice(-100);
           failedSteps.push({
-            name: 'General failure',
+            name: 'No step information available',
             conclusion: job.conclusion,
-            error_lines: errorLines,
-            test_summary: extraction.summary || testSummary,
+            error_lines: last100Lines,
+            test_summary: null,
           });
-          totalChars += errorLines.join('\n').length;
-          if (extraction.summary || testSummary) {
-            totalChars += (extraction.summary || testSummary)!.length;
-          }
+          totalChars += last100Lines.join('\n').length;
         }
       } catch (error) {
         console.error(`Failed to retrieve logs for job ${job.name}:`, error);
@@ -299,10 +297,10 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Add step name and conclusion
         parts.push(`    Step: ${step.name} (${step.conclusion})`);
 
-        // Add error lines
+        // Add all error lines - no artificial limits
         if (step.error_lines.length > 0) {
-          const errorPreview = step.error_lines.slice(0, 10).join('\n      ');
-          parts.push(`      ${errorPreview}`);
+          const errorContent = step.error_lines.join('\n      ');
+          parts.push(`      ${errorContent}`);
         }
 
         return parts.join('\n');

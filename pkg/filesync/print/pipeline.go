@@ -14,10 +14,11 @@ func NewPrintPipeline(
 	gcsClient *storage.Client,
 	firestoreClient *firestore.Client,
 	bucket string,
-	opts ...filesync.PipelineOption,
+	discoveryOpts []filesync.DiscoveryOption,
+	pipelineOpts ...filesync.PipelineOption,
 ) (*filesync.Pipeline, error) {
-	// Create discoverer (finds print media files)
-	discoverer := NewDiscoverer()
+	// Create discoverer with custom options (or defaults)
+	discoverer := NewDiscoverer(discoveryOpts...)
 
 	// Create metadata extractor (extracts metadata from PDFs, EPUBs, etc.)
 	extractor := NewDefaultExtractor()
@@ -47,7 +48,7 @@ func NewPrintPipeline(
 		uploader,
 		sessionStore,
 		fileStore,
-		opts...,
+		pipelineOpts...,
 	)
 	if err != nil {
 		return nil, err

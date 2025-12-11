@@ -1,5 +1,4 @@
-// printsync/tests/e2e/homepage.spec.ts
-import { test, expect } from '../../../playwright.fixtures';
+import { test, expect } from '../fixtures/printsync-fixtures';
 
 test.describe('Homepage', () => {
   test('loads successfully', async ({ page }) => {
@@ -7,21 +6,43 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/Printsync/);
   });
 
+  test('displays sync page correctly', async ({ page }) => {
+    await page.goto('/');
+
+    // Verify main heading
+    await expect(page.locator('h1')).toContainText('Sync Files');
+
+    // Verify sections exist
+    await expect(page.locator('h2').filter({ hasText: 'Start New Sync' })).toBeVisible();
+    await expect(page.locator('h2').filter({ hasText: 'Recent Syncs' })).toBeVisible();
+  });
+
   test('HTMX partial loading works', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for HTMX to load partials
-    const itemsList = page.locator('#items-list');
-    await expect(itemsList).toBeVisible();
-    await expect(itemsList).not.toContainText('Loading...');
+    // Wait for sync form to load
+    await page.waitForSelector('input[name="directory"]', { timeout: 5000 });
+
+    // Wait for history section to load
+    await page.waitForSelector('#sync-history', { timeout: 5000 });
   });
 
-  test('React island hydrates', async ({ page }) => {
+  test('file-selection.js loads correctly', async ({ page }) => {
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
 
-    // Check React island is hydrated
-    const island = page.locator('[data-island-component="DataChart"]');
-    await expect(island).toHaveAttribute('data-island-hydrated', 'true');
+    // Check that our JavaScript functions are defined
+    const functionsExist = await page.evaluate(() => {
+      return {
+        toggleAllExtracted: typeof (window as any).toggleAllExtracted === 'function',
+        updateSelectAllState: typeof (window as any).updateSelectAllState === 'function',
+        updateButtonState: typeof (window as any).updateButtonState === 'function',
+      };
+    });
+
+    expect(functionsExist.toggleAllExtracted).toBe(true);
+    expect(functionsExist.updateSelectAllState).toBe(true);
+    expect(functionsExist.updateButtonState).toBe(true);
   });
 
   test('health endpoint returns OK', async ({ request }) => {
@@ -30,18 +51,5 @@ test.describe('Homepage', () => {
 
     const body = await response.json();
     expect(body.status).toBe('healthy');
-  });
-
-  test('navigation works', async ({ page }) => {
-    await page.goto('/');
-
-    // Click dashboard link
-    await page.click('a[href="/dashboard"]');
-    await expect(page).toHaveURL(/dashboard/);
-    await expect(page.locator('h1')).toContainText('Dashboard');
-
-    // Navigate back
-    await page.click('a[href="/"]');
-    await expect(page).toHaveURL(/\/$/);
   });
 });

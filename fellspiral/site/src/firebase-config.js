@@ -4,19 +4,14 @@
  * This configuration is safe to expose publicly as it only identifies
  * the Firebase project. Access control is managed via Firestore security
  * rules (firestore.rules).
- *
- * Auto-generated during CI/CD deployment
  */
 
+// Firebase configuration - will be replaced at runtime in production
 export const firebaseConfig = {
-  apiKey: 'AIzaSyDummyKeyWillBeReplacedByCI',
+  apiKey: 'AIzaSyBbugulRE4hhlFmSlYSDo22pwkPnZqWfrw',
   authDomain: 'chalanding.firebaseapp.com',
   projectId: 'chalanding',
-  storageBucket: 'chalanding.appspot.com',
-  messagingSenderId: '123456789',
-  appId: '1:123456789:web:abc123def456',
+  storageBucket: 'chalanding.firebasestorage.app',
+  messagingSenderId: '190604485916',
+  appId: '1:190604485916:web:abc123def456',
 };
-
-// Note: The actual configuration will be injected during the CI/CD deployment
-// For local development, you can get the real config from:
-// Firebase Console > Project Settings > Your apps > Web app config

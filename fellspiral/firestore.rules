@@ -13,26 +13,34 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
-    // Cards collection (for fellspiral)
-    match /cards/{cardId} {
-      // Allow public read access - cards are viewable by anyone
-      allow read: if true;
+    // Cards collection (for fellspiral) - includes PR-specific collections like cards_pr_123
+    // and branch preview collections like cards_preview_my-branch
+    match /{cardsCollection}/{cardId} {
+      // Match any collection that starts with "cards" (cards, cards_pr_123, cards_preview_branch-name)
+      allow read: if cardsCollection.matches('cards(_pr_[0-9]+)?')
+                  || cardsCollection.matches('cards_preview_[a-z0-9-]+');
 
-      // Allow create for authenticated users
+      // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      allow create: if isAuthenticated()
+      allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                    && isAuthenticated()
                     && request.resource.data.keys().hasAll(['name', 'type'])
                     && request.resource.data.createdBy == request.auth.uid
                     && request.resource.data.createdAt == request.time;
 
       // Allow update only if user is the creator or if updating their own modifications
-      allow update: if isAuthenticated()
+      allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                    && isAuthenticated()
                     && (resource.data.createdBy == request.auth.uid
                         || request.resource.data.lastModifiedBy == request.auth.uid)
                     && request.resource.data.lastModifiedAt == request.time;
 
       // Allow delete only if user is the creator
-      allow delete: if isAuthenticated()
+      allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                    && isAuthenticated()
                     && resource.data.createdBy == request.auth.uid;
     }
 

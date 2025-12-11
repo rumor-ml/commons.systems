@@ -95,7 +95,7 @@ func TestNewPrintPipeline_CreatesPipeline(t *testing.T) {
 	ctx := context.Background()
 	bucketName := "test-print-pipeline"
 
-	pipeline, err := NewPrintPipeline(ctx, gcsClient, firestoreClient, bucketName)
+	pipeline, err := NewPrintPipeline(ctx, gcsClient, firestoreClient, bucketName, nil)
 	if err != nil {
 		t.Fatalf("NewPrintPipeline() failed: %v", err)
 	}
@@ -120,6 +120,7 @@ func TestNewPrintPipeline_WithOptions(t *testing.T) {
 		gcsClient,
 		firestoreClient,
 		bucketName,
+		nil,
 		filesync.WithConcurrentJobs(4),
 		filesync.WithProgressBufferSize(50),
 	)
@@ -154,6 +155,7 @@ func TestPrintPipeline_Integration_ProcessFiles(t *testing.T) {
 		gcsClient,
 		firestoreClient,
 		bucketName,
+		nil,
 		filesync.WithConcurrentJobs(2),
 	)
 	if err != nil {
@@ -220,6 +222,7 @@ func TestPrintPipeline_Integration_RunAsync(t *testing.T) {
 		gcsClient,
 		firestoreClient,
 		bucketName,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewPrintPipeline() failed: %v", err)
@@ -286,6 +289,7 @@ func TestPrintPipeline_Integration_ContextCancellation(t *testing.T) {
 		gcsClient,
 		firestoreClient,
 		bucketName,
+		nil,
 		filesync.WithConcurrentJobs(1), // Single job to make cancellation timing more predictable
 	)
 	if err != nil {
@@ -334,6 +338,7 @@ func TestPrintPipeline_Integration_EmptyDirectory(t *testing.T) {
 		gcsClient,
 		firestoreClient,
 		bucketName,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewPrintPipeline() failed: %v", err)

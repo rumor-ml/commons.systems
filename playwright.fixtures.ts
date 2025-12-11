@@ -59,12 +59,7 @@ export const test = base.extend<AuthFixtures>({
         localStorage.setItem(authKey, JSON.stringify(authUser));
 
         // Trigger storage event to notify auth listeners
-        window.dispatchEvent(
-          new StorageEvent('storage', {
-            key: authKey,
-            newValue: JSON.stringify(authUser),
-          })
-        );
+        window.dispatchEvent(new StorageEvent('storage'));
       }, data);
 
       await page.reload();

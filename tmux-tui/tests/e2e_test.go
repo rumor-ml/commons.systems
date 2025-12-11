@@ -1004,14 +1004,28 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 	t.Log("Real Claude alert flow test completed successfully")
 }
 
-// containsHighlightedWindow checks if the output contains ANSI-highlighted window number
-// bellStyle uses lipgloss Background(Color("1")) which renders as red background
-func containsHighlightedWindow(output, windowNum string) bool {
-	// ANSI escape for red background is typically \x1b[41m or similar
-	// lipgloss may use different codes, so we look for:
-	// 1. Any background color escape sequence followed by the window number
-	// 2. The specific pattern used by bellStyle
+// Alert type icons (must match internal/ui/tree.go constants)
+const (
+	testStopIcon        = "●" // U+25CF BLACK CIRCLE
+	testPermissionIcon  = "⚠" // U+26A0 WARNING SIGN
+	testIdleIcon        = "⏸" // U+23F8 DOUBLE VERTICAL BAR
+	testElicitationIcon = "❓" // U+2753 BLACK QUESTION MARK ORNAMENT
+)
 
+// containsHighlightedWindow checks if the output contains a highlighted window number
+// bellStyle uses lipgloss Background(Color("1")) which renders as red background with TTY,
+// but in CI without TTY, lipgloss outputs just the icon character without ANSI codes.
+func containsHighlightedWindow(output, windowNum string) bool {
+	// Check for icon prefixed to window number (CI/no-TTY mode)
+	// Icons are: ● (stop), ⏸ (idle), ⚠ (permission), ❓ (elicitation)
+	if strings.Contains(output, testStopIcon+windowNum) ||
+		strings.Contains(output, testIdleIcon+windowNum) ||
+		strings.Contains(output, testPermissionIcon+windowNum) ||
+		strings.Contains(output, testElicitationIcon+windowNum) {
+		return true
+	}
+
+	// Check for ANSI-styled window number (TTY mode)
 	// Pattern: escape sequence + window number within reasonable proximity
 	// \x1b[...m where ... contains background color codes
 	return strings.Contains(output, "\x1b[") &&

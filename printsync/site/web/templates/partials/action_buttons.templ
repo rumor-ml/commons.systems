@@ -1,0 +1,47 @@
+package partials
+
+import (
+	"fmt"
+	"github.com/commons-systems/filesync"
+)
+
+templ ActionButtons(sessionID string, stats filesync.SessionStats) {
+	if stats.Extracted > 0 {
+		<form
+			hx-post={ fmt.Sprintf("/api/sync/%s/upload-selected", sessionID) }
+			hx-target="#action-buttons"
+			hx-swap="innerHTML"
+		>
+			<button
+				id="upload-selected-btn"
+				type="submit"
+				class="btn btn--primary btn--sm"
+				disabled
+			>
+				<span>Upload Selected (<span id="selected-count">0</span>)</span>
+			</button>
+		</form>
+		<button
+			id="upload-all-btn"
+			hx-post={ fmt.Sprintf("/api/sync/%s/approve-all", sessionID) }
+			hx-target="#sync-monitor"
+			hx-swap="outerHTML"
+			hx-indicator=".htmx-indicator"
+			class="btn btn-primary btn--sm"
+		>
+			<span>Upload All</span>
+			<span class="htmx-indicator spinner spinner-sm"></span>
+		</button>
+	}
+	if stats.Uploaded + stats.Skipped > 0 {
+		<button
+			id="trash-all-btn"
+			hx-get={ fmt.Sprintf("/partials/trash-modal?sessionID=%s&action=trash-all", sessionID) }
+			hx-target="body"
+			hx-swap="beforeend"
+			class="btn btn--sm btn--danger btn--outline"
+		>
+			<span>Trash All ({ fmt.Sprintf("%d", stats.Uploaded + stats.Skipped) })</span>
+		</button>
+	}
+}

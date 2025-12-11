@@ -41,7 +41,43 @@ echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestor
 # --- Type-specific setup ---
 case "$APP_TYPE" in
   firebase)
-    # Static Firebase app
+    # Static Firebase app with Firebase emulators
+    echo "Starting Firebase emulators..."
+    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+
+    # Verify emulator env vars are set (fail-fast)
+    if [ -z "$FIRESTORE_EMULATOR_HOST" ] || [ -z "$STORAGE_EMULATOR_HOST" ] || [ -z "$FIREBASE_AUTH_EMULATOR_HOST" ]; then
+      echo "ERROR: Emulator environment variables not set. Run allocate-test-ports.sh first."
+      exit 1
+    fi
+    export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+
+    # Debug: Verify emulator environment
+    echo "=== CI Debug: Emulator Environment ==="
+    echo "FIRESTORE_EMULATOR_HOST: $FIRESTORE_EMULATOR_HOST"
+    echo "FIREBASE_AUTH_EMULATOR_HOST: $FIREBASE_AUTH_EMULATOR_HOST"
+    echo "STORAGE_EMULATOR_HOST: $STORAGE_EMULATOR_HOST"
+    echo "GCP_PROJECT_ID: $GCP_PROJECT_ID"
+    echo "CI environment: ${CI:-false}"
+    echo "======================================"
+
+    # Debug: Check if cards.json exists (for fellspiral tests)
+    CARDS_JSON="${APP_PATH_ABS}/site/src/data/cards.json"
+    if [ -f "$CARDS_JSON" ]; then
+      CARD_COUNT=$(jq '. | length' "$CARDS_JSON" 2>/dev/null || echo "unknown")
+      echo "=== CI Debug: Test Data ==="
+      echo "cards.json found at: $CARDS_JSON"
+      echo "Card count: $CARD_COUNT"
+      echo "==========================="
+    fi
+
+    # Set up cleanup trap
+    cleanup() {
+      echo "Stopping emulators..."
+      "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
+    }
+    trap cleanup EXIT
+
     echo "Building..."
     pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
@@ -51,10 +87,11 @@ case "$APP_TYPE" in
     echo "Starting Firebase emulators..."
     source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
 
-    # Export emulator env vars
-    export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-    export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-    export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
+    # Verify emulator env vars are set (fail-fast)
+    if [ -z "$FIRESTORE_EMULATOR_HOST" ] || [ -z "$STORAGE_EMULATOR_HOST" ] || [ -z "$FIREBASE_AUTH_EMULATOR_HOST" ]; then
+      echo "ERROR: Emulator environment variables not set. Run allocate-test-ports.sh first."
+      exit 1
+    fi
     export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
 
     # Set up cleanup trap
@@ -98,4 +135,4 @@ elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   make test-e2e
 fi
 
-echo "✅ Tests passed: $APP_NAME"
+echo "Tests passed: $APP_NAME"

@@ -33,4 +33,9 @@ type Uploader interface {
 	// CheckExists checks if a file with the given hash already exists in GCS
 	// Returns true and the GCS path if found, false otherwise
 	CheckExists(ctx context.Context, hash string) (exists bool, gcsPath string, err error)
+
+	// DeleteLocal deletes the local source file (moves to system trash).
+	// This is used after a file has been successfully uploaded to clean up local storage.
+	// Returns nil if the file doesn't exist (idempotent operation).
+	DeleteLocal(ctx context.Context, localPath string) error
 }

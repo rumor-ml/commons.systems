@@ -29,20 +29,13 @@ func NewRouter(
 	// Health check for Cloud Run
 	mux.HandleFunc("GET /health", handlers.HealthHandler)
 
-	// Pages (support HTMX partial + full page)
+	// Pages
 	pageH := handlers.NewPageHandlers(fs)
-	mux.HandleFunc("GET /", pageH.Home)
-	mux.HandleFunc("GET /dashboard", pageH.Dashboard)
-	mux.HandleFunc("GET /sync", pageH.Sync)
+	mux.HandleFunc("GET /", pageH.Sync)
 	mux.HandleFunc("GET /sync/{id}", pageH.SyncDetail)
 
 	// HTMX partials (non-authenticated)
-	mux.HandleFunc("GET /partials/items", pageH.ItemsPartial)
-	mux.HandleFunc("POST /partials/items", pageH.CreateItem)
 	mux.HandleFunc("GET /partials/sync/form", pageH.SyncFormPartial)
-
-	// API for React islands
-	mux.HandleFunc("GET /api/data", pageH.DataAPI)
 
 	// Initialize sync infrastructure
 	registry := handlers.NewSessionRegistry()
@@ -66,6 +59,7 @@ func NewRouter(
 	mux.Handle("GET /api/sync/{id}/stream", authMiddleware(http.HandlerFunc(syncH.StreamSession)))
 	mux.Handle("POST /api/sync/{id}/cancel", authMiddleware(http.HandlerFunc(syncH.CancelSync)))
 	mux.Handle("POST /api/sync/{id}/approve-all", authMiddleware(http.HandlerFunc(syncH.ApproveAll)))
+	mux.Handle("POST /api/sync/{id}/upload-selected", authMiddleware(http.HandlerFunc(syncH.UploadSelected)))
 	mux.Handle("POST /api/sync/{id}/trash-all", authMiddleware(http.HandlerFunc(syncH.TrashAll)))
 
 	// File API
@@ -80,6 +74,7 @@ func NewRouter(
 
 	// Apply middleware
 	return middleware.Chain(mux,
+		middleware.Recovery,
 		middleware.Logger,
 		middleware.HTMX,
 	)

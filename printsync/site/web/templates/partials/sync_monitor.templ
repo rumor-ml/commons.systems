@@ -2,6 +2,7 @@ package partials
 
 import (
 	"fmt"
+	"github.com/commons-systems/filesync"
 )
 
 templ SyncMonitor(sessionID string) {
@@ -69,32 +70,38 @@ templ SyncMonitor(sessionID string) {
 		</div>
 
 		<!-- Action buttons section -->
-		<div id="action-buttons" class="flex gap-3 mb-6">
-			<button
-				id="upload-all-btn"
-				hx-post={ fmt.Sprintf("/api/sync/%s/approve-all", sessionID) }
-				hx-target="#action-buttons"
-				hx-swap="outerHTML"
-				hx-indicator="#upload-all-spinner"
-				class="btn btn--primary btn--sm hidden"
-			>
-				<span>Upload All</span>
-				<span id="upload-all-spinner" class="htmx-indicator spinner spinner--sm"></span>
-			</button>
-			<button
-				id="trash-all-btn"
-				hx-get={ fmt.Sprintf("/partials/trash-modal?sessionID=%s&action=trash-all", sessionID) }
-				hx-target="body"
-				hx-swap="beforeend"
-				class="btn btn--sm btn--danger btn--outline hidden"
-			>
-				<span>Trash All</span>
-			</button>
+		<div
+			id="action-buttons"
+			class="flex gap-3 mb-6"
+			sse-swap="actions"
+			hx-swap="innerHTML"
+		>
+			<!-- Action buttons will be updated via SSE -->
+			@ActionButtons(sessionID, filesync.SessionStats{})
+		</div>
+
+		<!-- Trash message section (populated by trash-all action via OOB swap) -->
+		<div
+			id="trash-message"
+			class="hidden"
+		>
+			<!-- Will be populated by trash-all handler via hx-swap-oob -->
 		</div>
 
 		<!-- File list container -->
 		<div class="mt-6">
-			<h3 class="font-semibold text-text-primary mb-3">Files</h3>
+			<div class="flex items-center justify-between mb-3">
+				<h3 class="font-semibold text-text-primary">Files</h3>
+				<label id="select-all-container" class="hidden flex items-center gap-2 text-sm text-text-secondary">
+					<input
+						type="checkbox"
+						id="select-all-extracted"
+						class="w-4 h-4 rounded border-bg-hover text-primary focus:ring-primary"
+						onchange="toggleAllExtracted()"
+					/>
+					<span>Select All Extracted</span>
+				</label>
+			</div>
 			<div
 				id="file-list"
 				class="space-y-2 max-h-96 overflow-y-auto"

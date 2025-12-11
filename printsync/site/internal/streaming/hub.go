@@ -3,6 +3,8 @@ package streaming
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -50,6 +52,9 @@ func (b *SessionBroadcaster) Register(client *Client) {
 
 // Unregister removes a client from the broadcaster
 func (b *SessionBroadcaster) Unregister(client *Client) {
+	if client == nil {
+		return
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.clients[client]; ok {
@@ -74,6 +79,12 @@ func (b *SessionBroadcaster) Stop() {
 // Start starts broadcasting events from the merger to all clients
 func (b *SessionBroadcaster) Start() {
 	go func() {
+		// Recover from panics to prevent server crash
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in broadcaster Start: %v\n%s", r, debug.Stack())
+			}
+		}()
 		defer b.Stop()
 		for {
 			select {
@@ -98,6 +109,13 @@ func (b *SessionBroadcaster) Start() {
 
 // broadcast sends an event to all registered clients
 func (b *SessionBroadcaster) broadcast(event SSEEvent) {
+	// Recover from panic if client channel was closed during iteration
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC recovered in broadcast: %v", r)
+		}
+	}()
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for client := range b.clients {
@@ -134,7 +152,7 @@ func NewStreamHub(sessionStore filesync.SessionStore, fileStore filesync.FileSto
 }
 
 // Register registers a client for a session and returns the client
-func (h *StreamHub) Register(sessionID string) *Client {
+func (h *StreamHub) Register(ctx context.Context, sessionID string) *Client {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -150,7 +168,7 @@ func (h *StreamHub) Register(sessionID string) *Client {
 			// But we return nil to prevent panic
 			return nil
 		}
-		broadcaster = NewSessionBroadcaster(context.Background(), merger)
+		broadcaster = NewSessionBroadcaster(ctx, merger)
 		h.broadcasters[sessionID] = broadcaster
 	}
 
@@ -160,6 +178,10 @@ func (h *StreamHub) Register(sessionID string) *Client {
 
 // Unregister removes a client from a session
 func (h *StreamHub) Unregister(sessionID string, client *Client) {
+	if client == nil {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -172,8 +194,10 @@ func (h *StreamHub) Unregister(sessionID string, client *Client) {
 
 	// If this was the last client, clean up the broadcaster
 	if broadcaster.ClientCount() == 0 {
+		log.Printf("INFO: Last client disconnected from session %s, stopping broadcaster", sessionID)
 		broadcaster.Stop()
 		delete(h.broadcasters, sessionID)
+		log.Printf("INFO: Broadcaster for session %s cleaned up", sessionID)
 	}
 }
 
@@ -217,4 +241,15 @@ func (h *StreamHub) IsRunning(sessionID string) bool {
 	defer h.mu.RUnlock()
 	_, exists := h.broadcasters[sessionID]
 	return exists
+}
+
+// StopSession stops the broadcaster for a session and removes it from the hub.
+// This should be called if pipeline initialization fails after StartSession was called.
+func (h *StreamHub) StopSession(sessionID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if broadcaster, exists := h.broadcasters[sessionID]; exists {
+		broadcaster.Stop()
+		delete(h.broadcasters, sessionID)
+	}
 }

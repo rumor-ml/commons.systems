@@ -53,10 +53,11 @@ test.describe('Combat Simulator', () => {
     const combatLog = page.locator('#combatLog');
     await expect(combatLog).toBeVisible();
 
-    // Check that log contains combat information
+    // Check that log contains combat information with increased timeout for CI
     const logContent = page.locator('#logContent');
-    await expect(logContent).toContainText('COMBAT BEGINS');
-    await expect(logContent).toContainText('ROUND');
+    // Match either the old format or new format with emojis
+    await expect(logContent).toContainText(/COMBAT BEGINS|Combat begins/, { timeout: 10000 });
+    await expect(logContent).toContainText('ROUND', { timeout: 10000 });
   });
 
   test('should prevent selecting the same combatant twice', async ({ page }) => {

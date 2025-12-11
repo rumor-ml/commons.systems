@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,13 @@ import (
 )
 
 func main() {
+	// Register JavaScript MIME types explicitly
+	// This ensures .js files are served with correct Content-Type
+	mime.AddExtensionType(".js", "application/javascript; charset=utf-8")
+	mime.AddExtensionType(".mjs", "application/javascript; charset=utf-8")
+	mime.AddExtensionType(".json", "application/json; charset=utf-8")
+	mime.AddExtensionType(".css", "text/css; charset=utf-8")
+
 	cfg := config.Load()
 
 	ctx := context.Background()
@@ -37,9 +45,19 @@ func main() {
 	defer gcsClient.Close()
 
 	// Initialize Firebase app for auth
-	firebaseApp, err := firebase.NewApp(ctx, nil)
+	firebaseConfig := &firebase.Config{
+		ProjectID: cfg.GCPProjectID,
+	}
+	firebaseApp, err := firebase.NewApp(ctx, firebaseConfig)
 	if err != nil {
 		log.Fatalf("Failed to create Firebase app: %v", err)
+	}
+
+	// Log if using Firebase Auth Emulator
+	if authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"); authEmulator != "" {
+		log.Printf("Using Firebase Auth Emulator at %s", authEmulator)
+	} else {
+		log.Printf("WARNING: FIREBASE_AUTH_EMULATOR_HOST not set - using production Firebase Auth")
 	}
 
 	// Create session and file stores

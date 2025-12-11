@@ -19,6 +19,7 @@
     "printsync/tests"
   ],
   "scripts": {
+    "postinstall": "npx playwright install chromium firefox",
     "dev": "npm run dev --workspace=fellspiral/site",
     "build": "npm run build --workspace=fellspiral/site",
     "test": "npm test --workspace=fellspiral/tests",
@@ -45,7 +46,12 @@
     "test:local": "./infrastructure/scripts/run-tests.sh",
     "test:local:firebase": "./infrastructure/scripts/run-tests.sh --type=firebase",
     "test:local:go": "./infrastructure/scripts/run-tests.sh --type=go-tui",
-    "test:local:fellspiral": "./infrastructure/scripts/run-tests.sh fellspiral"
+    "test:local:fellspiral": "./infrastructure/scripts/run-tests.sh fellspiral",
+    "test:local-channel": "./infrastructure/scripts/deploy-and-test-local.sh",
+    "test:local-channel:fellspiral": "./infrastructure/scripts/deploy-and-test-local.sh fellspiral",
+    "test:local-channel:videobrowser": "./infrastructure/scripts/deploy-and-test-local.sh videobrowser",
+    "test:local-channel:audiobrowser": "./infrastructure/scripts/deploy-and-test-local.sh audiobrowser",
+    "test:local-channel:print": "./infrastructure/scripts/deploy-and-test-local.sh print"
   },
   "keywords": [
     "monorepo",

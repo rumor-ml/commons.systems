@@ -55,7 +55,12 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register client with hub
-	client := h.hub.Register(sessionID)
+	client := h.hub.Register(r.Context(), sessionID)
+	if client == nil {
+		log.Printf("ERROR: StreamSession for session %s - failed to register client", sessionID)
+		http.Error(w, "Failed to register SSE client", http.StatusInternalServerError)
+		return
+	}
 	defer h.hub.Unregister(sessionID, client)
 
 	// Send initial session state
@@ -70,13 +75,63 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := h.writeSSEEventHTML(w, r.Context(), initialEvent); err != nil {
+		log.Printf("ERROR: StreamSession for session %s - failed to write initial session event: %v", sessionID, err)
+		return
+	}
+
+	// Send initial action buttons state
+	actionsEvent := streaming.SSEEvent{
+		Type:      streaming.EventTypeActions,
+		Timestamp: time.Now(),
+		Data: streaming.ActionsEvent{
+			SessionID: session.ID,
+			Stats:     session.Stats,
+		},
+	}
+	if err := h.writeSSEEventHTML(w, r.Context(), actionsEvent); err != nil {
+		log.Printf("ERROR: StreamSession for session %s - failed to write initial actions event: %v", sessionID, err)
+		return
+	}
+
+	// Send initial progress event based on session state
+	var progressOperation string
+	switch session.Status {
+	case filesync.SessionStatusCompleted:
+		progressOperation = "Sync completed"
+	case filesync.SessionStatusFailed:
+		progressOperation = "Sync failed"
+	case filesync.SessionStatusRunning:
+		if session.Stats.Extracted > 0 {
+			progressOperation = "Extracting metadata..."
+		} else if session.Stats.Discovered > 0 {
+			progressOperation = "Discovering files..."
+		} else {
+			progressOperation = "Starting..."
+		}
+	default:
+		progressOperation = "Processing..."
+	}
+	progressEvent := streaming.SSEEvent{
+		Type:      streaming.EventTypeProgress,
+		Timestamp: time.Now(),
+		Data: streaming.ProgressEvent{
+			Operation:  progressOperation,
+			Percentage: 0,
+		},
+	}
+	if err := h.writeSSEEventHTML(w, r.Context(), progressEvent); err != nil {
+		log.Printf("ERROR: StreamSession for session %s - failed to write initial progress event: %v", sessionID, err)
 		return
 	}
 	flusher.Flush()
 
 	// Get initial file list
 	files, err := h.fileStore.ListBySession(r.Context(), sessionID)
-	if err == nil {
+	log.Printf("DEBUG: ListBySession(sessionID=%s) returned %d files, err=%v", sessionID, len(files), err)
+	if err != nil {
+		// Continue streaming anyway - files may arrive via subscriptions
+		log.Printf("ERROR: Failed to list initial files for session %s: %v", sessionID, err)
+	} else {
 		for _, file := range files {
 			fileEvent := streaming.SSEEvent{
 				Type:      streaming.EventTypeFile,
@@ -88,9 +143,11 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 					Status:    file.Status,
 					Metadata:  file.Metadata,
 					Error:     file.Error,
+					IsUpdate:  false, // Initial load - will append
 				},
 			}
 			if err := h.writeSSEEventHTML(w, r.Context(), fileEvent); err != nil {
+				log.Printf("ERROR: StreamSession for session %s - failed to write file event for %s: %v", sessionID, file.ID, err)
 				return
 			}
 		}
@@ -111,10 +168,12 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		case event, ok := <-client.Events:
 			if !ok {
 				// Channel closed, streaming ended
+				log.Printf("DEBUG: StreamSession for session %s - channel closed, ending stream", sessionID)
 				return
 			}
 
 			if err := h.writeSSEEventHTML(w, r.Context(), event); err != nil {
+				log.Printf("ERROR: StreamSession for session %s - failed to write event %s: %v", sessionID, event.Type, err)
 				return
 			}
 			flusher.Flush()
@@ -151,6 +210,19 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 			return err
 		}
 
+		// Send action buttons as a separate SSE event (not embedded in session event)
+		// This is sent immediately after the session stats event in the caller
+		// No OOB swaps in SSE - each event updates its own sse-swap target
+
+	case streaming.EventTypeActions:
+		actionsData, ok := event.Data.(streaming.ActionsEvent)
+		if !ok {
+			return fmt.Errorf("invalid actions event data type")
+		}
+		if err := partials.ActionButtons(actionsData.SessionID, actionsData.Stats).Render(ctx, &buf); err != nil {
+			return err
+		}
+
 	case streaming.EventTypeProgress:
 		progressData, ok := event.Data.(streaming.ProgressEvent)
 		if !ok {
@@ -174,7 +246,8 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 			Metadata:  fileData.Metadata,
 			Error:     fileData.Error,
 		}
-		if err := partials.FileRow(file).Render(ctx, &buf); err != nil {
+		// Pass IsUpdate flag to enable conditional OOB swap
+		if err := partials.FileRow(file, fileData.IsUpdate).Render(ctx, &buf); err != nil {
 			return err
 		}
 

@@ -1,20 +1,50 @@
 package layouts
 
+import (
+	"os"
+)
+
 templ Base(title string) {
 	<!DOCTYPE html>
 	<html lang="en">
 	<head>
 		<meta charset="UTF-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<!-- Firebase emulator configuration (dev mode only) -->
+		if os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") != "" {
+			<meta name="firebase-auth-emulator-host" content={ os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") }/>
+		}
 		<title>{ title } - Printsync</title>
 		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"/>
 		<link rel="stylesheet" href="/static/css/styles.css"/>
 		<script src="https://unpkg.com/htmx.org@1.9.10"></script>
 		<script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+		<script src="/static/js/file-selection.js"></script>
+		<!-- Firebase SDK (compat version) -->
+		<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+		<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+		<!-- Import Map for shared libraries -->
+		<script type="importmap">
+			{
+				"imports": {
+					"@commons/auth": "/static/js/vendor/@commons/auth/index.js",
+					"@commons/auth/": "/static/js/vendor/@commons/auth/",
+					"firebase/app": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js",
+					"firebase/auth": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js"
+				}
+			}
+		</script>
 	</head>
 	<body class="bg-bg-base text-text-primary font-sans" hx-boost="true">
 		{ children... }
-		<script type="module" src="/static/js/islands.js"></script>
+		<!-- Auth initialization -->
+		<script type="module">
+			import { initializeAuth } from '/static/js/auth-init.js';
+
+			document.addEventListener('DOMContentLoaded', () => {
+				initializeAuth();
+			});
+		</script>
 	</body>
 	</html>
 }

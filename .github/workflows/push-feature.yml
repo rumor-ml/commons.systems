@@ -263,6 +263,24 @@ jobs:
           site_name: 'fellspiral'
           branch_name: ${{ github.ref_name }}
 
+      - name: Inject environment variables for build
+        working-directory: fellspiral
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # Create .env file for Vite (in site/ directory where Vite command runs)
+          echo "VITE_PR_NUMBER=${PR_NUMBER}" > site/.env
+          echo "VITE_BRANCH_NAME=${BRANCH_NAME}" >> site/.env
+
+          # Show what we're building
+          if [ -n "${PR_NUMBER}" ]; then
+            echo "Building for PR #${PR_NUMBER}"
+            echo "Collection will be: cards_pr_${PR_NUMBER}"
+          else
+            echo "Building for branch: ${BRANCH_NAME}"
+          fi
+
       - name: Deploy to Firebase Hosting Preview
         id: deploy
         continue-on-error: true

@@ -10,6 +10,7 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"fmt"
+	"github.com/commons-systems/filesync"
 )
 
 func SyncMonitor(sessionID string) templ.Component {
@@ -40,7 +41,7 @@ func SyncMonitor(sessionID string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/sync/%s/stream", sessionID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 11, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 12, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -53,39 +54,21 @@ func SyncMonitor(sessionID string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/sync/%s/cancel", sessionID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 17, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 18, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" hx-target=\"#sync-monitor\" hx-swap=\"outerHTML\" class=\"btn btn--sm btn--danger\"><span>Cancel</span> <span class=\"htmx-indicator spinner spinner--sm\"></span></button></div><!-- Stats section --><div id=\"sync-stats\" sse-swap=\"session\" hx-swap=\"innerHTML\"><!-- Initial stats - will be replaced by SSE --><div class=\"grid grid-cols-4 gap-4 mb-6\"><div class=\"text-center\"><div class=\"text-2xl font-bold text-primary\">0</div><div class=\"text-sm text-text-secondary\">Discovered</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-success\">0</div><div class=\"text-sm text-text-secondary\">Extracted</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-secondary\">0</div><div class=\"text-sm text-text-secondary\">Uploaded</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-error\">0</div><div class=\"text-sm text-text-secondary\">Errors</div></div></div></div><!-- Progress bar section --><div id=\"phase-indicator\" sse-swap=\"progress\" hx-swap=\"innerHTML\"><!-- Initial progress - will be replaced by SSE --><div class=\"mb-6\"><div class=\"w-full bg-bg-surface rounded-full h-2.5\"><div class=\"bg-primary h-2.5 rounded-full shadow-glow-subtle transition-all duration-slow\" style=\"width: 0%\"></div></div><div class=\"text-sm text-text-secondary mt-2\"><span>Initializing...</span></div></div></div><!-- Action buttons section --><div id=\"action-buttons\" class=\"flex gap-3 mb-6\"><button id=\"upload-all-btn\" hx-post=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" hx-target=\"#sync-monitor\" hx-swap=\"outerHTML\" class=\"btn btn--sm btn--danger\"><span>Cancel</span> <span class=\"htmx-indicator spinner spinner--sm\"></span></button></div><!-- Stats section --><div id=\"sync-stats\" sse-swap=\"session\" hx-swap=\"innerHTML\"><!-- Initial stats - will be replaced by SSE --><div class=\"grid grid-cols-4 gap-4 mb-6\"><div class=\"text-center\"><div class=\"text-2xl font-bold text-primary\">0</div><div class=\"text-sm text-text-secondary\">Discovered</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-success\">0</div><div class=\"text-sm text-text-secondary\">Extracted</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-secondary\">0</div><div class=\"text-sm text-text-secondary\">Uploaded</div></div><div class=\"text-center\"><div class=\"text-2xl font-bold text-error\">0</div><div class=\"text-sm text-text-secondary\">Errors</div></div></div></div><!-- Progress bar section --><div id=\"phase-indicator\" sse-swap=\"progress\" hx-swap=\"innerHTML\"><!-- Initial progress - will be replaced by SSE --><div class=\"mb-6\"><div class=\"w-full bg-bg-surface rounded-full h-2.5\"><div class=\"bg-primary h-2.5 rounded-full shadow-glow-subtle transition-all duration-slow\" style=\"width: 0%\"></div></div><div class=\"text-sm text-text-secondary mt-2\"><span>Initializing...</span></div></div></div><!-- Action buttons section --><div id=\"action-buttons\" class=\"flex gap-3 mb-6\" sse-swap=\"actions\" hx-swap=\"innerHTML\"><!-- Action buttons will be updated via SSE -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/sync/%s/approve-all", sessionID))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 75, Col: 64}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+		templ_7745c5c3_Err = ActionButtons(sessionID, filesync.SessionStats{}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" hx-target=\"#action-buttons\" hx-swap=\"outerHTML\" hx-indicator=\"#upload-all-spinner\" class=\"btn btn--primary btn--sm hidden\"><span>Upload All</span> <span id=\"upload-all-spinner\" class=\"htmx-indicator spinner spinner--sm\"></span></button> <button id=\"trash-all-btn\" hx-get=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var5 string
-		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/partials/trash-modal?sessionID=%s&action=trash-all", sessionID))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/partials/sync_monitor.templ`, Line: 86, Col: 90}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" hx-target=\"body\" hx-swap=\"beforeend\" class=\"btn btn--sm btn--danger btn--outline hidden\"><span>Trash All</span></button></div><!-- File list container --><div class=\"mt-6\"><h3 class=\"font-semibold text-text-primary mb-3\">Files</h3><div id=\"file-list\" class=\"space-y-2 max-h-96 overflow-y-auto\" sse-swap=\"file\" hx-swap=\"beforeend\"><!-- Files will be added here via SSE with beforeend swap --></div></div><!-- Complete message section --><div id=\"complete-message\" class=\"hidden\" sse-swap=\"complete\" hx-swap=\"innerHTML\"><!-- Will be populated by SSE when complete --></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><!-- Trash message section (populated by trash-all action via OOB swap) --><div id=\"trash-message\" class=\"hidden\"><!-- Will be populated by trash-all handler via hx-swap-oob --></div><!-- File list container --><div class=\"mt-6\"><div class=\"flex items-center justify-between mb-3\"><h3 class=\"font-semibold text-text-primary\">Files</h3><label id=\"select-all-container\" class=\"hidden flex items-center gap-2 text-sm text-text-secondary\"><input type=\"checkbox\" id=\"select-all-extracted\" class=\"w-4 h-4 rounded border-bg-hover text-primary focus:ring-primary\" onchange=\"toggleAllExtracted()\"> <span>Select All Extracted</span></label></div><div id=\"file-list\" class=\"space-y-2 max-h-96 overflow-y-auto\" sse-swap=\"file\" hx-swap=\"beforeend\"><!-- Files will be added here via SSE with beforeend swap --></div></div><!-- Complete message section --><div id=\"complete-message\" class=\"hidden\" sse-swap=\"complete\" hx-swap=\"innerHTML\"><!-- Will be populated by SSE when complete --></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

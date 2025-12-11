@@ -3,6 +3,8 @@ package streaming
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -39,6 +41,13 @@ func NewStreamMerger(sessionStore filesync.SessionStore, fileStore filesync.File
 // StartProgressForwarder forwards pipeline progress events to the events channel
 func (m *StreamMerger) StartProgressForwarder(ctx context.Context, progressCh <-chan filesync.Progress) {
 	go func() {
+		// Recover from panics to prevent server crash
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in progress forwarder: %v\n%s", r, debug.Stack())
+			}
+		}()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -58,6 +67,7 @@ func (m *StreamMerger) StartProgressForwarder(ctx context.Context, progressCh <-
 						Percentage: progress.Percentage,
 					},
 				}
+				// Use non-blocking send with done check to prevent panic on closed channel
 				select {
 				case m.eventsCh <- event:
 				case <-ctx.Done():
@@ -73,6 +83,17 @@ func (m *StreamMerger) StartProgressForwarder(ctx context.Context, progressCh <-
 // StartSessionSubscription subscribes to session updates from Firestore
 func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID string) error {
 	return m.sessionStore.Subscribe(ctx, sessionID, func(session *filesync.SyncSession) {
+		// Recover from panics in callback to prevent server crash
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in session subscription callback: %v\n%s", r, debug.Stack())
+			}
+		}()
+
+		if session == nil {
+			return
+		}
+
 		event := SSEEvent{
 			Type:      EventTypeSession,
 			Timestamp: time.Now(),
@@ -85,6 +106,21 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 		}
 		select {
 		case m.eventsCh <- event:
+		case <-m.done:
+			return
+		}
+
+		// Send action buttons update (separate event, not OOB)
+		actionsEvent := SSEEvent{
+			Type:      EventTypeActions,
+			Timestamp: time.Now(),
+			Data: ActionsEvent{
+				SessionID: session.ID,
+				Stats:     session.Stats,
+			},
+		}
+		select {
+		case m.eventsCh <- actionsEvent:
 		case <-m.done:
 			return
 		}
@@ -111,6 +147,17 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 // StartFileSubscription subscribes to file updates from Firestore
 func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID string) error {
 	return m.fileStore.SubscribeBySession(ctx, sessionID, func(file *filesync.SyncFile) {
+		// Recover from panics in callback to prevent server crash
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in file subscription callback: %v\n%s", r, debug.Stack())
+			}
+		}()
+
+		if file == nil {
+			return
+		}
+
 		event := SSEEvent{
 			Type:      EventTypeFile,
 			Timestamp: time.Now(),
@@ -121,6 +168,7 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 				Status:    file.Status,
 				Metadata:  file.Metadata,
 				Error:     file.Error,
+				IsUpdate:  true, // Subscription update - will use OOB swap
 			},
 		}
 		select {
@@ -136,7 +184,9 @@ func (m *StreamMerger) Events() <-chan SSEEvent {
 	return m.eventsCh
 }
 
-// Stop stops the stream merger and closes the events channel
+// Stop stops the stream merger and signals all forwarders to stop.
+// The events channel is NOT closed to avoid race conditions with concurrent senders.
+// The broadcaster will exit via context cancellation or done channel.
 func (m *StreamMerger) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -147,5 +197,7 @@ func (m *StreamMerger) Stop() {
 	m.stopped = true
 
 	close(m.done)
-	close(m.eventsCh)
+	// NOTE: Do NOT close m.eventsCh here - it causes "send on closed channel" panics
+	// due to race conditions with concurrent Firestore subscription callbacks.
+	// The channel will be garbage collected when no longer referenced.
 }

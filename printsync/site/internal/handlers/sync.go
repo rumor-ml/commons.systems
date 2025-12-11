@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime/debug"
 
 	"cloud.google.com/go/storage"
 	"github.com/commons-systems/filesync"
 	"github.com/commons-systems/filesync/print"
+	"github.com/google/uuid"
 	"printsync/internal/firestore"
 	"printsync/internal/middleware"
 	"printsync/internal/streaming"
@@ -72,7 +74,7 @@ func NewSyncHandlers(
 
 // StartSyncRequest represents the request to start a sync
 type StartSyncRequest struct {
-	RootDir    string   `json:"rootDir"`
+	Directory  string   `json:"directory"`
 	Extensions []string `json:"extensions"`
 }
 
@@ -92,35 +94,60 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request
-	var req StartSyncRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("ERROR: StartSync for user %s - invalid request body: %v", authInfo.UserID, err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	// Parse form data instead of JSON
+	if err := r.ParseForm(); err != nil {
+		log.Printf("ERROR: StartSync for user %s - failed to parse form: %v", authInfo.UserID, err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
-	if req.RootDir == "" {
-		log.Printf("ERROR: StartSync for user %s - rootDir is required", authInfo.UserID)
-		http.Error(w, "rootDir is required", http.StatusBadRequest)
+	req := StartSyncRequest{
+		Directory:  r.FormValue("directory"),
+		Extensions: r.Form["extensions"],
+	}
+
+	if req.Directory == "" {
+		log.Printf("ERROR: StartSync for user %s - directory is required", authInfo.UserID)
+		http.Error(w, "directory is required", http.StatusBadRequest)
 		return
 	}
 
-	// Create pipeline
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	// Prepare discovery options for custom extensions
+	var discoveryOpts []filesync.DiscoveryOption
+	if len(req.Extensions) > 0 {
+		discoveryOpts = []filesync.DiscoveryOption{
+			filesync.WithExtensions(req.Extensions...),
+		}
+	}
+
+	// Create pipeline with custom extensions
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, discoveryOpts)
 	if err != nil {
 		log.Printf("ERROR: StartSync for user %s - failed to create pipeline: %v", authInfo.UserID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Create cancellable context
-	ctx, cancel := context.WithCancel(r.Context())
+	// Create cancellable context with Background (not tied to HTTP request)
+	ctx, cancel := context.WithCancel(context.Background())
 
-	// Run extraction asynchronously
-	sessionID, resultCh, progressCh, err := pipeline.RunExtractionAsync(ctx, req.RootDir, authInfo.UserID)
+	// Generate session ID upfront and create progress channel
+	sessionID := uuid.New().String()
+	progressCh := make(chan filesync.Progress, 100)
+
+	// Start streaming BEFORE pipeline - streaming infrastructure ready first
+	if err := h.hub.StartSession(ctx, sessionID, progressCh); err != nil {
+		cancel()
+		log.Printf("ERROR: StartSync for user %s - failed to start streaming: %v", authInfo.UserID, err)
+		http.Error(w, fmt.Sprintf("Failed to start streaming: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// NOW run extraction asynchronously - events will be captured
+	resultCh, err := pipeline.RunExtractionAsyncWithSession(ctx, req.Directory, authInfo.UserID, sessionID, progressCh)
 	if err != nil {
 		cancel()
+		h.hub.StopSession(sessionID) // Clean up streaming on error
 		log.Printf("ERROR: StartSync for user %s - failed to start extraction: %v", authInfo.UserID, err)
 		http.Error(w, fmt.Sprintf("Failed to start extraction: %v", err), http.StatusInternalServerError)
 		return
@@ -128,7 +155,13 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 
 	// Clean up when extraction completes
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in sync cleanup: %v\n%s", r, debug.Stack())
+			}
+		}()
 		result := <-resultCh
+		close(progressCh) // Signal forwarder to stop
 		cancel()
 		h.registry.Remove(result.SessionID)
 	}()
@@ -140,22 +173,14 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 		ProgressCh: progressCh,
 	})
 
-	// Start streaming for this session
-	if err := h.hub.StartSession(ctx, sessionID, progressCh); err != nil {
-		cancel()
-		h.registry.Remove(sessionID)
-		log.Printf("ERROR: StartSync for user %s, session %s - failed to start streaming: %v", authInfo.UserID, sessionID, err)
-		http.Error(w, fmt.Sprintf("Failed to start streaming: %v", err), http.StatusInternalServerError)
+	// Return HTML partial for HTMX swap
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusAccepted)
+	if err := partials.SyncMonitor(sessionID).Render(r.Context(), w); err != nil {
+		log.Printf("ERROR: StartSync - failed to render monitor: %v", err)
+		http.Error(w, "Failed to render monitor", http.StatusInternalServerError)
 		return
 	}
-
-	// Return response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(StartSyncResponse{
-		SessionID: sessionID,
-		Status:    "running",
-	})
 }
 
 // GetSession handles GET /api/sync/{id}
@@ -266,7 +291,7 @@ func (h *SyncHandlers) ApproveFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create pipeline (we need it for approval)
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
 	if err != nil {
 		log.Printf("ERROR: ApproveFile for user %s, file %s - failed to create pipeline: %v", authInfo.UserID, fileID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
@@ -289,9 +314,9 @@ func (h *SyncHandlers) ApproveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render HTML partial
+	// Render HTML partial with OOB swap (replacing existing row)
 	w.Header().Set("Content-Type", "text/html")
-	if err := partials.FileRow(updatedFile).Render(r.Context(), w); err != nil {
+	if err := partials.FileRow(updatedFile, true).Render(r.Context(), w); err != nil {
 		log.Printf("ERROR: ApproveFile for user %s, file %s - failed to render partial: %v", authInfo.UserID, fileID, err)
 		http.Error(w, fmt.Sprintf("Failed to render partial: %v", err), http.StatusInternalServerError)
 		return
@@ -325,7 +350,7 @@ func (h *SyncHandlers) ApproveAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create pipeline
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
 	if err != nil {
 		log.Printf("ERROR: ApproveAll for user %s, session %s - failed to create pipeline: %v", authInfo.UserID, sessionID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
@@ -344,6 +369,66 @@ func (h *SyncHandlers) ApproveAll(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Approving all files... uploads in progress</p></div>`))
+}
+
+// UploadSelected handles POST /api/sync/{id}/upload-selected
+func (h *SyncHandlers) UploadSelected(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+
+	// Authenticate user and verify session ownership
+	authInfo, ok := middleware.GetAuth(r)
+	if !ok {
+		log.Printf("ERROR: UploadSelected for session %s - unauthorized access attempt", sessionID)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	session, err := h.sessionStore.Get(r.Context(), sessionID)
+	if err != nil || session.UserID != authInfo.UserID {
+		log.Printf("ERROR: UploadSelected for user %s, session %s - session not found or forbidden: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, "Session not found or forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Parse form to get selected file IDs
+	if err := r.ParseForm(); err != nil {
+		log.Printf("ERROR: UploadSelected for user %s, session %s - failed to parse form: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	fileIDs := r.Form["file-ids"]
+	if len(fileIDs) == 0 {
+		log.Printf("ERROR: UploadSelected for user %s, session %s - no files selected", authInfo.UserID, sessionID)
+		http.Error(w, "No files selected", http.StatusBadRequest)
+		return
+	}
+
+	// Create pipeline and upload selected files
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
+	if err != nil {
+		log.Printf("ERROR: UploadSelected for user %s, session %s - failed to create pipeline: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// REUSE existing ApproveAndUpload method - it already accepts file ID arrays!
+	_, err = pipeline.ApproveAndUpload(r.Context(), sessionID, fileIDs)
+	if err != nil {
+		log.Printf("ERROR: UploadSelected for user %s, session %s - failed to upload files: %v", authInfo.UserID, sessionID, err)
+		http.Error(w, fmt.Sprintf("Failed to upload files: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Return success message
+	w.Header().Set("Content-Type", "text/html")
+	fileWord := "file"
+	if len(fileIDs) > 1 {
+		fileWord = "files"
+	}
+	fmt.Fprintf(w, `<div class="p-4 bg-success-muted border border-success rounded-lg">
+		<p class="text-success font-medium">Uploading %d %s...</p>
+	</div>`, len(fileIDs), fileWord)
 }
 
 // RejectFile handles POST /api/files/{id}/reject
@@ -381,7 +466,7 @@ func (h *SyncHandlers) RejectFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create pipeline
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
 	if err != nil {
 		log.Printf("ERROR: RejectFile for user %s, file %s - failed to create pipeline: %v", authInfo.UserID, fileID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
@@ -403,9 +488,9 @@ func (h *SyncHandlers) RejectFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render HTML partial
+	// Render HTML partial with OOB swap (replacing existing row)
 	w.Header().Set("Content-Type", "text/html")
-	if err := partials.FileRow(updatedFile).Render(r.Context(), w); err != nil {
+	if err := partials.FileRow(updatedFile, true).Render(r.Context(), w); err != nil {
 		log.Printf("ERROR: RejectFile for user %s, file %s - failed to render partial: %v", authInfo.UserID, fileID, err)
 		http.Error(w, fmt.Sprintf("Failed to render partial: %v", err), http.StatusInternalServerError)
 		return
@@ -447,7 +532,7 @@ func (h *SyncHandlers) TrashFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create pipeline
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
 	if err != nil {
 		log.Printf("ERROR: TrashFile for user %s, file %s - failed to create pipeline: %v", authInfo.UserID, fileID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
@@ -515,7 +600,7 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create pipeline
-	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket)
+	pipeline, err := print.NewPrintPipeline(r.Context(), h.gcsClient, h.fsClient.Client, h.bucket, nil)
 	if err != nil {
 		log.Printf("ERROR: TrashAll for user %s, session %s - failed to create pipeline: %v", authInfo.UserID, sessionID, err)
 		http.Error(w, fmt.Sprintf("Failed to create pipeline: %v", err), http.StatusInternalServerError)
@@ -532,7 +617,15 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 	// Return success message HTML (SSE will handle individual file removals)
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	successMsg := fmt.Sprintf(`<div class="p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Trashed %d file(s)</p></div>`, len(fileIDs))
+
+	// Proper pluralization
+	fileWord := "file"
+	if len(fileIDs) > 1 {
+		fileWord = "files"
+	}
+
+	// Return message with OOB swap directive to target #trash-message
+	successMsg := fmt.Sprintf(`<div id="trash-message" hx-swap-oob="true" class="mt-4 p-4 bg-success-muted border border-success rounded-lg"><p class="text-success font-medium">Trashed %d %s</p></div>`, len(fileIDs), fileWord)
 	w.Write([]byte(successMsg))
 }
 
@@ -586,6 +679,11 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 	// Retry the file by re-extracting metadata
 	ctx := context.WithoutCancel(r.Context())
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC recovered in retry file: %v\n%s", r, debug.Stack())
+			}
+		}()
 		log.Printf("INFO: Retrying file %s for user %s", fileID, authInfo.UserID)
 
 		// Update file status to extracting
@@ -643,13 +741,13 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Return updated file row HTML
+	// Return updated file row HTML with OOB swap (replacing existing row)
 	w.Header().Set("Content-Type", "text/html")
 	// Create a copy for rendering to avoid race condition
 	displayFile := *file
 	displayFile.Status = filesync.FileStatusExtracting // Show extracting state immediately
 	displayFile.Error = ""
-	if err := partials.FileRow(&displayFile).Render(r.Context(), w); err != nil {
+	if err := partials.FileRow(&displayFile, true).Render(r.Context(), w); err != nil {
 		log.Printf("ERROR: RetryFile for user %s, file %s - failed to render: %v", authInfo.UserID, fileID, err)
 		http.Error(w, "Failed to render response", http.StatusInternalServerError)
 		return

@@ -9,6 +9,7 @@ package filesync
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -234,6 +235,38 @@ func (p *Pipeline) RunExtractionAsync(ctx context.Context, rootDir, userID strin
 	return session.ID, resultCh, progressCh, nil
 }
 
+// RunExtractionAsyncWithSession runs extraction with pre-created session and progress channel.
+// This allows the caller to set up streaming infrastructure BEFORE the pipeline starts emitting events.
+func (p *Pipeline) RunExtractionAsyncWithSession(
+	ctx context.Context,
+	rootDir string,
+	userID string,
+	sessionID string,
+	progressCh chan<- Progress,
+) (<-chan *PipelineResult, error) {
+	// Create session with provided ID
+	session := &SyncSession{
+		ID:        sessionID, // Use provided ID instead of generating
+		UserID:    userID,
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+		RootDir:   rootDir,
+		Stats:     SessionStats{},
+	}
+
+	if err := p.sessionStore.Create(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	// Create only the result channel (progressCh is provided)
+	resultCh := make(chan *PipelineResult, 1)
+
+	// Start pipeline in background
+	go p.execute(ctx, session, rootDir, resultCh, progressCh)
+
+	return resultCh, nil
+}
+
 // execute runs the pipeline orchestration logic
 func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir string, resultCh chan<- *PipelineResult, progressCh chan<- Progress) {
 	defer close(resultCh)
@@ -250,6 +283,7 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	go p.periodicStatsFlush(flushCtx, stats)
 
 	// Start discovery
+	sendProgress(progressCh, Progress{Operation: "Discovering files..."})
 	filesCh, discoveryCh := p.discoverer.Discover(ctx, rootDir)
 
 	// Process files concurrently
@@ -424,6 +458,12 @@ func (p *Pipeline) processFile(
 	if err := p.fileStore.Update(ctx, syncFile); err != nil {
 		return fmt.Errorf("failed to update file status to extracting: %w", err)
 	}
+
+	// Emit extraction progress
+	sendProgress(progressCh, Progress{
+		Operation: "Extracting metadata",
+		File:      filepath.Base(file.Path),
+	})
 
 	metadata, err := p.extractor.Extract(ctx, file, progressCh)
 	if err != nil {
@@ -715,7 +755,9 @@ func (p *Pipeline) RejectFiles(ctx context.Context, sessionID string, fileIDs []
 	return nil
 }
 
-// TrashFiles marks files as trashed (soft delete). Files can be in uploaded or skipped state.
+// TrashFiles marks files as trashed (soft delete) and deletes local files.
+// Files can be in uploaded or skipped state.
+// Local files are deleted (moved to system trash), but GCS files remain permanently.
 func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []string) error {
 	// Get session for stats updates
 	session, err := p.sessionStore.Get(ctx, sessionID)
@@ -732,9 +774,17 @@ func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []s
 			return fmt.Errorf("failed to get file %s: %w", fileID, err)
 		}
 
-		// Verify file is in uploaded or skipped state
-		if syncFile.Status != FileStatusUploaded && syncFile.Status != FileStatusSkipped {
-			return fmt.Errorf("file %s is not in uploaded or skipped state (current: %s)", fileID, syncFile.Status)
+		// Validate state transition using state machine
+		if !CanTrash(syncFile.Status) {
+			return fmt.Errorf("file %s cannot be trashed from state %s", fileID, syncFile.Status)
+		}
+
+		// Delete local file if path exists
+		if syncFile.LocalPath != "" {
+			if err := p.uploader.DeleteLocal(ctx, syncFile.LocalPath); err != nil {
+				// If local file deletion fails, don't update to trashed state
+				return fmt.Errorf("failed to delete local file for %s: %w", fileID, err)
+			}
 		}
 
 		// Update status to trashed
