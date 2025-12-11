@@ -5,6 +5,7 @@ packages:
   - 'audiobrowser/*'
   - 'print/*'
   - 'printsync/*'
+  - 'budget/*'
   - 'test-go-app/tests'
   - 'gh-workflow-mcp-server'
   - 'gh-issue-mcp-server'
