@@ -422,7 +422,8 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install -g firebase-admin
+        working-directory: fellspiral
+        run: npm install firebase-admin --no-save
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -759,7 +760,8 @@ jobs:
     name: E2E Tests - fellspiral
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [deploy-fellspiral]
+    needs: [deploy-fellspiral, seed-firestore-fellspiral]
+    if: needs.seed-firestore-fellspiral.result == 'success'
 
     steps:
       - uses: actions/checkout@v4
