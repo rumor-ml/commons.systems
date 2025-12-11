@@ -31,6 +31,9 @@ Returns:
 - `step_number`: Step identifier (e.g., "0", "1", "1b", "2", "3", "4", "4b", "approval")
 - `iteration_count`: Current iteration (max 10)
 - `instructions`: Detailed instructions for what to do next
+- `pr_title`: Suggested PR title (when creating PR)
+- `pr_labels`: Suggested PR labels (when creating PR)
+- `closing_issue`: Issue number to close (when creating PR)
 - `context`: Additional context (PR number, branch name, etc.)
 
 ### wiggum_complete_pr_review

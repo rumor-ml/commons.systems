@@ -54,6 +54,7 @@ interface NextStepOutput {
   instructions: string;
   pr_title?: string;
   pr_labels?: string[];
+  closing_issue?: string;
   context: {
     pr_number?: number;
     current_branch?: string;
@@ -200,6 +201,7 @@ CRITICAL: All git/gh commands must use dangerouslyDisableSandbox: true per CLAUD
 
     output.pr_title = branchName;
     output.pr_labels = [NEEDS_REVIEW_LABEL];
+    output.closing_issue = issueNum;
 
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
