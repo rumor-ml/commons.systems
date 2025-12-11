@@ -129,6 +129,19 @@ export async function getCurrentRepo(): Promise<string> {
 
 /**
  * Resolve repository - use provided repo or get current repo
+ *
+ * Helper function that returns the provided repository or automatically
+ * detects the current repository if none is provided.
+ *
+ * @param repo - Optional repository in "owner/repo" format
+ * @returns Resolved repository in "owner/repo" format
+ * @throws {GitHubCliError} When repo is not provided and current repo detection fails
+ *
+ * @example
+ * ```typescript
+ * const repo = await resolveRepo("owner/repo"); // Returns "owner/repo"
+ * const currentRepo = await resolveRepo(); // Auto-detects from git directory
+ * ```
  */
 export async function resolveRepo(repo?: string): Promise<string> {
   if (repo) {
@@ -138,10 +151,39 @@ export async function resolveRepo(repo?: string): Promise<string> {
 }
 
 /**
- * Get PR details
- * If prNumber is 0 or undefined, gets PR for current branch
+ * GitHub PR response type from gh pr view --json
  */
-export async function getPR(prNumber?: number, repo?: string) {
+export interface GitHubPR {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  headRefName: string;
+  headRefOid: string;
+  baseRefName: string;
+  mergeable: string;
+  mergeStateStatus: string;
+  labels?: Array<{ name: string }>;
+}
+
+/**
+ * Get PR details
+ *
+ * Fetches pull request information from GitHub using gh CLI.
+ * If prNumber is omitted or undefined, gets PR for current branch.
+ *
+ * @param prNumber - Optional PR number to fetch. If omitted, fetches PR for current branch.
+ * @param repo - Optional repository in "owner/repo" format
+ * @returns PR details including number, title, labels, head/base refs, etc.
+ * @throws {GitHubCliError} When PR doesn't exist or gh command fails
+ *
+ * @example
+ * ```typescript
+ * const pr = await getPR(123, "owner/repo");
+ * const currentBranchPR = await getPR(); // Gets PR for current branch
+ * ```
+ */
+export async function getPR(prNumber?: number, repo?: string): Promise<GitHubPR> {
   const args = [
     'pr',
     'view',
@@ -154,15 +196,41 @@ export async function getPR(prNumber?: number, repo?: string) {
   // gh pr view without args (current branch) doesn't work with --repo flag
   const options = prNumber && repo ? { repo: await resolveRepo(repo) } : {};
 
-  return ghCliJson(args, options);
+  return ghCliJson<GitHubPR>(args, options);
+}
+
+/**
+ * GitHub PR comment type
+ */
+export interface GitHubPRComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  id: string;
 }
 
 /**
  * Get all comments for a PR
+ *
+ * Fetches all comments on a pull request using gh CLI.
+ * Returns simplified comment objects with author, body, timestamp, and ID.
+ *
+ * @param prNumber - PR number to fetch comments for
+ * @param repo - Optional repository in "owner/repo" format
+ * @returns Array of PR comments with author, body, createdAt, and id
+ * @throws {GitHubCliError} When PR doesn't exist or gh command fails
+ *
+ * @example
+ * ```typescript
+ * const comments = await getPRComments(123, "owner/repo");
+ * for (const comment of comments) {
+ *   console.log(`${comment.author}: ${comment.body}`);
+ * }
+ * ```
  */
-export async function getPRComments(prNumber: number, repo?: string): Promise<any[]> {
+export async function getPRComments(prNumber: number, repo?: string): Promise<GitHubPRComment[]> {
   const resolvedRepo = await resolveRepo(repo);
-  return ghCliJson<any[]>(
+  return ghCliJson<GitHubPRComment[]>(
     [
       'pr',
       'view',
@@ -178,6 +246,18 @@ export async function getPRComments(prNumber: number, repo?: string): Promise<an
 
 /**
  * Post a comment to a PR
+ *
+ * Posts a new comment on a pull request using gh CLI.
+ *
+ * @param prNumber - PR number to comment on
+ * @param body - Comment body (markdown supported)
+ * @param repo - Optional repository in "owner/repo" format
+ * @throws {GitHubCliError} When PR doesn't exist or gh command fails
+ *
+ * @example
+ * ```typescript
+ * await postPRComment(123, "LGTM! Approved.", "owner/repo");
+ * ```
  */
 export async function postPRComment(prNumber: number, body: string, repo?: string): Promise<void> {
   const resolvedRepo = await resolveRepo(repo);
@@ -185,13 +265,46 @@ export async function postPRComment(prNumber: number, body: string, repo?: strin
 }
 
 /**
+ * GitHub PR review comment type (from API)
+ * Note: This is a subset of the full API response - includes common fields
+ */
+export interface GitHubPRReviewComment {
+  id: number;
+  user: {
+    login: string;
+  };
+  body: string;
+  path: string;
+  position?: number;
+  line?: number;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown; // Allow additional fields from GitHub API
+}
+
+/**
  * Get PR review comments from specific user
+ *
+ * Fetches inline code review comments (not PR comments) from a specific user
+ * using GitHub API via gh CLI. These are comments on specific lines of code.
+ *
+ * @param prNumber - PR number to fetch review comments for
+ * @param username - GitHub username to filter comments by
+ * @param repo - Optional repository in "owner/repo" format
+ * @returns Array of review comments from the specified user
+ * @throws {GitHubCliError} When API call fails or JSON parsing fails
+ *
+ * @example
+ * ```typescript
+ * const comments = await getPRReviewComments(123, "github-code-quality[bot]");
+ * console.log(`Found ${comments.length} code review comments`);
+ * ```
  */
 export async function getPRReviewComments(
   prNumber: number,
   username: string,
   repo?: string
-): Promise<any[]> {
+): Promise<GitHubPRReviewComment[]> {
   const resolvedRepo = await resolveRepo(repo);
   const result = await ghCli(
     [
@@ -212,7 +325,7 @@ export async function getPRReviewComments(
     .trim()
     .split('\n')
     .filter((line) => line.trim());
-  const comments: any[] = [];
+  const comments: GitHubPRReviewComment[] = [];
 
   for (const line of lines) {
     try {
@@ -229,6 +342,16 @@ export async function getPRReviewComments(
 
 /**
  * Sleep for a specified number of milliseconds
+ *
+ * Utility function for introducing delays, useful for retry logic and rate limiting.
+ *
+ * @param ms - Milliseconds to sleep
+ * @returns Promise that resolves after the specified delay
+ *
+ * @example
+ * ```typescript
+ * await sleep(1000); // Wait 1 second
+ * ```
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -236,6 +359,23 @@ export function sleep(ms: number): Promise<void> {
 
 /**
  * Check if an error is retryable (network errors, 5xx server errors)
+ *
+ * Determines if an error should be retried based on the error message.
+ * Retryable errors include network issues, timeouts, and 5xx server errors.
+ *
+ * @param error - Error to check for retryability
+ * @returns true if error should be retried, false otherwise
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await ghCli(['pr', 'view']);
+ * } catch (error) {
+ *   if (isRetryableError(error)) {
+ *     // Retry the operation
+ *   }
+ * }
+ * ```
  */
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {
