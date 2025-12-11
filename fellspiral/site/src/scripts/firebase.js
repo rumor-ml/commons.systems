@@ -88,7 +88,8 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
-    console.error('Error getting cards:', error);
+    // Error will be handled by caller - no need to log here
+    // This reduces console noise during normal operation
     throw error;
   }
 }

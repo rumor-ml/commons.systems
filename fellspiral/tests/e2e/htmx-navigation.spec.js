@@ -137,22 +137,22 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Wait for library navigation to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-    // Click Foe type in library nav
-    const foeToggle = page.locator('.library-nav-type[data-type="Foe"] .library-nav-toggle');
-    await foeToggle.click();
+    // Click Origin type in library nav
+    const originToggle = page.locator('.library-nav-type[data-type="Origin"] .library-nav-toggle');
+    await originToggle.click();
 
     // Wait for navigation to complete
-    await page.waitForURL(/cards(\.html)?#library-foe$/, { timeout: 10000 });
+    await page.waitForURL(/cards(\.html)?#library-origin$/, { timeout: 10000 });
 
     // Wait for cards to load
     await page.waitForSelector('.card-item', { timeout: 15000 });
 
-    // Verify ALL visible cards are Foe type (not just first one)
+    // Verify ALL visible cards are Origin type (not just first one)
     const allCardTypes = await page.locator('.card-item .card-item-type').allTextContents();
     expect(allCardTypes.length).toBeGreaterThan(0);
 
     for (const cardType of allCardTypes) {
-      expect(cardType).toContain('Foe');
+      expect(cardType).toContain('Origin');
     }
   });
 
