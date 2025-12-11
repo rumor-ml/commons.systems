@@ -428,9 +428,9 @@ jobs:
           cd /tmp/seed-deps
           npm install firebase-admin
 
-          # Copy to fellspiral/node_modules for ES module resolution
+          # Copy all dependencies to fellspiral/node_modules for ES module resolution
           mkdir -p $GITHUB_WORKSPACE/fellspiral/node_modules
-          cp -r /tmp/seed-deps/node_modules/firebase-admin $GITHUB_WORKSPACE/fellspiral/node_modules/
+          cp -r /tmp/seed-deps/node_modules/* $GITHUB_WORKSPACE/fellspiral/node_modules/
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
