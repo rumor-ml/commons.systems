@@ -18,34 +18,57 @@ import {
   connectFirestoreEmulator,
 } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { firebaseConfig } from '../firebase-config.js';
+import { getFirebaseConfig, firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase with config (will be replaced with async config in production)
+let app, db, auth, cardsCollection;
+let initPromise = null;
 
-// Initialize Firestore
-const db = getFirestore(app);
+/**
+ * Initialize Firebase app and services
+ * This is called lazily on first use to allow async config loading
+ */
+async function initFirebase() {
+  if (initPromise) {
+    return initPromise;
+  }
 
-// Get auth instance
-const auth = getAuth(app);
+  initPromise = (async () => {
+    // Get Firebase config (async in production, sync in development)
+    const config = await getFirebaseConfig();
 
-// Connect to emulators in test/dev environment
-if (
-  import.meta.env.MODE === 'development' ||
-  import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
-) {
-  const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-  const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+    // Initialize Firebase
+    app = initializeApp(config);
 
-  const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-  connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+    // Initialize Firestore
+    db = getFirestore(app);
 
-  connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+    // Get auth instance
+    auth = getAuth(app);
+
+    // Connect to emulators in test/dev environment
+    if (
+      import.meta.env.MODE === 'development' ||
+      import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+    ) {
+      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+
+      const [firestoreHostname, firestorePort] = firestoreHost.split(':');
+      connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+
+      connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+    }
+
+    // Collection reference
+    cardsCollection = collection(db, getCardsCollectionName());
+
+    return { app, db, auth, cardsCollection };
+  })();
+
+  return initPromise;
 }
-
-// Collection reference
-const cardsCollection = collection(db, getCardsCollectionName());
 
 /**
  * Card Database Operations
@@ -67,6 +90,7 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
 
 // Get all cards from Firestore with timeout protection
 export async function getAllCards() {
+  await initFirebase();
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {
@@ -96,6 +120,7 @@ export async function getAllCards() {
 
 // Get a single card by ID
 export async function getCard(cardId) {
+  await initFirebase();
   try {
     const cardRef = doc(db, getCardsCollectionName(), cardId);
     const cardSnap = await getDoc(cardRef);
@@ -115,6 +140,7 @@ export async function getCard(cardId) {
 
 // Create a new card
 export async function createCard(cardData) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
@@ -138,6 +164,7 @@ export async function createCard(cardData) {
 
 // Update an existing card
 export async function updateCard(cardId, cardData) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
@@ -159,6 +186,7 @@ export async function updateCard(cardId, cardData) {
 
 // Delete a card
 export async function deleteCard(cardId) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
@@ -175,6 +203,7 @@ export async function deleteCard(cardId) {
 
 // Batch import cards (for seeding from rules.md)
 export async function importCards(cards) {
+  await initFirebase();
   try {
     const results = {
       created: 0,
@@ -216,4 +245,16 @@ export async function importCards(cards) {
   }
 }
 
+// Export getters for Firebase instances (lazy initialized)
+export async function getFirestoreDb() {
+  await initFirebase();
+  return db;
+}
+
+export async function getFirebaseAuth() {
+  await initFirebase();
+  return auth;
+}
+
+// For backwards compatibility with synchronous exports
 export { db, auth };
