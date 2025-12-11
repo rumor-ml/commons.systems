@@ -428,6 +428,10 @@ jobs:
           cd /tmp/seed-deps
           npm install firebase-admin
 
+          # Copy to fellspiral/node_modules for ES module resolution
+          mkdir -p $GITHUB_WORKSPACE/fellspiral/node_modules
+          cp -r /tmp/seed-deps/node_modules/firebase-admin $GITHUB_WORKSPACE/fellspiral/node_modules/
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -440,7 +444,6 @@ jobs:
           FIRESTORE_PROJECT_ID: chalanding
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-          NODE_PATH: /tmp/seed-deps/node_modules
         run: |
           # Show which collection we're seeding
           if [ -n "$PR_NUMBER" ]; then
