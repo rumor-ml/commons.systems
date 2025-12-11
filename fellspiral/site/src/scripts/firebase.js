@@ -39,7 +39,12 @@ async function getFirebaseConfig() {
 
   if (isFirebaseHosting) {
     try {
-      const response = await fetch('/__/firebase/init.json');
+      // Add timeout to config fetch to prevent hanging
+      const response = await withTimeout(
+        fetch('/__/firebase/init.json'),
+        3000,
+        'Firebase config fetch timeout'
+      );
       if (response.ok) {
         const config = await response.json();
         console.log('Using Firebase Hosting auto-config');
