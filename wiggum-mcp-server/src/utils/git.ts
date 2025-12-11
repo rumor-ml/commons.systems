@@ -18,7 +18,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
-      cwd: options.cwd,
+      cwd: options.cwd || process.cwd(),
     };
 
     const result = await execa('git', args, execaOptions);

@@ -8,6 +8,7 @@ import { GitHubCliError } from './errors.js';
 export interface GhCliOptions {
   repo?: string;
   timeout?: number;
+  cwd?: string;
 }
 
 /**
@@ -18,6 +19,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
+      cwd: options.cwd || process.cwd(),
     };
 
     // Add repo flag if provided
