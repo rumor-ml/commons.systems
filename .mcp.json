@@ -7,6 +7,10 @@
     "gh-issue": {
       "type": "stdio",
       "command": "gh-issue-mcp-server"
+    },
+    "wiggum": {
+      "type": "stdio",
+      "command": "wiggum-mcp-server"
     }
   }
 }

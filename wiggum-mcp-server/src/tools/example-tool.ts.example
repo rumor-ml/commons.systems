@@ -1,0 +1,143 @@
+/**
+ * Tool: {{service}}_example_tool
+ * TODO: Replace this with your actual tool description
+ *
+ * This is an example tool demonstrating best practices for implementing
+ * MCP tools. Copy this file (remove .example extension) and customize it
+ * for your specific use case.
+ */
+
+import { z } from "zod";
+import type { ToolResult } from "../types.js";
+import { ValidationError, TimeoutError, NetworkError, createErrorResult } from "../utils/errors.js";
+import { MAX_RESPONSE_LENGTH } from "../constants.js";
+
+/**
+ * Define input schema using Zod
+ * - Use .optional() for optional parameters with .describe() for documentation
+ * - Use .default() for parameters with default values
+ * - Use .strict() to reject unknown properties
+ */
+export const ExampleToolInputSchema = z
+  .object({
+    // TODO: Define your required parameters
+    required_param: z.string().describe("Description of required parameter"),
+
+    // TODO: Define your optional parameters
+    optional_param: z.string().optional().describe("Description of optional parameter"),
+
+    // TODO: Add numeric parameters with validation
+    numeric_param: z.number().int().positive().default(100).describe("Example numeric parameter"),
+
+    // TODO: Add enum parameters for limited choices
+    choice_param: z.enum(["option1", "option2", "option3"]).optional().describe("Example choice parameter"),
+  })
+  .strict();
+
+// Type inference from schema - no need to manually define types!
+export type ExampleToolInput = z.infer<typeof ExampleToolInputSchema>;
+
+/**
+ * TODO: Define any internal types needed for your tool implementation
+ */
+interface ExampleData {
+  id: number;
+  name: string;
+  status: string;
+}
+
+/**
+ * Main tool implementation
+ *
+ * @param input - Validated input parameters
+ * @returns ToolResult with content or error
+ */
+export async function exampleTool(input: ExampleToolInput): Promise<ToolResult> {
+  try {
+    // TODO: Input validation (beyond schema validation)
+    if (input.required_param.length === 0) {
+      throw new ValidationError("required_param cannot be empty");
+    }
+
+    // TODO: Implement your tool logic here
+    // Example: Fetch data, process it, format results
+    const data = await fetchExampleData(input.required_param);
+    const processed = processData(data, input.numeric_param);
+    const result = formatResult(processed);
+
+    // Return success result
+    return {
+      content: [
+        {
+          type: "text",
+          text: result,
+        },
+      ],
+    };
+  } catch (error) {
+    // Error handling with categorization
+    return createErrorResult(error);
+  }
+}
+
+/**
+ * TODO: Implement your helper functions
+ */
+async function fetchExampleData(param: string): Promise<ExampleData[]> {
+  // TODO: Replace with actual implementation
+  // Example: Call external API, execute CLI command, query database
+
+  // Example timeout handling:
+  const timeoutMs = 30000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    // Simulate async operation
+    const data: ExampleData[] = [
+      { id: 1, name: param, status: "active" },
+    ];
+
+    clearTimeout(timeoutId);
+    return data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    // Example error categorization
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new TimeoutError(`Operation timed out after ${timeoutMs}ms`);
+    }
+
+    // Re-throw or wrap other errors
+    throw error;
+  }
+}
+
+function processData(data: ExampleData[], limit: number): ExampleData[] {
+  // TODO: Implement data processing logic
+  return data.slice(0, limit);
+}
+
+function formatResult(data: ExampleData[]): string {
+  // TODO: Format output for LLM consumption
+  // Best practices:
+  // - Use clear section headers with markdown
+  // - Include summary statistics
+  // - Limit output length using MAX_RESPONSE_LENGTH constant
+  // - Return structured data when appropriate
+
+  let output = `# Example Tool Results\n\n`;
+  output += `Found ${data.length} items:\n\n`;
+
+  for (const item of data) {
+    output += `## ${item.name} (ID: ${item.id})\n`;
+    output += `Status: ${item.status}\n\n`;
+  }
+
+  // Truncate if needed
+  if (output.length > MAX_RESPONSE_LENGTH) {
+    output = output.substring(0, MAX_RESPONSE_LENGTH - 50) + "\n\n... (truncated)";
+  }
+
+  return output;
+}
