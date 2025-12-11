@@ -138,17 +138,13 @@ async function init() {
     // Load data asynchronously WITHOUT blocking page load
     loadCards()
       .then(() => {
-        // Update UI with loaded data
-        renderCards();
-
-        // Apply hash route if present
+        // Apply hash route if present (this will filter and render)
         handleHashChange();
       })
       .catch((error) => {
         console.error('Failed to load cards:', error);
         showWarningBanner('Failed to load cards from cloud. Using cached data.');
-        // Still render cards with fallback data
-        renderCards();
+        // Still apply hash route with fallback data
         handleHashChange();
       });
   } catch (error) {
