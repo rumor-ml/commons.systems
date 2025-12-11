@@ -19,10 +19,6 @@ export const CompletePRReviewInputSchema = z.object({
   high_priority_issues: z.number().describe('Count of high priority issues found'),
   medium_priority_issues: z.number().describe('Count of medium priority issues found'),
   low_priority_issues: z.number().describe('Count of low priority issues found'),
-  repo: z
-    .string()
-    .optional()
-    .describe('Repository in format "owner/repo" (defaults to current repository)'),
 });
 
 export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
@@ -47,7 +43,7 @@ export async function completePRReview(input: CompletePRReviewInput): Promise<To
     throw new ValidationError('command_executed must be true. Do not shortcut the review process.');
   }
 
-  const state = await detectCurrentState(input.repo);
+  const state = await detectCurrentState();
 
   if (!state.pr.exists || !state.pr.number) {
     throw new ValidationError('No PR found. Cannot complete PR review.');
@@ -111,7 +107,7 @@ All automated review checks passed with no concerns identified.
   }
 
   // Post comment
-  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody, input.repo);
+  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
   // Prepare output
   const output: CompletePRReviewOutput = {

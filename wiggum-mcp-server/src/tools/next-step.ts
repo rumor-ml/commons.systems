@@ -26,12 +26,7 @@ import {
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
 
-export const NextStepInputSchema = z.object({
-  repo: z
-    .string()
-    .optional()
-    .describe('Repository in format "owner/repo" (defaults to current repository)'),
-});
+export const NextStepInputSchema = z.object({});
 
 export type NextStepInput = z.infer<typeof NextStepInputSchema>;
 
@@ -51,8 +46,8 @@ interface NextStepOutput {
 /**
  * Determine the next step in the wiggum flow based on current state
  */
-export async function nextStep(input: NextStepInput): Promise<ToolResult> {
-  const state = await detectCurrentState(input.repo);
+export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
+  const state = await detectCurrentState();
 
   // Check iteration limit
   if (state.wiggum.iteration >= MAX_ITERATIONS) {
@@ -88,7 +83,7 @@ export async function nextStep(input: NextStepInput): Promise<ToolResult> {
 
   // Step 2: Code Quality Comments (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_CODE_QUALITY)) {
-    return await handleStepCodeQuality(state, input.repo);
+    return await handleStepCodeQuality(state);
   }
 
   // Step 3: PR Review (if not completed)
@@ -103,7 +98,7 @@ export async function nextStep(input: NextStepInput): Promise<ToolResult> {
 
   // Step 4b: Verify Reviews (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_VERIFY_REVIEWS)) {
-    return await handleStepVerifyReviews(state, input.repo);
+    return await handleStepVerifyReviews(state);
   }
 
   // All steps complete - proceed to approval
@@ -238,9 +233,9 @@ On ANY OTHER STATUS (FAILED, CONFLICTS, BLOCKED, MIXED, etc.):
 /**
  * Step 2: Code Quality Comments
  */
-async function handleStepCodeQuality(state: any, repo?: string): Promise<ToolResult> {
+async function handleStepCodeQuality(state: any): Promise<ToolResult> {
   // Fetch code quality bot comments
-  const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME, repo);
+  const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_CODE_QUALITY],
@@ -340,12 +335,11 @@ After security review completes:
 /**
  * Step 4b: Verify Reviews
  */
-async function handleStepVerifyReviews(state: any, repo?: string): Promise<ToolResult> {
-  const hasPRReview = await hasReviewCommandEvidence(state.pr.number, PR_REVIEW_COMMAND, repo);
+async function handleStepVerifyReviews(state: any): Promise<ToolResult> {
+  const hasPRReview = await hasReviewCommandEvidence(state.pr.number, PR_REVIEW_COMMAND);
   const hasSecurityReview = await hasReviewCommandEvidence(
     state.pr.number,
-    SECURITY_REVIEW_COMMAND,
-    repo
+    SECURITY_REVIEW_COMMAND
   );
 
   const output: NextStepOutput = {

@@ -12,10 +12,6 @@ import type { ToolResult } from '../types.js';
 
 export const CompleteFixInputSchema = z.object({
   fix_description: z.string().describe('Brief description of what was fixed'),
-  repo: z
-    .string()
-    .optional()
-    .describe('Repository in format "owner/repo" (defaults to current repository)'),
 });
 
 export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
@@ -38,7 +34,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     throw new ValidationError('fix_description is required and cannot be empty');
   }
 
-  const state = await detectCurrentState(input.repo);
+  const state = await detectCurrentState();
 
   if (!state.pr.exists || !state.pr.number) {
     throw new ValidationError('No PR found. Cannot complete fix.');
@@ -60,7 +56,7 @@ ${input.fix_description}
   };
 
   // Post comment
-  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody, input.repo);
+  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
   // Return to Step 1 (workflow monitoring)
   const output: CompleteFixOutput = {

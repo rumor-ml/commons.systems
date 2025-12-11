@@ -41,12 +41,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'Primary orchestration tool for wiggum PR automation flow. Analyzes current state (git, PR, and wiggum state from PR comments) and returns instructions for the next action. No inputs required - all state is detected automatically.',
         inputSchema: {
           type: 'object',
-          properties: {
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
-            },
-          },
+          properties: {},
           required: [],
         },
       },
@@ -77,10 +72,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             low_priority_issues: {
               type: 'number',
               description: 'Count of low priority issues found',
-            },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
             },
           },
           required: [
@@ -119,10 +110,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'number',
               description: 'Count of low priority security issues found',
             },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
-            },
           },
           required: [
             'command_executed',
@@ -142,10 +129,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             fix_description: {
               type: 'string',
               description: 'Brief description of what was fixed',
-            },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
             },
           },
           required: ['fix_description'],

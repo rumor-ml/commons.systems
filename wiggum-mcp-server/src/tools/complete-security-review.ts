@@ -22,10 +22,6 @@ export const CompleteSecurityReviewInputSchema = z.object({
   high_priority_issues: z.number().describe('Count of high priority security issues found'),
   medium_priority_issues: z.number().describe('Count of medium priority security issues found'),
   low_priority_issues: z.number().describe('Count of low priority security issues found'),
-  repo: z
-    .string()
-    .optional()
-    .describe('Repository in format "owner/repo" (defaults to current repository)'),
 });
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
@@ -54,7 +50,7 @@ export async function completeSecurityReview(
     );
   }
 
-  const state = await detectCurrentState(input.repo);
+  const state = await detectCurrentState();
 
   if (!state.pr.exists || !state.pr.number) {
     throw new ValidationError('No PR found. Cannot complete security review.');
@@ -117,7 +113,7 @@ All security checks passed with no vulnerabilities identified.
   }
 
   // Post comment
-  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody, input.repo);
+  await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
   // Prepare output
   const output: CompleteSecurityReviewOutput = {
