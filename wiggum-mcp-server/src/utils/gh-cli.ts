@@ -91,7 +91,6 @@ export async function resolveRepo(repo?: string): Promise<string> {
  * If prNumber is 0 or undefined, gets PR for current branch
  */
 export async function getPR(prNumber?: number, repo?: string) {
-  const resolvedRepo = await resolveRepo(repo);
   const args = [
     'pr',
     'view',
@@ -100,7 +99,11 @@ export async function getPR(prNumber?: number, repo?: string) {
     'number,title,state,url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,labels',
   ];
 
-  return ghCliJson(args, { repo: resolvedRepo });
+  // Only use --repo flag when we have a PR number
+  // gh pr view without args (current branch) doesn't work with --repo flag
+  const options = prNumber && repo ? { repo: await resolveRepo(repo) } : {};
+
+  return ghCliJson(args, options);
 }
 
 /**
