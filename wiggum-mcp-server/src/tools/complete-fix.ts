@@ -48,23 +48,36 @@ ${input.fix_description}
 
 **Next Action:** Restarting workflow monitoring to verify fix.`;
 
-  // State remains at same step but with updated iteration
+  // Clear the current step and all subsequent steps from completedSteps
+  // This ensures we re-verify from the point where issues were found
+  const currentStepIndex = ['0', '1', '1b', '2', '3', '4', '4b', 'approval'].indexOf(
+    state.wiggum.step
+  );
+
+  const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
+    const stepIndex = ['0', '1', '1b', '2', '3', '4', '4b', 'approval'].indexOf(step);
+    return stepIndex < currentStepIndex;
+  });
+
+  // State remains at same step but with filtered completedSteps
   const newState = {
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
-    completedSteps: state.wiggum.completedSteps,
+    completedSteps: completedStepsFiltered,
   };
 
   // Post comment
   await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
-  // Return to Step 1 (workflow monitoring)
+  // Return instructions based on current step
+  const stepName = state.wiggum.step;
   const output: CompleteFixOutput = {
-    current_step: 'Fix Complete - Restarting Workflow Monitoring',
+    current_step: `Fix Complete - Returning to Step ${stepName}`,
     step_number: state.wiggum.step,
     iteration_count: state.wiggum.iteration,
-    instructions:
-      'Fix applied and committed. Call wiggum_next_step to restart workflow monitoring (Step 1).',
+    instructions: `Fix applied and committed. Call wiggum_next_step to re-verify from Step ${stepName}.
+
+The completed steps have been cleared for Step ${stepName} and all subsequent steps. This ensures the fix is properly verified before proceeding.`,
     context: {
       pr_number: state.pr.number,
     },
