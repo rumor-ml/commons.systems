@@ -24,7 +24,8 @@ pnpm test
 ### 2. Local Channel Testing (Firebase Hosting)
 
 ```bash
-npm run test:local-channel
+npm run test:local-channel              # Run all sites
+npm run test:local-channel:fellspiral   # Run just fellspiral
 ```
 
 **Environment:**

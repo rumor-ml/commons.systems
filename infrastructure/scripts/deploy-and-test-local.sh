@@ -1,12 +1,32 @@
 #!/usr/bin/env bash
 # Deploy to local Firebase channel and run Playwright tests
-# Uses current git branch name (same as CI) for channel and Firestore collection naming
+# Usage:
+#   ./deploy-and-test-local.sh           # Run all sites
+#   ./deploy-and-test-local.sh fellspiral # Run specific site
 
 set -euo pipefail
 
 # Configuration
-SITE="${1:-fellspiral}"
 PROJECT="chalanding"
+
+# If no site specified, run all sites
+if [ $# -eq 0 ]; then
+  SITES=("fellspiral" "videobrowser" "audiobrowser" "print")
+  echo "Running tests for all sites: ${SITES[@]}"
+
+  for SITE in "${SITES[@]}"; do
+    echo ""
+    echo "========================================"
+    echo "Testing site: $SITE"
+    echo "========================================"
+    "$0" "$SITE"  # Recursively call self with site argument
+  done
+
+  exit 0
+fi
+
+# Single site mode
+SITE="$1"
 
 # Get current branch name
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
