@@ -18,12 +18,41 @@ import {
   connectFirestoreEmulator,
 } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getFirebaseConfig, firebaseConfig } from '../firebase-config.js';
+import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
 
-// Initialize Firebase with config (will be replaced with async config in production)
+// Initialize Firebase with config
 let app, db, auth, cardsCollection;
 let initPromise = null;
+
+/**
+ * Get Firebase configuration
+ * - In production (Firebase Hosting): fetch from /__/firebase/init.json
+ * - In development: use imported config
+ */
+async function getFirebaseConfig() {
+  // Check if we're on Firebase Hosting (deployed)
+  const isFirebaseHosting =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.web.app') ||
+      window.location.hostname.endsWith('.firebaseapp.com'));
+
+  if (isFirebaseHosting) {
+    try {
+      const response = await fetch('/__/firebase/init.json');
+      if (response.ok) {
+        const config = await response.json();
+        console.log('Using Firebase Hosting auto-config');
+        return config;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch Firebase Hosting config, using local config:', error);
+    }
+  }
+
+  console.log('Using local Firebase config');
+  return firebaseConfig;
+}
 
 /**
  * Initialize Firebase app and services
@@ -35,7 +64,7 @@ async function initFirebase() {
   }
 
   initPromise = (async () => {
-    // Get Firebase config (async in production, sync in development)
+    // Get Firebase config (async for Firebase Hosting auto-config)
     const config = await getFirebaseConfig();
 
     // Initialize Firebase
