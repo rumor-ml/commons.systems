@@ -308,6 +308,18 @@ jobs:
             exit 1
           fi
 
+      - name: Cleanup Firestore preview collections
+        if: steps.targets.outputs.targets != '' || steps.targets.outputs.cleanup_all == 'true'
+        working-directory: infrastructure/scripts
+        env:
+          GCP_PROJECT_ID: chalanding
+          PR_NUMBER: ${{ fromJson(steps.targets.outputs.pr_numbers || '[]')[0] }}
+          BRANCH_NAME: ${{ steps.targets.outputs.branch_name }}
+          CLEANUP_ALL: ${{ steps.targets.outputs.cleanup_all }}
+        run: |
+          npm install firebase-admin --no-save
+          node cleanup-firestore-preview.js
+
       - name: Delete GitHub deployments
         id: cleanup-deployments
         env:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test a Firebase app (lint + build + E2E)
+# Test a Firebase app - delegates to unified runner
 set -e
 
 if [ -z "$1" ]; then
@@ -7,44 +7,5 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-if [ ! -d "$1" ]; then
-  echo "Error: Directory '$1' does not exist"
-  exit 1
-fi
-
-APP_PATH="$1"
-APP_NAME=$(basename "$APP_PATH")
-
-echo "--- Lint Checks ---"
-CONSOLE_LOGS=$(grep -rn "console\.log" "${APP_PATH}/site/src/" 2>/dev/null || true)
-if [ -n "$CONSOLE_LOGS" ]; then
-  echo "❌ Error: Found console.log statements:"
-  echo "$CONSOLE_LOGS" | while read -r line; do
-    echo "  - $line"
-  done
-  exit 1
-fi
-echo "✓ No console.log statements found"
-
-echo ""
-echo "--- Building ---"
-pnpm --dir "${APP_PATH}/site" build
-
-echo ""
-echo "--- Starting Firebase Emulators ---"
-# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/start-emulators.sh"
-
-# Setup trap to clean up emulators on exit
-cleanup_emulators() {
-  "${SCRIPT_DIR}/cleanup-test-processes.sh" || true
-}
-trap cleanup_emulators EXIT
-
-echo ""
-echo "--- E2E Tests ---"
-cd "${APP_PATH}/tests"
-CI=true npx playwright test
-
-echo "Tests passed for $APP_NAME"
+"${SCRIPT_DIR}/run-e2e-tests.sh" "firebase" "$1"

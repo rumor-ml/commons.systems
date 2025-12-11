@@ -2,7 +2,7 @@
  * Firebase and Firestore initialization
  */
 
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp } from 'firebase/app';
 import {
   getFirestore,
   collection,
@@ -19,42 +19,130 @@ import {
 } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
+import { getCardsCollectionName } from '../lib/firestore-collections.js';
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase with config
+let app, db, auth, cardsCollection;
+let initPromise = null;
 
-// Initialize Firestore
-const db = getFirestore(app);
+/**
+ * Get Firebase configuration
+ * - In production (Firebase Hosting): fetch from /__/firebase/init.json
+ * - In development: use imported config
+ */
+async function getFirebaseConfig() {
+  // Check if we're on Firebase Hosting (deployed)
+  const isFirebaseHosting =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.web.app') ||
+      window.location.hostname.endsWith('.firebaseapp.com'));
 
-// Get auth instance
-const auth = getAuth(app);
+  if (isFirebaseHosting) {
+    try {
+      // Add timeout to config fetch to prevent hanging
+      const response = await withTimeout(
+        fetch('/__/firebase/init.json'),
+        3000,
+        'Firebase config fetch timeout'
+      );
+      if (response.ok) {
+        const config = await response.json();
+        console.log('Using Firebase Hosting auto-config');
+        return config;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch Firebase Hosting config, using local config:', error);
+    }
+  }
 
-// Connect to emulators in test/dev environment
-if (
-  import.meta.env.MODE === 'development' ||
-  import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
-) {
-  const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-  const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
-
-  const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-  connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
-
-  connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+  console.log('Using local Firebase config');
+  return firebaseConfig;
 }
 
-// Collection reference
-const cardsCollection = collection(db, 'cards');
+/**
+ * Initialize Firebase app and services
+ * This is called lazily on first use to allow async config loading
+ */
+async function initFirebase() {
+  if (initPromise) {
+    return initPromise;
+  }
+
+  initPromise = (async () => {
+    // Get Firebase config (async for Firebase Hosting auto-config)
+    const config = await getFirebaseConfig();
+
+    // Initialize Firebase - use existing app if already initialized
+    // This prevents "duplicate-app" errors when HTMX swaps pages
+    try {
+      app = getApp();
+    } catch (error) {
+      // App doesn't exist yet, initialize it
+      app = initializeApp(config);
+    }
+
+    // Initialize Firestore
+    db = getFirestore(app);
+
+    // Get auth instance
+    auth = getAuth(app);
+
+    // Connect to emulators in test/dev environment
+    if (
+      import.meta.env.MODE === 'development' ||
+      import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+    ) {
+      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+
+      const [firestoreHostname, firestorePort] = firestoreHost.split(':');
+      connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+
+      connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+    }
+
+    // Collection reference
+    cardsCollection = collection(db, getCardsCollectionName());
+
+    return { app, db, auth, cardsCollection };
+  })();
+
+  return initPromise;
+}
 
 /**
  * Card Database Operations
  */
 
-// Get all cards from Firestore
+/**
+ * Helper to wrap a promise with a timeout
+ * @param {Promise} promise - The promise to wrap
+ * @param {number} ms - Timeout in milliseconds
+ * @param {string} errorMessage - Error message on timeout
+ * @returns {Promise} Race between promise and timeout
+ */
+export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(errorMessage)), ms)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
+
+// Get all cards from Firestore with timeout protection
 export async function getAllCards() {
+  await initFirebase();
+  const FIRESTORE_TIMEOUT_MS = 5000;
+
   try {
     const q = query(cardsCollection, orderBy('title', 'asc'));
-    const querySnapshot = await getDocs(q);
+
+    // Wrap query with timeout to prevent hanging on slow/unresponsive Firestore
+    const querySnapshot = await withTimeout(
+      getDocs(q),
+      FIRESTORE_TIMEOUT_MS,
+      'Firestore query timeout'
+    );
+
     const cards = [];
     querySnapshot.forEach((doc) => {
       cards.push({
@@ -64,15 +152,17 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
-    console.error('Error getting cards:', error);
+    // Error will be handled by caller - no need to log here
+    // This reduces console noise during normal operation
     throw error;
   }
 }
 
 // Get a single card by ID
 export async function getCard(cardId) {
+  await initFirebase();
   try {
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     const cardSnap = await getDoc(cardRef);
     if (cardSnap.exists()) {
       return {
@@ -90,6 +180,7 @@ export async function getCard(cardId) {
 
 // Create a new card
 export async function createCard(cardData) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
@@ -113,13 +204,14 @@ export async function createCard(cardData) {
 
 // Update an existing card
 export async function updateCard(cardId, cardData) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to update cards');
     }
 
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     await updateDoc(cardRef, {
       ...cardData,
       updatedAt: serverTimestamp(),
@@ -134,13 +226,14 @@ export async function updateCard(cardId, cardData) {
 
 // Delete a card
 export async function deleteCard(cardId) {
+  await initFirebase();
   try {
     const user = auth.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to delete cards');
     }
 
-    const cardRef = doc(db, 'cards', cardId);
+    const cardRef = doc(db, getCardsCollectionName(), cardId);
     await deleteDoc(cardRef);
   } catch (error) {
     console.error('Error deleting card:', error);
@@ -150,6 +243,7 @@ export async function deleteCard(cardId) {
 
 // Batch import cards (for seeding from rules.md)
 export async function importCards(cards) {
+  await initFirebase();
   try {
     const results = {
       created: 0,
@@ -191,4 +285,16 @@ export async function importCards(cards) {
   }
 }
 
+// Export getters for Firebase instances (lazy initialized)
+export async function getFirestoreDb() {
+  await initFirebase();
+  return db;
+}
+
+export async function getFirebaseAuth() {
+  await initFirebase();
+  return auth;
+}
+
+// For backwards compatibility with synchronous exports
 export { db, auth };

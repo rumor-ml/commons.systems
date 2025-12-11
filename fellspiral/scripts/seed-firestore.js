@@ -15,6 +15,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { initializeFirebase } from './lib/firebase-init.js';
+import { getCardsCollectionName } from './lib/collection-names.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -151,7 +152,10 @@ async function seedCards() {
   // Firestore allows up to 500 operations per batch write
   // We use this limit to commit in batches for better performance
   const BATCH_SIZE = 500;
-  const cardsCollection = db.collection('cards');
+  const collectionName = getCardsCollectionName();
+  const cardsCollection = db.collection(collectionName);
+
+  console.log(`Using collection: ${collectionName}`);
 
   let batch = db.batch();
   let batchCount = 0;

@@ -126,6 +126,11 @@ func (m *mockUploader) CheckExists(ctx context.Context, hash string) (bool, stri
 	return false, "", nil
 }
 
+func (m *mockUploader) DeleteLocal(ctx context.Context, localPath string) error {
+	// Mock implementation - just return nil (successful deletion)
+	return nil
+}
+
 func (m *mockUploader) getUploadedFiles() []FileInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()

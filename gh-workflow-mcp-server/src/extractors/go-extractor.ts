@@ -63,7 +63,7 @@ export class GoExtractor implements FrameworkExtractor {
       };
     }
 
-    // High confidence for text format if we see multiple test markers
+    // Detected Go test text format (wrong reporter)
     if (textMarkerCount >= 2) {
       return {
         framework: 'go',
@@ -84,17 +84,42 @@ export class GoExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, maxErrors = 10): ExtractionResult {
+  extract(logText: string, _maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
     if (detection?.isJsonOutput) {
-      return this.parseGoTestJson(logText, maxErrors);
-    } else {
-      return this.parseGoTestText(logText, maxErrors);
+      return this.parseGoTestJson(logText);
+    } else if (detection) {
+      // Go tests detected but not using JSON format
+      return {
+        framework: 'go',
+        errors: [
+          {
+            message:
+              'Go tests detected but not using JSON output format. Please run tests with -json flag.',
+            rawOutput: [
+              'To fix this, run go test with the -json flag:',
+              '',
+              '  go test -json ./...',
+              '',
+              'Or update your test command in CI to include -json:',
+              '  go test -v -json -cover ./...',
+              '',
+              'Current logs appear to be using standard text output format.',
+            ],
+          },
+        ],
+      };
     }
+
+    // No Go tests detected
+    return {
+      framework: 'unknown',
+      errors: [],
+    };
   }
 
-  private parseGoTestJson(logText: string, maxErrors: number): ExtractionResult {
+  private parseGoTestJson(logText: string): ExtractionResult {
     const lines = logText.split('\n');
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
@@ -172,8 +197,6 @@ export class GoExtractor implements FrameworkExtractor {
           duration: testDurations.get(key),
           rawOutput,
         });
-
-        if (failures.length >= maxErrors) break;
       }
     }
 
@@ -181,98 +204,6 @@ export class GoExtractor implements FrameworkExtractor {
     const failed = Array.from(testResults.values()).filter((r) => r === 'fail').length;
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
-
-    return {
-      framework: 'go',
-      errors: failures,
-      summary,
-    };
-  }
-
-  private parseGoTestText(logText: string, maxErrors: number): ExtractionResult {
-    const rawLines = logText.split('\n');
-    const lines = rawLines.map((line) => this.stripTimestamp(line));
-    const failures: ExtractedError[] = [];
-    const failPattern = /^---\s*FAIL:\s*(\S+)\s*\(([0-9.]+)s\)?/;
-    const fileLinePattern = /(\w+\.go):(\d+):/;
-
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(failPattern);
-      if (match) {
-        const testName = match[1];
-        const duration = match[2] ? parseFloat(match[2]) * 1000 : undefined; // Convert to ms
-        const rawOutput: string[] = [];
-        let fileName: string | undefined;
-        let lineNumber: number | undefined;
-        let stack: string | undefined;
-
-        // Collect indented assertion lines and context
-        for (let j = i + 1; j < lines.length; j++) {
-          const line = lines[j];
-
-          // Stop at next test marker or package result
-          if (/^(---|===|FAIL\t|PASS\t)/.test(line)) {
-            break;
-          }
-
-          // Collect indented lines (test output)
-          if (line.startsWith('    ') || line.startsWith('\t')) {
-            rawOutput.push(line.trimEnd());
-
-            // Extract file:line reference if present
-            if (!fileName) {
-              const fileMatch = line.match(fileLinePattern);
-              if (fileMatch) {
-                fileName = fileMatch[1];
-                lineNumber = parseInt(fileMatch[2], 10);
-              }
-            }
-          }
-        }
-
-        // Extract stack trace from panic output (look for goroutine patterns)
-        const fullOutput = rawOutput.join('\n');
-        // Match from "goroutine" to end or next "goroutine" or test marker
-        const goroutineMatch = fullOutput.match(
-          /goroutine \d+[\s\S]*?(?=(?:\ngoroutine|\n---|\n===|\z))/
-        );
-        if (goroutineMatch) {
-          stack = goroutineMatch[0].trim();
-        }
-
-        // Build message from raw output
-        const message = rawOutput.length > 0 ? rawOutput.join('\n') : `Test failed: ${testName}`;
-
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          message,
-          stack,
-          duration,
-          rawOutput,
-        });
-
-        if (failures.length >= maxErrors) break;
-      }
-    }
-
-    // Try to extract summary from package results
-    let summary: string | undefined;
-    const summaryPattern = /(\d+)\s+failed.*(\d+)\s+passed/i;
-
-    for (const line of lines) {
-      const summaryMatch = line.match(summaryPattern);
-      if (summaryMatch) {
-        summary = `${summaryMatch[1]} failed, ${summaryMatch[2]} passed`;
-        break;
-      }
-    }
-
-    // If no summary, at least count failures
-    if (!summary && failures.length > 0) {
-      summary = `${failures.length} failed`;
-    }
 
     return {
       framework: 'go',

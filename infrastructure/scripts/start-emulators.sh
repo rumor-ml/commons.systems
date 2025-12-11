@@ -27,7 +27,7 @@ echo ""
 
 # Check if emulators are already running (shared across worktrees)
 if nc -z localhost $AUTH_PORT 2>/dev/null; then
-  echo "✓ Emulators already running - reusing shared instance"
+  echo "Emulators already running - reusing shared instance"
   echo "  Multiple worktrees can connect to the same emulator"
   echo "  Environment variables are already set"
   exit 0
@@ -101,7 +101,7 @@ done
 echo "Storage emulator is ready on port ${STORAGE_PORT}"
 
 echo ""
-echo "✓ Firebase emulators are ready!"
+echo "Firebase emulators are ready!"
 echo ""
 echo "Shared instance accessible from all worktrees:"
 echo "  FIREBASE_AUTH_EMULATOR_HOST=localhost:${AUTH_PORT}"
@@ -109,7 +109,7 @@ echo "  FIRESTORE_EMULATOR_HOST=localhost:${FIRESTORE_PORT}"
 echo "  STORAGE_EMULATOR_HOST=localhost:${STORAGE_PORT}"
 echo "  Emulator UI: http://localhost:${UI_PORT}"
 echo ""
-echo "⚠️  NOTE: Emulators are shared across worktrees."
+echo "NOTE: Emulators are shared across worktrees."
 echo "   Stopping them will affect all active worktrees."
 echo ""
 echo "To stop: infrastructure/scripts/stop-emulators.sh"

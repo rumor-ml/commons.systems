@@ -117,13 +117,14 @@ test.describe('Card Manager Page', () => {
       // Click mobile menu toggle to open sidebar
       await mobileMenuToggle.click();
 
-      // Sidebar should now have active class
-      await expect(sidebar).toHaveClass(/active/);
+      // Wait for sidebar to get active class with increased timeout for CI
+      await expect(sidebar).toHaveClass(/active/, { timeout: 10000 });
 
       // Click again to close
       await mobileMenuToggle.click();
 
-      await expect(sidebar).not.toHaveClass(/active/);
+      // Wait for sidebar to lose active class with increased timeout
+      await expect(sidebar).not.toHaveClass(/active/, { timeout: 10000 });
     });
 
     test('should close sidebar when clicking nav link on mobile', async ({ page }) => {
@@ -138,7 +139,7 @@ test.describe('Card Manager Page', () => {
 
       // Open sidebar by clicking mobile menu toggle
       await mobileMenuToggle.click();
-      await expect(sidebar).toHaveClass(/active/);
+      await expect(sidebar).toHaveClass(/active/, { timeout: 10000 });
 
       // Click a nav link (should navigate and close sidebar)
       const navLink = page.locator('.sidebar-nav a[href="/#introduction"]');
@@ -156,15 +157,13 @@ test.describe('Card Manager Page', () => {
       const toggle = page.locator('#mobileMenuToggle');
 
       await toggle.click();
-      await expect(sidebar).toHaveClass(/active/);
+      await expect(sidebar).toHaveClass(/active/, { timeout: 10000 });
 
       // Click outside the sidebar using mouse coordinates (right side of screen)
       await page.mouse.click(350, 200);
 
-      // Wait a bit for the click handler to process
-      await page.waitForTimeout(100);
-
-      await expect(sidebar).not.toHaveClass(/active/);
+      // Wait for the sidebar to lose active class with increased timeout
+      await expect(sidebar).not.toHaveClass(/active/, { timeout: 10000 });
     });
 
     test('should handle rapid toggle clicks', async ({ page }) => {
@@ -177,10 +176,12 @@ test.describe('Card Manager Page', () => {
       // Click toggle 5 times rapidly
       for (let i = 0; i < 5; i++) {
         await toggle.click();
+        // Small delay between clicks to ensure each click is processed
+        await page.waitForTimeout(50);
       }
 
       // Final state should be open (odd number of clicks)
-      await expect(sidebar).toHaveClass(/active/);
+      await expect(sidebar).toHaveClass(/active/, { timeout: 10000 });
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * Playwright test framework extractor - parses JSON and text output
+ * Playwright test framework extractor - parses JSON output only
  */
 
 import type {
@@ -10,6 +10,7 @@ import type {
 } from './types.js';
 
 interface PlaywrightJsonReport {
+  config?: any; // Config object (optional, may not be present in all reports)
   suites: PlaywrightSuite[];
 }
 
@@ -49,21 +50,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   readonly name = 'playwright' as const;
 
   detect(logText: string): DetectionResult | null {
-    const lines = logText.split('\n');
-    let playwrightMarkerCount = 0;
+    // Check for JSON format (may be embedded in logs)
+    // Look for Playwright JSON structure markers
+    const hasConfig = logText.includes('"config":');
+    const hasSuites = logText.includes('"suites":');
+    console.error(`[DEBUG] Playwright detect: hasConfig=${hasConfig}, hasSuites=${hasSuites}`);
 
-    // Check for JSON format first
-    const trimmed = logText.trim();
-    if (trimmed.startsWith('{"suites":')) {
+    if (hasConfig && hasSuites) {
       try {
-        JSON.parse(trimmed);
-        return {
-          framework: 'playwright',
-          confidence: 'high',
-          isJsonOutput: true,
-        };
-      } catch {
-        // Not valid JSON, continue with text detection
+        const jsonText = this.extractJsonFromLogs(logText);
+        console.error(`[DEBUG] Extracted JSON length: ${jsonText.length}`);
+        const parsed = JSON.parse(jsonText);
+        console.error(`[DEBUG] JSON parsed successfully, has suites: ${!!parsed.suites}`);
+        if (parsed.suites && Array.isArray(parsed.suites)) {
+          return {
+            framework: 'playwright',
+            confidence: 'high',
+            isJsonOutput: true,
+          };
+        }
+      } catch (err) {
+        // Not valid JSON or extraction failed
+        console.error(
+          `[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
@@ -79,15 +89,17 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     // Sample first 200 lines for text detection
+    const lines = logText.split('\n');
     const sampleSize = Math.min(200, lines.length);
+    let playwrightMarkerCount = 0;
 
     for (let i = 0; i < sampleSize; i++) {
       const line = lines[i];
 
-      // Check for Playwright-specific markers
+      // Check for Playwright-specific markers (line reporter)
       if (
         /[✘✓]/.test(line) ||
-        /\u2718/.test(line) || // ✘ unicode
+        /\u2718|\u2714/.test(line) || // Unicode checkmarks
         /\[chromium\]|\[firefox\]|\[webkit\]/.test(line) ||
         /Error: expect\(/i.test(line) ||
         /›.*\.spec\.(ts|js):\d+/.test(line) ||
@@ -98,7 +110,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       }
     }
 
-    // High confidence if we see multiple Playwright markers
+    // Detected Playwright but not JSON format - wrong reporter
     if (playwrightMarkerCount >= 3) {
       return {
         framework: 'playwright',
@@ -129,9 +141,35 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     if (detection?.isJsonOutput) {
       return this.parsePlaywrightJson(logText, maxErrors);
-    } else {
-      return this.parsePlaywrightText(logText, maxErrors);
+    } else if (detection) {
+      // Playwright detected but wrong reporter format
+      return {
+        framework: 'playwright',
+        errors: [
+          {
+            message:
+              'Playwright tests detected but logs are not in JSON format. Please configure Playwright to use the JSON reporter.',
+            rawOutput: [
+              'To fix this, update your Playwright configuration:',
+              '',
+              'In playwright.config.ts/js, add:',
+              "  reporter: [['json', { outputFile: 'results.json' }]]",
+              '',
+              'Or use the --reporter=json flag:',
+              '  npx playwright test --reporter=json',
+              '',
+              "Current logs appear to be using the 'line' or 'list' reporter.",
+            ],
+          },
+        ],
+      };
     }
+
+    // No Playwright detected at all
+    return {
+      framework: 'unknown',
+      errors: [],
+    };
   }
 
   private parsePlaywrightTimeout(logText: string): ExtractionResult {
@@ -228,15 +266,17 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return Math.abs(parse(time2) - parse(time1));
   }
 
-  private parsePlaywrightJson(logText: string, maxErrors: number): ExtractionResult {
+  private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
 
     try {
-      const report = JSON.parse(logText.trim()) as PlaywrightJsonReport;
+      // Extract JSON from logs - it may be embedded within other output
+      const jsonText = this.extractJsonFromLogs(logText);
+      const report = JSON.parse(jsonText) as PlaywrightJsonReport;
 
       const extractFromSuite = (suite: PlaywrightSuite) => {
         for (const spec of suite.specs || []) {
-          if (!spec.ok && failures.length < maxErrors) {
+          if (!spec.ok) {
             for (const test of spec.tests || []) {
               for (const result of test.results || []) {
                 if (result.status !== 'passed' && result.status !== 'skipped') {
@@ -259,8 +299,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                     failureType: result.status,
                     rawOutput,
                   });
-
-                  if (failures.length >= maxErrors) return;
                 }
               }
             }
@@ -270,140 +308,99 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         // Recursively process nested suites
         for (const nestedSuite of suite.suites || []) {
           extractFromSuite(nestedSuite);
-          if (failures.length >= maxErrors) return;
         }
       };
 
       for (const suite of report.suites || []) {
         extractFromSuite(suite);
-        if (failures.length >= maxErrors) break;
       }
-    } catch (err) {
-      // If JSON parsing fails, fall back to text parsing
-      return this.parsePlaywrightText(logText, maxErrors);
-    }
 
-    return {
-      framework: 'playwright',
-      errors: failures,
-      summary: failures.length > 0 ? `${failures.length} failed` : undefined,
-    };
+      // Count total tests for summary
+      let totalPassed = 0;
+      let totalFailed = failures.length;
+
+      const countTests = (suite: PlaywrightSuite) => {
+        for (const spec of suite.specs || []) {
+          if (spec.ok) {
+            totalPassed += spec.tests.length;
+          }
+        }
+        for (const nestedSuite of suite.suites || []) {
+          countTests(nestedSuite);
+        }
+      };
+
+      for (const suite of report.suites || []) {
+        countTests(suite);
+      }
+
+      const summary =
+        totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
+
+      return {
+        framework: 'playwright',
+        errors: failures,
+        summary,
+      };
+    } catch (err) {
+      // JSON parsing failed
+      return {
+        framework: 'playwright',
+        errors: [
+          {
+            message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
+            rawOutput: [logText.substring(0, 500)],
+          },
+        ],
+      };
+    }
   }
 
-  private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
+  /**
+   * Extract JSON blob from logs that may contain other output
+   * Looks for a JSON object that has "config" or "suites" as top-level keys
+   */
+  private extractJsonFromLogs(logText: string): string {
     const lines = logText.split('\n');
-    const failures: ExtractedError[] = [];
 
-    // Playwright failure line format:
-    // ✘ N [browser] › file.spec.ts:line › test name (duration)
-    // We capture everything up to the optional duration in parentheses
-    const failPattern =
-      /^\s*[\u2718].*\[([^\]]+)\].*›\s*(.+\.spec\.(ts|js)):(\d+).*›\s*(.+?)(?:\s*\(\d+(?:ms|s)\))?$/;
+    // Strip GitHub Actions timestamps from each line
+    const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
+    const cleanLines = lines.map((line) => line.replace(timestampPattern, ''));
 
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(failPattern);
-      if (match) {
-        const browser = match[1];
-        const fileName = match[2];
-        const lineNumber = parseInt(match[4], 10);
-        const testName = match[5].trim();
-
-        // Collect error context until next test or end
-        const rawOutput: string[] = [];
-        let errorMessage = 'Test failed';
-        let stack: string | undefined;
-
-        for (let j = i + 1; j < lines.length && j < i + 20; j++) {
-          const line = lines[j];
-
-          // Stop at next test marker
-          if (failPattern.test(line) || /^\s*[✓\u2714]/.test(line)) {
-            break;
-          }
-
-          // Collect non-empty lines
-          if (line.trim()) {
-            rawOutput.push(line);
-
-            // Extract error message from expect() or Error: lines
-            if (!errorMessage || errorMessage === 'Test failed') {
-              if (/Error: expect\(/i.test(line)) {
-                errorMessage = line.trim();
-              } else if (/Error:/i.test(line)) {
-                errorMessage = line.trim();
-              }
-            }
-
-            // Build stack trace from error lines
-            if (line.trim().startsWith('at ')) {
-              if (!stack) stack = '';
-              stack += (stack ? '\n' : '') + line.trim();
-            }
-          }
-        }
-
-        // Use first raw output line as message if we didn't find an explicit error
-        if (errorMessage === 'Test failed' && rawOutput.length > 0) {
-          errorMessage = rawOutput[0];
-        }
-
-        failures.push({
-          testName: `[${browser}] ${testName}`,
-          fileName,
-          lineNumber,
-          message: errorMessage,
-          stack,
-          rawOutput,
-        });
-
-        if (failures.length >= maxErrors) break;
-      }
-    }
-
-    // Try to extract summary
-    let summary: string | undefined;
-    const summaryPattern = /(\d+)\s+failed.*(\d+)\s+passed/i;
-
-    // Search from end for summary
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
-      const match = lines[i].match(summaryPattern);
-      if (match) {
-        summary = `${match[1]} failed, ${match[2]} passed`;
-        break;
-      }
-    }
-
-    // Alternative summary patterns
-    if (!summary) {
-      const failedPattern = /(\d+)\s+failed/i;
-      const passedPattern = /(\d+)\s+passed/i;
-      let failed: string | null = null;
-      let passed: string | null = null;
-
-      for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
-        if (!failed && failedPattern.test(lines[i])) {
-          const match = lines[i].match(failedPattern);
-          if (match) failed = match[1];
-        }
-        if (!passed && passedPattern.test(lines[i])) {
-          const match = lines[i].match(passedPattern);
-          if (match) passed = match[1];
-        }
-        if (failed && passed) {
-          summary = `${failed} failed, ${passed} passed`;
+    // Find start of JSON - look for standalone { followed by "config" or "suites"
+    let jsonStart = -1;
+    for (let i = 0; i < cleanLines.length; i++) {
+      if (cleanLines[i].trim() === '{') {
+        // Check if next few lines contain "config" or "suites"
+        const nextFewLines = cleanLines.slice(i, Math.min(i + 20, cleanLines.length)).join('\n');
+        if (nextFewLines.includes('"config":') || nextFewLines.includes('"suites":')) {
+          jsonStart = i;
           break;
         }
       }
+    }
 
-      if (!summary && failed) {
-        summary = `${failed} failed`;
+    if (jsonStart === -1) {
+      // Fallback: try parsing the whole thing
+      return logText.trim();
+    }
+
+    // Try progressive parsing - keep adding lines until we have valid JSON
+    // This handles nested braces in strings correctly
+    for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
+      try {
+        const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
+        const parsed = JSON.parse(candidate);
+        // Successfully parsed and has the expected structure
+        if (parsed.suites || parsed.config) {
+          return candidate;
+        }
+      } catch {
+        // Keep trying with more lines
       }
     }
 
-    return {
-      framework: 'playwright',
-      errors: failures,
-      summary,
-    };
+    // Fallback: couldn't parse, return from start to end
+    return cleanLines.slice(jsonStart).join('\n');
   }
 }

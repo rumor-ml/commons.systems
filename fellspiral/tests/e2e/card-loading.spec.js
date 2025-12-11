@@ -11,19 +11,15 @@ test.describe('Card Loading - Direct Page Visit', () => {
     // Directly visit cards.html (simulates typing URL or bookmark)
     await page.goto('/cards.html');
 
-    // Loading spinner should appear initially
-    const loadingState = page.locator('.loading-state');
-    await expect(loadingState).toBeVisible({ timeout: 2000 });
+    // Per user's logic: "if card loads too fast to show progress this is a pass,
+    // if cards show progress then eventually load this is a pass,
+    // if neither cards or loading state displays this is a fail"
 
-    // Loading should complete within reasonable time (not infinite spinner)
-    // Either cards load OR empty state shows (depending on data availability)
+    // Wait for either cards/empty state to appear (final state)
+    // Don't require loading spinner - it's okay if cards load instantly
     await expect(async () => {
       const cardList = page.locator('#cardList');
       const emptyState = page.locator('#emptyState');
-      const loadingVisible = await loadingState.isVisible();
-
-      // Loading spinner should be gone
-      expect(loadingVisible).toBe(false);
 
       // Either cards OR empty state should be visible (not both)
       const cardsVisible = await cardList.isVisible();
@@ -36,30 +32,32 @@ test.describe('Card Loading - Direct Page Visit', () => {
   test('should not get stuck in infinite loading state', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for loading to start
-    await page.waitForSelector('.loading-state', { timeout: 2000 });
+    // Per user's logic: cards OR empty state must eventually appear
+    // Loading spinner presence is optional (cards might load instantly)
 
-    // Wait up to 15 seconds - loading should complete
+    // Wait up to 15 seconds for final state (cards or empty)
     await page.waitForFunction(
       () => {
-        const loadingState = document.querySelector('.loading-state');
         const cardList = document.getElementById('cardList');
         const emptyState = document.getElementById('emptyState');
 
-        // Loading is complete if spinner is hidden and either cards or empty state shows
-        const loadingComplete = !loadingState || !loadingState.offsetParent;
+        // Either cards or empty state should be visible
         const contentVisible =
           (cardList && cardList.style.display !== 'none') ||
           (emptyState && emptyState.style.display !== 'none');
 
-        return loadingComplete && contentVisible;
+        return contentVisible;
       },
       { timeout: 15000 }
     );
 
-    // Verify final state is valid (not stuck loading)
-    const loadingState = page.locator('.loading-state');
-    await expect(loadingState).not.toBeVisible();
+    // Verify final state is valid (cards or empty state visible)
+    const cardList = page.locator('#cardList');
+    const emptyState = page.locator('#emptyState');
+    const cardsVisible = await cardList.isVisible();
+    const emptyVisible = await emptyState.isVisible();
+
+    expect(cardsVisible || emptyVisible).toBe(true);
   });
 
   test('should display cards when data is available', async ({ page }) => {

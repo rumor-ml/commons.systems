@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/styles/main.css" />
     <link rel="stylesheet" href="/styles/cards.css" />
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script type="module" src="/scripts/main.js"></script>
   </head>
   <body>
     <div class="layout">
@@ -258,6 +259,8 @@
       } else {
         initCardsPage();
       }
+
+      // Note: HTMX navigation re-initialization is handled by main.js
     </script>
   </body>
 </html>
