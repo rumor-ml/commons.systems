@@ -23,16 +23,28 @@ export interface GitState {
 }
 
 /**
- * PR state from GitHub
+ * PR state from GitHub - using discriminated union for type safety
  */
-export interface PRState {
-  exists: boolean;
-  number?: number;
-  title?: string;
-  url?: string;
-  labels?: string[];
-  headRefName?: string;
-  baseRefName?: string;
+export type PRState = PRExists | PRDoesNotExist;
+
+/**
+ * PR exists on GitHub
+ */
+export interface PRExists {
+  exists: true;
+  number: number;
+  title: string;
+  url: string;
+  labels: string[];
+  headRefName: string;
+  baseRefName: string;
+}
+
+/**
+ * PR does not exist on GitHub
+ */
+export interface PRDoesNotExist {
+  exists: false;
 }
 
 /**

@@ -2,14 +2,30 @@
  * Common types for Wiggum MCP server
  */
 
-export interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
+/**
+ * Metadata that can be attached to tool results
+ * Used for error categorization, debugging, and result classification
+ */
+export interface ToolResultMeta {
+  errorType?: string;
+  errorCode?: string;
   [key: string]: unknown;
 }
 
-export interface ErrorResult {
+/**
+ * Standard tool result returned by MCP tools
+ */
+export interface ToolResult {
   content: Array<{ type: 'text'; text: string }>;
-  isError: true;
+  isError?: boolean;
+  _meta?: ToolResultMeta;
   [key: string]: unknown;
+}
+
+/**
+ * Error-specific tool result
+ */
+export interface ErrorResult extends ToolResult {
+  isError: true;
+  _meta: ToolResultMeta;
 }

@@ -29,7 +29,10 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
           completedSteps: state.completedSteps || [],
         };
       } catch (error) {
-        // Invalid JSON, continue searching
+        // Invalid JSON, log and continue searching
+        console.warn(
+          `getWiggumState: failed to parse state JSON from comment ${comment.id}: ${error instanceof Error ? error.message : String(error)}. Raw JSON: ${match[1].substring(0, 200)}`
+        );
         continue;
       }
     }

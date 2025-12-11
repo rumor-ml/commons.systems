@@ -14,6 +14,21 @@ export interface GhCliOptions {
 
 /**
  * Execute a GitHub CLI command safely with proper error handling
+ *
+ * Runs gh CLI commands with automatic working directory resolution,
+ * optional repository specification, timeout support, and comprehensive
+ * error handling. Includes command context in error messages for easier debugging.
+ *
+ * @param args - GitHub CLI command arguments (e.g., ['pr', 'view', '123'])
+ * @param options - Optional execution options (repo, cwd, timeout)
+ * @returns The stdout from the gh command
+ * @throws {GitHubCliError} When gh command fails or exits with non-zero code
+ *
+ * @example
+ * ```typescript
+ * const prData = await ghCli(['pr', 'view', '123', '--json', 'title']);
+ * const repo = await ghCli(['repo', 'view', '--json', 'nameWithOwner']);
+ * ```
  */
 export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
   try {
@@ -31,7 +46,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
-        `GitHub CLI command failed: ${result.stderr || result.stdout}`,
+        `GitHub CLI command failed (gh ${fullArgs.join(' ')}): ${result.stderr || result.stdout}`,
         result.exitCode,
         result.stderr || undefined
       );
@@ -42,15 +57,32 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (error instanceof GitHubCliError) {
       throw error;
     }
-    if (error instanceof Error) {
-      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`);
-    }
-    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
+    // Preserve original error type for better debugging, but wrap in GitHubCliError
+    const originalError = error instanceof Error ? error : new Error(String(error));
+    throw new GitHubCliError(
+      `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
+      undefined,
+      undefined,
+      originalError
+    );
   }
 }
 
 /**
  * Execute a GitHub CLI command and parse JSON output
+ *
+ * Convenience wrapper around ghCli that automatically parses JSON responses.
+ *
+ * @param args - GitHub CLI command arguments
+ * @param options - Optional execution options
+ * @returns Parsed JSON response
+ * @throws {GitHubCliError} When gh command fails or JSON parsing fails
+ *
+ * @example
+ * ```typescript
+ * interface PR { number: number; title: string; }
+ * const pr = await ghCliJson<PR>(['pr', 'view', '--json', 'number,title']);
+ * ```
  */
 export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): Promise<T> {
   const output = await ghCli(args, options);
@@ -66,14 +98,31 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
 
 /**
  * Get the current repository in format "owner/repo"
+ *
+ * Queries GitHub CLI for the current repository. Must be run from
+ * within a git repository directory. Includes original error details
+ * in error messages for better debugging.
+ *
+ * @returns Repository in "owner/repo" format (e.g., "github/gh")
+ * @throws {GitHubCliError} When not in a repository or gh command fails
+ *
+ * @example
+ * ```typescript
+ * const repo = await getCurrentRepo();
+ * console.log(repo); // "owner/repo-name"
+ * ```
  */
 export async function getCurrentRepo(): Promise<string> {
   try {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
+      error instanceof GitHubCliError ? error.exitCode : undefined,
+      error instanceof GitHubCliError ? error.stderr : undefined,
+      error instanceof Error ? error : undefined
     );
   }
 }
@@ -159,11 +208,23 @@ export async function getPRReviewComments(
   }
 
   // Split by newlines and parse each JSON object
-  return result
+  const lines = result
     .trim()
     .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .filter((line) => line.trim());
+  const comments: any[] = [];
+
+  for (const line of lines) {
+    try {
+      comments.push(JSON.parse(line));
+    } catch (error) {
+      throw new GitHubCliError(
+        `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`
+      );
+    }
+  }
+
+  return comments;
 }
 
 /**
@@ -194,6 +255,22 @@ function isRetryableError(error: unknown): boolean {
 
 /**
  * Execute gh CLI command with retry logic
+ *
+ * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors).
+ * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
+ * Non-retryable errors (like validation errors) fail immediately.
+ *
+ * @param args - GitHub CLI command arguments
+ * @param options - Optional execution options
+ * @param maxRetries - Maximum number of retry attempts (default: 3)
+ * @returns The stdout from the gh command
+ * @throws {Error} When all retry attempts are exhausted or error is non-retryable
+ *
+ * @example
+ * ```typescript
+ * // Retry network-sensitive operations
+ * const data = await ghCliWithRetry(['pr', 'view', '123'], {}, 5);
+ * ```
  */
 export async function ghCliWithRetry(
   args: string[],
@@ -208,12 +285,24 @@ export async function ghCliWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      if (!isRetryableError(error) || attempt === maxRetries) {
+      if (!isRetryableError(error)) {
+        // Non-retryable error, fail immediately
+        throw lastError;
+      }
+
+      if (attempt === maxRetries) {
+        // Final attempt failed
+        console.warn(
+          `ghCliWithRetry: all ${maxRetries} attempts failed for command: gh ${args.join(' ')}`
+        );
         throw lastError;
       }
 
       // Exponential backoff: 2s, 4s, 8s
       const delayMs = Math.pow(2, attempt) * 1000;
+      console.warn(
+        `ghCliWithRetry: attempt ${attempt}/${maxRetries} failed for command: gh ${args.join(' ')}. Retrying in ${delayMs}ms. Error: ${lastError.message}`
+      );
       await sleep(delayMs);
     }
   }

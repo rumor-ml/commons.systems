@@ -36,7 +36,7 @@ export async function detectGitState(): Promise<GitState> {
 /**
  * Detect current PR state
  */
-export async function detectPRState(_branch: string, repo?: string): Promise<PRState> {
+export async function detectPRState(repo?: string): Promise<PRState> {
   try {
     const resolvedRepo = repo || (await getCurrentRepo());
 
@@ -54,7 +54,12 @@ export async function detectPRState(_branch: string, repo?: string): Promise<PRS
       baseRefName: result.baseRefName,
     };
   } catch (error) {
-    // No PR exists
+    // Expected: no PR exists for current branch (GitHubCliError)
+    // Log unexpected errors
+    if (error instanceof Error && !error.message.includes('no pull requests found')) {
+      console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`);
+    }
+
     return {
       exists: false,
     };
@@ -66,7 +71,7 @@ export async function detectPRState(_branch: string, repo?: string): Promise<PRS
  */
 export async function detectCurrentState(repo?: string): Promise<CurrentState> {
   const git = await detectGitState();
-  const pr = await detectPRState(git.currentBranch, repo);
+  const pr = await detectPRState(repo);
 
   let wiggum;
   if (pr.exists && pr.number) {

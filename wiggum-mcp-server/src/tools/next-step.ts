@@ -25,6 +25,23 @@ import {
   NEEDS_REVIEW_LABEL,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
+import type { CurrentState } from '../state/types.js';
+
+/**
+ * Helper type for state where PR is guaranteed to exist
+ * Used in handlers after Step 0
+ */
+type CurrentStateWithPR = CurrentState & {
+  pr: {
+    exists: true;
+    number: number;
+    title: string;
+    url: string;
+    labels: string[];
+    headRefName: string;
+    baseRefName: string;
+  };
+};
 
 export const NextStepInputSchema = z.object({});
 
@@ -57,7 +74,7 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
       iteration_count: state.wiggum.iteration,
       instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`,
       context: {
-        pr_number: state.pr.number,
+        pr_number: state.pr.exists ? state.pr.number : undefined,
         current_branch: state.git.currentBranch,
       },
     };
@@ -71,44 +88,47 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
     return handleStepEnsurePR(state);
   }
 
+  // After this point, PR is guaranteed to exist (type-safe assertion)
+  const stateWithPR = state as CurrentStateWithPR;
+
   // Step 1: Monitor Workflow (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_WORKFLOW)) {
-    return handleStepMonitorWorkflow(state);
+    return handleStepMonitorWorkflow(stateWithPR);
   }
 
   // Step 1b: Monitor PR Checks (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_PR_CHECKS)) {
-    return handleStepMonitorPRChecks(state);
+    return handleStepMonitorPRChecks(stateWithPR);
   }
 
   // Step 2: Code Quality Comments (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_CODE_QUALITY)) {
-    return await handleStepCodeQuality(state);
+    return await handleStepCodeQuality(stateWithPR);
   }
 
   // Step 3: PR Review (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_PR_REVIEW)) {
-    return handleStepPRReview(state);
+    return handleStepPRReview(stateWithPR);
   }
 
   // Step 4: Security Review (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_SECURITY_REVIEW)) {
-    return handleStepSecurityReview(state);
+    return handleStepSecurityReview(stateWithPR);
   }
 
   // Step 4b: Verify Reviews (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_VERIFY_REVIEWS)) {
-    return await handleStepVerifyReviews(state);
+    return await handleStepVerifyReviews(stateWithPR);
   }
 
   // All steps complete - proceed to approval
-  return handleApproval(state);
+  return handleApproval(stateWithPR);
 }
 
 /**
  * Step 0: Ensure PR exists
  */
-function handleStepEnsurePR(state: any): ToolResult {
+function handleStepEnsurePR(state: CurrentState): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_ENSURE_PR],
     step_number: STEP_ENSURE_PR,
@@ -151,13 +171,29 @@ function handleStepEnsurePR(state: any): ToolResult {
     const branchName = state.git.currentBranch;
     const issueNum = branchName.split('-')[0];
 
-    output.instructions = `Create PR using gh CLI:
-1. Extract branch name: ${branchName}
-2. Extract issue number: ${issueNum}
-3. Get commit messages: git log main..HEAD --pretty=format:"- %s"
-4. Create PR body: "closes #\${issueNum}\\n\\n\${commits}"
-5. Execute: gh pr create --base main --label "${NEEDS_REVIEW_LABEL}" --title "\${branchName}" --body "\${body}"
-6. After PR is created, call wiggum_next_step again.`;
+    output.instructions = `Create PR using these steps:
+
+CRITICAL: All git/gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md
+
+1. Get commit messages for PR body:
+   \`\`\`
+   git log main..HEAD --pretty=format:"- %s"
+   \`\`\`
+   Store output in variable 'commits'
+
+2. Create PR body text:
+   \`\`\`
+   body="closes #${issueNum}
+
+\${commits}"
+   \`\`\`
+
+3. Create PR:
+   \`\`\`
+   gh pr create --base main --label "${NEEDS_REVIEW_LABEL}" --title "${branchName}" --body "\${body}"
+   \`\`\`
+
+4. After PR is created successfully, call wiggum_next_step again to proceed.`;
 
     output.pr_title = branchName;
     output.pr_labels = [NEEDS_REVIEW_LABEL];
@@ -175,7 +211,7 @@ function handleStepEnsurePR(state: any): ToolResult {
 /**
  * Step 1: Monitor Workflow
  */
-function handleStepMonitorWorkflow(state: any): ToolResult {
+function handleStepMonitorWorkflow(state: CurrentStateWithPR): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_MONITOR_WORKFLOW],
     step_number: STEP_MONITOR_WORKFLOW,
@@ -204,7 +240,7 @@ On FAILURE:
 /**
  * Step 1b: Monitor PR Checks
  */
-function handleStepMonitorPRChecks(state: any): ToolResult {
+function handleStepMonitorPRChecks(state: CurrentStateWithPR): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_MONITOR_PR_CHECKS],
     step_number: STEP_MONITOR_PR_CHECKS,
@@ -233,7 +269,7 @@ On ANY OTHER STATUS (FAILED, CONFLICTS, BLOCKED, MIXED, etc.):
 /**
  * Step 2: Code Quality Comments
  */
-async function handleStepCodeQuality(state: any): Promise<ToolResult> {
+async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolResult> {
   // Fetch code quality bot comments
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
@@ -275,7 +311,7 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 /**
  * Step 3: PR Review
  */
-function handleStepPRReview(state: any): ToolResult {
+function handleStepPRReview(state: CurrentStateWithPR): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_PR_REVIEW],
     step_number: STEP_PR_REVIEW,
@@ -305,7 +341,7 @@ After all review agents complete:
 /**
  * Step 4: Security Review
  */
-function handleStepSecurityReview(state: any): ToolResult {
+function handleStepSecurityReview(state: CurrentStateWithPR): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
     step_number: STEP_SECURITY_REVIEW,
@@ -335,7 +371,7 @@ After security review completes:
 /**
  * Step 4b: Verify Reviews
  */
-async function handleStepVerifyReviews(state: any): Promise<ToolResult> {
+async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolResult> {
   const hasPRReview = await hasReviewCommandEvidence(state.pr.number, PR_REVIEW_COMMAND);
   const hasSecurityReview = await hasReviewCommandEvidence(
     state.pr.number,
@@ -370,7 +406,7 @@ async function handleStepVerifyReviews(state: any): Promise<ToolResult> {
 /**
  * Approval
  */
-function handleApproval(state: any): ToolResult {
+function handleApproval(state: CurrentStateWithPR): ToolResult {
   const output: NextStepOutput = {
     current_step: STEP_NAMES[STEP_APPROVAL],
     step_number: STEP_APPROVAL,
