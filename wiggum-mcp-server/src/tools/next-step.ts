@@ -83,8 +83,8 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
     };
   }
 
-  // Step 0: Ensure PR exists
-  if (!state.pr.exists || state.wiggum.step === STEP_ENSURE_PR) {
+  // Step 0: Ensure PR exists (only if PR doesn't exist)
+  if (!state.pr.exists) {
     return handleStepEnsurePR(state);
   }
 
@@ -127,6 +127,9 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
 
 /**
  * Step 0: Ensure PR exists
+ *
+ * Only called when PR doesn't exist. Validates pre-conditions and provides
+ * instructions for creating the PR.
  */
 function handleStepEnsurePR(state: CurrentState): ToolResult {
   const output: NextStepOutput = {
