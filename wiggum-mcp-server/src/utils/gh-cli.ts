@@ -22,7 +22,7 @@ export interface GhCliOptions {
  * @param args - GitHub CLI command arguments (e.g., ['pr', 'view', '123'])
  * @param options - Optional execution options (repo, cwd, timeout)
  * @returns The stdout from the gh command
- * @throws {GitHubCliError} When gh command fails or exits with non-zero code
+ * @throws {GitHubCliError} When gh command fails or exits with non-zero code or GITHUB_TOKEN not set
  *
  * @example
  * ```typescript
@@ -32,6 +32,13 @@ export interface GhCliOptions {
  */
 export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
   try {
+    // Validate GITHUB_TOKEN is available
+    if (!process.env.GITHUB_TOKEN) {
+      throw new GitHubCliError(
+        'GITHUB_TOKEN environment variable is not set. GitHub CLI requires authentication.'
+      );
+    }
+
     const cwd = options.cwd || (await getGitRoot());
     const execaOptions: any = {
       timeout: options.timeout,

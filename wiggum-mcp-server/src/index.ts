@@ -165,7 +165,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       }
 
       default:
-        throw new Error(`Unknown tool: ${name}`);
+        throw new Error(
+          `Unknown tool: ${name}. Available tools: wiggum_next_step, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix`
+        );
     }
   } catch (error) {
     return createErrorResult(error);

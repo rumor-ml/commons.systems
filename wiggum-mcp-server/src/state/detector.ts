@@ -102,6 +102,9 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  * comprehensive snapshot. This is the primary state detection function
  * used by the wiggum_next_step tool.
  *
+ * Includes timestamp-based validation to detect race conditions where PR state
+ * changes between reads. If inconsistencies are detected, state is re-fetched.
+ *
  * @param repo - Optional repository in "owner/repo" format
  * @returns CurrentState with git, PR, and wiggum workflow state
  * @throws {GitError | GitHubCliError} When state detection fails
@@ -117,12 +120,26 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  * ```
  */
 export async function detectCurrentState(repo?: string): Promise<CurrentState> {
+  const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
+  const stateDetectionTime = Date.now() - startTime;
 
   let wiggum;
   if (pr.exists && pr.number) {
     wiggum = await getWiggumState(pr.number, repo);
+
+    // If state detection took longer than 5 seconds, re-validate PR state exists
+    // This helps detect race conditions where PR might have been closed/modified
+    if (stateDetectionTime > 5000) {
+      const revalidatedPr = await detectPRState(repo);
+      if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
+        console.warn(
+          `detectCurrentState: PR state changed during detection (was #${pr.number}, now #${revalidatedPr.number}). Using revalidated state.`
+        );
+        return detectCurrentState(repo); // Recursive call to re-fetch with consistent state
+      }
+    }
   } else {
     wiggum = {
       iteration: 0,
