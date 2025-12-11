@@ -258,6 +258,14 @@
       } else {
         initCardsPage();
       }
+
+      // Re-initialize after HTMX swaps the content
+      document.body.addEventListener('htmx:afterSwap', (event) => {
+        // Only re-init if the swapped content contains our card manager
+        if (event.detail.target.querySelector('.card-manager')) {
+          initCardsPage();
+        }
+      });
     </script>
   </body>
 </html>
