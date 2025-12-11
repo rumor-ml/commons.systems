@@ -153,6 +153,10 @@ echo -e "${GREEN}✓ Environment variables set:${NC}"
 echo -e "  TMUX_TUI_INSTALL_DIR=$PROJECT_ROOT/build"
 echo -e "  TMUX_TUI_SPAWN_SCRIPT=$PROJECT_ROOT/scripts/spawn.sh"
 
+# Re-source tmux config to update keybindings with new paths
+tmux source-file "$PROJECT_ROOT/tmux-tui.conf"
+echo -e "${GREEN}✓ Keybindings updated${NC}"
+
 # Summary
 echo -e "\n${GREEN}=== Done! ===${NC}"
 echo -e "Branch: ${YELLOW}$(cd "$PROJECT_ROOT" && git branch --show-current)${NC}"
