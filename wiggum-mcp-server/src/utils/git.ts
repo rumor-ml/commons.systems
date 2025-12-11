@@ -230,12 +230,20 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
     // Check if main exists
     await git(['rev-parse', '--verify', 'main'], options);
     return 'main';
-  } catch {
+  } catch (error) {
+    // Log the error and try master as fallback
+    console.debug(
+      `getMainBranch: main branch not found, trying master: ${error instanceof Error ? error.message : String(error)}`
+    );
     try {
       // Check if master exists
       await git(['rev-parse', '--verify', 'master'], options);
       return 'master';
-    } catch {
+    } catch (masterError) {
+      // Log the error for both branches
+      console.error(
+        `getMainBranch: neither main nor master branch found. main error: ${error instanceof Error ? error.message : String(error)}, master error: ${masterError instanceof Error ? masterError.message : String(masterError)}`
+      );
       throw new GitError('Could not find main or master branch');
     }
   }
