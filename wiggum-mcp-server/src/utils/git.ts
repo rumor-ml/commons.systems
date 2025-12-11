@@ -11,6 +11,26 @@ export interface GitOptions {
 }
 
 /**
+ * Get the git repository root directory
+ * Falls back to process.cwd() if not in a git repository
+ */
+export async function getGitRoot(): Promise<string> {
+  try {
+    const result = await execa('git', ['rev-parse', '--show-toplevel'], {
+      reject: false,
+    });
+
+    if (result.exitCode === 0 && result.stdout) {
+      return result.stdout.trim();
+    }
+  } catch (error) {
+    // Fall back to process.cwd()
+  }
+
+  return process.cwd();
+}
+
+/**
  * Execute a git command safely with proper error handling
  */
 export async function git(args: string[], options: GitOptions = {}): Promise<string> {
@@ -18,7 +38,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
-      cwd: options.cwd || process.cwd(),
+      cwd: options.cwd || (await getGitRoot()),
     };
 
     const result = await execa('git', args, execaOptions);

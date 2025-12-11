@@ -4,6 +4,7 @@
 
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
+import { getGitRoot } from './git.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -19,7 +20,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
-      cwd: options.cwd || process.cwd(),
+      cwd: options.cwd || (await getGitRoot()),
     };
 
     // Add repo flag if provided
