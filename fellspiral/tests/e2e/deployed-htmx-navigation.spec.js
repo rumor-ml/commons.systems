@@ -140,10 +140,10 @@ test.describe('Deployed Site - HTMX Navigation', () => {
     await page.goto(deployedUrl + '/');
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
-    // Navigate to Foe type
-    const foeToggle = page.locator('.library-nav-type[data-type="Foe"] .library-nav-toggle');
-    await foeToggle.click();
-    await page.waitForURL(/cards(\.html)?#library-foe$/, { timeout: 10000 });
+    // Navigate to Origin type
+    const originToggle = page.locator('.library-nav-type[data-type="Origin"] .library-nav-toggle');
+    await originToggle.click();
+    await page.waitForURL(/cards(\.html)?#library-origin$/, { timeout: 10000 });
 
     // Wait for loading to complete again
     await page.waitForFunction(
