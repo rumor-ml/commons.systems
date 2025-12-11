@@ -38,6 +38,7 @@ const state = {
   loading: false,
   error: null,
   initialized: false, // Track if we've set up global listeners
+  initializing: false, // Track if init is in progress to prevent race conditions
 };
 
 // Reset state for fresh initialization
@@ -108,9 +109,59 @@ function showWarningBanner(message) {
 
 // Initialize the app
 async function init() {
+  // Guard against concurrent initialization
+  if (state.initializing) {
+    console.log('[Cards] Already initializing, skipping duplicate init call');
+    return;
+  }
+
+  // Guard against double initialization
+  if (state.initialized) {
+    console.log('[Cards] Re-initializing after HTMX navigation');
+
+    // CRITICAL: Clear hardcoded loading spinner from HTMX-swapped HTML
+    const cardList = document.getElementById('cardList');
+    if (cardList) {
+      const hardcodedSpinner = cardList.querySelector('.loading-state');
+      if (hardcodedSpinner) {
+        console.log('[Cards] Removing hardcoded spinner from HTMX swap');
+        hardcodedSpinner.remove();
+      }
+    }
+
+    // Show fresh loading state while we load data
+    state.loading = true;
+    renderCards(); // This will show the loading spinner
+
+    // Load data
+    try {
+      await loadCards(); // This sets state.loading = false in finally block
+    } catch (error) {
+      console.error('[Cards] Error refreshing data:', error);
+      state.loading = false; // Ensure loading state is cleared even on error
+    }
+
+    // Apply filters and render cards
+    handleHashChange(); // This will call applyFilters() -> renderCards()
+    return;
+  }
+
   try {
-    // Initialize authentication
-    initializeAuth();
+    console.log('[Cards] Starting initialization');
+    state.initializing = true;
+
+    // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
+    const cardList = document.getElementById('cardList');
+    if (cardList) {
+      const hardcodedSpinner = cardList.querySelector('.loading-state');
+      if (hardcodedSpinner) {
+        console.log('[Cards] Removing hardcoded spinner from HTML');
+        hardcodedSpinner.remove();
+      }
+    }
+
+    // Note: Authentication is initialized globally in main.js DOMContentLoaded
+    // Don't call initializeAuth() here to avoid duplicates
 
     // Initialize shared sidebar navigation (generates nav DOM)
     initSidebarNav();
@@ -124,12 +175,16 @@ async function init() {
       console.error('Failed to initialize library navigation:', error);
     });
 
-    // Setup hash routing
+    // Setup hash routing (only once)
     setupHashRouting();
 
-    // Setup UI components - these don't need data
+    // Setup UI components - these don't need data (only once)
     setupEventListeners();
     setupMobileMenu();
+
+    // Mark as fully initialized
+    state.initialized = true;
+    console.log('[Cards] Event listeners and UI setup complete');
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
@@ -154,8 +209,12 @@ async function init() {
     // Show user-friendly error UI
     showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
       document.querySelector('.error-banner')?.remove();
+      state.initialized = false; // Reset so retry can work
       init();
     });
+  } finally {
+    state.initializing = false;
+    console.log('[Cards] Initialization complete');
   }
 }
 
@@ -453,15 +512,41 @@ function renderCards() {
       return;
     }
 
-    // If still loading, keep the loading state visible (don't hide cardList)
+    // If still loading, show loading spinner
     if (state.loading) {
       emptyState.style.display = 'none';
+      cardList.style.display = 'grid';
+
+      // Always remove existing spinner first (handles HTMX-swapped HTML)
+      const existingSpinner = cardList.querySelector('.loading-state');
+      if (existingSpinner) {
+        existingSpinner.remove();
+      }
+
+      // Create fresh loading spinner
+      const spinner = document.createElement('div');
+      spinner.className = 'loading-state';
+      const spinnerEl = document.createElement('div');
+      spinnerEl.className = 'spinner';
+      const text = document.createElement('p');
+      text.textContent = 'Loading cards...';
+      spinner.appendChild(spinnerEl);
+      spinner.appendChild(text);
+      cardList.innerHTML = '';
+      cardList.appendChild(spinner);
       return;
+    }
+
+    // Not loading - remove loading spinner if present
+    const loadingState = cardList.querySelector('.loading-state');
+    if (loadingState) {
+      loadingState.remove();
     }
 
     if (state.filteredCards.length === 0) {
       cardList.style.display = 'none';
       emptyState.style.display = 'block';
+      cardList.innerHTML = '';
       return;
     }
 

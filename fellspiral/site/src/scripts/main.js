@@ -1086,6 +1086,9 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Failed to initialize library navigation:', error);
   });
 
+  // Initialize mobile menu
+  initMobileMenu();
+
   // Combat simulator
   const simulateBtn = document.getElementById('simulateBtn');
   const combatLog = document.getElementById('combatLog');
@@ -1103,70 +1106,96 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Mobile menu toggle
+  // Initialize mobile menu
+  initMobileMenu();
+});
+
+// Initialize mobile menu - extracted as function to allow reinitialization after HTMX navigation
+function initMobileMenu() {
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const sidebar = document.getElementById('sidebar');
 
-  if (mobileMenuToggle && sidebar) {
-    mobileMenuToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('active');
-    });
+  if (!mobileMenuToggle || !sidebar) return;
 
-    // Nav section toggle handlers (for library section expand/collapse)
-    const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
-    navSectionToggles.forEach((toggle) => {
-      toggle.addEventListener('click', () => {
-        toggle.classList.toggle('expanded');
-        const content = toggle.parentElement.querySelector('.nav-section-content');
-        if (content) {
-          content.classList.toggle('expanded');
-        }
-      });
-    });
+  // Remove old event listeners by replacing the element
+  const newToggle = mobileMenuToggle.cloneNode(true);
+  mobileMenuToggle.parentNode.replaceChild(newToggle, mobileMenuToggle);
+  const toggle = newToggle; // Use new element
 
-    // Close sidebar when clicking a nav link on mobile
-    const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
-          sidebar.classList.remove('active');
-        }
-      });
-    });
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sidebar.classList.toggle('active');
+  });
 
-    // Close sidebar when clicking outside on mobile
-    document.addEventListener('click', (e) => {
-      if (
-        window.innerWidth <= 768 &&
-        !sidebar.contains(e.target) &&
-        !mobileMenuToggle.contains(e.target) &&
-        sidebar.classList.contains('active')
-      ) {
+  // Nav section toggle handlers (for library section expand/collapse)
+  const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
+  navSectionToggles.forEach((navToggle) => {
+    // Clone to remove old listeners
+    const newNavToggle = navToggle.cloneNode(true);
+    navToggle.parentNode.replaceChild(newNavToggle, navToggle);
+
+    newNavToggle.addEventListener('click', () => {
+      newNavToggle.classList.toggle('expanded');
+      const content = newNavToggle.parentElement.querySelector('.nav-section-content');
+      if (content) {
+        content.classList.toggle('expanded');
+      }
+    });
+  });
+
+  // Close sidebar when clicking a nav link on mobile
+  const navItems = sidebar.querySelectorAll('.nav-item');
+  navItems.forEach((item) => {
+    // Clone to remove old listeners
+    const newItem = item.cloneNode(true);
+    item.parentNode.replaceChild(newItem, item);
+
+    newItem.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
         sidebar.classList.remove('active');
       }
     });
-  }
-});
+  });
+
+  // Remove old document click listener by recreating it
+  // Note: We can't remove individual listeners without references, so we'll use event delegation
+  document.body.addEventListener('click', (e) => {
+    if (
+      window.innerWidth <= 768 &&
+      !sidebar.contains(e.target) &&
+      !toggle.contains(e.target) &&
+      sidebar.classList.contains('active')
+    ) {
+      sidebar.classList.remove('active');
+    }
+  });
+}
 
 // Handle HTMX navigation - reinitialize pages when navigating
 document.body.addEventListener('htmx:afterSwap', async (event) => {
-  console.log('[HTMX] afterSwap event fired', {
-    target: event.detail.target,
-    hasMainContent: event.detail.target?.classList?.contains('main-content'),
-    hasCardManager: event.detail.target?.querySelector('.card-manager'),
-  });
+  const target = event.detail.target;
+  const hasMainContent = target?.classList?.contains('main-content');
 
-  // Check if we're navigating to the cards page
-  // Check the swapped content, not the URL (HTMX doesn't change URL!)
-  if (
-    event.detail.target?.classList?.contains('main-content') &&
-    event.detail.target?.querySelector('.card-manager')
-  ) {
+  // Use URL to check if we're on cards page (HTMX boost changes URL before swap)
+  const currentPath = window.location.pathname;
+  const isCardsPageByURL = currentPath.includes('cards.html') || currentPath.endsWith('/cards');
+
+  console.log('[HTMX] afterSwap event fired');
+  console.log('[HTMX] Current URL:', window.location.href);
+  console.log('[HTMX] Current path:', currentPath);
+  console.log('[HTMX] Is cards page by URL:', isCardsPageByURL);
+  console.log('[HTMX] Target element:', target?.tagName);
+  console.log('[HTMX] Target classes:', target?.className);
+  console.log('[HTMX] Has main-content class:', hasMainContent);
+
+  // Check if we're navigating to the cards page using URL
+  if (hasMainContent && isCardsPageByURL) {
     console.log('[HTMX] Initializing cards page after swap');
     // Dynamically import and initialize the cards page
     const { initCardsPage } = await import('./cards.js');
-    initCardsPage();
+    await initCardsPage(); // Await initialization to complete before continuing
+  } else {
+    console.log('[HTMX] NOT initializing cards page - not on cards URL');
   }
 
   // Re-initialize sidebar navigation on any page swap
@@ -1176,4 +1205,7 @@ document.body.addEventListener('htmx:afterSwap', async (event) => {
   initLibraryNav().catch((error) => {
     console.error('Failed to initialize library navigation after swap:', error);
   });
+
+  // Re-initialize mobile menu after HTMX navigation
+  initMobileMenu();
 });
