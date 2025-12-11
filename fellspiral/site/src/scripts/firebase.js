@@ -2,7 +2,7 @@
  * Firebase and Firestore initialization
  */
 
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp } from 'firebase/app';
 import {
   getFirestore,
   collection,
@@ -67,8 +67,14 @@ async function initFirebase() {
     // Get Firebase config (async for Firebase Hosting auto-config)
     const config = await getFirebaseConfig();
 
-    // Initialize Firebase
-    app = initializeApp(config);
+    // Initialize Firebase - use existing app if already initialized
+    // This prevents "duplicate-app" errors when HTMX swaps pages
+    try {
+      app = getApp();
+    } catch (error) {
+      // App doesn't exist yet, initialize it
+      app = initializeApp(config);
+    }
 
     // Initialize Firestore
     db = getFirestore(app);
