@@ -17,10 +17,11 @@ export interface GhCliOptions {
  */
 export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
   try {
+    const cwd = options.cwd || (await getGitRoot());
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
-      cwd: options.cwd || (await getGitRoot()),
+      cwd: cwd,
     };
 
     // Add repo flag if provided

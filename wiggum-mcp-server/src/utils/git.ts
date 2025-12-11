@@ -35,10 +35,11 @@ export async function getGitRoot(): Promise<string> {
  */
 export async function git(args: string[], options: GitOptions = {}): Promise<string> {
   try {
+    const cwd = options.cwd || (await getGitRoot());
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
-      cwd: options.cwd || (await getGitRoot()),
+      cwd: cwd,
     };
 
     const result = await execa('git', args, execaOptions);
