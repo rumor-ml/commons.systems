@@ -313,12 +313,14 @@ export async function getPRReviewComments(
   repo?: string
 ): Promise<GitHubPRReviewComment[]> {
   const resolvedRepo = await resolveRepo(repo);
+  // Escape username for safe use in jq filter string context
+  const escapedUsername = username.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const result = await ghCli(
     [
       'api',
       `repos/${resolvedRepo}/pulls/${prNumber}/comments`,
       '--jq',
-      `.[] | select(.user.login == "${username}")`,
+      `.[] | select(.user.login == "${escapedUsername}")`,
     ],
     {}
   );
