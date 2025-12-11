@@ -329,9 +329,9 @@ jobs:
       - name: Inject environment variables for build
         working-directory: fellspiral
         run: |
-          # Create .env file for Vite
-          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > .env
-          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> .env
+          # Create .env file for Vite (in site/src/ subdirectory where Vite root is configured)
+          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > site/src/.env
+          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> site/src/.env
 
           # Show what we're building
           if [ -n "${{ github.event.pull_request.number }}" ]; then

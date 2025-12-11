@@ -269,9 +269,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
-          # Create .env file for Vite
-          echo "VITE_PR_NUMBER=${PR_NUMBER}" > .env
-          echo "VITE_BRANCH_NAME=${BRANCH_NAME}" >> .env
+          # Create .env file for Vite (in site/src/ subdirectory where Vite root is configured)
+          echo "VITE_PR_NUMBER=${PR_NUMBER}" > site/src/.env
+          echo "VITE_BRANCH_NAME=${BRANCH_NAME}" >> site/src/.env
 
           # Show what we're building
           if [ -n "${PR_NUMBER}" ]; then
