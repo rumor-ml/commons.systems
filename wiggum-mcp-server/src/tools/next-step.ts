@@ -190,8 +190,8 @@ function handleStepMonitorWorkflow(state: any): ToolResult {
 On SUCCESS: call wiggum_next_step to proceed.
 
 On FAILURE:
-1. Call mcp__gh-workflow__gh_get_failure_details to get error summary
-2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
+1. Call mcp__gh-workflow__gh_get_failure_details with branch: "${state.git.currentBranch}" to get error summary
+2. Use Task tool with subagent_type="Plan" and model="opus" to analyze the error details and create fix plan
 3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
 4. Execute /commit-merge-push slash command using SlashCommand tool
 5. Call wiggum_complete_fix with fix_description`,
@@ -219,10 +219,11 @@ function handleStepMonitorPRChecks(state: any): ToolResult {
 On SUCCESS (Overall Status: SUCCESS): call wiggum_next_step to proceed.
 
 On ANY OTHER STATUS (FAILED, CONFLICTS, BLOCKED, MIXED, etc.):
-1. Use Task tool with subagent_type="Plan" and model="opus" to analyze failure and create fix plan
-2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-3. Execute /commit-merge-push slash command using SlashCommand tool
-4. Call wiggum_complete_fix with fix_description`,
+1. Call mcp__gh-workflow__gh_get_failure_details with pr_number: ${state.pr.number} to get error details
+2. Use Task tool with subagent_type="Plan" and model="opus" to analyze the error details and create fix plan
+3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
+4. Execute /commit-merge-push slash command using SlashCommand tool
+5. Call wiggum_complete_fix with fix_description`,
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,

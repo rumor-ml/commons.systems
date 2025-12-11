@@ -1,18 +1,9 @@
 /**
  * MCP client utilities for calling other MCP tools
- *
- * Note: This is a simplified implementation. In production, the MCP server
- * would need to be configured with access to other MCP servers via the
- * MCP protocol's server-to-server communication.
- *
- * For now, this is a placeholder that documents the expected interface.
  */
 
-export interface McpToolCall {
-  server: string;
-  tool: string;
-  args: Record<string, any>;
-}
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 export interface McpToolResult {
   content: Array<{ type: string; text: string }>;
@@ -21,19 +12,61 @@ export interface McpToolResult {
 }
 
 /**
- * Call another MCP tool
- *
- * NOTE: This is a placeholder. Actual implementation would require
- * MCP SDK support for server-to-server communication, which is not
- * yet standardized in the MCP protocol.
- *
- * For the initial implementation, the wiggum agent will need to
- * call gh-workflow MCP tools directly rather than having the
- * wiggum MCP server call them.
+ * Map of server names to their executable commands
  */
-export async function callMcpTool(_call: McpToolCall): Promise<McpToolResult> {
-  throw new Error(
-    'MCP server-to-server communication not yet implemented. ' +
-      'The wiggum agent should call gh-workflow MCP tools directly.'
+const SERVER_COMMANDS: Record<string, string> = {
+  'gh-workflow': 'gh-workflow-mcp-server',
+};
+
+/**
+ * Call a tool on another MCP server via stdio
+ *
+ * @param serverName - The name of the MCP server (e.g., 'gh-workflow')
+ * @param toolName - The name of the tool to call (e.g., 'gh_get_failure_details')
+ * @param args - The arguments to pass to the tool
+ * @returns The tool result
+ */
+export async function callMcpTool(
+  serverName: string,
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<McpToolResult> {
+  const command = SERVER_COMMANDS[serverName];
+  if (!command) {
+    throw new Error(`Unknown MCP server: ${serverName}`);
+  }
+
+  // Create client
+  const client = new Client(
+    {
+      name: 'wiggum-mcp-client',
+      version: '0.1.0',
+    },
+    {
+      capabilities: {},
+    }
   );
+
+  // Create stdio transport
+  const transport = new StdioClientTransport({
+    command,
+    args: [],
+  });
+
+  try {
+    // Connect to the server
+    await client.connect(transport);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: toolName,
+      arguments: args,
+    });
+
+    // Return the result
+    return result as McpToolResult;
+  } finally {
+    // Always close the transport
+    await transport.close();
+  }
 }
