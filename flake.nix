@@ -140,6 +140,7 @@
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
+          wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Apps for tool discovery and environment checking
@@ -153,6 +154,7 @@
               tmux-tui
               gh-workflow-mcp-server
               gh-issue-mcp-server
+              wiggum-mcp-server
             ];
 
             shellHook = ''
@@ -165,6 +167,7 @@
               echo "  • tmux-tui - Git-aware tmux pane manager"
               echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
               echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
+              echo "  • wiggum-mcp-server - Wiggum PR automation orchestration MCP server"
               echo ""
               echo "Quick start:"
               echo "  • Run dev server: pnpm dev"
@@ -182,6 +185,7 @@
               tmux-tui
               gh-workflow-mcp-server
               gh-issue-mcp-server
+              wiggum-mcp-server
               iac
               ;
             default = tmux-tui;

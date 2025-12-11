@@ -12,6 +12,8 @@ Keep iterating until problem resolution is fully verified by test results, logs 
 
 Do not ask user to fetch test results, logs or monitor workflows when you can do so yourself.
 
+**NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
+
 # Frontend Architecture
 
 ## Design Philosophy: HTMX-First with React Islands
