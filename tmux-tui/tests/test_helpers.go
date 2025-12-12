@@ -554,9 +554,9 @@ func startDaemon(t *testing.T, socketName, sessionName string) func() {
 		t.Fatalf("Failed to create daemon window: %v", err)
 	}
 
-	// Send command to start daemon with correct TMUX env
+	// Send command to start daemon with correct TMUX env and debug enabled
 	daemonTarget := fmt.Sprintf("%s:daemon", sessionName)
-	startCmd := fmt.Sprintf("TMUX='%s' %s", tmuxEnv, daemonBinary)
+	startCmd := fmt.Sprintf("TMUX='%s' TMUX_TUI_DEBUG=1 %s", tmuxEnv, daemonBinary)
 	sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", daemonTarget, startCmd, "Enter")
 	if err := sendKeysCmd.Run(); err != nil {
 		t.Fatalf("Failed to start daemon: %v", err)

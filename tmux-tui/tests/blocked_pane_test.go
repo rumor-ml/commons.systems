@@ -15,11 +15,6 @@ import (
 
 // TestBlockedPaneFlow tests the complete blocked pane feature
 func TestBlockedPaneFlow(t *testing.T) {
-	// Skip this test for now - it's testing integration with tmux-tui-daemon
-	// which is complex to test end-to-end. The core functionality is tested
-	// via unit tests in blocked_pane_test.go and integration_test.go
-	t.Skip("Skipping E2E daemon integration test - use unit tests instead")
-
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")
 	}
@@ -53,7 +48,7 @@ func TestBlockedPaneFlow(t *testing.T) {
 	}()
 
 	// Wait for tmux socket
-	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
 		t.Fatalf("Tmux socket not ready: %v", err)
 	}
 
@@ -130,10 +125,17 @@ func TestBlockedPaneFlow(t *testing.T) {
 	t.Log("Test 1: Triggering block picker...")
 	blockBinary := filepath.Join(tuiDir, "build", "tmux-tui-block")
 
-	// Set environment and run block CLI
+	// Set environment and run block CLI in isolated test session
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("TMUX_PANE=%s", featurePane))
 	env = append(env, "TMUX_TUI_DEBUG=1")
+
+	// CRITICAL: Set TMUX env to match test session so daemon client connects to test daemon
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	// Format: socket_path,pid,session_id (pid can be any number for our purposes)
+	tmuxEnv := fmt.Sprintf("%s,%d,0", tmuxSocketPath, os.Getpid())
+	env = append(env, fmt.Sprintf("TMUX=%s", tmuxEnv))
 
 	blockCmd := exec.Command(blockBinary)
 	blockCmd.Env = env
@@ -164,6 +166,11 @@ func TestBlockedPaneFlow(t *testing.T) {
 
 	// Test 3: Block a branch directly via daemon client
 	t.Log("Test 3: Blocking branch via daemon client...")
+
+	// Set TMUX env in test process so daemon client connects to test daemon (reuse tmuxEnv from earlier)
+	os.Setenv("TMUX", tmuxEnv)
+	defer os.Unsetenv("TMUX")
+
 	client := daemon.NewDaemonClient()
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Failed to connect to daemon: %v", err)
@@ -183,15 +190,6 @@ func TestBlockedPaneFlow(t *testing.T) {
 	// Test 4: Verify blocked state is persisted
 	t.Log("Test 4: Verifying blocked state persistence...")
 	blockedFile := fmt.Sprintf("/tmp/claude/%s/tui-blocked-branches.json", socketName)
-
-	// List files in directory for debugging
-	dirPath := fmt.Sprintf("/tmp/claude/%s", socketName)
-	entries, _ := os.ReadDir(dirPath)
-	t.Logf("Files in %s:", dirPath)
-	for _, e := range entries {
-		t.Logf("  - %s", e.Name())
-	}
-
 	blockedData, err := os.ReadFile(blockedFile)
 	if err != nil {
 		t.Fatalf("Failed to read blocked branches file: %v", err)
@@ -214,7 +212,7 @@ func TestBlockedPaneFlow(t *testing.T) {
 	}
 
 	// Wait for daemon to persist
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// Test 6: Verify unblocked state
 	t.Log("Test 6: Verifying unblocked state...")
@@ -223,6 +221,8 @@ func TestBlockedPaneFlow(t *testing.T) {
 		t.Fatalf("Failed to read blocked branches file after unblock: %v", err)
 	}
 
+	// Re-declare blockedBranches to avoid reusing stale data from previous unmarshal
+	blockedBranches = make(map[string]string)
 	if err := json.Unmarshal(blockedData, &blockedBranches); err != nil {
 		t.Fatalf("Failed to parse blocked branches after unblock: %v", err)
 	}

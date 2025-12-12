@@ -189,6 +189,16 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 
 	// Load blocked branches state
 	blockedPath := namespace.BlockedBranchesFile()
+
+	// Initialize empty blocked branches file if it doesn't exist
+	if _, err := os.Stat(blockedPath); os.IsNotExist(err) {
+		emptyJSON := []byte("{}")
+		if err := os.WriteFile(blockedPath, emptyJSON, 0644); err != nil {
+			alertWatcher.Close()
+			paneFocusWatcher.Close()
+			return nil, fmt.Errorf("failed to initialize blocked branches file: %w", err)
+		}
+	}
 	blockedBranches, err := loadBlockedBranches(blockedPath)
 	if err != nil {
 		alertWatcher.Close()
