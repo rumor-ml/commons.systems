@@ -386,3 +386,31 @@ func (c *DaemonClient) UnblockBranch(branch string) error {
 	time.Sleep(100 * time.Millisecond)
 	return nil
 }
+
+// QueryBlockedState queries whether a branch is blocked and returns the blocking branch if so
+func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error) {
+	// Send query message
+	queryMsg := Message{
+		Type:   MsgTypeQueryBlockedState,
+		Branch: branch,
+	}
+	if err := c.sendMessage(queryMsg); err != nil {
+		return "", false, fmt.Errorf("failed to send query blocked state message: %w", err)
+	}
+	debug.Log("CLIENT_QUERY_BLOCKED_STATE id=%s branch=%s", c.clientID, branch)
+
+	// Wait for response with timeout
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case msg := <-c.eventCh:
+			if msg.Type == MsgTypeBlockedStateResponse && msg.Branch == branch {
+				debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
+					c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
+				return msg.BlockedBranch, msg.IsBlocked, nil
+			}
+		case <-timeout:
+			return "", false, fmt.Errorf("timeout waiting for blocked state response")
+		}
+	}
+}

@@ -496,6 +496,27 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 				Branch:  msg.Branch,
 				Blocked: false,
 			})
+
+		case MsgTypeQueryBlockedState:
+			// Query blocked state for a branch
+			debug.Log("DAEMON_QUERY_BLOCKED_STATE branch=%s", msg.Branch)
+			d.blockedMu.RLock()
+			blockedBy, isBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Send response back to requesting client
+			response := Message{
+				Type:          MsgTypeBlockedStateResponse,
+				Branch:        msg.Branch,
+				IsBlocked:     isBlocked,
+				BlockedBranch: blockedBy,
+			}
+			if err := client.sendMessage(response); err != nil {
+				debug.Log("DAEMON_QUERY_RESPONSE_ERROR client=%s error=%v", clientID, err)
+			} else {
+				debug.Log("DAEMON_QUERY_RESPONSE branch=%s isBlocked=%v blockedBy=%s",
+					msg.Branch, isBlocked, blockedBy)
+			}
 		}
 	}
 }

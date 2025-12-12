@@ -28,6 +28,10 @@ const (
 	MsgTypeBlockedState = "blocked_state"
 	// MsgTypeBlockChange is sent by daemon when a block state changes
 	MsgTypeBlockChange = "block_change"
+	// MsgTypeQueryBlockedState is sent by client to query if a branch is blocked
+	MsgTypeQueryBlockedState = "query_blocked_state"
+	// MsgTypeBlockedStateResponse is sent by daemon in response to query_blocked_state
+	MsgTypeBlockedStateResponse = "blocked_state_response"
 )
 
 // Message represents a message exchanged between daemon and clients
@@ -44,4 +48,5 @@ type Message struct {
 	Branch          string            `json:"branch,omitempty"`           // For block_branch messages
 	BlockedBranch   string            `json:"blocked_branch,omitempty"`   // For block_branch messages
 	Blocked         bool              `json:"blocked,omitempty"`          // For block_change messages (true = blocked, false = unblocked)
+	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 }
