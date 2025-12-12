@@ -17,8 +17,33 @@ interface WorkflowRun {
 
 interface PRCheck {
   name: string;
-  status: string;
-  conclusion: string | null;
+  state: string;
+}
+
+// PR check states that indicate the check is still in progress
+const PR_CHECK_IN_PROGRESS_STATES = ['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING'];
+
+// Mapping from PR check terminal states to workflow run conclusions
+const PR_CHECK_TERMINAL_STATE_MAP: Record<string, string> = {
+  SUCCESS: 'success',
+  FAILURE: 'failure',
+  ERROR: 'failure',
+  CANCELLED: 'cancelled',
+  SKIPPED: 'skipped',
+  STALE: 'skipped',
+};
+
+/**
+ * Map PR check state to workflow run conclusion
+ *
+ * GitHub's `gh pr checks` returns terminal states (SUCCESS, FAILURE, etc.) that need to be mapped
+ * to workflow run conclusions (success, failure, cancelled, skipped).
+ *
+ * @param state - The PR check state from GitHub API (uppercase format)
+ * @returns Workflow run conclusion string for terminal states, null for in-progress states
+ */
+function mapStateToConclusion(state: string): string | null {
+  return PR_CHECK_TERMINAL_STATE_MAP[state] || null;
 }
 
 /**
@@ -141,7 +166,7 @@ export async function monitorPRChecks(
         'checks',
         prNumber.toString(),
         '--json',
-        'name,status,conclusion',
+        'name,state',
       ]);
 
       const checks = JSON.parse(checksOutput) as PRCheck[];
@@ -155,17 +180,22 @@ export async function monitorPRChecks(
 
       // Check if all checks are complete
       const allComplete = checks.every(
-        (check) => check.status !== 'in_progress' && check.status !== 'queued'
+        (check) => !PR_CHECK_IN_PROGRESS_STATES.includes(check.state)
       );
 
       if (allComplete) {
         // Check if all passed
-        const failedChecks = checks.filter((check) => check.conclusion !== 'success');
+        const failedChecks = checks.filter((check) => {
+          const conclusion = mapStateToConclusion(check.state);
+          return conclusion !== 'success';
+        });
 
         if (failedChecks.length === 0) {
           return { success: true };
         } else {
-          const failedNames = failedChecks.map((c) => `${c.name} (${c.conclusion})`).join(', ');
+          const failedNames = failedChecks
+            .map((c) => `${c.name} (${mapStateToConclusion(c.state)})`)
+            .join(', ');
           return {
             success: false,
             errorSummary: `PR checks failed: ${failedNames}`,
