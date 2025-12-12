@@ -12,6 +12,19 @@ Keep iterating until problem resolution is fully verified by test results, logs 
 
 Do not ask user to fetch test results, logs or monitor workflows when you can do so yourself.
 
+## TypeScript MCP Server Changes
+
+When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server), verify:
+
+1. **TypeScript compilation succeeds:** `npm run build` in the server directory
+2. **All tests pass:** `npm test` in the server directory
+3. **Nix build succeeds:** `nix build .#<server>` from repository root
+4. **New source files are git-tracked** before declaring work complete
+
+**Critical:** Nix builds only include git-tracked files. If you create new source files (\*.ts), you MUST stage them (`git add <file>`) before the Nix build will succeed. Failing to do this means `direnv reload` will fail for the user even though `npm run build` works.
+
+**Recommended:** Run `./infrastructure/scripts/build-mcp-servers.sh` which tests both npm and Nix builds and provides helpful diagnostics for common issues.
+
 **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
 
 # Frontend Architecture

@@ -100,7 +100,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  *
  * Combines git state, PR state, and wiggum workflow state into a single
  * comprehensive snapshot. This is the primary state detection function
- * used by the wiggum_next_step tool.
+ * used by wiggum_init and completion tools to determine next steps.
  *
  * Includes timestamp-based validation to detect race conditions where PR state
  * changes between reads. If inconsistencies are detected, state is re-fetched.

@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
+import { getNextStepInstructions } from '../state/router.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 
@@ -15,16 +16,6 @@ export const CompleteFixInputSchema = z.object({
 });
 
 export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
-
-interface CompleteFixOutput {
-  current_step: string;
-  step_number: string;
-  iteration_count: number;
-  instructions: string;
-  context: {
-    pr_number?: number;
-  };
-}
 
 /**
  * Complete a fix cycle and update state
@@ -69,21 +60,8 @@ ${input.fix_description}
   // Post comment
   await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
-  // Return instructions based on current step
-  const stepName = state.wiggum.step;
-  const output: CompleteFixOutput = {
-    current_step: `Fix Complete - Returning to Step ${stepName}`,
-    step_number: state.wiggum.step,
-    iteration_count: state.wiggum.iteration,
-    instructions: `Fix applied and committed. Call wiggum_next_step to re-verify from Step ${stepName}.
-
-The completed steps have been cleared for Step ${stepName} and all subsequent steps. This ensures the fix is properly verified before proceeding.`,
-    context: {
-      pr_number: state.pr.number,
-    },
-  };
-
-  return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-  };
+  // Get updated state and return next step instructions
+  // The router will re-verify from the current step since we cleared completedSteps
+  const updatedState = await detectCurrentState();
+  return await getNextStepInstructions(updatedState);
 }

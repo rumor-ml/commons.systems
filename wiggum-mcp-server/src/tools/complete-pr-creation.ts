@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
+import { getNextStepInstructions } from '../state/router.js';
 import { STEP_ENSURE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
@@ -19,17 +20,6 @@ export const CompletePRCreationInputSchema = z.object({
 });
 
 export type CompletePRCreationInput = z.infer<typeof CompletePRCreationInputSchema>;
-
-interface CompletePRCreationOutput {
-  current_step: string;
-  step_number: string;
-  iteration_count: number;
-  instructions: string;
-  context: {
-    pr_number: number;
-    pr_url: string;
-  };
-}
 
 /**
  * Extract issue number from branch name
@@ -146,22 +136,13 @@ ${commits}`;
 **Next Action:** Proceeding to workflow monitoring.`
     );
 
-    // Prepare output
-    const output: CompletePRCreationOutput = {
-      current_step: STEP_NAMES[STEP_ENSURE_PR],
-      step_number: STEP_ENSURE_PR,
-      iteration_count: newState.iteration,
-      instructions:
-        'PR created and Step 0 marked complete. Call wiggum_init to proceed to Step 1 (Monitor Workflow).',
-      context: {
-        pr_number: prNumber,
-        pr_url: prUrl,
-      },
-    };
+    // Get updated state with PR now existing
+    const updatedState = await detectCurrentState();
 
-    return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-    };
+    // Get next step instructions from router
+    const nextStepResult = await getNextStepInstructions(updatedState);
+
+    return nextStepResult;
   } catch (error) {
     // Check if error indicates PR already exists
     const errorMsg = error instanceof Error ? error.message : String(error);

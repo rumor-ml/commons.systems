@@ -30,26 +30,33 @@ You are NOT responsible for:
 
 ## Main Loop
 
-1. Call `mcp__wiggum__wiggum_init` to get first action needed
+**CRITICAL: `wiggum_init` is only called ONCE at the start of the workflow.**
+
+1. Call `mcp__wiggum__wiggum_init` ONCE to get first action needed
 2. Follow the instructions exactly
-3. For each action, call the specified completion tool
-4. Repeat until approval or iteration limit
+3. When instructions tell you to call a completion tool, call it with required parameters
+4. Completion tools will return next step instructions directly - simply follow them
+5. Continue following instructions from each completion tool until approval or iteration limit
+
+**DO NOT call `wiggum_init` again after the initial call.** Completion tools provide next instructions.
 
 ## Available MCP Tools
 
 ### wiggum_init
 
-Entry point tool. Analyzes current state and returns next action instructions.
+Entry point tool. **Call this ONCE at the start of the workflow only.**
 
 ```typescript
 mcp__wiggum__wiggum_init({});
 ```
 
-Returns state analysis with specific instructions for what to do next. Simply follow the instructions provided.
+Analyzes current state and returns next action instructions. Simply follow the instructions provided.
+
+**IMPORTANT:** After the initial call, completion tools will provide next step instructions directly. DO NOT call wiggum_init again.
 
 ### wiggum_complete_pr_creation
 
-Call when instructed to create a PR.
+Call when instructed to create a PR. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_pr_creation({
@@ -57,11 +64,15 @@ mcp__wiggum__wiggum_complete_pr_creation({
 });
 ```
 
-Provide a clear, concise description of what the PR changes. The tool handles all PR creation logic including issue linking.
+Provide a clear, concise description of what the PR changes. The tool:
+
+- Creates the PR
+- Marks step complete
+- Returns instructions for the next step (no need to call wiggum_init)
 
 ### wiggum_complete_pr_review
 
-Call after executing `/pr-review-toolkit:review-pr`.
+Call after executing `/pr-review-toolkit:review-pr`. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
@@ -73,11 +84,16 @@ mcp__wiggum__wiggum_complete_pr_review({
 });
 ```
 
-IMPORTANT: `command_executed` must be `true`, `verbatim_response` must contain COMPLETE output, count ALL issues.
+IMPORTANT:
+
+- `command_executed` must be `true`
+- `verbatim_response` must contain COMPLETE output
+- Count ALL issues by priority
+- Tool returns next step instructions (either fix instructions or next step)
 
 ### wiggum_complete_security_review
 
-Call after executing `/security-review`.
+Call after executing `/security-review`. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
@@ -89,11 +105,16 @@ mcp__wiggum__wiggum_complete_security_review({
 });
 ```
 
-IMPORTANT: `command_executed` must be `true`, `verbatim_response` must contain COMPLETE output, count ALL issues.
+IMPORTANT:
+
+- `command_executed` must be `true`
+- `verbatim_response` must contain COMPLETE output
+- Count ALL issues by priority
+- Tool returns next step instructions (either fix instructions or next step)
 
 ### wiggum_complete_fix
 
-Call after completing any Plan+Fix cycle.
+Call after completing any Plan+Fix cycle. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_fix({
@@ -101,15 +122,22 @@ mcp__wiggum__wiggum_complete_fix({
 });
 ```
 
+The tool:
+
+- Posts fix documentation to PR
+- Clears completed steps to re-verify from current step
+- Returns instructions to re-verify the step where issues were found
+
 ## General Flow Pattern
 
-1. **Start session**: Call `wiggum_init`
+1. **Start session**: Call `wiggum_init` ONCE
 2. **Read instructions**: Tool returns specific actions to take
 3. **Execute actions**: Follow instructions exactly
-4. **Call completion tool**: When instructed
-5. **Repeat**: Until approval or iteration limit
+4. **Call completion tool**: When instructed - it will return next step instructions
+5. **Follow next instructions**: From the completion tool output (NOT by calling wiggum_init)
+6. **Repeat steps 3-5**: Until approval or iteration limit
 
-The MCP server manages state via PR comments. Your job is to execute tools and follow instructions.
+The MCP server manages state via PR comments. Your job is to execute tools and follow the instructions they return.
 
 ## Error Handling
 

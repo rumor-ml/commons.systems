@@ -269,6 +269,47 @@ npm run typecheck
 
 # Test
 npm test
+
+# Build verification (all MCP servers)
+../infrastructure/scripts/build-mcp-servers.sh
+```
+
+### Build Verification
+
+To catch TypeScript compilation errors early (especially when making changes to multiple files), run the build verification script:
+
+```bash
+./infrastructure/scripts/build-mcp-servers.sh
+```
+
+This script validates BOTH npm and Nix builds for all TypeScript MCP servers. It's particularly useful:
+
+- After making changes that affect multiple files
+- Before committing changes
+- When refactoring shared code
+- To verify that all dependencies are properly imported
+- **To catch untracked source files** (Nix build will fail, npm build won't)
+
+The script can also be enabled as a pre-commit hook by setting `enable = true` in `nix/checks.nix` under the `typescript-build` hook.
+
+### Git Tracking Requirement for Nix Builds
+
+**IMPORTANT:** Nix builds use `builtins.path` which only includes git-tracked files. When creating new source files:
+
+1. Create/modify the files
+2. Run `npm run build` to verify TypeScript compilation
+3. **Stage the files:** `git add <file>`
+4. Run `nix build .#wiggum-mcp-server` to verify Nix build
+5. Only then is the change "complete"
+
+**Why?** Nix ensures reproducible builds by only including files that are part of the git-tracked source tree. This prevents accidental inclusion of temporary files, build artifacts, or editor backups.
+
+**Common Error:** If you see "Cannot find module" errors during Nix build but npm build works, check for untracked source files:
+
+```bash
+git status | grep '??'
+git add <untracked-source-files>
+nix build .#wiggum-mcp-server  # Should now work
 ```
 
 ## Architecture
