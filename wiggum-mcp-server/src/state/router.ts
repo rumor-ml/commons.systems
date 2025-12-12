@@ -152,7 +152,9 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
 
   // PR doesn't exist - need to create it
   if (!state.pr.exists) {
-    output.instructions = `Call wiggum_complete_pr_creation with pr_description parameter describing the changes in this PR.
+    output.instructions = `**CRITICAL: Call wiggum_complete_pr_creation tool directly. DO NOT use gh pr create command.**
+
+Call wiggum_complete_pr_creation with pr_description parameter describing the changes in this PR.
 
 The tool will:
 - Extract issue number from branch name (format: 123-feature-name)
@@ -160,7 +162,11 @@ The tool will:
 - Mark step complete
 - Return next step instructions
 
-Continue by calling wiggum_complete_pr_creation.`;
+**Do not create the PR manually. Do not call gh pr create. The tool does everything.**
+
+Continue by calling wiggum_complete_pr_creation.
+
+**Call the tool ONCE. It will return instructions for the next step. Do not call it again.**`;
 
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],

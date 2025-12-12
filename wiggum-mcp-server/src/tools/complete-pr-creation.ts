@@ -51,7 +51,12 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
 
   // Validate PR doesn't already exist
   if (state.pr.exists) {
-    throw new ValidationError(`PR already exists (#${state.pr.number}). Cannot create a new PR.`);
+    throw new ValidationError(
+      `PR #${state.pr.number} already exists for this branch: "${state.pr.title}". ` +
+        `If you just created this PR manually with gh pr create, you should NOT call this tool. ` +
+        `This tool handles PR creation automatically. The PR already exists, so workflow can continue. ` +
+        `Call wiggum_init to get next step instructions instead.`
+    );
   }
 
   // Get current branch
