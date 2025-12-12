@@ -30,7 +30,6 @@ export function initializeAuth() {
   // Guard against duplicate initialization
   const existingAuth = document.querySelector('.nav-auth .auth-button');
   if (existingAuth) {
-    console.log('[Auth] Already initialized, skipping');
     return;
   }
 
