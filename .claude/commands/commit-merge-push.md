@@ -7,3 +7,4 @@ model: haiku
 2. Run `git fetch origin && git merge origin/main`.
 3. **If conflicts occur**: Invoke the resolve-conflicts subagent. Wait for successful resolution before proceeding.
 4. Invoke the push subagent.
+5. **STOP after pushing.** Do NOT create a pull request.
