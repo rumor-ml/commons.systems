@@ -22,7 +22,9 @@ func uniqueSocketName() string {
 
 // getTestAlertDir returns the alert directory for a given socket name
 func getTestAlertDir(socketName string) string {
-	return filepath.Join("/tmp/claude", socketName)
+	dir := filepath.Join("/tmp/claude", socketName)
+	os.MkdirAll(dir, 0755) // Ensure directory exists
+	return dir
 }
 
 // tmuxCmd creates a tmux command that runs on the isolated test server
@@ -65,6 +67,42 @@ func waitForTmuxSocket(socketName string, timeout time.Duration) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("tmux socket %s not ready after %v", socketName, timeout)
+}
+
+// cleanupStaleSockets removes orphaned tmux sockets from /tmp that have no running server
+// This prevents socket directory pollution from interfering with test execution
+func cleanupStaleSockets() error {
+	socketDir := filepath.Join("/tmp", "tmux-"+fmt.Sprint(os.Getuid()))
+
+	entries, err := os.ReadDir(socketDir)
+	if err != nil {
+		// Socket directory doesn't exist or can't be read - not an error
+		return nil
+	}
+
+	cleaned := 0
+	for _, entry := range entries {
+		// Only process e2e-test sockets
+		if !strings.HasPrefix(entry.Name(), testSocketPrefix) {
+			continue
+		}
+
+		// Check if server is running for this socket
+		checkCmd := exec.Command("tmux", "-L", entry.Name(), "list-sessions")
+		if err := checkCmd.Run(); err != nil {
+			// Server not running, safe to remove socket
+			socketPath := filepath.Join(socketDir, entry.Name())
+			if err := os.Remove(socketPath); err == nil {
+				cleaned++
+			}
+		}
+	}
+
+	if cleaned > 0 {
+		fmt.Printf("Cleaned %d stale test sockets\n", cleaned)
+	}
+
+	return nil
 }
 
 // filterTmuxEnv removes TMUX and TMUX_PANE env vars to ensure test session isolation

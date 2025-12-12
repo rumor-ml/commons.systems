@@ -40,7 +40,7 @@ test-unit:
 test-e2e:
 	@echo "Running E2E tests (DEFAULT: fake Claude, no tokens used)..."
 	@command -v tmux >/dev/null || (echo "Error: tmux not found" && exit 1)
-	@$(GO) test -v -count=1 -timeout 120s ./tests/... -run 'TestReal|TestUserPromptSubmit'
+	@$(GO) test -v -count=1 -timeout 180s ./tests/...
 	@echo "✓ Tests completed with fake Claude (no API tokens consumed)"
 
 test-e2e-real:

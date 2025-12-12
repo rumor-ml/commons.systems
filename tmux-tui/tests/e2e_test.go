@@ -13,6 +13,15 @@ import (
 	teatest "github.com/charmbracelet/x/exp/teatest"
 )
 
+func TestMain(m *testing.M) {
+	// Clean up stale sockets before running tests
+	if err := cleanupStaleSockets(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to cleanup stale sockets: %v\n", err)
+	}
+
+	os.Exit(m.Run())
+}
+
 // Mock model for testing (simplified version of main.go model)
 type model struct {
 	windowID  string
@@ -818,8 +827,8 @@ func TestRealClaudeAlertFlow(t *testing.T) {
 		killCmd.Run()
 	}()
 
-	// Wait for tmux socket to be ready (5s timeout for slow systems)
-	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+	// Wait for tmux socket to be ready (15s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
 		t.Fatalf("Tmux socket not ready: %v", err)
 	}
 
@@ -1289,8 +1298,8 @@ func createTestTmuxSession(t *testing.T, socketName, name string) func() {
 		t.Fatalf("Failed to create tmux session %s: %v", name, err)
 	}
 
-	// Wait for tmux socket to be ready (5s timeout for slow systems)
-	if err := waitForTmuxSocket(socketName, 5*time.Second); err != nil {
+	// Wait for tmux socket to be ready (15s timeout for slow systems)
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
 		t.Fatalf("Tmux socket not ready: %v", err)
 	}
 
