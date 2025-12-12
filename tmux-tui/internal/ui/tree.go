@@ -36,6 +36,10 @@ var activeStyle = lipgloss.NewStyle().
 var blockedStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("245")) // Muted gray text
 
+var blockedActiveStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("245")). // Muted gray text
+	Background(lipgloss.Color("240"))  // Active background highlight
+
 var headerStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("244")).
 	Bold(true)
@@ -252,8 +256,13 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 
 		// Apply appropriate styling
 		if isBranchBlocked {
-			// Blocked branches get muted gray style for all panes
-			line = blockedStyle.Render(line)
+			if pane.WindowActive {
+				// Blocked + Active: show background highlight with muted text
+				line = blockedActiveStyle.Width(r.width).Render(line)
+			} else {
+				// Blocked + Idle: only muted text, no highlight
+				line = blockedStyle.Render(line)
+			}
 		} else if pane.WindowActive {
 			// Active panes get active style with full width
 			line = activeStyle.Width(r.width).Render(line)
