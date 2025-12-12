@@ -19,7 +19,39 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "Warning: failed to cleanup stale sockets: %v\n", err)
 	}
 
+	// Detect sandbox restrictions that prevent tmux socket creation
+	if err := checkTmuxSocketCreation(); err != nil {
+		fmt.Fprintf(os.Stderr, "\n❌ SANDBOX RESTRICTION DETECTED ❌\n\n")
+		fmt.Fprintf(os.Stderr, "E2E tests require tmux socket creation, which is blocked by sandbox.\n")
+		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+		fmt.Fprintf(os.Stderr, "SOLUTION: Run E2E tests with dangerouslyDisableSandbox: true\n\n")
+		fmt.Fprintf(os.Stderr, "If you are Claude Code, use:\n")
+		fmt.Fprintf(os.Stderr, "  Bash(command: \"make test-e2e\", dangerouslyDisableSandbox: true)\n\n")
+		os.Exit(1)
+	}
+
 	os.Exit(m.Run())
+}
+
+// checkTmuxSocketCreation verifies that tmux can create sockets (not blocked by sandbox)
+func checkTmuxSocketCreation() error {
+	testSocket := fmt.Sprintf("sandbox-check-%d", time.Now().UnixNano())
+
+	// Try to create a minimal tmux session with custom socket
+	cmd := exec.Command("tmux", "-L", testSocket, "new-session", "-d", "-s", "sandbox-test")
+	env := filterTmuxEnv(os.Environ())
+	cmd.Env = env
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create tmux session: %w (likely sandbox restriction)", err)
+	}
+
+	// Clean up test session
+	killCmd := exec.Command("tmux", "-L", testSocket, "kill-server")
+	killCmd.Env = env
+	killCmd.Run() // Ignore errors
+
+	return nil
 }
 
 // Mock model for testing (simplified version of main.go model)
