@@ -34,9 +34,9 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 
 ## Available Tools
 
-### wiggum_next_step
+### wiggum_init
 
-Primary orchestration tool that analyzes current state and returns next action instructions.
+Initialization/entry point tool that analyzes current state and returns next action instructions.
 
 **Inputs:** None (auto-detects state from git, GitHub PR, and PR comments)
 
@@ -50,7 +50,7 @@ Primary orchestration tool that analyzes current state and returns next action i
 
 **Workflow Steps:**
 
-1. **Step 0 - Ensure PR Exists**: Verify branch is pushed and PR is created
+1. **Step 0 - Ensure PR Exists**: Create PR using wiggum_complete_pr_creation tool
 2. **Step 1 - Monitor Workflow**: Monitor GitHub Actions workflow completion
 3. **Step 1b - Monitor PR Checks**: Monitor all PR status checks
 4. **Step 2 - Code Quality**: Review and address code quality bot comments
@@ -58,6 +58,23 @@ Primary orchestration tool that analyzes current state and returns next action i
 6. **Step 4 - Security Review**: Execute security review
 7. **Step 4b - Verify Reviews**: Verify both reviews were executed
 8. **Approval**: Post summary and approve PR
+
+### wiggum_complete_pr_creation
+
+Completes PR creation step with codified process.
+
+**Inputs:**
+
+- `pr_description` (string): Agent's description of PR contents and changes
+
+**Behavior:**
+
+- Extracts issue number from branch name (format: 123-feature-name)
+- Gets commit messages from GitHub API
+- Creates PR with "closes #issue" line + description + commits
+- Posts confirmation comment
+- Marks Step 0 complete
+- Returns next step instructions
 
 ### wiggum_complete_pr_review
 
@@ -264,7 +281,8 @@ npm test
 - `src/utils/gh-cli.ts` - GitHub CLI utilities
 - `src/state/` - State detection and management
 - `src/tools/` - Individual tool implementations
-  - `next-step.ts` - Primary orchestration tool
+  - `init.ts` - Initialization/entry point tool
+  - `complete-pr-creation.ts` - PR creation completion
   - `complete-pr-review.ts` - PR review completion
   - `complete-security-review.ts` - Security review completion
   - `complete-fix.ts` - Fix completion tracking

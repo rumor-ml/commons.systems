@@ -1,13 +1,14 @@
 /**
- * Tool: wiggum_next_step
+ * Tool: wiggum_init
  *
- * Primary orchestration tool. Analyzes current state and determines next action.
+ * Initialization/entry point tool. Analyzes current state and determines next action.
  */
 
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { hasReviewCommandEvidence } from '../state/comments.js';
+import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import {
   MAX_ITERATIONS,
   STEP_ENSURE_PR,
@@ -43,11 +44,11 @@ type CurrentStateWithPR = CurrentState & {
   };
 };
 
-export const NextStepInputSchema = z.object({});
+export const WiggumInitInputSchema = z.object({});
 
-export type NextStepInput = z.infer<typeof NextStepInputSchema>;
+export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
 
-interface NextStepOutput {
+interface WiggumInitOutput {
   current_step: string;
   step_number: string;
   iteration_count: number;
@@ -62,18 +63,25 @@ interface NextStepOutput {
 }
 
 /**
- * Determine the next step in the wiggum flow based on current state
+ * Initialize wiggum flow and determine the next step based on current state
  */
-export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
+export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   const state = await detectCurrentState();
 
   // Check iteration limit
   if (state.wiggum.iteration >= MAX_ITERATIONS) {
-    const output: NextStepOutput = {
+    const output: WiggumInitOutput = {
       current_step: 'Iteration Limit Reached',
       step_number: 'max',
       iteration_count: state.wiggum.iteration,
-      instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`,
+      instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached.
+
+Please:
+1. Summarize all work completed in this PR
+2. List any remaining issues or failures
+3. Notify the user that manual intervention is required
+
+The workflow will not continue automatically beyond this point.`,
       context: {
         pr_number: state.pr.exists ? state.pr.number : undefined,
         current_branch: state.git.currentBranch,
@@ -94,12 +102,12 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
 
   // Step 1: Monitor Workflow (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_WORKFLOW)) {
-    return handleStepMonitorWorkflow(stateWithPR);
+    return await handleStepMonitorWorkflow(stateWithPR);
   }
 
   // Step 1b: Monitor PR Checks (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_PR_CHECKS)) {
-    return handleStepMonitorPRChecks(stateWithPR);
+    return await handleStepMonitorPRChecks(stateWithPR);
   }
 
   // Step 2: Code Quality Comments (if not completed)
@@ -133,7 +141,7 @@ export async function nextStep(_input: NextStepInput): Promise<ToolResult> {
  * instructions for creating the PR.
  */
 function handleStepEnsurePR(state: CurrentState): ToolResult {
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_ENSURE_PR],
     step_number: STEP_ENSURE_PR,
     iteration_count: state.wiggum.iteration,
@@ -156,7 +164,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
   // Check for uncommitted changes
   if (state.git.hasUncommittedChanges) {
     output.instructions =
-      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_next_step again.';
+      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init again.';
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -172,36 +180,15 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
 
   // PR doesn't exist - need to create it
   if (!state.pr.exists) {
-    const branchName = state.git.currentBranch;
-    const issueNum = branchName.split('-')[0];
+    output.instructions = `Call wiggum_complete_pr_creation with pr_description parameter describing the changes in this PR.
 
-    output.instructions = `Create PR using these steps:
+The tool will:
+- Extract issue number from branch name (format: 123-feature-name)
+- Create PR with "closes #<issue>" line + your description
+- Mark step complete
+- Return next step instructions
 
-CRITICAL: All git/gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md
-
-1. Get commit messages for PR body:
-   \`\`\`
-   git log main..HEAD --pretty=format:"- %s"
-   \`\`\`
-   Store output in variable 'commits'
-
-2. Create PR body text:
-   \`\`\`
-   body="closes #${issueNum}
-
-\${commits}"
-   \`\`\`
-
-3. Create PR:
-   \`\`\`
-   gh pr create --base main --label "${NEEDS_REVIEW_LABEL}" --title "${branchName}" --body "\${body}"
-   \`\`\`
-
-4. After PR is created successfully, call wiggum_next_step again to proceed.`;
-
-    output.pr_title = branchName;
-    output.pr_labels = [NEEDS_REVIEW_LABEL];
-    output.closing_issue = issueNum;
+Continue by calling wiggum_complete_pr_creation.`;
 
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
@@ -216,26 +203,52 @@ CRITICAL: All git/gh commands must use dangerouslyDisableSandbox: true per CLAUD
 /**
  * Step 1: Monitor Workflow
  */
-function handleStepMonitorWorkflow(state: CurrentStateWithPR): ToolResult {
-  const output: NextStepOutput = {
+async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<ToolResult> {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_MONITOR_WORKFLOW],
     step_number: STEP_MONITOR_WORKFLOW,
     iteration_count: state.wiggum.iteration,
-    instructions: `Call mcp__gh-workflow__gh_monitor_run MCP tool with branch: "${state.git.currentBranch}".
-
-On SUCCESS: call wiggum_next_step to proceed.
-
-On FAILURE:
-1. Call mcp__gh-workflow__gh_get_failure_details with branch: "${state.git.currentBranch}" to get error summary
-2. Use Task tool with subagent_type="Plan" and model="opus" to analyze the error details and create fix plan
-3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-4. Execute /commit-merge-push slash command using SlashCommand tool
-5. Call wiggum_complete_fix with fix_description`,
+    instructions: '',
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
     },
   };
+
+  // Call monitoring tool directly
+  const result = await monitorRun(state.git.currentBranch);
+
+  if (result.success) {
+    // Mark step complete
+    const { postWiggumStateComment } = await import('../state/comments.js');
+
+    const newState = {
+      iteration: state.wiggum.iteration,
+      step: STEP_MONITOR_WORKFLOW,
+      completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_WORKFLOW],
+    };
+
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_MONITOR_WORKFLOW]} - Complete`,
+      'Workflow run completed successfully.'
+    );
+
+    output.instructions = 'Workflow monitoring complete. Proceeding to PR checks.';
+  } else {
+    // Return fix instructions
+    output.instructions = `Workflow failed. Follow these steps to fix:
+
+1. Analyze the error (details below)
+2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
+3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
+4. Execute /commit-merge-push slash command using SlashCommand tool
+5. Call wiggum_complete_fix with fix_description
+
+Error details:
+${result.errorSummary || 'See workflow logs for details'}`;
+  }
 
   return {
     content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
@@ -245,26 +258,52 @@ On FAILURE:
 /**
  * Step 1b: Monitor PR Checks
  */
-function handleStepMonitorPRChecks(state: CurrentStateWithPR): ToolResult {
-  const output: NextStepOutput = {
+async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<ToolResult> {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_MONITOR_PR_CHECKS],
     step_number: STEP_MONITOR_PR_CHECKS,
     iteration_count: state.wiggum.iteration,
-    instructions: `Call mcp__gh-workflow__gh_monitor_pr_checks MCP tool with pr_number: ${state.pr.number}.
-
-On SUCCESS (Overall Status: SUCCESS): call wiggum_next_step to proceed.
-
-On ANY OTHER STATUS (FAILED, CONFLICTS, BLOCKED, MIXED, etc.):
-1. Call mcp__gh-workflow__gh_get_failure_details with pr_number: ${state.pr.number} to get error details
-2. Use Task tool with subagent_type="Plan" and model="opus" to analyze the error details and create fix plan
-3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-4. Execute /commit-merge-push slash command using SlashCommand tool
-5. Call wiggum_complete_fix with fix_description`,
+    instructions: '',
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
     },
   };
+
+  // Call monitoring tool directly
+  const result = await monitorPRChecks(state.pr.number);
+
+  if (result.success) {
+    // Mark step complete
+    const { postWiggumStateComment } = await import('../state/comments.js');
+
+    const newState = {
+      iteration: state.wiggum.iteration,
+      step: STEP_MONITOR_PR_CHECKS,
+      completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
+    };
+
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.'
+    );
+
+    output.instructions = 'PR checks monitoring complete. Proceeding to Code Quality review.';
+  } else {
+    // Return fix instructions
+    output.instructions = `PR checks failed. Follow these steps to fix:
+
+1. Analyze the error (details below)
+2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
+3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
+4. Execute /commit-merge-push slash command using SlashCommand tool
+5. Call wiggum_complete_fix with fix_description
+
+Error details:
+${result.errorSummary || 'See PR checks for details'}`;
+  }
 
   return {
     content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
@@ -278,7 +317,7 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
   // Fetch code quality bot comments
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_CODE_QUALITY],
     step_number: STEP_CODE_QUALITY,
     iteration_count: state.wiggum.iteration,
@@ -290,7 +329,24 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
   };
 
   if (comments.length === 0) {
-    output.instructions = 'No code quality comments found. Call wiggum_next_step to proceed.';
+    // Mark step complete
+    const { postWiggumStateComment } = await import('../state/comments.js');
+
+    const newState = {
+      iteration: state.wiggum.iteration,
+      step: STEP_CODE_QUALITY,
+      completedSteps: [...state.wiggum.completedSteps, STEP_CODE_QUALITY],
+    };
+
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_CODE_QUALITY]} - Complete`,
+      'No code quality comments found. Step complete.'
+    );
+
+    output.instructions =
+      'No code quality comments found. Step marked complete. Proceeding to PR Review.';
   } else {
     output.instructions = `${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
 
@@ -305,7 +361,8 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
    b. Execute /commit-merge-push slash command using SlashCommand tool
    c. Call wiggum_complete_fix with fix_description
 3. If all comments are invalid/should be ignored:
-   Call wiggum_next_step to proceed`;
+   - Mark step complete and proceed to next step
+   - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
   }
 
   return {
@@ -317,7 +374,7 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
  * Step 3: PR Review
  */
 function handleStepPRReview(state: CurrentStateWithPR): ToolResult {
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_PR_REVIEW],
     step_number: STEP_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
@@ -347,7 +404,7 @@ After all review agents complete:
  * Step 4: Security Review
  */
 function handleStepSecurityReview(state: CurrentStateWithPR): ToolResult {
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
     step_number: STEP_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
@@ -383,7 +440,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
     SECURITY_REVIEW_COMMAND
   );
 
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_VERIFY_REVIEWS],
     step_number: STEP_VERIFY_REVIEWS,
     iteration_count: state.wiggum.iteration,
@@ -420,7 +477,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
     );
 
     output.instructions =
-      'Both review commands verified and step marked complete. Call wiggum_next_step to proceed to approval.';
+      'Both review commands verified and step marked complete. Call wiggum_init to proceed to approval.';
   }
 
   return {
@@ -432,7 +489,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
  * Approval
  */
 function handleApproval(state: CurrentStateWithPR): ToolResult {
-  const output: NextStepOutput = {
+  const output: WiggumInitOutput = {
     current_step: STEP_NAMES[STEP_APPROVAL],
     step_number: STEP_APPROVAL,
     iteration_count: state.wiggum.iteration,
