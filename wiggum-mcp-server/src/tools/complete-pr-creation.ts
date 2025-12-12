@@ -49,13 +49,22 @@ function extractIssueNumber(branchName: string): string {
 export async function completePRCreation(input: CompletePRCreationInput): Promise<ToolResult> {
   const state = await detectCurrentState();
 
-  // Validate PR doesn't already exist
-  if (state.pr.exists) {
+  // Validate PR doesn't already exist (or is closed/merged)
+  if (state.pr.exists && state.pr.state === 'OPEN') {
     throw new ValidationError(
-      `PR #${state.pr.number} already exists for this branch: "${state.pr.title}". ` +
+      `An open PR #${state.pr.number} already exists for this branch: "${state.pr.title}". ` +
+        `Cannot create a duplicate PR while an open PR exists. ` +
         `If you just created this PR manually with gh pr create, you should NOT call this tool. ` +
         `This tool handles PR creation automatically. The PR already exists, so workflow can continue. ` +
         `Call wiggum_init to get next step instructions instead.`
+    );
+  }
+
+  // If a closed/merged PR exists, we can create a new one
+  // Log this for transparency
+  if (state.pr.exists && state.pr.state !== 'OPEN') {
+    console.log(
+      `Note: A ${state.pr.state.toLowerCase()} PR #${state.pr.number} exists for this branch. Creating a new PR.`
     );
   }
 

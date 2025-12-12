@@ -34,6 +34,7 @@ export interface PRExists {
   exists: true;
   number: number;
   title: string;
+  state: string; // "OPEN" | "CLOSED" | "MERGED"
   url: string;
   labels: string[];
   headRefName: string;

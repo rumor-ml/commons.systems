@@ -77,6 +77,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       exists: true,
       number: result.number,
       title: result.title,
+      state: result.state,
       url: result.url,
       labels: result.labels?.map((l) => l.name) || [],
       headRefName: result.headRefName,

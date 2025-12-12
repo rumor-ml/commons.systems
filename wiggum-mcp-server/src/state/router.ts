@@ -64,8 +64,9 @@ interface WiggumInstructions {
  * taken next in the workflow. Called by wiggum_init and completion tools.
  */
 export async function getNextStepInstructions(state: CurrentState): Promise<ToolResult> {
-  // Step 0: Ensure PR exists (only if PR doesn't exist)
-  if (!state.pr.exists) {
+  // Step 0: Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
+  // We need an OPEN PR to proceed with monitoring and reviews
+  if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
     return handleStepEnsurePR(state);
   }
 

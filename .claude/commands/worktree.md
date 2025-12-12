@@ -3,6 +3,8 @@ description: Create a new git worktree with a branch name based on task descript
 model: haiku
 ---
 
+**IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
+
 1. Check that current branch is main with no changes. If not, return error and do not proceed.
 2. Fetch and pull latest changes from origin/main.
 3. Determine source for branch name from argument: "{{args}}"

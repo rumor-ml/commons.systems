@@ -27,6 +27,46 @@ When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mc
 
 **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
 
+# Slash Command Execution
+
+**CRITICAL: Slash commands expand to prompts that you MUST execute.**
+
+When you use the SlashCommand tool:
+
+1. You will see `<command-message>command-name is running…</command-message>`
+2. The next message contains the **expanded prompt** from the slash command file
+3. **You MUST execute the instructions** in that expanded prompt step-by-step
+4. **Do NOT continue to other work** until the expanded prompt is fully executed
+
+**Common mistakes to avoid:**
+
+- ❌ Calling SlashCommand then immediately doing other work
+- ❌ Using TaskOutput to get slash command results (they don't create tasks)
+- ❌ Treating slash commands as background operations
+
+**Correct pattern:**
+
+1. Call SlashCommand tool
+2. Wait for `<command-message>` and expanded prompt
+3. Execute every step in the expanded prompt
+4. Only proceed when all steps are complete
+
+**Example:**
+
+```
+assistant: <calls SlashCommand with /commit-merge-push>
+system: <command-message>commit-merge-push is running…</command-message>
+        1. Invoke the commit subagent. Wait for successful commit before proceeding.
+        2. Run `git fetch origin && git merge origin/main`.
+        3. If conflicts occur: Invoke the resolve-conflicts subagent.
+        4. Invoke the push subagent.
+assistant: <executes step 1 - calls Task tool with subagent_type="Commit">
+assistant: <waits for commit to complete>
+assistant: <executes step 2 - runs git fetch and merge>
+assistant: <executes step 4 - calls Task tool with subagent_type="Push">
+assistant: <only after all steps complete, proceeds with other work>
+```
+
 # Frontend Architecture
 
 ## Design Philosophy: HTMX-First with React Islands
