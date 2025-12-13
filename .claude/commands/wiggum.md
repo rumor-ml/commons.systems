@@ -24,6 +24,54 @@ You are NOT responsible for:
 - Step sequencing (tools determine what's next)
 - Deciding when steps are complete (tools handle this)
 
+## Reading Tool Responses
+
+**CRITICAL: Completion tools do work automatically. DO NOT repeat their work.**
+
+Every tool response includes a `steps_completed_by_tool` field listing everything the tool already did.
+
+**Before taking any action:**
+1. Read the `steps_completed_by_tool` list carefully
+2. DO NOT run commands or tools that repeat those steps
+3. Only follow the new `instructions` provided
+
+### Example
+
+```json
+{
+  "steps_completed_by_tool": [
+    "Created PR #249",
+    "Monitored PR workflow checks until first failure",
+    "Extracted complete check status for all 28 checks",
+    "Retrieved error details from failed check logs"
+  ],
+  "instructions": "Analyze the error and create a fix plan..."
+}
+```
+
+**WRONG Response:**
+```
+Let me check the PR status with `gh pr checks`...  ← Repeats monitoring
+Let me get the workflow logs with `gh run view`... ← Already extracted
+```
+
+**CORRECT Response:**
+```
+The tool already monitored checks and extracted error details showing prettier
+formatting errors. I'll follow the instructions: launch Plan agent to fix...
+```
+
+### Common Mistakes to Avoid
+
+❌ Running `gh pr checks` after tool monitored them
+❌ Running `gh run view` after tool extracted error details
+❌ Running `git status` after tool checked for uncommitted changes
+❌ "Investigating further" when error details are already provided
+
+✓ Trust the tool's work
+✓ Use the provided error details
+✓ Follow the instructions directly
+
 ## Main Loop
 
 **CRITICAL: `wiggum_init` is only called ONCE at the start of the workflow.**
@@ -63,13 +111,21 @@ mcp__wiggum__wiggum_complete_pr_creation({
 });
 ```
 
-Provide a clear, concise description of what the PR changes. The tool **will automatically**:
+Provide a clear, concise description of what the PR changes.
 
-- Set PR title to the exact branch name
-- Add `closes #<issue>` line to PR body (extracted from branch name)
-- Create the PR via gh CLI
-- Mark step complete
-- Return instructions for the next step
+**What this tool does automatically:**
+- Validates branch name format
+- Extracts issue number from branch name
+- Creates PR with branch name as title
+- Adds "closes #ISSUE" to PR body
+- **Monitors workflow run until completion or first failure**
+- **Monitors PR checks until completion or first failure**
+- **Extracts detailed failure information if checks fail**
+- Posts state comment to PR
+- Marks steps complete as appropriate
+- Returns next step instructions
+
+The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat those actions.**
 
 **After calling this tool ONCE, follow the instructions it returns. DO NOT call it again.**
 
@@ -93,11 +149,8 @@ IMPORTANT:
 - `verbatim_response` must contain COMPLETE output
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
-<<<<<<< HEAD:.claude/agents/wiggum.md
-=======
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
->>>>>>> b837209 (Refactor Wiggum agent to command-based structure with enhanced PR creation guidance):.claude/commands/wiggum.md
 
 ### wiggum_complete_security_review
 

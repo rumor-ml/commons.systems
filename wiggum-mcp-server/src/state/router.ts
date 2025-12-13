@@ -49,6 +49,7 @@ interface WiggumInstructions {
   step_number: string;
   iteration_count: number;
   instructions: string;
+  steps_completed_by_tool: string[];
   pr_title?: string;
   pr_labels?: string[];
   closing_issue?: string;
@@ -160,6 +161,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
     step_number: STEP_ENSURE_PR,
     iteration_count: state.wiggum.iteration,
     instructions: '',
+    steps_completed_by_tool: [],
     context: {
       current_branch: state.git.currentBranch,
     },
@@ -169,6 +171,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
   if (state.git.isMainBranch) {
     output.instructions =
       'ERROR: Cannot create PR from main branch. Please switch to a feature branch first.';
+    output.steps_completed_by_tool = ['Checked branch name'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
       isError: true,
@@ -179,6 +182,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
   if (state.git.hasUncommittedChanges) {
     output.instructions =
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_complete_pr_creation to create the PR.';
+    output.steps_completed_by_tool = ['Checked for uncommitted changes'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -187,6 +191,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
   // Check if branch is pushed
   if (!state.git.isPushed) {
     output.instructions = `Branch not pushed to remote. Execute: git push -u origin ${state.git.currentBranch}`;
+    output.steps_completed_by_tool = ['Checked push status'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -210,6 +215,7 @@ Continue by calling wiggum_complete_pr_creation.
 
 **Call the tool ONCE. It will return instructions for the next step. Do not call it again.**`;
 
+    output.steps_completed_by_tool = ['Validated branch name format', 'Checked for existing PR'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -229,6 +235,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
     step_number: STEP_MONITOR_WORKFLOW,
     iteration_count: state.wiggum.iteration,
     instructions: '',
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -256,6 +263,11 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
     );
 
     output.instructions = 'Workflow monitoring complete. Proceeding to PR checks.';
+    output.steps_completed_by_tool = [
+      'Monitored workflow run until completion',
+      'Marked step complete',
+      'Posted state comment to PR',
+    ];
   } else {
     // Return fix instructions
     output.instructions = `Workflow failed. Follow these steps to fix:
@@ -268,6 +280,10 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
 
 Error details:
 ${result.errorSummary || 'See workflow logs for details'}`;
+    output.steps_completed_by_tool = [
+      'Monitored workflow run until first failure',
+      'Extracted failure details and logs',
+    ];
   }
 
   return {
@@ -284,6 +300,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     step_number: STEP_MONITOR_PR_CHECKS,
     iteration_count: state.wiggum.iteration,
     instructions: '',
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -294,6 +311,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   if (state.git.hasUncommittedChanges) {
     output.instructions =
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    output.steps_completed_by_tool = ['Checked for uncommitted changes'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -303,6 +321,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   if (!state.git.isPushed) {
     output.instructions =
       'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    output.steps_completed_by_tool = ['Checked push status'];
     return {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
     };
@@ -329,6 +348,13 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     );
 
     output.instructions = 'PR checks monitoring complete. Proceeding to Code Quality review.';
+    output.steps_completed_by_tool = [
+      'Checked for uncommitted changes',
+      'Checked push status',
+      'Monitored all PR checks until completion',
+      'Marked step complete',
+      'Posted state comment to PR',
+    ];
   } else {
     // Return fix instructions
     output.instructions = `PR checks failed. Follow these steps to fix:
@@ -341,6 +367,13 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
 
 Error details:
 ${result.errorSummary || 'See PR checks for details'}`;
+    output.steps_completed_by_tool = [
+      'Checked for uncommitted changes',
+      'Checked push status',
+      'Monitored PR checks until first failure',
+      'Extracted complete check status for all checks',
+      'Retrieved failure context from logs',
+    ];
   }
 
   return {
@@ -360,6 +393,7 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
     step_number: STEP_CODE_QUALITY,
     iteration_count: state.wiggum.iteration,
     instructions: '',
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -385,6 +419,7 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
 
     output.instructions =
       'No code quality comments found. Step marked complete. Proceeding to PR Review.';
+    output.steps_completed_by_tool = ['Fetched code quality bot comments', 'Marked step complete'];
   } else {
     output.instructions = `${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
 
@@ -401,6 +436,7 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 3. If all comments are invalid/should be ignored:
    - Mark step complete and proceed to next step
    - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
+    output.steps_completed_by_tool = ['Fetched code quality bot comments', 'Counted total comments'];
   }
 
   return {
@@ -427,6 +463,7 @@ After all review agents complete:
    - high_priority_issues: (count)
    - medium_priority_issues: (count)
    - low_priority_issues: (count)`,
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -457,6 +494,7 @@ After security review completes:
    - high_priority_issues: (count)
    - medium_priority_issues: (count)
    - low_priority_issues: (count)`,
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -483,6 +521,10 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
     step_number: STEP_VERIFY_REVIEWS,
     iteration_count: state.wiggum.iteration,
     instructions: '',
+    steps_completed_by_tool: [
+      'Checked for PR review command evidence in comments',
+      'Checked for security review command evidence in comments',
+    ],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -516,6 +558,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 
     output.instructions =
       'Both review commands verified and step marked complete. Proceeding to approval.';
+    output.steps_completed_by_tool.push('Marked step complete', 'Posted state comment to PR');
   }
 
   return {
@@ -539,6 +582,7 @@ Final actions:
 3. Exit with success message: "All reviews complete with no issues identified. PR is ready for human review."
 
 **IMPORTANT**: ALL gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md`,
+    steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
