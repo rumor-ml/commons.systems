@@ -13,6 +13,56 @@ import type { MonitorResult } from './gh-workflow.js';
 let ghWorkflowClient: Client | null = null;
 
 /**
+ * Call MCP tool with retry logic for timeout errors
+ *
+ * The MCP TypeScript SDK has a hardcoded 60-second timeout. For long-running
+ * operations (like workflow monitoring), we retry on timeout errors until
+ * the operation completes or maxDurationMs is reached.
+ *
+ * @param client - MCP client instance
+ * @param toolName - Name of the tool to call
+ * @param args - Tool arguments
+ * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes)
+ * @returns Promise resolving to tool result
+ */
+async function callToolWithRetry(
+  client: Client,
+  toolName: string,
+  args: any,
+  maxDurationMs: number = 600000 // 10 minutes
+): Promise<any> {
+  const startTime = Date.now();
+
+  while (true) {
+    const elapsed = Date.now() - startTime;
+
+    if (elapsed >= maxDurationMs) {
+      throw new Error(`Operation exceeded maximum duration of ${maxDurationMs}ms`);
+    }
+
+    try {
+      return await client.callTool({
+        name: toolName,
+        arguments: args,
+      });
+    } catch (error: any) {
+      // Check if it's the MCP timeout error
+      if (error.code === -32001 || error.message?.includes('timeout')) {
+        logger.info(`MCP timeout on ${toolName}, retrying...`, {
+          elapsed,
+          remaining: maxDurationMs - elapsed,
+        });
+        // Continue loop to retry
+        continue;
+      }
+
+      // Non-timeout error, fail immediately
+      throw error;
+    }
+  }
+}
+
+/**
  * Get or create a client connection to gh-workflow-mcp-server
  *
  * Uses singleton pattern to reuse the same client connection across multiple calls.
@@ -110,15 +160,17 @@ export async function monitorRun(params: {
 
   logger.info('Calling gh_monitor_run', { params });
 
-  const result = await client.callTool({
-    name: 'gh_monitor_run',
-    arguments: {
+  const result = await callToolWithRetry(
+    client,
+    'gh_monitor_run',
+    {
       branch: params.branch,
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
     },
-  });
+    (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
+  );
 
   return parseWorkflowMonitorResult(result, params.branch);
 }
@@ -145,15 +197,17 @@ export async function monitorPRChecks(params: {
 
   logger.info('Calling gh_monitor_pr_checks', { params });
 
-  const result = await client.callTool({
-    name: 'gh_monitor_pr_checks',
-    arguments: {
+  const result = await callToolWithRetry(
+    client,
+    'gh_monitor_pr_checks',
+    {
       pr_number: params.pr_number,
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
     },
-  });
+    (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
+  );
 
   return parsePRChecksMonitorResult(result, params.pr_number);
 }
