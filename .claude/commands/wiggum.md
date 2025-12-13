@@ -31,6 +31,7 @@ You are NOT responsible for:
 Every tool response includes a `steps_completed_by_tool` field listing everything the tool already did.
 
 **Before taking any action:**
+
 1. Read the `steps_completed_by_tool` list carefully
 2. DO NOT run commands or tools that repeat those steps
 3. Only follow the new `instructions` provided
@@ -50,15 +51,18 @@ Every tool response includes a `steps_completed_by_tool` field listing everythin
 ```
 
 **WRONG Response:**
+
 ```
 Let me check the PR status with `gh pr checks`...  ← Repeats monitoring
 Let me get the workflow logs with `gh run view`... ← Already extracted
 ```
 
 **CORRECT Response:**
+
 ```
 The tool already monitored checks and extracted error details showing prettier
 formatting errors. I'll follow the instructions: launch Plan agent to fix...
+
 ```
 
 ### Common Mistakes to Avoid
@@ -114,6 +118,7 @@ mcp__wiggum__wiggum_complete_pr_creation({
 Provide a clear, concise description of what the PR changes.
 
 **What this tool does automatically:**
+
 - Validates branch name format
 - Extracts issue number from branch name
 - Creates PR with branch name as title
@@ -192,6 +197,7 @@ The tool:
 - Returns instructions to re-verify the step where issues were found
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
+
 ## General Flow Pattern
 
 1. **Start session**: Call `wiggum_init` ONCE
