@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 
@@ -30,6 +31,13 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   if (!state.pr.exists || !state.pr.number) {
     throw new ValidationError('No PR found. Cannot complete fix.');
   }
+
+  logger.info('wiggum_complete_fix', {
+    prNumber: state.pr.number,
+    iteration: state.wiggum.iteration,
+    currentStep: state.wiggum.step,
+    fixDescription: input.fix_description,
+  });
 
   // Post PR comment documenting the fix
   const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;

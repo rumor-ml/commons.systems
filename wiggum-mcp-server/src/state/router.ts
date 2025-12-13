@@ -9,6 +9,7 @@
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { hasReviewCommandEvidence } from './comments.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
+import { logger } from '../utils/logger.js';
 import {
   STEP_ENSURE_PR,
   STEP_MONITOR_WORKFLOW,
@@ -64,9 +65,21 @@ interface WiggumInstructions {
  * taken next in the workflow. Called by wiggum_init and completion tools.
  */
 export async function getNextStepInstructions(state: CurrentState): Promise<ToolResult> {
+  logger.debug('getNextStepInstructions', {
+    prExists: state.pr.exists,
+    prState: state.pr.exists ? state.pr.state : 'N/A',
+    currentBranch: state.git.currentBranch,
+    iteration: state.wiggum.iteration,
+    completedSteps: state.wiggum.completedSteps,
+  });
+
   // Step 0: Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
   if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
+    logger.info('Routing to Step 0: Ensure PR', {
+      prExists: state.pr.exists,
+      prState: state.pr.exists ? state.pr.state : 'N/A',
+    });
     return handleStepEnsurePR(state);
   }
 
@@ -75,35 +88,63 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
 
   // Step 1: Monitor Workflow (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_WORKFLOW)) {
+    logger.info('Routing to Step 1: Monitor Workflow', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return await handleStepMonitorWorkflow(stateWithPR);
   }
 
   // Step 1b: Monitor PR Checks (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_MONITOR_PR_CHECKS)) {
+    logger.info('Routing to Step 1b: Monitor PR Checks', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return await handleStepMonitorPRChecks(stateWithPR);
   }
 
   // Step 2: Code Quality Comments (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_CODE_QUALITY)) {
+    logger.info('Routing to Step 2: Code Quality', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return await handleStepCodeQuality(stateWithPR);
   }
 
   // Step 3: PR Review (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_PR_REVIEW)) {
+    logger.info('Routing to Step 3: PR Review', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return handleStepPRReview(stateWithPR);
   }
 
   // Step 4: Security Review (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_SECURITY_REVIEW)) {
+    logger.info('Routing to Step 4: Security Review', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return handleStepSecurityReview(stateWithPR);
   }
 
   // Step 4b: Verify Reviews (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_VERIFY_REVIEWS)) {
+    logger.info('Routing to Step 4b: Verify Reviews', {
+      prNumber: stateWithPR.pr.number,
+      iteration: state.wiggum.iteration,
+    });
     return await handleStepVerifyReviews(stateWithPR);
   }
 
   // All steps complete - proceed to approval
+  logger.info('Routing to Approval', {
+    prNumber: stateWithPR.pr.number,
+    iteration: state.wiggum.iteration,
+  });
   return handleApproval(stateWithPR);
 }
 

@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { logger } from '../utils/logger.js';
 import { MAX_ITERATIONS } from '../constants.js';
 import type { ToolResult } from '../types.js';
 
@@ -38,8 +39,18 @@ interface WiggumInitOutput {
 export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   const state = await detectCurrentState();
 
+  logger.info('wiggum_init', {
+    branch: state.git.currentBranch,
+    prNumber: state.pr.exists ? state.pr.number : undefined,
+    iteration: state.wiggum.iteration,
+  });
+
   // Check iteration limit
   if (state.wiggum.iteration >= MAX_ITERATIONS) {
+    logger.warn('wiggum_init - max iterations reached', {
+      iteration: state.wiggum.iteration,
+      maxIterations: MAX_ITERATIONS,
+    });
     const output: WiggumInitOutput = {
       current_step: 'Iteration Limit Reached',
       step_number: 'max',

@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { logger } from '../utils/logger.js';
 import { STEP_ENSURE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
@@ -48,6 +49,11 @@ function extractIssueNumber(branchName: string): string {
  */
 export async function completePRCreation(input: CompletePRCreationInput): Promise<ToolResult> {
   const state = await detectCurrentState();
+
+  logger.info('wiggum_complete_pr_creation', {
+    branch: state.git.currentBranch,
+    iteration: state.wiggum.iteration,
+  });
 
   // Validate PR doesn't already exist (or is closed/merged)
   if (state.pr.exists && state.pr.state === 'OPEN') {

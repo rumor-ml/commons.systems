@@ -3,6 +3,8 @@
  */
 
 import { ghCli, sleep } from './gh-cli.js';
+import { logger } from './logger.js';
+import { FAILURE_STATES } from '../constants.js';
 
 export interface MonitorResult {
   success: boolean;
@@ -44,6 +46,20 @@ const PR_CHECK_TERMINAL_STATE_MAP: Record<string, string> = {
  */
 function mapStateToConclusion(state: string): string | null {
   return PR_CHECK_TERMINAL_STATE_MAP[state] || null;
+}
+
+/**
+ * Get status icon for a PR check based on its state
+ *
+ * @param state - The PR check state from GitHub API
+ * @returns Status icon (✓ for success, ✗ for failure, ○ for other states)
+ */
+function getCheckIcon(state: string): string {
+  const conclusion = mapStateToConclusion(state);
+  if (conclusion === 'success') return '✓';
+  if (conclusion === 'failure') return '✗';
+  if (conclusion === 'skipped') return '○';
+  return '○'; // in-progress states
 }
 
 /**
@@ -158,6 +174,8 @@ export async function monitorPRChecks(
   const startTime = Date.now();
   const pollInterval = 10000; // 10 seconds
 
+  logger.info('monitorPRChecks', { prNumber, timeoutMs });
+
   try {
     // Poll until all checks complete or timeout
     while (Date.now() - startTime < timeoutMs) {
@@ -178,6 +196,34 @@ export async function monitorPRChecks(
         };
       }
 
+      logger.debug('monitorPRChecks poll iteration', {
+        checksTotal: checks.length,
+        inProgress: checks.filter((c) => PR_CHECK_IN_PROGRESS_STATES.includes(c.state)).length,
+        elapsed: Date.now() - startTime,
+      });
+
+      // FAIL-FAST: Check for failures immediately (before waiting for all checks)
+      const failedCheck = checks.find((check) => FAILURE_STATES.includes(check.state as any));
+
+      if (failedCheck) {
+        // Build detailed error with partial check status for context
+        const checkSummaries = checks
+          .map((c) => `  ${getCheckIcon(c.state)} ${c.name} (${c.state})`)
+          .join('\n');
+
+        logger.warn('monitorPRChecks early exit - failure detected', {
+          failedCheck: { name: failedCheck.name, state: failedCheck.state },
+        });
+
+        return {
+          success: false,
+          errorSummary:
+            `PR check failed (early exit): ${failedCheck.name}\n\n` +
+            `Check Status:\n${checkSummaries}\n\n` +
+            `Note: Exited early due to fail-fast behavior. Other checks may still be running.`,
+        };
+      }
+
       // Check if all checks are complete
       const allComplete = checks.every(
         (check) => !PR_CHECK_IN_PROGRESS_STATES.includes(check.state)
@@ -191,11 +237,19 @@ export async function monitorPRChecks(
         });
 
         if (failedChecks.length === 0) {
+          logger.info('monitorPRChecks complete - all checks passed', {
+            checksTotal: checks.length,
+            elapsed: Date.now() - startTime,
+          });
           return { success: true };
         } else {
           const failedNames = failedChecks
             .map((c) => `${c.name} (${mapStateToConclusion(c.state)})`)
             .join(', ');
+          logger.warn('monitorPRChecks complete - failures found', {
+            failedCount: failedChecks.length,
+            failures: failedChecks.map((c) => ({ name: c.name, state: c.state })),
+          });
           return {
             success: false,
             errorSummary: `PR checks failed: ${failedNames}`,
@@ -208,11 +262,20 @@ export async function monitorPRChecks(
     }
 
     // Timeout reached
+    logger.warn('monitorPRChecks timeout', {
+      prNumber,
+      timeoutMs,
+      elapsed: Date.now() - startTime,
+    });
     return {
       success: false,
       errorSummary: `PR checks monitoring timed out after ${timeoutMs}ms for PR #${prNumber}`,
     };
   } catch (error) {
+    logger.error('monitorPRChecks error', {
+      prNumber,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       success: false,
       errorSummary: `Error monitoring PR checks: ${error instanceof Error ? error.message : String(error)}`,
