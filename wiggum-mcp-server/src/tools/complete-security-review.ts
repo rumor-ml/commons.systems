@@ -16,6 +16,7 @@ import {
 } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
+import { formatWiggumResponse } from '../utils/format-response.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
@@ -26,17 +27,6 @@ export const CompleteSecurityReviewInputSchema = z.object({
 });
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
-
-interface CompleteSecurityReviewOutput {
-  current_step: string;
-  step_number: string;
-  iteration_count: number;
-  instructions: string;
-  context: {
-    pr_number?: number;
-    total_issues: number;
-  };
-}
 
 /**
  * Complete security review and update state
@@ -118,24 +108,29 @@ All security checks passed with no vulnerabilities identified.
 
   // Check iteration limit
   if (newState.iteration >= MAX_ITERATIONS) {
-    const output: CompleteSecurityReviewOutput = {
+    const output = {
       current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
       step_number: STEP_SECURITY_REVIEW,
       iteration_count: newState.iteration,
       instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`,
+      steps_completed_by_tool: [
+        'Executed security review',
+        'Posted results to PR',
+        'Updated state',
+      ],
       context: {
         pr_number: state.pr.number,
         total_issues: totalIssues,
       },
     };
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 
   // If issues found, provide fix instructions
   if (totalIssues > 0) {
-    const output: CompleteSecurityReviewOutput = {
+    const output = {
       current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
       step_number: STEP_SECURITY_REVIEW,
       iteration_count: newState.iteration,
@@ -145,13 +140,18 @@ All security checks passed with no vulnerabilities identified.
 2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement security fixes
 3. Execute /commit-merge-push slash command using SlashCommand tool
 4. Call wiggum_complete_fix with fix_description`,
+      steps_completed_by_tool: [
+        'Executed security review',
+        'Posted results to PR',
+        'Incremented iteration',
+      ],
       context: {
         pr_number: state.pr.number,
         total_issues: totalIssues,
       },
     };
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 

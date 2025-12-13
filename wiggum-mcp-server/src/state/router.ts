@@ -10,6 +10,7 @@ import { getPRReviewComments } from '../utils/gh-cli.js';
 import { hasReviewCommandEvidence } from './comments.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
+import { formatWiggumResponse } from '../utils/format-response.js';
 import {
   STEP_ENSURE_PR,
   STEP_MONITOR_WORKFLOW,
@@ -67,7 +68,7 @@ function checkUncommittedChanges(
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
   return null;
@@ -86,7 +87,7 @@ function checkBranchPushed(
       'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
   return null;
@@ -226,7 +227,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
       'ERROR: Cannot create PR from main branch. Please switch to a feature branch first.';
     output.steps_completed_by_tool = ['Checked branch name'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
       isError: true,
     };
   }
@@ -237,7 +238,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_complete_pr_creation to create the PR.';
     output.steps_completed_by_tool = ['Checked for uncommitted changes'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 
@@ -246,7 +247,7 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
     output.instructions = `Branch not pushed to remote. Execute: git push -u origin ${state.git.currentBranch}`;
     output.steps_completed_by_tool = ['Checked push status'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 
@@ -270,12 +271,12 @@ Continue by calling wiggum_complete_pr_creation.
 
     output.steps_completed_by_tool = ['Validated branch name format', 'Checked for existing PR'];
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -350,7 +351,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
         'Retrieved complete failure details via gh_get_failure_details tool',
       ];
       return {
-        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+        content: [{ type: 'text', text: formatWiggumResponse(output) }],
       };
     }
 
@@ -396,7 +397,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -473,7 +474,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -561,7 +562,7 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -601,7 +602,7 @@ After all review agents complete:
   };
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -616,14 +617,18 @@ function handleStepSecurityReview(state: CurrentStateWithPR): ToolResult {
     instructions: `Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After security review completes:
+
 1. Capture the complete verbatim response
 2. Count issues by priority (high, medium, low)
-3. Call wiggum_complete_security_review with:
+3. Call **mcp__wiggum__wiggum_complete_security_review** with:
    - command_executed: true
    - verbatim_response: (full output)
    - high_priority_issues: (count)
    - medium_priority_issues: (count)
-   - low_priority_issues: (count)`,
+   - low_priority_issues: (count)
+
+**IMPORTANT:** Call wiggum_complete_**security**_review (NOT pr_review).
+This tool posts results and returns next step instructions.`,
     steps_completed_by_tool: [],
     context: {
       pr_number: state.pr.number,
@@ -632,7 +637,7 @@ After security review completes:
   };
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -692,7 +697,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
 
@@ -720,6 +725,6 @@ Final actions:
   };
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }

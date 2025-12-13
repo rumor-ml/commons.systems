@@ -11,24 +11,11 @@ import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
 import { MAX_ITERATIONS } from '../constants.js';
 import type { ToolResult } from '../types.js';
+import { formatWiggumResponse } from '../utils/format-response.js';
 
 export const WiggumInitInputSchema = z.object({});
 
 export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
-
-interface WiggumInitOutput {
-  current_step: string;
-  step_number: string;
-  iteration_count: number;
-  instructions: string;
-  pr_title?: string;
-  pr_labels?: string[];
-  closing_issue?: string;
-  context: {
-    pr_number?: number;
-    current_branch?: string;
-  };
-}
 
 /**
  * Initialize wiggum flow and determine the next step based on current state
@@ -51,7 +38,7 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
       iteration: state.wiggum.iteration,
       maxIterations: MAX_ITERATIONS,
     });
-    const output: WiggumInitOutput = {
+    const output = {
       current_step: 'Iteration Limit Reached',
       step_number: 'max',
       iteration_count: state.wiggum.iteration,
@@ -63,13 +50,14 @@ Please:
 3. Notify the user that manual intervention is required
 
 The workflow will not continue automatically beyond this point.`,
+      steps_completed_by_tool: [],
       context: {
         pr_number: state.pr.exists ? state.pr.number : undefined,
         current_branch: state.git.currentBranch,
       },
     };
     return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
     };
   }
 
