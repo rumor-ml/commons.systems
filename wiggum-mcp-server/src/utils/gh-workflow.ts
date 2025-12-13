@@ -12,6 +12,7 @@ import {
   monitorPRChecks as clientMonitorPRChecks,
   getFailureDetails,
 } from './gh-workflow-client.js';
+import { WORKFLOW_LOG_MAX_CHARS } from '../constants.js';
 
 export interface MonitorResult {
   success: boolean;
@@ -51,7 +52,7 @@ export async function monitorRun(branch: string, timeoutMs = 600000): Promise<Mo
     logger.info('Enriching failure result with detailed failure information', { branch });
     const failureDetails = await getFailureDetails({
       branch: branch,
-      max_chars: 8000,
+      max_chars: WORKFLOW_LOG_MAX_CHARS,
     });
     result.failureDetails = failureDetails;
   }
@@ -97,7 +98,7 @@ export async function monitorPRChecks(
     logger.info('Enriching failure result with detailed failure information', { prNumber });
     const failureDetails = await getFailureDetails({
       pr_number: prNumber,
-      max_chars: 8000,
+      max_chars: WORKFLOW_LOG_MAX_CHARS,
     });
     result.failureDetails = failureDetails;
   }
