@@ -283,12 +283,25 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   const text = textContent.text;
   logger.info('Parsed PR checks monitor result', { textLength: text.length });
 
-  // Parse the text to determine success/failure
-  // Look for "Overall Status: SUCCESS" vs other statuses
+  // Parse failure count from summary line: "Success: N, Failed: N, Other: N"
+  const failureMatch = text.match(/Failed: (\d+)/);
+  const failureCount = failureMatch ? parseInt(failureMatch[1], 10) : null;
+
+  // Parse overall status as fallback context
   const statusMatch = text.match(/Overall Status: (\w+)/);
   const overallStatus = statusMatch ? statusMatch[1] : null;
 
-  const success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
+  // Determine success based on failure count (preferred) or status (fallback)
+  let success: boolean;
+  if (failureCount !== null) {
+    // Primary logic: success if no failures, regardless of skipped/other checks
+    success = failureCount === 0;
+    logger.info('Determined success from failure count', { failureCount, success, overallStatus });
+  } else {
+    // Fallback: use status-based logic if failure count not parseable
+    success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
+    logger.info('Determined success from status (fallback)', { overallStatus, success });
+  }
 
   if (success) {
     return { success: true };
@@ -297,13 +310,12 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     logger.info('PR checks failed, retrieving detailed failure information', {
       prNumber,
       overallStatus,
+      failureCount,
     });
 
-    // Note: We'll call getFailureDetails in the calling code (gh-workflow.ts)
-    // to maintain the pattern already established
     return {
       success: false,
-      errorSummary: `PR checks failed with status: ${overallStatus || 'unknown'}`,
+      errorSummary: `PR checks failed with status: ${overallStatus || 'unknown'} (${failureCount ?? '?'} failures)`,
     };
   }
 }
