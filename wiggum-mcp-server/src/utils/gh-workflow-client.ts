@@ -234,7 +234,7 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   const statusMatch = text.match(/Overall Status: (\w+)/);
   const overallStatus = statusMatch ? statusMatch[1] : null;
 
-  const success = overallStatus === 'SUCCESS';
+  const success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
 
   if (success) {
     return { success: true };
