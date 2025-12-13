@@ -127,13 +127,14 @@ func (d *AlertDaemon) playAlertSound() {
 	// Accumulation is mitigated by rate limiting but not prevented entirely.
 	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
+	pid := os.Getpid()
 	go func() {
-		debug.Log("AUDIO_PLAYING")
+		debug.Log("AUDIO_PLAYING pid=%d", pid)
 		if err := cmd.Run(); err != nil {
-			debug.Log("AUDIO_ERROR error=%v", err)
+			debug.Log("AUDIO_ERROR error=%v pid=%d", err, pid)
 			d.broadcastAudioError(err)
 		}
-		debug.Log("AUDIO_COMPLETED")
+		debug.Log("AUDIO_COMPLETED pid=%d", pid)
 	}()
 }
 
@@ -230,6 +231,8 @@ type AlertDaemon struct {
 	done             chan struct{}
 	socketPath       string
 	blockedPath      string // Path to persist blocked state JSON
+	recentEvents     map[string]time.Time // Event deduplication: paneID+eventType -> last event time
+	eventsMu         sync.Mutex
 
 	// Health monitoring (accessed atomically)
 	broadcastFailures      atomic.Int64  // Total broadcast failures since startup
@@ -389,6 +392,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
+		recentEvents:     make(map[string]time.Time),
 	}
 
 	// Initialize atomic.Value fields
@@ -480,6 +484,41 @@ func (d *AlertDaemon) watchPaneFocus() {
 	}
 }
 
+// isDuplicateEvent checks if an event is a duplicate within the deduplication window.
+// It also cleans up old entries to prevent memory leaks.
+// Returns true if the event should be skipped as a duplicate.
+func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) bool {
+	d.eventsMu.Lock()
+	defer d.eventsMu.Unlock()
+
+	// Create event key
+	eventKey := fmt.Sprintf("%s:%s:%v", paneID, eventType, created)
+	now := time.Now()
+
+	// Check if this event occurred recently (100ms deduplication window)
+	if lastTime, exists := d.recentEvents[eventKey]; exists {
+		if now.Sub(lastTime) < 100*time.Millisecond {
+			// Duplicate event - skip
+			return true
+		}
+	}
+
+	// Update recent event time
+	d.recentEvents[eventKey] = now
+
+	// Clean up old entries (>1s) to prevent memory leak
+	// Only clean every ~100 events to avoid overhead
+	if len(d.recentEvents) > 100 {
+		for key, timestamp := range d.recentEvents {
+			if now.Sub(timestamp) > time.Second {
+				delete(d.recentEvents, key)
+			}
+		}
+	}
+
+	return false
+}
+
 // handlePaneFocusEvent processes a pane focus event and broadcasts to clients.
 func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	debug.Log("DAEMON_PANE_FOCUS_EVENT paneID=%s", event.PaneID)
@@ -495,6 +534,12 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 
 // handleAlertEvent processes an alert event and broadcasts to clients.
 func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
+	// Check for duplicate events BEFORE taking any locks
+	if d.isDuplicateEvent(event.PaneID, event.EventType, event.Created) {
+		debug.Log("DAEMON_ALERT_DUPLICATE paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
+		return
+	}
+
 	debug.Log("DAEMON_ALERT_EVENT paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
 
 	d.alertsMu.Lock()
