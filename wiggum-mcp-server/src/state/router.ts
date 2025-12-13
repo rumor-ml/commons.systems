@@ -247,8 +247,9 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
   const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark step complete
+    // Mark Step 1 complete
     const { postWiggumStateComment } = await import('./comments.js');
+    const { detectCurrentState } = await import('./detector.js');
 
     const newState = {
       iteration: state.wiggum.iteration,
@@ -263,12 +264,89 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       'Workflow run completed successfully.'
     );
 
-    output.instructions = 'Workflow monitoring complete. Proceeding to PR checks.';
-    output.steps_completed_by_tool = [
+    const stepsCompleted = [
       'Monitored workflow run until completion',
-      'Marked step complete',
+      'Marked Step 1 complete',
       'Posted state comment to PR',
     ];
+
+    // CONTINUE to Step 1b: Monitor PR checks
+    // Check for uncommitted changes
+    const updatedState = await detectCurrentState();
+    if (updatedState.git.hasUncommittedChanges) {
+      output.instructions =
+        'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+      output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
+      return {
+        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      };
+    }
+
+    // Check if branch is pushed
+    if (!updatedState.git.isPushed) {
+      output.instructions =
+        'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+      output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
+      return {
+        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      };
+    }
+
+    // Monitor PR checks
+    const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
+
+    if (!prChecksResult.success) {
+      // PR checks failed - return fix instructions
+      output.instructions = `PR checks failed. Follow these steps to fix:
+
+1. Analyze the error details below (includes test failures, stack traces, file locations)
+2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
+3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
+4. Execute /commit-merge-push slash command using SlashCommand tool
+5. Call wiggum_complete_fix with fix_description
+
+**Failure Details:**
+${prChecksResult.failureDetails || prChecksResult.errorSummary || 'See PR checks for details'}`;
+      output.steps_completed_by_tool = [
+        ...stepsCompleted,
+        'Checked for uncommitted changes',
+        'Checked push status',
+        'Monitored PR checks until first failure',
+        'Retrieved complete failure details via gh_get_failure_details tool',
+      ];
+      return {
+        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+      };
+    }
+
+    // PR checks succeeded - mark Step 1b complete
+    const newState1b = {
+      iteration: updatedState.wiggum.iteration,
+      step: STEP_MONITOR_PR_CHECKS,
+      completedSteps: [...updatedState.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
+    };
+
+    await postWiggumStateComment(
+      state.pr.number,
+      newState1b,
+      `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.'
+    );
+
+    stepsCompleted.push(
+      'Checked for uncommitted changes',
+      'Checked push status',
+      'Monitored all PR checks until completion',
+      'Marked Step 1b complete',
+      'Posted state comment to PR'
+    );
+
+    // CONTINUE to Step 2: Fetch code quality comments and return next instructions
+    const finalState = await detectCurrentState();
+    return processCodeQualityAndReturnNextInstructions(
+      finalState as CurrentStateWithPR,
+      stepsCompleted
+    );
   } else {
     // Return fix instructions
     output.instructions = `Workflow failed. Follow these steps to fix:
@@ -332,8 +410,9 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark step complete
+    // Mark Step 1b complete
     const { postWiggumStateComment } = await import('./comments.js');
+    const { detectCurrentState } = await import('./detector.js');
 
     const newState = {
       iteration: state.wiggum.iteration,
@@ -348,14 +427,20 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
       'All PR checks passed successfully.'
     );
 
-    output.instructions = 'PR checks monitoring complete. Proceeding to Code Quality review.';
-    output.steps_completed_by_tool = [
+    const stepsCompleted = [
       'Checked for uncommitted changes',
       'Checked push status',
       'Monitored all PR checks until completion',
-      'Marked step complete',
+      'Marked Step 1b complete',
       'Posted state comment to PR',
     ];
+
+    // CONTINUE to Step 2: Fetch code quality comments and return next instructions
+    const updatedState = await detectCurrentState();
+    return processCodeQualityAndReturnNextInstructions(
+      updatedState as CurrentStateWithPR,
+      stepsCompleted
+    );
   } else {
     // Return fix instructions
     output.instructions = `PR checks failed. Follow these steps to fix:
@@ -382,9 +467,17 @@ ${result.failureDetails || result.errorSummary || 'See PR checks for details'}`;
 }
 
 /**
- * Step 2: Code Quality Comments
+ * Helper: Process Step 2 (Code Quality) and return appropriate next instructions
+ *
+ * This is called by:
+ * - handleStepMonitorWorkflow() after Step 1+1b complete successfully
+ * - handleStepMonitorPRChecks() after Step 1b completes successfully
+ * - Direct routing to handleStepCodeQuality() (e.g., after fixes)
  */
-async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolResult> {
+async function processCodeQualityAndReturnNextInstructions(
+  state: CurrentStateWithPR,
+  stepsCompletedSoFar: string[]
+): Promise<ToolResult> {
   // Fetch code quality bot comments
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
@@ -393,7 +486,7 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
     step_number: STEP_CODE_QUALITY,
     iteration_count: state.wiggum.iteration,
     instructions: '',
-    steps_completed_by_tool: [],
+    steps_completed_by_tool: [...stepsCompletedSoFar],
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -401,7 +494,7 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
   };
 
   if (comments.length === 0) {
-    // Mark step complete
+    // No comments - mark Step 2 complete and return Step 3 (PR Review) instructions
     const { postWiggumStateComment } = await import('./comments.js');
 
     const newState = {
@@ -417,10 +510,28 @@ async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolRes
       'No code quality comments found. Step complete.'
     );
 
-    output.instructions =
-      'No code quality comments found. Step marked complete. Proceeding to PR Review.';
-    output.steps_completed_by_tool = ['Fetched code quality bot comments', 'Marked step complete'];
+    output.steps_completed_by_tool.push(
+      'Fetched code quality comments - none found',
+      'Marked Step 2 complete'
+    );
+
+    // Return Step 3 (PR Review) instructions
+    output.current_step = STEP_NAMES[STEP_PR_REVIEW];
+    output.step_number = STEP_PR_REVIEW;
+    output.instructions = `Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+
+After all review agents complete:
+1. Capture the complete verbatim response
+2. Count issues by priority (high, medium, low)
+3. Call wiggum_complete_pr_review with:
+   - command_executed: true
+   - verbatim_response: (full output)
+   - high_priority_issues: (count)
+   - medium_priority_issues: (count)
+   - low_priority_issues: (count)`;
   } else {
+    // Comments found - return code quality review instructions
+    output.steps_completed_by_tool.push(`Fetched code quality comments - ${comments.length} found`);
     output.instructions = `${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
 
 IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate critically.
@@ -436,15 +547,20 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 3. If all comments are invalid/should be ignored:
    - Mark step complete and proceed to next step
    - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
-    output.steps_completed_by_tool = [
-      'Fetched code quality bot comments',
-      'Counted total comments',
-    ];
   }
 
   return {
     content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
   };
+}
+
+/**
+ * Step 2: Code Quality Comments
+ *
+ * Delegates to helper function to ensure consistent behavior
+ */
+async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolResult> {
+  return processCodeQualityAndReturnNextInstructions(state, []);
 }
 
 /**
