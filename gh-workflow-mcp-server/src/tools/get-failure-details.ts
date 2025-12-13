@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
-import { MAX_RESPONSE_LENGTH } from '../constants.js';
+import { MAX_RESPONSE_LENGTH, FAILURE_CONCLUSIONS } from '../constants.js';
 import {
   getWorkflowRun,
   getWorkflowRunsForBranch,
@@ -230,10 +230,26 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       if (!Array.isArray(checks) || checks.length === 0) {
         throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }
-      const firstCheck = checks[0];
-      const runIdMatch = firstCheck.detailsUrl?.match(/\/runs\/(\d+)/);
+
+      // Find first failed check instead of just taking first check
+      const failedCheck = checks.find(
+        (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
+      );
+
+      if (!failedCheck) {
+        // No failed checks yet - this is a timing issue
+        throw new ValidationError(
+          `No failed checks found for PR #${input.pr_number}. ` +
+            `Total checks: ${checks.length}. ` +
+            `This may be a timing issue - check states might not be updated yet.`
+        );
+      }
+
+      const runIdMatch = failedCheck.detailsUrl?.match(/\/runs\/(\d+)/);
       if (!runIdMatch) {
-        throw new ValidationError(`Could not extract run ID from PR #${input.pr_number} checks`);
+        throw new ValidationError(
+          `Could not extract run ID from failed check: ${failedCheck.name}`
+        );
       }
       runId = parseInt(runIdMatch[1], 10);
     } else if (input.branch) {
@@ -292,6 +308,28 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     const hasFailedJobs = failedJobs.length > 0;
 
     if (!runFailed && !hasFailedJobs) {
+      // Provide different messages for in-progress vs completed runs
+      const isInProgress = run.status === 'in_progress';
+
+      if (isInProgress) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Workflow run is still in progress: ${run.name}`,
+                `Status: ${run.status}`,
+                `No failed jobs found yet (checked ${jobs.length} jobs)`,
+                `URL: ${run.url}`,
+                ``,
+                `This may be a timing issue - the PR checks API may report failures`,
+                `before the jobs API is updated. Consider waiting a few seconds and retrying.`,
+              ].join('\n'),
+            },
+          ],
+        };
+      }
+
       return {
         content: [
           {
