@@ -6,18 +6,22 @@ import type { ExtractionResult, FrameworkExtractor } from './types.js';
 import { GoExtractor } from './go-extractor.js';
 import { PlaywrightExtractor } from './playwright-extractor.js';
 import { TapExtractor } from './tap-extractor.js';
+import { PrettierExtractor } from './prettier-extractor.js';
 
 // Registry of extractors in priority order
+// Framework-specific extractors first (high confidence)
+// Prettier extractor for formatting errors
 const extractors: FrameworkExtractor[] = [
   new GoExtractor(),
   new PlaywrightExtractor(),
   new TapExtractor(),
+  new PrettierExtractor(), // High-confidence prettier detection
 ];
 
 /**
  * Extract errors from logs using framework-specific extractors
  * Returns the result from the first high-confidence match
- * If no framework matches, returns the raw log text (job may have failed for non-test reasons)
+ * If no framework matches, returns last 100 lines as fallback
  */
 export function extractErrors(logText: string, maxErrors = 10): ExtractionResult {
   // Try each extractor in order, use first high-confidence match
@@ -28,18 +32,14 @@ export function extractErrors(logText: string, maxErrors = 10): ExtractionResult
     }
   }
 
-  // No high-confidence match - job likely failed for non-test reasons
-  // Return the last 100 lines of the log for context
+  // No high-confidence match - return last 100 lines as fallback
   const lines = logText.split('\n');
-  const contextLines = lines.slice(-100);
-
   return {
     framework: 'unknown',
     errors: [
       {
-        message:
-          'No test framework detected. Job may have failed during setup, build, or other non-test step.',
-        rawOutput: contextLines,
+        message: 'No test framework or known error pattern detected',
+        rawOutput: lines.slice(-100),
       },
     ],
   };

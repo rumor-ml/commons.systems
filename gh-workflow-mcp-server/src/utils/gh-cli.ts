@@ -103,6 +103,77 @@ export async function getWorkflowRun(runId: number, repo?: string) {
 }
 
 /**
+ * Get logs from failed steps only using `gh run view --log-failed`.
+ *
+ * This command filters logs to only show output from steps that failed,
+ * making it much easier to identify the root cause of failures without
+ * wading through successful step output.
+ *
+ * Output format: "job-name\tstep-name\ttimestamp log-line"
+ *
+ * Note: Only works for completed workflow runs. For in-progress runs,
+ * this will fail or return incomplete data.
+ *
+ * @param runId - Workflow run ID
+ * @param repo - Repository in format "owner/repo"
+ * @returns Tab-delimited log output from failed steps
+ * @throws GitHubCliError if run is still in progress or has no failed steps
+ */
+export async function getFailedStepLogs(runId: number, repo?: string): Promise<string> {
+  const resolvedRepo = await resolveRepo(repo);
+  return ghCli(['run', 'view', runId.toString(), '--log-failed'], { repo: resolvedRepo });
+}
+
+/**
+ * Parsed failed step log entry
+ */
+export interface FailedStepLog {
+  /** Name of the job containing the failed step */
+  jobName: string;
+  /** Name of the failed step */
+  stepName: string;
+  /** Log lines from this failed step */
+  lines: string[];
+}
+
+/**
+ * Parse tab-delimited output from `gh run view --log-failed`
+ *
+ * The GitHub CLI outputs failed step logs in a tab-delimited format:
+ * "job-name\tstep-name\ttimestamp log-line"
+ *
+ * This function groups log lines by job and step for easier processing.
+ *
+ * @param output - Raw output from `gh run view --log-failed`
+ * @returns Array of failed step logs grouped by job and step
+ */
+export function parseFailedStepLogs(output: string): FailedStepLog[] {
+  const steps: Map<string, FailedStepLog> = new Map();
+
+  for (const line of output.split('\n')) {
+    // Split by first two tabs only
+    const firstTab = line.indexOf('\t');
+    if (firstTab === -1) continue;
+
+    const secondTab = line.indexOf('\t', firstTab + 1);
+    if (secondTab === -1) continue;
+
+    const jobName = line.substring(0, firstTab);
+    const stepName = line.substring(firstTab + 1, secondTab);
+    const content = line.substring(secondTab + 1);
+
+    // Group by unique job::step combination
+    const key = `${jobName}::${stepName}`;
+    if (!steps.has(key)) {
+      steps.set(key, { jobName, stepName, lines: [] });
+    }
+    steps.get(key)!.lines.push(content);
+  }
+
+  return Array.from(steps.values());
+}
+
+/**
  * Get workflow runs for a branch
  */
 export async function getWorkflowRunsForBranch(

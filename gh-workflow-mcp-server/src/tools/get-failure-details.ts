@@ -13,6 +13,8 @@ import {
   getWorkflowJobs,
   getJobLogs,
   resolveRepo,
+  getFailedStepLogs,
+  parseFailedStepLogs,
 } from '../utils/gh-cli.js';
 import { ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
 import { extractErrors, formatExtractionResult } from '../extractors/index.js';
@@ -117,6 +119,95 @@ function extractTestSummary(logText: string): string | null {
   return null;
 }
 
+/**
+ * Format job summaries into the final output text
+ */
+function formatJobSummaries(
+  run: WorkflowRunData,
+  summaries: FailedJobSummary[],
+  maxChars: number
+): ToolResult {
+  const lines: string[] = [
+    `Workflow Run Failed: ${run.name}`,
+    `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
+    `URL: ${run.url}`,
+    '',
+    `Failed Jobs (${summaries.length}):`,
+  ];
+
+  for (const job of summaries) {
+    lines.push(``, `  Job: ${job.name} (${job.conclusion})`, `  URL: ${job.url}`);
+
+    for (const step of job.failed_steps) {
+      if (step.test_summary) {
+        lines.push(`    Test Summary: ${step.test_summary}`);
+      }
+      lines.push(`    Step: ${step.name} (${step.conclusion})`);
+
+      if (step.error_lines.length > 0) {
+        const errorContent = step.error_lines.join('\n      ');
+        lines.push(`      ${errorContent}`);
+      }
+    }
+  }
+
+  let output = lines.join('\n');
+  if (output.length > maxChars) {
+    output = output.substring(0, maxChars - 50) + '\n\n[... truncated due to length limit ...]';
+  }
+
+  return { content: [{ type: 'text', text: output }] };
+}
+
+/**
+ * Get failure details using `gh run view --log-failed`
+ *
+ * This approach provides cleaner, more focused error output by only
+ * including logs from failed steps, filtered directly by GitHub CLI.
+ *
+ * Only works for completed workflow runs.
+ */
+async function getFailureDetailsFromLogFailed(
+  runId: number,
+  repo: string
+): Promise<FailedJobSummary[]> {
+  const output = await getFailedStepLogs(runId, repo);
+  const parsedSteps = parseFailedStepLogs(output);
+
+  const jobSummaries: Map<string, FailedJobSummary> = new Map();
+
+  for (const step of parsedSteps) {
+    // Create job summary if it doesn't exist
+    if (!jobSummaries.has(step.jobName)) {
+      jobSummaries.set(step.jobName, {
+        name: step.jobName,
+        url: `https://github.com/${repo}/actions/runs/${runId}`,
+        conclusion: 'failure',
+        failed_steps: [],
+      });
+    }
+
+    const fullLog = step.lines.join('\n');
+
+    // Try framework-specific extraction first, then generic
+    const extraction = extractErrors(fullLog, 15);
+    const errorLines = formatExtractionResult(extraction);
+
+    // For unknown framework (generic extractor), use raw log lines instead of formatted output
+    // This preserves formatting for diffs, build errors, etc.
+    const finalLines = extraction.framework === 'unknown' ? step.lines.slice(-100) : errorLines;
+
+    jobSummaries.get(step.jobName)!.failed_steps.push({
+      name: step.stepName,
+      conclusion: 'failure',
+      error_lines: finalLines,
+      test_summary: extraction.summary || extractTestSummary(fullLog),
+    });
+  }
+
+  return Array.from(jobSummaries.values());
+}
+
 export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
@@ -158,6 +249,34 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // Get run details
     const run = (await getWorkflowRun(runId, resolvedRepo)) as WorkflowRunData;
 
+    // Check if run is completed and failed
+    const runCompleted = run.status === 'completed';
+    const runFailed = run.conclusion === 'failure' || run.conclusion === 'timed_out';
+
+    // For completed failed runs, use --log-failed (best output)
+    // This provides cleaner, step-filtered logs directly from GitHub CLI
+    if (runCompleted && runFailed) {
+      try {
+        const summaries = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
+
+        // Format and return results using the new helper
+        return formatJobSummaries(run, summaries, input.max_chars);
+      } catch (error) {
+        // Fall through to job-based approach if --log-failed fails
+        // This can happen if:
+        // - No failed steps in the run (edge case)
+        // - GitHub CLI version doesn't support --log-failed
+        // - Other GitHub API issues
+        console.error('Failed to get --log-failed output, falling back to API approach:', error);
+      }
+    }
+
+    // Fallback: Job-based approach using GitHub API
+    // Used for:
+    // - In-progress runs with fail-fast detection
+    // - Cases where --log-failed failed
+    // - Runs that haven't completed yet but have failed jobs
+    //
     // Get all jobs first - we need to check for failed jobs even if run is still in progress
     // (supports fail-fast monitoring where we detect failures before run completes)
     const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
@@ -168,8 +287,8 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       (job) => job.conclusion === 'failure' || job.conclusion === 'timed_out'
     );
 
-    // Check if run failed OR if any jobs have failed (for fail-fast support)
-    const runFailed = run.conclusion === 'failure' || run.conclusion === 'timed_out';
+    // Check if any jobs have failed (for fail-fast support)
+    // Note: runFailed is already declared above
     const hasFailedJobs = failedJobs.length > 0;
 
     if (!runFailed && !hasFailedJobs) {
