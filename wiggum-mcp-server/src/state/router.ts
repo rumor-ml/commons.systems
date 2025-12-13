@@ -290,6 +290,24 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     },
   };
 
+  // Check for uncommitted changes
+  if (state.git.hasUncommittedChanges) {
+    output.instructions =
+      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    return {
+      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    };
+  }
+
+  // Check if branch is pushed
+  if (!state.git.isPushed) {
+    output.instructions =
+      'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    return {
+      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    };
+  }
+
   // Call monitoring tool directly
   const result = await monitorPRChecks(state.pr.number);
 
