@@ -73,6 +73,15 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     // gh pr view will fail if no PR exists
     const result: GitHubPR = await getPR(undefined, resolvedRepo); // undefined gets PR for current branch
 
+    // ONLY treat OPEN PRs as existing PRs for wiggum workflow
+    // Closed/Merged PRs should be treated as non-existent to avoid state pollution
+    // This prevents carrying over workflow state from closed PRs to new PRs on the same branch
+    if (result.state !== 'OPEN') {
+      return {
+        exists: false,
+      };
+    }
+
     return {
       exists: true,
       number: result.number,
