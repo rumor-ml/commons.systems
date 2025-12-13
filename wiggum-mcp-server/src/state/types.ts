@@ -49,6 +49,12 @@ export interface PRDoesNotExist {
 }
 
 /**
+ * Type constraint for PR state values - ensures only valid PRState types
+ * This prevents accidental narrowing to incompatible types in CurrentStateWithPR
+ */
+export type PRStateValue = PRExists | PRDoesNotExist;
+
+/**
  * Complete current state for wiggum flow
  */
 export interface CurrentState {

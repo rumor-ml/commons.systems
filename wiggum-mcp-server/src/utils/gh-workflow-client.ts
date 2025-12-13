@@ -13,6 +13,39 @@ import type { MonitorResult } from './gh-workflow.js';
 let ghWorkflowClient: Client | null = null;
 
 /**
+ * Extract text content from MCP tool result
+ *
+ * Provides consistent extraction and validation of text content from MCP responses
+ *
+ * @param result - MCP tool result
+ * @param toolName - Name of tool for error messages
+ * @param context - Context string (e.g., branch name, PR number) for error messages
+ * @returns Extracted text content
+ * @throws Error if result format is invalid
+ */
+function extractTextFromMCPResult(result: any, toolName: string, context: string): string {
+  if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
+    logger.error(`Invalid ${toolName} response: no content array`, {
+      hasContent: !!result.content,
+      isArray: Array.isArray(result.content),
+      context,
+    });
+    throw new Error(`No content in ${toolName} response for ${context}`);
+  }
+
+  const textContent = result.content.find((c: any) => c.type === 'text');
+  if (!textContent || !('text' in textContent)) {
+    logger.error(`Invalid ${toolName} response: no text content`, {
+      contentTypes: result.content.map((c: any) => c.type),
+      context,
+    });
+    throw new Error(`No text content in ${toolName} response for ${context}`);
+  }
+
+  return textContent.text;
+}
+
+/**
  * Call MCP tool with retry logic for timeout errors
  *
  * The MCP TypeScript SDK has a hardcoded 60-second timeout. For long-running
@@ -24,6 +57,7 @@ let ghWorkflowClient: Client | null = null;
  * @param args - Tool arguments
  * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes)
  * @returns Promise resolving to tool result
+ * @throws Error if operation exceeds maxDurationMs or encounters non-timeout error
  */
 async function callToolWithRetry(
   client: Client,
@@ -31,13 +65,20 @@ async function callToolWithRetry(
   args: any,
   maxDurationMs: number = 600000 // 10 minutes
 ): Promise<any> {
+  // Validate timeout
+  if (maxDurationMs <= 0) {
+    throw new Error(`Invalid maxDurationMs: ${maxDurationMs}. Must be positive.`);
+  }
+
   const startTime = Date.now();
 
   while (true) {
     const elapsed = Date.now() - startTime;
 
     if (elapsed >= maxDurationMs) {
-      throw new Error(`Operation exceeded maximum duration of ${maxDurationMs}ms`);
+      const errorMsg = `Operation exceeded maximum duration of ${maxDurationMs}ms after ${elapsed}ms`;
+      logger.error(`callToolWithRetry failed: ${errorMsg}`, { toolName, args });
+      throw new Error(errorMsg);
     }
 
     try {
@@ -56,7 +97,12 @@ async function callToolWithRetry(
         continue;
       }
 
-      // Non-timeout error, fail immediately
+      // Non-timeout error, log and fail immediately
+      logger.error(`callToolWithRetry failed with non-timeout error`, {
+        toolName,
+        error: error.message || String(error),
+        code: error.code,
+      });
       throw error;
     }
   }
@@ -125,17 +171,22 @@ export async function getFailureDetails(params: {
     arguments: params,
   });
 
-  if (result.content && Array.isArray(result.content) && result.content.length > 0) {
-    const textContent = result.content.find((c: any) => c.type === 'text');
-    if (textContent && 'text' in textContent) {
-      logger.info('Retrieved failure details', {
-        length: textContent.text.length,
-      });
-      return textContent.text;
-    }
-  }
+  const context = params.run_id
+    ? `run ${params.run_id}`
+    : params.pr_number
+      ? `PR #${params.pr_number}`
+      : params.branch
+        ? `branch ${params.branch}`
+        : 'unknown';
 
-  throw new Error('No text content in gh_get_failure_details response');
+  const text = extractTextFromMCPResult(result, 'gh_get_failure_details', context);
+
+  logger.info('Retrieved failure details', {
+    length: text.length,
+    context,
+  });
+
+  return text;
 }
 
 /**
@@ -220,25 +271,24 @@ export async function monitorPRChecks(params: {
  * @param result - Raw MCP tool result
  * @param branch - Branch name for context
  * @returns MonitorResult with success boolean and error summary
+ * @throws Error if result format is invalid
  */
 function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult {
   // Extract text from result
-  if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
-    throw new Error('No content in gh_monitor_run response');
-  }
-
-  const textContent = result.content.find((c: any) => c.type === 'text');
-  if (!textContent || !('text' in textContent)) {
-    throw new Error('No text content in gh_monitor_run response');
-  }
-
-  const text = textContent.text;
-  logger.info('Parsed workflow monitor result', { textLength: text.length });
+  const text = extractTextFromMCPResult(result, 'gh_monitor_run', `branch ${branch}`);
+  logger.info('Parsed workflow monitor result', { textLength: text.length, branch });
 
   // Parse the text to determine success/failure
   // Look for "Conclusion: success" vs other conclusions
   const conclusionMatch = text.match(/Conclusion: (\w+)/);
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
+
+  if (!conclusion) {
+    logger.warn('Could not parse conclusion from gh_monitor_run response', {
+      branch,
+      textSnippet: text.substring(0, 200),
+    });
+  }
 
   const success = conclusion === 'success';
 
@@ -268,20 +318,12 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
  * @param result - Raw MCP tool result
  * @param prNumber - PR number for context
  * @returns MonitorResult with success boolean and error summary
+ * @throws Error if result format is invalid
  */
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
-  if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
-    throw new Error('No content in gh_monitor_pr_checks response');
-  }
-
-  const textContent = result.content.find((c: any) => c.type === 'text');
-  if (!textContent || !('text' in textContent)) {
-    throw new Error('No text content in gh_monitor_pr_checks response');
-  }
-
-  const text = textContent.text;
-  logger.info('Parsed PR checks monitor result', { textLength: text.length });
+  const text = extractTextFromMCPResult(result, 'gh_monitor_pr_checks', `PR #${prNumber}`);
+  logger.info('Parsed PR checks monitor result', { textLength: text.length, prNumber });
 
   // Parse failure count from summary line: "Success: N, Failed: N, Other: N"
   const failureMatch = text.match(/Failed: (\d+)/);
@@ -291,16 +333,28 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   const statusMatch = text.match(/Overall Status: (\w+)/);
   const overallStatus = statusMatch ? statusMatch[1] : null;
 
+  if (failureCount === null && !overallStatus) {
+    logger.warn('Could not parse failure count or status from gh_monitor_pr_checks response', {
+      prNumber,
+      textSnippet: text.substring(0, 200),
+    });
+  }
+
   // Determine success based on failure count (preferred) or status (fallback)
   let success: boolean;
   if (failureCount !== null) {
     // Primary logic: success if no failures, regardless of skipped/other checks
     success = failureCount === 0;
-    logger.info('Determined success from failure count', { failureCount, success, overallStatus });
+    logger.info('Determined success from failure count', {
+      failureCount,
+      success,
+      overallStatus,
+      prNumber,
+    });
   } else {
     // Fallback: use status-based logic if failure count not parseable
     success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
-    logger.info('Determined success from status (fallback)', { overallStatus, success });
+    logger.info('Determined success from status (fallback)', { overallStatus, success, prNumber });
   }
 
   if (success) {

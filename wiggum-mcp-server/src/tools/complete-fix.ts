@@ -10,6 +10,7 @@ import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
+import { STEP_ORDER } from '../constants.js';
 import type { ToolResult } from '../types.js';
 
 export const CompleteFixInputSchema = z.object({
@@ -49,12 +50,10 @@ ${input.fix_description}
 
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found
-  const currentStepIndex = ['0', '1', '1b', '2', '3', '4', '4b', 'approval'].indexOf(
-    state.wiggum.step
-  );
+  const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step as any);
 
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
-    const stepIndex = ['0', '1', '1b', '2', '3', '4', '4b', 'approval'].indexOf(step);
+    const stepIndex = STEP_ORDER.indexOf(step as any);
     return stepIndex < currentStepIndex;
   });
 

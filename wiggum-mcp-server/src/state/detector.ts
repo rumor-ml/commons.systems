@@ -85,9 +85,21 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     };
   } catch (error) {
     // Expected: no PR exists for current branch (GitHubCliError)
-    // Log unexpected errors
-    if (error instanceof Error && !error.message.includes('no pull requests found')) {
-      console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`);
+    // Log unexpected errors with full context
+    if (error instanceof Error) {
+      const isExpectedError = error.message.includes('no pull requests found');
+
+      if (!isExpectedError) {
+        // Unexpected error - provide full diagnostic information
+        console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`, {
+          repo,
+          errorType: error.constructor.name,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
+        });
+      }
+    } else {
+      // Non-Error thrown - log it
+      console.warn(`detectPRState: unexpected non-Error thrown: ${String(error)}`);
     }
 
     return {

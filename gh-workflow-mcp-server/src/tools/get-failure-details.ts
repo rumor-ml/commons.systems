@@ -70,6 +70,31 @@ interface FailedJobSummary {
 }
 
 /**
+ * Format error message with context for logging
+ *
+ * Provides consistent error formatting with optional exit code information
+ *
+ * @param error - Error to format
+ * @param context - Optional context string to include in message
+ * @returns Formatted error message string
+ */
+function formatErrorMessage(error: unknown, context?: string): string {
+  const contextPrefix = context ? `${context}: ` : '';
+
+  if (error instanceof GitHubCliError) {
+    const exitCodeInfo = error.exitCode ? ` (exit code: ${error.exitCode})` : '';
+    const stderrInfo = error.stderr ? ` - ${error.stderr}` : '';
+    return `${contextPrefix}GitHub CLI error: ${error.message}${stderrInfo}${exitCodeInfo}`;
+  }
+
+  if (error instanceof Error) {
+    return `${contextPrefix}${error.message}`;
+  }
+
+  return `${contextPrefix}Unknown error: ${String(error)}`;
+}
+
+/**
  * Extract test summary from logs (e.g., "1 failed, 77 passed")
  * Playwright outputs these on separate lines, so we need to find and combine them
  */
@@ -283,7 +308,12 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // - No failed steps in the run (edge case)
         // - GitHub CLI version doesn't support --log-failed
         // - Other GitHub API issues
-        console.error('Failed to get --log-failed output, falling back to API approach:', error);
+        console.error(
+          formatErrorMessage(
+            error,
+            `Failed to get --log-failed output for run ${runId}, falling back to API approach`
+          )
+        );
       }
     }
 
@@ -412,20 +442,20 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
           totalChars += last100Lines.join('\n').length;
         }
       } catch (error) {
-        console.error(`Failed to retrieve logs for job ${job.name}:`, error);
+        const errorMessage = formatErrorMessage(
+          error,
+          `Failed to retrieve logs for job ${job.name} in run ${runId}`
+        );
+        console.error(errorMessage);
 
-        const errorMessage =
-          error instanceof GitHubCliError
-            ? `GitHub CLI error: ${error.message}${error.stderr ? ` - ${error.stderr}` : ''}`
-            : error instanceof Error
-              ? `Error: ${error.message}`
-              : `Unknown error: ${String(error)}`;
+        // Extract just the error details for the failed step display
+        const errorDetailsOnly = formatErrorMessage(error);
 
         failedSteps.push({
           name: 'Unable to retrieve logs',
           conclusion: job.conclusion,
           error_lines: [
-            errorMessage,
+            errorDetailsOnly,
             error instanceof GitHubCliError && error.exitCode ? `Exit code: ${error.exitCode}` : '',
           ].filter(Boolean),
         });

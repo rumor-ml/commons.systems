@@ -27,22 +27,16 @@ import {
   WORKFLOW_MONITOR_TIMEOUT_MS,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import type { CurrentState } from './types.js';
+import type { CurrentState, PRStateValue, PRExists } from './types.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
  * Used in handlers after Step 0
+ *
+ * Uses PRStateValue constraint to ensure type-safe narrowing
  */
 type CurrentStateWithPR = CurrentState & {
-  pr: {
-    exists: true;
-    number: number;
-    title: string;
-    url: string;
-    labels: string[];
-    headRefName: string;
-    baseRefName: string;
-  };
+  pr: PRStateValue & PRExists;
 };
 
 interface WiggumInstructions {
@@ -58,6 +52,64 @@ interface WiggumInstructions {
     pr_number?: number;
     current_branch?: string;
   };
+}
+
+/**
+ * Helper: Check for uncommitted changes and return early exit if found
+ */
+function checkUncommittedChanges(
+  state: CurrentState,
+  output: WiggumInstructions,
+  stepsCompleted: string[]
+): ToolResult | null {
+  if (state.git.hasUncommittedChanges) {
+    output.instructions =
+      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
+    return {
+      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    };
+  }
+  return null;
+}
+
+/**
+ * Helper: Check if branch is pushed and return early exit if not
+ */
+function checkBranchPushed(
+  state: CurrentState,
+  output: WiggumInstructions,
+  stepsCompleted: string[]
+): ToolResult | null {
+  if (!state.git.isPushed) {
+    output.instructions =
+      'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
+    output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
+    return {
+      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    };
+  }
+  return null;
+}
+
+/**
+ * Helper: Format fix instructions for workflow/check failures
+ */
+function formatFixInstructions(
+  failureType: string,
+  failureDetails: string | undefined,
+  defaultMessage: string
+): string {
+  return `${failureType} failed. Follow these steps to fix:
+
+1. Analyze the error details below (includes test failures, stack traces, file locations)
+2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
+3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
+4. Execute /commit-merge-push slash command using SlashCommand tool
+5. Call wiggum_complete_fix with fix_description
+
+**Failure Details:**
+${failureDetails || defaultMessage}`;
 }
 
 /**
@@ -273,40 +325,23 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
     // CONTINUE to Step 1b: Monitor PR checks
     // Check for uncommitted changes
     const updatedState = await detectCurrentState();
-    if (updatedState.git.hasUncommittedChanges) {
-      output.instructions =
-        'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
-      output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
-      return {
-        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-      };
-    }
 
-    // Check if branch is pushed
-    if (!updatedState.git.isPushed) {
-      output.instructions =
-        'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
-      output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
-      return {
-        content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-      };
-    }
+    const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
+    if (uncommittedCheck) return uncommittedCheck;
+
+    const pushCheck = checkBranchPushed(updatedState, output, stepsCompleted);
+    if (pushCheck) return pushCheck;
 
     // Monitor PR checks
     const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
     if (!prChecksResult.success) {
       // PR checks failed - return fix instructions
-      output.instructions = `PR checks failed. Follow these steps to fix:
-
-1. Analyze the error details below (includes test failures, stack traces, file locations)
-2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
-3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-4. Execute /commit-merge-push slash command using SlashCommand tool
-5. Call wiggum_complete_fix with fix_description
-
-**Failure Details:**
-${prChecksResult.failureDetails || prChecksResult.errorSummary || 'See PR checks for details'}`;
+      output.instructions = formatFixInstructions(
+        'PR checks',
+        prChecksResult.failureDetails || prChecksResult.errorSummary,
+        'See PR checks for details'
+      );
       output.steps_completed_by_tool = [
         ...stepsCompleted,
         'Checked for uncommitted changes',
@@ -349,16 +384,11 @@ ${prChecksResult.failureDetails || prChecksResult.errorSummary || 'See PR checks
     );
   } else {
     // Return fix instructions
-    output.instructions = `Workflow failed. Follow these steps to fix:
-
-1. Analyze the error details below (includes test failures, stack traces, file locations)
-2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
-3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-4. Execute /commit-merge-push slash command using SlashCommand tool
-5. Call wiggum_complete_fix with fix_description
-
-**Failure Details:**
-${result.failureDetails || result.errorSummary || 'See workflow logs for details'}`;
+    output.instructions = formatFixInstructions(
+      'Workflow',
+      result.failureDetails || result.errorSummary,
+      'See workflow logs for details'
+    );
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
       'Retrieved complete failure details via gh_get_failure_details tool',
@@ -386,25 +416,11 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     },
   };
 
-  // Check for uncommitted changes
-  if (state.git.hasUncommittedChanges) {
-    output.instructions =
-      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
-    output.steps_completed_by_tool = ['Checked for uncommitted changes'];
-    return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-    };
-  }
+  const uncommittedCheck = checkUncommittedChanges(state, output, []);
+  if (uncommittedCheck) return uncommittedCheck;
 
-  // Check if branch is pushed
-  if (!state.git.isPushed) {
-    output.instructions =
-      'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
-    output.steps_completed_by_tool = ['Checked push status'];
-    return {
-      content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-    };
-  }
+  const pushCheck = checkBranchPushed(state, output, []);
+  if (pushCheck) return pushCheck;
 
   // Call monitoring tool directly
   const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
@@ -443,16 +459,11 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     );
   } else {
     // Return fix instructions
-    output.instructions = `PR checks failed. Follow these steps to fix:
-
-1. Analyze the error details below (includes test failures, stack traces, file locations)
-2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
-3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
-4. Execute /commit-merge-push slash command using SlashCommand tool
-5. Call wiggum_complete_fix with fix_description
-
-**Failure Details:**
-${result.failureDetails || result.errorSummary || 'See PR checks for details'}`;
+    output.instructions = formatFixInstructions(
+      'PR checks',
+      result.failureDetails || result.errorSummary,
+      'See PR checks for details'
+    );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',
       'Checked push status',

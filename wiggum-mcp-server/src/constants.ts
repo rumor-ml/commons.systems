@@ -38,6 +38,21 @@ export type WiggumStep =
   | typeof STEP_APPROVAL;
 
 /**
+ * Ordered list of steps in the Wiggum workflow
+ * Used for step index calculations and filtering
+ */
+export const STEP_ORDER: readonly WiggumStep[] = [
+  STEP_ENSURE_PR,
+  STEP_MONITOR_WORKFLOW,
+  STEP_MONITOR_PR_CHECKS,
+  STEP_CODE_QUALITY,
+  STEP_PR_REVIEW,
+  STEP_SECURITY_REVIEW,
+  STEP_VERIFY_REVIEWS,
+  STEP_APPROVAL,
+] as const;
+
+/**
  * Validates if a string is a valid WiggumStep
  * @param step - The step to validate
  * @returns true if the step is valid
