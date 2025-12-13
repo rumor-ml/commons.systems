@@ -272,17 +272,17 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
     // Return fix instructions
     output.instructions = `Workflow failed. Follow these steps to fix:
 
-1. Analyze the error (details below)
+1. Analyze the error details below (includes test failures, stack traces, file locations)
 2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
 3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
 4. Execute /commit-merge-push slash command using SlashCommand tool
 5. Call wiggum_complete_fix with fix_description
 
-Error details:
-${result.errorSummary || 'See workflow logs for details'}`;
+**Failure Details:**
+${result.failureDetails || result.errorSummary || 'See workflow logs for details'}`;
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
-      'Extracted failure details and logs',
+      'Retrieved complete failure details via gh_get_failure_details tool',
     ];
   }
 
@@ -359,20 +359,19 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
     // Return fix instructions
     output.instructions = `PR checks failed. Follow these steps to fix:
 
-1. Analyze the error (details below)
+1. Analyze the error details below (includes test failures, stack traces, file locations)
 2. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan
 3. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fix
 4. Execute /commit-merge-push slash command using SlashCommand tool
 5. Call wiggum_complete_fix with fix_description
 
-Error details:
-${result.errorSummary || 'See PR checks for details'}`;
+**Failure Details:**
+${result.failureDetails || result.errorSummary || 'See PR checks for details'}`;
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',
       'Checked push status',
       'Monitored PR checks until first failure',
-      'Extracted complete check status for all checks',
-      'Retrieved failure context from logs',
+      'Retrieved complete failure details via gh_get_failure_details tool',
     ];
   }
 
@@ -436,7 +435,10 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 3. If all comments are invalid/should be ignored:
    - Mark step complete and proceed to next step
    - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
-    output.steps_completed_by_tool = ['Fetched code quality bot comments', 'Counted total comments'];
+    output.steps_completed_by_tool = [
+      'Fetched code quality bot comments',
+      'Counted total comments',
+    ];
   }
 
   return {

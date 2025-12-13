@@ -140,7 +140,9 @@ describe('Logger', () => {
 
       const call = consoleErrorMock.mock.calls[0];
       const logOutput = String(call.arguments[0]);
-      assert.ok(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[WARN\] test message$/.test(logOutput));
+      assert.ok(
+        /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[WARN\] test message$/.test(logOutput)
+      );
     });
 
     it('should serialize structured data as JSON', () => {
@@ -167,7 +169,9 @@ describe('Logger', () => {
 
       const call = consoleErrorMock.mock.calls[0];
       const logOutput = String(call.arguments[0]);
-      assert.ok(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[ERROR\] simple error$/.test(logOutput));
+      assert.ok(
+        /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[ERROR\] simple error$/.test(logOutput)
+      );
     });
   });
 
