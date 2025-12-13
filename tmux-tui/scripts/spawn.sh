@@ -42,11 +42,16 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1)
 
 # Start daemon if not already running
+# ONLY spawn from main branch or if TMUX_TUI_RESTART=1 (from restart-tui.sh)
 DAEMON_BIN="$PROJECT_ROOT/build/tmux-tui-daemon"
 if [ -f "$DAEMON_BIN" ]; then
-  # Daemon auto-detects namespace from $TMUX
-  # It will exit immediately if already running
-  "$DAEMON_BIN" >/dev/null 2>&1 &
+  # Check if this is main branch (~/commons.systems) or explicit restart
+  MAIN_BRANCH_DIR="$HOME/commons.systems/tmux-tui"
+  if [ "$PROJECT_ROOT" = "$MAIN_BRANCH_DIR" ] || [ "$TMUX_TUI_RESTART" = "1" ]; then
+    # Daemon auto-detects namespace from $TMUX
+    # It will exit immediately if already running (via lock file)
+    "$DAEMON_BIN" >/dev/null 2>&1 &
+  fi
 fi
 
 # Get the current pane in THIS window (before split, there's only one pane)

@@ -16,19 +16,17 @@ func main() {
 	ns := namespace.GetSessionNamespace()
 	debug.Log("DAEMON_MAIN namespace=%s", ns)
 
-	// Check if daemon is already running
-	socketPath := namespace.DaemonSocket()
-	if _, err := os.Stat(socketPath); err == nil {
-		// Socket exists - daemon may be running
-		// Try to connect to verify
-		if isDaemonRunning(socketPath) {
-			fmt.Fprintf(os.Stderr, "Daemon already running at %s\n", socketPath)
-			os.Exit(0)
-		}
-		// Stale socket - remove it
-		debug.Log("DAEMON_MAIN removing stale socket=%s", socketPath)
-		os.Remove(socketPath)
+	// Acquire lock file FIRST - this enforces singleton across all worktrees
+	lockPath := namespace.DaemonLockFile()
+	lockFile, err := daemon.AcquireLockFile(lockPath)
+	if err != nil {
+		// Lock already held - another daemon is running
+		// Exit gracefully (code 0) - this is expected behavior
+		debug.Log("DAEMON_MAIN lock_held path=%s", lockPath)
+		fmt.Fprintf(os.Stderr, "Daemon already running (lock held at %s)\n", lockPath)
+		os.Exit(0)
 	}
+	defer lockFile.Release()
 
 	// Create and start daemon
 	d, err := daemon.NewAlertDaemon()
@@ -62,15 +60,4 @@ func main() {
 
 	debug.Log("DAEMON_MAIN stopped")
 	fmt.Println("Daemon stopped")
-}
-
-// isDaemonRunning checks if the daemon is running by attempting to connect to the socket.
-func isDaemonRunning(socketPath string) bool {
-	// Simple check - try to create a client and connect
-	client := daemon.NewDaemonClient()
-	if err := client.Connect(); err == nil {
-		client.Close()
-		return true
-	}
-	return false
 }
