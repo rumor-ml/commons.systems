@@ -24,6 +24,7 @@ import {
   PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
+  WORKFLOW_MONITOR_TIMEOUT_MS,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import type { CurrentState } from './types.js';
@@ -243,7 +244,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
   };
 
   // Call monitoring tool directly
-  const result = await monitorRun(state.git.currentBranch);
+  const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
     // Mark step complete
@@ -328,7 +329,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   }
 
   // Call monitoring tool directly
-  const result = await monitorPRChecks(state.pr.number);
+  const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
     // Mark step complete

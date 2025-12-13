@@ -5,6 +5,7 @@
 // Maximum characters to return in tool responses to stay within token limits
 export const MAX_RESPONSE_LENGTH = 10000;
 export const WORKFLOW_LOG_MAX_CHARS = 50000; // For complete error logs in automated workflows
+export const WORKFLOW_MONITOR_TIMEOUT_MS = 600000; // 10 minutes for workflow/PR check monitoring
 
 // Wiggum flow constants
 export const MAX_ITERATIONS = 10;

@@ -12,7 +12,7 @@ import {
   monitorPRChecks as clientMonitorPRChecks,
   getFailureDetails,
 } from './gh-workflow-client.js';
-import { WORKFLOW_LOG_MAX_CHARS } from '../constants.js';
+import { WORKFLOW_LOG_MAX_CHARS, WORKFLOW_MONITOR_TIMEOUT_MS } from '../constants.js';
 
 export interface MonitorResult {
   success: boolean;
@@ -37,7 +37,10 @@ export interface MonitorResult {
  * }
  * ```
  */
-export async function monitorRun(branch: string, timeoutMs = 600000): Promise<MonitorResult> {
+export async function monitorRun(
+  branch: string,
+  timeoutMs = WORKFLOW_MONITOR_TIMEOUT_MS
+): Promise<MonitorResult> {
   logger.info('monitorRun delegating to gh_monitor_run MCP tool', { branch, timeoutMs });
 
   const result = await clientMonitorRun({
@@ -79,7 +82,7 @@ export async function monitorRun(branch: string, timeoutMs = 600000): Promise<Mo
  */
 export async function monitorPRChecks(
   prNumber: number,
-  timeoutMs = 600000
+  timeoutMs = WORKFLOW_MONITOR_TIMEOUT_MS
 ): Promise<MonitorResult> {
   logger.info('monitorPRChecks delegating to gh_monitor_pr_checks MCP tool', {
     prNumber,
