@@ -125,6 +125,7 @@ export class GoExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     const testResults = new Map<string, 'pass' | 'fail'>();
     const testDurations = new Map<string, number>();
+    let skippedNonJsonLines = 0;
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
@@ -155,9 +156,16 @@ export class GoExtractor implements FrameworkExtractor {
           testResults.set(key, 'pass');
         }
       } catch {
-        // Skip invalid JSON lines
+        // Skip invalid JSON lines - may be build output or other non-test logs
+        skippedNonJsonLines++;
         continue;
       }
+    }
+
+    if (skippedNonJsonLines > 0) {
+      console.error(
+        `[DEBUG] Go extractor: skipped ${skippedNonJsonLines} non-JSON lines during parsing`
+      );
     }
 
     // Extract failures with their output

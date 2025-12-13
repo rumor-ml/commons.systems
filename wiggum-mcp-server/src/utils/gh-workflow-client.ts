@@ -280,6 +280,14 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
 
   // Parse the text to determine success/failure
   // Look for "Conclusion: success" vs other conclusions
+  //
+  // Expected format from gh_monitor_run:
+  //   "Conclusion: success" or "Conclusion: failure" or "Conclusion: cancelled"
+  //
+  // This regex would break if:
+  //   - The text uses different capitalization (e.g., "CONCLUSION:" or "conclusion:")
+  //   - The conclusion contains spaces or non-word characters
+  //   - The format changes to use different punctuation (e.g., "Conclusion = success")
   const conclusionMatch = text.match(/Conclusion: (\w+)/);
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
 
@@ -326,10 +334,26 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   logger.info('Parsed PR checks monitor result', { textLength: text.length, prNumber });
 
   // Parse failure count from summary line: "Success: N, Failed: N, Other: N"
+  //
+  // Expected format from gh_monitor_pr_checks:
+  //   "Success: 5, Failed: 2, Other: 1"
+  //
+  // This regex would break if:
+  //   - The format uses different capitalization (e.g., "failed:" or "FAILED:")
+  //   - The count is not a simple integer (e.g., "Failed: N/A" or "Failed: 2.5")
+  //   - The format changes to use different punctuation (e.g., "Failed=2" or "Failed - 2")
   const failureMatch = text.match(/Failed: (\d+)/);
   const failureCount = failureMatch ? parseInt(failureMatch[1], 10) : null;
 
   // Parse overall status as fallback context
+  //
+  // Expected format from gh_monitor_pr_checks:
+  //   "Overall Status: SUCCESS" or "Overall Status: FAILURE" or "Overall Status: BLOCKED"
+  //
+  // This regex would break if:
+  //   - The status contains spaces or non-word characters
+  //   - The format uses different capitalization (e.g., "overall status:" or "Overall status:")
+  //   - The format changes to use different punctuation (e.g., "Overall Status = SUCCESS")
   const statusMatch = text.match(/Overall Status: (\w+)/);
   const overallStatus = statusMatch ? statusMatch[1] : null;
 

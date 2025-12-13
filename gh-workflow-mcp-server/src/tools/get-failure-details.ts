@@ -314,6 +314,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
             `Failed to get --log-failed output for run ${runId}, falling back to API approach`
           )
         );
+        // Note: Subsequent output will use GitHub API jobs endpoint instead of --log-failed
       }
     }
 

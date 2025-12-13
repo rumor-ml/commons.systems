@@ -387,16 +387,23 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     // Try progressive parsing - keep adding lines until we have valid JSON
     // This handles nested braces in strings correctly
+    let skippedLines = 0;
     for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
       try {
         const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
         const parsed = JSON.parse(candidate);
         // Successfully parsed and has the expected structure
         if (parsed.suites || parsed.config) {
+          if (skippedLines > 0) {
+            console.error(
+              `[DEBUG] Playwright JSON extraction: skipped ${skippedLines} lines before finding complete JSON (jsonStart=${jsonStart}, jsonEnd=${jsonEnd})`
+            );
+          }
           return candidate;
         }
       } catch {
         // Keep trying with more lines
+        skippedLines++;
       }
     }
 
