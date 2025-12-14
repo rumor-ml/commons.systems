@@ -1,6 +1,9 @@
 // playwright.base.config.ts
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
+// Export environment detection for use in test files
+export const isDeployed = process.env.DEPLOYED === 'true';
+
 export interface SiteConfig {
   siteName: string;
   port: number;
@@ -41,6 +44,8 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     timeout: site.timeout || 60000,
     globalSetup: site.globalSetup,
     globalTeardown: site.globalTeardown,
+    // Exclude @emulator-only tests when running in deployed environment
+    grep: isDeployed ? /^(?!.*@emulator-only).*/ : undefined,
 
     reporter: process.env.CI
       ? [['list'], ['json', { outputFile: 'test-results.json' }], ['github']]

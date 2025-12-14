@@ -7,10 +7,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
+# Use WORKTREE_TMP_DIR from allocate-test-ports.sh
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-WORKTREE_HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
-PID_FILE="/tmp/claude/firebase-emulators-${WORKTREE_HASH}.pid"
-LOG_FILE="/tmp/claude/firebase-emulators-${WORKTREE_HASH}.log"
+PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
+LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
+TEMP_FIREBASE_JSON="${WORKTREE_TMP_DIR}/firebase.json"
 
 echo "Stopping Firebase emulators for this worktree..."
 echo "  Worktree: $(basename "$WORKTREE_ROOT")"
@@ -37,6 +38,11 @@ echo "✓ Cleaned up PID file"
 if [ -f "$LOG_FILE" ]; then
   rm -f "$LOG_FILE"
   echo "✓ Cleaned up log file"
+fi
+
+if [ -f "$TEMP_FIREBASE_JSON" ]; then
+  rm -f "$TEMP_FIREBASE_JSON"
+  echo "✓ Cleaned up temporary Firebase config"
 fi
 
 echo ""

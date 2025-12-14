@@ -5,7 +5,7 @@
 
 import { test, expect } from '../../../playwright.fixtures.ts';
 
-test.describe('Auth-Aware UI - Logged Out State', () => {
+test.describe('@emulator-only Auth-Aware UI - Logged Out State', () => {
   test('should hide Add Card button when logged out', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -52,7 +52,7 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
   });
 });
 
-test.describe('Auth-Aware UI - Modal Controls', () => {
+test.describe('@emulator-only Auth-Aware UI - Modal Controls', () => {
   test('should hide Delete button in modal when logged out', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -79,7 +79,7 @@ test.describe('Auth-Aware UI - Modal Controls', () => {
   });
 });
 
-test.describe('Auth-Aware UI - Body Class Management', () => {
+test.describe('@emulator-only Auth-Aware UI - Body Class Management', () => {
   test('body should not have authenticated class on page load', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -101,7 +101,7 @@ test.describe('Auth-Aware UI - Body Class Management', () => {
   });
 });
 
-test.describe('Auth-Aware UI - CSS Verification', () => {
+test.describe('@emulator-only Auth-Aware UI - CSS Verification', () => {
   test('auth-controls class should have display:none by default', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -128,7 +128,7 @@ test.describe('Auth-Aware UI - CSS Verification', () => {
   });
 });
 
-test.describe('Auth-Aware UI - Read-Only Mode', () => {
+test.describe('@emulator-only Auth-Aware UI - Read-Only Mode', () => {
   test('should allow viewing cards when logged out', async ({ page }) => {
     await page.goto('/cards.html');
 

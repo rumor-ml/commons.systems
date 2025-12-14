@@ -41,7 +41,7 @@ func NewGCSUploader(
 		gcsClient:       gcsClient,
 		firestoreClient: firestoreClient,
 		bucket:          bucket,
-		collection:      filesCollection, // default to filesCollection from firestore_store.go
+		collection:      getCollectionName(filesCollectionBase), // default to filesCollection from firestore_store.go
 	}
 
 	for _, opt := range opts {

@@ -13,14 +13,9 @@ PROJECT_ID="demo-test"
 MAX_RETRIES=60  # Increased for initial jar downloads
 RETRY_INTERVAL=1
 
-# Worktree-specific PID and log files
-WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-WORKTREE_HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
-PID_FILE="/tmp/claude/firebase-emulators-${WORKTREE_HASH}.pid"
-LOG_FILE="/tmp/claude/firebase-emulators-${WORKTREE_HASH}.log"
-
-# Ensure temp directory exists
-mkdir -p /tmp/claude
+# Worktree-specific PID and log files (use WORKTREE_TMP_DIR from allocate-test-ports.sh)
+PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
+LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
 
 echo "Firebase Emulators (Worktree-Specific Instance):"
 echo "  Auth: localhost:${AUTH_PORT}"
@@ -43,8 +38,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Generate temporary firebase.json with worktree-specific ports using jq
-# Keep config in repo root so relative rules paths work correctly
-TEMP_FIREBASE_JSON="${REPO_ROOT}/.firebase-${WORKTREE_HASH}.json"
+# Store in worktree temp directory
+TEMP_FIREBASE_JSON="${WORKTREE_TMP_DIR}/firebase.json"
 jq --arg auth_port "$AUTH_PORT" \
    --arg firestore_port "$FIRESTORE_PORT" \
    --arg storage_port "$STORAGE_PORT" \

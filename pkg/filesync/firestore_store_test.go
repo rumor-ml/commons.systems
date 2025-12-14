@@ -28,13 +28,13 @@ func getTestClient(t *testing.T) *firestore.Client {
 func cleanupSession(t *testing.T, client *firestore.Client, sessionID string) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = client.Collection(sessionsCollection).Doc(sessionID).Delete(ctx)
+	_, _ = client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Delete(ctx)
 }
 
 func cleanupFile(t *testing.T, client *firestore.Client, fileID string) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = client.Collection(filesCollection).Doc(fileID).Delete(ctx)
+	_, _ = client.Collection(getCollectionName(filesCollectionBase)).Doc(fileID).Delete(ctx)
 }
 
 func TestFirestoreSessionStore_Create(t *testing.T) {

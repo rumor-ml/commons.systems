@@ -56,4 +56,23 @@ discover_apps() {
       echo "$name:go-package:$dir"
     fi
   done
+
+  # MCP servers: *-mcp-server directories with package.json that has test script
+  if [[ -z "$type_filter" || "$type_filter" == "mcp-server" ]]; then
+    for dir in "$root_dir"/*-mcp-server/; do
+      [[ ! -d "$dir" ]] && continue
+      local name=$(basename "$dir")
+
+      # Apply name filter
+      [[ -n "$name_filter" && "$name" != "$name_filter" ]] && continue
+
+      # Check for package.json with test script
+      local pkg_json="${dir}package.json"
+      if [[ -f "$pkg_json" ]]; then
+        if grep -q '"test"' "$pkg_json" 2>/dev/null; then
+          echo "$name:mcp-server:$dir"
+        fi
+      fi
+    done
+  fi
 }

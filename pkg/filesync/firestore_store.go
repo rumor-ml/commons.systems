@@ -4,15 +4,49 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"regexp"
+	"strings"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 )
 
 const (
-	sessionsCollection = "printsync-sessions"
-	filesCollection    = "printsync-files"
+	sessionsCollectionBase = "printsync-sessions"
+	filesCollectionBase    = "printsync-files"
 )
+
+// getCollectionPrefix returns the collection prefix based on environment variables
+// For PR previews: pr_<number>
+// For branch previews: preview_<sanitized-branch-name>
+// For production: empty string (no prefix)
+func getCollectionPrefix() string {
+	// Check for PR number first (highest priority)
+	if prNumber := os.Getenv("PR_NUMBER"); prNumber != "" {
+		return fmt.Sprintf("pr_%s_", prNumber)
+	}
+
+	// Check for branch name
+	if branchName := os.Getenv("BRANCH_NAME"); branchName != "" && branchName != "main" {
+		// Sanitize branch name: lowercase, replace invalid chars with -, max 50 chars
+		sanitized := strings.ToLower(branchName)
+		reg := regexp.MustCompile(`[^a-z0-9-]`)
+		sanitized = reg.ReplaceAllString(sanitized, "-")
+		if len(sanitized) > 50 {
+			sanitized = sanitized[:50]
+		}
+		return fmt.Sprintf("preview_%s_", sanitized)
+	}
+
+	// Production: no prefix
+	return ""
+}
+
+// getCollectionName returns the prefixed collection name
+func getCollectionName(baseCollection string) string {
+	return getCollectionPrefix() + baseCollection
+}
 
 // FirestoreSessionStore implements SessionStore using Firestore
 type FirestoreSessionStore struct {
@@ -30,7 +64,7 @@ func (s *FirestoreSessionStore) Create(ctx context.Context, session *SyncSession
 		return fmt.Errorf("session ID is required")
 	}
 
-	_, err := s.client.Collection(sessionsCollection).Doc(session.ID).Set(ctx, session)
+	_, err := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(session.ID).Set(ctx, session)
 	return err
 }
 
@@ -40,13 +74,13 @@ func (s *FirestoreSessionStore) Update(ctx context.Context, session *SyncSession
 		return fmt.Errorf("session ID is required")
 	}
 
-	_, err := s.client.Collection(sessionsCollection).Doc(session.ID).Set(ctx, session)
+	_, err := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(session.ID).Set(ctx, session)
 	return err
 }
 
 // Get retrieves a sync session by ID
 func (s *FirestoreSessionStore) Get(ctx context.Context, sessionID string) (*SyncSession, error) {
-	doc, err := s.client.Collection(sessionsCollection).Doc(sessionID).Get(ctx)
+	doc, err := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +96,7 @@ func (s *FirestoreSessionStore) Get(ctx context.Context, sessionID string) (*Syn
 
 // List retrieves all sync sessions for a user, ordered by start time descending
 func (s *FirestoreSessionStore) List(ctx context.Context, userID string) ([]*SyncSession, error) {
-	iter := s.client.Collection(sessionsCollection).
+	iter := s.client.Collection(getCollectionName(sessionsCollectionBase)).
 		Where("userId", "==", userID).
 		OrderBy("startedAt", firestore.Desc).
 		Documents(ctx)
@@ -93,7 +127,7 @@ func (s *FirestoreSessionStore) List(ctx context.Context, userID string) ([]*Syn
 // Subscribe subscribes to real-time updates for a session
 func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession)) error {
 	go func() {
-		iter := s.client.Collection(sessionsCollection).Doc(sessionID).Snapshots(ctx)
+		iter := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Snapshots(ctx)
 		defer iter.Stop()
 
 		consecutiveErrors := 0
@@ -135,7 +169,7 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 
 // Delete deletes a sync session
 func (s *FirestoreSessionStore) Delete(ctx context.Context, sessionID string) error {
-	_, err := s.client.Collection(sessionsCollection).Doc(sessionID).Delete(ctx)
+	_, err := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Delete(ctx)
 	return err
 }
 
@@ -155,7 +189,7 @@ func (f *FirestoreFileStore) Create(ctx context.Context, file *SyncFile) error {
 		return fmt.Errorf("file ID is required")
 	}
 
-	_, err := f.client.Collection(filesCollection).Doc(file.ID).Set(ctx, file)
+	_, err := f.client.Collection(getCollectionName(filesCollectionBase)).Doc(file.ID).Set(ctx, file)
 	return err
 }
 
@@ -165,13 +199,13 @@ func (f *FirestoreFileStore) Update(ctx context.Context, file *SyncFile) error {
 		return fmt.Errorf("file ID is required")
 	}
 
-	_, err := f.client.Collection(filesCollection).Doc(file.ID).Set(ctx, file)
+	_, err := f.client.Collection(getCollectionName(filesCollectionBase)).Doc(file.ID).Set(ctx, file)
 	return err
 }
 
 // Get retrieves a sync file by ID
 func (f *FirestoreFileStore) Get(ctx context.Context, fileID string) (*SyncFile, error) {
-	doc, err := f.client.Collection(filesCollection).Doc(fileID).Get(ctx)
+	doc, err := f.client.Collection(getCollectionName(filesCollectionBase)).Doc(fileID).Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +221,7 @@ func (f *FirestoreFileStore) Get(ctx context.Context, fileID string) (*SyncFile,
 
 // ListBySession retrieves all files for a session
 func (f *FirestoreFileStore) ListBySession(ctx context.Context, sessionID string) ([]*SyncFile, error) {
-	iter := f.client.Collection(filesCollection).
+	iter := f.client.Collection(getCollectionName(filesCollectionBase)).
 		Where("sessionId", "==", sessionID).
 		Documents(ctx)
 	defer iter.Stop()
@@ -217,7 +251,7 @@ func (f *FirestoreFileStore) ListBySession(ctx context.Context, sessionID string
 // SubscribeBySession subscribes to real-time updates for all files in a session
 func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile)) error {
 	go func() {
-		iter := f.client.Collection(filesCollection).
+		iter := f.client.Collection(getCollectionName(filesCollectionBase)).
 			Where("sessionId", "==", sessionID).
 			Snapshots(ctx)
 		defer iter.Stop()
@@ -263,6 +297,6 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 
 // Delete deletes a sync file
 func (f *FirestoreFileStore) Delete(ctx context.Context, fileID string) error {
-	_, err := f.client.Collection(filesCollection).Doc(fileID).Delete(ctx)
+	_, err := f.client.Collection(getCollectionName(filesCollectionBase)).Doc(fileID).Delete(ctx)
 	return err
 }

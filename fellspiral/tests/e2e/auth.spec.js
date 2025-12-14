@@ -5,7 +5,7 @@
 
 import { test, expect } from '../../../playwright.fixtures.ts';
 
-test.describe('Authentication', () => {
+test.describe('@emulator-only Authentication', () => {
   test('should display sign in button when not authenticated', async ({ page }) => {
     await page.goto('/');
 

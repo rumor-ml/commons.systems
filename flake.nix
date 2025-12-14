@@ -141,6 +141,7 @@
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
+          test-mcp-server = pkgs.callPackage ./nix/packages/test-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Apps for tool discovery and environment checking
@@ -155,6 +156,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              test-mcp-server
             ];
 
             shellHook = ''
@@ -186,6 +188,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              test-mcp-server
               iac
               ;
             default = tmux-tui;

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Firebase Auth Flow', () => {
+test.describe('@emulator-only Firebase Auth Flow', () => {
   let consoleErrors: string[] = [];
   let networkErrors: { url: string; status: number }[] = [];
 

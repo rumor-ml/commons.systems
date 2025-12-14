@@ -11,6 +11,10 @@
     "wiggum": {
       "type": "stdio",
       "command": "wiggum-mcp-server"
+    },
+    "test": {
+      "type": "stdio",
+      "command": "test-mcp-server"
     }
   }
 }
