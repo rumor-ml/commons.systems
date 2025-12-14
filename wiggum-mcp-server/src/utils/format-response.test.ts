@@ -446,6 +446,44 @@ describe('formatWiggumResponse', () => {
     });
   });
 
+  describe('Context Field Handling', () => {
+    it('should preserve context field order and include all fields', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {
+          pr_number: 252,
+          current_branch: 'feature-branch',
+          iteration: 2,
+          base_branch: 'main',
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Verify all context fields are present
+      assert.match(result, /- \*\*Pr Number:\*\* 252/);
+      assert.match(result, /- \*\*Current Branch:\*\* feature-branch/);
+      assert.match(result, /- \*\*Iteration:\*\* 2/);
+      assert.match(result, /- \*\*Base Branch:\*\* main/);
+
+      // Verify context section exists and is properly formatted
+      const contextSection = result.split('### Context\n')[1];
+      assert.ok(contextSection, 'Context section should exist');
+
+      // Count context entries
+      const contextLines = contextSection.split('\n').filter((line) => line.startsWith('- **'));
+      assert.strictEqual(
+        contextLines.length,
+        4,
+        'Should have exactly 4 context entries (all fields present)'
+      );
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should handle zero iteration_count', () => {
       const input = {
