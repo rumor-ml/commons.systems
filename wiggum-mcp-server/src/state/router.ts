@@ -55,11 +55,13 @@ interface WiggumInstructions {
 }
 
 /**
- * Check for uncommitted changes and return early exit if found
+ * Internal helper: Check for uncommitted changes and return early exit if found
  *
- * Called by workflow/check monitoring steps before proceeding to ensure
- * all changes are committed before continuing the workflow.
+ * This is an internal utility function used by multiple step handlers
+ * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
+ * git state before proceeding with monitoring operations.
  *
+ * @internal
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -82,11 +84,13 @@ function checkUncommittedChanges(
 }
 
 /**
- * Check if branch is pushed to remote and return early exit if not
+ * Internal helper: Check if branch is pushed to remote and return early exit if not
  *
- * Called by workflow/check monitoring steps before proceeding to ensure
- * the branch is available on remote for CI/CD workflows to run.
+ * This is an internal utility function used by multiple step handlers
+ * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
+ * git state before proceeding with monitoring operations.
  *
+ * @internal
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -309,7 +313,20 @@ Continue by calling wiggum_complete_pr_creation.
 }
 
 /**
- * Step 1: Monitor Workflow
+ * Step 1: Monitor Workflow (also completes Step 1b when successful)
+ *
+ * This handler completes BOTH Step 1 (workflow monitoring) AND Step 1b (PR checks)
+ * in a single function call when successful:
+ *
+ * 1. Monitors workflow run (lines 328-343) - marks Step 1 complete on success
+ * 2. If Step 1 passes, continues inline to monitor PR checks (lines 361-403)
+ * 3. If Step 1b passes, marks Step 1b complete and continues to Step 2
+ *
+ * This combined execution is an optimization to avoid returning to the agent
+ * between Step 1 and Step 1b when both are expected to pass together.
+ *
+ * When called standalone after fixes (via handleStepMonitorPRChecks), only
+ * Step 1b is executed since Step 1 is already in completedSteps.
  */
 async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<ToolResult> {
   const output: WiggumInstructions = {
@@ -348,8 +365,9 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       'Posted state comment to PR',
     ];
 
-    // CONTINUE to Step 1b: Monitor PR checks
-    // Check for uncommitted changes
+    // CONTINUE to Step 1b: Monitor PR checks (within same function call)
+    // stepsCompletedSoFar starts with Step 1 completion entries
+    // Check for uncommitted changes before proceeding
     const updatedState = await detectCurrentState();
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
@@ -402,7 +420,9 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       'Posted state comment to PR'
     );
 
-    // CONTINUE to Step 2: Code Quality (called from Step 1 after both workflow and PR checks pass)
+    // CONTINUE to Step 2: Code Quality
+    // This path is reached when Step 1 + Step 1b complete together in one function call.
+    // stepsCompletedSoFar contains entries for BOTH Step 1 and Step 1b completion.
     // Fetch code quality bot comments and determine next action
     const finalState = await detectCurrentState();
     return processCodeQualityAndReturnNextInstructions(
@@ -475,8 +495,10 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
       'Posted state comment to PR',
     ];
 
-    // CONTINUE to Step 2: Code Quality (called from Step 1b standalone when Step 1 already complete)
-    // This path is taken when re-verifying after fixes
+    // CONTINUE to Step 2: Code Quality (Step 1b standalone path)
+    // This path is reached when Step 1 was already complete (e.g., after re-verification).
+    // stepsCompletedSoFar contains ONLY Step 1b completion entries (not Step 1).
+    // Used after fixes when workflow monitoring already passed in a prior iteration.
     const updatedState = await detectCurrentState();
     return processCodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,

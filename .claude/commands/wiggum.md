@@ -75,7 +75,7 @@ Every tool response includes a `steps_completed_by_tool` field listing everythin
 The `completedSteps` array records which steps have finished successfully:
 
 - Step completed → step number added to `completedSteps` array
-- Fix needed → `completedSteps` cleared from failing step forward (via router.ts clearCompletedStepsFrom)
+- Fix needed → `completedSteps` filtered to remove current step and all subsequent steps (in complete-fix.ts)
 - Re-verification → router checks if step already in `completedSteps`, skips re-execution if present
 
 **Example state progression:**
@@ -97,11 +97,11 @@ The `completedSteps` array records which steps have finished successfully:
 { iteration: 1, step: 1, completedSteps: [0, 1] }
 ```
 
-**Key behavior in router.ts:**
+**Key behavior in complete-fix.ts:**
 
-- `clearCompletedStepsFrom(step)`: Removes all steps >= specified step from completedSteps
-- Called when issues found during any step (workflow, checks, reviews)
-- Ensures all steps after a fix are re-verified before approval
+- Filters `completedSteps` to remove the current step and all subsequent steps
+- Uses `STEP_ORDER.indexOf()` to compare step indices for filtering
+- Ensures all steps from the fix point forward are re-verified before approval
 
 ### Example
 
