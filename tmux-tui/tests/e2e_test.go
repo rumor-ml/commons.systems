@@ -309,8 +309,8 @@ func TestTmuxConfigExists(t *testing.T) {
 	if !strings.Contains(contentStr, "after-new-window") {
 		t.Error("tmux-tui.conf should contain 'after-new-window' hook")
 	}
-	if !strings.Contains(contentStr, "bind t") {
-		t.Error("tmux-tui.conf should contain 'bind t' keybinding")
+	if !strings.Contains(contentStr, "C-Space") {
+		t.Error("tmux-tui.conf should contain 'C-Space' keybinding")
 	}
 }
 
