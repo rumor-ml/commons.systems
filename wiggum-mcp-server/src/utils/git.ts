@@ -14,10 +14,10 @@ export interface GitOptions {
  * Get the git repository root directory
  *
  * Executes `git rev-parse --show-toplevel` to find the repository root.
- * Falls back to process.cwd() if not in a git repository.
- * Logs warnings when git command fails or encounters errors.
+ * Throws GitError if not in a git repository or git command fails.
  *
- * @returns The absolute path to the git repository root, or process.cwd() as fallback
+ * @returns The absolute path to the git repository root
+ * @throws {GitError} When not in a git repository or git command fails
  *
  * @example
  * ```typescript
@@ -35,20 +35,27 @@ export async function getGitRoot(): Promise<string> {
       return result.stdout.trim();
     }
 
-    // Log non-zero exit code
-    if (result.exitCode !== 0) {
-      console.warn(
-        `getGitRoot: git rev-parse failed with exit code ${result.exitCode}. stderr: ${result.stderr}. Falling back to process.cwd()`
-      );
-    }
+    // Non-zero exit code means we're not in a git repository or git failed
+    throw new GitError(
+      `Not in a git repository or git command failed. ` +
+        `This tool requires running from within a git repository. ` +
+        `stderr: ${result.stderr || 'none'}`,
+      result.exitCode,
+      result.stderr || undefined
+    );
   } catch (error) {
-    // Log unexpected errors
-    console.warn(
-      `getGitRoot: unexpected error: ${error instanceof Error ? error.message : String(error)}. Falling back to process.cwd()`
+    // Re-throw GitError as-is
+    if (error instanceof GitError) {
+      throw error;
+    }
+
+    // Wrap unexpected errors
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new GitError(
+      `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
+        `This tool requires running from within a git repository.`
     );
   }
-
-  return process.cwd();
 }
 
 /**

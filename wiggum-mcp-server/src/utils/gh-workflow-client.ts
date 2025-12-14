@@ -8,6 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { logger } from './logger.js';
+import { ParsingError } from './errors.js';
 import type { MonitorResult } from './gh-workflow.js';
 
 let ghWorkflowClient: Client | null = null;
@@ -271,7 +272,7 @@ export async function monitorPRChecks(params: {
  * @param result - Raw MCP tool result
  * @param branch - Branch name for context
  * @returns MonitorResult with success boolean and error summary
- * @throws Error if result format is invalid
+ * @throws ParsingError if result format is invalid or conclusion cannot be parsed
  */
 function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult {
   // Extract text from result
@@ -292,10 +293,17 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
 
   if (!conclusion) {
-    logger.warn('Could not parse conclusion from gh_monitor_run response', {
+    logger.error('Failed to parse conclusion from gh_monitor_run response', {
       branch,
-      textSnippet: text.substring(0, 200),
+      textSnippet: text.substring(0, 500),
+      fullTextLength: text.length,
     });
+    throw new ParsingError(
+      `Failed to parse workflow conclusion from gh_monitor_run response for branch ${branch}. ` +
+        `Expected format "Conclusion: <value>" not found in output. ` +
+        `This likely indicates a format change in gh-workflow-mcp-server. ` +
+        `Response snippet: ${text.substring(0, 200)}`
+    );
   }
 
   const success = conclusion === 'success';
@@ -313,7 +321,7 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
     // to maintain the pattern already established
     return {
       success: false,
-      errorSummary: `Workflow failed with conclusion: ${conclusion || 'unknown'}`,
+      errorSummary: `Workflow failed with conclusion: ${conclusion}`,
     };
   }
 }
@@ -326,7 +334,7 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
  * @param result - Raw MCP tool result
  * @param prNumber - PR number for context
  * @returns MonitorResult with success boolean and error summary
- * @throws Error if result format is invalid
+ * @throws ParsingError if result format is invalid or required fields cannot be parsed
  */
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
@@ -358,10 +366,17 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   const overallStatus = statusMatch ? statusMatch[1] : null;
 
   if (failureCount === null && !overallStatus) {
-    logger.warn('Could not parse failure count or status from gh_monitor_pr_checks response', {
+    logger.error('Failed to parse failure count or status from gh_monitor_pr_checks response', {
       prNumber,
-      textSnippet: text.substring(0, 200),
+      textSnippet: text.substring(0, 500),
+      fullTextLength: text.length,
     });
+    throw new ParsingError(
+      `Failed to parse PR checks result from gh_monitor_pr_checks response for PR #${prNumber}. ` +
+        `Expected format "Failed: <number>" and/or "Overall Status: <status>" not found in output. ` +
+        `This likely indicates a format change in gh-workflow-mcp-server. ` +
+        `Response snippet: ${text.substring(0, 200)}`
+    );
   }
 
   // Determine success based on failure count (preferred) or status (fallback)

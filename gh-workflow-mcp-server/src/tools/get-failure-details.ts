@@ -308,11 +308,16 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // - No failed steps in the run (edge case)
         // - GitHub CLI version doesn't support --log-failed
         // - Other GitHub API issues
+        const fallbackNotice =
+          '\n\nNote: Failed to use `gh run view --log-failed` (preferred method). ' +
+          'Falling back to GitHub API jobs endpoint. ' +
+          'This may result in less precise error extraction.';
+
         console.error(
           formatErrorMessage(
             error,
             `Failed to get --log-failed output for run ${runId}, falling back to API approach`
-          )
+          ) + fallbackNotice
         );
         // Note: Subsequent output will use GitHub API jobs endpoint instead of --log-failed
       }
@@ -324,6 +329,9 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // - Cases where --log-failed failed
     // - Runs that haven't completed yet but have failed jobs
     //
+    // Track whether we're using fallback due to --log-failed failure
+    const usingFallbackDueToError = runCompleted && runFailed;
+
     // Get all jobs first - we need to check for failed jobs even if run is still in progress
     // (supports fail-fast monitoring where we detect failures before run completes)
     const jobsData = (await getWorkflowJobs(runId, resolvedRepo)) as { jobs: JobData[] };
@@ -504,10 +512,22 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
     // Indicate if run is still in progress (fail-fast scenario)
     const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
+
+    // Add fallback notice if we fell back from --log-failed
+    const fallbackNotice = usingFallbackDueToError
+      ? [
+          ``,
+          `Note: Failed to use \`gh run view --log-failed\` (preferred method). Using GitHub API fallback instead.`,
+          `This may result in less precise error extraction.`,
+          ``,
+        ]
+      : [];
+
     const summary = [
       `Workflow Run Failed${headerSuffix}: ${run.name}`,
       `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
       `URL: ${run.url}`,
+      ...fallbackNotice,
       ``,
       `Failed Jobs (${failedJobSummaries.length}):`,
       ...jobSummaries,

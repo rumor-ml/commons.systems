@@ -58,6 +58,13 @@ export class GitError extends McpError {
   }
 }
 
+export class ParsingError extends McpError {
+  constructor(message: string) {
+    super(message, 'PARSING_ERROR');
+    this.name = 'ParsingError';
+  }
+}
+
 /**
  * Create a standardized error result for MCP tool responses
  *
@@ -91,6 +98,9 @@ export function createErrorResult(error: unknown): ErrorResult {
   } else if (error instanceof GitError) {
     errorType = 'GitError';
     errorCode = 'GIT_ERROR';
+  } else if (error instanceof ParsingError) {
+    errorType = 'ParsingError';
+    errorCode = 'PARSING_ERROR';
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;

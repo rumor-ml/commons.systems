@@ -92,9 +92,12 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
     commits = commits.trim();
   } catch (error) {
     // Fallback to empty if we can't get commits
-    console.warn(
-      `completePRCreation: failed to get commits from GitHub API: ${error instanceof Error ? error.message : String(error)}`
-    );
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.warn('Failed to fetch commits from GitHub API', {
+      error: errorMsg,
+      branch: branchName,
+    });
+    console.warn(`completePRCreation: failed to get commits from GitHub API: ${errorMsg}`);
     commits = '';
   }
 
@@ -108,8 +111,11 @@ ${input.pr_description}
 ${commits}`;
 
   // Create PR using gh CLI
+  let prNumber: number;
+  let createOutput: string;
+
   try {
-    const createOutput = await ghCli([
+    createOutput = await ghCli([
       'pr',
       'create',
       '--base',
@@ -122,18 +128,49 @@ ${commits}`;
       prBody,
     ]);
 
+    logger.info('PR creation command executed successfully', {
+      outputLength: createOutput.length,
+      branch: branchName,
+    });
+
     // Parse PR URL from output (gh pr create outputs the PR URL)
     const prUrl = createOutput.trim();
 
     // Extract PR number from URL (format: https://github.com/owner/repo/pull/123)
     const urlMatch = prUrl.match(/\/pull\/(\d+)$/);
     if (!urlMatch) {
-      throw new ValidationError(`Failed to parse PR number from gh pr create output: "${prUrl}"`);
+      logger.error('Failed to parse PR number from gh pr create output', {
+        output: prUrl,
+        branch: branchName,
+      });
+      throw new ValidationError(
+        `Failed to parse PR number from gh pr create output. ` +
+          `Expected URL format: "https://github.com/owner/repo/pull/123". ` +
+          `Got: "${prUrl}"`
+      );
     }
-    const prNumber = parseInt(urlMatch[1], 10);
+    prNumber = parseInt(urlMatch[1], 10);
 
     // Verify PR was created by fetching it
-    const pr = await getPR(prNumber);
+    let pr;
+    try {
+      pr = await getPR(prNumber);
+      logger.info('PR verified successfully', {
+        prNumber,
+        title: pr.title,
+        state: pr.state,
+      });
+    } catch (verifyError) {
+      logger.error('Failed to verify PR after creation', {
+        prNumber,
+        error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+      });
+      throw new ValidationError(
+        `PR #${prNumber} was created but could not be verified. ` +
+          `This may indicate a timing issue with GitHub API. ` +
+          `Error: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`
+      );
+    }
 
     // Mark Step 0 complete
     const newState = {
@@ -166,12 +203,19 @@ ${commits}`;
   } catch (error) {
     // Check if error indicates PR already exists
     const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error('PR creation failed', {
+      error: errorMsg,
+      branch: branchName,
+      issueNum,
+    });
+
     if (errorMsg.includes('already exists')) {
       throw new ValidationError(
-        `PR already exists for branch "${branchName}". Cannot create duplicate PR.`
+        `PR already exists for branch "${branchName}". Cannot create duplicate PR. ` +
+          `If you just created this PR manually, call wiggum_init instead to continue.`
       );
     }
-    // Re-throw other errors
+    // Re-throw other errors (including ValidationError from parsing/verification)
     throw error;
   }
 }
