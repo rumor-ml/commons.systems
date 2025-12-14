@@ -88,6 +88,14 @@ templ SyncMonitor(sessionID string) {
 			<!-- Will be populated by trash-all handler via hx-swap-oob -->
 		</div>
 
+		<!-- Trash message section (populated by trash-all action via OOB swap) -->
+		<div
+			id="trash-message"
+			class="hidden"
+		>
+			<!-- Will be populated by trash-all handler via hx-swap-oob -->
+		</div>
+
 		<!-- File list container -->
 		<div class="mt-6">
 			<div class="flex items-center justify-between mb-3">
