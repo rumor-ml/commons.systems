@@ -11,6 +11,7 @@ import {
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
 import { getWiggumState } from './comments.js';
+import { STEP_ENSURE_PR } from '../constants.js';
 import type { GitState, PRState, CurrentState } from './types.js';
 
 /**
@@ -165,7 +166,7 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
   } else {
     wiggum = {
       iteration: 0,
-      step: '0',
+      step: STEP_ENSURE_PR,
       completedSteps: [],
     };
   }

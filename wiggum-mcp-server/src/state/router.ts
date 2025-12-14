@@ -7,7 +7,8 @@
  */
 
 import { getPRReviewComments } from '../utils/gh-cli.js';
-import { hasReviewCommandEvidence } from './comments.js';
+import { hasReviewCommandEvidence, postWiggumStateComment } from './comments.js';
+import { detectCurrentState } from './detector.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
@@ -28,16 +29,14 @@ import {
   WORKFLOW_MONITOR_TIMEOUT_MS,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import type { CurrentState, PRStateValue, PRExists } from './types.js';
+import type { CurrentState, PRExists } from './types.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
  * Used in handlers after Step 0
- *
- * Uses PRStateValue constraint to ensure type-safe narrowing
  */
 type CurrentStateWithPR = CurrentState & {
-  pr: PRStateValue & PRExists;
+  pr: PRExists;
 };
 
 interface WiggumInstructions {
@@ -306,9 +305,6 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
 
   if (result.success) {
     // Mark Step 1 complete
-    const { postWiggumStateComment } = await import('./comments.js');
-    const { detectCurrentState } = await import('./detector.js');
-
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_MONITOR_WORKFLOW,
@@ -634,7 +630,7 @@ After security review completes:
 
 1. Capture the complete verbatim response
 2. Count issues by priority (high, medium, low)
-3. Call **mcp__wiggum__wiggum_complete_security_review** with:
+3. Call **wiggum_complete_security_review** with:
    - command_executed: true
    - verbatim_response: (full output)
    - high_priority_issues: (count)
@@ -681,9 +677,23 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
   };
 
   if (!hasPRReview) {
-    output.instructions = `Missing evidence of ${PR_REVIEW_COMMAND} execution in PR comments. Return to Step 3: execute ${PR_REVIEW_COMMAND} and call wiggum_complete_pr_review.`;
+    output.instructions = `Missing evidence of ${PR_REVIEW_COMMAND} execution in PR comments.
+
+**Possible causes:**
+- The review command was not executed yet
+- The review results were not posted as a PR comment
+- The command output did not include "${PR_REVIEW_COMMAND}" text
+
+**Action required:** Return to Step 3: execute ${PR_REVIEW_COMMAND} and call wiggum_complete_pr_review.`;
   } else if (!hasSecurityReview) {
-    output.instructions = `Missing evidence of ${SECURITY_REVIEW_COMMAND} execution in PR comments. Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
+    output.instructions = `Missing evidence of ${SECURITY_REVIEW_COMMAND} execution in PR comments.
+
+**Possible causes:**
+- The security review command was not executed yet
+- The review results were not posted as a PR comment
+- The command output did not include "${SECURITY_REVIEW_COMMAND}" text
+
+**Action required:** Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
   } else {
     // Both reviews verified - mark step complete and proceed to approval
     const { postWiggumStateComment } = await import('./comments.js');

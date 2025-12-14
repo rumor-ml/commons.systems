@@ -38,7 +38,7 @@ export function extractErrors(logText: string, maxErrors = 10): ExtractionResult
     framework: 'unknown',
     errors: [
       {
-        message: 'No test framework or known error pattern detected',
+        message: 'Could not detect test framework. No known test output patterns found.',
         rawOutput: lines.slice(-100),
       },
     ],

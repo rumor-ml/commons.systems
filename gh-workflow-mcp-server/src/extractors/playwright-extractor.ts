@@ -56,7 +56,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const hasSuites = logText.includes('"suites":');
     console.error(`[DEBUG] Playwright detect: hasConfig=${hasConfig}, hasSuites=${hasSuites}`);
 
-    if (hasConfig && hasSuites) {
+    if (hasSuites) {
       try {
         const jsonText = this.extractJsonFromLogs(logText);
         console.error(`[DEBUG] Extracted JSON length: ${jsonText.length}`);
@@ -142,27 +142,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (detection?.isJsonOutput) {
       return this.parsePlaywrightJson(logText, maxErrors);
     } else if (detection) {
-      // Playwright detected but wrong reporter format
-      return {
-        framework: 'playwright',
-        errors: [
-          {
-            message:
-              'Playwright tests detected but logs are not in JSON format. Please configure Playwright to use the JSON reporter.',
-            rawOutput: [
-              'To fix this, update your Playwright configuration:',
-              '',
-              'In playwright.config.ts/js, add:',
-              "  reporter: [['json', { outputFile: 'results.json' }]]",
-              '',
-              'Or use the --reporter=json flag:',
-              '  npx playwright test --reporter=json',
-              '',
-              "Current logs appear to be using the 'line' or 'list' reporter.",
-            ],
-          },
-        ],
-      };
+      return this.parsePlaywrightText(logText, maxErrors);
     }
 
     // No Playwright detected at all
@@ -273,6 +253,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       // Extract JSON from logs - it may be embedded within other output
       const jsonText = this.extractJsonFromLogs(logText);
       const report = JSON.parse(jsonText) as PlaywrightJsonReport;
+      console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
 
       const extractFromSuite = (suite: PlaywrightSuite) => {
         for (const spec of suite.specs || []) {
@@ -356,6 +337,66 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
   }
 
+  private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
+    const lines = logText.split('\n');
+    const failures: ExtractedError[] = [];
+    let passed = 0;
+    let failed = 0;
+
+    // Pattern: [✘✗] 1 [chromium] › file.spec.ts:123 › Test Name (100ms)
+    const failPattern =
+      /[✘✗]\s+\d+\s+\[(\w+)\]\s+›\s+([^:]+):(\d+)\s+›\s+(.+?)(?:\s+\((\d+)ms\))?$/;
+    const passPattern = /[✓✔]\s+\d+/;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      const passMatch = line.match(passPattern);
+      if (passMatch) {
+        passed++;
+        continue;
+      }
+
+      const failMatch = line.match(failPattern);
+      if (failMatch && failures.length < maxErrors) {
+        const projectName = failMatch[1];
+        const fileName = failMatch[2];
+        const lineNumber = parseInt(failMatch[3], 10);
+        const testName = failMatch[4];
+        const duration = failMatch[5] ? parseInt(failMatch[5], 10) : undefined;
+
+        // Collect error output lines (typically indented after the fail line)
+        const rawOutput: string[] = [];
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j];
+          // Stop at next test marker or unindented line
+          if (/^[✘✗✓✔]\s+\d+/.test(nextLine) || /^Running \d+ test/.test(nextLine)) {
+            break;
+          }
+          if (nextLine.trim()) {
+            rawOutput.push(nextLine);
+          }
+        }
+
+        failures.push({
+          testName: `[${projectName}] ${testName}`,
+          fileName,
+          lineNumber,
+          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+          duration,
+          rawOutput,
+        });
+        failed++;
+      }
+    }
+
+    return {
+      framework: 'playwright',
+      errors: failures,
+      summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
+    };
+  }
+
   /**
    * Extract JSON blob from logs that may contain other output
    * Looks for a JSON object that has "config" or "suites" as top-level keys
@@ -370,7 +411,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Find start of JSON - look for standalone { followed by "config" or "suites"
     let jsonStart = -1;
     for (let i = 0; i < cleanLines.length; i++) {
-      if (cleanLines[i].trim() === '{') {
+      const trimmedLine = cleanLines[i].trim();
+      if (
+        trimmedLine === '{' ||
+        (trimmedLine.startsWith('{') && trimmedLine.includes('"suites":'))
+      ) {
         // Check if next few lines contain "config" or "suites"
         const nextFewLines = cleanLines.slice(i, Math.min(i + 20, cleanLines.length)).join('\n');
         if (nextFewLines.includes('"config":') || nextFewLines.includes('"suites":')) {

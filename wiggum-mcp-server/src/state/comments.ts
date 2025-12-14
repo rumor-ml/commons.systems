@@ -3,8 +3,38 @@
  */
 
 import { getPRComments, postPRComment } from '../utils/gh-cli.js';
-import { WIGGUM_STATE_MARKER, WIGGUM_COMMENT_PREFIX } from '../constants.js';
+import { WIGGUM_STATE_MARKER, WIGGUM_COMMENT_PREFIX, isValidStep } from '../constants.js';
+import { logger } from '../utils/logger.js';
 import type { WiggumState } from './types.js';
+import type { WiggumStep } from '../constants.js';
+
+/**
+ * Validate and sanitize wiggum state from untrusted JSON
+ */
+function validateWiggumState(data: unknown): WiggumState {
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('Invalid state: not an object');
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  const iteration = typeof obj.iteration === 'number' ? obj.iteration : 0;
+  let step: WiggumStep;
+  if (isValidStep(obj.step)) {
+    step = obj.step;
+  } else {
+    logger.warn('validateWiggumState: invalid step value, defaulting to initial step', {
+      invalidStep: obj.step,
+      defaultingTo: '0',
+    });
+    step = '0' as WiggumStep;
+  }
+  const completedSteps = Array.isArray(obj.completedSteps)
+    ? obj.completedSteps.filter(isValidStep)
+    : [];
+
+  return { iteration, step, completedSteps };
+}
 
 /**
  * Parse wiggum state from PR comments
@@ -22,17 +52,14 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
 
     if (match) {
       try {
-        const state = JSON.parse(match[1]) as WiggumState;
-        return {
-          iteration: state.iteration || 0,
-          step: state.step || '0',
-          completedSteps: state.completedSteps || [],
-        };
+        const raw = JSON.parse(match[1]);
+        return validateWiggumState(raw);
       } catch (error) {
-        // Invalid JSON, log and continue searching
-        console.warn(
-          `getWiggumState: failed to parse state JSON from comment ${comment.id}: ${error instanceof Error ? error.message : String(error)}. Raw JSON: ${match[1].substring(0, 200)}`
-        );
+        logger.warn('getWiggumState: failed to parse state JSON from comment', {
+          commentId: comment.id,
+          error: error instanceof Error ? error.message : String(error),
+          rawJson: match[1].substring(0, 200),
+        });
         continue;
       }
     }
@@ -78,12 +105,24 @@ export async function hasReviewCommandEvidence(
 ): Promise<boolean> {
   const comments = await getPRComments(prNumber, repo);
 
+  logger.debug('hasReviewCommandEvidence: searching for command', {
+    prNumber,
+    command,
+    commentCount: comments.length,
+  });
+
   // Search for command mention in any comment
   for (const comment of comments) {
     if (comment.body.includes(command)) {
       return true;
     }
   }
+
+  logger.debug('hasReviewCommandEvidence: command not found', {
+    prNumber,
+    command,
+    checkedCommentCount: comments.length,
+  });
 
   return false;
 }

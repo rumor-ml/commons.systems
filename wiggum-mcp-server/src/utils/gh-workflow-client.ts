@@ -87,22 +87,34 @@ async function callToolWithRetry(
         name: toolName,
         arguments: args,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if it's the MCP timeout error
-      if (error.code === -32001 || error.message?.includes('timeout')) {
+      const isTimeout =
+        error instanceof Error &&
+        (('code' in error && (error as { code?: number }).code === -32001) ||
+          error.message?.toLowerCase().includes('timeout'));
+
+      if (isTimeout) {
+        logger.info(`MCP timeout detected on ${toolName}`, {
+          errorMessage: error.message,
+          errorCode: ('code' in error && (error as { code?: number }).code) || undefined,
+        });
         logger.info(`MCP timeout on ${toolName}, retrying...`, {
           elapsed,
           remaining: maxDurationMs - elapsed,
         });
-        // Continue loop to retry
         continue;
       }
 
-      // Non-timeout error, log and fail immediately
+      // Non-timeout error
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
+
       logger.error(`callToolWithRetry failed with non-timeout error`, {
         toolName,
-        error: error.message || String(error),
-        code: error.code,
+        error: errorMessage,
+        code: errorCode,
       });
       throw error;
     }
@@ -266,6 +278,13 @@ export async function monitorPRChecks(params: {
 
 /**
  * Parse gh_monitor_run MCP tool result into MonitorResult format
+ *
+ * WARNING: This parser has fragile coupling to gh-workflow-mcp-server output format.
+ * If parsing fails with ParsingError, check if gh-workflow-mcp-server output changed.
+ *
+ * Expected format patterns:
+ *   - "Conclusion: <word>" (e.g., "Conclusion: success", "Conclusion: failure")
+ *   - Case-sensitive matching
  *
  * Extracts success/failure from workflow conclusion and formats error summary.
  *
