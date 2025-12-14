@@ -429,9 +429,6 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
 
   if (result.success) {
     // Mark Step 1b complete
-    const { postWiggumStateComment } = await import('./comments.js');
-    const { detectCurrentState } = await import('./detector.js');
-
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_MONITOR_PR_CHECKS,
@@ -508,8 +505,6 @@ async function processCodeQualityAndReturnNextInstructions(
 
   if (comments.length === 0) {
     // No comments - mark Step 2 complete and return Step 3 (PR Review) instructions
-    const { postWiggumStateComment } = await import('./comments.js');
-
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_CODE_QUALITY,
@@ -696,8 +691,6 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 **Action required:** Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
   } else {
     // Both reviews verified - mark step complete and proceed to approval
-    const { postWiggumStateComment } = await import('./comments.js');
-
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_VERIFY_REVIEWS,

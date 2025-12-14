@@ -136,16 +136,39 @@ export class GoExtractor implements FrameworkExtractor {
         } else if (event.Action === 'pass' && event.Test) {
           testResults.set(key, 'pass');
         }
-      } catch {
+      } catch (error) {
         // Skip invalid JSON lines - may be build output or other non-test logs
+        // Log only first few failures to avoid spam
+        if (skippedNonJsonLines < 3) {
+          console.error(
+            `[DEBUG] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
         skippedNonJsonLines++;
         continue;
       }
     }
 
     if (skippedNonJsonLines > 0) {
+      // Calculate percentage and assess severity
+      const totalLines = lines.length;
+      const skippedPercentage = (skippedNonJsonLines / totalLines) * 100;
+      let assessment: string;
+      let severity: 'DEBUG' | 'WARN';
+
+      if (skippedPercentage > 50) {
+        assessment = 'HIGH - Majority of lines skipped, likely wrong output format';
+        severity = 'WARN';
+      } else if (skippedPercentage > 20) {
+        assessment = 'MODERATE - Significant number of non-JSON lines';
+        severity = 'DEBUG';
+      } else {
+        assessment = 'NORMAL - Expected build output mixed with test JSON';
+        severity = 'DEBUG';
+      }
+
       console.error(
-        `[DEBUG] Go extractor: skipped ${skippedNonJsonLines} non-JSON lines during parsing`
+        `[${severity}] Go extractor: skipped ${skippedNonJsonLines} non-JSON lines during parsing (${skippedPercentage.toFixed(1)}% of ${totalLines} total lines). Assessment: ${assessment}`
       );
     }
 

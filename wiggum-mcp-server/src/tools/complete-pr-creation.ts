@@ -92,11 +92,15 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
     commits = commits.trim();
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.warn('Failed to fetch commits from GitHub API', {
+    logger.error('Failed to fetch commits from GitHub API for PR body', {
       error: errorMsg,
       branch: branchName,
     });
-    commits = `_Unable to fetch commits: ${errorMsg}_`;
+    commits = `⚠️ **Unable to fetch commits from GitHub API**
+
+Error: ${errorMsg}
+
+**Manual workaround:** Run \`git log main..HEAD --oneline\` to see commits.`;
   }
 
   // Build PR body

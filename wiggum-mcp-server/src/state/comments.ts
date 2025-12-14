@@ -3,7 +3,12 @@
  */
 
 import { getPRComments, postPRComment } from '../utils/gh-cli.js';
-import { WIGGUM_STATE_MARKER, WIGGUM_COMMENT_PREFIX, isValidStep } from '../constants.js';
+import {
+  WIGGUM_STATE_MARKER,
+  WIGGUM_COMMENT_PREFIX,
+  isValidStep,
+  STEP_ENSURE_PR,
+} from '../constants.js';
 import { logger } from '../utils/logger.js';
 import type { WiggumState } from './types.js';
 import type { WiggumStep } from '../constants.js';
@@ -23,11 +28,19 @@ function validateWiggumState(data: unknown): WiggumState {
   if (isValidStep(obj.step)) {
     step = obj.step;
   } else {
+    // Validate fallback is valid before casting
+    if (!isValidStep(STEP_ENSURE_PR)) {
+      throw new Error(
+        `CRITICAL: STEP_ENSURE_PR constant "${STEP_ENSURE_PR}" is not a valid step. ` +
+          `This indicates the step enum was changed without updating this fallback. ` +
+          `Check constants.ts for consistency.`
+      );
+    }
     logger.warn('validateWiggumState: invalid step value, defaulting to initial step', {
       invalidStep: obj.step,
-      defaultingTo: '0',
+      defaultingTo: STEP_ENSURE_PR,
     });
-    step = '0' as WiggumStep;
+    step = STEP_ENSURE_PR;
   }
   const completedSteps = Array.isArray(obj.completedSteps)
     ? obj.completedSteps.filter(isValidStep)

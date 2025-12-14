@@ -88,33 +88,37 @@ async function callToolWithRetry(
         arguments: args,
       });
     } catch (error: unknown) {
-      // Check if it's the MCP timeout error
-      const isTimeout =
-        error instanceof Error &&
-        (('code' in error && (error as { code?: number }).code === -32001) ||
-          error.message?.toLowerCase().includes('timeout'));
-
-      if (isTimeout) {
-        logger.info(`MCP timeout detected on ${toolName}`, {
-          errorMessage: error.message,
-          errorCode: ('code' in error && (error as { code?: number }).code) || undefined,
-        });
-        logger.info(`MCP timeout on ${toolName}, retrying...`, {
-          elapsed,
-          remaining: maxDurationMs - elapsed,
-        });
-        continue;
-      }
-
-      // Non-timeout error
+      // Extract error details once
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode =
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
+      // Check if it's the MCP timeout error
+      const isTimeout =
+        error instanceof Error &&
+        ((errorCode !== undefined && errorCode === -32001) ||
+          errorMessage.toLowerCase().includes('timeout'));
+
+      if (isTimeout) {
+        // Calculate attempt count estimate (elapsed time / 60s SDK timeout)
+        const attemptEstimate = Math.floor(elapsed / 60000) + 1;
+        logger.info(
+          `MCP timeout on ${toolName}, retrying... (attempt ~${attemptEstimate}, elapsed ${elapsed}ms, remaining ${maxDurationMs - elapsed}ms)`,
+          {
+            errorMessage,
+            errorCode,
+          }
+        );
+        continue;
+      }
+
+      // Non-timeout error - include timing context
       logger.error(`callToolWithRetry failed with non-timeout error`, {
         toolName,
         error: errorMessage,
         code: errorCode,
+        elapsed,
+        remaining: maxDurationMs - elapsed,
       });
       throw error;
     }
@@ -207,12 +211,16 @@ export async function getFailureDetails(params: {
  *
  * Delegates to gh_monitor_run MCP tool and parses the result into MonitorResult format.
  *
- * @param params - Monitoring parameters
+ * NOTE: This is a thin wrapper around the MCP tool. For direct MCP access with full control,
+ * see gh-workflow.ts which provides higher-level abstractions.
+ *
+ * @param params - Single object containing nested monitoring parameters
  * @param params.branch - Branch name to monitor
  * @param params.poll_interval_seconds - Polling interval (default: 10)
  * @param params.timeout_seconds - Timeout in seconds (default: 600)
  * @param params.fail_fast - Exit on first failure (default: true)
  * @returns Promise resolving to MonitorResult with success status and summary
+ * @throws ParsingError if gh_monitor_run response format changes and parsing fails
  */
 export async function monitorRun(params: {
   branch: string;

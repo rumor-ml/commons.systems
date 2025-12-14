@@ -240,12 +240,48 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    */
   private parseTimeDiff(time1: string, time2: string): number {
     const parse = (t: string) => {
-      const [h, m, s] = t.split(':').map(Number);
-      return h * 3600 + m * 60 + s;
+      try {
+        // Validate format is HH:MM:SS
+        if (!/^\d{2}:\d{2}:\d{2}$/.test(t)) {
+          console.error(
+            `[WARN] parseTimeDiff: invalid time format "${t}", expected HH:MM:SS. Returning 0.`
+          );
+          return 0;
+        }
+
+        const [h, m, s] = t.split(':').map(Number);
+
+        // Check for NaN values
+        if (isNaN(h) || isNaN(m) || isNaN(s)) {
+          console.error(
+            `[WARN] parseTimeDiff: failed to parse numbers from "${t}" (h=${h}, m=${m}, s=${s}). Returning 0.`
+          );
+          return 0;
+        }
+
+        return h * 3600 + m * 60 + s;
+      } catch (error) {
+        console.error(
+          `[ERROR] parseTimeDiff: unexpected error parsing "${t}": ${error instanceof Error ? error.message : String(error)}. Returning 0.`
+        );
+        return 0;
+      }
     };
     return Math.abs(parse(time2) - parse(time1));
   }
 
+  /**
+   * Parse Playwright JSON report from logs
+   *
+   * NOTE: The _maxErrors parameter is intentionally unused but retained for interface compatibility.
+   * Unlike Go test JSON (which streams line-by-line and can be limited), Playwright JSON reports
+   * are emitted as a single complete document at the end of test execution. The entire report
+   * must be parsed to extract failures - there's no streaming or partial extraction.
+   *
+   * @param logText - Full log text containing Playwright JSON report
+   * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
+   * @returns ExtractionResult with all failures found in the report
+   */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
 
@@ -426,6 +462,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     if (jsonStart === -1) {
+      console.error(
+        '[ERROR] Playwright JSON extraction: could not find JSON start marker. Expected standalone "{" or line starting with "{"suites":" within first ~20 lines. Falling back to parsing entire log text.'
+      );
       // Fallback: try parsing the whole thing
       return logText.trim();
     }
@@ -453,6 +492,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     // Fallback: couldn't parse, return from start to end
+    console.error(
+      `[ERROR] Playwright JSON extraction: fallback extraction failed after ${skippedLines} retry attempts. Returning raw JSON from jsonStart=${jsonStart} to end. This may indicate truncated or malformed JSON in logs.`
+    );
     return cleanLines.slice(jsonStart).join('\n');
   }
 }
