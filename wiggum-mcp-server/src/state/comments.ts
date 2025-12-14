@@ -13,6 +13,16 @@ import { logger } from '../utils/logger.js';
 import type { WiggumState } from './types.js';
 import type { WiggumStep } from '../constants.js';
 
+// Module-level validation: Ensure STEP_ENSURE_PR is a valid step at import time
+// This prevents runtime errors if constants.ts is modified incorrectly
+if (!isValidStep(STEP_ENSURE_PR)) {
+  throw new Error(
+    `CRITICAL: STEP_ENSURE_PR constant "${STEP_ENSURE_PR}" is not a valid step. ` +
+      `This indicates the step enum was changed without updating STEP_ENSURE_PR. ` +
+      `Check constants.ts for consistency.`
+  );
+}
+
 /**
  * Validate and sanitize wiggum state from untrusted JSON
  */
@@ -28,14 +38,7 @@ function validateWiggumState(data: unknown): WiggumState {
   if (isValidStep(obj.step)) {
     step = obj.step;
   } else {
-    // Validate fallback is valid before casting
-    if (!isValidStep(STEP_ENSURE_PR)) {
-      throw new Error(
-        `CRITICAL: STEP_ENSURE_PR constant "${STEP_ENSURE_PR}" is not a valid step. ` +
-          `This indicates the step enum was changed without updating this fallback. ` +
-          `Check constants.ts for consistency.`
-      );
-    }
+    // STEP_ENSURE_PR validity is guaranteed by module-level validation at import time
     logger.warn('validateWiggumState: invalid step value, defaulting to initial step', {
       invalidStep: obj.step,
       defaultingTo: STEP_ENSURE_PR,

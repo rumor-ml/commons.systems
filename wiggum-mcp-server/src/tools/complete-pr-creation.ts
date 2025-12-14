@@ -96,9 +96,13 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
       error: errorMsg,
       branch: branchName,
     });
+
+    // Sanitize error message for PR body - keep first line only
+    // Full error is already logged above for debugging
+    const sanitizedError = errorMsg.split('\n')[0].substring(0, 200);
     commits = `⚠️ **Unable to fetch commits from GitHub API**
 
-Error: ${errorMsg}
+Error: ${sanitizedError}
 
 **Manual workaround:** Run \`git log main..HEAD --oneline\` to see commits.`;
   }

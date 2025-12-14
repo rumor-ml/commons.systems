@@ -94,10 +94,10 @@ async function callToolWithRetry(
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
       // Check if it's the MCP timeout error
+      // Use strict pattern to avoid false positives from other timeout messages
       const isTimeout =
         error instanceof Error &&
-        ((errorCode !== undefined && errorCode === -32001) ||
-          errorMessage.toLowerCase().includes('timeout'));
+        (errorCode === -32001 || /\b(request|operation) timed? ?out\b/i.test(errorMessage));
 
       if (isTimeout) {
         // Calculate attempt count estimate (elapsed time / 60s SDK timeout)
@@ -211,8 +211,12 @@ export async function getFailureDetails(params: {
  *
  * Delegates to gh_monitor_run MCP tool and parses the result into MonitorResult format.
  *
- * NOTE: This is a thin wrapper around the MCP tool. For direct MCP access with full control,
- * see gh-workflow.ts which provides higher-level abstractions.
+ * WHEN TO USE THIS VS MCP TOOL DIRECTLY:
+ * - Use this wrapper when you need structured MonitorResult for programmatic checks
+ * - Use MCP tool directly (via getGhWorkflowClient) when you want raw text output
+ *   for logging/debugging or when you need features not exposed by this wrapper
+ * - This wrapper adds automatic retry on MCP timeouts (callToolWithRetry)
+ * - This wrapper parses text output into success/failure boolean
  *
  * @param params - Single object containing nested monitoring parameters
  * @param params.branch - Branch name to monitor
@@ -312,6 +316,11 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
   // Expected format from gh_monitor_run:
   //   "Conclusion: success" or "Conclusion: failure" or "Conclusion: cancelled"
   //
+  // DESIGN RATIONALE:
+  // - Uses \w+ (word characters) for conclusion value to match alphanumeric conclusions
+  // - Case-sensitive "Conclusion:" to match exact gh-workflow-mcp-server output format
+  // - Expects space after colon, matching standard formatting
+  //
   // This regex would break if:
   //   - The text uses different capitalization (e.g., "CONCLUSION:" or "conclusion:")
   //   - The conclusion contains spaces or non-word characters
@@ -373,6 +382,11 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   // Expected format from gh_monitor_pr_checks:
   //   "Success: 5, Failed: 2, Other: 1"
   //
+  // DESIGN RATIONALE:
+  // - Uses \d+ to match one or more digits (simple integer count)
+  // - Case-sensitive "Failed:" to match exact gh-workflow-mcp-server output format
+  // - Captures numeric value for parsing with parseInt
+  //
   // This regex would break if:
   //   - The format uses different capitalization (e.g., "failed:" or "FAILED:")
   //   - The count is not a simple integer (e.g., "Failed: N/A" or "Failed: 2.5")
@@ -384,6 +398,11 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   //
   // Expected format from gh_monitor_pr_checks:
   //   "Overall Status: SUCCESS" or "Overall Status: FAILURE" or "Overall Status: BLOCKED"
+  //
+  // DESIGN RATIONALE:
+  // - Uses \w+ to match alphanumeric status values (SUCCESS, FAILURE, BLOCKED, etc.)
+  // - Case-sensitive "Overall Status:" to match exact gh-workflow-mcp-server output format
+  // - Provides fallback when failure count parsing fails
   //
   // This regex would break if:
   //   - The status contains spaces or non-word characters
