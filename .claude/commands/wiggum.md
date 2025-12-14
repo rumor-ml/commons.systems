@@ -74,9 +74,9 @@ Every tool response includes a `steps_completed_by_tool` field listing everythin
 
 The `completedSteps` array records which steps have finished successfully:
 
-- Step completed → added to `completedSteps` array
-- Fix needed → `completedSteps` cleared from failing step forward (via router.ts)
-- Re-verification → checks if step already in `completedSteps`, skips if so
+- Step completed → step number added to `completedSteps` array
+- Fix needed → `completedSteps` cleared from failing step forward (via router.ts clearCompletedStepsFrom)
+- Re-verification → router checks if step already in `completedSteps`, skips re-execution if present
 
 **Example state progression:**
 

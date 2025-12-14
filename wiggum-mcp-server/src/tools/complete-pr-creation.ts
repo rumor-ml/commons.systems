@@ -10,25 +10,25 @@
  * for all user-facing error conditions. Error handling is split into three categories:
  *
  * 1. VALIDATION ERRORS (throw ValidationError - user must intervene):
- *    - PR already exists for branch (lines 59-66)
- *    - Invalid branch name format (lines 32-42)
- *    - Failed to parse PR number from gh output (lines 147-156)
- *    - Failed to verify PR after creation (lines 169-178)
- *    - Failed to post wiggum state comment (lines 207-217)
- *    - GitHub API errors during PR creation (lines 218-223)
+ *    - PR already exists for branch (handleStepEnsurePR validation)
+ *    - Invalid branch name format (extractIssueNumber function)
+ *    - Failed to parse PR number from gh output (after gh pr create)
+ *    - Failed to verify PR after creation (getPR verification)
+ *    - Failed to post wiggum state comment (postWiggumStateComment call)
+ *    - GitHub API errors during PR creation (gh pr create errors)
  *
  * 2. LOGGED ERRORS (logged but execution continues with fallback):
- *    - Failed to fetch commits from GitHub API (lines 93-108)
+ *    - Failed to fetch commits from GitHub API (commits fetch try/catch)
  *      Fallback: Include error message in PR body with manual workaround
  *
  * 3. STRUCTURED LOGGING (info/error logging for observability):
- *    - PR creation start (line 53)
- *    - Closed/merged PR exists (lines 72-79)
- *    - Commit fetch failure (lines 95-98)
- *    - PR creation success (lines 137-140)
- *    - PR verification success (lines 164-168)
- *    - State comment failure (lines 208-211)
- *    - PR creation failure (lines 212-216)
+ *    - PR creation start (wiggum_complete_pr_creation entry)
+ *    - Closed/merged PR exists (state validation)
+ *    - Commit fetch failure (commits fetch catch block)
+ *    - PR creation success (after gh pr create)
+ *    - PR verification success (after getPR call)
+ *    - State comment failure (postWiggumStateComment catch)
+ *    - PR creation failure (outer catch block)
  *
  * All ValidationErrors include actionable context for the user.
  * All errors are logged with structured metadata (prNumber, branch, error message).
@@ -131,9 +131,16 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
       branch: branchName,
     });
 
-    // Sanitize error message for PR body - keep first line only
+    // Sanitize error message for PR body:
+    // 1. Take only first line (often contains root cause)
+    // 2. Limit to 200 chars (prevent PR body bloat)
+    // 3. Remove sensitive tokens/URLs if present
     // Full error is already logged above for debugging
-    const sanitizedError = errorMsg.split('\n')[0].substring(0, 200);
+    let sanitizedError = errorMsg.split('\n')[0].substring(0, 200);
+    // Remove potential tokens or sensitive URLs from error message
+    sanitizedError = sanitizedError.replace(/ghp_[a-zA-Z0-9]+/g, '[REDACTED]');
+    sanitizedError = sanitizedError.replace(/https:\/\/[^\s]+@github\.com/g, 'https://github.com');
+
     commits = `⚠️ **Unable to fetch commits from GitHub API**
 
 Error: ${sanitizedError}
@@ -234,13 +241,32 @@ ${commits}`;
 **Next Action:** Proceeding to workflow monitoring.`
       );
     } catch (commentError) {
+      // Classify GitHub API errors for better diagnostics
+      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const isPermissionError = /permission|forbidden|401|403/i.test(errorMsg);
+      const isRateLimitError = /rate limit|429/i.test(errorMsg);
+      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|network|fetch/i.test(errorMsg);
+
+      let errorClassification = 'Unknown error';
+      if (isPermissionError) {
+        errorClassification = 'Permission denied (check gh auth token scopes)';
+      } else if (isRateLimitError) {
+        errorClassification = 'GitHub API rate limit exceeded';
+      } else if (isNetworkError) {
+        errorClassification = 'Network connectivity issue';
+      }
+
       logger.error('Failed to post wiggum state comment after PR creation', {
         prNumber,
-        error: commentError instanceof Error ? commentError.message : String(commentError),
+        error: errorMsg,
+        errorClassification,
+        isPermissionError,
+        isRateLimitError,
+        isNetworkError,
       });
       throw new ValidationError(
         `PR #${prNumber} was created successfully but failed to post state comment. ` +
-          `Error: ${commentError instanceof Error ? commentError.message : String(commentError)}. ` +
+          `Error: ${errorClassification} - ${errorMsg}. ` +
           `The PR exists and can be viewed, but wiggum state tracking failed. ` +
           `You may need to manually add a wiggum state comment or restart the workflow.`
       );

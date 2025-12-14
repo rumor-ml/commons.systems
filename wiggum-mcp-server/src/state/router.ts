@@ -55,7 +55,15 @@ interface WiggumInstructions {
 }
 
 /**
- * Helper: Check for uncommitted changes and return early exit if found
+ * Check for uncommitted changes and return early exit if found
+ *
+ * Called by workflow/check monitoring steps before proceeding to ensure
+ * all changes are committed before continuing the workflow.
+ *
+ * @param state - Current workflow state from detectCurrentState
+ * @param output - WiggumInstructions object to populate with instructions
+ * @param stepsCompleted - Array of steps completed so far to include in output
+ * @returns ToolResult with commit instructions if changes found, null otherwise
  */
 function checkUncommittedChanges(
   state: CurrentState,
@@ -74,7 +82,15 @@ function checkUncommittedChanges(
 }
 
 /**
- * Helper: Check if branch is pushed and return early exit if not
+ * Check if branch is pushed to remote and return early exit if not
+ *
+ * Called by workflow/check monitoring steps before proceeding to ensure
+ * the branch is available on remote for CI/CD workflows to run.
+ *
+ * @param state - Current workflow state from detectCurrentState
+ * @param output - WiggumInstructions object to populate with instructions
+ * @param stepsCompleted - Array of steps completed so far to include in output
+ * @returns ToolResult with push instructions if not pushed, null otherwise
  */
 function checkBranchPushed(
   state: CurrentState,
@@ -93,7 +109,15 @@ function checkBranchPushed(
 }
 
 /**
- * Helper: Format fix instructions for workflow/check failures
+ * Format fix instructions for workflow/check failures
+ *
+ * Generates standardized fix instructions for any workflow or check failure,
+ * including the complete Plan -> Fix -> Commit -> Complete cycle.
+ *
+ * @param failureType - Type of failure (e.g., "Workflow", "PR checks")
+ * @param failureDetails - Detailed error information from gh_get_failure_details
+ * @param defaultMessage - Fallback message if no failure details available
+ * @returns Formatted markdown instructions for fixing the failure
  */
 function formatFixInstructions(
   failureType: string,
@@ -378,7 +402,8 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       'Posted state comment to PR'
     );
 
-    // CONTINUE to Step 2: Fetch code quality comments and return next instructions
+    // CONTINUE to Step 2: Code Quality (called from Step 1 after both workflow and PR checks pass)
+    // Fetch code quality bot comments and determine next action
     const finalState = await detectCurrentState();
     return processCodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
@@ -450,7 +475,8 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
       'Posted state comment to PR',
     ];
 
-    // CONTINUE to Step 2: Fetch code quality comments and return next instructions
+    // CONTINUE to Step 2: Code Quality (called from Step 1b standalone when Step 1 already complete)
+    // This path is taken when re-verifying after fixes
     const updatedState = await detectCurrentState();
     return processCodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,

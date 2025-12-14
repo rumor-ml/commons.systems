@@ -14,7 +14,10 @@ import type { WiggumState } from './types.js';
 import type { WiggumStep } from '../constants.js';
 
 // Module-level validation: Ensure STEP_ENSURE_PR is a valid step at import time
-// This prevents runtime errors if constants.ts is modified incorrectly
+// This acts as a compile-time guard to catch inconsistencies in constants.ts
+// If STEP_ENSURE_PR is used as the default step in validateWiggumState, it must be valid
+// Throwing at module initialization ensures the error is caught immediately on server start
+// rather than during runtime when invalid state is encountered
 if (!isValidStep(STEP_ENSURE_PR)) {
   throw new Error(
     `CRITICAL: STEP_ENSURE_PR constant "${STEP_ENSURE_PR}" is not a valid step. ` +

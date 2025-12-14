@@ -166,8 +166,8 @@ export class GoExtractor implements FrameworkExtractor {
         assessment = 'HIGH - Majority of lines skipped, likely wrong output format';
         severity = 'WARN';
       } else if (skippedPercentage > 20) {
-        assessment = 'MODERATE - Significant number of non-JSON lines';
-        severity = 'DEBUG';
+        assessment = 'MODERATE - Significant non-JSON content, verify -json flag is set';
+        severity = 'WARN';
       } else {
         assessment = 'NORMAL - Expected build output mixed with test JSON';
         severity = 'DEBUG';
