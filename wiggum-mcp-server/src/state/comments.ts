@@ -42,10 +42,19 @@ function validateWiggumState(data: unknown): WiggumState {
     step = obj.step;
   } else {
     // STEP_ENSURE_PR validity is guaranteed by module-level validation at import time
-    logger.warn('validateWiggumState: invalid step value, defaulting to initial step', {
-      invalidStep: obj.step,
-      defaultingTo: STEP_ENSURE_PR,
-    });
+    // Log at ERROR level since this indicates state corruption in PR comments
+    // that may require investigation. The workflow recovers by restarting from
+    // Step 0, but the corrupted comment should be investigated.
+    logger.error(
+      'validateWiggumState: invalid step value in PR comment state - possible corruption',
+      {
+        invalidStep: obj.step,
+        invalidStepType: typeof obj.step,
+        defaultingTo: STEP_ENSURE_PR,
+        fullStateObject: JSON.stringify(obj).substring(0, 500),
+        recoveryAction: 'Workflow will restart from Step 0 (Ensure PR)',
+      }
+    );
     step = STEP_ENSURE_PR;
   }
   const completedSteps = Array.isArray(obj.completedSteps)

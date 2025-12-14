@@ -53,11 +53,21 @@ export async function monitorRun(
   // If failed, enrich with failure details
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { branch });
-    const failureDetails = await getFailureDetails({
-      branch: branch,
-      max_chars: WORKFLOW_LOG_MAX_CHARS,
-    });
-    result.failureDetails = failureDetails;
+    try {
+      const failureDetails = await getFailureDetails({
+        branch: branch,
+        max_chars: WORKFLOW_LOG_MAX_CHARS,
+      });
+      result.failureDetails = failureDetails;
+    } catch (enrichmentError) {
+      // Log enrichment failure but preserve original failure information
+      // The workflow already failed - don't crash on enrichment errors
+      logger.warn('Failed to enrich failure result with detailed information', {
+        branch,
+        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+      });
+      // Leave result.failureDetails undefined; errorSummary is still available
+    }
   }
 
   return result;
@@ -99,11 +109,21 @@ export async function monitorPRChecks(
   // If failed, enrich with failure details
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { prNumber });
-    const failureDetails = await getFailureDetails({
-      pr_number: prNumber,
-      max_chars: WORKFLOW_LOG_MAX_CHARS,
-    });
-    result.failureDetails = failureDetails;
+    try {
+      const failureDetails = await getFailureDetails({
+        pr_number: prNumber,
+        max_chars: WORKFLOW_LOG_MAX_CHARS,
+      });
+      result.failureDetails = failureDetails;
+    } catch (enrichmentError) {
+      // Log enrichment failure but preserve original failure information
+      // The workflow already failed - don't crash on enrichment errors
+      logger.warn('Failed to enrich failure result with detailed information', {
+        prNumber,
+        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+      });
+      // Leave result.failureDetails undefined; errorSummary is still available
+    }
   }
 
   return result;

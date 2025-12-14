@@ -12,6 +12,7 @@ import {
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
 import { getWiggumState } from './comments.js';
 import { STEP_ENSURE_PR } from '../constants.js';
+import { logger } from '../utils/logger.js';
 import type { GitState, PRState, CurrentState } from './types.js';
 
 /**
@@ -157,10 +158,19 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        console.warn(
-          `detectCurrentState: PR state changed during detection (was #${pr.number}, now #${revalidatedPr.number}). Using revalidated state.`
+        logger.warn(
+          'detectCurrentState: PR state changed during detection, using revalidated state',
+          {
+            previousPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+          }
         );
-        return detectCurrentState(repo); // Recursive call to re-fetch with consistent state
+        // Note: Recursive call with no depth limit is acceptable here because:
+        // 1. Race condition requires stateDetectionTime > 5000ms (unusual)
+        // 2. PR number change between reads is rare (external actor closing PR)
+        // 3. Worst case: PR keeps changing (very unlikely), eventually timeout at caller
+        return detectCurrentState(repo);
       }
     }
   } else {
