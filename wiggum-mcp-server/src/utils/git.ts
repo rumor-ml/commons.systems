@@ -255,3 +255,71 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
     }
   }
 }
+
+/**
+ * Safe pattern for branch names to prevent command injection
+ *
+ * Allows: alphanumeric, hyphens, underscores, forward slashes, dots
+ * This covers standard branch naming conventions while preventing shell metacharacters
+ */
+const SAFE_BRANCH_NAME_PATTERN = /^[a-zA-Z0-9\/_.-]+$/;
+
+/**
+ * Check if branch name is safe for use in shell commands
+ *
+ * Validates that branch name contains only safe characters and doesn't
+ * include shell metacharacters that could enable command injection.
+ *
+ * @param branchName - Branch name to validate
+ * @returns true if branch name is safe, false otherwise
+ *
+ * @example
+ * ```typescript
+ * isSafeBranchName("feature/123-fix"); // true
+ * isSafeBranchName("feature; rm -rf /"); // false
+ * ```
+ */
+export function isSafeBranchName(branchName: string): boolean {
+  return SAFE_BRANCH_NAME_PATTERN.test(branchName);
+}
+
+/**
+ * Sanitize branch name for safe use in shell commands
+ *
+ * Returns sanitized branch name with warning if sanitization was needed.
+ * Removes any characters that don't match SAFE_BRANCH_NAME_PATTERN.
+ *
+ * @param branchName - Branch name to sanitize
+ * @returns Object with sanitized name, whether sanitization occurred, and optional warning
+ *
+ * @example
+ * ```typescript
+ * sanitizeBranchNameForShell("feature/123");
+ * // Returns: { name: "feature/123", wasSanitized: false }
+ *
+ * sanitizeBranchNameForShell("feature; rm -rf /");
+ * // Returns: {
+ * //   name: "feature rm -rf ",
+ * //   wasSanitized: true,
+ * //   warning: "Branch name contained unsafe characters..."
+ * // }
+ * ```
+ */
+export function sanitizeBranchNameForShell(branchName: string): {
+  name: string;
+  wasSanitized: boolean;
+  warning?: string;
+} {
+  if (isSafeBranchName(branchName)) {
+    return { name: branchName, wasSanitized: false };
+  }
+
+  // Remove unsafe characters
+  const sanitized = branchName.replace(/[^a-zA-Z0-9\/_.-]/g, ' ');
+
+  return {
+    name: sanitized,
+    wasSanitized: true,
+    warning: `Branch name contained unsafe characters and was sanitized. Original: "${branchName}", Sanitized: "${sanitized}"`,
+  };
+}

@@ -43,6 +43,7 @@ import { STEP_ENSURE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js'
 import { ValidationError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
+import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
 
 export const CompletePRCreationInputSchema = z.object({
@@ -131,15 +132,9 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
       branch: branchName,
     });
 
-    // Sanitize error message for PR body:
-    // 1. Take only first line (often contains root cause)
-    // 2. Limit to 200 chars (prevent PR body bloat)
-    // 3. Remove sensitive tokens/URLs if present
+    // Sanitize error message for PR body using security utility
     // Full error is already logged above for debugging
-    let sanitizedError = errorMsg.split('\n')[0].substring(0, 200);
-    // Remove potential tokens or sensitive URLs from error message
-    sanitizedError = sanitizedError.replace(/ghp_[a-zA-Z0-9]+/g, '[REDACTED]');
-    sanitizedError = sanitizedError.replace(/https:\/\/[^\s]+@github\.com/g, 'https://github.com');
+    const sanitizedError = sanitizeErrorMessage(errorMsg, 200);
 
     commits = `⚠️ **Unable to fetch commits from GitHub API**
 

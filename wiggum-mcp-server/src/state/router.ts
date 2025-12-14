@@ -12,6 +12,7 @@ import { detectCurrentState } from './detector.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { sanitizeBranchNameForShell } from '../utils/git.js';
 import {
   STEP_ENSURE_PR,
   STEP_MONITOR_WORKFLOW,
@@ -294,7 +295,12 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
 
   // Check if branch is pushed
   if (!state.git.isPushed) {
-    output.instructions = `Branch not pushed to remote. Execute: git push -u origin ${state.git.currentBranch}`;
+    const sanitized = sanitizeBranchNameForShell(state.git.currentBranch);
+    let instructions = `Branch not pushed to remote. Execute: git push -u origin ${sanitized.name}`;
+    if (sanitized.wasSanitized && sanitized.warning) {
+      instructions += `\n\nWarning: ${sanitized.warning}`;
+    }
+    output.instructions = instructions;
     output.steps_completed_by_tool = ['Checked push status'];
     return {
       content: [{ type: 'text', text: formatWiggumResponse(output) }],

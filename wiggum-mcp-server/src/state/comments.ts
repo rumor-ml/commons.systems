@@ -27,6 +27,63 @@ if (!isValidStep(STEP_ENSURE_PR)) {
 }
 
 /**
+ * Check for prototype pollution in parsed JSON object
+ *
+ * Recursively checks for dangerous property names that can be used for
+ * prototype pollution attacks: __proto__, constructor, prototype.
+ *
+ * @param obj - Object to check for prototype pollution
+ * @param depth - Current recursion depth (max 10 levels)
+ * @returns true if pollution detected, false otherwise
+ */
+function hasPrototypePollution(obj: unknown, depth: number = 0): boolean {
+  // Limit recursion depth to prevent stack overflow
+  if (depth > 10) return false;
+
+  if (typeof obj !== 'object' || obj === null) {
+    return false;
+  }
+
+  const keys = Object.keys(obj);
+  const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
+
+  // Check for dangerous keys at this level
+  for (const key of keys) {
+    if (dangerousKeys.includes(key)) {
+      return true;
+    }
+
+    // Recursively check nested objects
+    const value = (obj as Record<string, unknown>)[key];
+    if (hasPrototypePollution(value, depth + 1)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Safely parse JSON with prototype pollution detection
+ *
+ * Wraps JSON.parse with validation to detect and reject objects
+ * containing dangerous properties that could lead to prototype pollution.
+ *
+ * @param json - JSON string to parse
+ * @returns Parsed object if safe
+ * @throws Error if JSON is invalid or contains prototype pollution
+ */
+function safeJsonParse(json: string): unknown {
+  const parsed = JSON.parse(json);
+
+  if (hasPrototypePollution(parsed)) {
+    throw new Error('Prototype pollution detected in JSON');
+  }
+
+  return parsed;
+}
+
+/**
  * Validate and sanitize wiggum state from untrusted JSON
  */
 function validateWiggumState(data: unknown): WiggumState {
@@ -80,13 +137,17 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
 
     if (match) {
       try {
-        const raw = JSON.parse(match[1]);
+        const raw = safeJsonParse(match[1]);
         return validateWiggumState(raw);
       } catch (error) {
-        logger.warn('getWiggumState: failed to parse state JSON from comment', {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        // Log prototype pollution attempts at ERROR level for security monitoring
+        const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
+        logger[logLevel]('getWiggumState: failed to parse state JSON from comment', {
           commentId: comment.id,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMsg,
           rawJson: match[1].substring(0, 200),
+          isPotentialAttack: errorMsg.includes('Prototype pollution'),
         });
         continue;
       }
