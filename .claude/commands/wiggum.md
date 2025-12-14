@@ -68,6 +68,41 @@ Every tool response includes a `steps_completed_by_tool` field listing everythin
 2. DO NOT run commands or tools that repeat those steps
 3. Only follow the new `instructions` provided
 
+### Understanding Step Completion Tracking
+
+**Wiggum tracks step completion state in PR comments using a structured state object.**
+
+The `completedSteps` array records which steps have finished successfully:
+
+- Step completed → added to `completedSteps` array
+- Fix needed → `completedSteps` cleared from failing step forward (via router.ts)
+- Re-verification → checks if step already in `completedSteps`, skips if so
+
+**Example state progression:**
+
+```typescript
+// Initial state (no PR)
+{ iteration: 0, step: 0, completedSteps: [] }
+
+// After PR created (Step 0 complete)
+{ iteration: 0, step: 0, completedSteps: [0] }
+
+// After workflow passes (Step 1 complete)
+{ iteration: 0, step: 1, completedSteps: [0, 1] }
+
+// Issue found during PR review (Step 3), increment iteration and clear steps from 3 forward
+{ iteration: 1, step: 3, completedSteps: [0] }  // Steps 1-4 cleared, must re-verify
+
+// After fix, workflow re-passes (Step 1 complete again)
+{ iteration: 1, step: 1, completedSteps: [0, 1] }
+```
+
+**Key behavior in router.ts:**
+
+- `clearCompletedStepsFrom(step)`: Removes all steps >= specified step from completedSteps
+- Called when issues found during any step (workflow, checks, reviews)
+- Ensures all steps after a fix are re-verified before approval
+
 ### Example
 
 ```json
@@ -160,11 +195,8 @@ Provide a clear, concise description of what the PR changes.
 - Extracts issue number from branch name
 - Creates PR with branch name as title
 - Adds "closes #ISSUE" to PR body
-- **Monitors workflow run until completion or first failure**
-- **Monitors PR checks until completion or first failure**
-- **Extracts detailed failure information if checks fail**
 - Posts state comment to PR
-- Marks steps complete as appropriate
+- Marks Step 0 (Ensure PR) complete
 - Returns next step instructions
 
 The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat those actions.**

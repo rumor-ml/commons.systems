@@ -49,7 +49,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'wiggum_complete_pr_creation',
         description:
-          'Complete PR creation step. Validates branch name format, extracts issue number, creates PR via gh CLI with proper body including commits, and marks step complete.',
+          'Create PR with codified process. Extracts issue from branch, gets commits, creates PR with correct format, marks step complete.',
         inputSchema: {
           type: 'object',
           properties: {

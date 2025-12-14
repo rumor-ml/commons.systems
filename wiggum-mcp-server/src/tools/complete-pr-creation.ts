@@ -3,6 +3,35 @@
  *
  * Called when Step 0 (Ensure PR) instructs creation of PR
  * Codifies the entire PR creation process following completion tool pattern
+ *
+ * ERROR HANDLING STRATEGY:
+ *
+ * This handler implements defensive error handling with explicit ValidationError throws
+ * for all user-facing error conditions. Error handling is split into three categories:
+ *
+ * 1. VALIDATION ERRORS (throw ValidationError - user must intervene):
+ *    - PR already exists for branch (lines 59-66)
+ *    - Invalid branch name format (lines 32-42)
+ *    - Failed to parse PR number from gh output (lines 147-156)
+ *    - Failed to verify PR after creation (lines 169-178)
+ *    - Failed to post wiggum state comment (lines 207-217)
+ *    - GitHub API errors during PR creation (lines 218-223)
+ *
+ * 2. LOGGED ERRORS (logged but execution continues with fallback):
+ *    - Failed to fetch commits from GitHub API (lines 93-108)
+ *      Fallback: Include error message in PR body with manual workaround
+ *
+ * 3. STRUCTURED LOGGING (info/error logging for observability):
+ *    - PR creation start (line 53)
+ *    - Closed/merged PR exists (lines 72-79)
+ *    - Commit fetch failure (lines 95-98)
+ *    - PR creation success (lines 137-140)
+ *    - PR verification success (lines 164-168)
+ *    - State comment failure (lines 208-211)
+ *    - PR creation failure (lines 212-216)
+ *
+ * All ValidationErrors include actionable context for the user.
+ * All errors are logged with structured metadata (prNumber, branch, error message).
  */
 
 import { z } from 'zod';
@@ -69,8 +98,13 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
   // If a closed/merged PR exists, we can create a new one
   // Log this for transparency
   if (state.pr.exists && state.pr.state !== 'OPEN') {
-    console.log(
-      `Note: A ${state.pr.state.toLowerCase()} PR #${state.pr.number} exists for this branch. Creating a new PR.`
+    logger.info(
+      `A ${state.pr.state.toLowerCase()} PR #${state.pr.number} exists for branch "${state.git.currentBranch}". Creating a new PR as the previous one is not open.`,
+      {
+        previousPrNumber: state.pr.number,
+        previousPrState: state.pr.state,
+        branch: state.git.currentBranch,
+      }
     );
   }
 
@@ -185,11 +219,12 @@ ${commits}`;
       completedSteps: [...state.wiggum.completedSteps, STEP_ENSURE_PR],
     };
 
-    await postWiggumStateComment(
-      prNumber,
-      newState,
-      `${STEP_NAMES[STEP_ENSURE_PR]} - Complete`,
-      `PR created successfully!
+    try {
+      await postWiggumStateComment(
+        prNumber,
+        newState,
+        `${STEP_NAMES[STEP_ENSURE_PR]} - Complete`,
+        `PR created successfully!
 
 **PR:** #${prNumber}
 **Title:** ${pr.title}
@@ -197,7 +232,19 @@ ${commits}`;
 **Closes:** #${issueNum}
 
 **Next Action:** Proceeding to workflow monitoring.`
-    );
+      );
+    } catch (commentError) {
+      logger.error('Failed to post wiggum state comment after PR creation', {
+        prNumber,
+        error: commentError instanceof Error ? commentError.message : String(commentError),
+      });
+      throw new ValidationError(
+        `PR #${prNumber} was created successfully but failed to post state comment. ` +
+          `Error: ${commentError instanceof Error ? commentError.message : String(commentError)}. ` +
+          `The PR exists and can be viewed, but wiggum state tracking failed. ` +
+          `You may need to manually add a wiggum state comment or restart the workflow.`
+      );
+    }
 
     // Get updated state with PR now existing
     const updatedState = await detectCurrentState();

@@ -187,6 +187,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             const setupTime = setupTimeMatch[1];
             const configTime = configTimeMatch[1];
             timeGap = this.parseTimeDiff(setupTime, configTime);
+            if (timeGap === null) {
+              console.error(
+                `[WARN] parsePlaywrightTimeout: parseTimeDiff returned null for timestamps "${setupTime}" and "${configTime}". Unable to calculate time gap for timeout analysis.`
+              );
+            }
           }
         }
       }
@@ -387,10 +392,24 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         summary,
       };
     } catch (err) {
-      // JSON parsing failed
-      console.error(
-        `[ERROR] parsePlaywrightJson: Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`
-      );
+      // Phase 1: Extract JSON from logs
+      // This may fail if logs don't contain valid JSON or if extraction logic fails
+      let jsonText: string;
+      try {
+        jsonText = this.extractJsonFromLogs(logText);
+        console.error(
+          `[ERROR] parsePlaywrightJson: JSON extraction succeeded but parsing failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+        console.error(`[DEBUG] First 200 chars of extracted JSON: ${jsonText.substring(0, 200)}`);
+      } catch (extractErr) {
+        console.error(
+          `[ERROR] parsePlaywrightJson: JSON extraction failed: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
+        );
+        console.error(
+          `[ERROR] parsePlaywrightJson: Original parse error: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
       return {
         framework: 'playwright',
         errors: [
@@ -538,8 +557,14 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           }
           return candidate;
         }
-      } catch {
+      } catch (parseErr) {
         // Keep trying with more lines
+        // Log first few parse errors for diagnostics
+        if (skippedLines < 3) {
+          console.error(
+            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${skippedLines + 1} failed at jsonEnd=${jsonEnd}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+          );
+        }
         skippedLines++;
       }
     }

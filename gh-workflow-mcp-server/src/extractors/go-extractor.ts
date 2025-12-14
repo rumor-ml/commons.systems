@@ -147,7 +147,7 @@ export class GoExtractor implements FrameworkExtractor {
         // Log only first few failures to avoid spam
         if (skippedNonJsonLines < 3) {
           console.error(
-            `[INFO] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
+            `[DEBUG] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
           );
         }
         skippedNonJsonLines++;
