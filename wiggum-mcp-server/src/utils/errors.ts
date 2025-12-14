@@ -144,10 +144,15 @@ export class FormattingError extends McpError {
  * Create a standardized error result for MCP tool responses
  *
  * Categorizes errors by type to help consumers handle different error scenarios:
- * - TimeoutError: Operation exceeded time limit
- * - ValidationError: Invalid input parameters
- * - NetworkError: Network-related failures
- * - Generic errors: Unexpected failures
+ * - TimeoutError: Operation exceeded time limit (may be retryable)
+ * - ValidationError: Invalid input parameters (terminal, not retryable)
+ * - NetworkError: Network-related failures (may be retryable)
+ * - GitHubCliError: GitHub CLI command failures (may include exit code and stderr)
+ * - GitError: Git command failures (may include exit code and stderr)
+ * - ParsingError: Failed to parse external command output (version mismatch or breaking changes)
+ * - FormattingError: Failed to format response data (protocol contract violation)
+ * - McpError: Generic MCP-related errors (base class for all custom errors)
+ * - Generic errors: Unexpected failures (unknown error types)
  *
  * This function acts as a protocol bridge, converting TypeScript Error objects
  * into MCP-compliant ErrorResult format with structured metadata for error

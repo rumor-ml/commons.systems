@@ -6,8 +6,8 @@
  * to avoid JSON decoding errors and improve readability in agent logs.
  *
  * Protocol Context:
- * - Response structure must match WiggumProtocol.StateTransition schema
- * - All fields are required per protocol specification (see protocol.ts)
+ * - Response structure must match ResponseData interface (see lines 43-50)
+ * - All fields are required per protocol specification
  * - Context field ordering follows protocol definition but is not semantically significant
  * - Markdown output is consumed directly by LLM agents (not parsed)
  *
@@ -52,7 +52,7 @@ interface ResponseData {
 /**
  * Validate response data has all required fields with correct types
  *
- * Enforces WiggumProtocol.StateTransition schema requirements:
+ * Enforces ResponseData interface schema requirements (see lines 43-50):
  * - All fields are required by protocol specification
  * - Types must match exactly (string, number, array, object as specified)
  * - Missing or mistyped fields indicate protocol violation
@@ -182,7 +182,9 @@ export function formatWiggumResponse(data: unknown): string {
   // Format context section with type-safe value formatting
   const contextEntries = Object.entries(context)
     .map(([key, value]) => {
-      // Convert snake_case to Title Case for display (e.g., "pr_number" -> "Pr Number")
+      // Convert snake_case to Title Case for display
+      // Each word is capitalized independently (first char uppercase, rest lowercase)
+      // Examples: "pr_number" -> "Pr Number", "current_branch" -> "Current Branch", "api_url" -> "Api Url"
       const label = key
         .split('_')
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

@@ -482,6 +482,92 @@ describe('formatWiggumResponse', () => {
         'Should have exactly 4 context entries (all fields present)'
       );
     });
+
+    it('should preserve context field insertion order', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {
+          zebra: 'last',
+          alpha: 'first',
+          middle: 'center',
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Extract context lines to verify order
+      const contextSection = result.split('### Context\n')[1];
+      const contextLines = contextSection.split('\n').filter((line) => line.startsWith('- **'));
+
+      // Verify order matches insertion order (Object.entries preserves insertion order in modern JS)
+      assert.match(contextLines[0], /\*\*Zebra:\*\*/);
+      assert.match(contextLines[1], /\*\*Alpha:\*\*/);
+      assert.match(contextLines[2], /\*\*Middle:\*\*/);
+    });
+
+    it('should format arrays with negative numbers and decimals', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {
+          temperatures: [-10, -5.5, 0, 3.14, 100.99],
+          coordinates: [-122.4194, 37.7749],
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+      assert.match(result, /- \*\*Temperatures:\*\* -10, -5.5, 0, 3.14, 100.99/);
+      assert.match(result, /- \*\*Coordinates:\*\* -122.4194, 37.7749/);
+    });
+
+    it('should format single-element arrays', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {
+          single_tag: ['production'],
+          single_number: [42],
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+      assert.match(result, /- \*\*Single Tag:\*\* production/);
+      assert.match(result, /- \*\*Single Number:\*\* 42/);
+    });
+
+    it('should format context with mixed-type array values', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {
+          string_array: ['alpha', 'beta', 'gamma'],
+          number_array: [1, 2, 3],
+          empty_array: [],
+          single_string: ['solo'],
+          single_number: [99],
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+      assert.match(result, /- \*\*String Array:\*\* alpha, beta, gamma/);
+      assert.match(result, /- \*\*Number Array:\*\* 1, 2, 3/);
+      assert.match(result, /- \*\*Empty Array:\*\* _\(empty\)_/);
+      assert.match(result, /- \*\*Single String:\*\* solo/);
+      assert.match(result, /- \*\*Single Number:\*\* 99/);
+    });
   });
 
   describe('Edge Cases', () => {
