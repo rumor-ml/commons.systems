@@ -158,7 +158,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Look for global setup completion to confirm tests were about to run
     let globalSetupComplete = false;
     let webServerCommand: string | undefined;
-    let timeGap: number | undefined;
+    let timeGap: number | null | undefined;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -199,7 +199,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += 'Global setup completed successfully but no test results were produced. ';
     }
 
-    if (timeGap && timeGap > 60) {
+    if (timeGap !== null && timeGap !== undefined && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
     }
@@ -236,17 +236,37 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
   /**
    * Parse time difference between two HH:MM:SS strings
-   * Returns difference in seconds
+   *
+   * Extracts timestamps from GitHub Actions logs to calculate time gaps
+   * (e.g., between global setup completion and test execution timeout).
+   *
+   * FALLBACK STRATEGY:
+   * - Returns null on any parse error instead of throwing
+   * - Logs warnings for invalid formats or NaN values
+   * - Caller should handle null gracefully (e.g., skip time gap message)
+   *
+   * NULL RETURN CASES:
+   * - Invalid format (not HH:MM:SS)
+   * - NaN after parsing (e.g., "12:AB:34")
+   * - Unexpected parsing errors
+   *
+   * @param time1 - First timestamp in HH:MM:SS format
+   * @param time2 - Second timestamp in HH:MM:SS format
+   * @returns Absolute difference in seconds, or null if parsing fails
+   *
+   * @example
+   * parseTimeDiff("12:30:00", "12:35:30") // returns 330 (5 minutes 30 seconds)
+   * parseTimeDiff("invalid", "12:30:00")  // returns null (logs warning)
    */
-  private parseTimeDiff(time1: string, time2: string): number {
-    const parse = (t: string) => {
+  private parseTimeDiff(time1: string, time2: string): number | null {
+    const parse = (t: string): number | null => {
       try {
         // Validate format is HH:MM:SS
         if (!/^\d{2}:\d{2}:\d{2}$/.test(t)) {
           console.error(
-            `[WARN] parseTimeDiff: invalid time format "${t}", expected HH:MM:SS. Returning 0.`
+            `[WARN] parseTimeDiff: invalid time format "${t}", expected HH:MM:SS. Returning null.`
           );
-          return 0;
+          return null;
         }
 
         const [h, m, s] = t.split(':').map(Number);
@@ -254,20 +274,27 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         // Check for NaN values
         if (isNaN(h) || isNaN(m) || isNaN(s)) {
           console.error(
-            `[WARN] parseTimeDiff: failed to parse numbers from "${t}" (h=${h}, m=${m}, s=${s}). Returning 0.`
+            `[WARN] parseTimeDiff: failed to parse numbers from "${t}" (h=${h}, m=${m}, s=${s}). Returning null.`
           );
-          return 0;
+          return null;
         }
 
         return h * 3600 + m * 60 + s;
       } catch (error) {
         console.error(
-          `[ERROR] parseTimeDiff: unexpected error parsing "${t}": ${error instanceof Error ? error.message : String(error)}. Returning 0.`
+          `[ERROR] parseTimeDiff: unexpected error parsing "${t}": ${error instanceof Error ? error.message : String(error)}. Returning null.`
         );
-        return 0;
+        return null;
       }
     };
-    return Math.abs(parse(time2) - parse(time1));
+    const seconds1 = parse(time1);
+    const seconds2 = parse(time2);
+
+    if (seconds1 === null || seconds2 === null) {
+      return null;
+    }
+
+    return Math.abs(seconds2 - seconds1);
   }
 
   /**
@@ -361,6 +388,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       };
     } catch (err) {
       // JSON parsing failed
+      console.error(
+        `[ERROR] parsePlaywrightJson: Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`
+      );
       return {
         framework: 'playwright',
         errors: [
@@ -435,7 +465,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
   /**
    * Extract JSON blob from logs that may contain other output
-   * Looks for a JSON object that has "config" or "suites" as top-level keys
+   *
+   * Playwright JSON reports are often embedded within GitHub Actions logs that contain
+   * timestamps, build output, and other non-JSON content. This method uses a progressive
+   * parsing strategy to locate and extract the complete JSON report.
+   *
+   * EXTRACTION STRATEGY:
+   * 1. Strip GitHub Actions timestamps (YYYY-MM-DDTHH:MM:SS.nnnnnnnZ) from all lines
+   * 2. Find JSON start marker: standalone "{" or line starting with '{"suites":'
+   * 3. Verify next ~20 lines contain "config" or "suites" to confirm this is the report
+   * 4. Progressively parse from start marker, adding lines until valid JSON with expected structure
+   * 5. Fallback to entire log text if no marker found or parsing fails
+   *
+   * FALLBACK BEHAVIOR:
+   * - If no JSON start marker found: logs warning, returns entire log text (may fail downstream)
+   * - If progressive parsing fails: logs error with retry count, returns from marker to end
+   * - Caller (parsePlaywrightJson) will catch JSON.parse errors and return error result
+   *
+   * WHY PROGRESSIVE PARSING:
+   * - Handles nested braces in JSON strings correctly (regex-based brace counting would fail)
+   * - Stops at first valid JSON, avoiding extra log content at end
+   * - More robust than regex extraction for complex JSON structures
+   *
+   * @param logText - Raw log text containing Playwright JSON report
+   * @returns Extracted JSON string ready for parsing
    */
   private extractJsonFromLogs(logText: string): string {
     const lines = logText.split('\n');
@@ -463,7 +516,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     if (jsonStart === -1) {
       console.error(
-        '[ERROR] Playwright JSON extraction: could not find JSON start marker. Expected standalone "{" or line starting with "{"suites":" within first ~20 lines. Falling back to parsing entire log text.'
+        '[WARN] Playwright JSON extraction: could not find JSON start marker. Expected standalone "{" or line starting with "{"suites":" within first ~20 lines. Falling back to parsing entire log text. This may fail if log text contains non-JSON content.'
       );
       // Fallback: try parsing the whole thing
       return logText.trim();
