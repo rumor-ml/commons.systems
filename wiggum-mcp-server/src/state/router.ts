@@ -255,6 +255,11 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
   if (!state.pr.exists) {
     output.instructions = `**CRITICAL: Call wiggum_complete_pr_creation tool directly. DO NOT use gh pr create command.**
 
+Before calling the tool, review ALL commits on this branch:
+- Run: git log main..HEAD --oneline
+
+Provide a pr_description that summarizes ALL changes in the branch, not just recent commits.
+
 Call wiggum_complete_pr_creation with pr_description parameter describing the changes in this PR.
 
 The tool will:
@@ -530,7 +535,10 @@ async function processCodeQualityAndReturnNextInstructions(
     // Return Step 3 (PR Review) instructions
     output.current_step = STEP_NAMES[STEP_PR_REVIEW];
     output.step_number = STEP_PR_REVIEW;
-    output.instructions = `Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+    output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
+Review all commits: git log main..HEAD --oneline
+
+Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response
@@ -583,7 +591,10 @@ function handleStepPRReview(state: CurrentStateWithPR): ToolResult {
     current_step: STEP_NAMES[STEP_PR_REVIEW],
     step_number: STEP_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
-    instructions: `Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+    instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
+Review all commits: git log main..HEAD --oneline
+
+Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response
@@ -614,7 +625,10 @@ function handleStepSecurityReview(state: CurrentStateWithPR): ToolResult {
     current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
     step_number: STEP_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
-    instructions: `Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+    instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
+Review all commits: git log main..HEAD --oneline
+
+Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After security review completes:
 
@@ -671,7 +685,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
   } else if (!hasSecurityReview) {
     output.instructions = `Missing evidence of ${SECURITY_REVIEW_COMMAND} execution in PR comments. Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
   } else {
-    // Both reviews verified - mark step complete
+    // Both reviews verified - mark step complete and proceed to approval
     const { postWiggumStateComment } = await import('./comments.js');
 
     const newState = {
@@ -691,9 +705,8 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 **Next Action:** Proceeding to approval.`
     );
 
-    output.instructions =
-      'Both review commands verified and step marked complete. Proceeding to approval.';
-    output.steps_completed_by_tool.push('Marked step complete', 'Posted state comment to PR');
+    // Return explicit approval instructions instead of vague "proceeding to approval"
+    return handleApproval(state);
   }
 
   return {

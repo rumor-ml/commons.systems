@@ -55,7 +55,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             pr_description: {
               type: 'string',
-              description: "Agent's description of PR contents and changes",
+              description:
+                "Agent's description of PR contents - must cover ALL commits on the branch (git log main..HEAD), not just recent changes",
             },
           },
           required: ['pr_description'],

@@ -147,6 +147,11 @@ mcp__wiggum__wiggum_complete_pr_creation({
 });
 ```
 
+Before calling this tool:
+
+1. Review ALL commits on the branch: git log main..HEAD --oneline
+2. Provide a pr_description that summarizes ALL changes, not just recent ones
+
 Provide a clear, concise description of what the PR changes.
 
 **What this tool does automatically:**
