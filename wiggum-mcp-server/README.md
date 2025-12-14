@@ -34,9 +34,9 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 
 ## Available Tools
 
-### wiggum_next_step
+### wiggum_init
 
-Primary orchestration tool that analyzes current state and returns next action instructions.
+Initialization/entry point tool that analyzes current state and returns next action instructions.
 
 **Inputs:** None (auto-detects state from git, GitHub PR, and PR comments)
 
@@ -50,7 +50,7 @@ Primary orchestration tool that analyzes current state and returns next action i
 
 **Workflow Steps:**
 
-1. **Step 0 - Ensure PR Exists**: Verify branch is pushed and PR is created
+1. **Step 0 - Ensure PR Exists**: Create PR using wiggum_complete_pr_creation tool
 2. **Step 1 - Monitor Workflow**: Monitor GitHub Actions workflow completion
 3. **Step 1b - Monitor PR Checks**: Monitor all PR status checks
 4. **Step 2 - Code Quality**: Review and address code quality bot comments
@@ -58,6 +58,23 @@ Primary orchestration tool that analyzes current state and returns next action i
 6. **Step 4 - Security Review**: Execute security review
 7. **Step 4b - Verify Reviews**: Verify both reviews were executed
 8. **Approval**: Post summary and approve PR
+
+### wiggum_complete_pr_creation
+
+Completes PR creation step with codified process.
+
+**Inputs:**
+
+- `pr_description` (string): Agent's description of PR contents and changes
+
+**Behavior:**
+
+- Extracts issue number from branch name (format: 123-feature-name)
+- Gets commit messages from GitHub API
+- Creates PR with "closes #issue" line + description + commits
+- Posts confirmation comment
+- Marks Step 0 complete
+- Returns next step instructions
 
 ### wiggum_complete_pr_review
 
@@ -252,6 +269,47 @@ npm run typecheck
 
 # Test
 npm test
+
+# Build verification (all MCP servers)
+../infrastructure/scripts/build-mcp-servers.sh
+```
+
+### Build Verification
+
+To catch TypeScript compilation errors early (especially when making changes to multiple files), run the build verification script:
+
+```bash
+./infrastructure/scripts/build-mcp-servers.sh
+```
+
+This script validates BOTH npm and Nix builds for all TypeScript MCP servers. It's particularly useful:
+
+- After making changes that affect multiple files
+- Before committing changes
+- When refactoring shared code
+- To verify that all dependencies are properly imported
+- **To catch untracked source files** (Nix build will fail, npm build won't)
+
+The script can also be enabled as a pre-commit hook by setting `enable = true` in `nix/checks.nix` under the `typescript-build` hook.
+
+### Git Tracking Requirement for Nix Builds
+
+**IMPORTANT:** Nix builds use `builtins.path` which only includes git-tracked files. When creating new source files:
+
+1. Create/modify the files
+2. Run `npm run build` to verify TypeScript compilation
+3. **Stage the files:** `git add <file>`
+4. Run `nix build .#wiggum-mcp-server` to verify Nix build
+5. Only then is the change "complete"
+
+**Why?** Nix ensures reproducible builds by only including files that are part of the git-tracked source tree. This prevents accidental inclusion of temporary files, build artifacts, or editor backups.
+
+**Common Error:** If you see "Cannot find module" errors during Nix build but npm build works, check for untracked source files:
+
+```bash
+git status | grep '??'
+git add <untracked-source-files>
+nix build .#wiggum-mcp-server  # Should now work
 ```
 
 ## Architecture
@@ -264,7 +322,8 @@ npm test
 - `src/utils/gh-cli.ts` - GitHub CLI utilities
 - `src/state/` - State detection and management
 - `src/tools/` - Individual tool implementations
-  - `next-step.ts` - Primary orchestration tool
+  - `init.ts` - Initialization/entry point tool
+  - `complete-pr-creation.ts` - PR creation completion
   - `complete-pr-review.ts` - PR review completion
   - `complete-security-review.ts` - Security review completion
   - `complete-fix.ts` - Fix completion tracking

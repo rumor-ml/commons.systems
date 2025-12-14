@@ -111,20 +111,16 @@ function showWarningBanner(message) {
 async function init() {
   // Guard against concurrent initialization
   if (state.initializing) {
-    console.log('[Cards] Already initializing, skipping duplicate init call');
     return;
   }
 
   // Guard against double initialization
   if (state.initialized) {
-    console.log('[Cards] Re-initializing after HTMX navigation');
-
     // CRITICAL: Clear hardcoded loading spinner from HTMX-swapped HTML
     const cardList = document.getElementById('cardList');
     if (cardList) {
       const hardcodedSpinner = cardList.querySelector('.loading-state');
       if (hardcodedSpinner) {
-        console.log('[Cards] Removing hardcoded spinner from HTMX swap');
         hardcodedSpinner.remove();
       }
     }
@@ -147,7 +143,6 @@ async function init() {
   }
 
   try {
-    console.log('[Cards] Starting initialization');
     state.initializing = true;
 
     // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
@@ -155,7 +150,6 @@ async function init() {
     if (cardList) {
       const hardcodedSpinner = cardList.querySelector('.loading-state');
       if (hardcodedSpinner) {
-        console.log('[Cards] Removing hardcoded spinner from HTML');
         hardcodedSpinner.remove();
       }
     }
@@ -184,7 +178,6 @@ async function init() {
 
     // Mark as fully initialized
     state.initialized = true;
-    console.log('[Cards] Event listeners and UI setup complete');
 
     // Set loading state before rendering to keep loading indicator visible
     state.loading = true;
@@ -214,7 +207,6 @@ async function init() {
     });
   } finally {
     state.initializing = false;
-    console.log('[Cards] Initialization complete');
   }
 }
 

@@ -8,7 +8,8 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { nextStep, NextStepInputSchema } from './tools/next-step.js';
+import { wiggumInit, WiggumInitInputSchema } from './tools/init.js';
+import { completePRCreation, CompletePRCreationInputSchema } from './tools/complete-pr-creation.js';
 import { completePRReview, CompletePRReviewInputSchema } from './tools/complete-pr-review.js';
 import {
   completeSecurityReview,
@@ -36,13 +37,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: 'wiggum_next_step',
+        name: 'wiggum_init',
         description:
-          'Primary orchestration tool for wiggum PR automation flow. Analyzes current state (git, PR, and wiggum state from PR comments) and returns instructions for the next action. No inputs required - all state is detected automatically.',
+          'Start wiggum workflow. Analyzes current state and determines first action needed.',
         inputSchema: {
           type: 'object',
           properties: {},
           required: [],
+        },
+      },
+      {
+        name: 'wiggum_complete_pr_creation',
+        description:
+          'Create PR with codified process. Extracts issue from branch, gets commits, creates PR with correct format, marks step complete.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            pr_description: {
+              type: 'string',
+              description:
+                "Agent's description of PR contents - must cover ALL commits on the branch (git log main..HEAD), not just recent changes",
+            },
+          },
+          required: ['pr_description'],
         },
       },
       {
@@ -144,9 +161,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 
   try {
     switch (name) {
-      case 'wiggum_next_step': {
-        const validated = NextStepInputSchema.parse(args);
-        return await nextStep(validated);
+      case 'wiggum_init': {
+        const validated = WiggumInitInputSchema.parse(args);
+        return await wiggumInit(validated);
+      }
+
+      case 'wiggum_complete_pr_creation': {
+        const validated = CompletePRCreationInputSchema.parse(args);
+        return await completePRCreation(validated);
       }
 
       case 'wiggum_complete_pr_review': {
@@ -166,7 +188,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_next_step, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix`
         );
     }
   } catch (error) {

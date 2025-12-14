@@ -113,6 +113,7 @@ describe('Type Safety', () => {
         exists: true,
         number: 123,
         title: 'Test PR',
+        state: 'OPEN',
         url: 'https://github.com/owner/repo/pull/123',
         labels: ['bug'],
         headRefName: 'feature-123',
