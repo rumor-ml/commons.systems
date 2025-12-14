@@ -5,6 +5,12 @@
  * It converts structured wiggum instruction data into human-readable markdown format
  * to avoid JSON decoding errors and improve readability in agent logs.
  *
+ * Protocol Context:
+ * - Response structure must match WiggumProtocol.StateTransition schema
+ * - All fields are required per protocol specification (see protocol.ts)
+ * - Context field ordering follows protocol definition but is not semantically significant
+ * - Markdown output is consumed directly by LLM agents (not parsed)
+ *
  * Key features:
  * - Type-safe response data validation
  * - Robust handling of various context value types
@@ -45,6 +51,11 @@ interface ResponseData {
 
 /**
  * Validate response data has all required fields with correct types
+ *
+ * Enforces WiggumProtocol.StateTransition schema requirements:
+ * - All fields are required by protocol specification
+ * - Types must match exactly (string, number, array, object as specified)
+ * - Missing or mistyped fields indicate protocol violation
  *
  * @param data - Data to validate
  * @throws {FormattingError} If validation fails
@@ -127,6 +138,12 @@ function formatContextValue(value: ContextValue): string {
  * - Steps completed by tool (bulleted list or "none")
  * - Context section (key-value pairs)
  *
+ * Markdown Structure & Semantics:
+ * - "BINDING INSTRUCTIONS" section contains imperative commands that MUST be executed
+ * - These are state machine transitions, not suggestions or informational content
+ * - LLM agent is expected to execute instructions immediately without user interaction
+ * - Checklist reinforces protocol requirement to continue until explicit completion
+ *
  * @param data - Structured response data from wiggum tool
  * @returns Formatted markdown string
  * @throws {FormattingError} If data validation fails
@@ -165,6 +182,7 @@ export function formatWiggumResponse(data: unknown): string {
   // Format context section with type-safe value formatting
   const contextEntries = Object.entries(context)
     .map(([key, value]) => {
+      // Convert snake_case to Title Case for display (e.g., "pr_number" -> "Pr Number")
       const label = key
         .split('_')
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
