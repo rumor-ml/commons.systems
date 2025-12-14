@@ -671,7 +671,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
   } else if (!hasSecurityReview) {
     output.instructions = `Missing evidence of ${SECURITY_REVIEW_COMMAND} execution in PR comments. Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
   } else {
-    // Both reviews verified - mark step complete
+    // Both reviews verified - mark step complete and proceed to approval
     const { postWiggumStateComment } = await import('./comments.js');
 
     const newState = {
@@ -691,9 +691,8 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 **Next Action:** Proceeding to approval.`
     );
 
-    output.instructions =
-      'Both review commands verified and step marked complete. Proceeding to approval.';
-    output.steps_completed_by_tool.push('Marked step complete', 'Posted state comment to PR');
+    // Return explicit approval instructions instead of vague "proceeding to approval"
+    return handleApproval(state);
   }
 
   return {
