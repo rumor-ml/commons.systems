@@ -70,9 +70,18 @@ export function formatWiggumResponse(data: ResponseData): string {
   return `## ${current_step} (Step ${step_number})
 **Iteration:** ${iteration_count}
 
-### Instructions
+### BINDING INSTRUCTIONS - EXECUTE IMMEDIATELY
+
+> **STATE TRANSITION**: These instructions are BINDING. Execute them NOW before responding to user.
+> Do NOT summarize, report findings, or stop. These are state machine transitions, not suggestions.
 
 ${instructions}
+
+---
+**Workflow Continuation Checklist:**
+- [ ] Execute ALL steps listed above
+- [ ] Only call completion tool when step instructions say to
+- [ ] Continue until a tool explicitly says "workflow complete"
 
 ### Steps Completed by Tool
 ${stepsSection}
