@@ -136,6 +136,15 @@
         ]
       },
       {
+        "matcher": "mcp__wiggum__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/wiggum-protocol-check.sh"
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {

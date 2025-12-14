@@ -11,6 +11,8 @@ import {
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
 import { getWiggumState } from './comments.js';
+import { STEP_ENSURE_PR } from '../constants.js';
+import { logger } from '../utils/logger.js';
 import type { GitState, PRState, CurrentState } from './types.js';
 
 /**
@@ -73,10 +75,20 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     // gh pr view will fail if no PR exists
     const result: GitHubPR = await getPR(undefined, resolvedRepo); // undefined gets PR for current branch
 
+    // ONLY treat OPEN PRs as existing PRs for wiggum workflow
+    // Closed/Merged PRs should be treated as non-existent to avoid state pollution
+    // This prevents carrying over workflow state from closed PRs to new PRs on the same branch
+    if (result.state !== 'OPEN') {
+      return {
+        exists: false,
+      };
+    }
+
     return {
       exists: true,
       number: result.number,
       title: result.title,
+      state: result.state,
       url: result.url,
       labels: result.labels?.map((l) => l.name) || [],
       headRefName: result.headRefName,
@@ -84,9 +96,21 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     };
   } catch (error) {
     // Expected: no PR exists for current branch (GitHubCliError)
-    // Log unexpected errors
-    if (error instanceof Error && !error.message.includes('no pull requests found')) {
-      console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`);
+    // Log unexpected errors with full context
+    if (error instanceof Error) {
+      const isExpectedError = error.message.includes('no pull requests found');
+
+      if (!isExpectedError) {
+        // Unexpected error - provide full diagnostic information
+        console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`, {
+          repo,
+          errorType: error.constructor.name,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
+        });
+      }
+    } else {
+      // Non-Error thrown - log it
+      console.warn(`detectPRState: unexpected non-Error thrown: ${String(error)}`);
     }
 
     return {
@@ -100,7 +124,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  *
  * Combines git state, PR state, and wiggum workflow state into a single
  * comprehensive snapshot. This is the primary state detection function
- * used by the wiggum_next_step tool.
+ * used by wiggum_init and completion tools to determine next steps.
  *
  * Includes timestamp-based validation to detect race conditions where PR state
  * changes between reads. If inconsistencies are detected, state is re-fetched.
@@ -134,16 +158,25 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        console.warn(
-          `detectCurrentState: PR state changed during detection (was #${pr.number}, now #${revalidatedPr.number}). Using revalidated state.`
+        logger.warn(
+          'detectCurrentState: PR state changed during detection, using revalidated state',
+          {
+            previousPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+          }
         );
-        return detectCurrentState(repo); // Recursive call to re-fetch with consistent state
+        // Note: Recursive call with no depth limit is acceptable here because:
+        // 1. Race condition requires stateDetectionTime > 5000ms (unusual)
+        // 2. PR number change between reads is rare (external actor closing PR)
+        // 3. Worst case: PR keeps changing (very unlikely), eventually timeout at caller
+        return detectCurrentState(repo);
       }
     }
   } else {
     wiggum = {
       iteration: 0,
-      step: '0',
+      step: STEP_ENSURE_PR,
       completedSteps: [],
     };
   }

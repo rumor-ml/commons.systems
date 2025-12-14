@@ -2,13 +2,15 @@
  * State management types for Wiggum flow
  */
 
+import type { WiggumStep } from '../constants.js';
+
 /**
  * Wiggum state tracked via PR comments
  */
 export interface WiggumState {
   iteration: number;
-  step: string; // Step identifier (e.g., "0", "1", "1b", "2", "3", "4", "4b", "approval")
-  completedSteps: string[]; // List of completed step identifiers
+  step: WiggumStep;
+  completedSteps: WiggumStep[];
 }
 
 /**
@@ -23,6 +25,11 @@ export interface GitState {
 }
 
 /**
+ * Valid PR state values from GitHub API
+ */
+export type PRStateValue = 'OPEN' | 'CLOSED' | 'MERGED';
+
+/**
  * PR state from GitHub - using discriminated union for type safety
  */
 export type PRState = PRExists | PRDoesNotExist;
@@ -34,6 +41,7 @@ export interface PRExists {
   exists: true;
   number: number;
   title: string;
+  state: PRStateValue;
   url: string;
   labels: string[];
   headRefName: string;

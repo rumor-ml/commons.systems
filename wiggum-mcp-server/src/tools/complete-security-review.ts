@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
+import { getNextStepInstructions } from '../state/router.js';
 import {
   MAX_ITERATIONS,
   STEP_SECURITY_REVIEW,
@@ -15,6 +16,7 @@ import {
 } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
+import { formatWiggumResponse } from '../utils/format-response.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
@@ -25,17 +27,6 @@ export const CompleteSecurityReviewInputSchema = z.object({
 });
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
-
-interface CompleteSecurityReviewOutput {
-  current_step: string;
-  step_number: string;
-  iteration_count: number;
-  instructions: string;
-  context: {
-    pr_number?: number;
-    total_issues: number;
-  };
-}
 
 /**
  * Complete security review and update state
@@ -115,33 +106,56 @@ All security checks passed with no vulnerabilities identified.
   // Post comment
   await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
 
-  // Prepare output
-  const output: CompleteSecurityReviewOutput = {
-    current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
-    step_number: STEP_SECURITY_REVIEW,
-    iteration_count: newState.iteration,
-    instructions: '',
-    context: {
-      pr_number: state.pr.number,
-      total_issues: totalIssues,
-    },
-  };
-
+  // Check iteration limit
   if (newState.iteration >= MAX_ITERATIONS) {
-    output.instructions = `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`;
-  } else if (totalIssues > 0) {
-    output.instructions = `${totalIssues} security issue(s) found.
+    const output = {
+      current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
+      step_number: STEP_SECURITY_REVIEW,
+      iteration_count: newState.iteration,
+      instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`,
+      steps_completed_by_tool: [
+        'Executed security review',
+        'Posted results to PR',
+        'Updated state',
+      ],
+      context: {
+        pr_number: state.pr.number,
+        total_issues: totalIssues,
+      },
+    };
+    return {
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
+    };
+  }
+
+  // If issues found, provide fix instructions
+  if (totalIssues > 0) {
+    const output = {
+      current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
+      step_number: STEP_SECURITY_REVIEW,
+      iteration_count: newState.iteration,
+      instructions: `${totalIssues} security issue(s) found.
 
 1. Use Task tool with subagent_type="Plan" and model="opus" to create security fix plan for ALL issues
 2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement security fixes
 3. Execute /commit-merge-push slash command using SlashCommand tool
-4. Call wiggum_complete_fix with fix_description`;
-  } else {
-    output.instructions =
-      'Security review complete with no issues. Call wiggum_next_step to proceed.';
+4. Call wiggum_complete_fix with fix_description`,
+      steps_completed_by_tool: [
+        'Executed security review',
+        'Posted results to PR',
+        'Incremented iteration',
+      ],
+      context: {
+        pr_number: state.pr.number,
+        total_issues: totalIssues,
+      },
+    };
+    return {
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
+    };
   }
 
-  return {
-    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
-  };
+  // No issues - get updated state and return next step instructions
+  const updatedState = await detectCurrentState();
+  return await getNextStepInstructions(updatedState);
 }

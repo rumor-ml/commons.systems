@@ -143,6 +143,13 @@
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
+          # Hooks
+          pnpmHook = pkgs.callPackage ./nix/hooks/pnpm.nix { };
+          playwrightHook = pkgs.callPackage ./nix/hooks/playwright.nix { };
+          mcpServersHook = pkgs.callPackage ./nix/hooks/mcp-servers.nix { };
+          tmuxTuiHook = pkgs.callPackage ./nix/hooks/tmux-tui.nix { };
+          goEnvHook = pkgs.callPackage ./nix/hooks/go-env.nix { };
+
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
           check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
@@ -159,6 +166,22 @@
 
             shellHook = ''
               ${pre-commit-check.shellHook}
+
+              # Initialize Go environment
+              ${goEnvHook}
+
+              # Install pnpm dependencies
+              ${pnpmHook}
+
+              # Build MCP servers if source changed
+              ${mcpServersHook}
+
+              # Setup Playwright browsers
+              ${playwrightHook}
+
+              # Load tmux-tui configuration
+              ${tmuxTuiHook}
+
               echo "╔═══════════════════════════════════════════════════════════╗"
               echo "║     Commons.Systems Development Environment              ║"
               echo "╚═══════════════════════════════════════════════════════════╝"
@@ -167,7 +190,7 @@
               echo "  • tmux-tui - Git-aware tmux pane manager"
               echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
               echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
-              echo "  • wiggum-mcp-server - Wiggum PR automation orchestration MCP server"
+              echo "  • wiggum-mcp-server - Wiggum PR automation MCP server"
               echo ""
               echo "Quick start:"
               echo "  • Run dev server: pnpm dev"

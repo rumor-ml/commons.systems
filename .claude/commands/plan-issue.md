@@ -3,6 +3,8 @@ description: Plan implementation for a GitHub issue by gathering context and del
 model: opus
 ---
 
+**IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
+
 You are an **orchestrator** for planning GitHub issues. You gather issue context, enter planning mode, and delegate planning to the Plan agent.
 
 ## Step 1: Validate Input

@@ -84,32 +84,13 @@ export class GoExtractor implements FrameworkExtractor {
     return null;
   }
 
-  extract(logText: string, _maxErrors = 10): ExtractionResult {
+  extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
     if (detection?.isJsonOutput) {
       return this.parseGoTestJson(logText);
     } else if (detection) {
-      // Go tests detected but not using JSON format
-      return {
-        framework: 'go',
-        errors: [
-          {
-            message:
-              'Go tests detected but not using JSON output format. Please run tests with -json flag.',
-            rawOutput: [
-              'To fix this, run go test with the -json flag:',
-              '',
-              '  go test -json ./...',
-              '',
-              'Or update your test command in CI to include -json:',
-              '  go test -v -json -cover ./...',
-              '',
-              'Current logs appear to be using standard text output format.',
-            ],
-          },
-        ],
-      };
+      return this.parseGoTestText(logText, maxErrors);
     }
 
     // No Go tests detected
@@ -125,6 +106,7 @@ export class GoExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     const testResults = new Map<string, 'pass' | 'fail'>();
     const testDurations = new Map<string, number>();
+    let skippedNonJsonLines = 0;
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
@@ -154,10 +136,46 @@ export class GoExtractor implements FrameworkExtractor {
         } else if (event.Action === 'pass' && event.Test) {
           testResults.set(key, 'pass');
         }
-      } catch {
-        // Skip invalid JSON lines
+      } catch (error) {
+        // Skip invalid JSON lines - these are expected in normal test output:
+        //   - Build/compilation messages before tests run
+        //   - GitHub Actions runner setup logs
+        //   - Package download/cache messages
+        //   - Environment variable output
+        //   - Test execution summary lines (e.g., "PASS", "FAIL" markers)
+        // Only the actual test events are JSON formatted when using -json flag
+        // Log only first few failures to avoid spam
+        if (skippedNonJsonLines < 3) {
+          console.error(
+            `[DEBUG] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+        skippedNonJsonLines++;
         continue;
       }
+    }
+
+    if (skippedNonJsonLines > 0) {
+      // Calculate percentage and assess severity
+      const totalLines = lines.length;
+      const skippedPercentage = (skippedNonJsonLines / totalLines) * 100;
+      let assessment: string;
+      let severity: 'DEBUG' | 'WARN';
+
+      if (skippedPercentage > 50) {
+        assessment = 'HIGH - Majority of lines skipped, likely wrong output format';
+        severity = 'WARN';
+      } else if (skippedPercentage > 20) {
+        assessment = 'MODERATE - Significant non-JSON content, verify -json flag is set';
+        severity = 'WARN';
+      } else {
+        assessment = 'NORMAL - Expected build output mixed with test JSON';
+        severity = 'DEBUG';
+      }
+
+      console.error(
+        `[${severity}] Go extractor: skipped ${skippedNonJsonLines} non-JSON lines during parsing (${skippedPercentage.toFixed(1)}% of ${totalLines} total lines). Assessment: ${assessment}`
+      );
     }
 
     // Extract failures with their output
@@ -209,6 +227,66 @@ export class GoExtractor implements FrameworkExtractor {
       framework: 'go',
       errors: failures,
       summary,
+    };
+  }
+
+  private parseGoTestText(logText: string, maxErrors: number): ExtractionResult {
+    const lines = logText.split('\n');
+    const failures: ExtractedError[] = [];
+    let passed = 0;
+    let failed = 0;
+
+    // Pattern: --- FAIL: TestName (0.01s)
+    const failPattern = /^---\s*FAIL:\s+(\w+)\s+\((\d+(?:\.\d+)?)s\)/;
+    const passPattern = /^---\s*PASS:\s+(\w+)/;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = this.stripTimestamp(lines[i]);
+      const passMatch = line.match(passPattern);
+      if (passMatch) {
+        passed++;
+        continue;
+      }
+
+      const failMatch = line.match(failPattern);
+      if (failMatch && failures.length < maxErrors) {
+        const testName = failMatch[1];
+        const duration = parseFloat(failMatch[2]) * 1000;
+
+        // Collect output lines until next test or end
+        const rawOutput: string[] = [];
+        let fileName: string | undefined;
+        let lineNumber: number | undefined;
+
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = this.stripTimestamp(lines[j]);
+          if (/^(---|===)/.test(nextLine)) break;
+          rawOutput.push(nextLine);
+
+          // Extract file:line from output
+          const fileMatch = nextLine.match(/^\s+(\w+\.go):(\d+):/);
+          if (fileMatch && !fileName) {
+            fileName = fileMatch[1];
+            lineNumber = parseInt(fileMatch[2], 10);
+          }
+        }
+
+        failures.push({
+          testName,
+          fileName,
+          lineNumber,
+          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+          duration,
+          rawOutput,
+        });
+        failed++;
+      }
+    }
+
+    return {
+      framework: 'go',
+      errors: failures,
+      summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
     };
   }
 }
