@@ -1,21 +1,120 @@
 /**
- * Format wiggum tool responses as markdown
+ * Response formatting utilities for Wiggum MCP server
  *
- * Converts structured wiggum instruction data into human-readable markdown
- * format to avoid JSON decoding errors and improve readability in agent logs.
+ * This module provides type-safe formatting of wiggum tool responses as markdown.
+ * It converts structured wiggum instruction data into human-readable markdown format
+ * to avoid JSON decoding errors and improve readability in agent logs.
+ *
+ * Key features:
+ * - Type-safe response data validation
+ * - Robust handling of various context value types
+ * - Clear error messages for invalid input
+ * - Comprehensive formatting of instructions and metadata
+ *
+ * @module format-response
  */
 
+import { FormattingError } from './errors.js';
+
+/**
+ * Allowed types for context values
+ * Supports primitives and arrays for flexibility while maintaining type safety
+ */
+type ContextValue = string | number | boolean | null | undefined | string[] | number[];
+
+/**
+ * Type-safe context object with known fields and extensible additional fields
+ */
+interface ResponseContext {
+  pr_number?: number;
+  current_branch?: string;
+  [key: string]: ContextValue;
+}
+
+/**
+ * Structured response data from wiggum tools
+ */
 interface ResponseData {
   current_step: string;
   step_number: string;
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
-  context: {
-    pr_number?: number;
-    current_branch?: string;
-    [key: string]: any;
-  };
+  context: ResponseContext;
+}
+
+/**
+ * Validate response data has all required fields with correct types
+ *
+ * @param data - Data to validate
+ * @throws {FormattingError} If validation fails
+ */
+function validateResponseData(data: unknown): asserts data is ResponseData {
+  if (!data || typeof data !== 'object') {
+    throw new FormattingError('Response data must be an object');
+  }
+
+  const d = data as Record<string, unknown>;
+
+  // Validate required string fields
+  const stringFields = ['current_step', 'step_number', 'instructions'] as const;
+  for (const field of stringFields) {
+    if (typeof d[field] !== 'string') {
+      throw new FormattingError(
+        `Missing or invalid ${field}: expected string, got ${typeof d[field]}`
+      );
+    }
+  }
+
+  // Validate iteration_count
+  if (typeof d.iteration_count !== 'number') {
+    throw new FormattingError(
+      `Invalid iteration_count: expected number, got ${typeof d.iteration_count}`
+    );
+  }
+
+  // Validate steps_completed_by_tool
+  if (!Array.isArray(d.steps_completed_by_tool)) {
+    throw new FormattingError(
+      `Invalid steps_completed_by_tool: expected array, got ${typeof d.steps_completed_by_tool}`
+    );
+  }
+  if (!d.steps_completed_by_tool.every((item) => typeof item === 'string')) {
+    throw new FormattingError('All items in steps_completed_by_tool must be strings');
+  }
+
+  // Validate context
+  if (!d.context || typeof d.context !== 'object') {
+    throw new FormattingError(`Invalid context: expected object, got ${typeof d.context}`);
+  }
+}
+
+/**
+ * Format a context value for display in markdown
+ *
+ * Handles various types (strings, numbers, booleans, arrays, null/undefined)
+ * with appropriate formatting for each type.
+ *
+ * @param value - The value to format
+ * @returns Formatted string representation
+ */
+function formatContextValue(value: ContextValue): string {
+  if (value === null || value === undefined) {
+    return '_(none)_';
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '_(empty)_';
+    }
+    return value.join(', ');
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+
+  return String(value);
 }
 
 /**
@@ -23,12 +122,14 @@ interface ResponseData {
  *
  * Takes structured response data and formats it as markdown with clear sections:
  * - Step header with iteration count
- * - Instructions section (multiline)
+ * - Binding instructions section (multiline)
+ * - Workflow continuation checklist
  * - Steps completed by tool (bulleted list or "none")
  * - Context section (key-value pairs)
  *
  * @param data - Structured response data from wiggum tool
  * @returns Formatted markdown string
+ * @throws {FormattingError} If data validation fails
  *
  * @example
  * ```typescript
@@ -42,7 +143,10 @@ interface ResponseData {
  * });
  * ```
  */
-export function formatWiggumResponse(data: ResponseData): string {
+export function formatWiggumResponse(data: unknown): string {
+  // Validate input data
+  validateResponseData(data);
+
   const {
     current_step,
     step_number,
@@ -52,18 +156,21 @@ export function formatWiggumResponse(data: ResponseData): string {
     context,
   } = data;
 
+  // Format steps completed section
   const stepsSection =
     steps_completed_by_tool.length > 0
       ? steps_completed_by_tool.map((s) => `- ${s}`).join('\n')
       : '_(none)_';
 
+  // Format context section with type-safe value formatting
   const contextEntries = Object.entries(context)
     .map(([key, value]) => {
       const label = key
         .split('_')
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
-      return `- **${label}:** ${value}`;
+      const formattedValue = formatContextValue(value);
+      return `- **${label}:** ${formattedValue}`;
     })
     .join('\n');
 

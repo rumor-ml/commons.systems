@@ -11,6 +11,7 @@ import {
   NetworkError,
   GitHubCliError,
   GitError,
+  FormattingError,
   createErrorResult,
   formatError,
   isTerminalError,
@@ -68,6 +69,13 @@ describe('Error Classes', () => {
     assert.strictEqual(error.stderr, 'fatal error');
     assert.strictEqual(error.name, 'GitError');
   });
+
+  it('should create FormattingError', () => {
+    const error = new FormattingError('Invalid format');
+    assert.strictEqual(error.message, 'Invalid format');
+    assert.strictEqual(error.code, 'FORMATTING_ERROR');
+    assert.strictEqual(error.name, 'FormattingError');
+  });
 });
 
 describe('createErrorResult', () => {
@@ -112,6 +120,14 @@ describe('createErrorResult', () => {
 
     assert.strictEqual(result._meta?.errorType, 'GitError');
     assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
+  });
+
+  it('should create error result for FormattingError', () => {
+    const error = new FormattingError('Invalid format');
+    const result = createErrorResult(error);
+
+    assert.strictEqual(result._meta?.errorType, 'FormattingError');
+    assert.strictEqual(result._meta?.errorCode, 'FORMATTING_ERROR');
   });
 
   it('should create error result for generic Error', () => {

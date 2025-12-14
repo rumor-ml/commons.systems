@@ -65,6 +65,13 @@ export class ParsingError extends McpError {
   }
 }
 
+export class FormattingError extends McpError {
+  constructor(message: string) {
+    super(message, 'FORMATTING_ERROR');
+    this.name = 'FormattingError';
+  }
+}
+
 /**
  * Create a standardized error result for MCP tool responses
  *
@@ -101,6 +108,9 @@ export function createErrorResult(error: unknown): ErrorResult {
   } else if (error instanceof ParsingError) {
     errorType = 'ParsingError';
     errorCode = 'PARSING_ERROR';
+  } else if (error instanceof FormattingError) {
+    errorType = 'FormattingError';
+    errorCode = 'FORMATTING_ERROR';
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;
