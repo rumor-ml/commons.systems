@@ -133,6 +133,30 @@ type AlertDaemon struct {
 	seqCounter         atomic.Uint64 // Global sequence number for message ordering
 }
 
+// copyAlerts returns a copy of the alerts map with read lock protection
+func (d *AlertDaemon) copyAlerts() map[string]string {
+	d.alertsMu.RLock()
+	defer d.alertsMu.RUnlock()
+
+	copy := make(map[string]string, len(d.alerts))
+	for k, v := range d.alerts {
+		copy[k] = v
+	}
+	return copy
+}
+
+// copyBlockedBranches returns a copy of the blockedBranches map with read lock protection
+func (d *AlertDaemon) copyBlockedBranches() map[string]string {
+	d.blockedMu.RLock()
+	defer d.blockedMu.RUnlock()
+
+	copy := make(map[string]string, len(d.blockedBranches))
+	for k, v := range d.blockedBranches {
+		copy[k] = v
+	}
+	return copy
+}
+
 // loadBlockedBranches loads the blocked branches state from JSON file
 func loadBlockedBranches(path string) (map[string]string, error) {
 	data, err := os.ReadFile(path)
@@ -154,12 +178,7 @@ func loadBlockedBranches(path string) (map[string]string, error) {
 
 // saveBlockedBranches saves the blocked branches state to JSON file
 func (d *AlertDaemon) saveBlockedBranches() error {
-	d.blockedMu.RLock()
-	blockedCopy := make(map[string]string)
-	for k, v := range d.blockedBranches {
-		blockedCopy[k] = v
-	}
-	d.blockedMu.RUnlock()
+	blockedCopy := d.copyBlockedBranches()
 
 	data, err := json.MarshalIndent(blockedCopy, "", "  ")
 	if err != nil {
@@ -464,19 +483,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	d.clientsMu.Unlock()
 
 	// Send full state (alerts + blocked branches)
-	d.alertsMu.RLock()
-	alertsCopy := make(map[string]string)
-	for k, v := range d.alerts {
-		alertsCopy[k] = v
-	}
-	d.alertsMu.RUnlock()
-
-	d.blockedMu.RLock()
-	blockedCopy := make(map[string]string)
-	for k, v := range d.blockedBranches {
-		blockedCopy[k] = v
-	}
-	d.blockedMu.RUnlock()
+	alertsCopy := d.copyAlerts()
+	blockedCopy := d.copyBlockedBranches()
 
 	fullStateMsg := Message{
 		Type:            MsgTypeFullState,
@@ -654,19 +662,8 @@ func (d *AlertDaemon) broadcast(msg Message) {
 
 // sendFullState sends the complete current state to a client
 func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
-	d.alertsMu.RLock()
-	alertsCopy := make(map[string]string)
-	for k, v := range d.alerts {
-		alertsCopy[k] = v
-	}
-	d.alertsMu.RUnlock()
-
-	d.blockedMu.RLock()
-	blockedCopy := make(map[string]string)
-	for k, v := range d.blockedBranches {
-		blockedCopy[k] = v
-	}
-	d.blockedMu.RUnlock()
+	alertsCopy := d.copyAlerts()
+	blockedCopy := d.copyBlockedBranches()
 
 	fullStateMsg := Message{
 		Type:            MsgTypeFullState,
