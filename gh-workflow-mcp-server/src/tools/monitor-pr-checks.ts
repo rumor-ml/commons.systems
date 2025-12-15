@@ -11,11 +11,14 @@ import {
   MIN_POLL_INTERVAL,
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
-  IN_PROGRESS_STATUSES,
-  FAILURE_CONCLUSIONS,
 } from '../constants.js';
-import { getWorkflowRunsForPR, getPR, resolveRepo, sleep } from '../utils/gh-cli.js';
-import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
+import { ghCli, getPR, resolveRepo } from '../utils/gh-cli.js';
+import {
+  GitHubCliError,
+  TimeoutError,
+  ValidationError,
+  createErrorResult,
+} from '../utils/errors.js';
 
 export const MonitorPRChecksInputSchema = z
   .object({
@@ -41,11 +44,12 @@ export type MonitorPRChecksInput = z.infer<typeof MonitorPRChecksInputSchema>;
 
 interface CheckData {
   name: string;
-  status: string;
-  conclusion: string | null;
-  detailsUrl: string;
+  state: string;
+  bucket: string; // "pass" | "fail" | "pending" | "skipping" | "cancel"
+  link: string;
   startedAt: string;
   completedAt?: string;
+  workflow: string;
 }
 
 interface PRData {
@@ -58,12 +62,31 @@ interface PRData {
   mergeStateStatus: string; // "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY" | "UNSTABLE" etc.
 }
 
+/**
+ * Map bucket to conclusion for consistency with other tools
+ */
+function mapBucketToConclusion(bucket: string): string {
+  switch (bucket) {
+    case 'pass':
+      return 'success';
+    case 'fail':
+      return 'failure';
+    case 'cancel':
+      return 'cancelled';
+    case 'skipping':
+      return 'skipped';
+    case 'pending':
+      return 'pending';
+    default:
+      return bucket;
+  }
+}
+
 export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<ToolResult> {
+  const startTime = Date.now();
+
   try {
     const resolvedRepo = await resolveRepo(input.repo);
-    const pollIntervalMs = input.poll_interval_seconds * 1000;
-    const timeoutMs = input.timeout_seconds * 1000;
-    const startTime = Date.now();
 
     // Get PR details first
     const pr = (await getPR(input.pr_number, resolvedRepo)) as PRData;
@@ -72,63 +95,89 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       throw new ValidationError(`PR #${input.pr_number} is ${pr.state}, not open`);
     }
 
-    // Poll until all checks complete or timeout
+    // Build gh pr checks --watch command
+    const args = [
+      'pr',
+      'checks',
+      input.pr_number.toString(),
+      '--watch',
+      '--json',
+      'name,state,link,startedAt,completedAt,workflow,bucket',
+    ];
+
+    if (input.fail_fast) {
+      args.push('--fail-fast');
+    }
+
+    if (input.poll_interval_seconds) {
+      args.push('-i', input.poll_interval_seconds.toString());
+    }
+
     let checks: CheckData[] = [];
-    let iterationCount = 0;
-    let allComplete = false;
     let failedEarly = false;
 
-    while (Date.now() - startTime < timeoutMs) {
-      iterationCount++;
-      checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
-
-      if (!checks || checks.length === 0) {
-        // No checks yet, keep waiting
-        await sleep(pollIntervalMs);
-        continue;
-      }
-
-      // Check for fail-fast condition before checking if all complete
-      if (input.fail_fast) {
-        const failedCheck = checks.find(
-          (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
-        );
-
-        if (failedCheck) {
-          failedEarly = true;
-          break;
+    try {
+      const output = await ghCli(args, {
+        repo: resolvedRepo,
+        timeout: input.timeout_seconds * 1000,
+      });
+      checks = JSON.parse(output);
+    } catch (error) {
+      // Exit code 8 means checks are still pending (timeout reached)
+      // When --fail-fast is used and a check fails, gh CLI exits with code 1
+      // In both cases, JSON output is in stdout
+      if (error instanceof GitHubCliError && (error.exitCode === 8 || error.exitCode === 1)) {
+        // Try to parse stdout which contains the JSON output
+        if (error.stdout) {
+          try {
+            checks = JSON.parse(error.stdout);
+            failedEarly = error.exitCode === 1 && input.fail_fast;
+          } catch {
+            // If JSON parsing fails, throw appropriate error
+            if (error.exitCode === 8) {
+              throw new TimeoutError(
+                `PR checks did not complete within ${input.timeout_seconds} seconds`
+              );
+            }
+            throw error;
+          }
+        } else {
+          // If we don't have stdout, throw appropriate error
+          if (error.exitCode === 8) {
+            throw new TimeoutError(
+              `PR checks did not complete within ${input.timeout_seconds} seconds`
+            );
+          }
+          throw error;
         }
+      } else {
+        throw error;
       }
-
-      // Check if all checks are complete
-      allComplete = checks.every((check) => !IN_PROGRESS_STATUSES.includes(check.status));
-
-      if (allComplete) {
-        break;
-      }
-
-      await sleep(pollIntervalMs);
     }
 
-    if (!allComplete && !failedEarly) {
-      throw new TimeoutError(`PR checks did not complete within ${input.timeout_seconds} seconds`);
+    if (!checks || checks.length === 0) {
+      return {
+        content: [{ type: 'text', text: `PR #${pr.number}: No checks found yet for ${pr.title}` }],
+      };
     }
 
-    // Summarize results
-    const successCount = checks.filter((c) => c.conclusion === 'success').length;
-    const failureCount = checks.filter(
-      (c) => c.conclusion === 'failure' || c.conclusion === 'timed_out'
-    ).length;
-    const otherCount = checks.length - successCount - failureCount;
+    // Summarize results using bucket field
+    const successCount = checks.filter((c) => c.bucket === 'pass').length;
+    const failureCount = checks.filter((c) => c.bucket === 'fail').length;
+    const pendingCount = checks.filter((c) => c.bucket === 'pending').length;
+    const otherCount = checks.length - successCount - failureCount - pendingCount;
 
     const checkSummaries = checks.map((check) => {
+      const conclusion = mapBucketToConclusion(check.bucket);
       const icon =
-        check.conclusion === 'success'
+        check.bucket === 'pass'
           ? '✓'
-          : check.conclusion === 'failure' || check.conclusion === 'timed_out'
+          : check.bucket === 'fail'
             ? '✗'
-            : '○';
-      return `  ${icon} ${check.name}: ${check.conclusion || check.status}`;
+            : check.bucket === 'pending'
+              ? '○'
+              : '~';
+      return `  ${icon} ${check.name}: ${conclusion}`;
     });
 
     // Determine overall status with merge conflict detection
@@ -141,22 +190,32 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
         overallStatus = 'BLOCKED';
       } else if (failureCount > 0) {
         overallStatus = 'FAILED';
+      } else if (pendingCount > 0) {
+        overallStatus = 'PENDING';
       } else {
         overallStatus = 'MIXED';
       }
     } else {
       // Standard check-based status
-      overallStatus =
-        failureCount > 0 ? 'FAILED' : successCount === checks.length ? 'SUCCESS' : 'MIXED';
+      if (failureCount > 0) {
+        overallStatus = 'FAILED';
+      } else if (pendingCount > 0) {
+        overallStatus = 'PENDING';
+      } else if (successCount === checks.length) {
+        overallStatus = 'SUCCESS';
+      } else {
+        overallStatus = 'MIXED';
+      }
     }
 
     const headerSuffix = failedEarly ? ' (early exit)' : '';
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
+    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
 
     const summary = [
       `PR #${pr.number} Checks ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix}: ${pr.title}`,
       `Overall Status: ${overallStatus}`,
-      `Success: ${successCount}, Failed: ${failureCount}, Other: ${otherCount}`,
+      `Success: ${successCount}, Failed: ${failureCount}, Pending: ${pendingCount}, Other: ${otherCount}`,
       `Mergeable: ${pr.mergeable}`,
       `Merge State: ${pr.mergeStateStatus}`,
       `PR URL: ${pr.url}`,
@@ -164,7 +223,7 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       `Checks (${checks.length}):`,
       ...checkSummaries,
       ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
+      `Monitoring completed in ${elapsedSeconds}s${monitoringSuffix}`,
     ].join('\n');
 
     return {
