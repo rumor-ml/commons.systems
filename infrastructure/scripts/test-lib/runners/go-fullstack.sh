@@ -1,5 +1,6 @@
 #!/bin/bash
 # Go fullstack app test runner (unit + e2e)
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/makefile-utils.sh"
 
 run_go_fullstack_tests() {
   local app_path="$1"
@@ -13,12 +14,26 @@ run_go_fullstack_tests() {
 
   case "$test_type" in
     unit)
+      # Check if test-unit target exists
+      local makefile="${app_path}/site/Makefile"
+      if ! makefile_has_target "$makefile" "test-unit"; then
+        echo "Skipping unit tests for ${app_name} - no test-unit target defined"
+        return 0
+      fi
+
       # Run Go unit tests (no emulators needed)
       echo "Running unit tests for ${app_name}..."
       cd "${app_path}/site"
       make test-unit $extra_args
       ;;
     e2e)
+      # Check if test-e2e target exists
+      local makefile="${app_path}/Makefile"
+      if ! makefile_has_target "$makefile" "test-e2e"; then
+        echo "Skipping e2e tests for ${app_name} - no test-e2e target defined"
+        return 0
+      fi
+
       # Auto-start emulators (idempotent - won't start if already running)
       echo "Setting up emulators for e2e tests..."
       source "$script_dir/allocate-test-ports.sh"

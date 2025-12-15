@@ -12,6 +12,45 @@ Keep iterating until problem resolution is fully verified by test results, logs 
 
 Do not ask user to fetch test results, logs or monitor workflows when you can do so yourself.
 
+# Testing
+
+## Use Test MCP Server Tools
+
+For running tests, always use the test MCP server tools rather than running scripts directly:
+
+**Available Tools:**
+- `test_run` - Execute tests for specific modules, types, or patterns
+- `test_list_modules` - Discover available test modules and their supported test types
+- `dev_server_start/stop/status` - Manage dev servers with hot reloading
+- `emulator_start/stop/status` - Manage Firebase emulators for testing
+
+**Examples:**
+```typescript
+// Run all tests for a module
+test_run({ module: "printsync" })
+
+// Run specific test type
+test_run({ module: "printsync", type: "e2e" })
+
+// Run only changed modules
+test_run({ changed_only: true })
+
+// List available modules
+test_list_modules()
+```
+
+**When to Recommend MCP Server Improvements:**
+
+If you need functionality that doesn't exist in the MCP server tools:
+1. First check if `infrastructure/scripts/test.sh` supports it (run with `--help`)
+2. If the script supports it but MCP doesn't expose it, recommend adding to the MCP server
+3. If neither supports it, recommend adding to both script and MCP server
+
+**Do NOT:**
+- Run `infrastructure/scripts/test.sh` directly unless debugging the MCP server itself
+- Use `make test-*` commands directly - let the test infrastructure handle it
+- Manually start/stop Firebase emulators - use emulator_start/stop tools
+
 ## TypeScript MCP Server Changes
 
 When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server), verify:
