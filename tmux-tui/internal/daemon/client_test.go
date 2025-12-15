@@ -575,6 +575,63 @@ func TestQueryBlockedState_ErrorPropagation(t *testing.T) {
 	}
 }
 
+// TestQueryBlockedState_SendFailure tests proper error when send fails mid-query
+func TestQueryBlockedState_SendFailure(t *testing.T) {
+	// Create a pipe and immediately close the writer to cause send failure
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Close the writer before query to force send failure
+	clientWriter.Close()
+	serverReader.Close()
+	serverWriter.Close()
+
+	// Query should fail immediately with a send error
+	_, _, err := client.QueryBlockedState("feature-branch")
+	if err == nil {
+		t.Fatal("Expected error when send fails")
+	}
+
+	// Error message should indicate send failure
+	errStr := err.Error()
+	if !containsAny(errStr, []string{"send", "write", "closed", "pipe"}) {
+		t.Errorf("Error message should mention send/write failure, got: %v", err)
+	}
+}
+
+// Helper function to check if string contains any of the substrings
+func containsAny(s string, substrs []string) bool {
+	for _, substr := range substrs {
+		if len(s) >= len(substr) {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // TestQueryBlockedState_RapidSequential tests rapid sequential queries
 func TestQueryBlockedState_RapidSequential(t *testing.T) {
 	clientReader, serverWriter := io.Pipe()

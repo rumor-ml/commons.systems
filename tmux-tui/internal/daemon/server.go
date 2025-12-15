@@ -552,7 +552,9 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeResyncRequest:
 			// Client detected a gap in sequence numbers, send full state
 			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
-			d.sendFullState(client, clientID)
+			if err := d.sendFullState(client, clientID); err != nil {
+				debug.Log("DAEMON_RESYNC_FAILED client=%s error=%v", clientID, err)
+			}
 		}
 	}
 }
@@ -567,7 +569,10 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	totalClients := len(d.clients)
 
 	var failures int64
-	var successfulClients []*clientConnection
+	var successfulClients []struct {
+		id     string
+		client *clientConnection
+	}
 
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
@@ -576,7 +581,10 @@ func (d *AlertDaemon) broadcast(msg Message) {
 			d.lastBroadcastError.Store(err.Error())
 			// Don't remove client here - let handleClient detect disconnect
 		} else {
-			successfulClients = append(successfulClients, client)
+			successfulClients = append(successfulClients, struct {
+				id     string
+				client *clientConnection
+			}{clientID, client})
 		}
 	}
 	d.clientsMu.RUnlock()
@@ -593,15 +601,16 @@ func (d *AlertDaemon) broadcast(msg Message) {
 			SeqNum: msg.SeqNum,
 			Error:  fmt.Sprintf("%d of %d clients failed to receive update", failures, totalClients),
 		}
-		for _, client := range successfulClients {
-			// Best-effort: don't track failures for sync warning itself
-			_ = client.sendMessage(syncWarning)
+		for _, sc := range successfulClients {
+			if err := sc.client.sendMessage(syncWarning); err != nil {
+				debug.Log("DAEMON_SYNC_WARNING_SEND_ERROR client=%s error=%v", sc.id, err)
+			}
 		}
 	}
 }
 
 // sendFullState sends the complete current state to a client
-func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) {
+func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
 	d.alertsMu.RLock()
 	alertsCopy := make(map[string]string)
 	for k, v := range d.alerts {
@@ -624,9 +633,10 @@ func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) {
 	}
 	if err := client.sendMessage(fullStateMsg); err != nil {
 		debug.Log("DAEMON_RESYNC_ERROR client=%s error=%v", clientID, err)
-	} else {
-		debug.Log("DAEMON_RESYNC_SENT client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
+		return fmt.Errorf("resync failed: %w", err)
 	}
+	debug.Log("DAEMON_RESYNC_SENT client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
+	return nil
 }
 
 // removeClient removes a client from the clients map.
@@ -655,6 +665,7 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 	d.blockedMu.RUnlock()
 
 	return HealthStatus{
+		Timestamp:          time.Now(),
 		BroadcastFailures:  d.broadcastFailures.Load(),
 		LastBroadcastError: lastBroadcastErr,
 		WatcherErrors:      d.watcherErrors.Load(),

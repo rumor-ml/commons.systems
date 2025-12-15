@@ -48,6 +48,15 @@ type queryResponse struct {
 	errCh  chan error   // Receives error notifications (channel full, closed)
 }
 
+// newQueryResponse creates a queryResponse with properly buffered channels.
+// Both channels have buffer size 1 to prevent blocking in the receive loop.
+func newQueryResponse() *queryResponse {
+	return &queryResponse{
+		dataCh: make(chan Message, 1),
+		errCh:  make(chan error, 1),
+	}
+}
+
 // NewDaemonClient creates a new daemon client.
 func NewDaemonClient() *DaemonClient {
 	return &DaemonClient{
@@ -55,7 +64,7 @@ func NewDaemonClient() *DaemonClient {
 		socketPath:     namespace.DaemonSocket(),
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
-		queryResponses: make(map[string]*queryResponse), // Initialize here
+		queryResponses: make(map[string]*queryResponse),
 	}
 }
 
@@ -66,7 +75,8 @@ func (c *DaemonClient) sendMessage(msg Message) error {
 	return c.encoder.Encode(msg)
 }
 
-// sendAndWait sends a message and waits for daemon to process it
+// sendAndWait sends a message and waits a fixed delay to allow the daemon
+// time to process it. This is best-effort timing, not an acknowledgment.
 func (c *DaemonClient) sendAndWait(msg Message) error {
 	if err := c.sendMessage(msg); err != nil {
 		return err
@@ -194,7 +204,9 @@ func (c *DaemonClient) receive() {
 			c.lastSeq.Store(msg.SeqNum)
 		}
 
-		// Route query responses to dedicated channels (prevents event loss)
+		// Route query responses to dedicated channels to prevent race conditions.
+		// Without dedicated channels, responses could be consumed by the general
+		// event loop before QueryBlockedState() returns them to the caller.
 		if msg.Type == MsgTypeBlockedStateResponse {
 			c.queryMu.Lock()
 			if resp, exists := c.queryResponses[msg.Branch]; exists {
@@ -465,10 +477,7 @@ func (c *DaemonClient) UnblockBranch(branch string) error {
 // QueryBlockedState queries whether a branch is blocked and returns the blocking branch if so
 func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error) {
 	// Create response channels (buffered to prevent blocking)
-	resp := &queryResponse{
-		dataCh: make(chan Message, 1),
-		errCh:  make(chan error, 1),
-	}
+	resp := newQueryResponse()
 
 	// Register for response
 	c.queryMu.Lock()

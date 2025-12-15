@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestLoadBlockedBranches_MissingFile tests loading when file doesn't exist
@@ -544,6 +545,7 @@ func TestBroadcastPartialFailure(t *testing.T) {
 	foundAlert := false
 	foundSyncWarning := false
 
+	timeout := time.After(2 * time.Second)
 	for i := 0; i < 2; i++ {
 		select {
 		case msg := <-received:
@@ -556,7 +558,8 @@ func TestBroadcastPartialFailure(t *testing.T) {
 					t.Error("Sync warning should have error message")
 				}
 			}
-		default:
+		case <-timeout:
+			t.Fatal("Timeout waiting for messages")
 		}
 	}
 
@@ -653,7 +656,9 @@ func TestSendFullState(t *testing.T) {
 	}()
 
 	// Send full state
-	daemon.sendFullState(client, "test-client")
+	if err := daemon.sendFullState(client, "test-client"); err != nil {
+		t.Fatalf("sendFullState failed: %v", err)
+	}
 
 	// Verify full state message
 	msg := <-received

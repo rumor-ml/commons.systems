@@ -232,5 +232,44 @@ func TestBlockedPaneFlow(t *testing.T) {
 	}
 	t.Logf("Blocked branches after unblock: %v", blockedBranches)
 
+	// Test 7: Query blocked state via QueryBlockedState
+	t.Log("Test 7: Testing QueryBlockedState...")
+
+	// First, block the branch again
+	if err := client.BlockBranch("feature-branch", "main"); err != nil {
+		t.Fatalf("Failed to block branch for query test: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Query the blocked state
+	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	if err != nil {
+		t.Fatalf("Failed to query blocked state: %v", err)
+	}
+
+	if !isBlocked {
+		t.Error("Expected feature-branch to be blocked")
+	}
+
+	if blockedBy != "main" {
+		t.Errorf("Expected feature-branch to be blocked by 'main', got '%s'", blockedBy)
+	}
+	t.Logf("Query result: branch=%s isBlocked=%v blockedBy=%s", "feature-branch", isBlocked, blockedBy)
+
+	// Query a non-blocked branch
+	notBlockedBy, notBlocked, err := client.QueryBlockedState("some-other-branch")
+	if err != nil {
+		t.Fatalf("Failed to query non-blocked branch: %v", err)
+	}
+
+	if notBlocked {
+		t.Error("Expected some-other-branch to not be blocked")
+	}
+
+	if notBlockedBy != "" {
+		t.Errorf("Expected blockedBy to be empty for non-blocked branch, got '%s'", notBlockedBy)
+	}
+	t.Logf("Query result for non-blocked: branch=%s isBlocked=%v blockedBy=%s", "some-other-branch", notBlocked, notBlockedBy)
+
 	t.Log("All blocked pane tests passed!")
 }

@@ -1,6 +1,9 @@
 package daemon
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Query response channel error types
 var (
@@ -79,11 +82,12 @@ type Message struct {
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
-	BroadcastFailures  int64  `json:"broadcast_failures"`
-	LastBroadcastError string `json:"last_broadcast_error,omitempty"`
-	WatcherErrors      int64  `json:"watcher_errors"`
-	LastWatcherError   string `json:"last_watcher_error,omitempty"`
-	ConnectedClients   int    `json:"connected_clients"`
-	ActiveAlerts       int    `json:"active_alerts"`
-	BlockedBranches    int    `json:"blocked_branches"`
+	Timestamp          time.Time `json:"timestamp"`
+	BroadcastFailures  int64     `json:"broadcast_failures"`
+	LastBroadcastError string    `json:"last_broadcast_error,omitempty"`
+	WatcherErrors      int64     `json:"watcher_errors"`
+	LastWatcherError   string    `json:"last_watcher_error,omitempty"`
+	ConnectedClients   int       `json:"connected_clients"`
+	ActiveAlerts       int       `json:"active_alerts"`
+	BlockedBranches    int       `json:"blocked_branches"`
 }

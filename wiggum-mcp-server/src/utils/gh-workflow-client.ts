@@ -183,10 +183,12 @@ export async function getFailureDetails(params: {
 
   logger.info('Calling gh_get_failure_details', { params });
 
-  const result = await client.callTool({
-    name: 'gh_get_failure_details',
-    arguments: params,
-  });
+  const result = await callToolWithRetry(
+    client,
+    'gh_get_failure_details',
+    params,
+    120000 // 2 minutes should be sufficient
+  );
 
   const context = params.run_id
     ? `run ${params.run_id}`

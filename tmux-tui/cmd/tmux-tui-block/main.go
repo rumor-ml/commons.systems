@@ -54,9 +54,15 @@ func getCurrentBranch(executor tmux.CommandExecutor, paneID string) (string, err
 	return branch, nil
 }
 
+// branchBlocker defines the interface needed for toggle operations
+type branchBlocker interface {
+	QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error)
+	UnblockBranch(branch string) error
+}
+
 // toggleBlockedState queries the blocked state of a branch and unblocks it if blocked.
 // Returns true if the branch was unblocked (handled), false to show picker.
-func toggleBlockedState(client *daemon.DaemonClient, paneID, branch string) bool {
+func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 	if branch == "" {
 		return false
 	}

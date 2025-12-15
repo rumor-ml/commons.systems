@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/tmux/testutil"
 )
 
@@ -355,12 +357,167 @@ func TestQueryErrorHints(t *testing.T) {
 	}
 }
 
+// TestPrintErrorHint_SentinelErrors tests that errors.Is() works with wrapped sentinel errors
+func TestPrintErrorHint_SentinelErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		err   error
+		match error
+	}{
+		{
+			name:  "Direct sentinel error - ErrSocketNotFound",
+			err:   daemon.ErrSocketNotFound,
+			match: daemon.ErrSocketNotFound,
+		},
+		{
+			name:  "Wrapped sentinel error - ErrSocketNotFound",
+			err:   fmt.Errorf("failed to connect: %w", daemon.ErrSocketNotFound),
+			match: daemon.ErrSocketNotFound,
+		},
+		{
+			name:  "Direct sentinel error - ErrPermissionDenied",
+			err:   daemon.ErrPermissionDenied,
+			match: daemon.ErrPermissionDenied,
+		},
+		{
+			name:  "Wrapped sentinel error - ErrPermissionDenied",
+			err:   fmt.Errorf("access denied: %w", daemon.ErrPermissionDenied),
+			match: daemon.ErrPermissionDenied,
+		},
+		{
+			name:  "Direct sentinel error - ErrConnectionTimeout",
+			err:   daemon.ErrConnectionTimeout,
+			match: daemon.ErrConnectionTimeout,
+		},
+		{
+			name:  "Wrapped sentinel error - ErrConnectionTimeout",
+			err:   fmt.Errorf("connection failed: %w", daemon.ErrConnectionTimeout),
+			match: daemon.ErrConnectionTimeout,
+		},
+		{
+			name:  "Direct sentinel error - ErrConnectionFailed",
+			err:   daemon.ErrConnectionFailed,
+			match: daemon.ErrConnectionFailed,
+		},
+		{
+			name:  "Wrapped sentinel error - ErrConnectionFailed",
+			err:   fmt.Errorf("network error: %w", daemon.ErrConnectionFailed),
+			match: daemon.ErrConnectionFailed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !errors.Is(tt.err, tt.match) {
+				t.Errorf("errors.Is(%v, %v) = false, expected true", tt.err, tt.match)
+			}
+		})
+	}
+}
+
+// mockDaemonClient implements the daemon client interface for testing
+type mockDaemonClient struct {
+	queryBlockedStateFunc func(branch string) (blockedBy string, isBlocked bool, err error)
+	unblockBranchFunc     func(branch string) error
+}
+
+func (m *mockDaemonClient) QueryBlockedState(branch string) (string, bool, error) {
+	if m.queryBlockedStateFunc != nil {
+		return m.queryBlockedStateFunc(branch)
+	}
+	return "", false, nil
+}
+
+func (m *mockDaemonClient) UnblockBranch(branch string) error {
+	if m.unblockBranchFunc != nil {
+		return m.unblockBranchFunc(branch)
+	}
+	return nil
+}
+
+// Helper type to track function calls
+type mockClient interface {
+	QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error)
+	UnblockBranch(branch string) error
+}
+
 // TestToggleBlockedState_EmptyBranch tests toggleBlockedState with empty branch
 func TestToggleBlockedState_EmptyBranch(t *testing.T) {
 	// Empty branch should return false (show picker)
 	result := toggleBlockedState(nil, "%1", "")
 	if result != false {
 		t.Error("Expected toggleBlockedState to return false for empty branch")
+	}
+}
+
+// TestToggleBlockedState_BranchIsBlocked tests unblocking a blocked branch
+func TestToggleBlockedState_BranchIsBlocked(t *testing.T) {
+	unblockCalled := false
+
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (string, bool, error) {
+			if branch != "feature-branch" {
+				t.Errorf("Expected query for 'feature-branch', got '%s'", branch)
+			}
+			return "main", true, nil // Branch is blocked by main
+		},
+		unblockBranchFunc: func(branch string) error {
+			unblockCalled = true
+			if branch != "feature-branch" {
+				t.Errorf("Expected unblock for 'feature-branch', got '%s'", branch)
+			}
+			return nil
+		},
+	}
+
+	result := toggleBlockedState(mock, "%1", "feature-branch")
+
+	if !result {
+		t.Error("Expected toggleBlockedState to return true when branch is blocked")
+	}
+
+	if !unblockCalled {
+		t.Error("Expected UnblockBranch to be called")
+	}
+}
+
+// TestToggleBlockedState_BranchNotBlocked tests behavior when branch is not blocked
+func TestToggleBlockedState_BranchNotBlocked(t *testing.T) {
+	unblockCalled := false
+
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (string, bool, error) {
+			return "", false, nil // Branch is not blocked
+		},
+		unblockBranchFunc: func(branch string) error {
+			unblockCalled = true
+			return nil
+		},
+	}
+
+	result := toggleBlockedState(mock, "%1", "feature-branch")
+
+	if result {
+		t.Error("Expected toggleBlockedState to return false when branch is not blocked")
+	}
+
+	if unblockCalled {
+		t.Error("Expected UnblockBranch not to be called when branch is not blocked")
+	}
+}
+
+// TestToggleBlockedState_QueryError tests error handling during query
+func TestToggleBlockedState_QueryError(t *testing.T) {
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (string, bool, error) {
+			return "", false, fmt.Errorf("connection timeout")
+		},
+	}
+
+	result := toggleBlockedState(mock, "%1", "feature-branch")
+
+	if result {
+		t.Error("Expected toggleBlockedState to return false on query error")
 	}
 }
 
