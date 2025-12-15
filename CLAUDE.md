@@ -1,5 +1,9 @@
 **CRITICAL: always run git/gh/nix/gcloud/`go mod tidy`/pnpm commands with dangerouslyDisableSandbox: true**
 
+**WHY:** When working in git worktrees, git hooks (pre-commit, pre-push) need write access to `/Users/n8/commons.systems/.git/worktrees/<branch>/` to create temporary lock files and index updates. The Claude Code sandbox blocks these writes, causing hooks to fail silently without blocking commits. This leads to unformatted code and failed validations reaching CI.
+
+The `excludedCommands` setting in `.claude/settings.json` automatically applies `dangerouslyDisableSandbox: true` to git/gh/nix/gcloud/pnpm commands, ensuring hooks run correctly.
+
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="accept-edits"` to execute the plan.
 
 Trust user bug reports. Do not assume caching errors or user error while building.
