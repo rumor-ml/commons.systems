@@ -7,6 +7,8 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { logger } from './logger.js';
 import { ParsingError } from './errors.js';
 import type { MonitorResult } from './gh-workflow.js';
@@ -140,9 +142,22 @@ export async function getGhWorkflowClient(): Promise<Client> {
 
   logger.info('Initializing gh-workflow-mcp-server client');
 
+  // Check if server is built
+  const serverPath = resolve('gh-workflow-mcp-server/dist/index.js');
+  if (!existsSync(serverPath)) {
+    const guidance = [
+      `MCP server not found: ${serverPath}`,
+      '',
+      'To fix: cd gh-workflow-mcp-server && npm run build',
+      `Current directory: ${process.cwd()}`
+    ].join('\n');
+    logger.error('MCP server file not found', { serverPath, cwd: process.cwd() });
+    throw new Error(guidance);
+  }
+
   const transport = new StdioClientTransport({
     command: 'node',
-    args: ['gh-workflow-mcp-server/dist/index.js'],
+    args: [serverPath],
   });
 
   const client = new Client(
@@ -156,8 +171,18 @@ export async function getGhWorkflowClient(): Promise<Client> {
     ghWorkflowClient = client; // Only set singleton on success
     return ghWorkflowClient;
   } catch (error) {
-    logger.error('Failed to connect to gh-workflow-mcp-server', { error });
-    throw new Error(`Failed to connect to gh-workflow-mcp-server: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to connect to gh-workflow-mcp-server', { error: errorMsg });
+
+    const troubleshooting = [
+      `Failed to connect: ${errorMsg}`,
+      '',
+      'Troubleshooting:',
+      '1. npm run build in gh-workflow-mcp-server',
+      `2. Verify path: ${serverPath}`,
+      '3. Check Node.js in PATH: which node'
+    ].join('\n');
+    throw new Error(troubleshooting);
   }
 }
 
