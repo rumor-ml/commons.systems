@@ -3,6 +3,8 @@ description: Monitor merge queue for current branch and move worktree to ~/workt
 model: haiku
 ---
 
+**IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
+
 1. Get current branch name and worktree path:
    - Run `git rev-parse --abbrev-ref HEAD` to get branch name
    - Run `git rev-parse --show-toplevel` to get worktree path
