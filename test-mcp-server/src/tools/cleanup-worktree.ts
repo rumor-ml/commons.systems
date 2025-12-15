@@ -165,8 +165,8 @@ export async function cleanupWorktree(args: CleanupWorktreeArgs): Promise<ToolRe
       if (!isRepoRoot && !isWorktree) {
         throw new ValidationError(
           `Path validation failed: ${worktreeRoot} is not the repository root ` +
-          `and does not appear to be in a worktrees directory. ` +
-          `This is a safety check to prevent accidental deletion.`
+            `and does not appear to be in a worktrees directory. ` +
+            `This is a safety check to prevent accidental deletion.`
         );
       }
     } catch (error) {
