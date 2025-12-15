@@ -11,7 +11,6 @@ import {
   MIN_POLL_INTERVAL,
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
-  COMPLETED_STATUSES,
   FAILURE_CONCLUSIONS,
 } from '../constants.js';
 import {
@@ -20,8 +19,8 @@ import {
   getBranchHeadSha,
   getWorkflowRunsForCommit,
   resolveRepo,
-  sleep,
   getWorkflowJobs,
+  ghCli,
 } from '../utils/gh-cli.js';
 import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
 
@@ -82,7 +81,6 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     }
 
     const resolvedRepo = await resolveRepo(input.repo);
-    const pollIntervalMs = input.poll_interval_seconds * 1000;
     const timeoutMs = input.timeout_seconds * 1000;
     const startTime = Date.now();
 
@@ -125,82 +123,63 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       throw new ValidationError('Must provide at least one of: run_id, pr_number, or branch');
     }
 
-    // Poll until completion or timeout
-    let runs: Map<number, WorkflowRunData> = new Map();
-    let allJobs: Map<number, JobData[]> = new Map();
-    let iterationCount = 0;
+    // Watch each run until completion using gh run watch
+    const runs: Map<number, WorkflowRunData> = new Map();
+    const allJobs: Map<number, JobData[]> = new Map();
     let failedEarly = false;
     let failedRunId: number | null = null;
 
-    while (Date.now() - startTime < timeoutMs) {
-      iterationCount++;
+    for (const runId of runIds) {
+      const remainingTimeout = timeoutMs - (Date.now() - startTime);
 
-      // Fetch all runs in parallel
-      const fetchedRuns = await Promise.all(runIds.map((id) => getWorkflowRun(id, resolvedRepo)));
-
-      // Update runs map
-      fetchedRuns.forEach((runData, index) => {
-        runs.set(runIds[index], runData as WorkflowRunData);
-      });
-
-      // Check if all runs are complete
-      const allComplete = Array.from(runs.values()).every((run) =>
-        COMPLETED_STATUSES.includes(run.status)
-      );
-
-      if (allComplete) {
-        break;
+      if (remainingTimeout <= 0) {
+        throw new TimeoutError(
+          `Workflow runs did not complete within ${input.timeout_seconds} seconds`
+        );
       }
 
-      // Check for fail-fast condition across all runs
-      if (input.fail_fast) {
-        // Fetch jobs for all runs in parallel
-        const jobsResults = await Promise.all(
-          runIds.map((id) => getWorkflowJobs(id, resolvedRepo))
+      // Use gh run watch to wait for completion
+      // Exit code 0 = success, non-zero = failure (but we continue to fetch details)
+      let watchFailed = false;
+      try {
+        await ghCli(
+          [
+            'run',
+            'watch',
+            runId.toString(),
+            '--exit-status',
+            '-i',
+            input.poll_interval_seconds.toString(),
+          ],
+          { repo: resolvedRepo, timeout: remainingTimeout }
+        );
+      } catch (error) {
+        // Watch command failed - could be workflow failure or timeout
+        // We'll fetch the final status to determine what happened
+        watchFailed = true;
+      }
+
+      // Fetch final status with JSON
+      const runData = (await getWorkflowRun(runId, resolvedRepo)) as WorkflowRunData;
+      runs.set(runId, runData);
+
+      const jobsData: any = await getWorkflowJobs(runId, resolvedRepo);
+      const jobs = (jobsData.jobs || []) as JobData[];
+      allJobs.set(runId, jobs);
+
+      // Check for fail-fast condition
+      if (input.fail_fast && watchFailed) {
+        // Check if any job actually failed (not just timeout)
+        const failedJob = jobs.find(
+          (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
         );
 
-        jobsResults.forEach((jobsData: any, index) => {
-          allJobs.set(runIds[index], jobsData.jobs || []);
-        });
-
-        // Check if any run has a failed job
-        for (const [runId, jobs] of allJobs.entries()) {
-          const failedJob = jobs.find(
-            (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
-          );
-
-          if (failedJob) {
-            failedEarly = true;
-            failedRunId = runId;
-            break;
-          }
-        }
-
-        if (failedEarly) {
+        if (failedJob) {
+          failedEarly = true;
+          failedRunId = runId;
           break;
         }
       }
-
-      await sleep(pollIntervalMs);
-    }
-
-    // Check for timeout
-    const allComplete = Array.from(runs.values()).every((run) =>
-      COMPLETED_STATUSES.includes(run.status)
-    );
-
-    if (!allComplete && !failedEarly) {
-      throw new TimeoutError(
-        `Workflow runs did not complete within ${input.timeout_seconds} seconds`
-      );
-    }
-
-    // Get job details if not already fetched
-    if (allJobs.size === 0) {
-      const jobsResults = await Promise.all(runIds.map((id) => getWorkflowJobs(id, resolvedRepo)));
-      jobsResults.forEach((jobsData: any, index) => {
-        allJobs.set(runIds[index], jobsData.jobs || []);
-      });
     }
 
     // Format output for multiple or single runs
@@ -245,7 +224,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       }
 
       summaryLines.push(
-        `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
+        `Monitoring completed over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
       );
     } else {
       // Single-run output format (backward compatible)
@@ -279,7 +258,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       summaryLines.push(...jobSummaries);
       summaryLines.push('');
       summaryLines.push(
-        `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
+        `Monitoring completed over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`
       );
     }
 
