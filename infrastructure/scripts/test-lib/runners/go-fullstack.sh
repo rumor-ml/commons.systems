@@ -24,12 +24,6 @@ run_go_fullstack_tests() {
       source "$script_dir/allocate-test-ports.sh"
       source "$script_dir/start-emulators.sh"
 
-      # Set up cleanup trap
-      cleanup_emulators() {
-        "$script_dir/stop-emulators.sh" 2>/dev/null || true
-      }
-      trap cleanup_emulators EXIT
-
       export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
 
       # Build the app
@@ -37,10 +31,17 @@ run_go_fullstack_tests() {
       cd "${app_path}/site"
       make build
 
-      # Run E2E tests via make
+      # Run E2E tests via make and capture exit code
       echo "Running E2E tests..."
       cd "$app_path"
       make test-e2e $extra_args
+      local test_exit=$?
+
+      # Clean up emulators (always run, ignore errors)
+      "$script_dir/stop-emulators.sh" 2>/dev/null || true
+
+      # Return the test exit code, not cleanup exit code
+      return $test_exit
       ;;
     deployed-e2e)
       # No emulators for deployed tests

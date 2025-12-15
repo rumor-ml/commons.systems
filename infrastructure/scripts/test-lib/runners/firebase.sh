@@ -18,22 +18,23 @@ run_firebase_tests() {
       source "$script_dir/allocate-test-ports.sh"
       source "$script_dir/start-emulators.sh"
 
-      # Set up cleanup trap
-      cleanup_emulators() {
-        "$script_dir/stop-emulators.sh" 2>/dev/null || true
-      }
-      trap cleanup_emulators EXIT
-
       export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
 
       # Build the app
       echo "Building ${app_name}..."
       pnpm --dir "${app_path}/site" build
 
-      # Run Playwright tests
+      # Run Playwright tests and capture exit code
       echo "Running Playwright tests..."
       cd "${app_path}/tests"
       npx playwright test $filter_args $extra_args
+      local test_exit=$?
+
+      # Clean up emulators (always run, ignore errors)
+      "$script_dir/stop-emulators.sh" 2>/dev/null || true
+
+      # Return the test exit code, not cleanup exit code
+      return $test_exit
       ;;
     deployed-e2e)
       # No emulators for deployed tests
