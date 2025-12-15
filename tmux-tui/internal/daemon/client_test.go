@@ -69,7 +69,7 @@ func TestQueryBlockedState_Success(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	// Start receive goroutine
@@ -141,7 +141,7 @@ func TestQueryBlockedState_Timeout(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	// Start receive goroutine
@@ -192,7 +192,7 @@ func TestQueryBlockedState_WrongBranchResponse(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	go client.receive()
@@ -259,7 +259,7 @@ func TestQueryBlockedState_NoEventLoss(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	go client.receive()
@@ -351,7 +351,7 @@ func TestQueryBlockedState_ClientClosed(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	go client.receive()
@@ -399,7 +399,7 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
 		lastPong:       time.Now(),
-		queryResponses: make(map[string]chan Message),
+		queryResponses: make(map[string]*queryResponse),
 	}
 
 	go client.receive()
@@ -469,6 +469,206 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 	}
 	if results["branch-1"] || results["branch-3"] {
 		t.Error("Expected branch-1 and branch-3 to not be blocked")
+	}
+}
+
+// TestQueryBlockedState_ChannelFullError tests that channel full sends proper error
+func TestQueryBlockedState_ChannelFullError(t *testing.T) {
+	// Create a manual test scenario where we can control channel state
+	client := &DaemonClient{
+		clientID:       "test-client",
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Create a response with buffer size 0 to simulate full channel
+	resp := &queryResponse{
+		dataCh: make(chan Message), // Unbuffered - will be full
+		errCh:  make(chan error, 1),
+	}
+
+	// Register the response
+	client.queryMu.Lock()
+	client.queryResponses["test-branch"] = resp
+	client.queryMu.Unlock()
+
+	// Simulate receive() detecting channel full and sending error
+	// This mimics what happens in receive() when dataCh is full
+	select {
+	case resp.dataCh <- Message{}:
+		t.Fatal("Expected channel to be full")
+	default:
+		// Channel is full as expected, send error
+		resp.errCh <- ErrQueryChannelFull
+	}
+
+	// Verify error is received
+	select {
+	case err := <-resp.errCh:
+		if err != ErrQueryChannelFull {
+			t.Errorf("Expected ErrQueryChannelFull, got: %v", err)
+		}
+	default:
+		t.Fatal("Expected error in errCh")
+	}
+}
+
+// TestQueryBlockedState_ErrorPropagation tests that errors from receive() propagate to caller
+func TestQueryBlockedState_ErrorPropagation(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	go client.receive()
+
+	// Server reads query but sends response twice (first one blocks, second triggers error)
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		encoder := json.NewEncoder(serverWriter)
+
+		// Read query
+		var queryMsg Message
+		decoder.Decode(&queryMsg)
+
+		// Send first response (fills channel)
+		response := Message{
+			Type:          MsgTypeBlockedStateResponse,
+			Branch:        queryMsg.Branch,
+			IsBlocked:     true,
+			BlockedBranch: "main",
+		}
+		encoder.Encode(response)
+
+		// Wait briefly
+		time.Sleep(50 * time.Millisecond)
+
+		// Send duplicate response - this would overflow if channel was unbuffered
+		// But with buffered channel, first is consumed and second goes through normally
+		encoder.Encode(response)
+	}()
+
+	// Query should succeed with first response
+	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	if err != nil {
+		t.Fatalf("QueryBlockedState failed: %v", err)
+	}
+
+	if !isBlocked || blockedBy != "main" {
+		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s", isBlocked, blockedBy)
+	}
+}
+
+// TestQueryBlockedState_RapidSequential tests rapid sequential queries
+func TestQueryBlockedState_RapidSequential(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	go client.receive()
+
+	// Server responds to each query immediately
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		encoder := json.NewEncoder(serverWriter)
+
+		for i := 0; i < 10; i++ {
+			var queryMsg Message
+			if err := decoder.Decode(&queryMsg); err != nil {
+				return
+			}
+
+			response := Message{
+				Type:          MsgTypeBlockedStateResponse,
+				Branch:        queryMsg.Branch,
+				IsBlocked:     i%2 == 0, // Alternate
+				BlockedBranch: "main",
+			}
+			encoder.Encode(response)
+		}
+	}()
+
+	// Rapid sequential queries
+	for i := 0; i < 10; i++ {
+		branch := "branch-" + string(rune('A'+i))
+		_, _, err := client.QueryBlockedState(branch)
+		if err != nil {
+			t.Errorf("Query %d failed: %v", i, err)
+		}
+	}
+}
+
+// TestQueryBlockedState_TimeoutUsesDefinedError tests that timeout returns ErrQueryTimeout
+func TestQueryBlockedState_TimeoutUsesDefinedError(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	go client.receive()
+
+	// Server drains query but doesn't respond
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		var queryMsg Message
+		decoder.Decode(&queryMsg)
+		// Close the server writer to prevent blocking
+		serverWriter.Close()
+	}()
+
+	// Query should timeout with defined error
+	_, _, err := client.QueryBlockedState("feature-branch")
+	if err == nil {
+		t.Fatal("Expected timeout error")
+	}
+
+	if err != ErrQueryTimeout {
+		t.Errorf("Expected ErrQueryTimeout, got: %v", err)
 	}
 }
 

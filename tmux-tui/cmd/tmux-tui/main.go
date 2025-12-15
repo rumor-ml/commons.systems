@@ -44,6 +44,12 @@ type model struct {
 	blockedMu       *sync.RWMutex
 
 	// Error state with concurrency protection
+	// Three distinct error paths determine application behavior:
+	// 1. err != nil: Fatal error - displays message and exits immediately
+	// 2. alertsDisabled == true: Non-fatal - continues running but disables alerts
+	// 3. alertError != "": Alert system error - displays warning banner but continues
+	// 4. persistenceError != "": Daemon persistence failure - displays warning banner
+	// 5. treeRefreshError != nil: Tmux tree refresh failure - displays warning banner
 	err              error
 	alertsDisabled   bool
 	alertError       string

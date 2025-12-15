@@ -83,10 +83,11 @@ type AlertDaemon struct {
 	blockedPath      string // Path to persist blocked state JSON
 
 	// Health monitoring (accessed atomically)
-	broadcastFailures  atomic.Int64 // Total broadcast failures since startup
-	lastBroadcastError atomic.Value // Most recent broadcast error (string)
-	watcherErrors      atomic.Int64 // Total watcher errors since startup
-	lastWatcherError   atomic.Value // Most recent watcher error (string)
+	broadcastFailures  atomic.Int64  // Total broadcast failures since startup
+	lastBroadcastError atomic.Value  // Most recent broadcast error (string)
+	watcherErrors      atomic.Int64  // Total watcher errors since startup
+	lastWatcherError   atomic.Value  // Most recent watcher error (string)
+	seqCounter         atomic.Uint64 // Global sequence number for message ordering
 }
 
 // loadBlockedBranches loads the blocked branches state from JSON file
@@ -486,6 +487,10 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
 				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				// Write to stderr immediately (don't rely on broadcast alone)
+				fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
+				fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
+				fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 				// Broadcast persistence error to all clients
 				d.broadcast(Message{
 					Type:  MsgTypePersistenceError,
@@ -511,6 +516,10 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
 				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				// Write to stderr immediately (don't rely on broadcast alone)
+				fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
+				fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
+				fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 				// Broadcast persistence error to all clients
 				d.broadcast(Message{
 					Type:  MsgTypePersistenceError,
@@ -545,28 +554,84 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 				debug.Log("DAEMON_QUERY_RESPONSE branch=%s isBlocked=%v blockedBy=%s",
 					msg.Branch, isBlocked, blockedBy)
 			}
+
+		case MsgTypeResyncRequest:
+			// Client detected a gap in sequence numbers, send full state
+			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
+			d.sendFullState(client, clientID)
 		}
 	}
 }
 
-// broadcast sends a message to all connected clients.
+// broadcast sends a message to all connected clients with sequence numbering.
+// If some clients fail to receive the message, a sync warning is sent to successful clients.
 func (d *AlertDaemon) broadcast(msg Message) {
+	// Assign sequence number for ordering/gap detection
+	msg.SeqNum = d.seqCounter.Add(1)
+
 	d.clientsMu.RLock()
-	defer d.clientsMu.RUnlock()
+	totalClients := len(d.clients)
 
 	var failures int64
+	var successfulClients []*clientConnection
+
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
 			failures++
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
 			d.lastBroadcastError.Store(err.Error())
 			// Don't remove client here - let handleClient detect disconnect
+		} else {
+			successfulClients = append(successfulClients, client)
 		}
 	}
+	d.clientsMu.RUnlock()
 
 	if failures > 0 {
 		d.broadcastFailures.Add(failures)
-		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total_failures=%d", failures, d.broadcastFailures.Load())
+		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total=%d total_failures=%d",
+			failures, totalClients, d.broadcastFailures.Load())
+
+		// Notify successful clients that some peers missed the update
+		// This is informational - clients can decide how to handle it
+		syncWarning := Message{
+			Type:   MsgTypeSyncWarning,
+			SeqNum: msg.SeqNum,
+			Error:  fmt.Sprintf("%d of %d clients failed to receive update", failures, totalClients),
+		}
+		for _, client := range successfulClients {
+			// Best-effort: don't track failures for sync warning itself
+			_ = client.sendMessage(syncWarning)
+		}
+	}
+}
+
+// sendFullState sends the complete current state to a client
+func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) {
+	d.alertsMu.RLock()
+	alertsCopy := make(map[string]string)
+	for k, v := range d.alerts {
+		alertsCopy[k] = v
+	}
+	d.alertsMu.RUnlock()
+
+	d.blockedMu.RLock()
+	blockedCopy := make(map[string]string)
+	for k, v := range d.blockedBranches {
+		blockedCopy[k] = v
+	}
+	d.blockedMu.RUnlock()
+
+	fullStateMsg := Message{
+		Type:            MsgTypeFullState,
+		SeqNum:          d.seqCounter.Load(), // Include current sequence for reference
+		Alerts:          alertsCopy,
+		BlockedBranches: blockedCopy,
+	}
+	if err := client.sendMessage(fullStateMsg); err != nil {
+		debug.Log("DAEMON_RESYNC_ERROR client=%s error=%v", clientID, err)
+	} else {
+		debug.Log("DAEMON_RESYNC_SENT client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
 	}
 }
 

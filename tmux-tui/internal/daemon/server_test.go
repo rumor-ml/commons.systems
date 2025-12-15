@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -438,5 +439,318 @@ func TestProtocolMessage_Serialization(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBroadcastSequenceNumbers tests that broadcast assigns monotonic sequence numbers
+func TestBroadcastSequenceNumbers(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create successful client
+	r, w := io.Pipe()
+	defer r.Close()
+	defer w.Close()
+
+	daemon.clients["test-client"] = &clientConnection{
+		conn:    &mockConn{reader: r, writer: w},
+		encoder: json.NewEncoder(w),
+	}
+
+	// Read messages in background
+	received := make(chan Message, 10)
+	go func() {
+		decoder := json.NewDecoder(r)
+		for i := 0; i < 5; i++ {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				break
+			}
+			received <- msg
+		}
+		close(received)
+	}()
+
+	// Broadcast 5 messages
+	for i := 0; i < 5; i++ {
+		daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane-1"})
+	}
+
+	// Verify sequence numbers are monotonically increasing
+	lastSeq := uint64(0)
+	count := 0
+	for msg := range received {
+		if msg.Type == MsgTypeAlertChange { // Skip sync warnings
+			count++
+			if msg.SeqNum <= lastSeq {
+				t.Errorf("Expected monotonic sequence, got %d after %d", msg.SeqNum, lastSeq)
+			}
+			lastSeq = msg.SeqNum
+		}
+	}
+
+	if count < 5 {
+		t.Errorf("Expected at least 5 messages, got %d", count)
+	}
+}
+
+// TestBroadcastPartialFailure tests that sync warning is sent on partial broadcast failure
+func TestBroadcastPartialFailure(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create one successful client
+	successR, successW := io.Pipe()
+	defer successR.Close()
+	defer successW.Close()
+
+	daemon.clients["success-client"] = &clientConnection{
+		conn:    &mockConn{reader: successR, writer: successW},
+		encoder: json.NewEncoder(successW),
+	}
+
+	// Create one failing client (closed pipe)
+	failR, failW := io.Pipe()
+	failW.Close() // Force failure
+	defer failR.Close()
+
+	daemon.clients["fail-client"] = &clientConnection{
+		conn:    &mockConn{reader: failR, writer: failW},
+		encoder: json.NewEncoder(failW),
+	}
+
+	// Read messages from successful client in background
+	received := make(chan Message, 10)
+	go func() {
+		decoder := json.NewDecoder(successR)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				break
+			}
+			received <- msg
+		}
+		close(received)
+	}()
+
+	// Broadcast message (should partially fail)
+	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane-1"})
+
+	// Verify we get both the original message and sync warning
+	foundAlert := false
+	foundSyncWarning := false
+
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-received:
+			if msg.Type == MsgTypeAlertChange {
+				foundAlert = true
+			}
+			if msg.Type == MsgTypeSyncWarning {
+				foundSyncWarning = true
+				if msg.Error == "" {
+					t.Error("Sync warning should have error message")
+				}
+			}
+		default:
+		}
+	}
+
+	if !foundAlert {
+		t.Error("Expected alert message to be delivered to successful client")
+	}
+
+	if !foundSyncWarning {
+		t.Error("Expected sync warning to be sent to successful clients")
+	}
+}
+
+// TestConcurrentBroadcasts tests that sequence numbers are thread-safe
+func TestConcurrentBroadcasts(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create a client that discards messages
+	r, w := io.Pipe()
+	defer r.Close()
+	defer w.Close()
+
+	daemon.clients["test-client"] = &clientConnection{
+		conn:    &mockConn{reader: r, writer: w},
+		encoder: json.NewEncoder(w),
+	}
+
+	// Discard messages in background
+	go func() {
+		decoder := json.NewDecoder(r)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Concurrent broadcasts
+	var wg sync.WaitGroup
+	const numGoroutines = 10
+	const broadcastsPerGoroutine = 100
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < broadcastsPerGoroutine; j++ {
+				daemon.broadcast(Message{Type: MsgTypeAlertChange})
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify sequence counter was incremented correctly (no lost increments)
+	expectedSeq := uint64(numGoroutines * broadcastsPerGoroutine)
+	actualSeq := daemon.seqCounter.Load()
+	if actualSeq != expectedSeq {
+		t.Errorf("Expected sequence counter to be %d, got %d (lost increments)", expectedSeq, actualSeq)
+	}
+}
+
+// TestSendFullState tests the sendFullState helper method
+func TestSendFullState(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          map[string]string{"pane-1": "stop", "pane-2": "idle"},
+		blockedBranches: map[string]string{"feature": "main"},
+	}
+	daemon.seqCounter.Store(42) // Set a specific sequence for testing
+
+	// Create client
+	r, w := io.Pipe()
+	defer r.Close()
+	defer w.Close()
+
+	client := &clientConnection{
+		conn:    &mockConn{reader: r, writer: w},
+		encoder: json.NewEncoder(w),
+	}
+
+	// Read response in background
+	received := make(chan Message, 1)
+	go func() {
+		decoder := json.NewDecoder(r)
+		var msg Message
+		if err := decoder.Decode(&msg); err != nil {
+			return
+		}
+		received <- msg
+	}()
+
+	// Send full state
+	daemon.sendFullState(client, "test-client")
+
+	// Verify full state message
+	msg := <-received
+	if msg.Type != MsgTypeFullState {
+		t.Errorf("Expected full_state message, got %s", msg.Type)
+	}
+
+	if msg.SeqNum != 42 {
+		t.Errorf("Expected sequence 42, got %d", msg.SeqNum)
+	}
+
+	if len(msg.Alerts) != 2 {
+		t.Errorf("Expected 2 alerts, got %d", len(msg.Alerts))
+	}
+
+	if len(msg.BlockedBranches) != 1 {
+		t.Errorf("Expected 1 blocked branch, got %d", len(msg.BlockedBranches))
+	}
+
+	if msg.BlockedBranches["feature"] != "main" {
+		t.Errorf("Expected feature blocked by main")
+	}
+}
+
+// TestProtocolMessage_SeqNum tests sequence number serialization
+func TestProtocolMessage_SeqNum(t *testing.T) {
+	msg := Message{
+		Type:   MsgTypeAlertChange,
+		SeqNum: 12345,
+		PaneID: "pane-1",
+	}
+
+	// Marshal
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Unmarshal
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.SeqNum != 12345 {
+		t.Errorf("Expected SeqNum 12345, got %d", decoded.SeqNum)
+	}
+}
+
+// TestProtocolMessage_SyncWarning tests sync warning message serialization
+func TestProtocolMessage_SyncWarning(t *testing.T) {
+	msg := Message{
+		Type:   MsgTypeSyncWarning,
+		SeqNum: 100,
+		Error:  "1 of 3 clients failed to receive update",
+	}
+
+	// Marshal
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Unmarshal
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.Type != MsgTypeSyncWarning {
+		t.Errorf("Expected type sync_warning, got %s", decoded.Type)
+	}
+
+	if decoded.Error == "" {
+		t.Error("Expected error message in sync warning")
+	}
+}
+
+// TestProtocolMessage_ResyncRequest tests resync request message serialization
+func TestProtocolMessage_ResyncRequest(t *testing.T) {
+	msg := Message{
+		Type: MsgTypeResyncRequest,
+	}
+
+	// Marshal
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Unmarshal
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.Type != MsgTypeResyncRequest {
+		t.Errorf("Expected type resync_request, got %s", decoded.Type)
 	}
 }

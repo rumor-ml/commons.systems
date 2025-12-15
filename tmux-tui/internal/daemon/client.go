@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
@@ -34,10 +35,17 @@ type DaemonClient struct {
 	connected  bool
 	lastPong   time.Time    // Timestamp of last pong received
 	lastPongMu sync.RWMutex // Protects lastPong
+	lastSeq    atomic.Uint64 // Last received sequence number for gap detection
 
 	// Query response routing (prevents event loss in QueryBlockedState)
-	queryResponses map[string]chan Message // Response channels keyed by branch
-	queryMu        sync.Mutex               // Protects queryResponses map
+	queryResponses map[string]*queryResponse // Response channels keyed by branch
+	queryMu        sync.Mutex                // Protects queryResponses map
+}
+
+// queryResponse holds both data and error channels for query responses
+type queryResponse struct {
+	dataCh chan Message // Receives successful responses
+	errCh  chan error   // Receives error notifications (channel full, closed)
 }
 
 // NewDaemonClient creates a new daemon client.
@@ -47,7 +55,7 @@ func NewDaemonClient() *DaemonClient {
 		socketPath:     namespace.DaemonSocket(),
 		eventCh:        make(chan Message, 100),
 		done:           make(chan struct{}),
-		queryResponses: make(map[string]chan Message), // Initialize here
+		queryResponses: make(map[string]*queryResponse), // Initialize here
 	}
 }
 
@@ -169,20 +177,50 @@ func (c *DaemonClient) receive() {
 			continue
 		}
 
+		// Gap detection: Check sequence numbers for missed messages
+		if msg.SeqNum > 0 {
+			lastSeq := c.lastSeq.Load()
+			if lastSeq > 0 && msg.SeqNum > lastSeq+1 {
+				// Gap detected - request resync from daemon
+				gap := msg.SeqNum - lastSeq - 1
+				debug.Log("CLIENT_GAP_DETECTED id=%s expected=%d got=%d gap=%d",
+					c.clientID, lastSeq+1, msg.SeqNum, gap)
+				// Request full state resync
+				go func() {
+					resyncMsg := Message{Type: MsgTypeResyncRequest}
+					if err := c.sendMessage(resyncMsg); err != nil {
+						debug.Log("CLIENT_RESYNC_REQUEST_ERROR id=%s error=%v", c.clientID, err)
+					} else {
+						debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
+					}
+				}()
+			}
+			c.lastSeq.Store(msg.SeqNum)
+		}
+
 		// Route query responses to dedicated channels (prevents event loss)
 		if msg.Type == MsgTypeBlockedStateResponse {
 			c.queryMu.Lock()
-			if respCh, exists := c.queryResponses[msg.Branch]; exists {
+			if resp, exists := c.queryResponses[msg.Branch]; exists {
 				select {
-				case respCh <- msg:
-					// Response delivered
+				case resp.dataCh <- msg:
+					// Response delivered successfully
 				case <-c.done:
 					c.queryMu.Unlock()
 					return
 				default:
-					// EXCEPTIONAL: Log this rare condition
-					debug.Log("CLIENT_QUERY_RESPONSE_FALLBACK id=%s branch=%s reason=channel_full_or_closed",
-						c.clientID, msg.Branch)
+					// Channel full - send error notification to caller
+					// This provides accurate error instead of misleading timeout
+					errMsg := ErrQueryChannelFull
+					select {
+					case resp.errCh <- errMsg:
+						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s",
+							c.clientID, msg.Branch)
+					default:
+						// Error channel also full (shouldn't happen with buffered channel)
+						debug.Log("CLIENT_QUERY_ERROR_CHANNEL_FULL id=%s branch=%s",
+							c.clientID, msg.Branch)
+					}
 				}
 				delete(c.queryResponses, msg.Branch)
 				c.queryMu.Unlock()
@@ -424,13 +462,16 @@ func (c *DaemonClient) UnblockBranch(branch string) error {
 
 // QueryBlockedState queries whether a branch is blocked and returns the blocking branch if so
 func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error) {
-	// Create response channel
-	respCh := make(chan Message, 1)
+	// Create response channels (buffered to prevent blocking)
+	resp := &queryResponse{
+		dataCh: make(chan Message, 1),
+		errCh:  make(chan error, 1),
+	}
 
 	// Register for response
 	c.queryMu.Lock()
 	// Map already initialized in constructor
-	c.queryResponses[branch] = respCh
+	c.queryResponses[branch] = resp
 	c.queryMu.Unlock()
 
 	// Cleanup registration
@@ -438,7 +479,8 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 		c.queryMu.Lock()
 		delete(c.queryResponses, branch)
 		c.queryMu.Unlock()
-		close(respCh)
+		close(resp.dataCh)
+		close(resp.errCh)
 	}()
 
 	// Send query message
@@ -451,15 +493,22 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 	}
 	debug.Log("CLIENT_QUERY_BLOCKED_STATE id=%s branch=%s", c.clientID, branch)
 
-	// Wait for response (no longer consumes from eventCh!)
+	// Wait for response on dedicated channel to prevent race conditions.
+	// The dedicated response channel ensures query responses are routed correctly
+	// and don't get consumed by the general event handler.
+	// Timeout prevents indefinite blocking if daemon is unresponsive.
 	timeout := time.After(2 * time.Second)
 	select {
-	case msg := <-respCh:
+	case msg := <-resp.dataCh:
 		debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
 			c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
 		return msg.BlockedBranch, msg.IsBlocked, nil
+	case queryErr := <-resp.errCh:
+		// Receive() detected an issue (channel full/closed) and notified us
+		debug.Log("CLIENT_QUERY_ERROR id=%s branch=%s error=%v", c.clientID, branch, queryErr)
+		return "", false, fmt.Errorf("query failed: %w", queryErr)
 	case <-timeout:
-		return "", false, fmt.Errorf("timeout waiting for blocked state response")
+		return "", false, ErrQueryTimeout
 	case <-c.done:
 		return "", false, fmt.Errorf("client closed")
 	}

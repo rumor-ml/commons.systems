@@ -1,5 +1,14 @@
 package daemon
 
+import "errors"
+
+// Query response channel error types
+var (
+	ErrQueryChannelFull   = errors.New("query response channel full")
+	ErrQueryChannelClosed = errors.New("query response channel closed")
+	ErrQueryTimeout       = errors.New("timeout waiting for blocked state response")
+)
+
 // Message types for client-daemon communication
 const (
 	// MsgTypeHello is sent by client when connecting
@@ -34,12 +43,17 @@ const (
 	MsgTypeBlockedStateResponse = "blocked_state_response"
 	// MsgTypePersistenceError is sent by daemon when blocked state can't be saved
 	MsgTypePersistenceError = "persistence_error"
+	// MsgTypeSyncWarning is sent by daemon when some clients missed an update (broadcast partial failure)
+	MsgTypeSyncWarning = "sync_warning"
+	// MsgTypeResyncRequest is sent by client when it detects a gap in sequence numbers
+	MsgTypeResyncRequest = "resync_request"
 )
 
 // Message represents a message exchanged between daemon and clients
 type Message struct {
 	Type            string            `json:"type"`
 	ClientID        string            `json:"client_id,omitempty"`
+	SeqNum          uint64            `json:"seq_num,omitempty"`          // Sequence number for ordering/gap detection
 	Alerts          map[string]string `json:"alerts,omitempty"`           // Full alert state (for full_state messages)
 	PaneID          string            `json:"pane_id,omitempty"`          // For alert_change and block messages
 	EventType       string            `json:"event_type,omitempty"`       // For alert_change messages
@@ -51,7 +65,7 @@ type Message struct {
 	BlockedBranch   string            `json:"blocked_branch,omitempty"`   // For block_branch messages
 	Blocked         bool              `json:"blocked,omitempty"`          // For block_change messages (true = blocked, false = unblocked)
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
-	Error           string            `json:"error,omitempty"`            // For persistence_error messages
+	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 }
 
 // HealthStatus represents daemon health metrics for monitoring
