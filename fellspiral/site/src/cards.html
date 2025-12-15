@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
-    <title>Card Manager - Fellspiral</title>
+    <title>Library - Fellspiral</title>
     <meta name="description" content="Manage cards for Fellspiral tactical tabletop RPG" />
     <link rel="stylesheet" href="/styles/main.css" />
     <link rel="stylesheet" href="/styles/cards.css" />
@@ -42,9 +42,9 @@
       </button>
 
       <!-- Main Content -->
-      <main class="main-content card-manager">
+      <main class="main-content card-library">
         <div class="container-fluid">
-          <div class="card-manager-layout">
+          <div class="card-library-layout">
             <!-- Main Content Area -->
             <div class="card-content">
               <!-- Toolbar -->
@@ -57,9 +57,6 @@
                       />
                     </svg>
                     Add Card
-                  </button>
-                  <button id="importCardsBtn" class="btn btn-secondary auth-controls">
-                    Import from Rules.md
                   </button>
                   <button id="exportCardsBtn" class="btn btn-secondary auth-controls">
                     Export JSON
@@ -117,12 +114,12 @@
                   <path fill="white" d="M5 4h6v1H5V4zm0 2h6v1H5V6zm0 2h4v1H5V8z" />
                 </svg>
                 <h3>No cards found</h3>
-                <p>Get started by importing cards from rules.md or creating a new card</p>
+                <p>Get started by creating a new card</p>
                 <button
                   class="btn btn-primary"
-                  onclick="document.getElementById('importCardsBtn').click()"
+                  onclick="document.getElementById('addCardBtn').click()"
                 >
-                  Import Cards
+                  Add Card
                 </button>
               </div>
             </div>

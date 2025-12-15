@@ -1,10 +1,10 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 import { VIEWPORTS, setupMobileViewport, setupDesktopViewport } from './test-helpers.js';
 
-test.describe('Card Manager Page', () => {
+test.describe('Card Library Page', () => {
   test('should load successfully', async ({ page }) => {
     await page.goto('/cards.html');
-    await expect(page).toHaveTitle(/Card Manager - Fellspiral/);
+    await expect(page).toHaveTitle(/Library - Fellspiral/);
   });
 
   test('should display sidebar navigation', async ({ page }) => {

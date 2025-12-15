@@ -1,5 +1,5 @@
 /**
- * Card Manager - App-Specific Styles
+ * Card Library - App-Specific Styles
  * Uses design system tokens with RPG-themed card type styling
  * Electric cyan accents on card interactions
  */
@@ -15,12 +15,12 @@
   margin: 0;
 }
 
-.card-manager {
+.card-library {
   min-height: 100vh;
   background: var(--color-bg-base);
 }
 
-.card-manager-layout {
+.card-library-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -451,7 +451,7 @@ body.authenticated .auth-controls {
   height: 100%;
   background: var(--color-overlay-heavy);
   backdrop-filter: blur(4px);
-  z-index: 1;
+  z-index: 1; /* Below modal-content, above page content */
 }
 
 .modal-content {
@@ -468,7 +468,7 @@ body.authenticated .auth-controls {
   flex-direction: column;
   box-shadow: var(--shadow-xl), var(--color-primary-glow-subtle);
   border: 1px solid var(--color-border-default);
-  z-index: 2;
+  z-index: 2; /* Above backdrop for interactivity */
 }
 
 .modal-header {
@@ -639,11 +639,11 @@ textarea.form-control {
 }
 
 @media (max-width: 768px) {
-  .card-manager {
+  .card-library {
     margin-left: 0;
   }
 
-  .card-manager-layout {
+  .card-library-layout {
     flex-direction: column;
   }
 

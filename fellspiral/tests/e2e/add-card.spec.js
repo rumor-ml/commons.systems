@@ -868,3 +868,238 @@ test.describe('Add Card - Integration Tests', () => {
     }
   });
 });
+
+test.describe('Combobox Keyboard Navigation', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test.beforeEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test.afterEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test('should open dropdown with ArrowDown when closed', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await page.locator('#cardType').press('ArrowDown');
+    await expect(page.locator('#typeCombobox.open')).toBeVisible();
+  });
+
+  test('should navigate options with ArrowDown/ArrowUp', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await page.locator('#cardType').press('ArrowDown');
+    await page.locator('#cardType').press('ArrowDown');
+    const highlighted = page.locator('#typeListbox .combobox-option.highlighted');
+    await expect(highlighted).toBeVisible();
+  });
+
+  test('should select option with Enter key', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await page.locator('#cardType').press('ArrowDown');
+    await page.locator('#cardType').press('ArrowDown');
+    await page.locator('#cardType').press('Enter');
+    await expect(page.locator('#typeCombobox.open')).not.toBeVisible();
+    expect(await page.locator('#cardType').inputValue()).not.toBe('');
+  });
+
+  test('should close dropdown with Escape key', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await page.locator('#cardType').press('ArrowDown');
+    await expect(page.locator('#typeCombobox.open')).toBeVisible();
+    await page.locator('#cardType').press('Escape');
+    await expect(page.locator('#typeCombobox.open')).not.toBeVisible();
+  });
+});
+
+test.describe('Combobox Add New Feature', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test.beforeEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test.afterEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test('should show Add New option for non-matching input', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    const newType = `CustomType${Date.now()}`;
+    await page.locator('#cardType').fill(newType);
+    await expect(page.locator('#typeListbox .combobox-option--new')).toContainText(`Add "${newType}"`);
+  });
+
+  test('should select Add New option and populate input', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    const newType = `NewType${Date.now()}`;
+    await page.locator('#cardType').fill(newType);
+    await page.locator('#typeListbox .combobox-option--new').click();
+    expect(await page.locator('#cardType').inputValue()).toBe(newType);
+  });
+});
+
+test.describe('Combobox Subtype Clearing', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test.beforeEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test.afterEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test('should clear subtype value when type changes', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+
+    // Select Equipment type and Weapon subtype
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+    expect(await page.locator('#cardSubtype').inputValue()).toBe('Weapon');
+
+    // Change type to Skill
+    await page.locator('#cardType').fill('Skill');
+    await page.locator('#typeListbox .combobox-option').first().click();
+
+    // Verify subtype was cleared
+    expect(await page.locator('#cardSubtype').inputValue()).toBe('');
+  });
+});
+
+test.describe('Combobox Interaction Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test.beforeEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test.afterEach(async () => {
+    await deleteTestCards(/^Test Card \d+/);
+  });
+
+  test('should filter combobox options as user types', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    const initialCount = await page.locator('#typeListbox .combobox-option').count();
+    await page.locator('#cardType').fill('equip');
+    const filteredCount = await page.locator('#typeListbox .combobox-option').count();
+    expect(filteredCount).toBeLessThan(initialCount);
+  });
+
+  test('should toggle dropdown via toggle button', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#typeCombobox .combobox-toggle').click();
+    await expect(page.locator('#typeCombobox.open')).toBeVisible();
+    await page.locator('#typeCombobox .combobox-toggle').click();
+    await expect(page.locator('#typeCombobox.open')).not.toBeVisible();
+  });
+
+  test('should close combobox when clicking outside', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await expect(page.locator('#typeCombobox.open')).toBeVisible();
+    await page.locator('#cardTitle').click();
+    await expect(page.locator('#typeCombobox.open')).not.toBeVisible();
+  });
+
+  test('should allow option selection despite blur delay', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    await page.locator('#addCardBtn').click();
+    await page.locator('#cardType').focus();
+    await page.locator('#typeListbox .combobox-option').first().click();
+    expect(await page.locator('#cardType').inputValue()).not.toBe('');
+  });
+});

@@ -100,8 +100,17 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // Ignore errors if emulators are already connected
-        // This can happen if initFirebase() is called multiple times
+        // This can happen if emulators are already connected (multiple calls)
+        const isAlreadyConnected = error.message?.includes('already');
+        if (isAlreadyConnected) {
+          console.debug('[Firebase] Emulators already connected (expected on re-init)');
+        } else {
+          console.warn('[Firebase] Emulator connection failed:', {
+            message: error.message,
+            firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
+            authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST
+          });
+        }
       }
     }
 

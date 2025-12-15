@@ -1,5 +1,5 @@
 /**
- * Card Manager - CRUD Operations and Tree Navigation
+ * Card Library - CRUD Operations and Tree Navigation
  */
 
 // Import Firestore operations
@@ -24,10 +24,15 @@ import { initLibraryNav } from './library-nav.js';
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
 
-// Submission lock to prevent double-submit
+// Submission lock to prevent double-submit on rapid clicks or Enter key spam.
+// Set at start of handleCardSave(), cleared in finally block.
+// Separate from button.disabled to handle Enter key submissions.
 let isSaving = false;
 
-// HTML escape utility to prevent XSS
+// HTML escape utility to prevent XSS attacks
+// Uses browser's built-in escaping via textContent property.
+// Use for ALL user-generated content (titles, descriptions, types, etc.)
+// NOTE: Only escapes HTML context - do NOT use for JS strings or URLs
 function escapeHtml(text) {
   if (text == null) return '';
   const div = document.createElement('div');
@@ -235,7 +240,8 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
-    // Delay to allow click events on options
+    // 200ms delay allows mousedown events on options to fire before hiding.
+    // Without this: blur fires → listbox hides → click never registers.
     setTimeout(() => {
       hide();
     }, 200);
@@ -307,6 +313,11 @@ function initTypeCombobox() {
       }
     },
   });
+  if (!typeCombobox) {
+    console.error('[Cards] Failed to initialize type combobox - DOM elements missing');
+    return false;
+  }
+  return true;
 }
 
 // Initialize subtype combobox
@@ -322,6 +333,11 @@ function initSubtypeCombobox() {
     },
     onSelect: null,
   });
+  if (!subtypeCombobox) {
+    console.error('[Cards] Failed to initialize subtype combobox - DOM elements missing');
+    return false;
+  }
+  return true;
 }
 
 // Show error UI with retry option
@@ -463,10 +479,10 @@ async function init() {
       });
   } catch (error) {
     // Log initialization errors for debugging
-    console.error('Card Manager init error:', error);
+    console.error('Card Library init error:', error);
 
     // Show user-friendly error UI
-    showErrorUI('Failed to initialize Card Manager. Please try again.', () => {
+    showErrorUI('Failed to initialize Card Library. Please try again.', () => {
       document.querySelector('.error-banner')?.remove();
       state.initialized = false; // Reset so retry can work
       init();
@@ -506,15 +522,29 @@ async function loadCards() {
 
     state.filteredCards = [...state.cards];
   } catch (error) {
-    console.error('Error loading cards:', error);
+    console.error('[Cards] Error loading cards:', {
+      message: error.message,
+      code: error.code,
+      name: error.name
+    });
     state.error = error.message;
 
-    // Fallback to static data if Firestore fails
-    console.warn('Falling back to static JSON data');
+    // Provide specific error messages based on error type
+    let userMessage = 'Unable to connect to Firestore. Using local data only.';
+
+    if (error.code === 'permission-denied') {
+      userMessage = 'Permission denied. Please log in to view your cards.';
+    } else if (error.code === 'unavailable' || error.message?.includes('timeout')) {
+      userMessage = 'Connection timed out. Using cached data.';
+    } else if (error.code === 'unauthenticated') {
+      userMessage = 'Please log in to view your cards.';
+    }
+
+    // Fallback to static data
+    console.warn('[Cards] Falling back to static JSON data');
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
-
-    showWarningBanner('Unable to connect to Firestore. Using local data only.');
+    showWarningBanner(userMessage);
   } finally {
     // ALWAYS clear loading state
     state.loading = false;
@@ -526,10 +556,9 @@ function setupEventListeners() {
   try {
     // Toolbar buttons
     const addCardBtn = document.getElementById('addCardBtn');
-    const importCardsBtn = document.getElementById('importCardsBtn');
     const exportCardsBtn = document.getElementById('exportCardsBtn');
 
-    if (!addCardBtn || !importCardsBtn || !exportCardsBtn) {
+    if (!addCardBtn || !exportCardsBtn) {
       console.error('Missing toolbar buttons');
       return;
     }
@@ -537,15 +566,11 @@ function setupEventListeners() {
     // Add debounce to Add Card button to prevent rapid clicks
     let addCardDebounce = null;
     addCardBtn.addEventListener('click', () => {
-      if (addCardDebounce) {
-        console.log('[Cards] Add Card click ignored - debounce active');
-        return;
-      }
+      if (addCardDebounce) return;
       addCardDebounce = setTimeout(() => { addCardDebounce = null; }, 300);
       openCardEditor();
     });
 
-    importCardsBtn.addEventListener('click', importCards);
     exportCardsBtn.addEventListener('click', exportCards);
 
     // View mode
@@ -572,8 +597,11 @@ function setupEventListeners() {
     if (modalBackdrop) modalBackdrop.addEventListener('click', closeCardEditor);
 
     // Initialize comboboxes
-    initTypeCombobox();
-    initSubtypeCombobox();
+    const typeOk = initTypeCombobox();
+    const subtypeOk = initSubtypeCombobox();
+    if (!typeOk || !subtypeOk) {
+      showWarningBanner('Card type selection may not work correctly. Please refresh the page.');
+    }
   } catch (error) {
     console.error('Error setting up event listeners:', error);
   }
@@ -643,8 +671,8 @@ function setupMobileMenu() {
 function setupAuthStateListener() {
   try {
     // Register listener for auth state changes
-    // NOTE: onAuthStateChanged fires immediately with the current user (or null)
-    // when the listener is registered, so this handles both initial state and changes
+    // NOTE: onAuthStateChanged fires asynchronously (not synchronously) with
+    // the current auth state when registered, then on subsequent state changes.
     const unsubscribe = onAuthStateChanged((user) => {
       console.log('[Cards] Auth state changed:', user ? `User ${user.uid}` : 'No user');
       if (user) {
@@ -656,9 +684,10 @@ function setupAuthStateListener() {
       }
     });
 
-    // BACKUP: Also check current state after a brief delay
-    // This handles the edge case where onAuthStateChanged's immediate callback
-    // hasn't fired yet due to Firebase SDK still initializing
+    // Redundant auth check for edge cases where onAuthStateChanged callback
+    // doesn't fire due to module scope isolation (e.g., E2E tests with separate
+    // auth instances). This is a workaround, not a Firebase SDK limitation.
+    // TODO: Investigate if auth instance sharing can eliminate this check.
     setTimeout(() => {
       const auth = getAuthInstance();
       if (auth?.currentUser && !document.body.classList.contains('authenticated')) {
@@ -852,15 +881,25 @@ function renderCards() {
 
     // Render cards, skip broken ones
     const renderedCards = [];
+    let failedCards = 0;
     state.filteredCards.forEach((card) => {
       try {
         renderedCards.push(renderCardItem(card));
       } catch (error) {
         console.warn('Error rendering card:', card, error);
+        failedCards++;
       }
     });
 
     cardList.innerHTML = renderedCards.join('');
+
+    // Warn if significant failures
+    if (failedCards > 0) {
+      console.warn(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
+      if (failedCards > state.filteredCards.length * 0.1) {
+        showWarningBanner('Some cards could not be displayed. Please refresh the page.');
+      }
+    }
 
     // Attach card click handlers
     cardList.querySelectorAll('.card-item').forEach((item, index) => {
@@ -966,12 +1005,10 @@ function closeCardEditor() {
 
 // Handle card save
 async function handleCardSave(e) {
-  console.log('[Cards] handleCardSave called');
   e.preventDefault();
 
   // Prevent double-submit
   if (isSaving) {
-    console.log('[Cards] Save already in progress, ignoring duplicate submission');
     return;
   }
   isSaving = true;
@@ -998,14 +1035,9 @@ async function handleCardSave(e) {
     cost: document.getElementById('cardCost').value.trim(),
   };
 
-  console.log('[Cards] Card data collected:', { id, title: cardData.title });
-
   try {
     if (id) {
-      console.log('[Cards] Updating existing card:', id);
-      // Update existing card in Firestore
       await updateCardInDB(id, cardData);
-      console.log('[Cards] Card updated successfully');
 
       // Update local state
       const index = state.cards.findIndex((c) => c.id === id);
@@ -1013,25 +1045,18 @@ async function handleCardSave(e) {
         state.cards[index] = { ...state.cards[index], ...cardData };
       }
     } else {
-      console.log('[Cards] Creating new card, auth.currentUser:', getAuthInstance()?.currentUser?.uid);
-      // Create new card in Firestore
       const newCardId = await createCardInDB(cardData);
-      console.log('[Cards] Card created successfully:', newCardId);
 
       // Add to local state
       state.cards.push({ id: newCardId, ...cardData });
     }
 
-    console.log('[Cards] Closing card editor');
     closeCardEditor();
-    console.log('[Cards] Applying filters');
     applyFilters();
-    console.log('[Cards] Save complete');
   } catch (error) {
     console.error('[Cards] Error saving card:', error);
     alert(`Error saving card: ${error.message}`);
-    console.log('[Cards] Closing card editor after error');
-    closeCardEditor(); // Always close modal, even on error
+    // Modal stays open - user can retry or fix issues
   } finally {
     // Re-enable Save button and reset submission lock
     if (saveBtn) {
@@ -1070,34 +1095,6 @@ window.editCard = function (cardId) {
     openCardEditor(card);
   }
 };
-
-// Import cards from rules.md
-async function importCards() {
-  if (confirm('This will import cards from the parsed rules.md file to Firestore. Continue?')) {
-    try {
-      const importedCards = cardsData || [];
-
-      // Import to Firestore
-      const results = await importCardsFromData(importedCards);
-
-      // Reload cards from Firestore
-      state.cards = await getAllCards();
-      state.filteredCards = [...state.cards];
-
-      applyFilters();
-
-      alert(
-        `Import complete!\n` +
-          `Created: ${results.created}\n` +
-          `Updated: ${results.updated}\n` +
-          `Errors: ${results.errors}`
-      );
-    } catch (error) {
-      console.error('Error importing cards:', error);
-      alert(`Error importing cards: ${error.message}`);
-    }
-  }
-}
 
 // Export cards to JSON
 function exportCards() {
