@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/commons-systems/filesync"
@@ -86,7 +87,6 @@ type StartSyncResponse struct {
 
 // StartSync handles POST /api/sync/start
 func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
-	// Get authenticated user
 	authInfo, ok := middleware.GetAuth(r)
 	if !ok {
 		log.Printf("ERROR: StartSync - unauthorized access attempt")
@@ -164,13 +164,30 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 
 		result, ok := <-resultCh
 		if !ok {
-			log.Printf("ERROR: Result channel closed unexpectedly without sending result")
+			log.Printf("ERROR: Result channel closed unexpectedly for session %s without sending result", sessionID)
+
+			// Update session to failed state
+			session, err := h.sessionStore.Get(r.Context(), sessionID)
+			if err != nil {
+				log.Printf("ERROR: Failed to retrieve session %s for cleanup: %v", sessionID, err)
+			} else {
+				now := time.Now()
+				session.Status = filesync.SessionStatusFailed
+				session.CompletedAt = &now
+				if updateErr := h.sessionStore.Update(r.Context(), session); updateErr != nil {
+					log.Printf("ERROR: Failed to update session %s to failed state: %v", sessionID, updateErr)
+				}
+			}
+
 			// Send error to connected clients
 			h.hub.SendErrorToClients(sessionID,
 				"Extraction pipeline ended unexpectedly. Please contact support if this persists.",
 				"error")
+
+			// Clean up resources
 			close(progressCh)
 			cancel()
+			h.registry.Remove(sessionID) // Add this cleanup
 			return
 		}
 
@@ -285,7 +302,6 @@ func (h *SyncHandlers) CancelSync(w http.ResponseWriter, r *http.Request) {
 func (h *SyncHandlers) ApproveFile(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 
-	// Get authenticated user
 	authInfo, ok := middleware.GetAuth(r)
 	if !ok {
 		log.Printf("ERROR: ApproveFile for file %s - unauthorized access attempt", fileID)
@@ -472,7 +488,6 @@ func (h *SyncHandlers) UploadSelected(w http.ResponseWriter, r *http.Request) {
 func (h *SyncHandlers) RejectFile(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 
-	// Get authenticated user
 	authInfo, ok := middleware.GetAuth(r)
 	if !ok {
 		log.Printf("ERROR: RejectFile for file %s - unauthorized access attempt", fileID)
@@ -751,6 +766,11 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 			file.Status = filesync.FileStatusError
 			file.Error = fmt.Sprintf("Retry failed: %v", err)
 			log.Printf("ERROR: Retry extraction failed for file %s: %v", fileID, err)
+
+			// Notify connected clients of retry failure
+			h.hub.SendErrorToClients(file.SessionID,
+				fmt.Sprintf("Failed to retry file %s: %v", file.LocalPath, err),
+				"warning") // Warning severity - expected user action
 		} else {
 			file.Status = filesync.FileStatusExtracted
 			// Convert ExtractedMetadata to FileMetadata
@@ -774,8 +794,12 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 			log.Printf("INFO: Successfully retried file %s", fileID)
 		}
 
-		if err := h.fileStore.Update(ctx, file); err != nil {
-			log.Printf("ERROR: Failed to update file %s after retry: %v", fileID, err)
+		if updateErr := h.fileStore.Update(ctx, file); updateErr != nil {
+			log.Printf("ERROR: Failed to update file %s after retry: %v", fileID, updateErr)
+			// Also notify about store update failure
+			h.hub.SendErrorToClients(file.SessionID,
+				fmt.Sprintf("File %s retry completed but failed to save: %v", file.LocalPath, updateErr),
+				"error") // Error severity - unexpected system issue
 		}
 	}()
 

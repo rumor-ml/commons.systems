@@ -123,8 +123,12 @@ func (s *statsAccumulator) flush(ctx context.Context) error {
 
 	// Update session in Firestore
 	if err := s.sessionStore.Update(ctx, s.session); err != nil {
+		s.consecutiveFlushFails++ // Track failure
 		return err
 	}
+
+	// Success - reset failure counter
+	s.consecutiveFlushFails = 0
 
 	// Update tracking for batch size reset
 	totalOps := int64(s.session.Stats.Discovered +
@@ -137,6 +141,13 @@ func (s *statsAccumulator) flush(ctx context.Context) error {
 	s.lastFlushOps = totalOps
 	s.lastFlush = time.Now()
 	return nil
+}
+
+// getConsecutiveFlushFails returns the current failure count (thread-safe)
+func (s *statsAccumulator) getConsecutiveFlushFails() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.consecutiveFlushFails
 }
 
 // getSnapshot returns a snapshot of current stats without flushing

@@ -20,6 +20,8 @@ import (
 
 // Pipeline orchestrates file synchronization in two phases:
 // Phase 1 (Extraction): discovery -> metadata extraction (files stop at FileStatusExtracted awaiting approval)
+//   - Started via RunExtractionAsync (creates session) or RunExtractionAsyncWithSession (uses existing session for streaming)
+//
 // Phase 2 (Upload): approval -> normalization -> upload (triggered by ApproveAndUpload or ApproveAllAndUpload)
 type Pipeline struct {
 	discoverer   Discoverer
@@ -281,7 +283,7 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	// Start periodic stats flusher
 	flushCtx, cancelFlush := context.WithCancel(ctx)
 	defer cancelFlush()
-	go p.periodicStatsFlush(flushCtx, stats)
+	go p.periodicStatsFlush(flushCtx, stats, progressCh)
 
 	// Start discovery
 	sendProgress(progressCh, Progress{Operation: "Discovering files..."})
@@ -295,7 +297,7 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 		snapshot := stats.getSnapshot()
 		result.Errors = append(result.Errors, FileError{
 			Stage: "stats_flush",
-			Err:   fmt.Errorf("failed to flush final stats (discovered:%d extracted:%d uploaded:%d): %w",
+			Err: fmt.Errorf("failed to flush final stats (discovered:%d extracted:%d uploaded:%d): %w",
 				snapshot.Discovered, snapshot.Extracted, snapshot.Uploaded, err),
 		})
 	}
@@ -597,7 +599,7 @@ func (p *Pipeline) approveAndUploadFile(ctx context.Context, syncFile *SyncFile,
 
 // periodicStatsFlush periodically flushes stats to Firestore
 // Note: Flush errors are logged but not returned since this runs in a background goroutine
-func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulator) {
+func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulator, progressCh chan<- Progress) {
 	ticker := time.NewTicker(p.config.StatsBatchInterval)
 	defer ticker.Stop()
 
@@ -609,7 +611,16 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 			if stats.shouldFlush() {
 				// Non-fatal: flush will be retried on next cycle
 				if err := stats.flush(ctx); err != nil {
-					log.Printf("WARNING: periodic stats flush failed (will retry): %v", err)
+					failCount := stats.getConsecutiveFlushFails()
+					log.Printf("WARNING: periodic stats flush failed (attempt %d, will retry): %v", failCount, err)
+
+					// After 5 consecutive failures, alert users that stats may be stale
+					if failCount >= 5 {
+						sendProgress(progressCh, Progress{
+							Operation:  "Stats update experiencing issues - counts may be slightly delayed",
+							Percentage: -1, // Status message
+						})
+					}
 				}
 			}
 		}

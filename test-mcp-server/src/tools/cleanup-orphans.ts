@@ -68,7 +68,14 @@ async function findStalePidFiles(): Promise<StalePidFile[]> {
       } catch (error) {
         // Expected: file doesn't exist. Log unexpected errors.
         if (error instanceof Error && !error.message.includes('ENOENT')) {
-          console.error(`Unexpected error reading PID file ${pidFilePath}:`, error.message);
+          console.error(
+            `[cleanup-orphans] Unexpected error reading PID file ${pidFilePath}: ${error.message}`,
+            {
+              pidFile: pidFilePath,
+              worktree: worktreeDir,
+              error: error.message,
+            }
+          );
         }
         continue;
       }
@@ -144,7 +151,10 @@ async function isProcessRunning(pid: number): Promise<boolean> {
   } catch (error) {
     // Log unexpected errors (permission issues, etc.)
     if (error instanceof Error && error.message && !error.message.includes('ESRCH')) {
-      console.error(`Failed to check process ${pid}:`, error.message);
+      console.error(`[cleanup-orphans] Failed to check process ${pid}: ${error.message}`, {
+        pid,
+        error: error.message,
+      });
     }
     return false;
   }
@@ -178,7 +188,14 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
       } catch (error) {
         // Expected: file doesn't exist. Log unexpected errors.
         if (error instanceof Error && !error.message.includes('ENOENT')) {
-          console.error(`Unexpected error reading PID file ${pidFilePath}:`, error.message);
+          console.error(
+            `[cleanup-orphans] Unexpected error reading PID file ${pidFilePath}: ${error.message}`,
+            {
+              pidFile: pidFilePath,
+              worktree: worktreeDir,
+              error: error.message,
+            }
+          );
         }
         continue;
       }
@@ -186,7 +203,13 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
   } catch (error) {
     // Expected: directory doesn't exist. Log unexpected errors.
     if (error instanceof Error && !error.message.includes('ENOENT')) {
-      console.error(`Unexpected error scanning ${claudeTmpDir}:`, error.message);
+      console.error(
+        `[cleanup-orphans] Unexpected error scanning ${claudeTmpDir}: ${error.message}`,
+        {
+          directory: claudeTmpDir,
+          error: error.message,
+        }
+      );
     }
     return false;
   }
@@ -207,16 +230,24 @@ async function cleanupStalePidFile(stalePidFile: StalePidFile): Promise<void> {
   const logFile = path.join(worktreeDir, 'firebase-emulators.log');
   try {
     await fs.unlink(logFile);
-  } catch {
-    // Log file doesn't exist or can't be removed, ignore
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
+      console.error(
+        `[cleanup-orphans] Unexpected error removing log file ${logFile}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   // Remove temporary Firebase config
   const firebaseJson = path.join(worktreeDir, 'firebase.json');
   try {
     await fs.unlink(firebaseJson);
-  } catch {
-    // Config doesn't exist or can't be removed, ignore
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
+      console.error(
+        `[cleanup-orphans] Unexpected error removing firebase.json ${firebaseJson}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 }
 
@@ -248,7 +279,10 @@ async function killProcess(pid: number): Promise<boolean> {
   } catch (error) {
     // Expected: process doesn't exist. Log unexpected errors.
     if (error instanceof Error && !error.message.includes('ESRCH')) {
-      console.error(`Failed to kill process ${pid}:`, error.message);
+      console.error(`[cleanup-orphans] Failed to kill process ${pid}: ${error.message}`, {
+        pid,
+        error: error.message,
+      });
     }
     return false;
   }

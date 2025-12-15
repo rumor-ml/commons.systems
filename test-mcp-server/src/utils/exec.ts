@@ -18,7 +18,18 @@ export interface ExecResult {
 }
 
 /**
- * Quote a shell argument if it contains spaces or special characters
+ * Quote a shell argument for simple cases
+ *
+ * WARNING: This is NOT comprehensive shell escaping. Only handles:
+ * - Spaces
+ * - Dollar signs ($)
+ * - Double quotes (")
+ *
+ * Does NOT handle: single quotes, backticks, pipes, redirects, semicolons,
+ * ampersands, or other shell metacharacters.
+ *
+ * For full shell escaping, consider using a library like shell-quote.
+ *
  * @param arg - The argument to quote
  * @returns Properly quoted argument string
  */
@@ -84,8 +95,8 @@ export async function execScript(
       exitCode: result.exitCode,
     };
   } catch (error: unknown) {
-    // Check for timeout specifically
-    if (error instanceof Error && error.message.includes('timed out')) {
+    // Check for timeout using execa's timedOut property
+    if (error && typeof error === 'object' && 'timedOut' in error && error.timedOut === true) {
       throw new TimeoutError(`Script execution timed out after ${timeout}ms`);
     }
 

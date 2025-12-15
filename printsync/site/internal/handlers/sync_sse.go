@@ -19,7 +19,6 @@ import (
 func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 
-	// Get authenticated user
 	authInfo, ok := middleware.GetAuth(r)
 	if !ok {
 		log.Printf("ERROR: StreamSession for session %s - unauthorized access attempt", sessionID)
@@ -41,7 +40,6 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -57,8 +55,8 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	// Register client with hub
 	client := h.hub.Register(r.Context(), sessionID)
 	if client == nil {
-		log.Printf("ERROR: StreamSession for session %s - failed to register client", sessionID)
-		http.Error(w, "Failed to register SSE client", http.StatusInternalServerError)
+		log.Printf("ERROR: Failed to register client for session %s", sessionID)
+		http.Error(w, "Failed to initialize streaming connection. Please try refreshing.", http.StatusInternalServerError)
 		return
 	}
 	defer h.hub.Unregister(sessionID, client)
@@ -125,20 +123,19 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher.Flush()
 
-	// Get initial file list
 	files, err := h.fileStore.ListBySession(r.Context(), sessionID)
 	log.Printf("DEBUG: ListBySession(sessionID=%s) returned %d files, err=%v", sessionID, len(files), err)
 	if err != nil {
 		// Continue streaming anyway - files may arrive via subscriptions
-		log.Printf("ERROR: Failed to list initial files for session %s: %v", sessionID, err)
+		log.Printf("WARNING: Failed to list initial files for session %s: %v", sessionID, err) // WARNING not ERROR
 
-		// Send error event to user
+		// Send warning event to user
 		errorEvent := streaming.SSEEvent{
 			Type:      streaming.EventTypeError,
 			Timestamp: time.Now(),
 			Data: streaming.ErrorEvent{
-				Message:  fmt.Sprintf("Failed to load initial file list: %v", err),
-				Severity: "error",
+				Message:  "Unable to load existing files, but new files will appear as they're processed. If this persists, try refreshing the page.",
+				Severity: "warning", // warning not error
 			},
 		}
 		if writeErr := h.writeSSEEventHTML(w, r.Context(), errorEvent); writeErr != nil {
@@ -201,11 +198,11 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		case <-heartbeat.C:
 			// Send heartbeat (keep as simple text)
 			if _, err := fmt.Fprintf(w, "event: %s\n", streaming.EventTypeHeartbeat); err != nil {
-				log.Printf("ERROR: Heartbeat write failed for session %s: %v", sessionID, err)
+				log.Printf("INFO: SSE connection closed during heartbeat for session %s (client likely disconnected): %v", sessionID, err) // INFO not ERROR
 				return
 			}
 			if _, err := fmt.Fprintf(w, "data: {\"status\":\"alive\"}\n\n"); err != nil {
-				log.Printf("ERROR: Heartbeat data write failed for session %s: %v", sessionID, err)
+				log.Printf("INFO: SSE connection closed during heartbeat for session %s (client likely disconnected): %v", sessionID, err) // INFO not ERROR
 				return
 			}
 			flusher.Flush()

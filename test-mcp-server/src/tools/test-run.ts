@@ -42,20 +42,20 @@ interface TestRunOutput {
 /**
  * Parse JSON output from test script
  */
-function parseTestOutput(stdout: string): TestRunOutput {
+function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Error } {
   try {
-    return JSON.parse(stdout);
+    return { output: JSON.parse(stdout) };
   } catch (error) {
     const parseError = error instanceof Error ? error : new Error(String(error));
-    console.error('Failed to parse test output as JSON:', parseError.message);
-    console.error('Raw output (first 500 chars):', stdout.substring(0, 500));
-
-    // Throw instead of returning default - forces explicit error handling
-    throw new TestOutputParseError(
-      'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
-      stdout,
-      parseError
-    );
+    console.error('[test-run] Failed to parse test output as JSON:', parseError.message);
+    console.error('[test-run] Raw output (first 500 chars):', stdout.substring(0, 500));
+    return {
+      error: new TestOutputParseError(
+        'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
+        stdout,
+        parseError
+      ),
+    };
   }
 }
 
@@ -156,10 +156,13 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
     });
 
     // Parse the JSON output
-    const testOutput = parseTestOutput(result.stdout);
+    const { output, error } = parseTestOutput(result.stdout);
+    if (error) {
+      return createErrorResult(error);
+    }
 
     // Format results
-    const formattedOutput = formatTestResults(testOutput);
+    const formattedOutput = formatTestResults(output!);
 
     return {
       content: [
@@ -169,9 +172,9 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
         },
       ],
       _meta: {
-        exit_code: testOutput.exit_code,
-        summary: testOutput.summary,
-        results: testOutput.results,
+        exit_code: output!.exit_code,
+        summary: output!.summary,
+        results: output!.results,
       },
     };
   } catch (error) {
