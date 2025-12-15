@@ -145,7 +145,11 @@ All automated review checks passed with no concerns identified.
     };
   }
 
-  // No issues - get updated state and return next step instructions
-  const updatedState = await detectCurrentState();
+  // No issues - construct updated state and return next step instructions
+  // Construct updated state from existing state + newState to avoid redundant API calls
+  const updatedState = {
+    ...state,
+    wiggum: newState,
+  };
   return await getNextStepInstructions(updatedState);
 }

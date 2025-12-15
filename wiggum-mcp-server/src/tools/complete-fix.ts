@@ -99,10 +99,14 @@ ${input.fix_description}
 
   // Get updated state and return next step instructions
   // The router will re-verify from the current step since we cleared completedSteps
-  logger.info('Detecting updated state and getting next step instructions');
-  const updatedState = await detectCurrentState();
+  // Construct updated state from existing state + newState to avoid redundant API calls
+  logger.info('Constructing updated state and getting next step instructions');
+  const updatedState = {
+    ...state,
+    wiggum: newState,
+  };
 
-  logger.info('Updated state detected', {
+  logger.info('Updated state constructed', {
     iteration: updatedState.wiggum.iteration,
     step: updatedState.wiggum.step,
     completedSteps: updatedState.wiggum.completedSteps,

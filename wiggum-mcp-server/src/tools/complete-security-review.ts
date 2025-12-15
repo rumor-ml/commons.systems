@@ -155,7 +155,11 @@ All security checks passed with no vulnerabilities identified.
     };
   }
 
-  // No issues - get updated state and return next step instructions
-  const updatedState = await detectCurrentState();
+  // No issues - construct updated state and return next step instructions
+  // Construct updated state from existing state + newState to avoid redundant API calls
+  const updatedState = {
+    ...state,
+    wiggum: newState,
+  };
   return await getNextStepInstructions(updatedState);
 }
