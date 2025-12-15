@@ -26,11 +26,12 @@ type statsAccumulator struct {
 	errors     int64
 
 	// Batching control
-	mu            sync.Mutex
-	lastFlush     time.Time
-	lastFlushOps  int64 // Total operations at last flush
-	batchInterval time.Duration
-	batchSize     int64
+	mu                    sync.Mutex
+	lastFlush             time.Time
+	lastFlushOps          int64 // Total operations at last flush
+	batchInterval         time.Duration
+	batchSize             int64
+	consecutiveFlushFails int // Track consecutive flush failures
 
 	// Dependencies
 	sessionStore SessionStore
