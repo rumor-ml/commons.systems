@@ -39,15 +39,19 @@ cd "${REPO_ROOT}"
 
 # Generate temporary firebase.json with worktree-specific ports using jq
 # Store in worktree temp directory
+# IMPORTANT: Convert relative rule paths to absolute paths so Firebase emulators can find them
 TEMP_FIREBASE_JSON="${WORKTREE_TMP_DIR}/firebase.json"
 jq --arg auth_port "$AUTH_PORT" \
    --arg firestore_port "$FIRESTORE_PORT" \
    --arg storage_port "$STORAGE_PORT" \
    --arg ui_port "$UI_PORT" \
+   --arg repo_root "$REPO_ROOT" \
    '.emulators.auth.port = ($auth_port | tonumber) |
     .emulators.firestore.port = ($firestore_port | tonumber) |
     .emulators.storage.port = ($storage_port | tonumber) |
-    .emulators.ui.port = ($ui_port | tonumber)' \
+    .emulators.ui.port = ($ui_port | tonumber) |
+    .firestore.rules = ($repo_root + "/" + .firestore.rules) |
+    .storage.rules = ($repo_root + "/" + .storage.rules)' \
    firebase.json > "$TEMP_FIREBASE_JSON"
 
 # Start emulators using temporary config with unique ports
