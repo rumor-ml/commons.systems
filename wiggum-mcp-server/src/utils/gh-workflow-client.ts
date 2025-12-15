@@ -145,15 +145,20 @@ export async function getGhWorkflowClient(): Promise<Client> {
     args: ['gh-workflow-mcp-server/dist/index.js'],
   });
 
-  ghWorkflowClient = new Client(
+  const client = new Client(
     { name: 'wiggum-orchestrator', version: '1.0.0' },
     { capabilities: {} }
   );
 
-  await ghWorkflowClient.connect(transport);
-  logger.info('Connected to gh-workflow-mcp-server');
-
-  return ghWorkflowClient;
+  try {
+    await client.connect(transport);
+    logger.info('Connected to gh-workflow-mcp-server');
+    ghWorkflowClient = client; // Only set singleton on success
+    return ghWorkflowClient;
+  } catch (error) {
+    logger.error('Failed to connect to gh-workflow-mcp-server', { error });
+    throw new Error(`Failed to connect to gh-workflow-mcp-server: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

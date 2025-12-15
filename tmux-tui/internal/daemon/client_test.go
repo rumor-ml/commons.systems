@@ -1023,3 +1023,67 @@ func TestSendMessage_ConcurrentWrites(t *testing.T) {
 		t.Errorf("Expected %d messages, received %d", numGoroutines, receivedCount)
 	}
 }
+
+// TestHeartbeat_TimeoutDisconnect tests that heartbeat triggers disconnect on timeout
+func TestHeartbeat_TimeoutDisconnect(t *testing.T) {
+	// Create pipes for bidirectional communication
+	clientReader, _ := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	// Create client with stale lastPong (10 seconds ago, well past heartbeat timeout)
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now().Add(-10 * time.Second), // Stale pong - 10 seconds ago
+		queryResponses: make(map[string]*queryResponse),
+		connected:      true,
+	}
+
+	// Start receive goroutine (reads ping but doesn't send pong - timeout scenario)
+	go client.receive()
+
+	// Start heartbeat goroutine
+	go client.heartbeat()
+
+	// Simulate server reading ping messages but NOT sending pongs
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			// Read ping but don't send pong back - this will trigger timeout
+		}
+	}()
+
+	// Wait for disconnect event
+	// Heartbeat ticker runs every 5 seconds, so we need to wait at least that long
+	// Plus some margin for the check to complete
+	timeout := time.After(7 * time.Second)
+	select {
+	case msg := <-client.eventCh:
+		if msg.Type != "disconnect" {
+			t.Errorf("Expected disconnect event, got %s", msg.Type)
+		}
+	case <-timeout:
+		t.Fatal("Timeout waiting for disconnect event (heartbeat should have detected stale pong)")
+	}
+
+	// Verify client.IsConnected() returns false
+	if client.IsConnected() {
+		t.Error("Expected client to be disconnected after heartbeat timeout")
+	}
+
+	// Clean up
+	close(client.done)
+}

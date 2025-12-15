@@ -283,22 +283,22 @@ func TestConnectionErrorHints(t *testing.T) {
 		{
 			name:         "Socket not found",
 			errorString:  "socket not found connecting to daemon",
-			expectedHint: "Daemon not running. Start with: tmux-tui-daemon",
+			expectedHint: "Hint: Daemon not running. Start with: tmux-tui-daemon",
 		},
 		{
 			name:         "Permission denied",
 			errorString:  "permission denied accessing socket",
-			expectedHint: "Permission issue accessing daemon socket",
+			expectedHint: "Hint: Permission issue accessing daemon socket.",
 		},
 		{
 			name:         "Timeout error",
 			errorString:  "connection timeout after 3 attempts",
-			expectedHint: "Daemon unresponsive. Check daemon logs",
+			expectedHint: "Hint: Daemon may be slow to respond.",
 		},
 		{
 			name:         "Generic connection error",
 			errorString:  "connection failed for unknown reason",
-			expectedHint: "Make sure tmux-tui-daemon is running",
+			expectedHint: "Hint: Connection issue. Check if tmux-tui-daemon is running.",
 		},
 	}
 
@@ -306,13 +306,13 @@ func TestConnectionErrorHints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var hint string
 			if strings.Contains(tt.errorString, "socket not found") {
-				hint = "Daemon not running. Start with: tmux-tui-daemon"
+				hint = "Hint: Daemon not running. Start with: tmux-tui-daemon"
 			} else if strings.Contains(tt.errorString, "permission denied") {
-				hint = "Permission issue accessing daemon socket. Check file permissions."
+				hint = "Hint: Permission issue accessing daemon socket."
 			} else if strings.Contains(tt.errorString, "timeout") {
-				hint = "Daemon unresponsive. Check daemon logs or restart it."
+				hint = "Hint: Daemon may be slow to respond."
 			} else {
-				hint = "Make sure tmux-tui-daemon is running."
+				hint = "Hint: Connection issue. Check if tmux-tui-daemon is running."
 			}
 
 			if !strings.Contains(hint, tt.expectedHint) {

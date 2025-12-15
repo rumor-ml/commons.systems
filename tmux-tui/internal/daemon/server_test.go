@@ -759,3 +759,93 @@ func TestProtocolMessage_ResyncRequest(t *testing.T) {
 		t.Errorf("Expected type resync_request, got %s", decoded.Type)
 	}
 }
+
+// TestHandleClient_PongSendFailure tests that client is removed on pong send failure
+func TestHandleClient_PongSendFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          make(map[string]string),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create pipe for client communication
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	// Simulate client connection
+	conn := &mockConn{
+		reader: serverReader,
+		writer: serverWriter,
+	}
+
+	// Start handleClient in background
+	go daemon.handleClient(conn)
+
+	// Send hello message
+	encoder := json.NewEncoder(clientWriter)
+	helloMsg := Message{
+		Type:     MsgTypeHello,
+		ClientID: "test-client",
+	}
+	if err := encoder.Encode(helloMsg); err != nil {
+		t.Fatalf("Failed to send hello: %v", err)
+	}
+
+	// Read full state message
+	decoder := json.NewDecoder(clientReader)
+	var fullStateMsg Message
+	if err := decoder.Decode(&fullStateMsg); err != nil {
+		t.Fatalf("Failed to receive full state: %v", err)
+	}
+
+	if fullStateMsg.Type != MsgTypeFullState {
+		t.Errorf("Expected full_state, got %s", fullStateMsg.Type)
+	}
+
+	// Verify client is registered
+	daemon.clientsMu.RLock()
+	_, exists := daemon.clients["test-client"]
+	daemon.clientsMu.RUnlock()
+
+	if !exists {
+		t.Fatal("Client should be registered after hello")
+	}
+
+	// Close server writer to cause pong send failure
+	serverWriter.Close()
+
+	// Send ping message (pong response will fail to send)
+	pingMsg := Message{Type: MsgTypePing}
+	if err := encoder.Encode(pingMsg); err != nil {
+		t.Fatalf("Failed to send ping: %v", err)
+	}
+
+	// Wait for daemon to process ping and fail pong send
+	// handleClient should remove the client and exit
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify client was removed from daemon.clients map
+	daemon.clientsMu.RLock()
+	_, stillExists := daemon.clients["test-client"]
+	clientCount := len(daemon.clients)
+	daemon.clientsMu.RUnlock()
+
+	if stillExists {
+		t.Error("Client should be removed after pong send failure")
+	}
+
+	if clientCount != 0 {
+		t.Errorf("Expected 0 clients, got %d", clientCount)
+	}
+
+	// Clean up
+	clientWriter.Close()
+	clientReader.Close()
+	serverReader.Close()
+}

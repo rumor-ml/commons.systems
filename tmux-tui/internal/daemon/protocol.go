@@ -36,9 +36,16 @@ const (
 	MsgTypePong = "pong"
 	// MsgTypeShowBlockPicker is sent to request TUI show branch picker for a pane
 	MsgTypeShowBlockPicker = "show_block_picker"
-	// MsgTypeBlockPane is sent by client to block a pane on a specific branch (deprecated - use BlockBranch)
+	// MsgTypeBlockPane is sent by client to block a pane on a specific branch
+	// DEPRECATED: Use MsgTypeBlockBranch instead. Pane-based blocking is being phased out
+	// in favor of branch-based blocking which better reflects the mental model.
+	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
+	// Migration: Replace BlockPane(paneID, branch) with BlockBranch(currentBranch, targetBranch)
 	MsgTypeBlockPane = "block_pane"
-	// MsgTypeUnblockPane is sent by client to unblock a pane (deprecated - use UnblockBranch)
+	// MsgTypeUnblockPane is sent by client to unblock a pane
+	// DEPRECATED: Use MsgTypeUnblockBranch instead. See MsgTypeBlockPane for rationale.
+	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
+	// Migration: Replace UnblockPane(paneID) with UnblockBranch(currentBranch)
 	MsgTypeUnblockPane = "unblock_pane"
 	// MsgTypeBlockBranch is sent by client to block a branch with another branch
 	MsgTypeBlockBranch = "block_branch"
@@ -71,7 +78,12 @@ type Message struct {
 	EventType       string            `json:"event_type,omitempty"`       // For alert_change messages
 	Created         bool              `json:"created,omitempty"`          // For alert_change messages
 	ActivePaneID    string            `json:"active_pane_id,omitempty"`   // For pane_focus messages
-	BlockedPanes    map[string]string `json:"blocked_panes,omitempty"`    // Deprecated: paneID -> blockedOnBranch
+	// BlockedPanes maps paneID to the branch it's blocked on (inverse of BlockedBranches)
+	// DEPRECATED: Use BlockedBranches (branch -> blockedByBranch) instead
+	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
+	// Example: {"pane-1": "main"} means pane-1 is blocked on branch main
+	// This is the INVERSE of BlockedBranches which maps blocked branch -> blocking branch
+	BlockedPanes    map[string]string `json:"blocked_panes,omitempty"`
 	BlockedBranches map[string]string `json:"blocked_branches,omitempty"` // Full blocked state: branch -> blockedByBranch
 	Branch          string            `json:"branch,omitempty"`           // For block_branch messages
 	BlockedBranch   string            `json:"blocked_branch,omitempty"`   // For block_branch messages
@@ -79,6 +91,17 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 }
+
+// FUTURE WORK: Message Struct Redesign (v2.0.0)
+//
+// The current Message struct uses optional fields for all message types, which has drawbacks:
+//   1. Easy to forget required fields (compile-time safety lost)
+//   2. Large struct size for all messages (memory inefficient)
+//   3. Unclear which fields are valid for each message type
+//
+// PROPOSED: Use interface-based discriminated union with type-specific structs
+// TIMELINE: Target v2.0.0 (Q2 2025)
+// INTERIM: Use ValidateMessage() for runtime validation (see below)
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
@@ -90,4 +113,65 @@ type HealthStatus struct {
 	ConnectedClients   int       `json:"connected_clients"`
 	ActiveAlerts       int       `json:"active_alerts"`
 	BlockedBranches    int       `json:"blocked_branches"`
+}
+
+// ValidateMessage validates that a Message has required fields for its type.
+// Returns nil if valid, error describing the problem if invalid.
+//
+// This helps catch protocol violations early and provides clear error messages
+// for debugging client-daemon communication issues.
+func ValidateMessage(msg Message) error {
+	if msg.Type == "" {
+		return errors.New("message type is required")
+	}
+
+	switch msg.Type {
+	case MsgTypeHello:
+		if msg.ClientID == "" {
+			return errors.New("hello message requires client_id")
+		}
+	case MsgTypeAlertChange:
+		if msg.PaneID == "" {
+			return errors.New("alert_change message requires pane_id")
+		}
+		if msg.EventType == "" {
+			return errors.New("alert_change message requires event_type")
+		}
+	case MsgTypePaneFocus:
+		if msg.ActivePaneID == "" {
+			return errors.New("pane_focus message requires active_pane_id")
+		}
+	case MsgTypeShowBlockPicker:
+		if msg.PaneID == "" {
+			return errors.New("show_block_picker message requires pane_id")
+		}
+	case MsgTypeBlockBranch:
+		if msg.Branch == "" {
+			return errors.New("block_branch message requires branch")
+		}
+		if msg.BlockedBranch == "" {
+			return errors.New("block_branch message requires blocked_branch")
+		}
+	case MsgTypeUnblockBranch:
+		if msg.Branch == "" {
+			return errors.New("unblock_branch message requires branch")
+		}
+	case MsgTypeQueryBlockedState:
+		if msg.Branch == "" {
+			return errors.New("query_blocked_state message requires branch")
+		}
+	case MsgTypeBlockedStateResponse:
+		if msg.Branch == "" {
+			return errors.New("blocked_state_response message requires branch")
+		}
+	case MsgTypeFullState, MsgTypePing, MsgTypePong, MsgTypeResyncRequest:
+		// No required fields
+	case MsgTypeSyncWarning, MsgTypePersistenceError:
+		// Error field is optional but recommended
+	default:
+		// Unknown message type - not necessarily invalid (forward compatibility)
+		return nil
+	}
+
+	return nil
 }

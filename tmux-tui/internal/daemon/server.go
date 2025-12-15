@@ -73,10 +73,36 @@ func playAlertSound() {
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
 	go func() {
 		debug.Log("AUDIO_PLAYING")
-		cmd.Run() // Run (not Start) waits for completion, prevents zombies
+		if err := cmd.Run(); err != nil {
+			// Log error but don't fail - audio is non-critical
+			debug.Log("AUDIO_ERROR error=%v", err)
+		}
 		debug.Log("AUDIO_COMPLETED")
 	}()
 }
+
+// Lock Ordering Rules
+//
+// To prevent deadlocks, locks MUST be acquired in this order:
+//   1. clientsMu (for client map access)
+//   2. alertsMu (for alert state access)
+//   3. blockedMu (for blocked branches access)
+//   4. encoderMu (per-client encoder mutex)
+//
+// RATIONALE:
+//   - clientsMu is acquired first because broadcast() needs to iterate clients
+//     while potentially accessing alert/blocked state
+//   - alertsMu and blockedMu are next because they protect shared state
+//     that may be read during message construction
+//   - encoderMu is last (per-client) to allow parallel writes to different clients
+//
+// EXAMPLES:
+//   - broadcast() locks clientsMu to iterate, then each client's encoderMu to send
+//   - handleClient() locks alertsMu/blockedMu to build state, then encoderMu to send
+//
+// VIOLATIONS:
+//   - Never acquire clientsMu while holding encoderMu (could deadlock with broadcast)
+//   - Never acquire alertsMu/blockedMu in different order (use RLock if read-only)
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
