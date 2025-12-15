@@ -131,6 +131,21 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Continue streaming anyway - files may arrive via subscriptions
 		log.Printf("ERROR: Failed to list initial files for session %s: %v", sessionID, err)
+
+		// Send error event to user
+		errorEvent := streaming.SSEEvent{
+			Type:      streaming.EventTypeError,
+			Timestamp: time.Now(),
+			Data: streaming.ErrorEvent{
+				Message:  fmt.Sprintf("Failed to load initial file list: %v", err),
+				Severity: "error",
+			},
+		}
+		if writeErr := h.writeSSEEventHTML(w, r.Context(), errorEvent); writeErr != nil {
+			log.Printf("ERROR: Failed to write error event: %v", writeErr)
+			return
+		}
+		flusher.Flush()
 	} else {
 		for _, file := range files {
 			fileEvent := streaming.SSEEvent{
@@ -186,9 +201,11 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		case <-heartbeat.C:
 			// Send heartbeat (keep as simple text)
 			if _, err := fmt.Fprintf(w, "event: %s\n", streaming.EventTypeHeartbeat); err != nil {
+				log.Printf("ERROR: Heartbeat write failed for session %s: %v", sessionID, err)
 				return
 			}
 			if _, err := fmt.Fprintf(w, "data: {\"status\":\"alive\"}\n\n"); err != nil {
+				log.Printf("ERROR: Heartbeat data write failed for session %s: %v", sessionID, err)
 				return
 			}
 			flusher.Flush()
@@ -250,6 +267,24 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		if err := partials.FileRow(file, fileData.IsUpdate).Render(ctx, &buf); err != nil {
 			return err
 		}
+
+	case streaming.EventTypeError:
+		errorData, ok := event.Data.(streaming.ErrorEvent)
+		if !ok {
+			return fmt.Errorf("invalid error event data type")
+		}
+
+		severityClass := "error"
+		if errorData.Severity == "warning" {
+			severityClass = "warning"
+		}
+
+		errorHTML := fmt.Sprintf(
+			`<div class="p-4 bg-%s-muted border border-%s rounded-lg">`+
+				`<p class="text-%s font-medium">%s</p></div>`,
+			severityClass, severityClass, severityClass, errorData.Message,
+		)
+		buf.WriteString(errorHTML)
 
 	case streaming.EventTypeComplete:
 		// Render completion message

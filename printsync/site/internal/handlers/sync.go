@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strings"
 
 	"cloud.google.com/go/storage"
 	"github.com/commons-systems/filesync"
@@ -160,7 +161,22 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 				log.Printf("PANIC recovered in sync cleanup: %v\n%s", r, debug.Stack())
 			}
 		}()
-		result := <-resultCh
+
+		result, ok := <-resultCh
+		if !ok {
+			log.Printf("ERROR: Result channel closed unexpectedly without sending result")
+			close(progressCh)
+			cancel()
+			return
+		}
+
+		if result == nil {
+			log.Printf("ERROR: Received nil result from extraction pipeline")
+			close(progressCh)
+			cancel()
+			return
+		}
+
 		close(progressCh) // Signal forwarder to stop
 		cancel()
 		h.registry.Remove(result.SessionID)
@@ -301,8 +317,19 @@ func (h *SyncHandlers) ApproveFile(w http.ResponseWriter, r *http.Request) {
 	// Approve and upload
 	_, err = pipeline.ApproveAndUpload(r.Context(), file.SessionID, []string{fileID})
 	if err != nil {
-		log.Printf("ERROR: ApproveFile for user %s, file %s - failed to approve file: %v", authInfo.UserID, fileID, err)
-		http.Error(w, fmt.Sprintf("Failed to approve file: %v", err), http.StatusInternalServerError)
+		operation := "approve_and_upload"
+		stage := "unknown"
+		if strings.Contains(err.Error(), "normalize") {
+			stage = "normalize"
+		} else if strings.Contains(err.Error(), "upload") {
+			stage = "upload"
+		} else if strings.Contains(err.Error(), "update") {
+			stage = "update"
+		}
+		log.Printf("ERROR: %s operation failed for user %s, file %s, session %s - Stage: %s, Error: %v",
+			operation, authInfo.UserID, fileID, file.SessionID, stage, err)
+		http.Error(w, fmt.Sprintf("Failed to %s file (stage: %s): %v", operation, stage, err),
+			http.StatusInternalServerError)
 		return
 	}
 

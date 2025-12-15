@@ -79,3 +79,7 @@ index.lock
 firebase.emulator.json
 firebase.json.backup
 .firebase-*.json
+firebase.*.json
+
+# Test symlink (points to infrastructure/scripts/test.sh)
+/test

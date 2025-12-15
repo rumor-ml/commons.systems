@@ -125,21 +125,51 @@ export async function execScriptBackground(
   });
   const command = [scriptPath, ...quotedArgs].join(' ');
 
-  // Execute in background (don't await)
-  execaCommand(command, {
-    cwd,
-    env: { ...process.env, ...env },
-    shell: true,
-    detached: true,
-    stdio: 'ignore',
-  }).catch((error) => {
-    // Log background process errors for debugging
-    console.error(
-      `Background script failed: ${command}`,
-      error instanceof Error ? error.message : String(error)
-    );
-  });
+  try {
+    // Start the process
+    const subprocess = execaCommand(command, {
+      cwd,
+      env: { ...process.env, ...env },
+      shell: true,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout/stderr temporarily
+    });
 
-  // Give it a moment to start
-  await new Promise((resolve) => setTimeout(resolve, 500));
+    // Create promise that rejects on immediate failure
+    const startupPromise = new Promise<void>((resolve, reject) => {
+      let startupCompleted = false;
+
+      // If process exits immediately, reject
+      subprocess.on('exit', (code, signal) => {
+        if (!startupCompleted) {
+          reject(
+            new ScriptExecutionError(
+              `Background process exited immediately with code ${code ?? 'unknown'} (signal: ${signal ?? 'none'})`
+            )
+          );
+        }
+      });
+
+      // If process survives 1 second, consider it started
+      setTimeout(() => {
+        startupCompleted = true;
+        resolve();
+      }, 1000);
+    });
+
+    await startupPromise;
+
+    // Unref the subprocess so it doesn't keep Node.js alive
+    subprocess.unref();
+  } catch (error: unknown) {
+    // Re-throw ScriptExecutionError
+    if (error instanceof ScriptExecutionError) {
+      throw error;
+    }
+
+    // Wrap other errors
+    throw new ScriptExecutionError(
+      `Failed to start background script: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }

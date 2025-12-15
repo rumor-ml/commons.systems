@@ -14,6 +14,7 @@ const (
 	EventTypeFile      = "file"
 	EventTypeComplete  = "complete"
 	EventTypeHeartbeat = "heartbeat"
+	EventTypeError     = "error"
 )
 
 // SSEEvent represents a server-sent event
@@ -59,4 +60,10 @@ type FileEvent struct {
 type CompleteEvent struct {
 	SessionID string                 `json:"sessionId"`
 	Status    filesync.SessionStatus `json:"status"`
+}
+
+// ErrorEvent represents an error notification
+type ErrorEvent struct {
+	Message  string `json:"message"`
+	Severity string `json:"severity"` // "error", "warning", "info"
 }

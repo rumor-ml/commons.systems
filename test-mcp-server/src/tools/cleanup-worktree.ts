@@ -149,6 +149,35 @@ export async function cleanupWorktree(args: CleanupWorktreeArgs): Promise<ToolRe
       throw new ValidationError(`Not a git repository: ${worktreeRoot}`);
     }
 
+    // Additional safety: validate path is within expected worktrees directory or is repo root
+    const normalizedPath = path.normalize(worktreeRoot);
+
+    try {
+      const repoRootResult = await execaCommand('git rev-parse --show-toplevel', {
+        cwd: worktreeRoot,
+        shell: true,
+      });
+      const repoRoot = repoRootResult.stdout.trim();
+
+      const isRepoRoot = normalizedPath === repoRoot;
+      const isWorktree = normalizedPath.includes('/worktrees/');
+
+      if (!isRepoRoot && !isWorktree) {
+        throw new ValidationError(
+          `Path validation failed: ${worktreeRoot} is not the repository root ` +
+          `and does not appear to be in a worktrees directory. ` +
+          `This is a safety check to prevent accidental deletion.`
+        );
+      }
+    } catch (error) {
+      // If it's already a ValidationError, re-throw it
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      // Otherwise, git command failed
+      throw new ValidationError(`Failed to validate repository structure: ${error}`);
+    }
+
     const worktreeName = path.basename(worktreeRoot);
     const worktreeHash = await calculateWorktreeHash(worktreeRoot);
     const tmpDir = `/tmp/claude/${worktreeHash}`;

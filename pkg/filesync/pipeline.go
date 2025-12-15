@@ -292,9 +292,11 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 
 	// Final stats flush
 	if err := stats.flush(ctx); err != nil {
+		snapshot := stats.getSnapshot()
 		result.Errors = append(result.Errors, FileError{
 			Stage: "stats_flush",
-			Err:   fmt.Errorf("failed to flush final stats: %w", err),
+			Err:   fmt.Errorf("failed to flush final stats (discovered:%d extracted:%d uploaded:%d): %w",
+				snapshot.Discovered, snapshot.Extracted, snapshot.Uploaded, err),
 		})
 	}
 

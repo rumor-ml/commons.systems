@@ -6,6 +6,7 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/commons-systems/filesync"
@@ -25,21 +26,23 @@ func NewClient() *Client {
 
 // SessionBroadcaster broadcasts events to multiple clients for a single session
 type SessionBroadcaster struct {
-	mu      sync.RWMutex
-	clients map[*Client]bool
-	merger  *StreamMerger
-	ctx     context.Context
-	cancel  context.CancelFunc
+	mu            sync.RWMutex
+	clients       map[*Client]bool
+	droppedEvents map[*Client]*int64 // Track dropped events per client (pointer for atomic ops)
+	merger        *StreamMerger
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // NewSessionBroadcaster creates a new session broadcaster
 func NewSessionBroadcaster(ctx context.Context, merger *StreamMerger) *SessionBroadcaster {
 	ctx, cancel := context.WithCancel(ctx)
 	return &SessionBroadcaster{
-		clients: make(map[*Client]bool),
-		merger:  merger,
-		ctx:     ctx,
-		cancel:  cancel,
+		clients:       make(map[*Client]bool),
+		droppedEvents: make(map[*Client]*int64),
+		merger:        merger,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -48,6 +51,8 @@ func (b *SessionBroadcaster) Register(client *Client) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.clients[client] = true
+	var zero int64
+	b.droppedEvents[client] = &zero
 }
 
 // Unregister removes a client from the broadcaster
@@ -59,6 +64,7 @@ func (b *SessionBroadcaster) Unregister(client *Client) {
 	defer b.mu.Unlock()
 	if _, ok := b.clients[client]; ok {
 		delete(b.clients, client)
+		delete(b.droppedEvents, client)
 		close(client.Events)
 	}
 }
@@ -112,7 +118,8 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 	// Recover from panic if client channel was closed during iteration
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC recovered in broadcast: %v", r)
+			log.Printf("PANIC recovered in broadcast - Event: %s, Clients: %d, Error: %v\n%s",
+				event.Type, len(b.clients), r, debug.Stack())
 		}
 	}()
 
@@ -121,8 +128,20 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 	for client := range b.clients {
 		select {
 		case client.Events <- event:
+			// Successfully sent
 		default:
 			// Client's channel is full, skip this event
+			if droppedPtr := b.droppedEvents[client]; droppedPtr != nil {
+				dropped := atomic.AddInt64(droppedPtr, 1)
+				log.Printf("WARNING: Dropped event %s for slow client - Total dropped: %d",
+					event.Type, dropped)
+
+				// Circuit breaker: disconnect client after N drops
+				if dropped >= 100 {
+					log.Printf("ERROR: Disconnecting slow client after %d dropped events", dropped)
+					go b.Unregister(client) // Async to avoid deadlock
+				}
+			}
 		}
 	}
 }
@@ -164,8 +183,7 @@ func (h *StreamHub) Register(ctx context.Context, sessionID string) *Client {
 		// Broadcaster will be started when StartSession is called
 		merger, err := NewStreamMerger(h.sessionStore, h.fileStore)
 		if err != nil {
-			// This should never happen since we validate stores in NewStreamHub
-			// But we return nil to prevent panic
+			log.Printf("ERROR: Failed to create StreamMerger for session %s: %v", sessionID, err)
 			return nil
 		}
 		broadcaster = NewSessionBroadcaster(ctx, merger)
@@ -211,6 +229,7 @@ func (h *StreamHub) StartSession(ctx context.Context, sessionID string, progress
 		// Create new broadcaster if it doesn't exist
 		merger, err := NewStreamMerger(h.sessionStore, h.fileStore)
 		if err != nil {
+			log.Printf("ERROR: Failed to create StreamMerger for session %s in StartSession: %v", sessionID, err)
 			return err
 		}
 		broadcaster = NewSessionBroadcaster(ctx, merger)
