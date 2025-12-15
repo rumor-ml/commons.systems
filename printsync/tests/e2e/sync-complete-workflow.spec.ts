@@ -120,8 +120,16 @@ test.describe('Complete Sync Workflow', () => {
     // Wait for sync monitor
     await expect(page.locator('h2:has-text("Sync in Progress")')).toBeVisible();
 
+    // Wait for SSE connection to be established by checking for SSE element
+    await page.waitForFunction(
+      () => {
+        const sseElement = document.querySelector('[hx-ext="sse"]');
+        return sseElement !== null && sseElement.hasAttribute('sse-connect');
+      },
+      { timeout: 10000 }
+    );
+
     // Verify SSE connection was established
-    await page.waitForTimeout(2000); // Give time for SSE to connect
     expect(sseEvents.length).toBeGreaterThan(0);
   });
 

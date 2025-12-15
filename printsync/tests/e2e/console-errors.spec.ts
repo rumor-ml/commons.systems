@@ -95,8 +95,14 @@ test.describe('Console Errors', () => {
       timeout: 5000,
     });
 
-    // Give HTMX time to complete the request
-    await page.waitForTimeout(1000);
+    // Wait for HTMX to complete the request by checking for form input
+    await page.waitForFunction(
+      () => {
+        const input = document.querySelector('input[name="directory"]');
+        return input !== null;
+      },
+      { timeout: 10000 }
+    );
 
     // Check for console errors
     expect(consoleErrors, `Console errors found:\n${consoleErrors.join('\n')}`).toEqual([]);
@@ -128,8 +134,14 @@ test.describe('Console Errors', () => {
     // Wait for history section to load
     await page.waitForSelector('#sync-history', { timeout: 5000 });
 
-    // Give HTMX time to complete requests
-    await page.waitForTimeout(1000);
+    // Wait for HTMX to complete requests by checking for content
+    await page.waitForFunction(
+      () => {
+        const history = document.querySelector('#sync-history');
+        return history && !history.textContent?.includes('Loading');
+      },
+      { timeout: 10000 }
+    );
 
     // Check for console errors
     expect(consoleErrors, `Console errors found:\n${consoleErrors.join('\n')}`).toEqual([]);
@@ -142,8 +154,14 @@ test.describe('Console Errors', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Wait a bit for any delayed console messages
-    await page.waitForTimeout(2000);
+    // Wait for page to be fully rendered (main content visible)
+    await page.waitForFunction(
+      () => {
+        const main = document.querySelector('main');
+        return main !== null && main.children.length > 0;
+      },
+      { timeout: 10000 }
+    );
 
     // Check that there are no React-related warnings
     const reactWarnings = consoleWarnings.filter(
@@ -248,8 +266,14 @@ test.describe('Console Errors', () => {
     // Wait for sync progress UI to appear
     await page.waitForSelector('#sync-progress', { state: 'visible', timeout: 5000 });
 
-    // Give SSE connection time to establish
-    await page.waitForTimeout(2000);
+    // Wait for SSE connection to establish by checking for SSE element
+    await page.waitForFunction(
+      () => {
+        const sseElement = document.querySelector('[hx-ext="sse"]');
+        return sseElement !== null && sseElement.hasAttribute('sse-connect');
+      },
+      { timeout: 10000 }
+    );
 
     // Check for SSE/EventSource errors
     const sseErrors = consoleErrors.filter(

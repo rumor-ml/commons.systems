@@ -109,8 +109,19 @@ test.describe('File List Deduplication - Real Sync Pipeline', () => {
     if (await approveButton.isVisible()) {
       await approveButton.click();
 
-      // Wait for file status to change
-      await page.waitForTimeout(2000); // Allow Firestore update + SSE propagation
+      // Wait for file status to change via SSE - check for status update in UI
+      await page.waitForFunction(
+        (fid) => {
+          const row = document.querySelector(`#${fid}`);
+          if (!row) return false;
+          // Check if status changed (button state changed or trash button appeared)
+          const hasTrashButton = row.querySelector('button[aria-label*="trash"]') !== null;
+          const hasApproveButton = row.querySelector('button:has-text("Approve")') !== null;
+          return hasTrashButton || !hasApproveButton;
+        },
+        fileId,
+        { timeout: 10000 }
+      ).catch(() => {});
 
       // 6. CRITICAL TEST: Verify STILL only 3 total files (no duplication after OOB swap)
       await expect(page.locator('#file-list .file-row')).toHaveCount(3);
@@ -163,7 +174,15 @@ test.describe('File List Deduplication - Real Sync Pipeline', () => {
     const approveButton = firstFile.locator('button:has-text("Approve")');
     if (await approveButton.isVisible()) {
       await approveButton.click();
-      await page.waitForTimeout(1000);
+
+      // Wait for file count to stabilize after upload (no duplicates should be added)
+      await page.waitForFunction(
+        () => {
+          const rows = document.querySelectorAll('#file-list .file-row');
+          return rows.length === 3;
+        },
+        { timeout: 5000 }
+      ).catch(() => {});
 
       // 6. Verify count STILL 3 (no duplicates during upload)
       fileRowCount = await page.locator('#file-list .file-row').count();

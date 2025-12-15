@@ -5,7 +5,7 @@
 import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
-import { createErrorResult, ValidationError } from '../utils/errors.js';
+import { createErrorResult, ValidationError, TestOutputParseError } from '../utils/errors.js';
 import { DEFAULT_TEST_TIMEOUT, MAX_TEST_TIMEOUT } from '../constants.js';
 import path from 'path';
 
@@ -46,16 +46,16 @@ function parseTestOutput(stdout: string): TestRunOutput {
   try {
     return JSON.parse(stdout);
   } catch (error) {
-    console.error(
-      'Failed to parse test output as JSON:',
-      error instanceof Error ? error.message : String(error)
-    );
+    const parseError = error instanceof Error ? error : new Error(String(error));
+    console.error('Failed to parse test output as JSON:', parseError.message);
     console.error('Raw output (first 500 chars):', stdout.substring(0, 500));
-    return {
-      results: [],
-      summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
-      exit_code: 1,
-    };
+
+    // Throw instead of returning default - forces explicit error handling
+    throw new TestOutputParseError(
+      'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
+      stdout,
+      parseError
+    );
   }
 }
 

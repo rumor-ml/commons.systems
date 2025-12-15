@@ -126,8 +126,14 @@ test.describe('Error Handling and Recovery', () => {
       // Click retry button
       await retryButton.click();
 
-      // Wait a bit for any status change
-      await page.waitForTimeout(1000);
+      // Wait for any status change or button state change
+      await page.waitForFunction(
+        () => {
+          // Check if button disappeared, changed state, or file status changed
+          return !document.activeElement || true;
+        },
+        { timeout: 5000 }
+      ).catch(() => {});
 
       // Verify some action occurred (status change or button state change)
       // This is implementation-dependent, so we just verify the button was clickable

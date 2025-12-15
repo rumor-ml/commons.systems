@@ -132,9 +132,15 @@ test.describe('Sync Workflow', () => {
 
     await page.goto('/');
 
-    // Wait for history to load
+    // Wait for history to load and content to appear
     await page.waitForSelector('#sync-history', { timeout: 5000 });
-    await page.waitForTimeout(2000);
+    await page.waitForFunction(
+      () => {
+        const history = document.querySelector('#sync-history');
+        return history && !history.textContent?.includes('Loading');
+      },
+      { timeout: 10000 }
+    );
 
     // In dev mode with auth bypass, there should be no 401 errors
     expect(authErrors, `Auth errors found:\n${authErrors.join('\n')}`).toEqual([]);

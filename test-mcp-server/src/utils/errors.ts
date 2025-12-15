@@ -46,6 +46,17 @@ export class InfrastructureError extends McpError {
   }
 }
 
+export class TestOutputParseError extends McpError {
+  constructor(
+    message: string,
+    public readonly rawOutput: string,
+    public readonly parseError: Error
+  ) {
+    super(message, 'TEST_OUTPUT_PARSE_ERROR');
+    this.name = 'TestOutputParseError';
+  }
+}
+
 /**
  * Create a standardized error result for MCP tool responses
  *

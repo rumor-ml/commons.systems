@@ -17,8 +17,13 @@ test.describe('Auth Initialization', () => {
     // Navigate to homepage
     await page.goto('/');
 
-    // Wait for auth initialization
-    await page.waitForTimeout(2000);
+    // Wait for auth initialization by checking for firebase_token cookie
+    await page.waitForFunction(
+      () => {
+        return document.cookie.includes('firebase_token=');
+      },
+      { timeout: 10000 }
+    );
 
     // Verify auth-init.js was loaded with correct MIME type
     const authInitRequest = requests.find((r) => r.url.includes('auth-init.js'));
@@ -73,7 +78,22 @@ test.describe('Auth Initialization', () => {
     await page.goto('/');
 
     // Wait for auth-ready event to fire
-    await page.waitForTimeout(3000);
+    await page.waitForFunction(
+      () => {
+        return new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 10000);
+          document.addEventListener(
+            'auth-ready',
+            () => {
+              clearTimeout(timeout);
+              resolve(true);
+            },
+            { once: true }
+          );
+        });
+      },
+      { timeout: 15000 }
+    );
 
     // Verify no 401 errors occurred
     expect(failedRequests).toHaveLength(0);
@@ -96,8 +116,14 @@ test.describe('Auth Initialization', () => {
 
     await page.goto('/');
 
-    // Should dispatch auth-ready even on failure
-    await page.waitForTimeout(3000);
+    // Should dispatch auth-ready even on failure - wait for main content to render
+    await page.waitForFunction(
+      () => {
+        const main = document.querySelector('main');
+        return main !== null && main.children.length > 0;
+      },
+      { timeout: 10000 }
+    );
 
     // Page should still render (degraded, but not broken)
     const main = page.locator('main');

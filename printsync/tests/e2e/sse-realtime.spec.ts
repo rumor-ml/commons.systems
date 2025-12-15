@@ -65,8 +65,14 @@ test.describe('SSE Real-Time Updates', () => {
     // Wait for sync progress section to appear (sync monitor gets swapped into #sync-progress)
     await page.waitForSelector('h2:has-text("Sync in Progress")', { timeout: 5000 });
 
-    // Wait a bit for SSE connection to establish and send initial events
-    await page.waitForTimeout(2000);
+    // Wait for SSE connection to establish by checking for active SSE extension
+    await page.waitForFunction(
+      () => {
+        const monitor = document.querySelector('[hx-ext="sse"]');
+        return monitor !== null;
+      },
+      { timeout: 10000 }
+    );
 
     // Filter out known acceptable warnings (if any)
     const sseErrors = consoleErrors.filter(
@@ -156,8 +162,14 @@ test.describe('SSE Real-Time Updates', () => {
     // Wait for action-buttons container to be in the DOM
     await page.waitForSelector('#action-buttons', { timeout: 10000 });
 
-    // Wait a bit for SSE updates
-    await page.waitForTimeout(3000);
+    // Wait for action buttons to receive SSE updates (check if they have content or are properly attached)
+    await page.waitForFunction(
+      () => {
+        const container = document.querySelector('#action-buttons');
+        return container !== null && container.hasAttribute('id');
+      },
+      { timeout: 10000 }
+    );
 
     // Check for SSE errors specifically related to action buttons or OOB swaps
     const oobErrors = consoleErrors.filter(
@@ -193,8 +205,15 @@ test.describe('SSE Real-Time Updates', () => {
     // Wait for file list to populate
     await page.waitForSelector('#file-list', { timeout: 10000 });
 
-    // Wait a bit for SSE updates to complete
-    await page.waitForTimeout(5000);
+    // Wait for SSE file updates to complete by checking for file rows
+    await page.waitForFunction(
+      () => {
+        const fileList = document.querySelector('#file-list');
+        const fileRows = fileList?.querySelectorAll('[data-file-id]');
+        return fileRows && fileRows.length > 0;
+      },
+      { timeout: 15000 }
+    );
 
     // Get all file rows
     const fileRows = await page.locator('#file-list [data-file-id]').all();
@@ -238,8 +257,14 @@ test.describe('SSE Real-Time Updates', () => {
     // Wait for sync progress section to appear
     await page.waitForSelector('h2:has-text("Sync in Progress")', { timeout: 5000 });
 
-    // Wait a bit to allow SSE connection to establish
-    await page.waitForTimeout(1000);
+    // Wait for SSE connection to establish by checking for SSE element
+    await page.waitForFunction(
+      () => {
+        const sseElement = document.querySelector('[hx-ext="sse"]');
+        return sseElement !== null && sseElement.hasAttribute('sse-connect');
+      },
+      { timeout: 10000 }
+    );
 
     // Check for HTMX SSE extension in page
     const hasHTMXSSE = await page.evaluate(() => {

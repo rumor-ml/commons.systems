@@ -5,6 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { DEFAULT_TEST_TIMEOUT, MAX_TEST_TIMEOUT } from '../constants.js';
+import { TestOutputParseError } from '../utils/errors.js';
 
 // Mock types for testing (avoiding actual execution)
 interface TestRunArgs {
@@ -95,9 +96,9 @@ function buildScriptArgs(args: TestRunArgs): string[] {
 }
 
 /**
- * Parse test output (mock implementation for testing)
+ * Parse test output (mock implementation for simple tests - matches old behavior)
  */
-function parseTestOutput(stdout: string): TestRunOutput {
+function parseTestOutputLegacy(stdout: string): TestRunOutput {
   try {
     return JSON.parse(stdout);
   } catch (error) {
@@ -106,6 +107,22 @@ function parseTestOutput(stdout: string): TestRunOutput {
       summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
       exit_code: 1,
     };
+  }
+}
+
+/**
+ * Parse test output (new implementation that throws on error)
+ */
+function parseTestOutput(stdout: string): TestRunOutput {
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    const parseError = error instanceof Error ? error : new Error(String(error));
+    throw new TestOutputParseError(
+      'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
+      stdout,
+      parseError
+    );
   }
 }
 
@@ -279,7 +296,42 @@ describe('Script Arguments Builder', () => {
   });
 });
 
-describe('Test Output Parser', () => {
+describe('Test Output Parser (Legacy)', () => {
+  it('should parse valid JSON output', () => {
+    const jsonOutput = JSON.stringify({
+      results: [
+        {
+          module: 'printsync',
+          test_type: 'unit',
+          status: 'passed',
+          output: '',
+        },
+      ],
+      summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+      exit_code: 0,
+    });
+
+    const parsed = parseTestOutputLegacy(jsonOutput);
+    assert.strictEqual(parsed.summary.total, 1);
+    assert.strictEqual(parsed.summary.passed, 1);
+    assert.strictEqual(parsed.exit_code, 0);
+  });
+
+  it('should handle invalid JSON gracefully', () => {
+    const parsed = parseTestOutputLegacy('not valid json');
+    assert.strictEqual(parsed.summary.total, 0);
+    assert.strictEqual(parsed.exit_code, 1);
+    assert.strictEqual(parsed.results.length, 0);
+  });
+
+  it('should handle empty string', () => {
+    const parsed = parseTestOutputLegacy('');
+    assert.strictEqual(parsed.summary.total, 0);
+    assert.strictEqual(parsed.exit_code, 1);
+  });
+});
+
+describe('Test Output Parser (Malformed JSON Handling)', () => {
   it('should parse valid JSON output', () => {
     const jsonOutput = JSON.stringify({
       results: [
@@ -300,17 +352,90 @@ describe('Test Output Parser', () => {
     assert.strictEqual(parsed.exit_code, 0);
   });
 
-  it('should handle invalid JSON gracefully', () => {
-    const parsed = parseTestOutput('not valid json');
-    assert.strictEqual(parsed.summary.total, 0);
-    assert.strictEqual(parsed.exit_code, 1);
-    assert.strictEqual(parsed.results.length, 0);
+  it('should throw TestOutputParseError for incomplete JSON (truncated)', () => {
+    const incompleteJSON = '{"results": [{"module": "printsync", "test_type": "unit"';
+
+    assert.throws(
+      () => parseTestOutput(incompleteJSON),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.ok(error.message.includes('non-JSON output'));
+        assert.strictEqual(error.rawOutput, incompleteJSON);
+        assert.ok(error.parseError instanceof Error);
+        return true;
+      }
+    );
   });
 
-  it('should handle empty string', () => {
-    const parsed = parseTestOutput('');
-    assert.strictEqual(parsed.summary.total, 0);
-    assert.strictEqual(parsed.exit_code, 1);
+  it('should throw TestOutputParseError for corrupt JSON (invalid syntax)', () => {
+    const corruptJSON = '{"results": [invalid json here], "summary": broken}';
+
+    assert.throws(
+      () => parseTestOutput(corruptJSON),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.ok(error.message.includes('non-JSON output'));
+        assert.strictEqual(error.rawOutput, corruptJSON);
+        assert.ok(error.parseError instanceof Error);
+        return true;
+      }
+    );
+  });
+
+  it('should include raw output in error for debugging', () => {
+    const rawOutput = 'Script error: command not found\nStack trace line 1\nStack trace line 2';
+
+    assert.throws(
+      () => parseTestOutput(rawOutput),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.strictEqual(error.rawOutput, rawOutput);
+        // Verify raw output contains debugging info
+        assert.ok(error.rawOutput.includes('Script error'));
+        assert.ok(error.rawOutput.includes('Stack trace'));
+        return true;
+      }
+    );
+  });
+
+  it('should throw for empty string input', () => {
+    assert.throws(
+      () => parseTestOutput(''),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.strictEqual(error.rawOutput, '');
+        return true;
+      }
+    );
+  });
+
+  it('should throw for non-JSON text output', () => {
+    const textOutput = 'This is plain text output from the script';
+
+    assert.throws(
+      () => parseTestOutput(textOutput),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.strictEqual(error.rawOutput, textOutput);
+        assert.ok(error.rawOutput.includes('plain text'));
+        return true;
+      }
+    );
+  });
+
+  it('should include original parse error details', () => {
+    const malformedJSON = '{invalid';
+
+    assert.throws(
+      () => parseTestOutput(malformedJSON),
+      (error: any) => {
+        assert.ok(error instanceof TestOutputParseError);
+        assert.ok(error.parseError instanceof Error);
+        // Original JSON parse error message should be preserved
+        assert.ok(error.parseError.message.length > 0);
+        return true;
+      }
+    );
   });
 });
 
