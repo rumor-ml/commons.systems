@@ -65,8 +65,11 @@ async function findStalePidFiles(): Promise<StalePidFile[]> {
             worktree: worktreeDir,
           });
         }
-      } catch {
-        // No PID file or can't read it, skip
+      } catch (error) {
+        // Expected: file doesn't exist. Log unexpected errors.
+        if (error instanceof Error && !error.message.includes('ENOENT')) {
+          console.error(`Unexpected error reading PID file ${pidFilePath}:`, error.message);
+        }
         continue;
       }
     }
@@ -138,7 +141,11 @@ async function isProcessRunning(pid: number): Promise<boolean> {
       reject: false,
     });
     return result.exitCode === 0;
-  } catch {
+  } catch (error) {
+    // Log unexpected errors (permission issues, etc.)
+    if (error instanceof Error && error.message && !error.message.includes('ESRCH')) {
+      console.error(`Failed to check process ${pid}:`, error.message);
+    }
     return false;
   }
 }
@@ -168,12 +175,19 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
         if (trackedPid === pid) {
           return true;
         }
-      } catch {
-        // Can't read this PID file, continue
+      } catch (error) {
+        // Expected: file doesn't exist. Log unexpected errors.
+        if (error instanceof Error && !error.message.includes('ENOENT')) {
+          console.error(`Unexpected error reading PID file ${pidFilePath}:`, error.message);
+        }
         continue;
       }
     }
-  } catch {
+  } catch (error) {
+    // Expected: directory doesn't exist. Log unexpected errors.
+    if (error instanceof Error && !error.message.includes('ENOENT')) {
+      console.error(`Unexpected error scanning ${claudeTmpDir}:`, error.message);
+    }
     return false;
   }
 
@@ -231,7 +245,11 @@ async function killProcess(pid: number): Promise<boolean> {
     }
 
     return true;
-  } catch {
+  } catch (error) {
+    // Expected: process doesn't exist. Log unexpected errors.
+    if (error instanceof Error && !error.message.includes('ESRCH')) {
+      console.error(`Failed to kill process ${pid}:`, error.message);
+    }
     return false;
   }
 }

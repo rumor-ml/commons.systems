@@ -30,7 +30,7 @@ if [ $# -gt 1 ] && [ "$2" = "--with-emulators" ]; then
   WITH_EMULATORS=true
 fi
 
-# Source port allocation script to get shared ports
+# Source port allocation script to get worktree-specific ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 

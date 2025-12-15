@@ -5,8 +5,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import path from 'path';
-import { getWorktreeRoot, getScriptPath, getTempDir, getCwd } from './paths.js';
-import { SCRIPTS_DIR, TEMP_DIR } from '../constants.js';
+import { getWorktreeRoot, getScriptPath, getCwd } from './paths.js';
+import { SCRIPTS_DIR } from '../constants.js';
 
 describe('getCwd', () => {
   it('should return current working directory', () => {
@@ -87,48 +87,10 @@ describe('getScriptPath', () => {
   });
 });
 
-describe('getTempDir', () => {
-  it('should return absolute path for temp directory', async () => {
-    const tempDir = await getTempDir();
-    assert.strictEqual(typeof tempDir, 'string');
-    assert.ok(path.isAbsolute(tempDir));
-  });
-
-  it('should end with temp directory name', async () => {
-    const tempDir = await getTempDir();
-    assert.ok(tempDir.endsWith(TEMP_DIR));
-  });
-
-  it('should construct path using worktree root', async () => {
-    const root = await getWorktreeRoot();
-    const tempDir = await getTempDir();
-    const expectedPath = path.join(root, TEMP_DIR);
-    assert.strictEqual(tempDir, expectedPath);
-  });
-
-  it('should be consistent across multiple calls', async () => {
-    const tempDir1 = await getTempDir();
-    const tempDir2 = await getTempDir();
-    assert.strictEqual(tempDir1, tempDir2);
-  });
-});
-
 describe('Path Relationships', () => {
   it('should have script path within worktree root', async () => {
     const root = await getWorktreeRoot();
     const scriptPath = await getScriptPath('test-run.sh');
     assert.ok(scriptPath.startsWith(root));
-  });
-
-  it('should have temp dir within worktree root', async () => {
-    const root = await getWorktreeRoot();
-    const tempDir = await getTempDir();
-    assert.ok(tempDir.startsWith(root));
-  });
-
-  it('should have different paths for scripts and temp dir', async () => {
-    const scriptPath = await getScriptPath('test-run.sh');
-    const tempDir = await getTempDir();
-    assert.notStrictEqual(scriptPath, tempDir);
   });
 });

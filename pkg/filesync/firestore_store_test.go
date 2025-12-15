@@ -3,6 +3,7 @@ package filesync
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -400,5 +401,58 @@ func TestFirestoreFileStore_Delete(t *testing.T) {
 	_, err = store.Get(ctx, file.ID)
 	if err == nil {
 		t.Error("expected error when getting deleted file, got nil")
+	}
+}
+
+func TestGetCollectionPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		prNumber   string
+		branchName string
+		want       string
+	}{
+		{"production - no env vars", "", "", ""},
+		{"production - main branch", "", "main", ""},
+		{"pr preview", "123", "", "pr_123_"},
+		{"pr takes priority over branch", "123", "feature/auth", "pr_123_"},
+		{"branch preview", "", "feature/auth", "preview_feature-auth_"},
+		{"branch with special chars", "", "feature/my_branch@v2", "preview_feature-my-branch-v2_"},
+		{"long branch truncated", "", strings.Repeat("a", 100), "preview_" + strings.Repeat("a", 50) + "_"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save original values
+			origPR := os.Getenv("PR_NUMBER")
+			origBranch := os.Getenv("BRANCH_NAME")
+			defer func() {
+				if origPR != "" {
+					os.Setenv("PR_NUMBER", origPR)
+				} else {
+					os.Unsetenv("PR_NUMBER")
+				}
+				if origBranch != "" {
+					os.Setenv("BRANCH_NAME", origBranch)
+				} else {
+					os.Unsetenv("BRANCH_NAME")
+				}
+			}()
+
+			// Set test values
+			if tt.prNumber != "" {
+				os.Setenv("PR_NUMBER", tt.prNumber)
+			} else {
+				os.Unsetenv("PR_NUMBER")
+			}
+			if tt.branchName != "" {
+				os.Setenv("BRANCH_NAME", tt.branchName)
+			} else {
+				os.Unsetenv("BRANCH_NAME")
+			}
+
+			got := getCollectionPrefix()
+			if got != tt.want {
+				t.Errorf("getCollectionPrefix() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

@@ -111,7 +111,11 @@ async function isEmulatorProcessRunning(): Promise<{
         // On Unix systems, sending signal 0 checks if process exists
         process.kill(pid, 0);
         return { running: true, pid };
-      } catch {
+      } catch (error) {
+        // Log unexpected errors (permission issues, etc.)
+        if (error instanceof Error && error.message && !error.message.includes('ESRCH')) {
+          console.error(`Failed to check process ${pid}:`, error.message);
+        }
         // Process doesn't exist
         return { running: false, pid };
       }
@@ -135,7 +139,10 @@ async function isPortListening(port: number): Promise<boolean> {
       timeout: 2000,
     });
     return result.exitCode === 0;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && !error.message.includes('ECONNREFUSED')) {
+      console.error(`Port check failed for ${port}:`, error.message);
+    }
     return false;
   }
 }

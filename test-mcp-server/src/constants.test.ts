@@ -33,7 +33,6 @@ import {
   TEST_STATUS_NOT_STARTED,
   SERVICE_FIREBASE_EMULATORS,
   SERVICE_DEV_SERVER,
-  TEMP_DIR,
 } from './constants.js';
 
 describe('Response Length Constants', () => {
@@ -96,28 +95,28 @@ describe('Script Path Constants', () => {
   });
 
   it('should define test-related scripts', () => {
-    assert.strictEqual(TEST_RUN_SCRIPT, 'test-run.sh');
+    assert.strictEqual(TEST_RUN_SCRIPT, 'test.sh');
   });
 
   it('should define emulator-related scripts', () => {
-    assert.strictEqual(EMULATOR_START_SCRIPT, 'emulator-start.sh');
-    assert.strictEqual(EMULATOR_STOP_SCRIPT, 'emulator-stop.sh');
+    assert.strictEqual(EMULATOR_START_SCRIPT, 'start-emulators.sh');
+    assert.strictEqual(EMULATOR_STOP_SCRIPT, 'stop-emulators.sh');
     assert.strictEqual(EMULATOR_STATUS_SCRIPT, 'emulator-status.sh');
   });
 
   it('should define dev server-related scripts', () => {
-    assert.strictEqual(DEV_SERVER_START_SCRIPT, 'dev-server-start.sh');
-    assert.strictEqual(DEV_SERVER_STOP_SCRIPT, 'dev-server-stop.sh');
+    assert.strictEqual(DEV_SERVER_START_SCRIPT, 'start-dev-server.sh');
+    assert.strictEqual(DEV_SERVER_STOP_SCRIPT, 'stop-dev-server.sh');
     assert.strictEqual(DEV_SERVER_STATUS_SCRIPT, 'dev-server-status.sh');
   });
 
   it('should define cleanup-related scripts', () => {
-    assert.strictEqual(CLEANUP_ORPHANS_SCRIPT, 'cleanup-orphans.sh');
+    assert.strictEqual(CLEANUP_ORPHANS_SCRIPT, 'cleanup-orphan-emulators.sh');
     assert.strictEqual(CLEANUP_WORKTREE_SCRIPT, 'cleanup-worktree.sh');
   });
 
   it('should define port allocation script', () => {
-    assert.strictEqual(PORT_ALLOCATION_SCRIPT, 'port-allocation.sh');
+    assert.strictEqual(PORT_ALLOCATION_SCRIPT, 'allocate-test-ports.sh');
   });
 
   it('should have all script names end with .sh', () => {
@@ -210,17 +209,6 @@ describe('Service Name Constants', () => {
     services.forEach((service) => {
       assert.ok(service.match(/^[a-z-]+$/), `${service} should be kebab-case`);
     });
-  });
-});
-
-describe('Temporary Directory Constants', () => {
-  it('should define temp directory', () => {
-    assert.strictEqual(TEMP_DIR, '.test-mcp');
-    assert.strictEqual(typeof TEMP_DIR, 'string');
-  });
-
-  it('should start with dot for hidden directory', () => {
-    assert.ok(TEMP_DIR.startsWith('.'));
   });
 });
 

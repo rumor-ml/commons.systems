@@ -141,6 +141,8 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       // Use gh run watch to wait for completion
       // Exit code 0 = success, non-zero = failure (but we continue to fetch details)
       let watchFailed = false;
+      // @ts-expect-error - Preserved for potential future debugging use
+      let watchError: Error | undefined;
       try {
         await ghCli(
           [
@@ -157,6 +159,8 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
         // Watch command failed - could be workflow failure or timeout
         // We'll fetch the final status to determine what happened
         watchFailed = true;
+        watchError = error instanceof Error ? error : new Error(String(error));
+        // Note: We continue to fetch final status - watchError preserved for context if needed
       }
 
       // Fetch final status with JSON

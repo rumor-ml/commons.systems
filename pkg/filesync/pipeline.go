@@ -9,6 +9,7 @@ package filesync
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sync"
 	"time"
@@ -604,9 +605,10 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 			return
 		case <-ticker.C:
 			if stats.shouldFlush() {
-				// Flush errors in periodic background flush are non-fatal
-				// They will be retried on next flush cycle
-				_ = stats.flush(ctx)
+				// Non-fatal: flush will be retried on next cycle
+				if err := stats.flush(ctx); err != nil {
+					log.Printf("WARNING: periodic stats flush failed (will retry): %v", err)
+				}
 			}
 		}
 	}

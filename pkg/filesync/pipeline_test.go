@@ -1447,3 +1447,96 @@ func TestStatsAccumulator_BatchSizeResets(t *testing.T) {
 		t.Errorf("expected 5 uploaded, got %d", updatedSession.Stats.Uploaded)
 	}
 }
+
+func TestPipeline_RunExtractionAsyncWithSession(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test files
+	files := []FileInfo{
+		{Path: "/test/file1.pdf", RelativePath: "file1.pdf", Size: 100, Hash: "hash1"},
+		{Path: "/test/file2.pdf", RelativePath: "file2.pdf", Size: 200, Hash: "hash2"},
+	}
+
+	// Setup mocks
+	discoverer := &mockDiscoverer{files: files}
+	extractor := &mockExtractor{canExtract: true}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+
+	// Create pipeline
+	pipeline, err := NewPipeline(
+		discoverer,
+		extractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline() failed: %v", err)
+	}
+
+	// Use custom session ID
+	customSessionID := "custom-session-123"
+	progressCh := make(chan Progress, 100)
+
+	// Run extraction with custom session ID
+	resultCh, err := pipeline.RunExtractionAsyncWithSession(ctx, "/test", "user123", customSessionID, progressCh)
+	if err != nil {
+		t.Fatalf("RunExtractionAsyncWithSession() failed: %v", err)
+	}
+
+	// Collect progress events
+	progressEvents := []Progress{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for p := range progressCh {
+			progressEvents = append(progressEvents, p)
+		}
+	}()
+
+	// Wait for result
+	result := <-resultCh
+	<-done
+
+	// Verify session ID matches the custom one
+	if result.SessionID != customSessionID {
+		t.Errorf("expected session ID %s, got %s", customSessionID, result.SessionID)
+	}
+
+	// Verify files were processed
+	if result.ProcessedFiles != 2 {
+		t.Errorf("expected 2 processed files, got %d", result.ProcessedFiles)
+	}
+
+	// Verify progress events were sent
+	if len(progressEvents) == 0 {
+		t.Error("expected progress events to be sent")
+	}
+
+	// Verify session exists with custom ID
+	session, err := sessionStore.Get(ctx, customSessionID)
+	if err != nil {
+		t.Fatalf("failed to get session with custom ID: %v", err)
+	}
+	if session.Status != SessionStatusCompleted {
+		t.Errorf("expected session status to be completed, got %s", session.Status)
+	}
+
+	// Verify files are associated with custom session
+	sessionFiles, err := fileStore.ListBySession(ctx, customSessionID)
+	if err != nil {
+		t.Fatalf("failed to list files: %v", err)
+	}
+	if len(sessionFiles) != 2 {
+		t.Errorf("expected 2 files in session, got %d", len(sessionFiles))
+	}
+	for _, file := range sessionFiles {
+		if file.SessionID != customSessionID {
+			t.Errorf("expected file to have session ID %s, got %s", customSessionID, file.SessionID)
+		}
+	}
+}

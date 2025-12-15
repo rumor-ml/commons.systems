@@ -83,7 +83,8 @@ export async function testListModules(): Promise<ToolResult> {
       // Handle both array format and object format
       modules = Array.isArray(parsed) ? parsed : parsed.modules || [];
     } catch (error) {
-      // If JSON parsing fails, return empty list
+      console.error('Failed to parse module list as JSON:', error instanceof Error ? error.message : String(error));
+      console.error('Raw output (first 500 chars):', result.stdout.substring(0, 500));
       modules = [];
     }
 

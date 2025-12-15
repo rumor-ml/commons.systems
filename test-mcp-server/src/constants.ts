@@ -20,16 +20,16 @@ export const MAX_POLL_INTERVAL = 30;
 
 // Script paths (relative to git worktree root)
 export const SCRIPTS_DIR = 'infrastructure/scripts';
-export const TEST_RUN_SCRIPT = 'test-run.sh';
-export const EMULATOR_START_SCRIPT = 'emulator-start.sh';
-export const EMULATOR_STOP_SCRIPT = 'emulator-stop.sh';
+export const TEST_RUN_SCRIPT = 'test.sh';
+export const EMULATOR_START_SCRIPT = 'start-emulators.sh';
+export const EMULATOR_STOP_SCRIPT = 'stop-emulators.sh';
 export const EMULATOR_STATUS_SCRIPT = 'emulator-status.sh';
-export const DEV_SERVER_START_SCRIPT = 'dev-server-start.sh';
-export const DEV_SERVER_STOP_SCRIPT = 'dev-server-stop.sh';
+export const DEV_SERVER_START_SCRIPT = 'start-dev-server.sh';
+export const DEV_SERVER_STOP_SCRIPT = 'stop-dev-server.sh';
 export const DEV_SERVER_STATUS_SCRIPT = 'dev-server-status.sh';
-export const CLEANUP_ORPHANS_SCRIPT = 'cleanup-orphans.sh';
+export const CLEANUP_ORPHANS_SCRIPT = 'cleanup-orphan-emulators.sh';
 export const CLEANUP_WORKTREE_SCRIPT = 'cleanup-worktree.sh';
-export const PORT_ALLOCATION_SCRIPT = 'port-allocation.sh';
+export const PORT_ALLOCATION_SCRIPT = 'allocate-test-ports.sh';
 
 // Test status values
 export const TEST_STATUS_RUNNING = 'running';
@@ -40,6 +40,3 @@ export const TEST_STATUS_NOT_STARTED = 'not_started';
 // Infrastructure service names
 export const SERVICE_FIREBASE_EMULATORS = 'firebase-emulators';
 export const SERVICE_DEV_SERVER = 'dev-server';
-
-// Temporary directory name (relative to worktree root)
-export const TEMP_DIR = '.test-mcp';

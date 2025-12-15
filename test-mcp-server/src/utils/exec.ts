@@ -132,8 +132,9 @@ export async function execScriptBackground(
     shell: true,
     detached: true,
     stdio: 'ignore',
-  }).catch(() => {
-    // Ignore errors from background processes
+  }).catch((error) => {
+    // Log background process errors for debugging
+    console.error(`Background script failed: ${command}`, error instanceof Error ? error.message : String(error));
   });
 
   // Give it a moment to start

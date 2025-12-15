@@ -28,7 +28,7 @@ UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
 # Prevents conflicts when running multiple app servers concurrently
 APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
 
-# Export port variables for emulators (shared)
+# Export port variables for emulators (unique per worktree)
 export FIREBASE_AUTH_PORT="$AUTH_PORT"
 export FIREBASE_FIRESTORE_PORT="$FIRESTORE_PORT"
 export FIREBASE_STORAGE_PORT="$STORAGE_PORT"

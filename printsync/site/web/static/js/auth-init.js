@@ -33,8 +33,11 @@ export function initializeAuth() {
       connectAuthEmulator(auth, `http://${authEmulatorHost}`, { disableWarnings: true });
       console.log(`[Auth] Connected to emulator at ${authEmulatorHost}`);
     } catch (error) {
-      // Emulator already connected - this is fine
-      console.log('[Auth] Emulator connection skipped:', error.message);
+      if (error.code === 'auth/emulator-config-failed') {
+        console.log('[Auth] Emulator already connected');
+      } else {
+        console.error('[Auth] Failed to connect to emulator:', error.code || error.message);
+      }
     }
   }
 

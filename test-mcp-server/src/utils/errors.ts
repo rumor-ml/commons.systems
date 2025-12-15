@@ -54,6 +54,7 @@ export class InfrastructureError extends McpError {
  * - ValidationError: Invalid input parameters
  * - ScriptExecutionError: Shell script execution failed
  * - InfrastructureError: Infrastructure service failure
+ * - McpError: Base MCP error with custom code
  * - Generic errors: Unexpected failures
  *
  * @param error - The error to convert to a tool result

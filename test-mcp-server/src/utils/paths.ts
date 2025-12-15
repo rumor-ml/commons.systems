@@ -4,7 +4,7 @@
 
 import { execaCommand } from 'execa';
 import path from 'path';
-import { SCRIPTS_DIR, TEMP_DIR } from '../constants.js';
+import { SCRIPTS_DIR } from '../constants.js';
 
 /**
  * Get the git worktree root directory
@@ -27,16 +27,6 @@ export async function getWorktreeRoot(): Promise<string> {
 export async function getScriptPath(scriptName: string): Promise<string> {
   const root = await getWorktreeRoot();
   return path.join(root, SCRIPTS_DIR, scriptName);
-}
-
-/**
- * Get the worktree-specific temporary directory
- *
- * @returns Promise resolving to absolute path of temp directory
- */
-export async function getTempDir(): Promise<string> {
-  const root = await getWorktreeRoot();
-  return path.join(root, TEMP_DIR);
 }
 
 /**
