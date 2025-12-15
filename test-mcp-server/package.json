@@ -12,7 +12,8 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "dev": "tsc && node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test --test-reporter=tap dist/**/*.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.23.0",

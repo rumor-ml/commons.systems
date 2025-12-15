@@ -77,7 +77,7 @@ if ! cd_error=$(cd "$repo_root" 2>&1); then
 fi
 
 # Validate test script
-test_script="$repo_root/infrastructure/scripts/run-all-local-tests.sh"
+test_script="$repo_root/infrastructure/scripts/test.sh"
 [[ ! -f "$test_script" ]] && deny "Test script not found at $test_script"
 [[ ! -x "$test_script" ]] && deny "Test script exists but is not executable: $test_script. Run: chmod +x $test_script"
 
@@ -87,7 +87,7 @@ test_output_file="/tmp/claude/pre-push-test-output-$$.txt"
 if ! touch "$test_output_file" 2>/dev/null; then
   deny "Cannot create test output file at $test_output_file. Check /tmp/claude permissions and disk space."
 fi
-timeout 600 "$test_script" --changed-only > "$test_output_file" 2>&1
+timeout 600 "$test_script" --changed-only --ci > "$test_output_file" 2>&1
 test_exit_code=$?
 log "Test exit code: $test_exit_code"
 

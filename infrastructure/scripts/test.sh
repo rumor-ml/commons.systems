@@ -162,7 +162,13 @@ fi
 
 # Dry run mode
 if [[ "$DRY_RUN" == true ]]; then
-  output_list_modules "$FILTERED_MODULES"
+  if [[ "$CI_MODE" == true ]]; then
+    # JSON output with test types
+    discover_all_modules_json "$ROOT_DIR" "$TYPE_FILTER" ""
+  else
+    # Text output
+    output_list_modules "$FILTERED_MODULES"
+  fi
   exit 0
 fi
 

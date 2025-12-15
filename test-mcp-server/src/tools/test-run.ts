@@ -122,7 +122,9 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
     const scriptArgs: string[] = ['--ci']; // Always use CI mode for JSON output
 
     if (args.module && args.module.length > 0) {
-      scriptArgs.push(`--module=${args.module.join(',')}`);
+      // Ensure module is an array (MCP might pass it as a single value)
+      const modules = Array.isArray(args.module) ? args.module : [args.module];
+      scriptArgs.push(`--module=${modules.join(',')}`);
     }
 
     if (args.type) {

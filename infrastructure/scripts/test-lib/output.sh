@@ -90,9 +90,9 @@ EOF
 
     # Count results
     local total=${#RESULTS_MODULES[@]}
-    local passed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "passed" || echo "0")
-    local failed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "failed" || echo "0")
-    local skipped=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "skipped" || echo "0")
+    local passed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "passed" || true)
+    local failed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "failed" || true)
+    local skipped=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "skipped" || true)
 
     cat <<EOF
   "summary": {
@@ -112,9 +112,9 @@ EOF
     echo "=========================================="
 
     local total=${#RESULTS_MODULES[@]}
-    local passed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "passed" || echo "0")
-    local failed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "failed" || echo "0")
-    local skipped=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "skipped" || echo "0")
+    local passed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "passed" || true)
+    local failed=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "failed" || true)
+    local skipped=$(printf '%s\n' "${RESULTS_STATUS[@]}" | grep -c "skipped" || true)
 
     echo "Total: $total"
     echo "Passed: $passed"

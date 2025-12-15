@@ -42,10 +42,10 @@
     "build:printsync": "cd printsync/site && make build",
     "test:printsync": "npm test --workspace=printsync/tests",
     "test:printsync:deployed": "npm run test:deployed --workspace=printsync/tests",
-    "test:local": "./infrastructure/scripts/run-tests.sh",
-    "test:local:firebase": "./infrastructure/scripts/run-tests.sh --type=firebase",
-    "test:local:go": "./infrastructure/scripts/run-tests.sh --type=go-tui",
-    "test:local:fellspiral": "./infrastructure/scripts/run-tests.sh fellspiral"
+    "test:local": "./infrastructure/scripts/test.sh",
+    "test:local:firebase": "./infrastructure/scripts/test.sh --type=e2e",
+    "test:local:go": "./infrastructure/scripts/test.sh --type=e2e",
+    "test:local:fellspiral": "./infrastructure/scripts/test.sh --module=fellspiral"
   },
   "keywords": [
     "monorepo",
