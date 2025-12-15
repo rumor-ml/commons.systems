@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
@@ -80,6 +81,12 @@ type AlertDaemon struct {
 	done             chan struct{}
 	socketPath       string
 	blockedPath      string // Path to persist blocked state JSON
+
+	// Health monitoring (accessed atomically)
+	broadcastFailures  atomic.Int64 // Total broadcast failures since startup
+	lastBroadcastError atomic.Value // Most recent broadcast error (string)
+	watcherErrors      atomic.Int64 // Total watcher errors since startup
+	lastWatcherError   atomic.Value // Most recent watcher error (string)
 }
 
 // loadBlockedBranches loads the blocked branches state from JSON file
@@ -199,7 +206,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d blocked_branches=%d",
 		alertDir, socketPath, len(existingAlerts), len(blockedBranches))
 
-	return &AlertDaemon{
+	daemon := &AlertDaemon{
 		alertWatcher:     alertWatcher,
 		paneFocusWatcher: paneFocusWatcher,
 		alerts:           existingAlerts,
@@ -209,7 +216,13 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
-	}, nil
+	}
+
+	// Initialize atomic.Value fields
+	daemon.lastBroadcastError.Store("")
+	daemon.lastWatcherError.Store("")
+
+	return daemon, nil
 }
 
 // Start starts the daemon server.
@@ -255,7 +268,9 @@ func (d *AlertDaemon) watchAlerts() {
 			}
 
 			if event.Error != nil {
-				debug.Log("DAEMON_WATCHER_ERROR error=%v", event.Error)
+				d.watcherErrors.Add(1)
+				d.lastWatcherError.Store(event.Error.Error())
+				debug.Log("DAEMON_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
 				continue
 			}
 
@@ -279,7 +294,9 @@ func (d *AlertDaemon) watchPaneFocus() {
 			}
 
 			if event.Error != nil {
-				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v", event.Error)
+				d.watcherErrors.Add(1)
+				d.lastWatcherError.Store(event.Error.Error())
+				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
 				continue
 			}
 
@@ -537,11 +554,19 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
 	defer d.clientsMu.RUnlock()
 
+	var failures int64
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
+			failures++
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
+			d.lastBroadcastError.Store(err.Error())
 			// Don't remove client here - let handleClient detect disconnect
 		}
+	}
+
+	if failures > 0 {
+		d.broadcastFailures.Add(failures)
+		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total_failures=%d", failures, d.broadcastFailures.Load())
 	}
 }
 
@@ -551,6 +576,34 @@ func (d *AlertDaemon) removeClient(clientID string) {
 	defer d.clientsMu.Unlock()
 	delete(d.clients, clientID)
 	debug.Log("DAEMON_CLIENT_REMOVED id=%s remaining=%d", clientID, len(d.clients))
+}
+
+// GetHealthStatus returns daemon health metrics for monitoring
+func (d *AlertDaemon) GetHealthStatus() HealthStatus {
+	lastBroadcastErr, _ := d.lastBroadcastError.Load().(string)
+	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
+
+	d.clientsMu.RLock()
+	clientCount := len(d.clients)
+	d.clientsMu.RUnlock()
+
+	d.alertsMu.RLock()
+	alertCount := len(d.alerts)
+	d.alertsMu.RUnlock()
+
+	d.blockedMu.RLock()
+	blockedCount := len(d.blockedBranches)
+	d.blockedMu.RUnlock()
+
+	return HealthStatus{
+		BroadcastFailures:  d.broadcastFailures.Load(),
+		LastBroadcastError: lastBroadcastErr,
+		WatcherErrors:      d.watcherErrors.Load(),
+		LastWatcherError:   lastWatcherErr,
+		ConnectedClients:   clientCount,
+		ActiveAlerts:       alertCount,
+		BlockedBranches:    blockedCount,
+	}
 }
 
 // Stop stops the daemon server.

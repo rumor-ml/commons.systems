@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/debug"
+	"github.com/commons-systems/tmux-tui/internal/namespace"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
 )
@@ -33,20 +34,31 @@ type model struct {
 	renderer        *ui.TreeRenderer
 	daemonClient    *daemon.DaemonClient
 	tree            tmux.RepoTree
-	alerts          map[string]string // Alert state received from daemon: paneID -> eventType
-	alertsMu        *sync.RWMutex     // Protects alerts map from race conditions
-	blockedBranches map[string]string // Blocked branch state: branch -> blockedByBranch
-	blockedMu       *sync.RWMutex     // Protects blocked panes map
-	width           int
-	height          int
+
+	// Alert state with concurrency protection
+	alerts   map[string]string
+	alertsMu *sync.RWMutex
+
+	// Blocked branch state with concurrency protection
+	blockedBranches map[string]string
+	blockedMu       *sync.RWMutex
+
+	// Error state with concurrency protection
 	err              error
-	alertsDisabled   bool   // true if daemon connection failed
-	alertError       string // daemon connection error
-	persistenceError string // persistence error from daemon
+	alertsDisabled   bool
+	alertError       string
+	persistenceError string
+	treeRefreshError error         // NEW: tree refresh failure tracking
+	errorMu          *sync.RWMutex // NEW: protects all error fields
+
+	// UI state
+	width  int
+	height int
+
 	// Branch picker state
-	pickingBranch    bool             // true when showing branch picker
-	pickingForBranch string           // branch being blocked
-	branchPicker     *ui.BranchPicker // the picker UI
+	pickingBranch    bool
+	pickingForBranch string
+	branchPicker     *ui.BranchPicker
 }
 
 func initialModel() model {
@@ -73,11 +85,26 @@ func initialModel() model {
 	defer cancel()
 
 	if err := daemonClient.ConnectWithRetry(ctx, 5); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon: %v\n", err)
+		socketPath := namespace.DaemonSocket()
+
+		_, statErr := os.Stat(socketPath)
+		var guidance string
+		if os.IsNotExist(statErr) {
+			guidance = "Daemon not running. Start with: tmux-tui-daemon"
+		} else if os.IsPermission(statErr) {
+			guidance = fmt.Sprintf("Permission denied accessing socket: %s", socketPath)
+		} else {
+			guidance = "Daemon may be unresponsive or socket corrupted"
+		}
+
+		enhancedError := fmt.Sprintf("%v\nSocket: %s\n%s", err, socketPath, guidance)
+
+		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon:\n%s\n", enhancedError)
 		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
+
 		daemonClient = nil
 		alertsDisabled = true
-		alertError = err.Error()
+		alertError = enhancedError
 	}
 
 	return model{
@@ -89,6 +116,7 @@ func initialModel() model {
 		alertsMu:        &sync.RWMutex{},
 		blockedBranches: make(map[string]string),
 		blockedMu:       &sync.RWMutex{},
+		errorMu:         &sync.RWMutex{}, // NEW
 		width:           80,
 		height:          24,
 		err:             err,
@@ -332,7 +360,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case daemon.MsgTypePersistenceError:
 			// Persistence error from daemon
 			debug.Log("TUI_PERSISTENCE_ERROR error=%s", msg.msg.Error)
+			m.errorMu.Lock()
 			m.persistenceError = msg.msg.Error
+			m.errorMu.Unlock()
 
 			// Continue watching daemon
 			if m.daemonClient != nil {
@@ -344,8 +374,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Daemon disconnected
 			debug.Log("TUI_DAEMON_DISCONNECT")
 			fmt.Fprintf(os.Stderr, "Disconnected from daemon\n")
+			m.errorMu.Lock()
 			m.alertsDisabled = true
 			m.alertError = "Disconnected from daemon"
+			m.errorMu.Unlock()
 			m.daemonClient = nil
 			return m, nil
 		}
@@ -378,10 +410,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Log reconciliation results
 			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
 			m.alertsMu.Unlock()
+			m.errorMu.Lock()
 			m.err = nil
+			m.treeRefreshError = nil
+			m.errorMu.Unlock()
 		} else {
 			fmt.Fprintf(os.Stderr, "Tree refresh failed: %v\n", msg.err)
-			m.err = msg.err
+			m.errorMu.Lock()
+			if m.err == nil {
+				m.treeRefreshError = msg.err
+			}
+			m.errorMu.Unlock()
 		}
 		return m, nil
 
@@ -401,33 +440,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", m.err)
+	// Snapshot error state with read lock
+	m.errorMu.RLock()
+	criticalErr := m.err
+	persistenceErr := m.persistenceError
+	alertsDisabled := m.alertsDisabled
+	alertErr := m.alertError
+	treeRefreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if criticalErr != nil {
+		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", criticalErr)
 	}
 
 	if m.tree == nil {
 		return "Loading..."
 	}
 
-	// Display warning banners at TOP of screen (persistence errors take priority)
+	// Build warning banners (priority: persistence > tree refresh > alerts)
 	var warningBanner string
 
-	// Persistence error (critical - red banner)
-	if m.persistenceError != "" {
+	if persistenceErr != "" {
 		warningStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("1")). // Red
+			Background(lipgloss.Color("1")).
 			Bold(true).
 			Padding(0, 1)
-		warningBanner = warningStyle.Render("⚠ PERSISTENCE ERROR: "+m.persistenceError+" (changes won't survive restart)") + "\n\n"
-	} else if m.alertsDisabled {
-		// Alert error (yellow banner)
+		warningBanner = warningStyle.Render("⚠ PERSISTENCE ERROR: "+persistenceErr+" (changes won't survive restart)") + "\n\n"
+	} else if treeRefreshErr != nil {
 		warningStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")). // Yellow
+			Background(lipgloss.Color("3")).
 			Bold(true).
 			Padding(0, 1)
-		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
+		warningBanner = warningStyle.Render(fmt.Sprintf("⚠ TREE REFRESH FAILED: %v (showing stale data, will retry)", treeRefreshErr)) + "\n\n"
+	} else if alertsDisabled {
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("3")).
+			Bold(true).
+			Padding(0, 1)
+		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+alertErr) + "\n\n"
 	}
 
 	// Render header

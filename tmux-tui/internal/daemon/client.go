@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -42,10 +43,11 @@ type DaemonClient struct {
 // NewDaemonClient creates a new daemon client.
 func NewDaemonClient() *DaemonClient {
 	return &DaemonClient{
-		clientID:   uuid.New().String(),
-		socketPath: namespace.DaemonSocket(),
-		eventCh:    make(chan Message, 100),
-		done:       make(chan struct{}),
+		clientID:       uuid.New().String(),
+		socketPath:     namespace.DaemonSocket(),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		queryResponses: make(map[string]chan Message), // Initialize here
 	}
 }
 
@@ -91,7 +93,18 @@ func (c *DaemonClient) Connect() error {
 	// Connect to Unix socket
 	conn, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		return fmt.Errorf("failed to connect to daemon socket: %w", err)
+		var errorType string
+		if os.IsNotExist(err) {
+			errorType = "socket not found"
+		} else if os.IsPermission(err) {
+			errorType = "permission denied"
+		} else if os.IsTimeout(err) {
+			errorType = "connection timeout"
+		} else {
+			errorType = "connection failed"
+		}
+
+		return fmt.Errorf("%s connecting to daemon socket %s: %w", errorType, c.socketPath, err)
 	}
 
 	c.conn = conn
@@ -167,13 +180,16 @@ func (c *DaemonClient) receive() {
 					c.queryMu.Unlock()
 					return
 				default:
-					// Channel full or closed, fall through to eventCh
+					// EXCEPTIONAL: Log this rare condition
+					debug.Log("CLIENT_QUERY_RESPONSE_FALLBACK id=%s branch=%s reason=channel_full_or_closed",
+						c.clientID, msg.Branch)
 				}
 				delete(c.queryResponses, msg.Branch)
 				c.queryMu.Unlock()
 				continue // Don't forward to eventCh
 			}
 			c.queryMu.Unlock()
+			debug.Log("CLIENT_QUERY_RESPONSE_UNREGISTERED id=%s branch=%s", c.clientID, msg.Branch)
 		}
 
 		// Forward message to event channel
@@ -413,9 +429,7 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 
 	// Register for response
 	c.queryMu.Lock()
-	if c.queryResponses == nil {
-		c.queryResponses = make(map[string]chan Message)
-	}
+	// Map already initialized in constructor
 	c.queryResponses[branch] = respCh
 	c.queryMu.Unlock()
 

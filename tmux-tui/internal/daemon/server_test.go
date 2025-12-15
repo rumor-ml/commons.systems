@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -272,9 +273,81 @@ func TestBroadcast_EmptyClientList(t *testing.T) {
 	daemon := &AlertDaemon{
 		clients: make(map[string]*clientConnection),
 	}
+	daemon.lastBroadcastError.Store("")
 
 	// Should not panic
 	daemon.broadcast(Message{Type: MsgTypeAlertChange})
+}
+
+// TestBroadcast_TrackFailures tests that broadcast failures are tracked
+func TestBroadcast_TrackFailures(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	r, w := io.Pipe()
+	w.Close() // Force failure
+
+	daemon.clients["test-client"] = &clientConnection{
+		conn:    &mockConn{reader: r, writer: w},
+		encoder: json.NewEncoder(w),
+	}
+
+	initialFailures := daemon.broadcastFailures.Load()
+	daemon.broadcast(Message{Type: MsgTypeAlertChange})
+
+	if daemon.broadcastFailures.Load() <= initialFailures {
+		t.Error("Expected broadcast failures to be incremented")
+	}
+
+	lastErr, _ := daemon.lastBroadcastError.Load().(string)
+	if lastErr == "" {
+		t.Error("Expected lastBroadcastError to be set")
+	}
+}
+
+// TestGetHealthStatus tests the health status reporting
+func TestGetHealthStatus(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          map[string]string{"pane1": "stop"},
+		blockedBranches: map[string]string{"feature": "main"},
+	}
+	daemon.lastBroadcastError.Store("test error")
+	daemon.broadcastFailures.Store(5)
+	daemon.lastWatcherError.Store("watcher error")
+	daemon.watcherErrors.Store(3)
+
+	status := daemon.GetHealthStatus()
+
+	if status.BroadcastFailures != 5 {
+		t.Errorf("Expected 5 broadcast failures, got %d", status.BroadcastFailures)
+	}
+
+	if status.LastBroadcastError != "test error" {
+		t.Errorf("Expected 'test error', got '%s'", status.LastBroadcastError)
+	}
+
+	if status.WatcherErrors != 3 {
+		t.Errorf("Expected 3 watcher errors, got %d", status.WatcherErrors)
+	}
+
+	if status.LastWatcherError != "watcher error" {
+		t.Errorf("Expected 'watcher error', got '%s'", status.LastWatcherError)
+	}
+
+	if status.ActiveAlerts != 1 {
+		t.Errorf("Expected 1 active alert, got %d", status.ActiveAlerts)
+	}
+
+	if status.BlockedBranches != 1 {
+		t.Errorf("Expected 1 blocked branch, got %d", status.BlockedBranches)
+	}
+
+	if status.ConnectedClients != 0 {
+		t.Errorf("Expected 0 connected clients, got %d", status.ConnectedClients)
+	}
 }
 
 // TestProtocolMessage_Serialization tests message serialization

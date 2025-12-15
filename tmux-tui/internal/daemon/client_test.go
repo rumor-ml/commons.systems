@@ -64,11 +64,12 @@ func TestQueryBlockedState_Success(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	// Start receive goroutine
@@ -135,11 +136,12 @@ func TestQueryBlockedState_Timeout(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	// Start receive goroutine
@@ -185,11 +187,12 @@ func TestQueryBlockedState_WrongBranchResponse(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	go client.receive()
@@ -251,11 +254,12 @@ func TestQueryBlockedState_NoEventLoss(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	go client.receive()
@@ -342,11 +346,12 @@ func TestQueryBlockedState_ClientClosed(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	go client.receive()
@@ -389,11 +394,12 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
 			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
 		},
-		encoder:  json.NewEncoder(clientWriter),
-		decoder:  json.NewDecoder(clientReader),
-		eventCh:  make(chan Message, 100),
-		done:     make(chan struct{}),
-		lastPong: time.Now(),
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]chan Message),
 	}
 
 	go client.receive()
