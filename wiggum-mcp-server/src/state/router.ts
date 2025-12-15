@@ -172,7 +172,7 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
 
   // Step 0: Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
-  if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
+  if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.info('Routing to Step 0: Ensure PR', {
       prExists: state.pr.exists,
       prState: state.pr.exists ? state.pr.state : 'N/A',
@@ -848,6 +848,14 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
     content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
+
+// Export internal functions for testing
+export const _testExports = {
+  hasExistingPR,
+  checkUncommittedChanges,
+  checkBranchPushed,
+  formatFixInstructions,
+};
 
 /**
  * Approval

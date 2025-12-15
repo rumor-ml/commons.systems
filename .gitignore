@@ -58,6 +58,7 @@ result-*
 # Go build artifacts
 tmux-tui/build/
 tmux-tui/tmux-tui
+tmux-tui/tmux-tui-block
 *.test
 *.out
 

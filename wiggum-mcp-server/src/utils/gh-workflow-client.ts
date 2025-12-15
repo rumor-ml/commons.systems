@@ -372,6 +372,12 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
  * @returns MonitorResult with success boolean and error summary
  * @throws ParsingError if result format is invalid or required fields cannot be parsed
  */
+// Export internal functions for testing
+export const _testExports = {
+  callToolWithRetry,
+  extractTextFromMCPResult,
+};
+
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_pr_checks', `PR #${prNumber}`);

@@ -137,18 +137,25 @@ export class GoExtractor implements FrameworkExtractor {
           testResults.set(key, 'pass');
         }
       } catch (error) {
-        // Skip invalid JSON lines - these are expected in normal test output:
-        //   - Build/compilation messages before tests run
-        //   - GitHub Actions runner setup logs
-        //   - Package download/cache messages
-        //   - Environment variable output
-        //   - Test execution summary lines (e.g., "PASS", "FAIL" markers)
-        // Only the actual test events are JSON formatted when using -json flag
-        // Log only first few failures to avoid spam
-        if (skippedNonJsonLines < 3) {
+        // Distinguish test events (which should parse) from build output (which won't)
+        // Test events start with { and contain test-related keywords (Time, Action, Package)
+        // Build output includes: compilation messages, GitHub Actions logs, package downloads, etc.
+        const looksLikeTestEvent =
+          line.includes('"Time"') || line.includes('"Action"') || line.includes('"Package"');
+
+        if (looksLikeTestEvent) {
+          // Always log test event parse failures - these are unexpected
           console.error(
-            `[DEBUG] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
+            `[ERROR] Go extractor: failed to parse test event JSON: ${error instanceof Error ? error.message : String(error)}`,
+            `Line: ${line.substring(0, 200)}`
           );
+        } else {
+          // Log only first 3 non-test lines to avoid spam from build output
+          if (skippedNonJsonLines < 3) {
+            console.error(
+              `[DEBUG] Go extractor: skipped non-JSON build output: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
         }
         skippedNonJsonLines++;
         continue;

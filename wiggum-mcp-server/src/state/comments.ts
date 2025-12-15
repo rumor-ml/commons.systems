@@ -157,7 +157,7 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
   // No state found, return initial state
   return {
     iteration: 0,
-    step: '0',
+    step: STEP_ENSURE_PR,
     completedSteps: [],
   };
 }
@@ -215,3 +215,10 @@ export async function hasReviewCommandEvidence(
 
   return false;
 }
+
+// Export internal functions for testing
+export const _testExports = {
+  hasPrototypePollution,
+  safeJsonParse,
+  validateWiggumState,
+};
