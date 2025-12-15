@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,28 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
+
+// printErrorHint prints a contextual hint based on error type
+func printErrorHint(err error) {
+	switch {
+	case errors.Is(err, daemon.ErrSocketNotFound):
+		fmt.Fprintln(os.Stderr, "Hint: Daemon not running. Start with: tmux-tui-daemon")
+	case errors.Is(err, daemon.ErrPermissionDenied):
+		fmt.Fprintln(os.Stderr, "Hint: Permission issue accessing daemon socket.")
+	case errors.Is(err, daemon.ErrConnectionTimeout):
+		fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond.")
+	case errors.Is(err, daemon.ErrConnectionFailed):
+		fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
+	default:
+		// Fallback for other errors that may contain timeout/connection in message
+		errStr := err.Error()
+		if strings.Contains(errStr, "timeout") {
+			fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond.")
+		} else if strings.Contains(errStr, "connection") {
+			fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
+		}
+	}
+}
 
 // getCurrentBranch gets the current git branch for the given pane
 func getCurrentBranch(executor tmux.CommandExecutor, paneID string) (string, error) {
@@ -41,11 +64,7 @@ func toggleBlockedState(client *daemon.DaemonClient, paneID, branch string) bool
 	blockedBy, isBlocked, err := client.QueryBlockedState(branch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not query blocked state for '%s': %v\n", branch, err)
-		if strings.Contains(err.Error(), "timeout") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond. Try again or check daemon logs.")
-		} else if strings.Contains(err.Error(), "connection") {
-			fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
-		}
+		printErrorHint(err)
 		fmt.Fprintln(os.Stderr, "Showing branch picker as fallback.")
 		debug.Log("BLOCK_CLI_QUERY_ERROR paneID=%s branch=%s error=%v", paneID, branch, err)
 		return false
@@ -59,11 +78,7 @@ func toggleBlockedState(client *daemon.DaemonClient, paneID, branch string) bool
 	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, blockedBy)
 	if err := client.UnblockBranch(branch); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to unblock branch: %v\n", err)
-		if strings.Contains(err.Error(), "timeout") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond. Try again or check daemon logs.")
-		} else if strings.Contains(err.Error(), "connection") {
-			fmt.Fprintln(os.Stderr, "Hint: Connection lost to daemon. Check if tmux-tui-daemon is running.")
-		}
+		printErrorHint(err)
 		os.Exit(1)
 	}
 	debug.Log("BLOCK_CLI_UNBLOCK_SUCCESS paneID=%s branch=%s", paneID, branch)
@@ -105,15 +120,7 @@ func main() {
 
 	if err := client.ConnectWithRetry(ctx, 3); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to connect to daemon: %v\n", err)
-		if strings.Contains(err.Error(), "socket not found") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon not running. Start with: tmux-tui-daemon")
-		} else if strings.Contains(err.Error(), "permission denied") {
-			fmt.Fprintln(os.Stderr, "Hint: Permission issue accessing daemon socket. Check file permissions.")
-		} else if strings.Contains(err.Error(), "timeout") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon unresponsive. Check daemon logs or restart it.")
-		} else {
-			fmt.Fprintln(os.Stderr, "Hint: Make sure tmux-tui-daemon is running.")
-		}
+		printErrorHint(err)
 		os.Exit(1)
 	}
 	defer client.Close()
@@ -126,11 +133,7 @@ func main() {
 	// Send request to show block picker (includes internal wait for daemon processing)
 	if err := client.RequestBlockPicker(paneID); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to request block picker: %v\n", err)
-		if strings.Contains(err.Error(), "timeout") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond. Try again or check daemon logs.")
-		} else if strings.Contains(err.Error(), "connection") {
-			fmt.Fprintln(os.Stderr, "Hint: Connection lost to daemon. Check if tmux-tui-daemon is running.")
-		}
+		printErrorHint(err)
 		os.Exit(1)
 	}
 

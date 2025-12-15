@@ -35,6 +35,18 @@ func (c *clientConnection) sendMessage(msg Message) error {
 	return c.encoder.Encode(msg)
 }
 
+// handlePersistenceError logs and broadcasts a persistence failure to all clients
+func (d *AlertDaemon) handlePersistenceError(err error) {
+	debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+	fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
+	fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
+	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
+	d.broadcast(Message{
+		Type:  MsgTypePersistenceError,
+		Error: fmt.Sprintf("Failed to save blocked state: %v", err),
+	})
+}
+
 // playAlertSound plays the system alert sound in the background.
 // It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
 // The sound only plays once when transitioning to an alert state.
@@ -486,16 +498,7 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
-				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
-				// Write to stderr immediately (don't rely on broadcast alone)
-				fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
-				fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
-				fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
-				// Broadcast persistence error to all clients
-				d.broadcast(Message{
-					Type:  MsgTypePersistenceError,
-					Error: fmt.Sprintf("Failed to save blocked state: %v", err),
-				})
+				d.handlePersistenceError(err)
 			}
 
 			// Broadcast change to all clients (this will close pickers in all TUI windows)
@@ -515,16 +518,7 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
-				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
-				// Write to stderr immediately (don't rely on broadcast alone)
-				fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
-				fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
-				fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
-				// Broadcast persistence error to all clients
-				d.broadcast(Message{
-					Type:  MsgTypePersistenceError,
-					Error: fmt.Sprintf("Failed to save blocked state: %v", err),
-				})
+				d.handlePersistenceError(err)
 			}
 
 			// Broadcast change to all clients

@@ -29,6 +29,7 @@ export interface ExtractionResult {
   framework: TestFramework;
   errors: ExtractedError[];
   summary?: string;
+  parseWarnings?: string;
 }
 
 export interface FrameworkExtractor {

@@ -9,6 +9,14 @@ var (
 	ErrQueryTimeout       = errors.New("timeout waiting for blocked state response")
 )
 
+// Connection error types
+var (
+	ErrConnectionTimeout = errors.New("timeout connecting to daemon")
+	ErrConnectionFailed  = errors.New("connection to daemon failed")
+	ErrSocketNotFound    = errors.New("socket not found")
+	ErrPermissionDenied  = errors.New("permission denied")
+)
+
 // Message types for client-daemon communication
 const (
 	// MsgTypeHello is sent by client when connecting
@@ -44,6 +52,7 @@ const (
 	// MsgTypePersistenceError is sent by daemon when blocked state can't be saved
 	MsgTypePersistenceError = "persistence_error"
 	// MsgTypeSyncWarning is sent by daemon when some clients missed an update (broadcast partial failure)
+	// This is informational only - clients should log it but not treat it as an error
 	MsgTypeSyncWarning = "sync_warning"
 	// MsgTypeResyncRequest is sent by client when it detects a gap in sequence numbers
 	MsgTypeResyncRequest = "resync_request"

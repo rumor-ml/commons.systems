@@ -692,3 +692,277 @@ func TestConnectWithRetry_ContextCancellation(t *testing.T) {
 		t.Fatal("Expected error due to context cancellation")
 	}
 }
+
+// TestGapDetection_TriggersResync tests that gap detection triggers a full resync cycle
+func TestGapDetection_TriggersResync(t *testing.T) {
+	// Create pipes for bidirectional communication
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+	defer client.Close()
+
+	// Simulate server sending messages with a gap
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		encoder := json.NewEncoder(serverWriter)
+
+		// Send message with SeqNum=1
+		msg1 := Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1", EventType: "test"}
+		if err := encoder.Encode(msg1); err != nil {
+			t.Logf("Server encode error: %v", err)
+			return
+		}
+
+		// Wait briefly for client to process
+		time.Sleep(50 * time.Millisecond)
+
+		// Send message with SeqNum=5 (gap detected: 5 > 1+1)
+		msg5 := Message{Type: MsgTypeAlertChange, SeqNum: 5, PaneID: "pane2", EventType: "test2"}
+		if err := encoder.Encode(msg5); err != nil {
+			t.Logf("Server encode error: %v", err)
+			return
+		}
+
+		// Expect client to send MsgTypeResyncRequest
+		var resyncMsg Message
+		if err := decoder.Decode(&resyncMsg); err != nil {
+			t.Logf("Server decode error: %v", err)
+			return
+		}
+		if resyncMsg.Type != MsgTypeResyncRequest {
+			t.Errorf("Expected MsgTypeResyncRequest, got %s", resyncMsg.Type)
+			return
+		}
+
+		// Send MsgTypeFullState in response
+		fullState := Message{
+			Type:            MsgTypeFullState,
+			SeqNum:          6,
+			Alerts:          map[string]string{"pane1": "alert1", "pane2": "alert2"},
+			BlockedBranches: map[string]string{"branch1": "main"},
+		}
+		if err := encoder.Encode(fullState); err != nil {
+			t.Logf("Server encode error: %v", err)
+		}
+	}()
+
+	// Verify client receives messages
+	timeout := time.After(2 * time.Second)
+	receivedFullState := false
+
+	for i := 0; i < 3; i++ {
+		select {
+		case msg := <-client.eventCh:
+			if msg.Type == MsgTypeFullState {
+				receivedFullState = true
+				// Verify full state content
+				if len(msg.Alerts) != 2 {
+					t.Errorf("Expected 2 alerts in full state, got %d", len(msg.Alerts))
+				}
+				if len(msg.BlockedBranches) != 1 {
+					t.Errorf("Expected 1 blocked branch in full state, got %d", len(msg.BlockedBranches))
+				}
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for full state after gap detection")
+		}
+	}
+
+	if !receivedFullState {
+		t.Error("Expected to receive MsgTypeFullState after resync request")
+	}
+}
+
+// TestSyncWarning_LoggedButIgnored tests that sync warnings are logged but not forwarded to eventCh
+func TestSyncWarning_LoggedButIgnored(t *testing.T) {
+	// Create pipes for bidirectional communication
+	clientReader, serverWriter := io.Pipe()
+	_, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+	defer client.Close()
+
+	// Simulate server sending sync warning followed by a normal message
+	go func() {
+		encoder := json.NewEncoder(serverWriter)
+
+		// Send sync warning
+		syncWarning := Message{Type: MsgTypeSyncWarning, Error: "client1 send failed"}
+		if err := encoder.Encode(syncWarning); err != nil {
+			t.Logf("Server encode error: %v", err)
+			return
+		}
+
+		// Send normal message that should be forwarded
+		normalMsg := Message{Type: MsgTypeAlertChange, PaneID: "pane1", EventType: "test"}
+		if err := encoder.Encode(normalMsg); err != nil {
+			t.Logf("Server encode error: %v", err)
+		}
+	}()
+
+	// Verify only the normal message is received, not the sync warning
+	timeout := time.After(1 * time.Second)
+	select {
+	case msg := <-client.eventCh:
+		if msg.Type == MsgTypeSyncWarning {
+			t.Error("Sync warning should not be forwarded to eventCh")
+		}
+		if msg.Type != MsgTypeAlertChange {
+			t.Errorf("Expected MsgTypeAlertChange, got %s", msg.Type)
+		}
+	case <-timeout:
+		t.Fatal("Timeout waiting for normal message")
+	}
+
+	// Verify no more messages (sync warning was not queued)
+	select {
+	case msg := <-client.eventCh:
+		if msg.Type == MsgTypeSyncWarning {
+			t.Error("Sync warning should not be forwarded to eventCh")
+		}
+	case <-time.After(200 * time.Millisecond):
+		// Expected - no more messages
+	}
+}
+
+// TestSendAndWait_EncoderFailure tests error handling when write fails (closed pipe)
+func TestSendAndWait_EncoderFailure(t *testing.T) {
+	// Create pipes and immediately close the write end
+	clientReader, serverWriter := io.Pipe()
+	_, clientWriter := io.Pipe()
+	serverWriter.Close() // Close write end to simulate closed connection
+	clientWriter.Close() // Close write end to trigger encoder error
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Attempt to send a message - should fail
+	msg := Message{Type: MsgTypeBlockBranch, Branch: "feature", BlockedBranch: "main"}
+	err := client.sendMessage(msg)
+
+	if err == nil {
+		t.Fatal("Expected error when writing to closed pipe")
+	}
+}
+
+// TestSendMessage_ConcurrentWrites tests that concurrent writes are protected by mutex
+func TestSendMessage_ConcurrentWrites(t *testing.T) {
+	// Create pipes for communication
+	clientReader, _ := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+	defer client.Close()
+
+	// Simulate server reading messages
+	messagesReceived := make(chan Message, 20)
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			messagesReceived <- msg
+		}
+	}()
+
+	// Send multiple messages concurrently
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			msg := Message{Type: MsgTypeBlockBranch, Branch: "feature", BlockedBranch: "main"}
+			if err := client.sendMessage(msg); err != nil {
+				t.Logf("Send error in goroutine %d: %v", id, err)
+			}
+		}(i)
+	}
+
+	// Wait for all sends to complete
+	wg.Wait()
+
+	// Verify all messages were received
+	timeout := time.After(2 * time.Second)
+	receivedCount := 0
+	for receivedCount < numGoroutines {
+		select {
+		case <-messagesReceived:
+			receivedCount++
+		case <-timeout:
+			t.Fatalf("Timeout waiting for messages. Received %d/%d", receivedCount, numGoroutines)
+		}
+	}
+
+	if receivedCount != numGoroutines {
+		t.Errorf("Expected %d messages, received %d", numGoroutines, receivedCount)
+	}
+}

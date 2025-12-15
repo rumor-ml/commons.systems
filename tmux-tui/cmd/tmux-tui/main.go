@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ type model struct {
 	blockedMu       *sync.RWMutex
 
 	// Error state with concurrency protection
-	// Three distinct error paths determine application behavior:
+	// Five distinct error paths determine application behavior:
 	// 1. err != nil: Fatal error - displays message and exits immediately
 	// 2. alertsDisabled == true: Non-fatal - continues running but disables alerts
 	// 3. alertError != "": Alert system error - displays warning banner but continues
@@ -318,16 +319,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				branches = append(branches, branch)
 			}
 			// Sort branches alphabetically for consistent display
-			sortBranches := func(branches []string) {
-				for i := 0; i < len(branches); i++ {
-					for j := i + 1; j < len(branches); j++ {
-						if branches[i] > branches[j] {
-							branches[i], branches[j] = branches[j], branches[i]
-						}
-					}
-				}
-			}
-			sortBranches(branches)
+			sort.Strings(branches)
 
 			m.branchPicker.SetBranches(branches)
 			m.pickingBranch = true
@@ -445,6 +437,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// warningStyle creates a lipgloss style for warning banners with the specified background color
+func warningStyle(bgColor string) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color(bgColor)).
+		Bold(true).
+		Padding(0, 1)
+}
+
 func (m model) View() string {
 	// Snapshot error state with read lock
 	m.errorMu.RLock()
@@ -467,26 +468,11 @@ func (m model) View() string {
 	var warningBanner string
 
 	if persistenceErr != "" {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("1")).
-			Bold(true).
-			Padding(0, 1)
-		warningBanner = warningStyle.Render("⚠ PERSISTENCE ERROR: "+persistenceErr+" (changes won't survive restart)") + "\n\n"
+		warningBanner = warningStyle("1").Render("⚠ PERSISTENCE ERROR: "+persistenceErr+" (changes won't survive restart)") + "\n\n"
 	} else if treeRefreshErr != nil {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")).
-			Bold(true).
-			Padding(0, 1)
-		warningBanner = warningStyle.Render(fmt.Sprintf("⚠ TREE REFRESH FAILED: %v (showing stale data, will retry)", treeRefreshErr)) + "\n\n"
+		warningBanner = warningStyle("3").Render(fmt.Sprintf("⚠ TREE REFRESH FAILED: %v (showing stale data, will retry)", treeRefreshErr)) + "\n\n"
 	} else if alertsDisabled {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")).
-			Bold(true).
-			Padding(0, 1)
-		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+alertErr) + "\n\n"
+		warningBanner = warningStyle("3").Render("⚠ ALERT NOTIFICATIONS DISABLED: "+alertErr) + "\n\n"
 	}
 
 	// Render header

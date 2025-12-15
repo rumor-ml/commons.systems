@@ -101,18 +101,14 @@ func (c *DaemonClient) Connect() error {
 	// Connect to Unix socket
 	conn, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		var errorType string
 		if os.IsNotExist(err) {
-			errorType = "socket not found"
+			return fmt.Errorf("%w: daemon socket %s: %v", ErrSocketNotFound, c.socketPath, err)
 		} else if os.IsPermission(err) {
-			errorType = "permission denied"
+			return fmt.Errorf("%w: daemon socket %s: %v", ErrPermissionDenied, c.socketPath, err)
 		} else if os.IsTimeout(err) {
-			errorType = "connection timeout"
-		} else {
-			errorType = "connection failed"
+			return fmt.Errorf("%w: daemon socket %s: %v", ErrConnectionTimeout, c.socketPath, err)
 		}
-
-		return fmt.Errorf("%s connecting to daemon socket %s: %w", errorType, c.socketPath, err)
+		return fmt.Errorf("%w: daemon socket %s: %v", ErrConnectionFailed, c.socketPath, err)
 	}
 
 	c.conn = conn
@@ -228,6 +224,12 @@ func (c *DaemonClient) receive() {
 			}
 			c.queryMu.Unlock()
 			debug.Log("CLIENT_QUERY_RESPONSE_UNREGISTERED id=%s branch=%s", c.clientID, msg.Branch)
+		}
+
+		// Handle sync warnings - log but don't forward to avoid client disruption
+		if msg.Type == MsgTypeSyncWarning {
+			debug.Log("CLIENT_SYNC_WARNING id=%s warning=%s", c.clientID, msg.Error)
+			continue // Skip forwarding to eventCh
 		}
 
 		// Forward message to event channel
@@ -494,8 +496,8 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 	debug.Log("CLIENT_QUERY_BLOCKED_STATE id=%s branch=%s", c.clientID, branch)
 
 	// Wait for response on dedicated channel to prevent race conditions.
-	// The dedicated response channel ensures query responses are routed correctly
-	// and don't get consumed by the general event handler.
+	// Without this dedicated channel, the response could be consumed by the
+	// general receive() loop before QueryBlockedState returns it to the caller.
 	// Timeout prevents indefinite blocking if daemon is unresponsive.
 	timeout := time.After(2 * time.Second)
 	select {

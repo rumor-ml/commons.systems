@@ -347,8 +347,8 @@ Continue by calling wiggum_complete_pr_creation.
  * This handler completes BOTH Step 1 (workflow monitoring) AND Step 1b (PR checks)
  * in a single function call when successful:
  *
- * 1. Monitors workflow run (lines 328-343) - marks Step 1 complete on success
- * 2. If Step 1 passes, continues inline to monitor PR checks (lines 361-403)
+ * 1. Monitors workflow run - marks Step 1 complete on success
+ * 2. If Step 1 passes, continues inline to monitor PR checks
  * 3. If Step 1b passes, marks Step 1b complete and continues to Step 2
  *
  * This combined execution is an optimization to avoid returning to the agent

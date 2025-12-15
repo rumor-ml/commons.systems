@@ -313,12 +313,18 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // - Other GitHub API issues
         const errorDetails = formatErrorMessage(error);
 
+        // Extract exit code for warning prefix
+        let errorTypeInfo = '';
+        if (error instanceof GitHubCliError) {
+          errorTypeInfo = error.exitCode ? ` (exit code ${error.exitCode})` : '';
+        }
+
         // Create comprehensive warning to prepend to output
         fallbackWarningPrefix = [
           '⚠️  WARNING: Unable to use preferred error extraction method',
           '',
           'Attempted: gh run view --log-failed (provides cleanest output)',
-          `Error: ${errorDetails}`,
+          `Error: ${errorDetails}${errorTypeInfo}`,
           '',
           'Falling back to: GitHub API jobs endpoint (may be less precise)',
           '',

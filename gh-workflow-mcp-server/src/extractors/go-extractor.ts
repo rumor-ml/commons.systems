@@ -107,6 +107,7 @@ export class GoExtractor implements FrameworkExtractor {
     const testResults = new Map<string, 'pass' | 'fail'>();
     const testDurations = new Map<string, number>();
     let skippedNonJsonLines = 0;
+    let testEventParseErrors = 0;
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
@@ -145,6 +146,7 @@ export class GoExtractor implements FrameworkExtractor {
 
         if (looksLikeTestEvent) {
           // Always log test event parse failures - these are unexpected
+          testEventParseErrors++;
           console.error(
             `[ERROR] Go extractor: failed to parse test event JSON: ${error instanceof Error ? error.message : String(error)}`,
             `Line: ${line.substring(0, 200)}`
@@ -230,10 +232,16 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
+    // Add parse warnings if test event parsing failed
+    const parseWarnings = testEventParseErrors > 0
+      ? `${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - see console for details`
+      : undefined;
+
     return {
       framework: 'go',
       errors: failures,
       summary,
+      parseWarnings,
     };
   }
 
