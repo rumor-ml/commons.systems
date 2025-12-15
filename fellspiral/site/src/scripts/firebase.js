@@ -47,7 +47,6 @@ async function getFirebaseConfig() {
       );
       if (response.ok) {
         const config = await response.json();
-        console.log('Using Firebase Hosting auto-config');
         return config;
       }
     } catch (error) {
@@ -55,7 +54,6 @@ async function getFirebaseConfig() {
     }
   }
 
-  console.log('Using local Firebase config');
   return firebaseConfig;
 }
 

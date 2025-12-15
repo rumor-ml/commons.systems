@@ -4,6 +4,8 @@
 
 // Maximum characters to return in tool responses to stay within token limits
 export const MAX_RESPONSE_LENGTH = 10000;
+export const WORKFLOW_LOG_MAX_CHARS = 50000; // For complete error logs in automated workflows
+export const WORKFLOW_MONITOR_TIMEOUT_MS = 600000; // 10 minutes for workflow/PR check monitoring
 
 // Wiggum flow constants
 export const MAX_ITERATIONS = 10;
@@ -34,6 +36,21 @@ export type WiggumStep =
   | typeof STEP_SECURITY_REVIEW
   | typeof STEP_VERIFY_REVIEWS
   | typeof STEP_APPROVAL;
+
+/**
+ * Ordered list of steps in the Wiggum workflow
+ * Used for step index calculations and filtering
+ */
+export const STEP_ORDER: readonly WiggumStep[] = [
+  STEP_ENSURE_PR,
+  STEP_MONITOR_WORKFLOW,
+  STEP_MONITOR_PR_CHECKS,
+  STEP_CODE_QUALITY,
+  STEP_PR_REVIEW,
+  STEP_SECURITY_REVIEW,
+  STEP_VERIFY_REVIEWS,
+  STEP_APPROVAL,
+] as const;
 
 /**
  * Validates if a string is a valid WiggumStep
@@ -72,3 +89,6 @@ export const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
 // PR Review and Security Review commands
 export const PR_REVIEW_COMMAND = '/pr-review-toolkit:review-pr' as const;
 export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
+
+// PR check failure states (used for fail-fast logic)
+export const FAILURE_STATES = ['FAILURE', 'ERROR'] as const;

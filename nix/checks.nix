@@ -87,6 +87,21 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Format Nix files";
     };
 
+    # === TypeScript Build Checks ===
+    # Verify TypeScript MCP servers build successfully
+    # Note: Can be enabled for stricter pre-commit checking, but may slow down commits
+    # For now, run manually with: ./infrastructure/scripts/build-mcp-servers.sh
+    # Or enable by setting enable = true below
+    typescript-build = {
+      enable = false;
+      name = "typescript-build";
+      description = "Build TypeScript MCP servers to catch compilation errors";
+      entry = "./infrastructure/scripts/build-mcp-servers.sh";
+      language = "system";
+      files = "\\.(ts|json)$";
+      pass_filenames = false;
+    };
+
     # === Pre-Push Hooks ===
     # Run tests before allowing push
     pre-push-tests = {
