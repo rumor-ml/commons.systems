@@ -26,7 +26,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Daemon already running (lock held at %s)\n", lockPath)
 		os.Exit(0)
 	}
-	defer lockFile.Release()
+	defer func() {
+		if err := lockFile.Release(); err != nil {
+			debug.Log("DAEMON_MAIN_LOCKFILE_RELEASE_ERROR error=%v", err)
+		}
+	}()
 
 	// Create and start daemon
 	d, err := daemon.NewAlertDaemon()

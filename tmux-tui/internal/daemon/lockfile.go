@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -34,37 +35,36 @@ func AcquireLockFile(path string) (*LockFile, error) {
 	}
 
 	// Write our PID to the file for diagnostics
-	pid := os.Getpid()
-	if err := file.Truncate(0); err != nil {
+	// Use a closure to handle cleanup on error
+	if err := writePIDToLockFile(file); err != nil {
 		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 		file.Close()
-		return nil, fmt.Errorf("failed to truncate lock file: %w", err)
+		return nil, err
 	}
 
-	if _, err := file.Seek(0, 0); err != nil {
-		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		file.Close()
-		return nil, fmt.Errorf("failed to seek lock file: %w", err)
-	}
-
-	if _, err := fmt.Fprintf(file, "%d\n", pid); err != nil {
-		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		file.Close()
-		return nil, fmt.Errorf("failed to write PID to lock file: %w", err)
-	}
-
-	if err := file.Sync(); err != nil {
-		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		file.Close()
-		return nil, fmt.Errorf("failed to sync lock file: %w", err)
-	}
-
-	debug.Log("LOCKFILE_ACQUIRED path=%s pid=%d", path, pid)
+	debug.Log("LOCKFILE_ACQUIRED path=%s pid=%d", path, os.Getpid())
 
 	return &LockFile{
 		path: path,
 		file: file,
 	}, nil
+}
+
+// writePIDToLockFile writes the current process ID to the lock file.
+func writePIDToLockFile(file *os.File) error {
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("failed to truncate lock file: %w", err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek lock file: %w", err)
+	}
+	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
+		return fmt.Errorf("failed to write PID to lock file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync lock file: %w", err)
+	}
+	return nil
 }
 
 // Release releases the lock file and closes the file handle.
@@ -73,18 +73,25 @@ func (l *LockFile) Release() error {
 		return nil
 	}
 
+	var errs []error
+
 	// Release the lock
 	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
 		debug.Log("LOCKFILE_RELEASE_ERROR path=%s error=%v", l.path, err)
+		errs = append(errs, fmt.Errorf("failed to release lock: %w", err))
 	}
 
 	// Close the file
 	if err := l.file.Close(); err != nil {
 		debug.Log("LOCKFILE_CLOSE_ERROR path=%s error=%v", l.path, err)
-		return err
+		errs = append(errs, fmt.Errorf("failed to close file: %w", err))
 	}
 
 	debug.Log("LOCKFILE_RELEASED path=%s", l.path)
 	l.file = nil
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }

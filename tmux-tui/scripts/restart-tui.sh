@@ -39,22 +39,29 @@ TMUX_SOCKET=$(echo "$TMUX" | cut -d',' -f1)
 SESSION_NAME=$(basename "$TMUX_SOCKET")
 NAMESPACE="/tmp/claude/$SESSION_NAME"
 
-# Kill any stray daemon processes
-DAEMON_PIDS=$(pgrep -f tmux-tui-daemon || true)
-if [ -n "$DAEMON_PIDS" ]; then
-  echo "Killing daemon processes: $DAEMON_PIDS"
-  echo "$DAEMON_PIDS" | xargs kill 2>/dev/null || true
-  sleep 0.5
-  echo -e "${GREEN}✓ Daemon processes killed${NC}"
-else
-  echo "No daemon processes running"
-fi
-
-# Remove lock file if present
+# Kill daemon process from lock file first (may be from different worktree)
 LOCK_FILE="$NAMESPACE/daemon.lock"
 if [ -f "$LOCK_FILE" ]; then
+  # Read PID BEFORE removing lock file
+  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    echo "Killing daemon from lock file (PID: $LOCK_PID)"
+    kill -9 "$LOCK_PID" 2>/dev/null || true
+    sleep 0.2
+    echo -e "${GREEN}✓ Daemon process killed${NC}"
+  fi
+  # Remove lock file after killing process
   rm -f "$LOCK_FILE"
   echo -e "${GREEN}✓ Lock file removed${NC}"
+else
+  # No lock file - check for stray daemon processes
+  DAEMON_PIDS=$(pgrep -f tmux-tui-daemon || true)
+  if [ -n "$DAEMON_PIDS" ]; then
+    echo "Killing stray daemon processes: $DAEMON_PIDS"
+    echo "$DAEMON_PIDS" | xargs kill 2>/dev/null || true
+    sleep 0.3
+    echo -e "${GREEN}✓ Stray daemon processes killed${NC}"
+  fi
 fi
 
 # Remove socket file if present
@@ -62,21 +69,6 @@ DAEMON_SOCKET="$NAMESPACE/daemon.sock"
 if [ -S "$DAEMON_SOCKET" ]; then
   rm -f "$DAEMON_SOCKET"
   echo -e "${GREEN}✓ Socket file removed${NC}"
-fi
-
-# CRITICAL: Remove lock file to allow new daemon from this worktree to start
-# This handles daemons from other worktrees that may still hold the lock
-if [ -f "$LOCK_FILE" ]; then
-  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
-  # Kill process holding lock if it's still running (could be from different worktree)
-  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
-    echo "Killing daemon from lock file (PID: $LOCK_PID)"
-    kill -9 "$LOCK_PID" 2>/dev/null || true
-    sleep 0.2
-    echo -e "${GREEN}✓ Daemon process killed${NC}"
-  fi
-  rm -f "$LOCK_FILE"
-  echo -e "${GREEN}✓ Lock file removed (allows worktree daemon to start)${NC}"
 fi
 
 # Wait a moment for cleanup

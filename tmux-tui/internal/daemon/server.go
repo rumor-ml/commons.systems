@@ -488,6 +488,12 @@ func (d *AlertDaemon) watchPaneFocus() {
 // It also cleans up old entries to prevent memory leaks.
 // Returns true if the event should be skipped as a duplicate.
 func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) bool {
+	// Validate inputs - empty paneID or eventType should be rejected
+	if paneID == "" || eventType == "" {
+		debug.Log("DAEMON_INVALID_EVENT_INPUT paneID=%q eventType=%q", paneID, eventType)
+		return true // Skip invalid events
+	}
+
 	d.eventsMu.Lock()
 	defer d.eventsMu.Unlock()
 
@@ -507,12 +513,9 @@ func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) b
 	d.recentEvents[eventKey] = now
 
 	// Clean up old entries (>1s) to prevent memory leak
-	// Only clean every ~100 events to avoid overhead
-	if len(d.recentEvents) > 100 {
-		for key, timestamp := range d.recentEvents {
-			if now.Sub(timestamp) > time.Second {
-				delete(d.recentEvents, key)
-			}
+	for key, timestamp := range d.recentEvents {
+		if now.Sub(timestamp) > time.Second {
+			delete(d.recentEvents, key)
 		}
 	}
 

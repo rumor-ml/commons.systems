@@ -39,7 +39,9 @@ fi
 # Rebuild binaries before spawning
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-(cd "$PROJECT_ROOT" && make build >/dev/null 2>&1)
+if ! (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1); then
+  echo "$(date): ERROR: Build failed in $PROJECT_ROOT" >> /tmp/claude/spawn-debug.log
+fi
 
 # Start daemon if not already running
 # ONLY spawn from main branch or if TMUX_TUI_RESTART=1 (from restart-tui.sh)
@@ -50,7 +52,9 @@ if [ -f "$DAEMON_BIN" ]; then
   if [ "$PROJECT_ROOT" = "$MAIN_BRANCH_DIR" ] || [ "$TMUX_TUI_RESTART" = "1" ]; then
     # Daemon auto-detects namespace from $TMUX
     # It will exit immediately if already running (via lock file)
-    "$DAEMON_BIN" >/dev/null 2>&1 &
+    if ! "$DAEMON_BIN" >/dev/null 2>&1 & then
+      echo "$(date): ERROR: Failed to spawn daemon from $DAEMON_BIN" >> /tmp/claude/spawn-debug.log
+    fi
   fi
 fi
 
