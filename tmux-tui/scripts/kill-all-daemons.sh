@@ -24,9 +24,19 @@ else
   done
 
   echo -e "\nKilling processes..."
-  echo "$DAEMON_PIDS" | while read -r PID; do
-    kill "$PID" 2>/dev/null && echo -e "  ${GREEN}✓ Killed PID $PID${NC}" || echo -e "  ${RED}✗ Failed to kill PID $PID${NC}"
+  KILL_FAILED=0
+  for PID in $DAEMON_PIDS; do
+    if kill "$PID" 2>/dev/null; then
+      echo -e "  ${GREEN}✓ Killed PID $PID${NC}"
+    else
+      echo -e "  ${RED}✗ Failed to kill PID $PID${NC}"
+      KILL_FAILED=$((KILL_FAILED + 1))
+    fi
   done
+
+  if [ $KILL_FAILED -gt 0 ]; then
+    echo -e "${YELLOW}Warning: Failed to kill $KILL_FAILED process(es)${NC}"
+  fi
 fi
 
 # Clean up lock files and sockets in all namespaces
@@ -42,4 +52,3 @@ else
 fi
 
 echo -e "\n${GREEN}=== Done ===${NC}"
-echo -e "All daemon processes killed and files cleaned up"

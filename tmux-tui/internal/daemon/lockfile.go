@@ -35,7 +35,6 @@ func AcquireLockFile(path string) (*LockFile, error) {
 	}
 
 	// Write our PID to the file for diagnostics
-	// Use a closure to handle cleanup on error
 	if err := writePIDToLockFile(file); err != nil {
 		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 		file.Close()
@@ -65,6 +64,11 @@ func writePIDToLockFile(file *os.File) error {
 		return fmt.Errorf("failed to sync lock file: %w", err)
 	}
 	return nil
+}
+
+// IsHeld returns true if the lock is currently held.
+func (l *LockFile) IsHeld() bool {
+	return l.file != nil
 }
 
 // Release releases the lock file and closes the file handle.

@@ -17,6 +17,8 @@ import (
 
 const (
 	connectionCloseErrorThreshold = 10 // Warn after 10 close failures
+	eventDeduplicationWindow      = 100 * time.Millisecond
+	eventCleanupThreshold         = time.Second
 )
 
 var (
@@ -37,6 +39,13 @@ type clientConnection struct {
 type successfulClient struct {
 	id     string
 	client *clientConnection
+}
+
+// eventKey is used as a map key for event deduplication
+type eventKey struct {
+	paneID    string
+	eventType string
+	created   bool
 }
 
 // sendMessage safely sends a message to the client with mutex protection
@@ -131,7 +140,7 @@ func (d *AlertDaemon) playAlertSound() {
 	go func() {
 		debug.Log("AUDIO_PLAYING pid=%d", pid)
 		if err := cmd.Run(); err != nil {
-			debug.Log("AUDIO_ERROR error=%v pid=%d", err, pid)
+			debug.Log("AUDIO_ERROR pid=%d error=%v", pid, err)
 			d.broadcastAudioError(err)
 		}
 		debug.Log("AUDIO_COMPLETED pid=%d", pid)
@@ -231,7 +240,7 @@ type AlertDaemon struct {
 	done             chan struct{}
 	socketPath       string
 	blockedPath      string // Path to persist blocked state JSON
-	recentEvents     map[string]time.Time // Event deduplication: paneID+eventType -> last event time
+	recentEvents     map[eventKey]time.Time // Event deduplication: paneID+eventType+created -> last event time
 	eventsMu         sync.Mutex
 
 	// Health monitoring (accessed atomically)
@@ -392,7 +401,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
-		recentEvents:     make(map[string]time.Time),
+		recentEvents:     make(map[eventKey]time.Time),
 	}
 
 	// Initialize atomic.Value fields
@@ -498,24 +507,28 @@ func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) b
 	defer d.eventsMu.Unlock()
 
 	// Create event key
-	eventKey := fmt.Sprintf("%s:%s:%v", paneID, eventType, created)
+	key := eventKey{
+		paneID:    paneID,
+		eventType: eventType,
+		created:   created,
+	}
 	now := time.Now()
 
-	// Check if this event occurred recently (100ms deduplication window)
-	if lastTime, exists := d.recentEvents[eventKey]; exists {
-		if now.Sub(lastTime) < 100*time.Millisecond {
+	// Check if this event occurred recently (deduplication window)
+	if lastTime, exists := d.recentEvents[key]; exists {
+		if now.Sub(lastTime) < eventDeduplicationWindow {
 			// Duplicate event - skip
 			return true
 		}
 	}
 
 	// Update recent event time
-	d.recentEvents[eventKey] = now
+	d.recentEvents[key] = now
 
-	// Clean up old entries (>1s) to prevent memory leak
-	for key, timestamp := range d.recentEvents {
-		if now.Sub(timestamp) > time.Second {
-			delete(d.recentEvents, key)
+	// Clean up old entries (>cleanup threshold) to prevent memory leak
+	for k, timestamp := range d.recentEvents {
+		if now.Sub(timestamp) > eventCleanupThreshold {
+			delete(d.recentEvents, k)
 		}
 	}
 

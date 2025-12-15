@@ -83,14 +83,18 @@ echo -e "${GREEN}✓ Binaries rebuilt${NC}"
 
 # Step 2.5: Start the daemon
 echo -e "\n${YELLOW}Step 2.5: Starting daemon...${NC}"
-"$PROJECT_ROOT/build/tmux-tui-daemon" >/dev/null 2>&1 &
+DAEMON_LOG="/tmp/claude/daemon-restart.log"
+"$PROJECT_ROOT/build/tmux-tui-daemon" >> "$DAEMON_LOG" 2>&1 &
+DAEMON_PID=$!
 sleep 0.5
 
-# Check if daemon started
 if [ -S "$DAEMON_SOCKET" ]; then
-  echo -e "${GREEN}✓ Daemon started${NC}"
+  echo -e "${GREEN}✓ Daemon started (PID: $DAEMON_PID)${NC}"
 else
-  echo -e "${RED}Warning: Daemon may not have started correctly${NC}"
+  echo -e "${RED}Error: Daemon failed to start. Check $DAEMON_LOG for details${NC}"
+  if [ -f "$DAEMON_LOG" ]; then
+    tail -5 "$DAEMON_LOG"
+  fi
 fi
 
 # Step 3: Kill all existing TUI panes
