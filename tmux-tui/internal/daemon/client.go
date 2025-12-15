@@ -206,8 +206,23 @@ func (c *DaemonClient) receive() {
 					resyncMsg := Message{Type: MsgTypeResyncRequest}
 					if err := c.sendMessage(resyncMsg); err != nil {
 						c.resyncFailures.Add(1)
-						debug.Log("CLIENT_RESYNC_REQUEST_ERROR id=%s error=%v count=%d",
+						debug.Log("CLIENT_RESYNC_REQUEST_ERROR - disconnecting id=%s error=%v count=%d",
 							c.clientID, err, c.resyncFailures.Load())
+
+						// CRITICAL: Cannot continue with known gaps - disconnect to trigger full reconnect
+						c.mu.Lock()
+						c.connected = false
+						if c.conn != nil {
+							c.conn.Close()
+						}
+						c.mu.Unlock()
+
+						// Send disconnect event
+						select {
+						case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync: %v", err)}:
+						case <-c.done:
+						}
+						return
 					} else {
 						debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 					}
@@ -432,33 +447,6 @@ func (c *DaemonClient) RequestBlockPicker(paneID string) error {
 		return fmt.Errorf("failed to send show block picker message: %w", err)
 	}
 	debug.Log("CLIENT_REQUEST_BLOCK_PICKER id=%s paneID=%s", c.clientID, paneID)
-	return nil
-}
-
-// BlockPane sends a request to block a pane on a specific branch
-func (c *DaemonClient) BlockPane(paneID, branch string) error {
-	msg := Message{
-		Type:          MsgTypeBlockPane,
-		PaneID:        paneID,
-		BlockedBranch: branch,
-	}
-	if err := c.sendAndWait(msg); err != nil {
-		return fmt.Errorf("failed to send block pane message: %w", err)
-	}
-	debug.Log("CLIENT_BLOCK_PANE id=%s paneID=%s branch=%s", c.clientID, paneID, branch)
-	return nil
-}
-
-// UnblockPane sends a request to unblock a pane
-func (c *DaemonClient) UnblockPane(paneID string) error {
-	msg := Message{
-		Type:   MsgTypeUnblockPane,
-		PaneID: paneID,
-	}
-	if err := c.sendAndWait(msg); err != nil {
-		return fmt.Errorf("failed to send unblock pane message: %w", err)
-	}
-	debug.Log("CLIENT_UNBLOCK_PANE id=%s paneID=%s", c.clientID, paneID)
 	return nil
 }
 

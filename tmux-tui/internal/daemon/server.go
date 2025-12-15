@@ -83,26 +83,26 @@ func playAlertSound() {
 
 // Lock Ordering Rules
 //
-// To prevent deadlocks, locks MUST be acquired in this order:
-//   1. clientsMu (for client map access)
-//   2. alertsMu (for alert state access)
-//   3. blockedMu (for blocked branches access)
-//   4. encoderMu (per-client encoder mutex)
+// CRITICAL: clientsMu → encoderMu
+//   broadcast() holds clientsMu.RLock while calling client.sendMessage()
+//   which acquires encoderMu. NEVER acquire clientsMu while holding encoderMu (deadlock)
+//
+// INDEPENDENT: alertsMu and blockedMu
+//   These don't interact with clientsMu in ways that create deadlock risk.
+//   Can be acquired in any order relative to each other.
+//   Use RLock when only reading to allow concurrent access.
 //
 // RATIONALE:
-//   - clientsMu is acquired first because broadcast() needs to iterate clients
-//     while potentially accessing alert/blocked state
-//   - alertsMu and blockedMu are next because they protect shared state
-//     that may be read during message construction
-//   - encoderMu is last (per-client) to allow parallel writes to different clients
+//   - clientsMu → encoderMu ordering prevents broadcast() deadlock
+//   - alertsMu/blockedMu are independent because they're only held briefly
+//     for map copying and never held during I/O operations
+//   - encoderMu is per-client, allowing parallel writes to different clients
 //
 // EXAMPLES:
-//   - broadcast() locks clientsMu to iterate, then each client's encoderMu to send
-//   - handleClient() locks alertsMu/blockedMu to build state, then encoderMu to send
-//
-// VIOLATIONS:
-//   - Never acquire clientsMu while holding encoderMu (could deadlock with broadcast)
-//   - Never acquire alertsMu/blockedMu in different order (use RLock if read-only)
+//   ✓ broadcast(): clientsMu.RLock → encoderMu
+//   ✓ handleClient(): alertsMu.RLock → encoderMu (independent, no ordering needed)
+//   ✓ saveBlockedBranches(): blockedMu.RLock (no other locks)
+//   ✗ NEVER: encoderMu → clientsMu (DEADLOCK with broadcast)
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
