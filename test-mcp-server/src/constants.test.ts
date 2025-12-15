@@ -187,10 +187,7 @@ describe('Test Status Constants', () => {
     ];
 
     statuses.forEach((status) => {
-      assert.ok(
-        status.match(/^[a-z_]+$/),
-        `${status} should be snake_case`
-      );
+      assert.ok(status.match(/^[a-z_]+$/), `${status} should be snake_case`);
     });
   });
 });
@@ -211,10 +208,7 @@ describe('Service Name Constants', () => {
     const services = [SERVICE_FIREBASE_EMULATORS, SERVICE_DEV_SERVER];
 
     services.forEach((service) => {
-      assert.ok(
-        service.match(/^[a-z-]+$/),
-        `${service} should be kebab-case`
-      );
+      assert.ok(service.match(/^[a-z-]+$/), `${service} should be kebab-case`);
     });
   });
 });

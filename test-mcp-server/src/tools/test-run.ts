@@ -107,9 +107,7 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
     // Validate arguments
     const timeout = args.timeout_seconds || DEFAULT_TEST_TIMEOUT;
     if (timeout > MAX_TEST_TIMEOUT) {
-      throw new ValidationError(
-        `Timeout ${timeout}s exceeds maximum ${MAX_TEST_TIMEOUT}s`
-      );
+      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_TEST_TIMEOUT}s`);
     }
 
     if (args.type && !['unit', 'e2e', 'deployed-e2e'].includes(args.type)) {

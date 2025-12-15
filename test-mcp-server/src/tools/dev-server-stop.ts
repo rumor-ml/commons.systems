@@ -38,11 +38,11 @@ function formatStopResult(stdout: string, withEmulators: boolean): string {
 
   // Include any warnings from the output
   const outputLines = stdout.split('\n');
-  const warnings = outputLines.filter(line => line.includes('WARNING') || line.includes('⚠️'));
+  const warnings = outputLines.filter((line) => line.includes('WARNING') || line.includes('⚠️'));
   if (warnings.length > 0) {
     lines.push('');
     lines.push('Warnings:');
-    warnings.forEach(warning => {
+    warnings.forEach((warning) => {
       lines.push(`  ${warning.trim()}`);
     });
   }
@@ -53,28 +53,19 @@ function formatStopResult(stdout: string, withEmulators: boolean): string {
 /**
  * Execute the dev_server_stop tool
  */
-export async function devServerStop(
-  args: DevServerStopArgs
-): Promise<ToolResult> {
+export async function devServerStop(args: DevServerStopArgs): Promise<ToolResult> {
   try {
     // Validate arguments
     const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
     if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(
-        `Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`
-      );
+      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
     }
 
     const withEmulators = args.with_emulators ?? false; // Default to false
 
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'stop-dev-server.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'stop-dev-server.sh');
 
     // Build script arguments
     const scriptArgs: string[] = [];

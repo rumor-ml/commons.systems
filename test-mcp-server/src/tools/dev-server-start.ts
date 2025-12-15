@@ -134,9 +134,7 @@ function formatStartupResult(info: DevServerInfo, alreadyRunning: boolean): stri
 /**
  * Execute the dev_server_start tool
  */
-export async function devServerStart(
-  args: DevServerStartArgs
-): Promise<ToolResult> {
+export async function devServerStart(args: DevServerStartArgs): Promise<ToolResult> {
   try {
     // Validate arguments
     if (!args.module || args.module.trim() === '') {
@@ -145,21 +143,14 @@ export async function devServerStart(
 
     const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
     if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(
-        `Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`
-      );
+      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
     }
 
     const withEmulators = args.with_emulators ?? true; // Default to true
 
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'start-dev-server.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'start-dev-server.sh');
 
     // Build script arguments
     const scriptArgs = [args.module];
@@ -176,9 +167,7 @@ export async function devServerStart(
     // Parse server information from output
     const info = parseDevServerInfo(result.stdout);
     if (!info) {
-      throw new Error(
-        'Failed to parse dev server information from script output'
-      );
+      throw new Error('Failed to parse dev server information from script output');
     }
 
     // Check if server was already running

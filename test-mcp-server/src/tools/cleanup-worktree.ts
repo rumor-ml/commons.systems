@@ -120,9 +120,7 @@ async function removeDirectory(dirPath: string): Promise<boolean> {
 /**
  * Execute the cleanup_worktree tool
  */
-export async function cleanupWorktree(
-  args: CleanupWorktreeArgs
-): Promise<ToolResult> {
+export async function cleanupWorktree(args: CleanupWorktreeArgs): Promise<ToolResult> {
   try {
     // Get worktree path (use provided or default to current)
     const worktreeRoot = args.worktree_path
@@ -203,10 +201,7 @@ export async function cleanupWorktree(
     }
 
     // Clean up legacy Firebase config
-    const legacyFirebaseJson = path.join(
-      worktreeRoot,
-      `.firebase-${worktreeHash}.json`
-    );
+    const legacyFirebaseJson = path.join(worktreeRoot, `.firebase-${worktreeHash}.json`);
 
     try {
       await fs.unlink(legacyFirebaseJson);
@@ -260,13 +255,9 @@ function formatCleanupResult(result: CleanupResult): string {
   // Emulator status
   if (result.emulatorPid) {
     if (result.emulatorStopped) {
-      lines.push(
-        `✓ Stopped Firebase emulator (PID: ${result.emulatorPid})`
-      );
+      lines.push(`✓ Stopped Firebase emulator (PID: ${result.emulatorPid})`);
     } else {
-      lines.push(
-        `⚠️  Failed to stop Firebase emulator (PID: ${result.emulatorPid})`
-      );
+      lines.push(`⚠️  Failed to stop Firebase emulator (PID: ${result.emulatorPid})`);
     }
   } else {
     lines.push('No emulator PID file found - emulators not running');

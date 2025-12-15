@@ -25,21 +25,13 @@ interface ServiceStatus {
  */
 async function getWorktreeTmpDir(): Promise<string> {
   const root = await getWorktreeRoot();
-  const scriptPath = path.join(
-    root,
-    'infrastructure',
-    'scripts',
-    'allocate-test-ports.sh'
-  );
+  const scriptPath = path.join(root, 'infrastructure', 'scripts', 'allocate-test-ports.sh');
 
   try {
-    const result = await execaCommand(
-      `source "${scriptPath}" && echo "$WORKTREE_TMP_DIR"`,
-      {
-        shell: '/bin/bash',
-        cwd: root,
-      }
-    );
+    const result = await execaCommand(`source "${scriptPath}" && echo "$WORKTREE_TMP_DIR"`, {
+      shell: '/bin/bash',
+      cwd: root,
+    });
 
     const tmpDir = result.stdout.split('\n').pop()?.trim();
     if (!tmpDir) {
@@ -64,12 +56,7 @@ async function getPortAllocations(): Promise<{
   ui: number;
 }> {
   const root = await getWorktreeRoot();
-  const scriptPath = path.join(
-    root,
-    'infrastructure',
-    'scripts',
-    'allocate-test-ports.sh'
-  );
+  const scriptPath = path.join(root, 'infrastructure', 'scripts', 'allocate-test-ports.sh');
 
   try {
     const result = await execaCommand(
@@ -241,9 +228,7 @@ function formatStatus(
     lines.push('');
     lines.push('Inactive Services:');
     stoppedServices.forEach((service) => {
-      lines.push(
-        `  ${service.name}: ${service.host}:${service.port} (not responding)`
-      );
+      lines.push(`  ${service.name}: ${service.host}:${service.port} (not responding)`);
     });
   }
 
@@ -253,9 +238,7 @@ function formatStatus(
 /**
  * Execute the emulator_status tool
  */
-export async function emulatorStatus(
-  _args: EmulatorStatusArgs
-): Promise<ToolResult> {
+export async function emulatorStatus(_args: EmulatorStatusArgs): Promise<ToolResult> {
   try {
     // Check if emulator process is running
     const processStatus = await isEmulatorProcessRunning();
@@ -267,11 +250,7 @@ export async function emulatorStatus(
     const services = await checkServicesHealth(ports);
 
     // Format output
-    const formatted = formatStatus(
-      processStatus.running,
-      processStatus.pid,
-      services
-    );
+    const formatted = formatStatus(processStatus.running, processStatus.pid, services);
 
     // Build EmulatorStatus result
     const status: EmulatorStatus = {
@@ -297,8 +276,7 @@ export async function emulatorStatus(
         process_running: processStatus.running,
         pid: processStatus.pid,
         services,
-        all_services_healthy:
-          processStatus.running && services.every((s) => s.running),
+        all_services_healthy: processStatus.running && services.every((s) => s.running),
       },
     };
   } catch (error) {

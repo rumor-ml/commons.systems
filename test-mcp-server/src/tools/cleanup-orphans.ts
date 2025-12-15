@@ -114,10 +114,7 @@ async function findEscapedProcesses(): Promise<EscapedProcess[]> {
           reject: false,
         });
 
-        const cmdline =
-          cmdlineResult.exitCode === 0
-            ? cmdlineResult.stdout.trim()
-            : 'unknown';
+        const cmdline = cmdlineResult.exitCode === 0 ? cmdlineResult.stdout.trim() : 'unknown';
 
         escapedProcesses.push({ pid, cmdline });
       }
@@ -162,11 +159,7 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
     const worktreeDirs = await fs.readdir(claudeTmpDir);
 
     for (const worktreeDir of worktreeDirs) {
-      const pidFilePath = path.join(
-        claudeTmpDir,
-        worktreeDir,
-        'firebase-emulators.pid'
-      );
+      const pidFilePath = path.join(claudeTmpDir, worktreeDir, 'firebase-emulators.pid');
 
       try {
         const pidContent = await fs.readFile(pidFilePath, 'utf-8');
@@ -312,9 +305,7 @@ function formatCleanupResult(
 /**
  * Execute the cleanup_orphans tool
  */
-export async function cleanupOrphans(
-  args: CleanupOrphansArgs
-): Promise<ToolResult> {
+export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResult> {
   try {
     const dryRun = args.dry_run ?? false;
     const force = args.force ?? true; // Default to true for MCP (non-interactive)
@@ -359,12 +350,7 @@ export async function cleanupOrphans(
       }
     }
 
-    const formatted = formatCleanupResult(
-      stalePidFiles,
-      escapedProcesses,
-      dryRun,
-      cleaned
-    );
+    const formatted = formatCleanupResult(stalePidFiles, escapedProcesses, dryRun, cleaned);
 
     return {
       content: [

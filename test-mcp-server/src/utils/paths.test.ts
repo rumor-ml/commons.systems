@@ -5,12 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import path from 'path';
-import {
-  getWorktreeRoot,
-  getScriptPath,
-  getTempDir,
-  getCwd,
-} from './paths.js';
+import { getWorktreeRoot, getScriptPath, getTempDir, getCwd } from './paths.js';
 import { SCRIPTS_DIR, TEMP_DIR } from '../constants.js';
 
 describe('getCwd', () => {

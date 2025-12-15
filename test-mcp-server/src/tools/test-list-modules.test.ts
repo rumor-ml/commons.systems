@@ -305,13 +305,7 @@ describe('Module List Formatter', () => {
 
 describe('Module Type Coverage', () => {
   it('should handle all known module types', () => {
-    const moduleTypes = [
-      'firebase',
-      'go-fullstack',
-      'go-tui',
-      'go-package',
-      'mcp-server',
-    ];
+    const moduleTypes = ['firebase', 'go-fullstack', 'go-tui', 'go-package', 'mcp-server'];
 
     moduleTypes.forEach((type) => {
       const modules: ModuleInfo[] = [
@@ -343,9 +337,7 @@ describe('Test Type Display', () => {
 
     const formatted = formatModules(modules);
     // Check order: unit, e2e, deployed-e2e
-    const testsLine = formatted
-      .split('\n')
-      .find((line) => line.includes('Tests:'));
+    const testsLine = formatted.split('\n').find((line) => line.includes('Tests:'));
     assert.ok(testsLine);
     assert.ok(testsLine.includes('unit, e2e, deployed-e2e'));
   });

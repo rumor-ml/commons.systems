@@ -79,10 +79,7 @@ async function isServiceRunning(port: number): Promise<boolean> {
 /**
  * Format emulator startup result
  */
-function formatStartupResult(
-  ports: EmulatorPorts,
-  alreadyRunning: boolean
-): string {
+function formatStartupResult(ports: EmulatorPorts, alreadyRunning: boolean): string {
   const lines: string[] = [];
 
   if (alreadyRunning) {
@@ -110,16 +107,12 @@ function formatStartupResult(
 /**
  * Execute the emulator_start tool
  */
-export async function emulatorStart(
-  args: EmulatorStartArgs
-): Promise<ToolResult> {
+export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult> {
   try {
     // Validate arguments
     const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
     if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(
-        `Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`
-      );
+      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
     }
 
     // Note: The start-emulators.sh script doesn't support selective service starting
@@ -127,9 +120,7 @@ export async function emulatorStart(
     // included in the schema for future extensibility but currently not used.
     if (args.services && args.services.length > 0) {
       const validServices = ['auth', 'firestore', 'storage'];
-      const invalidServices = args.services.filter(
-        (s) => !validServices.includes(s)
-      );
+      const invalidServices = args.services.filter((s) => !validServices.includes(s));
       if (invalidServices.length > 0) {
         throw new ValidationError(
           `Invalid services: ${invalidServices.join(', ')}. Valid services are: ${validServices.join(', ')}`
@@ -139,12 +130,7 @@ export async function emulatorStart(
 
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'start-emulators.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'start-emulators.sh');
 
     // Execute the start script
     const result = await execScript(scriptPath, [], {
@@ -155,9 +141,7 @@ export async function emulatorStart(
     // Parse port information from output
     const ports = parsePorts(result.stdout);
     if (!ports) {
-      throw new Error(
-        'Failed to parse emulator port information from script output'
-      );
+      throw new Error('Failed to parse emulator port information from script output');
     }
 
     // Check if emulators were already running (script exit 0 with "already running" message)

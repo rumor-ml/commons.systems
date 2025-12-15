@@ -107,18 +107,11 @@ function formatPortAllocation(allocations: PortAllocation[]): string {
 /**
  * Execute the get_port_allocation tool
  */
-export async function getPortAllocation(
-  args: GetPortAllocationArgs
-): Promise<ToolResult> {
+export async function getPortAllocation(args: GetPortAllocationArgs): Promise<ToolResult> {
   try {
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'allocate-test-ports.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'allocate-test-ports.sh');
 
     // Execute the port allocation script
     const result = await execScript(scriptPath, [], {

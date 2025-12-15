@@ -70,9 +70,7 @@ async function findTestProcesses(): Promise<TestProcessInfo[]> {
 /**
  * Get recent test results from test-results directory
  */
-async function getRecentTestResults(
-  root: string
-): Promise<RecentTestResult[]> {
+async function getRecentTestResults(root: string): Promise<RecentTestResult[]> {
   try {
     const resultsDir = path.join(root, 'test-results');
     const entries = await fs.readdir(resultsDir, { withFileTypes: true });
@@ -112,10 +110,7 @@ async function getRecentTestResults(
 /**
  * Format status information
  */
-function formatStatus(
-  processes: TestProcessInfo[],
-  recentResults: RecentTestResult[]
-): string {
+function formatStatus(processes: TestProcessInfo[], recentResults: RecentTestResult[]): string {
   const lines: string[] = [];
 
   lines.push('Test Execution Status:');
@@ -138,15 +133,11 @@ function formatStatus(
     lines.push('Recent Test Results:');
     recentResults.slice(0, 10).forEach((result) => {
       const status = result.status === 'passed' ? '✓' : '✗';
-      const duration = result.duration_ms
-        ? ` (${(result.duration_ms / 1000).toFixed(1)}s)`
-        : '';
+      const duration = result.duration_ms ? ` (${(result.duration_ms / 1000).toFixed(1)}s)` : '';
       const age = new Date().getTime() - result.timestamp.getTime();
       const ageStr = formatAge(age);
 
-      lines.push(
-        `  ${status} ${result.module} - ${result.status}${duration} (${ageStr} ago)`
-      );
+      lines.push(`  ${status} ${result.module} - ${result.status}${duration} (${ageStr} ago)`);
     });
 
     if (recentResults.length > 10) {
@@ -177,9 +168,7 @@ function formatAge(ms: number): string {
 /**
  * Execute the test_get_status tool
  */
-export async function testGetStatus(
-  args: TestGetStatusArgs
-): Promise<ToolResult> {
+export async function testGetStatus(args: TestGetStatusArgs): Promise<ToolResult> {
   try {
     const root = await getWorktreeRoot();
 

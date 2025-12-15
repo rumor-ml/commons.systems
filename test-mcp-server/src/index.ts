@@ -2,10 +2,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { createErrorResult } from './utils/errors.js';
@@ -17,46 +14,16 @@ import {
 } from './constants.js';
 import { testRun, type TestRunArgs } from './tools/test-run.js';
 import { testListModules } from './tools/test-list-modules.js';
-import {
-  testGetStatus,
-  type TestGetStatusArgs,
-} from './tools/test-get-status.js';
-import {
-  getPortAllocation,
-  type GetPortAllocationArgs,
-} from './tools/get-port-allocation.js';
-import {
-  emulatorStart,
-  type EmulatorStartArgs,
-} from './tools/emulator-start.js';
-import {
-  emulatorStop,
-  type EmulatorStopArgs,
-} from './tools/emulator-stop.js';
-import {
-  emulatorStatus,
-  type EmulatorStatusArgs,
-} from './tools/emulator-status.js';
-import {
-  devServerStart,
-  type DevServerStartArgs,
-} from './tools/dev-server-start.js';
-import {
-  devServerStop,
-  type DevServerStopArgs,
-} from './tools/dev-server-stop.js';
-import {
-  devServerStatus,
-  type DevServerStatusArgs,
-} from './tools/dev-server-status.js';
-import {
-  cleanupOrphans,
-  type CleanupOrphansArgs,
-} from './tools/cleanup-orphans.js';
-import {
-  cleanupWorktree,
-  type CleanupWorktreeArgs,
-} from './tools/cleanup-worktree.js';
+import { testGetStatus, type TestGetStatusArgs } from './tools/test-get-status.js';
+import { getPortAllocation, type GetPortAllocationArgs } from './tools/get-port-allocation.js';
+import { emulatorStart, type EmulatorStartArgs } from './tools/emulator-start.js';
+import { emulatorStop, type EmulatorStopArgs } from './tools/emulator-stop.js';
+import { emulatorStatus, type EmulatorStatusArgs } from './tools/emulator-status.js';
+import { devServerStart, type DevServerStartArgs } from './tools/dev-server-start.js';
+import { devServerStop, type DevServerStopArgs } from './tools/dev-server-stop.js';
+import { devServerStatus, type DevServerStatusArgs } from './tools/dev-server-status.js';
+import { cleanupOrphans, type CleanupOrphansArgs } from './tools/cleanup-orphans.js';
+import { cleanupWorktree, type CleanupWorktreeArgs } from './tools/cleanup-worktree.js';
 
 const server = new Server(
   {
@@ -83,7 +50,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             module: {
               type: 'string',
-              description: 'Module name to test (e.g., "printsync", "financesync"). If not specified, runs all modules.',
+              description:
+                'Module name to test (e.g., "printsync", "financesync"). If not specified, runs all modules.',
             },
             pattern: {
               type: 'string',
@@ -122,7 +90,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             module: {
               type: 'string',
-              description: 'Module name to get status for. If not specified, returns status for all modules.',
+              description:
+                'Module name to get status for. If not specified, returns status for all modules.',
             },
           },
           required: [],
@@ -138,7 +107,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             services: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific services to start (e.g., ["auth", "firestore"]). If not specified, starts all configured services.',
+              description:
+                'Specific services to start (e.g., ["auth", "firestore"]). If not specified, starts all configured services.',
             },
             timeout_seconds: {
               type: 'number',
@@ -245,7 +215,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             force: {
               type: 'boolean',
-              description: 'Do not prompt for confirmation, clean up automatically (default: true for MCP)',
+              description:
+                'Do not prompt for confirmation, clean up automatically (default: true for MCP)',
               default: true,
             },
           },
@@ -261,7 +232,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             worktree_path: {
               type: 'string',
-              description: 'Path to worktree to clean (default: current worktree). Example: /Users/name/worktrees/my-branch',
+              description:
+                'Path to worktree to clean (default: current worktree). Example: /Users/name/worktrees/my-branch',
             },
           },
           required: [],
@@ -276,7 +248,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             service: {
               type: 'string',
-              description: 'Specific service to get port allocation for. If not specified, returns all allocations.',
+              description:
+                'Specific service to get port allocation for. If not specified, returns all allocations.',
             },
           },
           required: [],

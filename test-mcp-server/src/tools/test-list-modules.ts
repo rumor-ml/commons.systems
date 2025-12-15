@@ -81,7 +81,7 @@ export async function testListModules(): Promise<ToolResult> {
     try {
       const parsed = JSON.parse(result.stdout);
       // Handle both array format and object format
-      modules = Array.isArray(parsed) ? parsed : (parsed.modules || []);
+      modules = Array.isArray(parsed) ? parsed : parsed.modules || [];
     } catch (error) {
       // If JSON parsing fails, return empty list
       modules = [];

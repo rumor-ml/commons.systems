@@ -41,7 +41,7 @@ function parseDevServerStatus(stdout: string): DevServerStatusInfo {
   };
 
   // Check if dev server is running
-  const runningLine = lines.find(line => line.includes('Dev Server:'));
+  const runningLine = lines.find((line) => line.includes('Dev Server:'));
   if (runningLine) {
     info.running = runningLine.includes('RUNNING');
   }
@@ -79,7 +79,7 @@ function parseDevServerStatus(stdout: string): DevServerStatusInfo {
     running: false,
   };
 
-  const emulatorLine = lines.find(line => line.includes('Emulators:'));
+  const emulatorLine = lines.find((line) => line.includes('Emulators:'));
   if (emulatorLine && emulatorLine.includes('RUNNING')) {
     info.emulators.running = true;
 
@@ -231,18 +231,11 @@ function formatStatusResult(info: DevServerStatusInfo): string {
 /**
  * Execute the dev_server_status tool
  */
-export async function devServerStatus(
-  _args: DevServerStatusArgs
-): Promise<ToolResult> {
+export async function devServerStatus(_args: DevServerStatusArgs): Promise<ToolResult> {
   try {
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'dev-server-status.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'dev-server-status.sh');
 
     // Execute the status script
     const result = await execScript(scriptPath, [], {

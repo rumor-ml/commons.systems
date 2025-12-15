@@ -54,9 +54,7 @@ function validateTestRunArgs(args: TestRunArgs): string[] {
 
   // Validate test type
   if (args.type && !['unit', 'e2e', 'deployed-e2e'].includes(args.type)) {
-    errors.push(
-      `Invalid test type: ${args.type}. Must be one of: unit, e2e, deployed-e2e`
-    );
+    errors.push(`Invalid test type: ${args.type}. Must be one of: unit, e2e, deployed-e2e`);
   }
 
   // Validate module array
@@ -183,11 +181,7 @@ describe('Test Run Input Validation', () => {
   });
 
   it('should accept valid test types', () => {
-    const validTypes: Array<'unit' | 'e2e' | 'deployed-e2e'> = [
-      'unit',
-      'e2e',
-      'deployed-e2e',
-    ];
+    const validTypes: Array<'unit' | 'e2e' | 'deployed-e2e'> = ['unit', 'e2e', 'deployed-e2e'];
 
     validTypes.forEach((type) => {
       const args: TestRunArgs = { type };
@@ -375,9 +369,7 @@ describe('Test Results Formatter', () => {
   });
 
   it('should truncate long output', () => {
-    const longOutput = Array(30)
-      .fill('line of output')
-      .join('\n');
+    const longOutput = Array(30).fill('line of output').join('\n');
 
     const output: TestRunOutput = {
       results: [

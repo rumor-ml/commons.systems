@@ -26,21 +26,13 @@ async function getPidFilePath(): Promise<string> {
   const { execaCommand } = await import('execa');
 
   // Get the hash by running allocate-test-ports.sh
-  const scriptPath = path.join(
-    root,
-    'infrastructure',
-    'scripts',
-    'allocate-test-ports.sh'
-  );
+  const scriptPath = path.join(root, 'infrastructure', 'scripts', 'allocate-test-ports.sh');
 
   try {
-    const result = await execaCommand(
-      `source "${scriptPath}" && echo "$WORKTREE_TMP_DIR"`,
-      {
-        shell: '/bin/bash',
-        cwd: root,
-      }
-    );
+    const result = await execaCommand(`source "${scriptPath}" && echo "$WORKTREE_TMP_DIR"`, {
+      shell: '/bin/bash',
+      cwd: root,
+    });
 
     const tmpDir = result.stdout.split('\n').pop()?.trim();
     if (!tmpDir) {
@@ -104,26 +96,17 @@ function formatStopResult(result: {
 /**
  * Execute the emulator_stop tool
  */
-export async function emulatorStop(
-  args: EmulatorStopArgs
-): Promise<ToolResult> {
+export async function emulatorStop(args: EmulatorStopArgs): Promise<ToolResult> {
   try {
     // Validate arguments
     const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
     if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(
-        `Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`
-      );
+      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
     }
 
     // Get script path
     const root = await getWorktreeRoot();
-    const scriptPath = path.join(
-      root,
-      'infrastructure',
-      'scripts',
-      'stop-emulators.sh'
-    );
+    const scriptPath = path.join(root, 'infrastructure', 'scripts', 'stop-emulators.sh');
 
     // Execute the stop script
     const result = await execScript(scriptPath, [], {
