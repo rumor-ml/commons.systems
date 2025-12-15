@@ -17,10 +17,20 @@ const (
 	filesCollectionBase    = "printsync-files"
 )
 
-// getCollectionPrefix returns the collection prefix based on environment variables
-// For PR previews: pr_<number>
-// For branch previews: preview_<sanitized-branch-name>
-// For production: empty string (no prefix)
+// getCollectionPrefix returns the collection prefix based on environment variables.
+//
+// Priority order (highest to lowest):
+//  1. PR_NUMBER - if set, returns "pr_<number>_" (no sanitization)
+//  2. BRANCH_NAME - if set and not "main", returns "preview_<sanitized>_"
+//     Sanitization: lowercase, replace [^a-z0-9-] with -, truncate to 50 chars
+//  3. Production - returns empty string (no prefix) when main branch or no env vars
+//
+// Examples:
+//
+//	PR_NUMBER=123           -> "pr_123_"
+//	BRANCH_NAME=feature/auth -> "preview_feature-auth_"
+//	BRANCH_NAME=main        -> ""
+//	(no env vars)           -> ""
 func getCollectionPrefix() string {
 	// Check for PR number first (highest priority)
 	if prNumber := os.Getenv("PR_NUMBER"); prNumber != "" {

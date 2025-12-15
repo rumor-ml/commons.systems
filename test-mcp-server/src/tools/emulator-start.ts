@@ -7,6 +7,7 @@ import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError } from '../utils/errors.js';
 import { DEFAULT_INFRA_TIMEOUT, MAX_INFRA_TIMEOUT } from '../constants.js';
+import { parseEmulatorPorts } from '../utils/port-parsing.js';
 import { execaCommand } from 'execa';
 import path from 'path';
 
@@ -27,32 +28,9 @@ interface EmulatorPorts {
  */
 function parsePorts(stdout: string): EmulatorPorts | null {
   const lines = stdout.split('\n');
-  const ports: Partial<EmulatorPorts> = {};
+  const ports = parseEmulatorPorts(lines);
 
-  for (const line of lines) {
-    // Parse lines like: "  Auth: localhost:10000"
-    const authMatch = line.match(/Auth:\s*localhost:(\d+)/);
-    if (authMatch) {
-      ports.auth = parseInt(authMatch[1], 10);
-    }
-
-    const firestoreMatch = line.match(/Firestore:\s*localhost:(\d+)/);
-    if (firestoreMatch) {
-      ports.firestore = parseInt(firestoreMatch[1], 10);
-    }
-
-    const storageMatch = line.match(/Storage:\s*localhost:(\d+)/);
-    if (storageMatch) {
-      ports.storage = parseInt(storageMatch[1], 10);
-    }
-
-    const uiMatch = line.match(/UI:\s*http:\/\/localhost:(\d+)/);
-    if (uiMatch) {
-      ports.ui = parseInt(uiMatch[1], 10);
-    }
-  }
-
-  // Verify all ports were found
+  // Verify all required ports were found
   if (ports.auth && ports.firestore && ports.storage && ports.ui) {
     return ports as EmulatorPorts;
   }

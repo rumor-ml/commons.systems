@@ -6,6 +6,7 @@ import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult } from '../utils/errors.js';
+import { parsePort, parseServiceHealth } from '../utils/port-parsing.js';
 import path from 'path';
 
 export interface DevServerStatusArgs {
@@ -57,12 +58,12 @@ function parseDevServerStatus(stdout: string): DevServerStatusInfo {
       const urlMatch = line.match(/URL:\s*(http:\/\/localhost:(\d+))/);
       if (urlMatch) {
         info.url = urlMatch[1];
-        info.port = parseInt(urlMatch[2], 10);
+        info.port = parsePort(urlMatch, 2);
       }
 
       const pidMatch = line.match(/PID:\s*(\d+)/);
       if (pidMatch) {
-        info.pid = parseInt(pidMatch[1], 10);
+        info.pid = parsePort(pidMatch);
       }
 
       // Check health status
@@ -86,77 +87,11 @@ function parseDevServerStatus(stdout: string): DevServerStatusInfo {
     // Parse emulator PID
     const emulatorPidMatch = stdout.match(/Emulators:.*?PID:\s*(\d+)/s);
     if (emulatorPidMatch) {
-      info.emulators.pid = parseInt(emulatorPidMatch[1], 10);
+      info.emulators.pid = parsePort(emulatorPidMatch);
     }
 
-    // Parse emulator services
-    info.emulators.services = {};
-
-    for (const line of lines) {
-      // Auth
-      const authMatch = line.match(/✓\s*Auth:\s*localhost:(\d+)/);
-      if (authMatch) {
-        info.emulators.services.auth = {
-          port: parseInt(authMatch[1], 10),
-          healthy: true,
-        };
-      }
-      const authFailMatch = line.match(/✗\s*Auth:\s*localhost:(\d+)/);
-      if (authFailMatch) {
-        info.emulators.services.auth = {
-          port: parseInt(authFailMatch[1], 10),
-          healthy: false,
-        };
-      }
-
-      // Firestore
-      const firestoreMatch = line.match(/✓\s*Firestore:\s*localhost:(\d+)/);
-      if (firestoreMatch) {
-        info.emulators.services.firestore = {
-          port: parseInt(firestoreMatch[1], 10),
-          healthy: true,
-        };
-      }
-      const firestoreFailMatch = line.match(/✗\s*Firestore:\s*localhost:(\d+)/);
-      if (firestoreFailMatch) {
-        info.emulators.services.firestore = {
-          port: parseInt(firestoreFailMatch[1], 10),
-          healthy: false,
-        };
-      }
-
-      // Storage
-      const storageMatch = line.match(/✓\s*Storage:\s*localhost:(\d+)/);
-      if (storageMatch) {
-        info.emulators.services.storage = {
-          port: parseInt(storageMatch[1], 10),
-          healthy: true,
-        };
-      }
-      const storageFailMatch = line.match(/✗\s*Storage:\s*localhost:(\d+)/);
-      if (storageFailMatch) {
-        info.emulators.services.storage = {
-          port: parseInt(storageFailMatch[1], 10),
-          healthy: false,
-        };
-      }
-
-      // UI
-      const uiMatch = line.match(/✓\s*UI:\s*http:\/\/localhost:(\d+)/);
-      if (uiMatch) {
-        info.emulators.services.ui = {
-          port: parseInt(uiMatch[1], 10),
-          healthy: true,
-        };
-      }
-      const uiFailMatch = line.match(/✗\s*UI:\s*http:\/\/localhost:(\d+)/);
-      if (uiFailMatch) {
-        info.emulators.services.ui = {
-          port: parseInt(uiFailMatch[1], 10),
-          healthy: false,
-        };
-      }
-    }
+    // Parse emulator services using utility
+    info.emulators.services = parseServiceHealth(lines);
   }
 
   return info;

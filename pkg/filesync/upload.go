@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"time"
 
@@ -352,7 +353,10 @@ func sendProgress(ch chan<- Progress, p Progress) {
 
 	select {
 	case ch <- p:
+		// Successfully sent
 	default:
 		// Channel is full or closed, don't block
+		log.Printf("WARNING: Dropped progress event - Operation: %s, File: %s, Channel likely full or closed",
+			p.Operation, p.File)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,7 +87,7 @@ func (b *SessionBroadcaster) Start() {
 		// Recover from panics to prevent server crash
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in broadcaster Start: %v\n%s", r, debug.Stack())
+				HandlePanic(r, "broadcaster Start")
 			}
 		}()
 		defer b.Stop()
@@ -118,8 +117,7 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 	// Recover from panic if client channel was closed during iteration
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC recovered in broadcast - Event: %s, Clients: %d, Error: %v\n%s",
-				event.Type, len(b.clients), r, debug.Stack())
+			HandlePanic(r, "broadcast")
 		}
 	}()
 
@@ -139,6 +137,24 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 				// Circuit breaker: disconnect client after N drops
 				if dropped >= 100 {
 					log.Printf("ERROR: Disconnecting slow client after %d dropped events", dropped)
+
+					// Send terminal error event before disconnecting
+					terminalError := NewErrorEvent(
+						fmt.Sprintf("Connection too slow - disconnecting after %d dropped events. Please refresh to reconnect.", dropped),
+						"error",
+					)
+
+					// Try to send the error event (best effort, non-blocking)
+					select {
+					case client.Events <- terminalError:
+						log.Printf("INFO: Sent terminal error event to slow client before disconnect")
+					default:
+						log.Printf("WARNING: Could not send terminal error to slow client - channel still full")
+					}
+
+					// Small delay to allow error event to be processed before disconnect
+					time.Sleep(50 * time.Millisecond)
+
 					go b.Unregister(client) // Async to avoid deadlock
 				}
 			}
@@ -270,5 +286,31 @@ func (h *StreamHub) StopSession(sessionID string) {
 	if broadcaster, exists := h.broadcasters[sessionID]; exists {
 		broadcaster.Stop()
 		delete(h.broadcasters, sessionID)
+	}
+}
+
+// SendErrorToClients sends an error event to all connected clients for a session.
+// This is thread-safe and non-blocking. If the broadcaster doesn't exist or the
+// event cannot be sent, it logs a warning but does not fail.
+func (h *StreamHub) SendErrorToClients(sessionID string, message string, severity string) {
+	h.mu.RLock()
+	broadcaster, exists := h.broadcasters[sessionID]
+	h.mu.RUnlock()
+
+	if !exists {
+		log.Printf("WARNING: Cannot send error to clients - no broadcaster for session %s", sessionID)
+		return
+	}
+
+	errorEvent := NewErrorEvent(message, severity)
+
+	// Send to merger's event channel (non-blocking)
+	select {
+	case broadcaster.merger.eventsCh <- errorEvent:
+		log.Printf("INFO: Sent %s error event to clients for session %s", severity, sessionID)
+	case <-broadcaster.ctx.Done():
+		log.Printf("WARNING: Could not send error event - broadcaster context done for session %s", sessionID)
+	default:
+		log.Printf("WARNING: Could not send error event - merger channel full for session %s", sessionID)
 	}
 }

@@ -7,6 +7,7 @@ import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError } from '../utils/errors.js';
 import { DEFAULT_INFRA_TIMEOUT, MAX_INFRA_TIMEOUT } from '../constants.js';
+import { parseEmulatorPorts, parsePort } from '../utils/port-parsing.js';
 import path from 'path';
 
 export interface DevServerStartArgs {
@@ -47,13 +48,13 @@ function parseDevServerInfo(stdout: string): DevServerInfo | null {
     const urlMatch = line.match(/URL:\s*(http:\/\/localhost:(\d+))/);
     if (urlMatch) {
       info.url = urlMatch[1];
-      info.port = parseInt(urlMatch[2], 10);
+      info.port = parsePort(urlMatch, 2);
     }
 
     // Parse "PID: 12345"
     const pidMatch = line.match(/PID:\s*(\d+)/);
     if (pidMatch) {
-      info.pid = parseInt(pidMatch[1], 10);
+      info.pid = parsePort(pidMatch);
     }
 
     // Parse "Log: /path/to/log"
@@ -64,30 +65,9 @@ function parseDevServerInfo(stdout: string): DevServerInfo | null {
   }
 
   // Parse emulator information if present
-  const emulators: Partial<DevServerInfo['emulators']> = {};
-  for (const line of lines) {
-    const authMatch = line.match(/Auth:\s*localhost:(\d+)/);
-    if (authMatch) {
-      emulators.auth = parseInt(authMatch[1], 10);
-    }
+  const emulators = parseEmulatorPorts(lines);
 
-    const firestoreMatch = line.match(/Firestore:\s*localhost:(\d+)/);
-    if (firestoreMatch) {
-      emulators.firestore = parseInt(firestoreMatch[1], 10);
-    }
-
-    const storageMatch = line.match(/Storage:\s*localhost:(\d+)/);
-    if (storageMatch) {
-      emulators.storage = parseInt(storageMatch[1], 10);
-    }
-
-    const uiMatch = line.match(/UI:\s*http:\/\/localhost:(\d+)/);
-    if (uiMatch) {
-      emulators.ui = parseInt(uiMatch[1], 10);
-    }
-  }
-
-  // Add emulator info if all ports were found
+  // Add emulator info if all required ports were found
   if (emulators.auth && emulators.firestore && emulators.storage && emulators.ui) {
     info.emulators = emulators as DevServerInfo['emulators'];
   }

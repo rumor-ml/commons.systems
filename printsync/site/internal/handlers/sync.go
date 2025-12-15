@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"runtime/debug"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -148,6 +147,7 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 	resultCh, err := pipeline.RunExtractionAsyncWithSession(ctx, req.Directory, authInfo.UserID, sessionID, progressCh)
 	if err != nil {
 		cancel()
+		close(progressCh)            // Close progress channel to prevent leak
 		h.hub.StopSession(sessionID) // Clean up streaming on error
 		log.Printf("ERROR: StartSync for user %s - failed to start extraction: %v", authInfo.UserID, err)
 		http.Error(w, fmt.Sprintf("Failed to start extraction: %v", err), http.StatusInternalServerError)
@@ -158,13 +158,17 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in sync cleanup: %v\n%s", r, debug.Stack())
+				streaming.HandlePanic(r, "sync cleanup")
 			}
 		}()
 
 		result, ok := <-resultCh
 		if !ok {
 			log.Printf("ERROR: Result channel closed unexpectedly without sending result")
+			// Send error to connected clients
+			h.hub.SendErrorToClients(sessionID,
+				"Extraction pipeline ended unexpectedly. Please contact support if this persists.",
+				"error")
 			close(progressCh)
 			cancel()
 			return
@@ -172,6 +176,10 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 
 		if result == nil {
 			log.Printf("ERROR: Received nil result from extraction pipeline")
+			// Send error to connected clients
+			h.hub.SendErrorToClients(sessionID,
+				"Extraction pipeline returned invalid result. Please try again.",
+				"error")
 			close(progressCh)
 			cancel()
 			return
@@ -241,7 +249,7 @@ func (h *SyncHandlers) CancelSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify session ownership
+	// Retrieve session from store
 	session, err := h.sessionStore.Get(r.Context(), sessionID)
 	if err != nil {
 		log.Printf("ERROR: CancelSync for user %s, session %s - session not found: %v", authInfo.UserID, sessionID, err)
@@ -249,6 +257,7 @@ func (h *SyncHandlers) CancelSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify session ownership
 	if session.UserID != authInfo.UserID {
 		log.Printf("ERROR: CancelSync - user %s attempted to cancel session %s owned by %s", authInfo.UserID, sessionID, session.UserID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -362,7 +371,7 @@ func (h *SyncHandlers) ApproveAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify session ownership
+	// Retrieve session from store
 	session, err := h.sessionStore.Get(r.Context(), sessionID)
 	if err != nil {
 		log.Printf("ERROR: ApproveAll for user %s, session %s - session not found: %v", authInfo.UserID, sessionID, err)
@@ -370,6 +379,7 @@ func (h *SyncHandlers) ApproveAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify session ownership
 	if session.UserID != authInfo.UserID {
 		log.Printf("ERROR: ApproveAll - user %s attempted to approve all in session %s owned by %s", authInfo.UserID, sessionID, session.UserID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -590,7 +600,7 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify session ownership
+	// Retrieve session from store
 	session, err := h.sessionStore.Get(r.Context(), sessionID)
 	if err != nil {
 		log.Printf("ERROR: TrashAll for user %s, session %s - session not found: %v", authInfo.UserID, sessionID, err)
@@ -598,6 +608,7 @@ func (h *SyncHandlers) TrashAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify session ownership
 	if session.UserID != authInfo.UserID {
 		log.Printf("ERROR: TrashAll - user %s attempted to trash all in session %s owned by %s", authInfo.UserID, sessionID, session.UserID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -708,7 +719,7 @@ func (h *SyncHandlers) RetryFile(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in retry file: %v\n%s", r, debug.Stack())
+				streaming.HandlePanic(r, "retry file")
 			}
 		}()
 		log.Printf("INFO: Retrying file %s for user %s", fileID, authInfo.UserID)

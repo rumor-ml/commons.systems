@@ -19,6 +19,7 @@ import {
   ValidationError,
   createErrorResult,
 } from '../utils/errors.js';
+import { getCheckIcon, determineOverallStatus } from '../utils/check-formatting.js';
 
 export const MonitorPRChecksInputSchema = z
   .object({
@@ -169,44 +170,23 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
 
     const checkSummaries = checks.map((check) => {
       const conclusion = mapBucketToConclusion(check.bucket);
-      const icon =
-        check.bucket === 'pass'
-          ? '✓'
-          : check.bucket === 'fail'
-            ? '✗'
-            : check.bucket === 'pending'
-              ? '○'
-              : '~';
+      const icon = getCheckIcon(check.bucket);
       return `  ${icon} ${check.name}: ${conclusion}`;
     });
 
     // Determine overall status with merge conflict detection
-    let overallStatus: string;
-    if (pr.mergeable === 'CONFLICTING') {
-      overallStatus = 'CONFLICTS';
-    } else if (pr.mergeStateStatus === 'DIRTY' || pr.mergeStateStatus === 'BLOCKED') {
-      // If checks passed but PR is blocked/dirty, indicate blocking status
-      if (failureCount === 0 && successCount === checks.length) {
-        overallStatus = 'BLOCKED';
-      } else if (failureCount > 0) {
-        overallStatus = 'FAILED';
-      } else if (pendingCount > 0) {
-        overallStatus = 'PENDING';
-      } else {
-        overallStatus = 'MIXED';
+    const overallStatus = determineOverallStatus(
+      {
+        successCount,
+        failureCount,
+        pendingCount,
+        totalCount: checks.length,
+      },
+      {
+        mergeable: pr.mergeable,
+        mergeStateStatus: pr.mergeStateStatus,
       }
-    } else {
-      // Standard check-based status
-      if (failureCount > 0) {
-        overallStatus = 'FAILED';
-      } else if (pendingCount > 0) {
-        overallStatus = 'PENDING';
-      } else if (successCount === checks.length) {
-        overallStatus = 'SUCCESS';
-      } else {
-        overallStatus = 'MIXED';
-      }
-    }
+    );
 
     const headerSuffix = failedEarly ? ' (early exit)' : '';
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';

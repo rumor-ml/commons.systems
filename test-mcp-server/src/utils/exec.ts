@@ -18,6 +18,30 @@ export interface ExecResult {
 }
 
 /**
+ * Quote a shell argument if it contains spaces or special characters
+ * @param arg - The argument to quote
+ * @returns Properly quoted argument string
+ */
+export function quoteShellArg(arg: string): string {
+  // Quote arguments that contain spaces or special characters
+  if (arg.includes(' ') || arg.includes('$') || arg.includes('"')) {
+    return `"${arg.replace(/"/g, '\\"')}"`;
+  }
+  return arg;
+}
+
+/**
+ * Build a shell command from script path and arguments
+ * @param scriptPath - Full path to the script
+ * @param args - Arguments to pass to the script
+ * @returns Command string with properly quoted arguments
+ */
+export function buildCommand(scriptPath: string, args: string[] = []): string {
+  const quotedArgs = args.map(quoteShellArg);
+  return [scriptPath, ...quotedArgs].join(' ');
+}
+
+/**
  * Execute a shell script with arguments
  *
  * @param scriptPath - Full path to the script to execute
@@ -35,14 +59,7 @@ export async function execScript(
   const { timeout, cwd, env } = options;
 
   // Build command with proper quoting for arguments
-  const quotedArgs = args.map((arg) => {
-    // Quote arguments that contain spaces or special characters
-    if (arg.includes(' ') || arg.includes('$') || arg.includes('"')) {
-      return `"${arg.replace(/"/g, '\\"')}"`;
-    }
-    return arg;
-  });
-  const command = [scriptPath, ...quotedArgs].join(' ');
+  const command = buildCommand(scriptPath, args);
 
   try {
     const result = await execaCommand(command, {
@@ -117,13 +134,7 @@ export async function execScriptBackground(
   const { cwd, env } = options;
 
   // Build command with proper quoting
-  const quotedArgs = args.map((arg) => {
-    if (arg.includes(' ') || arg.includes('$') || arg.includes('"')) {
-      return `"${arg.replace(/"/g, '\\"')}"`;
-    }
-    return arg;
-  });
-  const command = [scriptPath, ...quotedArgs].join(' ');
+  const command = buildCommand(scriptPath, args);
 
   try {
     // Start the process

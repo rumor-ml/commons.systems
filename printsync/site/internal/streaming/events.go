@@ -67,3 +67,94 @@ type ErrorEvent struct {
 	Message  string `json:"message"`
 	Severity string `json:"severity"` // "error", "warning", "info"
 }
+
+// Constructor functions for type-safe event creation
+
+// NewProgressEvent creates a progress event with type safety
+func NewProgressEvent(operation, file string, percentage float64) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeProgress,
+		Timestamp: time.Now(),
+		Data: ProgressEvent{
+			Operation:  operation,
+			File:       file,
+			Percentage: percentage,
+		},
+	}
+}
+
+// NewSessionEvent creates a session stats event
+func NewSessionEvent(session *filesync.SyncSession) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeSession,
+		Timestamp: time.Now(),
+		Data: SessionEvent{
+			ID:          session.ID,
+			Status:      session.Status,
+			Stats:       session.Stats,
+			CompletedAt: session.CompletedAt,
+		},
+	}
+}
+
+// NewActionsEvent creates an actions event
+func NewActionsEvent(sessionID string, stats filesync.SessionStats) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeActions,
+		Timestamp: time.Now(),
+		Data: ActionsEvent{
+			SessionID: sessionID,
+			Stats:     stats,
+		},
+	}
+}
+
+// NewFileEvent creates a file update event
+func NewFileEvent(file *filesync.SyncFile, isUpdate bool) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeFile,
+		Timestamp: time.Now(),
+		Data: FileEvent{
+			ID:        file.ID,
+			SessionID: file.SessionID,
+			LocalPath: file.LocalPath,
+			Status:    file.Status,
+			Metadata:  file.Metadata,
+			Error:     file.Error,
+			IsUpdate:  isUpdate,
+		},
+	}
+}
+
+// NewCompleteEvent creates a session completion event
+func NewCompleteEvent(sessionID string, status filesync.SessionStatus) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeComplete,
+		Timestamp: time.Now(),
+		Data: CompleteEvent{
+			SessionID: sessionID,
+			Status:    status,
+		},
+	}
+}
+
+// NewErrorEvent creates an error event
+func NewErrorEvent(message, severity string) SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeError,
+		Timestamp: time.Now(),
+		Data: ErrorEvent{
+			Message:  message,
+			Severity: severity,
+		},
+	}
+}
+
+// NewHeartbeatEvent creates a heartbeat event
+func NewHeartbeatEvent() SSEEvent {
+	return SSEEvent{
+		Type:      EventTypeHeartbeat,
+		Timestamp: time.Now(),
+		Data:      nil,
+	}
+}

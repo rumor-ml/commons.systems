@@ -21,8 +21,10 @@ model: haiku
 5. Create worktree at `$HOME/worktrees/<branch-name>` using absolute path (NOT relative to cwd):
    `git worktree add $HOME/worktrees/<branch-name> -b <branch-name> origin/main`
 6. Set upstream to origin/<branch-name> (don't push).
-7. Run `direnv allow` in the new worktree directory to enable the environment.
-8. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
+7. Configure git hooks path in the new worktree (required for pre-commit/pre-push hooks to work):
+   `cd $HOME/worktrees/<branch-name> && git config core.hooksPath /Users/n8/commons.systems/.git/hooks`
+8. Run `direnv allow` in the new worktree directory to enable the environment.
+9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
    `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`
 
    IMPORTANT: The -c path MUST match the worktree path from step 5. If it doesn't exist, tmux defaults to home directory.

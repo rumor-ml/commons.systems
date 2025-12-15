@@ -227,9 +227,12 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 			return err
 		}
 
-		// Send action buttons as a separate SSE event (not embedded in session event)
-		// This is sent immediately after the session stats event in the caller
-		// No OOB swaps in SSE - each event updates its own sse-swap target
+		// Send action buttons as a separate SSE event (not embedded in session event).
+		// Rationale: Each SSE event maps to a single sse-swap target in the HTMX frontend.
+		// The session stats and action buttons target different DOM elements (#session-stats
+		// and #action-buttons respectively), so they must be sent as separate events with
+		// distinct event types to enable independent DOM updates via sse-swap.
+		// See streaming/events.go for event type definitions.
 
 	case streaming.EventTypeActions:
 		actionsData, ok := event.Data.(streaming.ActionsEvent)

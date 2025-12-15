@@ -3,8 +3,6 @@ package streaming
 import (
 	"context"
 	"fmt"
-	"log"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -44,7 +42,7 @@ func (m *StreamMerger) StartProgressForwarder(ctx context.Context, progressCh <-
 		// Recover from panics to prevent server crash
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in progress forwarder: %v\n%s", r, debug.Stack())
+				HandlePanic(r, "progress forwarder")
 			}
 		}()
 
@@ -86,7 +84,7 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 		// Recover from panics in callback to prevent server crash
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in session subscription callback: %v\n%s", r, debug.Stack())
+				HandlePanic(r, "session subscription callback")
 			}
 		}()
 
@@ -150,7 +148,7 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 		// Recover from panics in callback to prevent server crash
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("PANIC recovered in file subscription callback: %v\n%s", r, debug.Stack())
+				HandlePanic(r, "file subscription callback")
 			}
 		}()
 
