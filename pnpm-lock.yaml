@@ -89,6 +89,12 @@ importers:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@24.10.1)
 
+  budget/tests:
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.40.0
+        version: 1.57.0
+
   fellspiral/scripts: {}
 
   fellspiral/site:

@@ -1,40 +1,54 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as Plot from '@observablehq/plot';
 import * as d3 from 'd3';
-import { Transaction, MonthlyData, Category, CategoryFilter } from './types';
-import transactionsData from '../data/transactions.json';
+import { Transaction, MonthlyData, Category, TooltipData, QualifierBreakdown } from './types';
+import { CATEGORY_COLORS } from './constants';
+import { SegmentTooltip } from './SegmentTooltip';
 
 interface BudgetChartProps {
-  categoryFilter: CategoryFilter;
+  transactions: Transaction[];
+  hiddenCategories: string[];
   showVacation: boolean;
 }
 
-export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) {
+export function BudgetChart({ transactions, hiddenCategories, showVacation }: BudgetChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pinnedSegmentRef = useRef<TooltipData | null>(null);
+  const monthlyDataRef = useRef<MonthlyData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hoveredSegment, setHoveredSegment] = useState<TooltipData | null>(null);
+  const [pinnedSegment, setPinnedSegment] = useState<TooltipData | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) {
       return;
     }
 
+    // Guard clause: validate transactions prop
+    if (!transactions || !Array.isArray(transactions)) {
+      setError('Invalid or missing transaction data');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
 
-      // Process transactions
-      const transactions = transactionsData.transactions as Transaction[];
-
       // Filter out transfers and apply filters
+      const hiddenSet = new Set(hiddenCategories);
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
         if (!showVacation && txn.vacation) return false;
-        if (!categoryFilter[txn.category]) return false;
+        if (hiddenSet.has(txn.category)) return false;
         return true;
       });
 
-      // Transform to monthly aggregates
-      const monthlyMap = new Map<string, Map<Category, number>>();
+      // Transform to monthly aggregates with qualifier tracking
+      const monthlyMap = new Map<
+        string,
+        Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
+      >();
 
       filteredTransactions.forEach((txn) => {
         const month = txn.date.substring(0, 7); // YYYY-MM
@@ -45,8 +59,36 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
         }
 
         const categoryMap = monthlyMap.get(month)!;
-        const currentAmount = categoryMap.get(txn.category) || 0;
-        categoryMap.set(txn.category, currentAmount + displayAmount);
+        const current = categoryMap.get(txn.category) || {
+          amount: 0,
+          qualifiers: {
+            redeemable: 0,
+            nonRedeemable: 0,
+            vacation: 0,
+            nonVacation: 0,
+            transactionCount: 0,
+          },
+        };
+
+        // Update amount
+        current.amount += displayAmount;
+
+        // Track qualifier breakdowns
+        if (txn.redeemable) {
+          current.qualifiers.redeemable += displayAmount;
+        } else {
+          current.qualifiers.nonRedeemable += displayAmount;
+        }
+
+        if (txn.vacation) {
+          current.qualifiers.vacation += displayAmount;
+        } else {
+          current.qualifiers.nonVacation += displayAmount;
+        }
+
+        current.qualifiers.transactionCount++;
+
+        categoryMap.set(txn.category, current);
       });
 
       // Convert to array format for Plot
@@ -57,18 +99,19 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
         let monthIncome = 0;
         let monthExpense = 0;
 
-        categoryMap.forEach((amount, category) => {
+        categoryMap.forEach((data, category) => {
           monthlyData.push({
             month,
             category,
-            amount,
-            isIncome: amount > 0,
+            amount: data.amount,
+            isIncome: data.amount > 0,
+            qualifiers: data.qualifiers,
           });
 
-          if (amount > 0) {
-            monthIncome += amount;
+          if (data.amount > 0) {
+            monthIncome += data.amount;
           } else {
-            monthExpense += Math.abs(amount);
+            monthExpense += Math.abs(data.amount);
           }
         });
 
@@ -80,9 +123,17 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
         });
       });
 
-      // Sort by month
-      monthlyData.sort((a, b) => a.month.localeCompare(b.month));
+      // Sort by month AND category to match Observable Plot's rendering order
+      monthlyData.sort((a, b) => {
+        const monthCompare = a.month.localeCompare(b.month);
+        if (monthCompare !== 0) return monthCompare;
+        // If months are equal, sort by category
+        return a.category.localeCompare(b.category);
+      });
       netIncomeData.sort((a, b) => a.month.getTime() - b.month.getTime());
+
+      // Store monthlyData in ref for tooltip access
+      monthlyDataRef.current = monthlyData;
 
       // Calculate 3-month trailing average
       const trailingAvgData = netIncomeData.map((item, idx) => {
@@ -95,21 +146,8 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
         };
       });
 
-      // Category colors (using design system inspired colors)
-      const categoryColors: Record<string, string> = {
-        income: '#10b981',
-        housing: '#ef4444',
-        utilities: '#f59e0b',
-        groceries: '#8b5cf6',
-        dining: '#ec4899',
-        transportation: '#3b82f6',
-        healthcare: '#14b8a6',
-        entertainment: '#f97316',
-        shopping: '#a855f7',
-        travel: '#06b6d4',
-        investment: '#6366f1',
-        other: '#6b7280',
-      };
+      // Use shared category colors
+      const categoryColors = CATEGORY_COLORS;
 
       // Clear container by removing child nodes
       while (containerRef.current.firstChild) {
@@ -154,7 +192,6 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
               x: 'month',
               y: 'amount',
               fill: 'category',
-              title: (d: MonthlyData) => `${d.category}: $${Math.abs(d.amount).toFixed(2)}`,
             })
           ),
 
@@ -165,7 +202,6 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
               x: 'month',
               y: 'amount',
               fill: 'category',
-              title: (d: MonthlyData) => `${d.category}: $${d.amount.toFixed(2)}`,
             })
           ),
 
@@ -178,7 +214,6 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
             y: 'netIncome',
             stroke: '#00d4ed',
             strokeWidth: 3,
-            title: (d: { month: Date; netIncome: number }) => `Net: $${d.netIncome.toFixed(2)}`,
           }),
 
           // 3-month trailing average line
@@ -192,20 +227,157 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
             strokeWidth: 2,
             strokeDasharray: '5,5',
             strokeOpacity: 0.7,
-            title: (d: { month: Date; trailingAvg: number }) =>
-              `3-mo avg: $${d.trailingAvg.toFixed(2)}`,
           }),
         ],
       });
 
       containerRef.current.appendChild(plot);
+
+      // Attach event listeners to bar segments for tooltips
+      // We need to match bars to data - Plot renders bars in two groups (expenses and income)
+      // The bars are in g[aria-label="bar"] elements - expenses first, then income
+      const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
+      const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
+      const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
+
+      // Match expense bars to expense data
+      const expenseData = monthlyData.filter((d) => !d.isIncome);
+
+      expenseBars.forEach((rect, index) => {
+        const data = expenseData[index];
+        if (!data) return;
+
+        const element = rect as SVGRectElement;
+
+        // Add data attributes for testing
+        element.setAttribute('data-month', data.month);
+        element.setAttribute('data-category', data.category);
+        element.setAttribute('data-amount', data.amount.toString());
+
+        element.style.cursor = 'pointer';
+
+        // Mouse enter - show tooltip on hover
+        element.addEventListener('mouseenter', (e: MouseEvent) => {
+          if (pinnedSegmentRef.current) return;
+
+          const tooltipData: TooltipData = {
+            month: data.month,
+            category: data.category,
+            amount: data.amount,
+            isIncome: data.isIncome,
+            qualifiers: data.qualifiers,
+            x: e.clientX + 10,
+            y: e.clientY + 10,
+          };
+
+          setHoveredSegment(tooltipData);
+        });
+
+        // Mouse leave - hide hover tooltip
+        element.addEventListener('mouseleave', () => {
+          setHoveredSegment(null);
+        });
+
+        // Click - pin tooltip
+        element.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+
+          const tooltipData: TooltipData = {
+            month: data.month,
+            category: data.category,
+            amount: data.amount,
+            isIncome: data.isIncome,
+            qualifiers: data.qualifiers,
+            x: e.clientX + 10,
+            y: e.clientY + 10,
+          };
+
+          pinnedSegmentRef.current = tooltipData;
+          setPinnedSegment(tooltipData);
+          setHoveredSegment(null);
+        });
+      });
+
+      // Match income bars to income data
+      const incomeData = monthlyData.filter((d) => d.isIncome);
+      incomeBars.forEach((rect, index) => {
+        const data = incomeData[index];
+        if (!data) return;
+
+        const element = rect as SVGRectElement;
+        element.style.cursor = 'pointer';
+
+        // Mouse enter - show tooltip on hover
+        element.addEventListener('mouseenter', (e: MouseEvent) => {
+          if (pinnedSegmentRef.current) return;
+
+          const tooltipData: TooltipData = {
+            month: data.month,
+            category: data.category,
+            amount: data.amount,
+            isIncome: data.isIncome,
+            qualifiers: data.qualifiers,
+            x: e.clientX + 10,
+            y: e.clientY + 10,
+          };
+
+          setHoveredSegment(tooltipData);
+        });
+
+        // Mouse leave - hide hover tooltip
+        element.addEventListener('mouseleave', () => {
+          setHoveredSegment(null);
+        });
+
+        // Click - pin tooltip
+        element.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+
+          const tooltipData: TooltipData = {
+            month: data.month,
+            category: data.category,
+            amount: data.amount,
+            isIncome: data.isIncome,
+            qualifiers: data.qualifiers,
+            x: e.clientX + 10,
+            y: e.clientY + 10,
+          };
+
+          pinnedSegmentRef.current = tooltipData;
+          setPinnedSegment(tooltipData);
+          setHoveredSegment(null);
+        });
+      });
+
       setLoading(false);
     } catch (err) {
       console.error('Error rendering chart:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [categoryFilter, showVacation]);
+  }, [transactions, hiddenCategories, showVacation]);
+
+  // Handle document clicks to unpin tooltip
+  useEffect(() => {
+    const handleDocumentClick = () => {
+      pinnedSegmentRef.current = null;
+      setPinnedSegment(null);
+    };
+
+    if (pinnedSegment) {
+      document.addEventListener('click', handleDocumentClick);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleDocumentClick);
+    };
+  }, [pinnedSegment]);
+
+  // Clear pinned tooltip when filters change
+  useEffect(() => {
+    pinnedSegmentRef.current = null;
+    setPinnedSegment(null);
+  }, [hiddenCategories, showVacation]);
 
   if (loading) {
     return (
@@ -228,6 +400,14 @@ export function BudgetChart({ categoryFilter, showVacation }: BudgetChartProps) 
     <div className="p-6 bg-bg-elevated rounded-lg shadow-lg">
       <h2 className="text-2xl font-semibold mb-4 text-text-primary">Budget Overview</h2>
       <div ref={containerRef} className="w-full"></div>
+      <SegmentTooltip
+        data={pinnedSegment || hoveredSegment}
+        isPinned={!!pinnedSegment}
+        onClose={() => {
+          pinnedSegmentRef.current = null;
+          setPinnedSegment(null);
+        }}
+      />
     </div>
   );
 }

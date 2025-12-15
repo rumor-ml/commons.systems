@@ -5,9 +5,96 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Budget Visualization</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Critical inline CSS to prevent FOUC -->
+    <style>
+      /* Inline critical CSS for instant load */
+      :root {
+        color-scheme: dark;
+      }
+      html {
+        background: rgb(13, 17, 23);
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background: rgb(13, 17, 23);
+        color: rgb(201, 209, 217);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        opacity: 0;
+        transition: opacity 150ms ease-in;
+      }
+      body.styles-loaded {
+        opacity: 1;
+      }
+      /* Prevent flash of white */
+      .app-container {
+        visibility: hidden;
+      }
+      body.styles-loaded .app-container {
+        visibility: visible;
+      }
+    </style>
+    <script>
+      // Mark styles as loaded when CSS is ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+          // Small delay to ensure CSS is fully parsed
+          requestAnimationFrame(() => {
+            document.body.classList.add('styles-loaded');
+          });
+        });
+      } else {
+        document.body.classList.add('styles-loaded');
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div class="app-container app-loading">
+      <!-- Header -->
+      <header class="app-header">
+        <h1 class="app-title">Budget Visualization</h1>
+        <p class="app-subtitle">Track your income and expenses with interactive charts</p>
+      </header>
+
+      <!-- Summary cards (vanilla JS rendered) -->
+      <div id="summary-cards">
+        <!-- Loading skeleton -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="skeleton-card">
+            <div class="skeleton-line small"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+          <div class="skeleton-card">
+            <div class="skeleton-line small"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+          <div class="skeleton-card">
+            <div class="skeleton-line small"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+          <div class="skeleton-card">
+            <div class="skeleton-line small"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Layout -->
+      <div class="main-layout">
+        <!-- Chart island -->
+        <div id="chart-island" data-island-component="BudgetChart" data-island-props="{}">
+          <!-- Loading skeleton for chart -->
+          <div class="skeleton-card" style="height: 400px;"></div>
+        </div>
+
+        <!-- Legend island -->
+        <div id="legend-island" data-island-component="Legend" data-island-props="{}">
+          <!-- Loading skeleton for legend -->
+          <div class="skeleton-card" style="height: 400px;"></div>
+        </div>
+      </div>
+    </div>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script type="module" src="/scripts/main.ts"></script>
   </body>
 </html>
