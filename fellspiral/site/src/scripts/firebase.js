@@ -323,6 +323,9 @@ export function getAuthInstance() {
   if (typeof window !== 'undefined' && window.__testAuth) {
     return window.__testAuth;
   }
+  if (!auth) {
+    console.warn('[Firebase] getAuthInstance called before Firebase initialized');
+  }
   return auth;
 }
 

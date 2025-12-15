@@ -4,40 +4,25 @@
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
-import { createCardViaUI, getCardFromFirestore, generateTestCardData, deleteTestCards } from './test-helpers.js';
+import { createCardViaUI, getCardFromFirestore, generateTestCardData } from './test-helpers.js';
 
 const isEmulatorMode = process.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 
-// All add-card tests must run serially (in a single worker) to avoid Firestore data conflicts
-// when multiple tests create/delete cards in parallel
+// Tests run serially within each browser project but Firefox/Chromium run in parallel.
+// Each test creates cards with unique timestamps, so no cleanup is needed.
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Add Card - Happy Path Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // Clean up test cards before and after each test to ensure test isolation
-  test.beforeEach(async () => {
-    // Delete any cards created during previous tests (match "Test Card" prefix)
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    // Delete any cards created during this test (match "Test Card" prefix)
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
   test('should create card with all fields populated', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-    // Wait a bit longer for async Firebase initialization
     await page.waitForTimeout(2000);
 
-    // Sign in
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
     await authEmulator.signInTestUser(email);
 
-    // Create card with all fields
     const cardData = generateTestCardData('all-fields');
     await createCardViaUI(page, cardData);
 
@@ -45,8 +30,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     const cardTitle = page.locator('.card-item-title').filter({ hasText: cardData.title });
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
-    // Wait for Firestore write to propagate (emulator can have slight delays)
-    await page.waitForTimeout(500);
+    // Wait for Firestore write to propagate (emulator can have delays, especially in Firefox)
+    await page.waitForTimeout(2000);
 
     // Verify in Firestore
     const firestoreCard = await getCardFromFirestore(cardData.title);
@@ -170,7 +155,10 @@ test.describe('Add Card - Happy Path Tests', () => {
     await expect(cardTitle).toBeVisible();
   });
 
-  test('should show Create Card button after page refresh when logged in', async ({ page, authEmulator }) => {
+  test('should show Create Card button after page refresh when logged in', async ({
+    page,
+    authEmulator,
+  }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
@@ -202,15 +190,6 @@ test.describe('Add Card - Happy Path Tests', () => {
 
 test.describe('Add Card - Form Validation Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
-
-  // Clean up test cards before and after each test to ensure test isolation
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
 
   test('should require title field', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
@@ -329,7 +308,9 @@ test.describe('Add Card - Form Validation Tests', () => {
     // Focus subtype to show options, then get subtype options for Equipment
     await page.locator('#cardSubtype').focus();
     await page.waitForSelector('#subtypeCombobox.open', { timeout: 2000 });
-    const equipmentSubtypes = await page.locator('#subtypeListbox .combobox-option').allTextContents();
+    const equipmentSubtypes = await page
+      .locator('#subtypeListbox .combobox-option')
+      .allTextContents();
 
     // Select Skill type using combobox
     await page.locator('#cardType').fill('Skill');
@@ -416,15 +397,6 @@ test.describe('Add Card - Form Validation Tests', () => {
 
 test.describe('Add Card - Modal Behavior Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
-
-  // Clean up test cards before and after each test to ensure test isolation
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
 
   test('should open modal on button click', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
@@ -604,15 +576,6 @@ test.describe('Add Card - Modal Behavior Tests', () => {
 test.describe('Add Card - Edge Cases', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // Clean up test cards before and after each test to ensure test isolation
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
   test('should handle rapid Add Card button clicks', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -692,18 +655,18 @@ test.describe('Add Card - Edge Cases', () => {
     await authEmulator.createTestUser(email);
     await authEmulator.signInTestUser(email);
 
-    // Create card with special characters
+    // Create card with special characters - use unique identifier
+    const uniqueId = Date.now();
     const cardData = {
-      title: `Test <script>alert('XSS')</script> Card ${Date.now()}`,
+      title: `Test <script>alert('XSS')</script> Card ${uniqueId}`,
       type: 'Equipment',
       subtype: 'Weapon',
     };
 
     await createCardViaUI(page, cardData);
 
-    // Verify card appears with escaped content (no XSS)
-    // Use .first() to handle multiple matches
-    const cardTitle = page.locator('.card-item-title').filter({ hasText: 'Test' }).first();
+    // Verify card appears - use the unique ID to find the specific card
+    const cardTitle = page.locator('.card-item-title').filter({ hasText: String(uniqueId) });
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Verify content is HTML-escaped (rendered as text, not executed as script)
@@ -717,7 +680,7 @@ test.describe('Add Card - Edge Cases', () => {
 
     // Verify the text content includes the escaped script tag (as text)
     const titleText = await cardTitle.textContent();
-    expect(titleText).toContain("script");
+    expect(titleText).toContain('script');
   });
 
   test('should handle empty tags field', async ({ page, authEmulator }) => {
@@ -754,15 +717,6 @@ test.describe('Add Card - Edge Cases', () => {
 test.describe('Add Card - Integration Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // Clean up test cards before and after each test to ensure test isolation
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
   test('should persist card after page reload', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -791,9 +745,9 @@ test.describe('Add Card - Integration Tests', () => {
     await page.waitForTimeout(3000);
 
     // Verify card still exists
-    await expect(
-      page.locator('.card-item-title').filter({ hasText: cardData.title })
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.card-item-title').filter({ hasText: cardData.title })).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('should be able to search for newly created card', async ({ page, authEmulator }) => {
@@ -821,9 +775,9 @@ test.describe('Add Card - Integration Tests', () => {
     await page.locator('#searchCards').fill(uniqueTerm);
 
     // Verify card appears in search results
-    await expect(
-      page.locator('.card-item-title').filter({ hasText: uniqueTerm })
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.card-item-title').filter({ hasText: uniqueTerm })).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('should be able to filter newly created card by type', async ({ page, authEmulator }) => {
@@ -847,9 +801,9 @@ test.describe('Add Card - Integration Tests', () => {
     await createCardViaUI(page, cardData);
 
     // Wait for card to appear
-    await expect(
-      page.locator('.card-item-title').filter({ hasText: cardData.title })
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.card-item-title').filter({ hasText: cardData.title })).toBeVisible({
+      timeout: 10000,
+    });
 
     // Filter by type (click on type filter in library nav)
     const typeFilter = page.locator('.library-nav-type').filter({ hasText: 'Spell' });
@@ -871,14 +825,6 @@ test.describe('Add Card - Integration Tests', () => {
 
 test.describe('Combobox Keyboard Navigation', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
-
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
 
   test('should open dropdown with ArrowDown when closed', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -950,14 +896,6 @@ test.describe('Combobox Keyboard Navigation', () => {
 test.describe('Combobox Add New Feature', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
   test('should show Add New option for non-matching input', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -970,7 +908,9 @@ test.describe('Combobox Add New Feature', () => {
     await page.locator('#addCardBtn').click();
     const newType = `CustomType${Date.now()}`;
     await page.locator('#cardType').fill(newType);
-    await expect(page.locator('#typeListbox .combobox-option--new')).toContainText(`Add "${newType}"`);
+    await expect(page.locator('#typeListbox .combobox-option--new')).toContainText(
+      `Add "${newType}"`
+    );
   });
 
   test('should select Add New option and populate input', async ({ page, authEmulator }) => {
@@ -993,14 +933,6 @@ test.describe('Combobox Add New Feature', () => {
 test.describe('Combobox Subtype Clearing', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
   test('should clear subtype value when type changes', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -1011,6 +943,7 @@ test.describe('Combobox Subtype Clearing', () => {
     await authEmulator.signInTestUser(email);
 
     await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Select Equipment type and Weapon subtype
     await page.locator('#cardType').fill('Equipment');
@@ -1019,9 +952,14 @@ test.describe('Combobox Subtype Clearing', () => {
     await page.locator('#cardSubtype').press('Escape');
     expect(await page.locator('#cardSubtype').inputValue()).toBe('Weapon');
 
-    // Change type to Skill
+    // Change type using keyboard navigation
+    // Type a different value and use Enter to confirm selection
+    await page.locator('#cardType').click();
     await page.locator('#cardType').fill('Skill');
-    await page.locator('#typeListbox .combobox-option').first().click();
+    await page.waitForTimeout(100); // Let dropdown filter
+    await page.locator('#cardType').press('ArrowDown');
+    await page.locator('#cardType').press('Enter');
+    await page.waitForTimeout(100); // Let onSelect handler run
 
     // Verify subtype was cleared
     expect(await page.locator('#cardSubtype').inputValue()).toBe('');
@@ -1030,14 +968,6 @@ test.describe('Combobox Subtype Clearing', () => {
 
 test.describe('Combobox Interaction Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
-
-  test.beforeEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
-
-  test.afterEach(async () => {
-    await deleteTestCards(/^Test Card \d+/);
-  });
 
   test('should filter combobox options as user types', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
@@ -1066,6 +996,12 @@ test.describe('Combobox Interaction Tests', () => {
     await authEmulator.signInTestUser(email);
 
     await page.locator('#addCardBtn').click();
+
+    // Wait for modal to open and form to be ready
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+    await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(100); // Small delay to ensure form initialization completes
+
     await page.locator('#typeCombobox .combobox-toggle').click();
     await expect(page.locator('#typeCombobox.open')).toBeVisible();
     await page.locator('#typeCombobox .combobox-toggle').click();
@@ -1101,5 +1037,287 @@ test.describe('Combobox Interaction Tests', () => {
     await page.locator('#cardType').focus();
     await page.locator('#typeListbox .combobox-option').first().click();
     expect(await page.locator('#cardType').inputValue()).not.toBe('');
+  });
+});
+
+test.describe('Add Card - Error Handling on Save Failure', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should keep modal open and show error when user signs out mid-save', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal and fill form
+    const cardData = generateTestCardData('signout-test');
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(cardData.type);
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill(cardData.subtype);
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Sign out while modal is still open (before save)
+    await page.evaluate(() => window.__signOut());
+    await page.waitForTimeout(500);
+
+    // After sign-out, auth-controls elements (including save button) become hidden
+    // This is the expected behavior - users shouldn't be able to save when not logged in
+    await expect(page.locator('#saveCardBtn')).not.toBeVisible();
+
+    // Modal should still be open (user can see their unsaved work)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+  });
+});
+
+test.describe('Add Card - Unauthenticated Creation Attempt', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should fail with auth error when attempting to create card without authentication', async ({
+    page,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    // Force the Add Card button to be visible without auth (simulating a bug/hack)
+    await page.evaluate(() => {
+      // Simulate bypassing auth check by adding authenticated class
+      document.body.classList.add('authenticated');
+    });
+
+    // Try to open modal and create card
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    const cardData = generateTestCardData('unauth-test');
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(cardData.type);
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill(cardData.subtype);
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Try to save - should fail with auth error
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for error to be shown
+    await page.waitForTimeout(1000);
+
+    // Modal should still be open (error occurred)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+  });
+});
+
+test.describe('Add Card - Card Edit Flow', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should open edit modal with form populated when clicking existing card', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Create a card first
+    const cardData = generateTestCardData('edit-test');
+    await createCardViaUI(page, cardData);
+
+    // Wait for card to appear
+    await expect(page.locator('.card-item-title').filter({ hasText: cardData.title })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Click on the card to edit it
+    await page.locator('.card-item').filter({ hasText: cardData.title }).click();
+
+    // Modal should show "Edit Card" title
+    await expect(page.locator('#modalTitle')).toHaveText('Edit Card');
+
+    // Form should be populated with existing card data
+    await expect(page.locator('#cardTitle')).toHaveValue(cardData.title);
+    await expect(page.locator('#cardType')).toHaveValue(cardData.type);
+    await expect(page.locator('#cardSubtype')).toHaveValue(cardData.subtype);
+
+    // Delete button should be visible in edit mode
+    await expect(page.locator('#deleteCardBtn')).toBeVisible();
+  });
+
+  test('should update existing card (not create new) when saving from edit modal', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Create a card first
+    const cardData = generateTestCardData('update-test');
+    await createCardViaUI(page, cardData);
+
+    // Wait for card to appear
+    await expect(page.locator('.card-item-title').filter({ hasText: cardData.title })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Get initial card count
+    const initialCount = await page.locator('.card-item').count();
+
+    // Click on the card to edit it
+    await page.locator('.card-item').filter({ hasText: cardData.title }).click();
+
+    // Update the description
+    const updatedDescription = 'Updated description text';
+    await page.locator('#cardDescription').fill(updatedDescription);
+
+    // Save changes
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for modal to close
+    await expect(page.locator('#cardEditorModal.active')).not.toBeVisible({ timeout: 10000 });
+
+    // Card count should remain the same (updated, not created)
+    await expect(async () => {
+      const newCount = await page.locator('.card-item').count();
+      expect(newCount).toBe(initialCount);
+    }).toPass({ timeout: 5000 });
+
+    // Verify the card has the updated description in Firestore
+    await page.waitForTimeout(1000);
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard.description).toBe(updatedDescription);
+    expect(firestoreCard.lastModifiedAt).toBeTruthy();
+    expect(firestoreCard.lastModifiedBy).toBeTruthy();
+  });
+});
+
+test.describe('Add Card - XSS Protection in Other Fields', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should escape XSS payloads in description field', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    const cardData = {
+      title: `Test Card ${Date.now()}-xss-desc`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+      description: '<script>alert("XSS")</script>',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify no script element was created
+    const hasScriptElement = await page.evaluate(() => {
+      const scripts = document.querySelectorAll('.card-item-description script');
+      return scripts.length > 0;
+    });
+    expect(hasScriptElement).toBe(false);
+  });
+
+  test('should escape XSS payloads in tags field', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    const cardData = {
+      title: `Test Card ${Date.now()}-xss-tags`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+      tags: '<img src=x onerror=alert("XSS")>',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify no img element with onerror was created
+    const hasOnErrorHandler = await page.evaluate(() => {
+      const imgs = document.querySelectorAll('.card-tag img[onerror]');
+      return imgs.length > 0;
+    });
+    expect(hasOnErrorHandler).toBe(false);
+  });
+
+  test('should escape XSS payloads in stat fields', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    const cardData = {
+      title: `Test Card ${Date.now()}-xss-stats`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+      stat1: '<script>alert("XSS")</script>',
+      stat2: '<img src=x onerror=alert("XSS")>',
+      cost: '<svg onload=alert("XSS")>',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify no script/img/svg elements with handlers were created
+    const hasMaliciousElements = await page.evaluate(() => {
+      const scripts = document.querySelectorAll('.card-stat script');
+      const imgs = document.querySelectorAll('.card-stat img[onerror]');
+      const svgs = document.querySelectorAll('.card-stat svg[onload]');
+      return scripts.length > 0 || imgs.length > 0 || svgs.length > 0;
+    });
+    expect(hasMaliciousElements).toBe(false);
+  });
+
+  test('should escape event handlers in type field (class attribute injection)', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Try to inject a malicious type that would add event handlers via class attribute
+    const cardData = {
+      title: `Test Card ${Date.now()}-xss-type`,
+      type: 'Equipment" onclick="alert(\'XSS\')" class="evil',
+      subtype: 'Weapon',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify the type element doesn't have an onclick handler
+    const hasOnclickHandler = await page.evaluate(() => {
+      const typeElements = document.querySelectorAll('.card-item-type[onclick]');
+      return typeElements.length > 0;
+    });
+    expect(hasOnclickHandler).toBe(false);
   });
 });

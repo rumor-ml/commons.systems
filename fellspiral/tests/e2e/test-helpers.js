@@ -37,7 +37,11 @@ export async function setupDesktopViewport(page) {
 /**
  * Generate unique test card data
  * @param {string} suffix - Optional suffix to add to title for uniqueness
- * @returns {Object} Card data object
+ * @returns {{
+ *   title: string, type: string, subtype: string,
+ *   tags: string, description: string,
+ *   stat1: string, stat2: string, cost: string
+ * }} Card data object
  */
 export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
@@ -53,6 +57,17 @@ export function generateTestCardData(suffix = '') {
     stat2: '2 slot',
     cost: '5 pt',
   };
+}
+
+/**
+ * Wait for Firebase to initialize after page load
+ * Firebase initialization happens asynchronously on DOMContentLoaded, so tests
+ * need to wait for it to complete before interacting with auth-dependent features
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {number} timeout - Timeout in milliseconds (default: 3000)
+ */
+export async function waitForFirebaseInit(page, timeout = 3000) {
+  await page.waitForTimeout(timeout);
 }
 
 /**
@@ -124,7 +139,7 @@ export async function createCardViaUI(page, cardData) {
   }
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
-  // Both __testAuth and __firebaseAuth now point to the same instance
+  // window.__testAuth is set by authEmulator fixture and used by firebase.js's getAuthInstance()
   // IMPORTANT: Use != null (not !==) to check for both null AND undefined
   await page.waitForFunction(
     () => {

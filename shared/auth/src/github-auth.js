@@ -50,7 +50,15 @@ export function initAuth(firebaseConfig, options = {}) {
           'localhost:9099';
         connectAuthEmulator(auth, `http://${emulatorHost}`, { disableWarnings: true });
       } catch (error) {
-        // Ignore errors if emulator is already connected
+        const isAlreadyConnected = error.message?.includes('already');
+        if (isAlreadyConnected) {
+          console.debug('[GitHub Auth] Emulator already connected (expected on re-init)');
+        } else {
+          console.warn('[GitHub Auth] Emulator connection failed:', {
+            message: error.message,
+            emulatorHost: options.emulatorHost || 'localhost:9099'
+          });
+        }
       }
     }
 
@@ -128,8 +136,9 @@ export async function signOutUser() {
  */
 export function onAuthStateChange(callback) {
   if (!auth) {
-    console.warn('[Auth] onAuthStateChange called before auth initialized');
-    return () => {}; // Return no-op unsubscribe
+    const error = new Error('onAuthStateChange called before auth initialized. Call initAuth() first.');
+    console.error('[Auth]', error.message);
+    throw error;
   }
   return onAuthStateChanged(auth, (user) => {
     callback(user);

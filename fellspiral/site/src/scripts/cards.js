@@ -40,6 +40,12 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Whitelist of valid card types for class attribute
+const VALID_CARD_TYPES = ['Equipment', 'Skill', 'Upgrade', 'Foe', 'Origin'];
+function sanitizeCardType(type) {
+  return VALID_CARD_TYPES.includes(type) ? type : '';
+}
+
 // State management
 const state = {
   cards: [],
@@ -55,10 +61,12 @@ const state = {
   error: null,
   initialized: false, // Track if we've set up global listeners
   initializing: false, // Track if init is in progress to prevent race conditions
+  authUnsubscribe: null, // Store auth state listener unsubscribe function
 };
 
 // Reset state for fresh initialization
 function resetState() {
+  isSaving = false;  // Reset submission lock
   state.cards = [];
   state.filteredCards = [];
   state.selectedNode = null;
@@ -66,6 +74,11 @@ function resetState() {
   state.filters = { type: '', subtype: '', search: '' };
   state.loading = false;
   state.error = null;
+  // Clean up auth state listener
+  if (state.authUnsubscribe) {
+    state.authUnsubscribe();
+    state.authUnsubscribe = null;
+  }
   // Don't reset initialized - that tracks global listeners
 }
 
@@ -113,21 +126,18 @@ function createCombobox(config) {
   let highlightedIndex = -1;
   let currentOptions = [];
 
-  // Show listbox
   function show() {
     refresh();
     combobox.classList.add('open');
     input.setAttribute('aria-expanded', 'true');
   }
 
-  // Hide listbox
   function hide() {
     combobox.classList.remove('open');
     input.setAttribute('aria-expanded', 'false');
     highlightedIndex = -1;
   }
 
-  // Toggle listbox
   function toggleListbox() {
     if (combobox.classList.contains('open')) {
       hide();
@@ -529,22 +539,20 @@ async function loadCards() {
     });
     state.error = error.message;
 
-    // Provide specific error messages based on error type
-    let userMessage = 'Unable to connect to Firestore. Using local data only.';
+    const isAuthError = error.code === 'permission-denied' || error.code === 'unauthenticated';
 
-    if (error.code === 'permission-denied') {
-      userMessage = 'Permission denied. Please log in to view your cards.';
-    } else if (error.code === 'unavailable' || error.message?.includes('timeout')) {
-      userMessage = 'Connection timed out. Using cached data.';
-    } else if (error.code === 'unauthenticated') {
-      userMessage = 'Please log in to view your cards.';
+    if (isAuthError) {
+      // Don't fall back to static data for auth errors - show login prompt
+      state.cards = [];
+      state.filteredCards = [];
+      showWarningBanner('Please log in to view your cards.');
+    } else {
+      // Fall back to static data only for connectivity errors
+      console.warn('[Cards] Falling back to demo data due to connectivity issue');
+      state.cards = cardsData || [];
+      state.filteredCards = [...state.cards];
+      showWarningBanner('Unable to connect to server. Showing demo data.');
     }
-
-    // Fallback to static data
-    console.warn('[Cards] Falling back to static JSON data');
-    state.cards = cardsData || [];
-    state.filteredCards = [...state.cards];
-    showWarningBanner(userMessage);
   } finally {
     // ALWAYS clear loading state
     state.loading = false;
@@ -554,24 +562,29 @@ async function loadCards() {
 // Setup event listeners
 function setupEventListeners() {
   try {
+    const missingElements = [];
+
     // Toolbar buttons
     const addCardBtn = document.getElementById('addCardBtn');
     const exportCardsBtn = document.getElementById('exportCardsBtn');
 
-    if (!addCardBtn || !exportCardsBtn) {
-      console.error('Missing toolbar buttons');
-      return;
+    if (!addCardBtn) {
+      missingElements.push('addCardBtn');
+    } else {
+      // Add debounce to Add Card button to prevent rapid clicks
+      let addCardDebounce = null;
+      addCardBtn.addEventListener('click', () => {
+        if (addCardDebounce) return;
+        addCardDebounce = setTimeout(() => { addCardDebounce = null; }, 300);
+        openCardEditor();
+      });
     }
 
-    // Add debounce to Add Card button to prevent rapid clicks
-    let addCardDebounce = null;
-    addCardBtn.addEventListener('click', () => {
-      if (addCardDebounce) return;
-      addCardDebounce = setTimeout(() => { addCardDebounce = null; }, 300);
-      openCardEditor();
-    });
-
-    exportCardsBtn.addEventListener('click', exportCards);
+    if (!exportCardsBtn) {
+      missingElements.push('exportCardsBtn');
+    } else {
+      exportCardsBtn.addEventListener('click', exportCards);
+    }
 
     // View mode
     document.querySelectorAll('.view-mode-btn').forEach((btn) => {
@@ -580,8 +593,11 @@ function setupEventListeners() {
 
     // Filters
     const searchCards = document.getElementById('searchCards');
-
-    if (searchCards) searchCards.addEventListener('input', handleFilterChange);
+    if (searchCards) {
+      searchCards.addEventListener('input', handleFilterChange);
+    } else {
+      missingElements.push('searchCards');
+    }
 
     // Modal
     const closeModalBtn = document.getElementById('closeModalBtn');
@@ -590,17 +606,45 @@ function setupEventListeners() {
     const cardForm = document.getElementById('cardForm');
     const modalBackdrop = document.querySelector('.modal-backdrop');
 
-    if (closeModalBtn) closeModalBtn.addEventListener('click', closeCardEditor);
-    if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeCardEditor);
-    if (deleteCardBtn) deleteCardBtn.addEventListener('click', deleteCard);
-    if (cardForm) cardForm.addEventListener('submit', handleCardSave);
-    if (modalBackdrop) modalBackdrop.addEventListener('click', closeCardEditor);
+    if (closeModalBtn) {
+      closeModalBtn.addEventListener('click', closeCardEditor);
+    } else {
+      missingElements.push('closeModalBtn');
+    }
+
+    if (cancelModalBtn) {
+      cancelModalBtn.addEventListener('click', closeCardEditor);
+    } else {
+      missingElements.push('cancelModalBtn');
+    }
+
+    if (deleteCardBtn) {
+      deleteCardBtn.addEventListener('click', deleteCard);
+    } else {
+      missingElements.push('deleteCardBtn');
+    }
+
+    if (cardForm) {
+      cardForm.addEventListener('submit', handleCardSave);
+    } else {
+      missingElements.push('cardForm');
+    }
+
+    if (modalBackdrop) {
+      modalBackdrop.addEventListener('click', closeCardEditor);
+    } else {
+      missingElements.push('modalBackdrop');
+    }
 
     // Initialize comboboxes
     const typeOk = initTypeCombobox();
     const subtypeOk = initSubtypeCombobox();
     if (!typeOk || !subtypeOk) {
       showWarningBanner('Card type selection may not work correctly. Please refresh the page.');
+    }
+
+    if (missingElements.length > 0) {
+      console.warn('[Cards] Missing UI elements:', missingElements);
     }
   } catch (error) {
     console.error('Error setting up event listeners:', error);
@@ -671,9 +715,12 @@ function setupMobileMenu() {
 function setupAuthStateListener() {
   try {
     // Register listener for auth state changes
-    // NOTE: onAuthStateChanged fires asynchronously (not synchronously) with
-    // the current auth state when registered, then on subsequent state changes.
-    const unsubscribe = onAuthStateChanged((user) => {
+    // NOTE: onAuthStateChanged calls the callback immediately with current state
+    // (either the signed-in user or null), then again on each subsequent auth change.
+    if (state.authUnsubscribe) {
+      state.authUnsubscribe();
+    }
+    state.authUnsubscribe = onAuthStateChanged((user) => {
       console.log('[Cards] Auth state changed:', user ? `User ${user.uid}` : 'No user');
       if (user) {
         // User is logged in - show auth controls
@@ -886,7 +933,11 @@ function renderCards() {
       try {
         renderedCards.push(renderCardItem(card));
       } catch (error) {
-        console.warn('Error rendering card:', card, error);
+        console.error('[Cards] Error rendering card (possible data corruption):', {
+          cardId: card?.id,
+          cardTitle: card?.title,
+          error: error.message
+        });
         failedCards++;
       }
     });
@@ -895,22 +946,29 @@ function renderCards() {
 
     // Warn if significant failures
     if (failedCards > 0) {
-      console.warn(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
+      console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
       if (failedCards > state.filteredCards.length * 0.1) {
         showWarningBanner('Some cards could not be displayed. Please refresh the page.');
       }
     }
 
-    // Attach card click handlers
-    cardList.querySelectorAll('.card-item').forEach((item, index) => {
-      try {
-        item.addEventListener('click', (e) => {
-          if (!e.target.closest('.card-item-actions')) {
-            openCardEditor(state.filteredCards[index]);
-          }
-        });
-      } catch (error) {
-        console.warn('Error attaching card click handler:', error);
+    // Attach event delegation for card clicks and edit button clicks
+    cardList.addEventListener('click', (e) => {
+      const cardItem = e.target.closest('.card-item');
+      if (!cardItem) return;
+
+      const cardId = cardItem.dataset.cardId;
+      const card = state.filteredCards.find(c => c.id === cardId);
+      if (!card) return;
+
+      if (e.target.closest('[data-action="edit"]')) {
+        e.stopPropagation();
+        openCardEditor(card);
+        return;
+      }
+
+      if (!e.target.closest('.card-item-actions')) {
+        openCardEditor(card);
       }
     });
   } catch (error) {
@@ -931,14 +989,14 @@ function renderCardItem(card) {
       <div class="card-item-header">
         <h3 class="card-item-title">${escapeHtml(card.title)}</h3>
         <div class="card-item-actions auth-controls">
-          <button class="btn-icon" onclick="event.stopPropagation(); editCard('${escapeHtml(card.id)}')" title="Edit">
+          <button class="btn-icon" data-action="edit" title="Edit">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.5 1.207L1 11.707V13h1.293L12.793 2.5 11.5 1.207z"/>
             </svg>
           </button>
         </div>
       </div>
-      <span class="card-item-type ${escapeHtml(card.type)}">${escapeHtml(card.type)} - ${escapeHtml(card.subtype || 'Unknown')}</span>
+      <span class="card-item-type ${sanitizeCardType(card.type)}">${escapeHtml(card.type)} - ${escapeHtml(card.subtype || 'Unknown')}</span>
       ${tagsHtml}
       ${card.description ? `<p class="card-item-description">${escapeHtml(card.description)}</p>` : ''}
       <div class="card-item-stats">
