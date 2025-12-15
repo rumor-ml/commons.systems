@@ -7,11 +7,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
-# Use WORKTREE_TMP_DIR from allocate-test-ports.sh
+# Use WORKTREE_TMP_DIR and WORKTREE_HASH from allocate-test-ports.sh
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
 LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
-TEMP_FIREBASE_JSON="${WORKTREE_TMP_DIR}/firebase.json"
+TEMP_FIREBASE_JSON="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
 
 echo "Stopping Firebase emulators for this worktree..."
 echo "  Worktree: $(basename "$WORKTREE_ROOT")"

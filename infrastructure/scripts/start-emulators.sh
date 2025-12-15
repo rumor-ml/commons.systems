@@ -38,24 +38,22 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Generate temporary firebase.json with worktree-specific ports using jq
-# Store in worktree temp directory
-# IMPORTANT: Convert relative rule paths to absolute paths so Firebase emulators can find them
-TEMP_FIREBASE_JSON="${WORKTREE_TMP_DIR}/firebase.json"
+# NOTE: Keep paths relative - Firebase will resolve them from the repo root where we run the command
+TEMP_FIREBASE_JSON="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
 jq --arg auth_port "$AUTH_PORT" \
    --arg firestore_port "$FIRESTORE_PORT" \
    --arg storage_port "$STORAGE_PORT" \
    --arg ui_port "$UI_PORT" \
-   --arg repo_root "$REPO_ROOT" \
    '.emulators.auth.port = ($auth_port | tonumber) |
     .emulators.firestore.port = ($firestore_port | tonumber) |
     .emulators.storage.port = ($storage_port | tonumber) |
-    .emulators.ui.port = ($ui_port | tonumber) |
-    .firestore.rules = ($repo_root + "/" + .firestore.rules) |
-    .storage.rules = ($repo_root + "/" + .storage.rules)' \
+    .emulators.ui.port = ($ui_port | tonumber)' \
    firebase.json > "$TEMP_FIREBASE_JSON"
 
 # Start emulators using temporary config with unique ports
+# Run from repo root so relative paths in firebase.json work correctly
 # Use pnpm exec to run firebase-tools from workspace dependencies
+cd "${REPO_ROOT}"
 pnpm exec firebase emulators:start \
   --config "$TEMP_FIREBASE_JSON" \
   --only auth,firestore,storage \
