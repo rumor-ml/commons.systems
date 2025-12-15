@@ -238,7 +238,9 @@ test.describe('Concurrent Operations', () => {
       if (await approveButton.isVisible().catch(() => false)) {
         await approveButton.click();
         // Wait for button to be disabled or loading state
-        await page.waitForFunction(() => !document.activeElement || true, { timeout: 1000 }).catch(() => {});
+        await page
+          .waitForFunction(() => !document.activeElement || true, { timeout: 1000 })
+          .catch(() => {});
       }
     }
 
@@ -301,7 +303,9 @@ test.describe('Concurrent Operations', () => {
       if (await approveButton.isVisible().catch(() => false)) {
         await approveButton.click();
         // Wait for button to be disabled or loading state
-        await page.waitForFunction(() => !document.activeElement || true, { timeout: 1000 }).catch(() => {});
+        await page
+          .waitForFunction(() => !document.activeElement || true, { timeout: 1000 })
+          .catch(() => {});
       }
     }
 
@@ -314,7 +318,9 @@ test.describe('Concurrent Operations', () => {
       if (await rejectButton.isVisible().catch(() => false)) {
         await rejectButton.click();
         // Wait for button to be disabled or loading state
-        await page.waitForFunction(() => !document.activeElement || true, { timeout: 1000 }).catch(() => {});
+        await page
+          .waitForFunction(() => !document.activeElement || true, { timeout: 1000 })
+          .catch(() => {});
       }
     }
 

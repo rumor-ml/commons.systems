@@ -103,13 +103,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # === Pre-Push Hooks ===
-    # Validate ALL files are formatted before push
+    # Validate ALL tracked files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
     prettier-check-all = {
       enable = true;
       name = "prettier-check-all";
       description = "Validate all tracked files are formatted (prevents CI failures)";
-      entry = "${pkgs.prettier}/bin/prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml}'";
+      entry = "${pkgs.bash}/bin/bash -c '${pkgs.git}/bin/git ls-files --cached --exclude-standard | ${pkgs.gnugrep}/bin/grep -E \"\\.(ts|tsx|js|jsx|json|md|yaml|yml)$\" | xargs -r ${pkgs.prettier}/bin/prettier --check --ignore-unknown'";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;
