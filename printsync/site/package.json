@@ -9,8 +9,8 @@
     "watch:css": "tailwindcss -i web/static/css/input.css -o web/dist/css/styles.css --watch"
   },
   "dependencies": {
-    "@commons/auth": "file:../../shared/auth",
-    "@commons/design-system": "file:../../shared/design-system"
+    "@commons/auth": "workspace:*",
+    "@commons/design-system": "workspace:*"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.0"

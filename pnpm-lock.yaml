@@ -157,10 +157,10 @@ importers:
   printsync/site:
     dependencies:
       '@commons/auth':
-        specifier: file:../../shared/auth
-        version: file:shared/auth
+        specifier: workspace:*
+        version: link:../../shared/auth
       '@commons/design-system':
-        specifier: file:../../shared/design-system
+        specifier: workspace:*
         version: link:../../shared/design-system
     devDependencies:
       tailwindcss:
@@ -278,9 +278,6 @@ packages:
   '@colors/colors@1.6.0':
     resolution: {integrity: sha512-Ir+AOibqzrIsL6ajt3Rz3LskB7OiMVHqltZmspbW/TJuTVuyOMirVqAkjfY6JISiLHgyNqicAC8AyHHGzNd/dA==}
     engines: {node: '>=0.1.90'}
-
-  '@commons/auth@file:shared/auth':
-    resolution: {directory: shared/auth, type: directory}
 
   '@dabh/diagnostics@2.0.8':
     resolution: {integrity: sha512-R4MSXTVnuMzGD7bzHdW2ZhhdPC/igELENcq5IjEverBvq5hn1SXCWcsi6eSsdWP0/Ur+SItRRjAktmdoX/8R/Q==}
@@ -3754,13 +3751,6 @@ snapshots:
     optional: true
 
   '@colors/colors@1.6.0': {}
-
-  '@commons/auth@file:shared/auth':
-    dependencies:
-      '@commons/design-system': link:shared/design-system
-      firebase: 10.14.1
-    transitivePeerDependencies:
-      - '@react-native-async-storage/async-storage'
 
   '@dabh/diagnostics@2.0.8':
     dependencies:
