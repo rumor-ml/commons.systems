@@ -624,7 +624,9 @@ test.describe('Budget Visualization', () => {
 
       // Verify redemption breakdown
       // Get rows by index (first row is Redeemable, second is Non-redeemable)
-      const redemptionSection = tooltip.locator('.tooltip-section').filter({ hasText: 'By Redemption' });
+      const redemptionSection = tooltip
+        .locator('.tooltip-section')
+        .filter({ hasText: 'By Redemption' });
       const redemptionRows = redemptionSection.locator('.tooltip-row');
 
       const redeemableText = await redemptionRows.nth(0).locator('.tooltip-value').textContent();
@@ -816,7 +818,7 @@ test.describe('Budget Visualization', () => {
       // Check all breakdown values
       const allValues = await tooltip.locator('.tooltip-value').allTextContents();
       expect(allValues.length).toBeGreaterThan(0);
-      allValues.forEach(value => {
+      allValues.forEach((value) => {
         expect(value).toMatch(/^\$/);
       });
     });
@@ -853,5 +855,4 @@ test.describe('Budget Visualization', () => {
       expect(countText).toContain('4 transaction');
     });
   });
-
 });
