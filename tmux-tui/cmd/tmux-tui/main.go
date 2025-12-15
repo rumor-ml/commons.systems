@@ -39,9 +39,10 @@ type model struct {
 	blockedMu       *sync.RWMutex     // Protects blocked panes map
 	width           int
 	height          int
-	err             error
-	alertsDisabled  bool   // true if daemon connection failed
-	alertError      string // daemon connection error
+	err              error
+	alertsDisabled   bool   // true if daemon connection failed
+	alertError       string // daemon connection error
+	persistenceError string // persistence error from daemon
 	// Branch picker state
 	pickingBranch    bool             // true when showing branch picker
 	pickingForBranch string           // branch being blocked
@@ -328,6 +329,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case daemon.MsgTypePersistenceError:
+			// Persistence error from daemon
+			debug.Log("TUI_PERSISTENCE_ERROR error=%s", msg.msg.Error)
+			m.persistenceError = msg.msg.Error
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
 		case "disconnect":
 			// Daemon disconnected
 			debug.Log("TUI_DAEMON_DISCONNECT")
@@ -397,12 +409,22 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	// Display alert error banner at TOP of screen if alerts are disabled
+	// Display warning banners at TOP of screen (persistence errors take priority)
 	var warningBanner string
-	if m.alertsDisabled {
+
+	// Persistence error (critical - red banner)
+	if m.persistenceError != "" {
 		warningStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")).
+			Background(lipgloss.Color("1")). // Red
+			Bold(true).
+			Padding(0, 1)
+		warningBanner = warningStyle.Render("⚠ PERSISTENCE ERROR: "+m.persistenceError+" (changes won't survive restart)") + "\n\n"
+	} else if m.alertsDisabled {
+		// Alert error (yellow banner)
+		warningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("3")). // Yellow
 			Bold(true).
 			Padding(0, 1)
 		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"

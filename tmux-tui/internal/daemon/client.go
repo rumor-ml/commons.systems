@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	heartbeatInterval = 5 * time.Second // How often to send pings
-	heartbeatTimeout  = 3 * time.Second // How long to wait for pong response
+	heartbeatInterval        = 5 * time.Second   // How often to send pings
+	heartbeatTimeout         = 3 * time.Second   // How long to wait for pong response
+	messagePropagationDelay  = 100 * time.Millisecond // Time to wait for daemon to process messages
 )
 
 // DaemonClient represents a client connection to the alert daemon.
@@ -32,6 +33,10 @@ type DaemonClient struct {
 	connected  bool
 	lastPong   time.Time    // Timestamp of last pong received
 	lastPongMu sync.RWMutex // Protects lastPong
+
+	// Query response routing (prevents event loss in QueryBlockedState)
+	queryResponses map[string]chan Message // Response channels keyed by branch
+	queryMu        sync.Mutex               // Protects queryResponses map
 }
 
 // NewDaemonClient creates a new daemon client.
@@ -49,6 +54,15 @@ func (c *DaemonClient) sendMessage(msg Message) error {
 	c.encoderMu.Lock()
 	defer c.encoderMu.Unlock()
 	return c.encoder.Encode(msg)
+}
+
+// sendAndWait sends a message and waits for daemon to process it
+func (c *DaemonClient) sendAndWait(msg Message) error {
+	if err := c.sendMessage(msg); err != nil {
+		return err
+	}
+	time.Sleep(messagePropagationDelay)
+	return nil
 }
 
 // updateLastPong updates the timestamp of the last pong received
@@ -140,6 +154,26 @@ func (c *DaemonClient) receive() {
 			c.updateLastPong()
 			debug.Log("CLIENT_PONG_RECEIVED id=%s", c.clientID)
 			continue
+		}
+
+		// Route query responses to dedicated channels (prevents event loss)
+		if msg.Type == MsgTypeBlockedStateResponse {
+			c.queryMu.Lock()
+			if respCh, exists := c.queryResponses[msg.Branch]; exists {
+				select {
+				case respCh <- msg:
+					// Response delivered
+				case <-c.done:
+					c.queryMu.Unlock()
+					return
+				default:
+					// Channel full or closed, fall through to eventCh
+				}
+				delete(c.queryResponses, msg.Branch)
+				c.queryMu.Unlock()
+				continue // Don't forward to eventCh
+			}
+			c.queryMu.Unlock()
 		}
 
 		// Forward message to event channel
@@ -311,13 +345,10 @@ func (c *DaemonClient) RequestBlockPicker(paneID string) error {
 		Type:   MsgTypeShowBlockPicker,
 		PaneID: paneID,
 	}
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendAndWait(msg); err != nil {
 		return fmt.Errorf("failed to send show block picker message: %w", err)
 	}
 	debug.Log("CLIENT_REQUEST_BLOCK_PICKER id=%s paneID=%s", c.clientID, paneID)
-
-	// Wait briefly to ensure daemon processes the message before we disconnect
-	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -328,13 +359,10 @@ func (c *DaemonClient) BlockPane(paneID, branch string) error {
 		PaneID:        paneID,
 		BlockedBranch: branch,
 	}
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendAndWait(msg); err != nil {
 		return fmt.Errorf("failed to send block pane message: %w", err)
 	}
 	debug.Log("CLIENT_BLOCK_PANE id=%s paneID=%s branch=%s", c.clientID, paneID, branch)
-
-	// Wait briefly to ensure daemon processes the message before we disconnect
-	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -344,13 +372,10 @@ func (c *DaemonClient) UnblockPane(paneID string) error {
 		Type:   MsgTypeUnblockPane,
 		PaneID: paneID,
 	}
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendAndWait(msg); err != nil {
 		return fmt.Errorf("failed to send unblock pane message: %w", err)
 	}
 	debug.Log("CLIENT_UNBLOCK_PANE id=%s paneID=%s", c.clientID, paneID)
-
-	// Wait briefly to ensure daemon processes the message before we disconnect
-	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -361,13 +386,10 @@ func (c *DaemonClient) BlockBranch(branch, blockedByBranch string) error {
 		Branch:        branch,
 		BlockedBranch: blockedByBranch,
 	}
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendAndWait(msg); err != nil {
 		return fmt.Errorf("failed to send block branch message: %w", err)
 	}
 	debug.Log("CLIENT_BLOCK_BRANCH id=%s branch=%s blockedBy=%s", c.clientID, branch, blockedByBranch)
-
-	// Wait briefly to ensure daemon processes the message before we disconnect
-	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
@@ -377,18 +399,34 @@ func (c *DaemonClient) UnblockBranch(branch string) error {
 		Type:   MsgTypeUnblockBranch,
 		Branch: branch,
 	}
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendAndWait(msg); err != nil {
 		return fmt.Errorf("failed to send unblock branch message: %w", err)
 	}
 	debug.Log("CLIENT_UNBLOCK_BRANCH id=%s branch=%s", c.clientID, branch)
-
-	// Wait briefly to ensure daemon processes the message before we disconnect
-	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
 // QueryBlockedState queries whether a branch is blocked and returns the blocking branch if so
 func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error) {
+	// Create response channel
+	respCh := make(chan Message, 1)
+
+	// Register for response
+	c.queryMu.Lock()
+	if c.queryResponses == nil {
+		c.queryResponses = make(map[string]chan Message)
+	}
+	c.queryResponses[branch] = respCh
+	c.queryMu.Unlock()
+
+	// Cleanup registration
+	defer func() {
+		c.queryMu.Lock()
+		delete(c.queryResponses, branch)
+		c.queryMu.Unlock()
+		close(respCh)
+	}()
+
 	// Send query message
 	queryMsg := Message{
 		Type:   MsgTypeQueryBlockedState,
@@ -399,18 +437,16 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 	}
 	debug.Log("CLIENT_QUERY_BLOCKED_STATE id=%s branch=%s", c.clientID, branch)
 
-	// Wait for response with timeout
+	// Wait for response (no longer consumes from eventCh!)
 	timeout := time.After(2 * time.Second)
-	for {
-		select {
-		case msg := <-c.eventCh:
-			if msg.Type == MsgTypeBlockedStateResponse && msg.Branch == branch {
-				debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
-					c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
-				return msg.BlockedBranch, msg.IsBlocked, nil
-			}
-		case <-timeout:
-			return "", false, fmt.Errorf("timeout waiting for blocked state response")
-		}
+	select {
+	case msg := <-respCh:
+		debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
+			c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
+		return msg.BlockedBranch, msg.IsBlocked, nil
+	case <-timeout:
+		return "", false, fmt.Errorf("timeout waiting for blocked state response")
+	case <-c.done:
+		return "", false, fmt.Errorf("client closed")
 	}
 }

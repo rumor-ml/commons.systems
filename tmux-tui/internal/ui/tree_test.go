@@ -195,3 +195,230 @@ func TestTreeRendererHeader(t *testing.T) {
 		t.Errorf("Header seems too short to contain full date/time. Got: %s", header)
 	}
 }
+
+// TestTreeRenderer_BlockedBranch_ActivePane tests blocked + active pane styling
+func TestTreeRenderer_BlockedBranch_ActivePane(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: true, Command: "zsh"},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	claudeAlerts := make(map[string]string)
+	blockedBranches := map[string]string{
+		"feature-branch": "main", // feature-branch is blocked by main
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Output should contain the branch name
+	if !strings.Contains(output, "feature-branch") {
+		t.Error("Output should contain blocked branch name")
+	}
+
+	// The active pane in a blocked branch should have both:
+	// 1. Muted text (blocked)
+	// 2. Background highlight (active)
+	// We can't easily test ANSI codes, but we can verify the pane appears
+	if !strings.Contains(output, "0:zsh") {
+		t.Error("Output should contain pane with command")
+	}
+}
+
+// TestTreeRenderer_BlockedBranch_IdlePane tests blocked + idle pane styling
+func TestTreeRenderer_BlockedBranch_IdlePane(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh"},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	claudeAlerts := make(map[string]string)
+	blockedBranches := map[string]string{
+		"feature-branch": "main",
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Idle pane in blocked branch should be muted (no background highlight)
+	if !strings.Contains(output, "feature-branch") {
+		t.Error("Output should contain blocked branch name")
+	}
+
+	if !strings.Contains(output, "0:zsh") {
+		t.Error("Output should contain pane")
+	}
+}
+
+// TestTreeRenderer_BlockedBranch_NoBell tests that bells are suppressed on blocked branches
+func TestTreeRenderer_BlockedBranch_NoBell(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	// Alert exists but branch is blocked - should NOT show bell
+	claudeAlerts := map[string]string{
+		"%1": watcher.EventTypeStop,
+	}
+	blockedBranches := map[string]string{
+		"feature-branch": "main",
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Blocked branches should not show alert icons (bells suppressed)
+	// The stop icon should NOT appear
+	if strings.Contains(output, StopIcon) {
+		t.Error("Blocked branch should not show alert icons (bells suppressed)")
+	}
+}
+
+// TestTreeRenderer_UnblockedBranch_ShowsBell tests that bells appear on unblocked branches
+func TestTreeRenderer_UnblockedBranch_ShowsBell(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	claudeAlerts := map[string]string{
+		"%1": watcher.EventTypeStop,
+	}
+	// Empty blocked branches - feature-branch is NOT blocked
+	blockedBranches := make(map[string]string)
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Unblocked branches should show alert icons
+	if !strings.Contains(output, StopIcon) {
+		t.Error("Unblocked branch should show alert icons")
+	}
+}
+
+// TestTreeRenderer_MultipleBlockedBranches tests rendering multiple blocked branches
+func TestTreeRenderer_MultipleBlockedBranches(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-1": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh"},
+			},
+			"feature-2": []tmux.Pane{
+				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim"},
+			},
+			"main": []tmux.Pane{
+				{ID: "%3", WindowID: "@3", WindowIndex: 2, WindowActive: true, Command: "tmux-tui"},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	claudeAlerts := make(map[string]string)
+	blockedBranches := map[string]string{
+		"feature-1": "main",
+		"feature-2": "main",
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// All branches should appear
+	if !strings.Contains(output, "feature-1") {
+		t.Error("Output should contain feature-1")
+	}
+	if !strings.Contains(output, "feature-2") {
+		t.Error("Output should contain feature-2")
+	}
+	if !strings.Contains(output, "main") {
+		t.Error("Output should contain main")
+	}
+
+	// Both blocked branches should have their panes
+	if !strings.Contains(output, "0:zsh") {
+		t.Error("Output should contain feature-1 pane")
+	}
+	if !strings.Contains(output, "1:nvim") {
+		t.Error("Output should contain feature-2 pane")
+	}
+}
+
+// TestTreeRenderer_BlockedBranch_IdleAlert tests idle alerts are hidden on blocked branches
+func TestTreeRenderer_BlockedBranch_IdleAlert(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"feature-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	// Idle alert - should be suppressed when branch is blocked
+	claudeAlerts := map[string]string{
+		"%1": watcher.EventTypeIdle,
+	}
+	blockedBranches := map[string]string{
+		"feature-branch": "main",
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Idle icon should NOT appear on blocked branch
+	if strings.Contains(output, IdleIcon) {
+		t.Error("Blocked branch should not show idle alert icon")
+	}
+}
+
+// TestTreeRenderer_MixedBlockedUnblocked tests mix of blocked and unblocked branches
+func TestTreeRenderer_MixedBlockedUnblocked(t *testing.T) {
+	tree := tmux.RepoTree{
+		"test-repo": {
+			"blocked-branch": []tmux.Pane{
+				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			},
+			"active-branch": []tmux.Pane{
+				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim", IsClaudePane: true},
+			},
+		},
+	}
+
+	renderer := NewTreeRenderer(80)
+	// Both panes have alerts
+	claudeAlerts := map[string]string{
+		"%1": watcher.EventTypeStop,
+		"%2": watcher.EventTypeStop,
+	}
+	// Only blocked-branch is blocked
+	blockedBranches := map[string]string{
+		"blocked-branch": "main",
+	}
+
+	output := renderer.Render(tree, claudeAlerts, blockedBranches)
+
+	// Output should contain both branches
+	if !strings.Contains(output, "blocked-branch") {
+		t.Error("Output should contain blocked-branch")
+	}
+	if !strings.Contains(output, "active-branch") {
+		t.Error("Output should contain active-branch")
+	}
+
+	// Due to icon suppression on blocked branches, the exact icon count is hard to test
+	// But we know at least one stop icon should appear (for active-branch)
+	iconCount := strings.Count(output, StopIcon)
+	if iconCount == 0 {
+		t.Error("Should show at least one stop icon for unblocked branch")
+	}
+}

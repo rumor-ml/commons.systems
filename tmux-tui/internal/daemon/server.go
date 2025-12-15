@@ -187,21 +187,12 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		return nil, fmt.Errorf("failed to recover alert state: %w", err)
 	}
 
-	// Load blocked branches state
+	// Load blocked branches state (handles missing file gracefully)
 	blockedPath := namespace.BlockedBranchesFile()
-
-	// Initialize empty blocked branches file if it doesn't exist
-	if _, err := os.Stat(blockedPath); os.IsNotExist(err) {
-		emptyJSON := []byte("{}")
-		if err := os.WriteFile(blockedPath, emptyJSON, 0644); err != nil {
-			alertWatcher.Close()
-			paneFocusWatcher.Close()
-			return nil, fmt.Errorf("failed to initialize blocked branches file: %w", err)
-		}
-	}
 	blockedBranches, err := loadBlockedBranches(blockedPath)
 	if err != nil {
 		alertWatcher.Close()
+		paneFocusWatcher.Close()
 		return nil, fmt.Errorf("failed to load blocked branches: %w", err)
 	}
 
@@ -478,6 +469,11 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
 				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				// Broadcast persistence error to all clients
+				d.broadcast(Message{
+					Type:  MsgTypePersistenceError,
+					Error: fmt.Sprintf("Failed to save blocked state: %v", err),
+				})
 			}
 
 			// Broadcast change to all clients (this will close pickers in all TUI windows)
@@ -498,6 +494,11 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Save to disk
 			if err := d.saveBlockedBranches(); err != nil {
 				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				// Broadcast persistence error to all clients
+				d.broadcast(Message{
+					Type:  MsgTypePersistenceError,
+					Error: fmt.Sprintf("Failed to save blocked state: %v", err),
+				})
 			}
 
 			// Broadcast change to all clients

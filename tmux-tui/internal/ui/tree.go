@@ -254,16 +254,15 @@ func (r *TreeRenderer) renderPanes(panes []tmux.Pane, prefix string, claudeAlert
 		// Assemble the line from parts
 		line := prefix + panePrefix + windowNumber + commandTitle
 
-		// Apply appropriate styling
-		if isBranchBlocked {
-			if pane.WindowActive {
-				// Blocked + Active: show background highlight with muted text
-				line = blockedActiveStyle.Width(r.width).Render(line)
-			} else {
-				// Blocked + Idle: only muted text, no highlight
-				line = blockedStyle.Render(line)
-			}
-		} else if pane.WindowActive {
+		// Apply appropriate styling based on blocked and active state
+		switch {
+		case isBranchBlocked && pane.WindowActive:
+			// Blocked + Active: background highlight with muted text
+			line = blockedActiveStyle.Width(r.width).Render(line)
+		case isBranchBlocked:
+			// Blocked + Idle: only muted text, no highlight
+			line = blockedStyle.Render(line)
+		case pane.WindowActive:
 			// Active panes get active style with full width
 			line = activeStyle.Width(r.width).Render(line)
 		}

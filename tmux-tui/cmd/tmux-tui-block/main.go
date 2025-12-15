@@ -33,6 +33,35 @@ func getCurrentBranch(paneID string) (string, error) {
 	return branch, nil
 }
 
+// toggleBlockedState queries the blocked state of a branch and unblocks it if blocked.
+// Returns true if the branch was unblocked (handled), false to show picker.
+func toggleBlockedState(client *daemon.DaemonClient, paneID, branch string) bool {
+	if branch == "" {
+		return false
+	}
+
+	blockedBy, isBlocked, err := client.QueryBlockedState(branch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not query blocked state for '%s': %v\n", branch, err)
+		fmt.Fprintln(os.Stderr, "Showing branch picker as fallback.")
+		debug.Log("BLOCK_CLI_QUERY_ERROR paneID=%s branch=%s error=%v", paneID, branch, err)
+		return false
+	}
+
+	if !isBlocked {
+		return false // Not blocked, show picker
+	}
+
+	// Branch is blocked - unblock it
+	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, blockedBy)
+	if err := client.UnblockBranch(branch); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to unblock branch: %v\n", err)
+		os.Exit(1)
+	}
+	debug.Log("BLOCK_CLI_UNBLOCK_SUCCESS paneID=%s branch=%s", paneID, branch)
+	return true
+}
+
 func main() {
 	// Get current pane ID from environment
 	paneID := os.Getenv("TMUX_PANE")
@@ -46,7 +75,14 @@ func main() {
 	// Get current branch
 	branch, err := getCurrentBranch(paneID)
 	if err != nil {
-		// If we can't get the branch, just show the picker
+		// Provide user feedback based on error type
+		if strings.Contains(err.Error(), "failed to get pane current path") {
+			fmt.Fprintln(os.Stderr, "Warning: Could not detect pane directory. Showing branch picker.")
+		} else if strings.Contains(err.Error(), "failed to get current branch") {
+			fmt.Fprintln(os.Stderr, "Warning: Not in a git repository or detached HEAD. Showing branch picker.")
+		} else {
+			fmt.Fprintln(os.Stderr, "Warning: Could not detect current branch. Showing branch picker.")
+		}
 		debug.Log("BLOCK_CLI_NO_BRANCH paneID=%s error=%v", paneID, err)
 		branch = ""
 	} else {
@@ -65,23 +101,9 @@ func main() {
 	}
 	defer client.Close()
 
-	// If we have a branch, query its blocked state
-	if branch != "" {
-		blockedBy, isBlocked, err := client.QueryBlockedState(branch)
-		if err != nil {
-			debug.Log("BLOCK_CLI_QUERY_ERROR paneID=%s branch=%s error=%v", paneID, branch, err)
-			// Fall through to show picker
-		} else if isBlocked {
-			// Branch is blocked - unblock it
-			debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, blockedBy)
-			if err := client.UnblockBranch(branch); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Failed to unblock branch: %v\n", err)
-				os.Exit(1)
-			}
-			debug.Log("BLOCK_CLI_UNBLOCK_SUCCESS paneID=%s branch=%s", paneID, branch)
-			return
-		}
-		// Branch is not blocked - fall through to show picker
+	// If we have a branch, try to toggle its blocked state
+	if toggleBlockedState(client, paneID, branch) {
+		return // Successfully unblocked, we're done
 	}
 
 	// Send request to show block picker (includes internal wait for daemon processing)
