@@ -10,36 +10,36 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
   Legend,
 };
 
+// Store React roots for re-rendering
+const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
+
+export function hydrateIsland(element: HTMLElement, componentName: string) {
+  const props = JSON.parse(element.dataset.islandProps || '{}');
+  const Component = COMPONENTS[componentName];
+
+  if (!Component) {
+    console.warn(`Island "${componentName}" not found`);
+    return;
+  }
+
+  // Get or create root
+  let root = roots.get(element);
+  if (!root) {
+    root = createRoot(element);
+    roots.set(element, root);
+  }
+
+  // Render (or re-render) with new props
+  root.render(React.createElement(Component, props));
+  element.dataset.islandHydrated = 'true';
+}
+
 export function hydrateIslands(container: Element = document.body) {
   const islands = container.querySelectorAll('[data-island-component]');
 
   islands.forEach((el) => {
     const element = el as HTMLElement;
-    if (element.dataset.islandHydrated === 'true') return;
-
     const name = element.dataset.islandComponent!;
-    const props = JSON.parse(element.dataset.islandProps || '{}');
-    const Component = COMPONENTS[name];
-
-    if (!Component) {
-      console.warn(`Island "${name}" not found`);
-      return;
-    }
-
-    createRoot(element).render(React.createElement(Component, props));
-    element.dataset.islandHydrated = 'true';
+    hydrateIsland(element, name);
   });
 }
-
-// Initial hydration
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => hydrateIslands());
-} else {
-  hydrateIslands();
-}
-
-// Re-hydrate after HTMX swaps (if using HTMX in the future)
-document.body.addEventListener('htmx:afterSwap', (e: Event) => {
-  const target = (e as CustomEvent).detail?.target;
-  if (target) hydrateIslands(target);
-});

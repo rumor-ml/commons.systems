@@ -46,13 +46,32 @@ export interface Institution {
   name: string;
 }
 
+export interface QualifierBreakdown {
+  redeemable: number;
+  nonRedeemable: number;
+  vacation: number;
+  nonVacation: number;
+  transactionCount: number;
+}
+
 export interface MonthlyData {
   month: string; // YYYY-MM format
   category: Category;
   amount: number; // Can be positive or negative
   isIncome: boolean;
+  qualifiers: QualifierBreakdown;
 }
 
 export interface CategoryFilter {
   [category: string]: boolean;
+}
+
+export interface TooltipData {
+  month: string;
+  category: Category;
+  amount: number;
+  isIncome: boolean;
+  qualifiers: QualifierBreakdown;
+  x: number;
+  y: number;
 }

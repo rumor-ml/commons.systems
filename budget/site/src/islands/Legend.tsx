@@ -1,11 +1,11 @@
-import React from 'react';
-import { Category, CategoryFilter } from './types';
+import React, { useMemo } from 'react';
+import { Category, Transaction } from './types';
+import { CATEGORY_COLORS } from './constants';
 
 interface LegendProps {
-  categoryFilter: CategoryFilter;
-  onCategoryToggle: (category: Category) => void;
+  transactions: Transaction[];
+  hiddenCategories: string[];
   showVacation: boolean;
-  onVacationToggle: () => void;
 }
 
 const CATEGORIES: Category[] = [
@@ -23,21 +23,6 @@ const CATEGORIES: Category[] = [
   'other',
 ];
 
-const CATEGORY_COLORS: Record<Category, string> = {
-  income: '#10b981',
-  housing: '#ef4444',
-  utilities: '#f59e0b',
-  groceries: '#8b5cf6',
-  dining: '#ec4899',
-  transportation: '#3b82f6',
-  healthcare: '#14b8a6',
-  entertainment: '#f97316',
-  shopping: '#a855f7',
-  travel: '#06b6d4',
-  investment: '#6366f1',
-  other: '#6b7280',
-};
-
 const CATEGORY_LABELS: Record<Category, string> = {
   income: 'Income',
   housing: 'Housing',
@@ -53,12 +38,59 @@ const CATEGORY_LABELS: Record<Category, string> = {
   other: 'Other',
 };
 
-export function Legend({
-  categoryFilter,
-  onCategoryToggle,
-  showVacation,
-  onVacationToggle,
-}: LegendProps) {
+interface CategorySummary {
+  category: Category;
+  total: number;
+  count: number;
+}
+
+export function Legend({ transactions, hiddenCategories, showVacation }: LegendProps) {
+  // Calculate category summaries from transactions
+  const categorySummaries = useMemo(() => {
+    // Guard clause: validate transactions prop
+    if (!transactions || !Array.isArray(transactions)) {
+      return [];
+    }
+
+    const summaries = new Map<Category, { total: number; count: number }>();
+
+    transactions
+      .filter((txn) => !txn.transfer)
+      .filter((txn) => !txn.vacation || showVacation)
+      .forEach((txn) => {
+        const current = summaries.get(txn.category) || { total: 0, count: 0 };
+        const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
+        summaries.set(txn.category, {
+          total: current.total + displayAmount,
+          count: current.count + 1,
+        });
+      });
+
+    return Array.from(summaries.entries()).map(([category, data]) => ({
+      category,
+      total: data.total,
+      count: data.count,
+    }));
+  }, [transactions, showVacation, hiddenCategories]);
+
+  const handleVacationToggle = () => {
+    // Dispatch custom event for vacation toggle
+    const event = new CustomEvent('budget:vacation-toggle', {
+      detail: { showVacation: !showVacation },
+      bubbles: true,
+    });
+    document.dispatchEvent(event);
+  };
+
+  const handleCategoryToggle = (category: Category) => {
+    // Dispatch custom event for category toggle
+    const event = new CustomEvent('budget:category-toggle', {
+      detail: { category },
+      bubbles: true,
+    });
+    document.dispatchEvent(event);
+  };
+
   return (
     <div className="p-6 bg-bg-elevated rounded-lg shadow-lg">
       <h3 className="text-xl font-semibold mb-4 text-text-primary">Filters</h3>
@@ -69,45 +101,52 @@ export function Legend({
           <input
             type="checkbox"
             checked={showVacation}
-            onChange={onVacationToggle}
+            onChange={handleVacationToggle}
             className="w-5 h-5 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
           />
           <span className="text-text-primary font-medium">Show Vacation Expenses</span>
         </label>
       </div>
 
-      {/* Category Filters */}
+      {/* Category Summary */}
       <div className="space-y-2">
         <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-          Categories
+          Categories (click to toggle)
         </h4>
-        {CATEGORIES.map((category) => (
-          <label
-            key={category}
-            className="flex items-center gap-3 cursor-pointer hover:bg-bg-hover p-2 rounded transition-colors"
-          >
-            <input
-              type="checkbox"
-              checked={categoryFilter[category]}
-              onChange={() => onCategoryToggle(category)}
-              className="w-5 h-5 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
-            />
-            <div
-              className="w-4 h-4 rounded shadow-sm"
-              style={{
-                backgroundColor: CATEGORY_COLORS[category],
-                opacity: categoryFilter[category] ? 1 : 0.3,
-              }}
-            />
-            <span
-              className={`text-sm ${
-                categoryFilter[category] ? 'text-text-primary' : 'text-text-tertiary'
-              }`}
-            >
-              {CATEGORY_LABELS[category]}
-            </span>
-          </label>
-        ))}
+        {categorySummaries.length > 0 ? (
+          <>
+            {categorySummaries.map(({ category, total, count }) => {
+              const isHidden = hiddenCategories.includes(category);
+              return (
+                <div
+                  key={category}
+                  onClick={() => handleCategoryToggle(category)}
+                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
+                  style={{
+                    backgroundColor: CATEGORY_COLORS[category],
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-white font-medium">
+                      {CATEGORY_LABELS[category]}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-white font-semibold">
+                      ${Math.abs(total).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                    <div className="text-xs text-white opacity-90">{count} txns</div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <p className="text-sm text-text-tertiary">No transactions to display</p>
+        )}
       </div>
 
       {/* Legend for lines */}
