@@ -1180,22 +1180,11 @@ document.body.addEventListener('htmx:afterSwap', async (event) => {
   const currentPath = window.location.pathname;
   const isCardsPageByURL = currentPath.includes('cards.html') || currentPath.endsWith('/cards');
 
-  console.log('[HTMX] afterSwap event fired');
-  console.log('[HTMX] Current URL:', window.location.href);
-  console.log('[HTMX] Current path:', currentPath);
-  console.log('[HTMX] Is cards page by URL:', isCardsPageByURL);
-  console.log('[HTMX] Target element:', target?.tagName);
-  console.log('[HTMX] Target classes:', target?.className);
-  console.log('[HTMX] Has main-content class:', hasMainContent);
-
   // Check if we're navigating to the cards page using URL
   if (hasMainContent && isCardsPageByURL) {
-    console.log('[HTMX] Initializing cards page after swap');
     // Dynamically import and initialize the cards page
     const { initCardsPage } = await import('./cards.js');
     await initCardsPage(); // Await initialization to complete before continuing
-  } else {
-    console.log('[HTMX] NOT initializing cards page - not on cards URL');
   }
 
   // Re-initialize sidebar navigation on any page swap

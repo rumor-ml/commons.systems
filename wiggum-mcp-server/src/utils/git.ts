@@ -14,10 +14,10 @@ export interface GitOptions {
  * Get the git repository root directory
  *
  * Executes `git rev-parse --show-toplevel` to find the repository root.
- * Falls back to process.cwd() if not in a git repository.
- * Logs warnings when git command fails or encounters errors.
+ * Throws GitError if not in a git repository or git command fails.
  *
- * @returns The absolute path to the git repository root, or process.cwd() as fallback
+ * @returns The absolute path to the git repository root
+ * @throws {GitError} When not in a git repository or git command fails
  *
  * @example
  * ```typescript
@@ -35,20 +35,27 @@ export async function getGitRoot(): Promise<string> {
       return result.stdout.trim();
     }
 
-    // Log non-zero exit code
-    if (result.exitCode !== 0) {
-      console.warn(
-        `getGitRoot: git rev-parse failed with exit code ${result.exitCode}. stderr: ${result.stderr}. Falling back to process.cwd()`
-      );
-    }
+    // Non-zero exit code means we're not in a git repository or git failed
+    throw new GitError(
+      `Not in a git repository or git command failed. ` +
+        `This tool requires running from within a git repository. ` +
+        `stderr: ${result.stderr || 'none'}`,
+      result.exitCode,
+      result.stderr || undefined
+    );
   } catch (error) {
-    // Log unexpected errors
-    console.warn(
-      `getGitRoot: unexpected error: ${error instanceof Error ? error.message : String(error)}. Falling back to process.cwd()`
+    // Re-throw GitError as-is
+    if (error instanceof GitError) {
+      throw error;
+    }
+
+    // Wrap unexpected errors
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new GitError(
+      `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
+        `This tool requires running from within a git repository.`
     );
   }
-
-  return process.cwd();
 }
 
 /**
@@ -247,4 +254,72 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       throw new GitError('Could not find main or master branch');
     }
   }
+}
+
+/**
+ * Safe pattern for branch names to prevent command injection
+ *
+ * Allows: alphanumeric, hyphens, underscores, forward slashes, dots
+ * This covers standard branch naming conventions while preventing shell metacharacters
+ */
+const SAFE_BRANCH_NAME_PATTERN = /^[a-zA-Z0-9\/_.-]+$/;
+
+/**
+ * Check if branch name is safe for use in shell commands
+ *
+ * Validates that branch name contains only safe characters and doesn't
+ * include shell metacharacters that could enable command injection.
+ *
+ * @param branchName - Branch name to validate
+ * @returns true if branch name is safe, false otherwise
+ *
+ * @example
+ * ```typescript
+ * isSafeBranchName("feature/123-fix"); // true
+ * isSafeBranchName("feature; rm -rf /"); // false
+ * ```
+ */
+export function isSafeBranchName(branchName: string): boolean {
+  return SAFE_BRANCH_NAME_PATTERN.test(branchName);
+}
+
+/**
+ * Sanitize branch name for safe use in shell commands
+ *
+ * Returns sanitized branch name with warning if sanitization was needed.
+ * Removes any characters that don't match SAFE_BRANCH_NAME_PATTERN.
+ *
+ * @param branchName - Branch name to sanitize
+ * @returns Object with sanitized name, whether sanitization occurred, and optional warning
+ *
+ * @example
+ * ```typescript
+ * sanitizeBranchNameForShell("feature/123");
+ * // Returns: { name: "feature/123", wasSanitized: false }
+ *
+ * sanitizeBranchNameForShell("feature; rm -rf /");
+ * // Returns: {
+ * //   name: "feature rm -rf ",
+ * //   wasSanitized: true,
+ * //   warning: "Branch name contained unsafe characters..."
+ * // }
+ * ```
+ */
+export function sanitizeBranchNameForShell(branchName: string): {
+  name: string;
+  wasSanitized: boolean;
+  warning?: string;
+} {
+  if (isSafeBranchName(branchName)) {
+    return { name: branchName, wasSanitized: false };
+  }
+
+  // Remove unsafe characters
+  const sanitized = branchName.replace(/[^a-zA-Z0-9\/_.-]/g, ' ');
+
+  return {
+    name: sanitized,
+    wasSanitized: true,
+    warning: `Branch name contained unsafe characters and was sanitized. Original: "${branchName}", Sanitized: "${sanitized}"`,
+  };
 }
