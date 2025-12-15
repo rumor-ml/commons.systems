@@ -849,3 +849,182 @@ func TestHandleClient_PongSendFailure(t *testing.T) {
 	clientReader.Close()
 	serverReader.Close()
 }
+
+// TestBroadcast_FailedClientRemoval verifies that failed clients are removed from the map
+func TestBroadcast_FailedClientRemoval(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create one successful client
+	successR, successW := io.Pipe()
+	defer successR.Close()
+	defer successW.Close()
+
+	daemon.clients["success-client"] = &clientConnection{
+		conn:    &mockConn{reader: successR, writer: successW},
+		encoder: json.NewEncoder(successW),
+	}
+
+	// Create one failing client (closed writer)
+	failR, failW := io.Pipe()
+	failW.Close() // Force failure
+	defer failR.Close()
+
+	daemon.clients["failed-client"] = &clientConnection{
+		conn:    &mockConn{reader: failR, writer: failW},
+		encoder: json.NewEncoder(failW),
+	}
+
+	// Verify we start with 2 clients
+	if len(daemon.clients) != 2 {
+		t.Fatalf("Expected 2 clients initially, got %d", len(daemon.clients))
+	}
+
+	// Read messages from successful client in background
+	received := make(chan Message, 10)
+	go func() {
+		decoder := json.NewDecoder(successR)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				break
+			}
+			received <- msg
+		}
+		close(received)
+	}()
+
+	// Broadcast a message
+	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane1", EventType: "stop", Created: true})
+
+	// Wait for messages to be received
+	timeout := time.After(2 * time.Second)
+	messageCount := 0
+	for {
+		select {
+		case _, ok := <-received:
+			if !ok {
+				goto done
+			}
+			messageCount++
+			if messageCount >= 2 {
+				// Expect 2 messages: alert change + sync warning
+				goto done
+			}
+		case <-timeout:
+			goto done
+		}
+	}
+done:
+
+	// Verify failed client was removed
+	if len(daemon.clients) != 1 {
+		t.Errorf("Expected 1 client after broadcast (failed removed), got %d", len(daemon.clients))
+	}
+
+	// Verify the successful client remains
+	if _, exists := daemon.clients["success-client"]; !exists {
+		t.Error("Expected success-client to remain in map")
+	}
+
+	// Verify the failed client was removed
+	if _, exists := daemon.clients["failed-client"]; exists {
+		t.Error("Expected failed-client to be removed from map")
+	}
+
+	// Verify broadcast failures were tracked
+	if daemon.broadcastFailures.Load() == 0 {
+		t.Error("Expected broadcast failures to be incremented")
+	}
+}
+
+// TestBroadcast_MemoryLeakPrevention tests that many failed clients don't cause memory leaks
+func TestBroadcast_MemoryLeakPrevention(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create 100 clients - 50 successful, 50 will fail
+	successfulReaders := make([]*io.PipeReader, 0, 50)
+	successfulWriters := make([]*io.PipeWriter, 0, 50)
+
+	for i := 0; i < 100; i++ {
+		r, w := io.Pipe()
+		clientID := "client-" + string(rune(i))
+
+		if i%2 == 0 {
+			// Even numbered clients: close writer to force failure
+			w.Close()
+			defer r.Close()
+		} else {
+			// Odd numbered clients: keep open for success
+			successfulReaders = append(successfulReaders, r)
+			successfulWriters = append(successfulWriters, w)
+		}
+
+		daemon.clients[clientID] = &clientConnection{
+			conn:    &mockConn{reader: r, writer: w},
+			encoder: json.NewEncoder(w),
+		}
+	}
+
+	// Verify we start with 100 clients
+	if len(daemon.clients) != 100 {
+		t.Fatalf("Expected 100 clients initially, got %d", len(daemon.clients))
+	}
+
+	// Start goroutines to drain messages from successful clients
+	var wg sync.WaitGroup
+	for _, r := range successfulReaders {
+		wg.Add(1)
+		go func(reader *io.PipeReader) {
+			defer wg.Done()
+			decoder := json.NewDecoder(reader)
+			for {
+				var msg Message
+				if err := decoder.Decode(&msg); err != nil {
+					return
+				}
+			}
+		}(r)
+	}
+
+	// Broadcast a message
+	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane1", EventType: "stop", Created: true})
+
+	// Give time for messages to be sent
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify only successful clients remain (50 failed should be removed)
+	if len(daemon.clients) != 50 {
+		t.Errorf("Expected 50 clients after broadcast (50 failed removed), got %d", len(daemon.clients))
+	}
+
+	// Verify broadcast failures were tracked
+	if daemon.broadcastFailures.Load() != 50 {
+		t.Errorf("Expected 50 broadcast failures, got %d", daemon.broadcastFailures.Load())
+	}
+
+	// Broadcast again - all remaining clients should succeed
+	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane2", EventType: "stop", Created: true})
+
+	// Give time for messages to be sent
+	time.Sleep(100 * time.Millisecond)
+
+	// Still 50 clients (no new failures)
+	if len(daemon.clients) != 50 {
+		t.Errorf("Expected 50 clients after second broadcast, got %d", len(daemon.clients))
+	}
+
+	// Clean up
+	for _, w := range successfulWriters {
+		w.Close()
+	}
+	for _, r := range successfulReaders {
+		r.Close()
+	}
+	wg.Wait()
+}

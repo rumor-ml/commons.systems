@@ -45,16 +45,18 @@ type model struct {
 	blockedMu       *sync.RWMutex
 
 	// Error state with concurrency protection
-	// Five distinct error paths determine application behavior:
+	// Six distinct error paths determine application behavior:
 	// 1. err != nil: Fatal error - displays message and exits immediately
 	// 2. alertsDisabled == true: Non-fatal - continues running but disables alerts
 	// 3. alertError != "": Alert system error - displays warning banner but continues
 	// 4. persistenceError != "": Daemon persistence failure - displays warning banner
-	// 5. treeRefreshError != nil: Tmux tree refresh failure - displays warning banner
+	// 5. audioError != "": Audio playback failure - displays warning banner
+	// 6. treeRefreshError != nil: Tmux tree refresh failure - displays warning banner
 	err              error
 	alertsDisabled   bool
 	alertError       string
 	persistenceError string
+	audioError       string
 	treeRefreshError error         // NEW: tree refresh failure tracking
 	errorMu          *sync.RWMutex // NEW: protects all error fields
 
@@ -368,6 +370,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case daemon.MsgTypeAudioError:
+			// Audio playback error from daemon
+			debug.Log("TUI_AUDIO_ERROR error=%s", msg.msg.Error)
+			m.errorMu.Lock()
+			m.audioError = msg.msg.Error
+			m.errorMu.Unlock()
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
 		case "disconnect":
 			// Daemon disconnected
 			debug.Log("TUI_DAEMON_DISCONNECT")
@@ -451,6 +466,7 @@ func (m model) View() string {
 	m.errorMu.RLock()
 	criticalErr := m.err
 	persistenceErr := m.persistenceError
+	audioErr := m.audioError
 	alertsDisabled := m.alertsDisabled
 	alertErr := m.alertError
 	treeRefreshErr := m.treeRefreshError
@@ -464,11 +480,13 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	// Build warning banners (priority: persistence > tree refresh > alerts)
+	// Build warning banners (priority: persistence > audio > tree refresh > alerts)
 	var warningBanner string
 
 	if persistenceErr != "" {
 		warningBanner = warningStyle("1").Render("⚠ PERSISTENCE ERROR: "+persistenceErr+" (changes won't survive restart)") + "\n\n"
+	} else if audioErr != "" {
+		warningBanner = warningStyle("3").Render("⚠ AUDIO ERROR: "+audioErr+" (notifications may not work)") + "\n\n"
 	} else if treeRefreshErr != nil {
 		warningBanner = warningStyle("3").Render(fmt.Sprintf("⚠ TREE REFRESH FAILED: %v (showing stale data, will retry)", treeRefreshErr)) + "\n\n"
 	} else if alertsDisabled {

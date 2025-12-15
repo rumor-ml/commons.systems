@@ -51,7 +51,8 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 // It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
 // The sound only plays once when transitioning to an alert state.
 // Rate limiting prevents audio daemon overload.
-func playAlertSound() {
+// If audio playback fails, broadcasts MsgTypeAudioError to all clients.
+func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
 	if os.Getenv("CLAUDE_E2E_TEST") != "" {
 		return
@@ -74,8 +75,12 @@ func playAlertSound() {
 	go func() {
 		debug.Log("AUDIO_PLAYING")
 		if err := cmd.Run(); err != nil {
-			// Log error but don't fail - audio is non-critical
 			debug.Log("AUDIO_ERROR error=%v", err)
+			// Broadcast error to clients so they know notifications are broken
+			d.broadcast(Message{
+				Type:  MsgTypeAudioError,
+				Error: fmt.Sprintf("Audio playback failed: %v", err),
+			})
 		}
 		debug.Log("AUDIO_COMPLETED")
 	}()
@@ -383,7 +388,7 @@ func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
 
 			// Play sound only when transitioning to alert state
 			if isNewAlert {
-				playAlertSound()
+				d.playAlertSound()
 			}
 		}
 	} else {
@@ -586,7 +591,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 }
 
 // broadcast sends a message to all connected clients with sequence numbering.
-// If some clients fail to receive the message, a sync warning is sent to successful clients.
+// If some clients fail to receive the message, they are removed from the clients map
+// and a sync warning is sent to successful clients.
 func (d *AlertDaemon) broadcast(msg Message) {
 	// Assign sequence number for ordering/gap detection
 	msg.SeqNum = d.seqCounter.Add(1)
@@ -594,7 +600,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
 	totalClients := len(d.clients)
 
-	var failures int64
+	var failedClients []string
 	var successfulClients []struct {
 		id     string
 		client *clientConnection
@@ -602,10 +608,9 @@ func (d *AlertDaemon) broadcast(msg Message) {
 
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
-			failures++
+			failedClients = append(failedClients, clientID)
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
 			d.lastBroadcastError.Store(err.Error())
-			// Don't remove client here - let handleClient detect disconnect
 		} else {
 			successfulClients = append(successfulClients, struct {
 				id     string
@@ -615,17 +620,29 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	}
 	d.clientsMu.RUnlock()
 
-	if failures > 0 {
-		d.broadcastFailures.Add(failures)
+	// Clean up failed clients - must be done after RUnlock to avoid deadlock
+	// This forces reconnection with full state resync
+	if len(failedClients) > 0 {
+		d.clientsMu.Lock()
+		for _, clientID := range failedClients {
+			if client, exists := d.clients[clientID]; exists {
+				client.conn.Close()
+				delete(d.clients, clientID)
+				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)
+			}
+		}
+		d.clientsMu.Unlock()
+
+		d.broadcastFailures.Add(int64(len(failedClients)))
 		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total=%d total_failures=%d",
-			failures, totalClients, d.broadcastFailures.Load())
+			len(failedClients), totalClients, d.broadcastFailures.Load())
 
 		// Notify successful clients that some peers missed the update
 		// This is informational - clients can decide how to handle it
 		syncWarning := Message{
 			Type:   MsgTypeSyncWarning,
 			SeqNum: msg.SeqNum,
-			Error:  fmt.Sprintf("%d of %d clients failed to receive update", failures, totalClients),
+			Error:  fmt.Sprintf("%d of %d clients failed to receive update", len(failedClients), totalClients),
 		}
 		for _, sc := range successfulClients {
 			if err := sc.client.sendMessage(syncWarning); err != nil {

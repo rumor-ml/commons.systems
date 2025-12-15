@@ -55,6 +55,8 @@ const (
 	MsgTypeSyncWarning = "sync_warning"
 	// MsgTypeResyncRequest is sent by client when it detects a gap in sequence numbers
 	MsgTypeResyncRequest = "resync_request"
+	// MsgTypeAudioError is sent by daemon when audio playback fails
+	MsgTypeAudioError = "audio_error"
 )
 
 // Message represents a message exchanged between daemon and clients
@@ -155,7 +157,7 @@ func ValidateMessage(msg Message) error {
 		}
 	case MsgTypeFullState, MsgTypePing, MsgTypePong, MsgTypeResyncRequest:
 		// No required fields
-	case MsgTypeSyncWarning, MsgTypePersistenceError:
+	case MsgTypeSyncWarning, MsgTypePersistenceError, MsgTypeAudioError:
 		// Error field is optional but recommended
 	default:
 		// Unknown message type - not necessarily invalid (forward compatibility)

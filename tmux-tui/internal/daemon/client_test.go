@@ -1087,3 +1087,215 @@ func TestHeartbeat_TimeoutDisconnect(t *testing.T) {
 	// Clean up
 	close(client.done)
 }
+
+// TestBlockBranch_EncoderFailure tests that BlockBranch returns error when encoder fails
+func TestBlockBranch_EncoderFailure(t *testing.T) {
+	// Create a pipe and immediately close the writer to cause send failure
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Close the writer before calling BlockBranch to force send failure
+	clientWriter.Close()
+	serverReader.Close()
+	serverWriter.Close()
+
+	// BlockBranch should fail immediately with a send error
+	err := client.BlockBranch("feature-branch", "main")
+	if err == nil {
+		t.Fatal("Expected error when encoder fails")
+	}
+
+	// Error message should indicate send failure
+	errStr := err.Error()
+	if !containsAny(errStr, []string{"send", "write", "closed", "pipe"}) {
+		t.Errorf("Error message should mention send/write failure, got: %v", err)
+	}
+
+	// Clean up
+	close(client.done)
+}
+
+// TestUnblockBranch_EncoderFailure tests that UnblockBranch returns error when encoder fails
+func TestUnblockBranch_EncoderFailure(t *testing.T) {
+	// Create a pipe and immediately close the writer to cause send failure
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Close the writer before calling UnblockBranch to force send failure
+	clientWriter.Close()
+	serverReader.Close()
+	serverWriter.Close()
+
+	// UnblockBranch should fail immediately with a send error
+	err := client.UnblockBranch("feature-branch")
+	if err == nil {
+		t.Fatal("Expected error when encoder fails")
+	}
+
+	// Error message should indicate send failure
+	errStr := err.Error()
+	if !containsAny(errStr, []string{"send", "write", "closed", "pipe"}) {
+		t.Errorf("Error message should mention send/write failure, got: %v", err)
+	}
+
+	// Clean up
+	close(client.done)
+}
+
+// TestBlockBranch_ConnectionDrop tests BlockBranch behavior when connection drops
+func TestBlockBranch_ConnectionDrop(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Trigger connection drop in a goroutine after a short delay
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		clientWriter.Close()
+		serverReader.Close()
+		serverWriter.Close()
+	}()
+
+	// BlockBranch should fail when connection drops
+	err := client.BlockBranch("feature-branch", "main")
+	if err == nil {
+		t.Fatal("Expected error when connection drops")
+	}
+
+	// Clean up
+	close(client.done)
+}
+
+// TestBlockBranch_ConcurrentCalls tests that concurrent BlockBranch calls don't race
+func TestBlockBranch_ConcurrentCalls(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Start server responder that drains messages
+	go func() {
+		decoder := json.NewDecoder(serverReader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			// Just drain messages - BlockBranch doesn't expect responses
+		}
+	}()
+
+	// Launch 10 concurrent BlockBranch calls
+	var wg sync.WaitGroup
+	results := make(chan error, 10)
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			// Concurrent calls should complete without races
+			err := client.BlockBranch("feature-"+string(rune(idx)), "main")
+			results <- err
+		}(i)
+	}
+
+	// Wait for all goroutines to complete (no timeout = success if no races)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(results)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success - all calls completed
+	case <-time.After(2 * time.Second):
+		t.Fatal("Concurrent calls didn't complete (possible deadlock)")
+	}
+
+	// Check results - all should succeed (sendAndWait doesn't wait for responses)
+	for err := range results {
+		if err != nil {
+			t.Errorf("Unexpected error from concurrent BlockBranch: %v", err)
+		}
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+	clientWriter.Close()
+}
