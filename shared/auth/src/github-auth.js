@@ -10,6 +10,8 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
+  connectAuthEmulator,
 } from 'firebase/auth';
 
 let app = null;
@@ -19,8 +21,11 @@ let provider = null;
 /**
  * Initialize Firebase Auth with GitHub provider
  * @param {Object} firebaseConfig - Firebase configuration object
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.useEmulator - Connect to auth emulator
+ * @param {string} options.emulatorHost - Auth emulator host (default: localhost:9099)
  */
-export function initAuth(firebaseConfig) {
+export function initAuth(firebaseConfig, options = {}) {
   if (!app) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
@@ -29,6 +34,35 @@ export function initAuth(firebaseConfig) {
     // Request additional GitHub scopes if needed
     provider.addScope('user:email');
     provider.addScope('read:user');
+
+    // Connect to auth emulator in dev/test mode
+    // Check environment variables or explicit option
+    const useEmulator =
+      options.useEmulator ||
+      (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.MODE === 'development' ||
+          import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'));
+
+    if (useEmulator) {
+      try {
+        const emulatorHost = options.emulatorHost ||
+          (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_EMULATOR_HOST) ||
+          'localhost:9099';
+        connectAuthEmulator(auth, `http://${emulatorHost}`, { disableWarnings: true });
+      } catch (error) {
+        // Ignore errors if emulator is already connected
+      }
+    }
+
+    // Expose auth instance and test helpers on window for E2E testing
+    if (typeof window !== 'undefined') {
+      window.__testAuth = auth;
+      // Expose signInWithEmailAndPassword for E2E tests
+      window.__signInWithEmailAndPassword = (email, password) =>
+        signInWithEmailAndPassword(auth, email, password);
+      // Expose signOut for E2E tests
+      window.__signOut = () => signOut(auth);
+    }
   }
 
   return auth;
@@ -93,6 +127,10 @@ export async function signOutUser() {
  * @returns {Function} Unsubscribe function
  */
 export function onAuthStateChange(callback) {
+  if (!auth) {
+    console.warn('[Auth] onAuthStateChange called before auth initialized');
+    return () => {}; // Return no-op unsubscribe
+  }
   return onAuthStateChanged(auth, (user) => {
     callback(user);
   });

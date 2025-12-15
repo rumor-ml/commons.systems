@@ -7,6 +7,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { deleteTestCards } from './test-helpers.js';
 
 // Load cards.json to verify navigation matches actual data
 const __filename = fileURLToPath(import.meta.url);
@@ -273,11 +274,28 @@ const skipDataReflectionTests = process.env.CI;
 (skipDataReflectionTests ? test.describe.skip : test.describe)(
   'Library Navigation - Data Reflection',
   () => {
+    // Clean up ALL test cards before running data reflection tests
+    // Use a broad pattern to catch any test cards that might have been created
+    test.beforeEach(async () => {
+      // First pass: clean up test cards with standard pattern
+      let deletedCount = await deleteTestCards(/^Test Card/);
+      // Second pass: clean up any cards with "test" in the title (case insensitive)
+      deletedCount += await deleteTestCards(/test/i);
+      if (deletedCount > 0) {
+        console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
+        // Give Firestore time to propagate deletion
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    });
+
     test('navigation should display correct card counts', async ({ page }) => {
       await page.goto('/cards.html');
 
       // Wait for library nav to load
       await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+
+      // Wait for library nav to finish loading cards and updating counts
+      await page.waitForTimeout(1000);
 
       // Calculate expected counts from cards.json
       const typeCounts = new Map();

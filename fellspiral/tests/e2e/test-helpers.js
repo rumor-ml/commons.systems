@@ -33,3 +33,230 @@ export async function setupTabletViewport(page) {
 export async function setupDesktopViewport(page) {
   await page.setViewportSize(VIEWPORTS.desktop);
 }
+
+/**
+ * Generate unique test card data
+ * @param {string} suffix - Optional suffix to add to title for uniqueness
+ * @returns {Object} Card data object
+ */
+export function generateTestCardData(suffix = '') {
+  const timestamp = Date.now();
+  const uniqueSuffix = suffix ? `-${suffix}` : '';
+
+  return {
+    title: `Test Card ${timestamp}${uniqueSuffix}`,
+    type: 'Equipment',
+    subtype: 'Weapon',
+    tags: 'test, automation, e2e',
+    description: 'This is a test card created by automated tests',
+    stat1: 'd8',
+    stat2: '2 slot',
+    cost: '5 pt',
+  };
+}
+
+/**
+ * Create a card through the UI
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {Object} cardData - Card data to fill in the form
+ */
+export async function createCardViaUI(page, cardData) {
+  // Click Add Card button
+  await page.locator('#addCardBtn').click();
+
+  // Wait for modal to open
+  await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+  // Wait for form elements to be fully ready (not just attached, but visible and enabled)
+  await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
+  await page.waitForTimeout(100); // Small delay to ensure form initialization completes
+
+  // Fill form fields
+  await page.locator('#cardTitle').fill(cardData.title);
+
+  // Set type using combobox (fill input and select from dropdown or accept custom value)
+  await page.locator('#cardType').fill(cardData.type);
+  // Dispatch input event to trigger filtering
+  await page.locator('#cardType').dispatchEvent('input');
+  // Try to click matching option if it exists, otherwise value is already in input
+  const typeOption = page.locator(`#typeListbox .combobox-option[data-value="${cardData.type}"]`);
+  if (await typeOption.count() > 0) {
+    await typeOption.click();
+  } else {
+    // Close dropdown by pressing Escape or clicking outside
+    await page.locator('#cardType').press('Escape');
+  }
+
+  // Wait for subtype combobox to be ready after type change
+  await page.waitForTimeout(100);
+
+  // Set subtype using combobox (fill input and select from dropdown or accept custom value)
+  await page.locator('#cardSubtype').fill(cardData.subtype);
+  // Dispatch input event to trigger filtering
+  await page.locator('#cardSubtype').dispatchEvent('input');
+  // Try to click matching option if it exists, otherwise value is already in input
+  const subtypeOption = page.locator(`#subtypeListbox .combobox-option[data-value="${cardData.subtype}"]`);
+  if (await subtypeOption.count() > 0) {
+    await subtypeOption.click();
+  } else {
+    // Close dropdown by pressing Escape
+    await page.locator('#cardSubtype').press('Escape');
+  }
+
+  if (cardData.tags) {
+    await page.locator('#cardTags').fill(cardData.tags);
+  }
+
+  if (cardData.description) {
+    await page.locator('#cardDescription').fill(cardData.description);
+  }
+
+  if (cardData.stat1) {
+    await page.locator('#cardStat1').fill(cardData.stat1);
+  }
+
+  if (cardData.stat2) {
+    await page.locator('#cardStat2').fill(cardData.stat2);
+  }
+
+  if (cardData.cost) {
+    await page.locator('#cardCost').fill(cardData.cost);
+  }
+
+  // Wait for auth.currentUser to be populated (critical for Firestore writes)
+  // Both __testAuth and __firebaseAuth now point to the same instance
+  // IMPORTANT: Use != null (not !==) to check for both null AND undefined
+  await page.waitForFunction(
+    () => {
+      const auth = window.__testAuth;
+      return auth != null && auth.currentUser != null;
+    },
+    { timeout: 5000 }
+  );
+
+  // Submit form
+  await page.locator('#saveCardBtn').click();
+
+  // Wait for modal to close (modal loses .active class and becomes hidden)
+  // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
+  await page.waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 });
+
+  // Wait for card to appear in UI list (gives time for applyFilters → renderCards → DOM paint)
+  // Use waitForTimeout instead of waitForSelector to avoid test failures if cards don't appear
+  await page.waitForTimeout(2000);
+}
+
+// Shared Firebase Admin instance for Firestore operations
+let _adminApp = null;
+let _firestoreDb = null;
+
+/**
+ * Get or initialize Firebase Admin SDK and Firestore connection
+ * Reuses the same instance across multiple calls to avoid settings() errors
+ */
+async function getFirestoreAdmin() {
+  if (_adminApp && _firestoreDb) {
+    return { app: _adminApp, db: _firestoreDb };
+  }
+
+  // Dynamic import to avoid loading firebase-admin in browser context
+  const adminModule = await import('firebase-admin');
+  const admin = adminModule.default;
+
+  // Get or initialize Firebase Admin
+  if (!admin.apps.length) {
+    _adminApp = admin.initializeApp({
+      projectId: 'demo-test',
+    });
+  } else {
+    _adminApp = admin.app();
+  }
+
+  // Connect to Firestore emulator (only call settings once)
+  _firestoreDb = admin.firestore(_adminApp);
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+  const [host, port] = firestoreHost.split(':');
+
+  _firestoreDb.settings({
+    host: `${host}:${port}`,
+    ssl: false,
+  });
+
+  return { app: _adminApp, db: _firestoreDb };
+}
+
+/**
+ * Query Firestore emulator directly to get a card by title
+ * @param {string} cardTitle - Title of the card to find
+ * @returns {Promise<Object|null>} Card document with id and data, or null if not found
+ */
+export async function getCardFromFirestore(cardTitle) {
+  // Import collection name helper
+  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+
+  // Get or initialize Firestore Admin (reuses same instance)
+  const { db } = await getFirestoreAdmin();
+
+  // Query cards collection by title
+  const collectionName = getCardsCollectionName();
+  const cardsCollection = db.collection(collectionName);
+  const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  // Return first matching card
+  const doc = snapshot.docs[0];
+  return {
+    id: doc.id,
+    ...doc.data(),
+  };
+}
+
+/**
+ * Delete test cards from Firestore emulator by title pattern
+ * @param {RegExp|string} titlePattern - Pattern to match card titles (regex or string prefix)
+ * @returns {Promise<number>} Number of cards deleted
+ */
+export async function deleteTestCards(titlePattern) {
+  // Import collection name helper
+  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+
+  // Get or initialize Firestore Admin (reuses same instance)
+  const { db } = await getFirestoreAdmin();
+
+  // Query all cards
+  const collectionName = getCardsCollectionName();
+  const cardsCollection = db.collection(collectionName);
+  const snapshot = await cardsCollection.get();
+
+  // Filter cards by title pattern
+  const docsToDelete = [];
+  snapshot.forEach((doc) => {
+    const data = doc.data();
+    const title = data.title || '';
+
+    let matches = false;
+    if (titlePattern instanceof RegExp) {
+      matches = titlePattern.test(title);
+    } else if (typeof titlePattern === 'string') {
+      matches = title.startsWith(titlePattern);
+    }
+
+    if (matches) {
+      docsToDelete.push(doc.ref);
+    }
+  });
+
+  // Batch delete matching cards
+  if (docsToDelete.length > 0) {
+    const batch = db.batch();
+    docsToDelete.forEach((docRef) => {
+      batch.delete(docRef);
+    });
+    await batch.commit();
+  }
+
+  return docsToDelete.length;
+}

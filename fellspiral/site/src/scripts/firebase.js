@@ -88,17 +88,23 @@ async function initFirebase() {
     auth = getAuth(app);
 
     // Connect to emulators in test/dev environment
+    // Wrap in try-catch since these can only be called once per instance
     if (
       import.meta.env.MODE === 'development' ||
       import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+      try {
+        const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+        const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
 
-      const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-      connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+        const [firestoreHostname, firestorePort] = firestoreHost.split(':');
+        connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
 
-      connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+        connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+      } catch (error) {
+        // Ignore errors if emulators are already connected
+        // This can happen if initFirebase() is called multiple times
+      }
     }
 
     // Collection reference
@@ -181,8 +187,11 @@ export async function getCard(cardId) {
 // Create a new card
 export async function createCard(cardData) {
   await initFirebase();
+  // Use getAuthInstance() to get the current auth instance
+  // This ensures we get window.__testAuth if it exists (for tests)
+  const authInstance = getAuthInstance();
   try {
-    const user = auth.currentUser;
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to create cards');
     }
@@ -205,8 +214,9 @@ export async function createCard(cardData) {
 // Update an existing card
 export async function updateCard(cardId, cardData) {
   await initFirebase();
+  const authInstance = getAuthInstance();
   try {
-    const user = auth.currentUser;
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to update cards');
     }
@@ -227,8 +237,9 @@ export async function updateCard(cardId, cardData) {
 // Delete a card
 export async function deleteCard(cardId) {
   await initFirebase();
+  const authInstance = getAuthInstance();
   try {
-    const user = auth.currentUser;
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to delete cards');
     }
@@ -293,6 +304,18 @@ export async function getFirestoreDb() {
 
 export async function getFirebaseAuth() {
   await initFirebase();
+  return auth;
+}
+
+// Synchronous getter for auth instance (returns current value without initialization)
+// This fixes module binding issue where auth is undefined at import time
+// IMPORTANT: Checks window.__testAuth first to handle test mode where
+// the signed-in user is on the test auth instance, not firebase.js's auth
+export function getAuthInstance() {
+  // In test mode, always prefer window.__testAuth if it exists
+  if (typeof window !== 'undefined' && window.__testAuth) {
+    return window.__testAuth;
+  }
   return auth;
 }
 

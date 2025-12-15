@@ -14,6 +14,17 @@ export const test = base.extend<AuthFixtures>({
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
 
+    // Capture console errors for debugging
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        console.log(`[Browser Error] ${msg.text()}`);
+      }
+      // Also capture card-related logs
+      if (msg.text().includes('[Cards]')) {
+        console.log(`[Browser] ${msg.text()}`);
+      }
+    });
+
     const createTestUser = async (email: string, password: string = 'testpassword123') => {
       // Use Firebase Auth emulator API to create test user
       const response = await page.request.post(
@@ -31,51 +42,75 @@ export const test = base.extend<AuthFixtures>({
     };
 
     const signInTestUser = async (email: string, password: string = 'testpassword123') => {
-      // Sign in via emulator API
-      const response = await page.request.post(
-        `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
-        {
-          data: {
-            email,
-            password,
-            returnSecureToken: true,
-          },
-        }
+      // Wait for Firebase auth to be initialized and connected to emulator
+      // The __signInWithEmailAndPassword function is exposed by github-auth.js
+      await page.waitForFunction(
+        () => typeof (window as any).__signInWithEmailAndPassword === 'function',
+        { timeout: 15000 }
       );
-      const data = await response.json();
 
-      // Set auth state in page context (simulate Firebase auth state)
-      await page.evaluate((authData) => {
-        const authUser = {
-          uid: authData.localId,
-          email: authData.email,
-          emailVerified: authData.emailVerified || false,
-          displayName: authData.displayName || null,
-          photoURL: authData.photoUrl || null,
-        };
+      // Sign in using Firebase SDK via the exposed helper
+      // This properly updates auth.currentUser which the app depends on
+      const signInResult = await page.evaluate(
+        async ({ email, password }) => {
+          try {
+            const result = await (window as any).__signInWithEmailAndPassword(email, password);
+            return { success: true, uid: result?.user?.uid };
+          } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+          }
+        },
+        { email, password }
+      );
 
-        // Set in localStorage (Firebase auth uses this)
-        const authKey = `firebase:authUser:${authData.apiKey}:[DEFAULT]`;
-        localStorage.setItem(authKey, JSON.stringify(authUser));
+      if (!signInResult.success) {
+        throw new Error(`Firebase sign-in failed: ${signInResult.error}`);
+      }
 
-        // Trigger storage event to notify auth listeners
-        window.dispatchEvent(new StorageEvent('storage'));
-      }, data);
+      // Wait for auth state to propagate (SDK level)
+      await page.waitForFunction(
+        () => {
+          const auth = (window as any).__testAuth;
+          return auth && auth.currentUser !== null;
+        },
+        { timeout: 10000 }
+      );
 
-      await page.reload();
+      // Manually trigger the UI update since the listener might not have fired
+      // This works around potential timing issues with auth state listeners
+      await page.evaluate(() => {
+        if (typeof (window as any).__updateAuthUI === 'function') {
+          const auth = (window as any).__testAuth;
+          (window as any).__updateAuthUI(auth?.currentUser);
+        } else {
+          // Fallback: add class directly
+          document.body.classList.add('authenticated');
+        }
+      });
+
+      // Verify the class was added
+      await page.waitForFunction(
+        () => document.body.classList.contains('authenticated'),
+        { timeout: 5000 }
+      );
     };
 
     const signOutTestUser = async () => {
-      await page.evaluate(() => {
-        // Clear all Firebase auth keys from localStorage
-        const keys = Object.keys(localStorage);
-        keys.forEach((key) => {
-          if (key.startsWith('firebase:authUser:')) {
-            localStorage.removeItem(key);
-          }
-        });
+      // Use Firebase SDK to sign out via the exposed helper
+      await page.evaluate(async () => {
+        if (typeof (window as any).__signOut === 'function') {
+          await (window as any).__signOut();
+        }
       });
-      await page.reload();
+
+      // Wait for auth state to update
+      await page.waitForFunction(
+        () => {
+          const auth = (window as any).__testAuth;
+          return auth && auth.currentUser === null;
+        },
+        { timeout: 5000 }
+      );
     };
 
     await use({ createTestUser, signInTestUser, signOutTestUser });

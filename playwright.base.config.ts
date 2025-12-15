@@ -19,6 +19,9 @@ export interface SiteConfig {
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
   const isDeployed = process.env.DEPLOYED === 'true';
+  // Use existing server by default to avoid sandbox port binding issues
+  // Can be overridden with START_SERVER=true
+  const shouldStartServer = process.env.START_SERVER === 'true';
 
   // Set environment variables for test process
   if (site.env) {
@@ -83,7 +86,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
             },
           ],
 
-    webServer: isDeployed
+    webServer: isDeployed || !shouldStartServer
       ? undefined
       : {
           command: process.env.CI

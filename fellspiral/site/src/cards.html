@@ -128,11 +128,9 @@
             </div>
           </div>
         </div>
-      </main>
-    </div>
 
-    <!-- Card Editor Modal -->
-    <div id="cardEditorModal" class="modal">
+        <!-- Card Editor Modal - Inside main-content for HTMX navigation -->
+        <div id="cardEditorModal" class="modal">
       <div class="modal-backdrop"></div>
       <div class="modal-content">
         <div class="modal-header">
@@ -153,20 +151,66 @@
             <div class="form-row">
               <div class="form-group">
                 <label for="cardType">Type *</label>
-                <select id="cardType" name="type" required class="form-control">
-                  <option value="">Select type...</option>
-                  <option value="Equipment">Equipment</option>
-                  <option value="Skill">Skill</option>
-                  <option value="Upgrade">Upgrade</option>
-                  <option value="Origin">Origin</option>
-                </select>
+                <div class="combobox" id="typeCombobox">
+                  <input
+                    type="text"
+                    id="cardType"
+                    name="type"
+                    required
+                    class="form-control combobox-input"
+                    placeholder="Type or select type..."
+                    autocomplete="off"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-controls="typeListbox"
+                    aria-autocomplete="list"
+                  />
+                  <button
+                    type="button"
+                    class="combobox-toggle"
+                    aria-label="Show options"
+                    tabindex="-1"
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                      <path
+                        d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                      />
+                    </svg>
+                  </button>
+                  <ul id="typeListbox" class="combobox-listbox" role="listbox"></ul>
+                </div>
               </div>
 
               <div class="form-group">
                 <label for="cardSubtype">Subtype *</label>
-                <select id="cardSubtype" name="subtype" required class="form-control">
-                  <option value="">Select subtype...</option>
-                </select>
+                <div class="combobox" id="subtypeCombobox">
+                  <input
+                    type="text"
+                    id="cardSubtype"
+                    name="subtype"
+                    required
+                    class="form-control combobox-input"
+                    placeholder="Type or select subtype..."
+                    autocomplete="off"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-controls="subtypeListbox"
+                    aria-autocomplete="list"
+                  />
+                  <button
+                    type="button"
+                    class="combobox-toggle"
+                    aria-label="Show options"
+                    tabindex="-1"
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                      <path
+                        d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                      />
+                    </svg>
+                  </button>
+                  <ul id="subtypeListbox" class="combobox-listbox" role="listbox"></ul>
+                </div>
               </div>
             </div>
 
@@ -248,6 +292,8 @@
           </button>
         </div>
       </div>
+    </div>
+      </main>
     </div>
 
     <script type="module">

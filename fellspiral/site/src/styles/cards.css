@@ -451,6 +451,7 @@ body.authenticated .auth-controls {
   height: 100%;
   background: var(--color-overlay-heavy);
   backdrop-filter: blur(4px);
+  z-index: 1;
 }
 
 .modal-content {
@@ -467,6 +468,7 @@ body.authenticated .auth-controls {
   flex-direction: column;
   box-shadow: var(--shadow-xl), var(--color-primary-glow-subtle);
   border: 1px solid var(--color-border-default);
+  z-index: 2;
 }
 
 .modal-header {
@@ -685,4 +687,98 @@ textarea.form-control {
   .card-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   Combobox Component
+   ========================================================================== */
+
+.combobox {
+  position: relative;
+  width: 100%;
+}
+
+.combobox-input {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.combobox-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  transition: color 0.2s ease;
+}
+
+.combobox-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.combobox-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.combobox.open .combobox-toggle svg {
+  transform: rotate(180deg);
+}
+
+.combobox-listbox {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.25rem;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+  list-style: none;
+  padding: 0.25rem;
+}
+
+.combobox.open .combobox-listbox {
+  display: block;
+}
+
+.combobox-option {
+  padding: 0.5rem;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  transition: all 0.2s ease;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.combobox-option:hover,
+.combobox-option.highlighted {
+  background: var(--color-bg-hover);
+}
+
+.combobox-option.selected {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.combobox-option--new {
+  font-style: italic;
+  color: var(--color-primary);
+}
+
+.combobox-option--new:hover {
+  background: var(--color-primary-muted);
 }

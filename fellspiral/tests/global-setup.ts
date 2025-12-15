@@ -25,7 +25,8 @@ async function globalSetup() {
   }
 
   // Get emulator host from environment or use default
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+  // Use 127.0.0.1 instead of localhost to avoid IPv6 ::1 which sandbox blocks
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
   const [host, port] = firestoreHost.split(':');
 
   console.log(`📦 Seeding Firestore emulator at ${firestoreHost}...`);
@@ -119,6 +120,33 @@ async function globalSetup() {
     await batch.commit();
 
     console.log(`✅ SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
+
+    // Seed QA test user in Auth emulator
+    console.log('📦 Seeding Auth emulator with QA test user...');
+    const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+
+    try {
+      // Use Firebase Admin SDK to create test user in Auth emulator
+      const auth = admin.auth();
+
+      try {
+        // Check if user already exists
+        await auth.getUserByEmail('qa@test.com');
+        console.log('   ✓ QA test user already exists');
+      } catch (error) {
+        // User doesn't exist, create it
+        await auth.createUser({
+          uid: 'qa-test-user-id',
+          email: 'qa@test.com',
+          password: 'testpassword123',
+          displayName: 'QA Test User',
+        });
+        console.log('✅ SUCCESS: Seeded QA test user (qa@test.com) to Auth emulator');
+      }
+    } catch (authError) {
+      console.warn('⚠️  WARNING: Failed to seed QA test user:', authError instanceof Error ? authError.message : String(authError));
+    }
+
     console.log('✅ Global setup complete');
   } catch (error) {
     console.error('❌ FAILURE: Error during global setup');

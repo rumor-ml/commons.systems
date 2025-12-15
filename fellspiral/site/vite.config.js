@@ -15,6 +15,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '127.0.0.1', // Use IPv4 to avoid IPv6 binding issues with sandbox
     port: 3000,
     open: true,
   },

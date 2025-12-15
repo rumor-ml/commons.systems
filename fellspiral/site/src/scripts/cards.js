@@ -10,7 +10,7 @@ import {
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
   withTimeout,
-  auth,
+  getAuthInstance,
 } from './firebase.js';
 
 // Import auth initialization and state
@@ -23,6 +23,17 @@ import { initLibraryNav } from './library-nav.js';
 
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
+
+// Submission lock to prevent double-submit
+let isSaving = false;
+
+// HTML escape utility to prevent XSS
+function escapeHtml(text) {
+  if (text == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
 
 // State management
 const state = {
@@ -53,13 +64,265 @@ function resetState() {
   // Don't reset initialized - that tracks global listeners
 }
 
-// Subtype mappings
-const SUBTYPES = {
-  Equipment: ['Weapon', 'Armor'],
-  Skill: ['Attack', 'Defense', 'Tenacity', 'Core'],
-  Upgrade: ['Weapon', 'Armor'],
-  Origin: ['Human', 'Elf', 'Dwarf', 'Orc', 'Undead', 'Vampire', 'Beast', 'Demon'],
-};
+// ==========================================================================
+// Combobox Component Functions
+// ==========================================================================
+
+// Get unique types from cards
+function getTypesFromCards() {
+  const types = new Set();
+  state.cards.forEach((card) => {
+    if (card.type) {
+      types.add(card.type);
+    }
+  });
+  return Array.from(types).sort();
+}
+
+// Get unique subtypes for a given type
+function getSubtypesForType(type) {
+  if (!type) return [];
+  const subtypes = new Set();
+  state.cards.forEach((card) => {
+    if (card.type === type && card.subtype) {
+      subtypes.add(card.subtype);
+    }
+  });
+  return Array.from(subtypes).sort();
+}
+
+// Generic combobox controller
+function createCombobox(config) {
+  const { inputId, listboxId, comboboxId, getOptions, onSelect } = config;
+
+  const combobox = document.getElementById(comboboxId);
+  const input = document.getElementById(inputId);
+  const listbox = document.getElementById(listboxId);
+  const toggle = combobox?.querySelector('.combobox-toggle');
+
+  if (!combobox || !input || !listbox || !toggle) {
+    console.warn(`Combobox elements not found for ${comboboxId}`);
+    return null;
+  }
+
+  let highlightedIndex = -1;
+  let currentOptions = [];
+
+  // Show listbox
+  function show() {
+    refresh();
+    combobox.classList.add('open');
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  // Hide listbox
+  function hide() {
+    combobox.classList.remove('open');
+    input.setAttribute('aria-expanded', 'false');
+    highlightedIndex = -1;
+  }
+
+  // Toggle listbox
+  function toggleListbox() {
+    if (combobox.classList.contains('open')) {
+      hide();
+    } else {
+      show();
+    }
+  }
+
+  // Refresh options based on input value
+  function refresh() {
+    const inputValue = input.value.trim().toLowerCase();
+    const availableOptions = getOptions();
+
+    // Filter options based on input
+    currentOptions = availableOptions.filter((option) =>
+      option.toLowerCase().includes(inputValue)
+    );
+
+    // Add "Add new" option if input doesn't match any option exactly
+    const exactMatch = availableOptions.some(
+      (option) => option.toLowerCase() === inputValue
+    );
+    const showAddNew = inputValue && !exactMatch;
+
+    // Clear listbox
+    while (listbox.firstChild) {
+      listbox.removeChild(listbox.firstChild);
+    }
+
+    if (currentOptions.length === 0 && !showAddNew) {
+      const li = document.createElement('li');
+      li.className = 'combobox-option';
+      li.textContent = 'No options available';
+      li.style.fontStyle = 'italic';
+      li.style.color = 'var(--color-text-tertiary)';
+      listbox.appendChild(li);
+      return;
+    }
+
+    currentOptions.forEach((option) => {
+      const li = document.createElement('li');
+      li.className = 'combobox-option';
+      li.textContent = option;
+      li.setAttribute('role', 'option');
+      li.dataset.value = option;
+
+      if (option === input.value) {
+        li.classList.add('selected');
+      }
+
+      li.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // Prevent blur event
+        selectOption(option);
+      });
+
+      listbox.appendChild(li);
+    });
+
+    // Add "Add new" option
+    if (showAddNew) {
+      const li = document.createElement('li');
+      li.className = 'combobox-option combobox-option--new';
+      li.textContent = `Add "${input.value}"`;
+      li.setAttribute('role', 'option');
+      li.dataset.value = input.value;
+
+      li.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectOption(input.value);
+      });
+
+      listbox.appendChild(li);
+    }
+  }
+
+  // Select an option
+  function selectOption(value) {
+    input.value = value;
+    hide();
+    if (onSelect) {
+      onSelect(value);
+    }
+  }
+
+  // Highlight option by index
+  function highlightOption(index) {
+    const options = listbox.querySelectorAll('.combobox-option');
+    if (index < 0 || index >= options.length) return;
+
+    options.forEach((opt, i) => {
+      if (i === index) {
+        opt.classList.add('highlighted');
+        opt.scrollIntoView({ block: 'nearest' });
+      } else {
+        opt.classList.remove('highlighted');
+      }
+    });
+
+    highlightedIndex = index;
+  }
+
+  // Event listeners
+  input.addEventListener('focus', () => {
+    show();
+  });
+
+  input.addEventListener('input', () => {
+    refresh();
+    highlightedIndex = -1;
+  });
+
+  input.addEventListener('blur', () => {
+    // Delay to allow click events on options
+    setTimeout(() => {
+      hide();
+    }, 200);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const options = listbox.querySelectorAll('.combobox-option');
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!combobox.classList.contains('open')) {
+        show();
+      } else {
+        highlightOption(Math.min(highlightedIndex + 1, options.length - 1));
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (combobox.classList.contains('open')) {
+        highlightOption(Math.max(highlightedIndex - 1, 0));
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (combobox.classList.contains('open') && highlightedIndex >= 0) {
+        const highlightedOption = options[highlightedIndex];
+        if (highlightedOption) {
+          selectOption(highlightedOption.dataset.value);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      hide();
+    } else if (e.key === 'Tab') {
+      hide();
+    }
+  });
+
+  toggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    input.focus();
+    toggleListbox();
+  });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!combobox.contains(e.target)) {
+      hide();
+    }
+  });
+
+  return { show, hide, toggle: toggleListbox, refresh };
+}
+
+// Initialize type combobox
+let typeCombobox = null;
+function initTypeCombobox() {
+  typeCombobox = createCombobox({
+    inputId: 'cardType',
+    listboxId: 'typeListbox',
+    comboboxId: 'typeCombobox',
+    getOptions: getTypesFromCards,
+    onSelect: (value) => {
+      // When type changes, clear subtype and refresh subtype options
+      const subtypeInput = document.getElementById('cardSubtype');
+      if (subtypeInput) {
+        subtypeInput.value = '';
+      }
+      if (subtypeCombobox) {
+        subtypeCombobox.refresh();
+      }
+    },
+  });
+}
+
+// Initialize subtype combobox
+let subtypeCombobox = null;
+function initSubtypeCombobox() {
+  subtypeCombobox = createCombobox({
+    inputId: 'cardSubtype',
+    listboxId: 'subtypeListbox',
+    comboboxId: 'subtypeCombobox',
+    getOptions: () => {
+      const type = document.getElementById('cardType')?.value;
+      return getSubtypesForType(type);
+    },
+    onSelect: null,
+  });
+}
 
 // Show error UI with retry option
 function showErrorUI(message, onRetry) {
@@ -128,6 +391,9 @@ async function init() {
         hardcodedSpinner.remove();
       }
     }
+
+    // Re-attach event listeners (they may be stale after HTMX swap)
+    setupEventListeners();
 
     // Show fresh loading state while we load data
     state.loading = true;
@@ -233,7 +499,7 @@ async function loadCards() {
       state.cards = cards;
     } else {
       // If no cards in Firestore, only attempt to seed if authenticated
-      if (auth.currentUser) {
+      if (getAuthInstance()?.currentUser) {
         await withTimeout(
           importCardsFromData(cardsData),
           FIRESTORE_TIMEOUT_MS,
@@ -276,7 +542,17 @@ function setupEventListeners() {
       return;
     }
 
-    addCardBtn.addEventListener('click', () => openCardEditor());
+    // Add debounce to Add Card button to prevent rapid clicks
+    let addCardDebounce = null;
+    addCardBtn.addEventListener('click', () => {
+      if (addCardDebounce) {
+        console.log('[Cards] Add Card click ignored - debounce active');
+        return;
+      }
+      addCardDebounce = setTimeout(() => { addCardDebounce = null; }, 300);
+      openCardEditor();
+    });
+
     importCardsBtn.addEventListener('click', importCards);
     exportCardsBtn.addEventListener('click', exportCards);
 
@@ -295,15 +571,17 @@ function setupEventListeners() {
     const cancelModalBtn = document.getElementById('cancelModalBtn');
     const deleteCardBtn = document.getElementById('deleteCardBtn');
     const cardForm = document.getElementById('cardForm');
-    const cardType = document.getElementById('cardType');
     const modalBackdrop = document.querySelector('.modal-backdrop');
 
     if (closeModalBtn) closeModalBtn.addEventListener('click', closeCardEditor);
     if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeCardEditor);
     if (deleteCardBtn) deleteCardBtn.addEventListener('click', deleteCard);
     if (cardForm) cardForm.addEventListener('submit', handleCardSave);
-    if (cardType) cardType.addEventListener('change', updateSubtypeOptions);
     if (modalBackdrop) modalBackdrop.addEventListener('click', closeCardEditor);
+
+    // Initialize comboboxes
+    initTypeCombobox();
+    initSubtypeCombobox();
   } catch (error) {
     console.error('Error setting up event listeners:', error);
   }
@@ -372,7 +650,11 @@ function setupMobileMenu() {
 // Setup auth state listener to show/hide auth-controls
 function setupAuthStateListener() {
   try {
-    onAuthStateChanged((user) => {
+    // Register listener for auth state changes
+    // NOTE: onAuthStateChanged fires immediately with the current user (or null)
+    // when the listener is registered, so this handles both initial state and changes
+    const unsubscribe = onAuthStateChanged((user) => {
+      console.log('[Cards] Auth state changed:', user ? `User ${user.uid}` : 'No user');
       if (user) {
         // User is logged in - show auth controls
         document.body.classList.add('authenticated');
@@ -381,9 +663,32 @@ function setupAuthStateListener() {
         document.body.classList.remove('authenticated');
       }
     });
+
+    // BACKUP: Also check current state after a brief delay
+    // This handles the edge case where onAuthStateChanged's immediate callback
+    // hasn't fired yet due to Firebase SDK still initializing
+    setTimeout(() => {
+      const auth = getAuthInstance();
+      if (auth?.currentUser && !document.body.classList.contains('authenticated')) {
+        console.log('[Cards] Backup auth check - current user detected:', auth.currentUser.uid);
+        document.body.classList.add('authenticated');
+      }
+    }, 500);
   } catch (error) {
     console.error('Error setting up auth state listener:', error);
   }
+}
+
+// Expose for E2E testing - allows tests to manually trigger auth UI updates
+// when auth state callbacks don't fire due to module isolation
+if (typeof window !== 'undefined') {
+  window.__updateAuthUI = (user) => {
+    if (user) {
+      document.body.classList.add('authenticated');
+    } else {
+      document.body.classList.remove('authenticated');
+    }
+  };
 }
 
 // Setup hash routing (only once per page load)
@@ -587,28 +892,28 @@ function renderCardItem(card) {
   const tags = Array.isArray(card.tags) ? card.tags : [];
   const tagsHtml =
     tags.length > 0
-      ? `<div class="card-item-tags">${tags.map((tag) => `<span class="card-tag">${tag}</span>`).join('')}</div>`
+      ? `<div class="card-item-tags">${tags.map((tag) => `<span class="card-tag">${escapeHtml(tag)}</span>`).join('')}</div>`
       : '';
 
   return `
-    <div class="card-item" data-card-id="${card.id}">
+    <div class="card-item" data-card-id="${escapeHtml(card.id)}">
       <div class="card-item-header">
-        <h3 class="card-item-title">${card.title}</h3>
+        <h3 class="card-item-title">${escapeHtml(card.title)}</h3>
         <div class="card-item-actions auth-controls">
-          <button class="btn-icon" onclick="event.stopPropagation(); editCard('${card.id}')" title="Edit">
+          <button class="btn-icon" onclick="event.stopPropagation(); editCard('${escapeHtml(card.id)}')" title="Edit">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.5 1.207L1 11.707V13h1.293L12.793 2.5 11.5 1.207z"/>
             </svg>
           </button>
         </div>
       </div>
-      <span class="card-item-type ${card.type}">${card.type} - ${card.subtype || 'Unknown'}</span>
+      <span class="card-item-type ${escapeHtml(card.type)}">${escapeHtml(card.type)} - ${escapeHtml(card.subtype || 'Unknown')}</span>
       ${tagsHtml}
-      ${card.description ? `<p class="card-item-description">${card.description}</p>` : ''}
+      ${card.description ? `<p class="card-item-description">${escapeHtml(card.description)}</p>` : ''}
       <div class="card-item-stats">
-        ${card.stat1 ? `<span class="card-stat"><strong>Stat:</strong> ${card.stat1}</span>` : ''}
-        ${card.stat2 ? `<span class="card-stat"><strong>Slots:</strong> ${card.stat2}</span>` : ''}
-        ${card.cost ? `<span class="card-stat"><strong>Cost:</strong> ${card.cost}</span>` : ''}
+        ${card.stat1 ? `<span class="card-stat"><strong>Stat:</strong> ${escapeHtml(card.stat1)}</span>` : ''}
+        ${card.stat2 ? `<span class="card-stat"><strong>Slots:</strong> ${escapeHtml(card.stat2)}</span>` : ''}
+        ${card.cost ? `<span class="card-stat"><strong>Cost:</strong> ${escapeHtml(card.cost)}</span>` : ''}
       </div>
     </div>
   `;
@@ -621,6 +926,13 @@ function openCardEditor(card = null) {
   const deleteBtn = document.getElementById('deleteCardBtn');
   const form = document.getElementById('cardForm');
 
+  // Guard against missing modal elements (can happen during HTMX navigation)
+  if (!modal || !form) {
+    console.error('[Cards] Card editor modal not found. Please refresh the page.');
+    alert('Card editor is not available. Please refresh the page to continue.');
+    return;
+  }
+
   // Reset form
   form.reset();
 
@@ -632,7 +944,6 @@ function openCardEditor(card = null) {
     document.getElementById('cardId').value = card.id;
     document.getElementById('cardTitle').value = card.title || '';
     document.getElementById('cardType').value = card.type || '';
-    updateSubtypeOptions();
     document.getElementById('cardSubtype').value = card.subtype || '';
     document.getElementById('cardTags').value = Array.isArray(card.tags)
       ? card.tags.join(', ')
@@ -646,8 +957,11 @@ function openCardEditor(card = null) {
     modalTitle.textContent = 'Add Card';
     deleteBtn.style.display = 'none';
     document.getElementById('cardId').value = '';
-    updateSubtypeOptions();
   }
+
+  // Refresh combobox options when modal opens
+  if (typeCombobox) typeCombobox.refresh();
+  if (subtypeCombobox) subtypeCombobox.refresh();
 
   modal.classList.add('active');
 }
@@ -658,26 +972,23 @@ function closeCardEditor() {
   modal.classList.remove('active');
 }
 
-// Update subtype options in form
-function updateSubtypeOptions() {
-  const type = document.getElementById('cardType').value;
-  const subtypeSelect = document.getElementById('cardSubtype');
-
-  subtypeSelect.innerHTML = '<option value="">Select subtype...</option>';
-
-  if (type && SUBTYPES[type]) {
-    SUBTYPES[type].forEach((subtype) => {
-      const option = document.createElement('option');
-      option.value = subtype;
-      option.textContent = subtype;
-      subtypeSelect.appendChild(option);
-    });
-  }
-}
-
 // Handle card save
 async function handleCardSave(e) {
+  console.log('[Cards] handleCardSave called');
   e.preventDefault();
+
+  // Prevent double-submit
+  if (isSaving) {
+    console.log('[Cards] Save already in progress, ignoring duplicate submission');
+    return;
+  }
+  isSaving = true;
+
+  // Disable Save button during submission
+  const saveBtn = document.getElementById('saveCardBtn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+  }
 
   const id = document.getElementById('cardId').value;
   const cardData = {
@@ -695,10 +1006,14 @@ async function handleCardSave(e) {
     cost: document.getElementById('cardCost').value.trim(),
   };
 
+  console.log('[Cards] Card data collected:', { id, title: cardData.title });
+
   try {
     if (id) {
+      console.log('[Cards] Updating existing card:', id);
       // Update existing card in Firestore
       await updateCardInDB(id, cardData);
+      console.log('[Cards] Card updated successfully');
 
       // Update local state
       const index = state.cards.findIndex((c) => c.id === id);
@@ -706,18 +1021,31 @@ async function handleCardSave(e) {
         state.cards[index] = { ...state.cards[index], ...cardData };
       }
     } else {
+      console.log('[Cards] Creating new card, auth.currentUser:', getAuthInstance()?.currentUser?.uid);
       // Create new card in Firestore
       const newCardId = await createCardInDB(cardData);
+      console.log('[Cards] Card created successfully:', newCardId);
 
       // Add to local state
       state.cards.push({ id: newCardId, ...cardData });
     }
 
+    console.log('[Cards] Closing card editor');
     closeCardEditor();
+    console.log('[Cards] Applying filters');
     applyFilters();
+    console.log('[Cards] Save complete');
   } catch (error) {
-    console.error('Error saving card:', error);
+    console.error('[Cards] Error saving card:', error);
     alert(`Error saving card: ${error.message}`);
+    console.log('[Cards] Closing card editor after error');
+    closeCardEditor(); // Always close modal, even on error
+  } finally {
+    // Re-enable Save button and reset submission lock
+    if (saveBtn) {
+      saveBtn.disabled = false;
+    }
+    isSaving = false;
   }
 }
 
