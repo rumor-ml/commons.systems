@@ -303,6 +303,11 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       try {
         const summaries = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
 
+        // Validate we got meaningful results
+        if (summaries.length === 0 || summaries.every(s => s.failed_steps.length === 0)) {
+          throw new Error('--log-failed returned no failure details despite run failing');
+        }
+
         // Format and return results using the new helper
         return formatJobSummaries(run, summaries, input.max_chars);
       } catch (error) {

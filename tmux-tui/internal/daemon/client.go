@@ -37,6 +37,11 @@ type DaemonClient struct {
 	lastPongMu sync.RWMutex // Protects lastPong
 	lastSeq    atomic.Uint64 // Last received sequence number for gap detection
 
+	// Health metrics for diagnostics
+	syncWarnings     atomic.Uint64 // Sync warning count
+	resyncFailures   atomic.Uint64 // Failed resync request count
+	queryChannelFull atomic.Uint64 // Query channel overflow count
+
 	// Query response routing (prevents event loss in QueryBlockedState)
 	queryResponses map[string]*queryResponse // Response channels keyed by branch
 	queryMu        sync.Mutex                // Protects queryResponses map
@@ -111,14 +116,19 @@ func (c *DaemonClient) Connect() error {
 	// Connect to Unix socket
 	conn, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%w: daemon socket %s: %v", ErrSocketNotFound, c.socketPath, err)
-		} else if os.IsPermission(err) {
-			return fmt.Errorf("%w: daemon socket %s: %v", ErrPermissionDenied, c.socketPath, err)
-		} else if os.IsTimeout(err) {
-			return fmt.Errorf("%w: daemon socket %s: %v", ErrConnectionTimeout, c.socketPath, err)
+		// Classify the connection error for better diagnostics
+		var errType error
+		switch {
+		case os.IsNotExist(err):
+			errType = ErrSocketNotFound
+		case os.IsPermission(err):
+			errType = ErrPermissionDenied
+		case os.IsTimeout(err):
+			errType = ErrConnectionTimeout
+		default:
+			errType = ErrConnectionFailed
 		}
-		return fmt.Errorf("%w: daemon socket %s: %v", ErrConnectionFailed, c.socketPath, err)
+		return fmt.Errorf("%w: daemon socket %s: %v", errType, c.socketPath, err)
 	}
 
 	c.conn = conn
@@ -195,7 +205,9 @@ func (c *DaemonClient) receive() {
 				go func() {
 					resyncMsg := Message{Type: MsgTypeResyncRequest}
 					if err := c.sendMessage(resyncMsg); err != nil {
-						debug.Log("CLIENT_RESYNC_REQUEST_ERROR id=%s error=%v", c.clientID, err)
+						c.resyncFailures.Add(1)
+						debug.Log("CLIENT_RESYNC_REQUEST_ERROR id=%s error=%v count=%d",
+							c.clientID, err, c.resyncFailures.Load())
 					} else {
 						debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 					}
@@ -219,11 +231,12 @@ func (c *DaemonClient) receive() {
 				default:
 					// Channel full - send error notification to caller
 					// This provides accurate error instead of misleading timeout
+					c.queryChannelFull.Add(1)
 					errMsg := ErrQueryChannelFull
 					select {
 					case resp.errCh <- errMsg:
-						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s",
-							c.clientID, msg.Branch)
+						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s count=%d",
+							c.clientID, msg.Branch, c.queryChannelFull.Load())
 					default:
 						// Error channel also full (shouldn't happen with buffered channel)
 						debug.Log("CLIENT_QUERY_ERROR_CHANNEL_FULL id=%s branch=%s",
@@ -240,7 +253,9 @@ func (c *DaemonClient) receive() {
 
 		// Handle sync warnings - log but don't forward to avoid client disruption
 		if msg.Type == MsgTypeSyncWarning {
-			debug.Log("CLIENT_SYNC_WARNING id=%s warning=%s", c.clientID, msg.Error)
+			c.syncWarnings.Add(1)
+			debug.Log("CLIENT_SYNC_WARNING id=%s warning=%s count=%d",
+				c.clientID, msg.Error, c.syncWarnings.Load())
 			continue // Skip forwarding to eventCh
 		}
 
@@ -523,4 +538,9 @@ func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlo
 	case <-c.done:
 		return "", false, fmt.Errorf("client closed")
 	}
+}
+
+// GetHealthMetrics returns diagnostic counters for monitoring client health.
+func (c *DaemonClient) GetHealthMetrics() (syncWarnings, resyncFailures, queryChannelFull uint64) {
+	return c.syncWarnings.Load(), c.resyncFailures.Load(), c.queryChannelFull.Load()
 }

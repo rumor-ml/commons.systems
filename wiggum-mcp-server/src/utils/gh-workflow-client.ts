@@ -190,13 +190,17 @@ export async function getFailureDetails(params: {
     120000 // 2 minutes should be sufficient
   );
 
-  const context = params.run_id
-    ? `run ${params.run_id}`
-    : params.pr_number
-      ? `PR #${params.pr_number}`
-      : params.branch
-        ? `branch ${params.branch}`
-        : 'unknown';
+  // Build context string for error messages
+  let context: string;
+  if (params.run_id) {
+    context = `run ${params.run_id}`;
+  } else if (params.pr_number) {
+    context = `PR #${params.pr_number}`;
+  } else if (params.branch) {
+    context = `branch ${params.branch}`;
+  } else {
+    context = 'unknown';
+  }
 
   const text = extractTextFromMCPResult(result, 'gh_get_failure_details', context);
 

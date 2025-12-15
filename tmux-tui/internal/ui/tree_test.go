@@ -222,9 +222,15 @@ func TestTreeRenderer_BlockedBranch_ActivePane(t *testing.T) {
 	// The active pane in a blocked branch should have both:
 	// 1. Muted text (blocked)
 	// 2. Background highlight (active)
-	// We can't easily test ANSI codes, but we can verify the pane appears
+	// We verify the structure and content rather than specific ANSI codes
+	// since lipgloss may disable colors in test environments
 	if !strings.Contains(output, "0:zsh") {
 		t.Error("Output should contain pane with command")
+	}
+
+	// Verify branch structure is present (the key behavior we're testing)
+	if !strings.Contains(output, "test-repo") {
+		t.Error("Output should contain repo name")
 	}
 }
 
@@ -253,6 +259,13 @@ func TestTreeRenderer_BlockedBranch_IdlePane(t *testing.T) {
 
 	if !strings.Contains(output, "0:zsh") {
 		t.Error("Output should contain pane")
+	}
+
+	// Verify branch structure is present (the key behavior we're testing)
+	// Note: In test environments, lipgloss may not render ANSI codes,
+	// so we focus on content presence rather than styling codes
+	if !strings.Contains(output, "test-repo") {
+		t.Error("Output should contain repo name")
 	}
 }
 

@@ -273,3 +273,133 @@ func TestBlockedPaneFlow(t *testing.T) {
 
 	t.Log("All blocked pane tests passed!")
 }
+
+// TestToggleUnblockFlow tests the toggle behavior of block/unblock/block cycles
+func TestToggleUnblockFlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Verify tmux is available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found")
+	}
+
+	socketName := uniqueSocketName()
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
+	tuiDir, _ := filepath.Abs("..")
+
+	// Build all binaries
+	t.Log("Building binaries...")
+	buildCmd := exec.Command("make", "build")
+	buildCmd.Dir = tuiDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build: %v\n%s", err, output)
+	}
+
+	// Create test session
+	sessionName := fmt.Sprintf("toggle-test-%d", time.Now().Unix())
+	cmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName, "-x", "120", "-y", "40")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer func() {
+		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
+		killCmd.Run()
+	}()
+
+	// Wait for tmux socket
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
+
+	// Start daemon
+	t.Log("Starting daemon...")
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon()
+
+	// Give daemon time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Set TMUX env in test process so daemon client connects to test daemon
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	tmuxEnv := fmt.Sprintf("%s,%d,0", tmuxSocketPath, os.Getpid())
+	os.Setenv("TMUX", tmuxEnv)
+	defer os.Unsetenv("TMUX")
+
+	client := daemon.NewDaemonClient()
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Failed to connect to daemon: %v", err)
+	}
+	defer client.Close()
+
+	// Test cycle: Block -> Query (verify blocked) -> Unblock -> Query (verify unblocked) -> Block again
+	testBranch := "test-branch"
+	blockingBranch := "main"
+
+	// Step 1: Block the branch
+	t.Logf("Step 1: Blocking %s with %s", testBranch, blockingBranch)
+	if err := client.BlockBranch(testBranch, blockingBranch); err != nil {
+		t.Fatalf("Failed to block branch: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Step 2: Query to verify blocked
+	t.Log("Step 2: Querying blocked state (should be blocked)")
+	blockedBy, isBlocked, err := client.QueryBlockedState(testBranch)
+	if err != nil {
+		t.Fatalf("Failed to query blocked state: %v", err)
+	}
+	if !isBlocked {
+		t.Errorf("Expected %s to be blocked, but it was not", testBranch)
+	}
+	if blockedBy != blockingBranch {
+		t.Errorf("Expected %s to be blocked by %s, got %s", testBranch, blockingBranch, blockedBy)
+	}
+	t.Logf("Verified: %s is blocked by %s", testBranch, blockedBy)
+
+	// Step 3: Unblock the branch
+	t.Logf("Step 3: Unblocking %s", testBranch)
+	if err := client.UnblockBranch(testBranch); err != nil {
+		t.Fatalf("Failed to unblock branch: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Step 4: Query to verify unblocked
+	t.Log("Step 4: Querying blocked state (should be unblocked)")
+	blockedBy2, isBlocked2, err := client.QueryBlockedState(testBranch)
+	if err != nil {
+		t.Fatalf("Failed to query blocked state after unblock: %v", err)
+	}
+	if isBlocked2 {
+		t.Errorf("Expected %s to be unblocked, but it was blocked by %s", testBranch, blockedBy2)
+	}
+	if blockedBy2 != "" {
+		t.Errorf("Expected blockedBy to be empty for unblocked branch, got %s", blockedBy2)
+	}
+	t.Logf("Verified: %s is unblocked", testBranch)
+
+	// Step 5: Block again to verify the cycle works
+	t.Logf("Step 5: Blocking %s again with %s", testBranch, blockingBranch)
+	if err := client.BlockBranch(testBranch, blockingBranch); err != nil {
+		t.Fatalf("Failed to block branch second time: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Step 6: Query to verify blocked again
+	t.Log("Step 6: Querying blocked state (should be blocked again)")
+	blockedBy3, isBlocked3, err := client.QueryBlockedState(testBranch)
+	if err != nil {
+		t.Fatalf("Failed to query blocked state after second block: %v", err)
+	}
+	if !isBlocked3 {
+		t.Errorf("Expected %s to be blocked again, but it was not", testBranch)
+	}
+	if blockedBy3 != blockingBranch {
+		t.Errorf("Expected %s to be blocked by %s again, got %s", testBranch, blockingBranch, blockedBy3)
+	}
+	t.Logf("Verified: %s is blocked by %s again", testBranch, blockedBy3)
+
+	t.Log("Toggle-unblock flow test passed!")
+}

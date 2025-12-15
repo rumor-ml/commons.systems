@@ -2,11 +2,17 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
+}
 
 func TestModelErrorStateConcurrency(t *testing.T) {
 	m := initialModel()
@@ -204,17 +210,10 @@ func TestErrorBannerPriority(t *testing.T) {
 
 			// Check that expected error type appears in view
 			// Note: We can't do exact string matching because lipgloss adds styling
-			// Just verify the key text is present
-			found := false
-			for _, line := range []string{view} {
-				if len(line) > 0 {
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				t.Errorf("Expected view to contain content, got empty")
+			// But we can verify the key text is present using strings.Contains
+			if !contains(view, tt.expectedContains) {
+				t.Errorf("Expected view to contain %q, but it was not found.\nView content:\n%s",
+					tt.expectedContains, view)
 			}
 		})
 	}
