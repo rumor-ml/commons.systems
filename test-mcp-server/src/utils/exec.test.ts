@@ -91,10 +91,7 @@ describe('captureOutput', () => {
   });
 
   it('should throw on non-zero exit code', async () => {
-    await assert.rejects(
-      async () => captureOutput('/bin/false', []),
-      ScriptExecutionError
-    );
+    await assert.rejects(async () => captureOutput('/bin/false', []), ScriptExecutionError);
   });
 
   it('should return multi-line output trimmed', async () => {

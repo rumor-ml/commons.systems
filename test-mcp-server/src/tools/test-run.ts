@@ -46,7 +46,10 @@ function parseTestOutput(stdout: string): TestRunOutput {
   try {
     return JSON.parse(stdout);
   } catch (error) {
-    console.error('Failed to parse test output as JSON:', error instanceof Error ? error.message : String(error));
+    console.error(
+      'Failed to parse test output as JSON:',
+      error instanceof Error ? error.message : String(error)
+    );
     console.error('Raw output (first 500 chars):', stdout.substring(0, 500));
     return {
       results: [],
