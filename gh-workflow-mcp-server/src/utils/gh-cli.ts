@@ -30,7 +30,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       throw new GitHubCliError(
         `GitHub CLI command failed: ${result.stderr || result.stdout}`,
         result.exitCode,
-        result.stderr || undefined
+        result.stderr || undefined,
+        result.stdout || undefined
       );
     }
 

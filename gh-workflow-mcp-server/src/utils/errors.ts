@@ -18,7 +18,8 @@ export class GitHubCliError extends McpError {
   constructor(
     message: string,
     public readonly exitCode?: number,
-    public readonly stderr?: string
+    public readonly stderr?: string,
+    public readonly stdout?: string
   ) {
     super(message, 'GH_CLI_ERROR');
     this.name = 'GitHubCliError';
