@@ -215,34 +215,49 @@ while IFS=: read -r name type path; do
 
     case "$type" in
       firebase)
-        if ! TEST_OUTPUT=$(run_firebase_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" 2>&1); then
+        TEST_OUTPUT_FILE=$(mktemp)
+        if ! run_firebase_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" > "$TEST_OUTPUT_FILE" 2>&1; then
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
+        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-fullstack)
-        if ! TEST_OUTPUT=$(run_go_fullstack_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" 2>&1); then
+        TEST_OUTPUT_FILE=$(mktemp)
+        if ! run_go_fullstack_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" > "$TEST_OUTPUT_FILE" 2>&1; then
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
+        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-tui)
-        if ! TEST_OUTPUT=$(run_go_tui_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" 2>&1); then
+        TEST_OUTPUT_FILE=$(mktemp)
+        if ! run_go_tui_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" > "$TEST_OUTPUT_FILE" 2>&1; then
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
+        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-package)
-        if ! TEST_OUTPUT=$(run_go_package_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" 2>&1); then
+        TEST_OUTPUT_FILE=$(mktemp)
+        if ! run_go_package_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" > "$TEST_OUTPUT_FILE" 2>&1; then
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
+        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        rm -f "$TEST_OUTPUT_FILE"
         ;;
       mcp-server)
-        if ! TEST_OUTPUT=$(run_mcp_server_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" 2>&1); then
+        TEST_OUTPUT_FILE=$(mktemp)
+        if ! run_mcp_server_tests "$path" "$test_type" "$FILTER_ARGS" "$EXTRA_ARGS" > "$TEST_OUTPUT_FILE" 2>&1; then
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
+        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        rm -f "$TEST_OUTPUT_FILE"
         ;;
     esac
 
