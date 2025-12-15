@@ -36,17 +36,6 @@ const (
 	MsgTypePong = "pong"
 	// MsgTypeShowBlockPicker is sent to request TUI show branch picker for a pane
 	MsgTypeShowBlockPicker = "show_block_picker"
-	// MsgTypeBlockPane is sent by client to block a pane on a specific branch
-	// DEPRECATED: Use MsgTypeBlockBranch instead. Pane-based blocking is being phased out
-	// in favor of branch-based blocking which better reflects the mental model.
-	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
-	// Migration: Replace BlockPane(paneID, branch) with BlockBranch(currentBranch, targetBranch)
-	MsgTypeBlockPane = "block_pane"
-	// MsgTypeUnblockPane is sent by client to unblock a pane
-	// DEPRECATED: Use MsgTypeUnblockBranch instead. See MsgTypeBlockPane for rationale.
-	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
-	// Migration: Replace UnblockPane(paneID) with UnblockBranch(currentBranch)
-	MsgTypeUnblockPane = "unblock_pane"
 	// MsgTypeBlockBranch is sent by client to block a branch with another branch
 	MsgTypeBlockBranch = "block_branch"
 	// MsgTypeUnblockBranch is sent by client to unblock a branch
