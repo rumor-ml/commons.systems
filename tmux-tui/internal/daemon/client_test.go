@@ -1299,3 +1299,300 @@ func TestBlockBranch_ConcurrentCalls(t *testing.T) {
 	serverWriter.Close()
 	clientWriter.Close()
 }
+
+// TestGapDetection_OutOfOrderMessages tests that gap detection only triggers on actual gaps
+func TestGapDetection_OutOfOrderMessages(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Send message with seqnum 1
+	encoder := json.NewEncoder(serverWriter)
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1", EventType: "stop"})
+
+	// Wait briefly for processing
+	time.Sleep(50 * time.Millisecond)
+
+	// Send message with seqnum 5 (gap detected, should trigger resync)
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 5, PaneID: "pane2", EventType: "stop"})
+
+	// Read resync request from server
+	decoder := json.NewDecoder(serverReader)
+	var resyncMsg Message
+	if err := decoder.Decode(&resyncMsg); err != nil {
+		t.Fatalf("Expected resync request, got error: %v", err)
+	}
+	if resyncMsg.Type != MsgTypeResyncRequest {
+		t.Errorf("Expected resync request, got %s", resyncMsg.Type)
+	}
+
+	// Send message with seqnum 3 (out of order, but no gap since lastSeq is now 5)
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 3, PaneID: "pane3", EventType: "stop"})
+
+	// Wait briefly - should NOT trigger another resync
+	time.Sleep(50 * time.Millisecond)
+
+	// Try to read another message with timeout - should not be resync
+	done := make(chan bool)
+	go func() {
+		var msg Message
+		if decoder.Decode(&msg) == nil && msg.Type == MsgTypeResyncRequest {
+			t.Errorf("Expected no resync request for out-of-order message, got: %s", msg.Type)
+		}
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Either timeout or no resync - both acceptable
+	case <-time.After(200 * time.Millisecond):
+		// Timeout is expected - no resync request
+	}
+
+	// Verify lastSeq is 3 (updated from the last message)
+	if client.lastSeq.Load() != 3 {
+		t.Errorf("Expected lastSeq=3, got %d", client.lastSeq.Load())
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+	clientWriter.Close()
+}
+
+// TestGapDetection_RapidMultipleGaps tests multiple gaps in quick succession
+func TestGapDetection_RapidMultipleGaps(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	encoder := json.NewEncoder(serverWriter)
+	decoder := json.NewDecoder(serverReader)
+
+	// Send seq 1, 5, 10, 15 - should trigger 3 gap detections
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1"})
+	time.Sleep(50 * time.Millisecond)
+
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 5, PaneID: "pane2"})
+	time.Sleep(50 * time.Millisecond)
+
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 10, PaneID: "pane3"})
+	time.Sleep(50 * time.Millisecond)
+
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 15, PaneID: "pane4"})
+	time.Sleep(50 * time.Millisecond)
+
+	// Read 3 resync requests
+	resyncCount := 0
+	timeout := time.After(1 * time.Second)
+	msgChan := make(chan Message, 10)
+
+	go func() {
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			msgChan <- msg
+		}
+	}()
+
+	for resyncCount < 3 {
+		select {
+		case msg := <-msgChan:
+			if msg.Type == MsgTypeResyncRequest {
+				resyncCount++
+			}
+		case <-timeout:
+			break
+		}
+		if resyncCount >= 3 {
+			break
+		}
+	}
+
+	if resyncCount != 3 {
+		t.Errorf("Expected 3 resync requests, got %d", resyncCount)
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+	clientWriter.Close()
+}
+
+// TestGapDetection_ResyncFailure tests that resyncFailures counter increments on send failure
+func TestGapDetection_ResyncFailure(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	encoder := json.NewEncoder(serverWriter)
+
+	// Send message with seqnum 1
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1"})
+	time.Sleep(50 * time.Millisecond)
+
+	// Close writer to force resync send failure
+	clientWriter.Close()
+	serverReader.Close()
+
+	// Send message with gap - should trigger resync that fails
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 10, PaneID: "pane2"})
+
+	// Wait for resync failure to be detected
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case msg := <-client.eventCh:
+			if msg.Type == "disconnect" {
+				goto done
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for disconnect after resync failure")
+		}
+	}
+done:
+
+	// Verify resyncFailures was incremented
+	if client.resyncFailures.Load() == 0 {
+		t.Error("Expected resyncFailures to be incremented")
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+}
+
+// TestGapDetection_FullStateResetsSequence tests that full_state messages update lastSeq
+func TestGapDetection_FullStateResetsSequence(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	encoder := json.NewEncoder(serverWriter)
+	decoder := json.NewDecoder(serverReader)
+
+	// Send normal sequence 1, 2, 3
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1"})
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 2, PaneID: "pane2"})
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 3, PaneID: "pane3"})
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify lastSeq is 3
+	if client.lastSeq.Load() != 3 {
+		t.Errorf("Expected lastSeq=3 after normal sequence, got %d", client.lastSeq.Load())
+	}
+
+	// Send full_state with seqnum 4 (no gap, continuing sequence)
+	encoder.Encode(Message{
+		Type:            MsgTypeFullState,
+		SeqNum:          4,
+		Alerts:          map[string]string{"pane1": "stop"},
+		BlockedBranches: map[string]string{},
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify lastSeq is updated to 4
+	if client.lastSeq.Load() != 4 {
+		t.Errorf("Expected lastSeq=4 after full_state, got %d", client.lastSeq.Load())
+	}
+
+	// Send seqnum 5 - should NOT trigger gap detection
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 5, PaneID: "pane4"})
+	time.Sleep(100 * time.Millisecond)
+
+	// Try to read resync request - should timeout (no gap detected)
+	done2 := make(chan bool)
+	go func() {
+		var msg Message
+		if decoder.Decode(&msg) == nil && msg.Type == MsgTypeResyncRequest {
+			t.Errorf("Expected no resync request after full_state reset, got: %s", msg.Type)
+		}
+		done2 <- true
+	}()
+
+	select {
+	case <-done2:
+		// Either timeout or no resync - both acceptable
+	case <-time.After(200 * time.Millisecond):
+		// Timeout is expected - no resync request
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+	clientWriter.Close()
+}
