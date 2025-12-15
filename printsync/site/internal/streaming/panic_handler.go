@@ -2,7 +2,6 @@ package streaming
 
 import (
 	"log"
-	"os"
 	"runtime/debug"
 	"strings"
 )
@@ -27,13 +26,11 @@ func IsExpectedPanic(r interface{}) bool {
 	return strings.Contains(panicMsg, "send on closed channel")
 }
 
-// HandlePanic logs panics and re-panics unexpected ones in non-production environments.
-// This helps catch bugs in development while preventing crashes in production.
+// HandlePanic logs panics and re-panics unexpected ones to let HTTP recovery middleware handle them.
+// This ensures unexpected errors return HTTP 500 to users instead of being silently suppressed.
 //
 // Expected panics (like "send on closed channel") are logged and suppressed.
-// Unexpected panics are logged with stack traces and re-raised in development mode.
-//
-// Set GO_ENV=production to suppress re-panicking in production environments.
+// Unexpected panics are logged with stack traces and re-raised for proper error handling.
 func HandlePanic(r interface{}, context string) {
 	if r == nil {
 		return
@@ -48,11 +45,7 @@ func HandlePanic(r interface{}, context string) {
 		return
 	}
 
-	// For unexpected panics, re-panic in non-production to catch bugs early
-	if os.Getenv("GO_ENV") != "production" {
-		log.Printf("FATAL: Unexpected panic in %s - re-panicking in development mode to surface bug", context)
-		panic(r)
-	}
-
-	log.Printf("ERROR: Unexpected panic in %s - suppressed in production mode", context)
+	// For unexpected panics, always re-panic to let HTTP recovery middleware handle them
+	log.Printf("FATAL: Unexpected panic in %s - re-panicking to allow proper error handling", context)
+	panic(r)
 }

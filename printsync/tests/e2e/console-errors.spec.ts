@@ -12,11 +12,30 @@ test.describe('Console Errors', () => {
     httpErrors = [];
 
     // Capture console errors
-    page.on('console', (msg) => {
+    page.on('console', async (msg) => {
       if (msg.type() === 'error') {
-        // Skip "JSHandle@object" which happens when console.error logs an object
         const text = msg.text();
-        if (text !== 'JSHandle@object') {
+        // If we see "JSHandle@object", inspect the actual arguments to capture Error objects
+        if (text === 'JSHandle@object') {
+          const args = msg.args();
+          for (const arg of args) {
+            try {
+              const jsonValue = await arg.jsonValue();
+              if (
+                jsonValue instanceof Error ||
+                (jsonValue && typeof jsonValue === 'object' && 'message' in jsonValue)
+              ) {
+                consoleErrors.push(
+                  `Error object: ${jsonValue.message || JSON.stringify(jsonValue)}`
+                );
+              }
+            } catch {
+              // If we can't convert to JSON, use the text representation
+              const textValue = await arg.evaluate((obj) => String(obj));
+              consoleErrors.push(textValue);
+            }
+          }
+        } else {
           consoleErrors.push(text);
         }
       }

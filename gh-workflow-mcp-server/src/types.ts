@@ -4,7 +4,13 @@
 
 export interface ToolResult {
   content: Array<{ type: 'text'; text: string }>;
-  [key: string]: unknown;
+  isError?: boolean;
+  _meta?: {
+    errorType?: string;
+    errorCode?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown; // Required by MCP SDK, but isError and _meta are explicitly typed
 }
 
 export interface WorkflowRun {

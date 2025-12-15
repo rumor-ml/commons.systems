@@ -34,8 +34,14 @@ const (
 //	(no env vars)           -> ""
 func getCollectionPrefix() string {
 	// Check for PR number first (highest priority)
+	// PR_NUMBER must be numeric - if invalid, fall back to branch-based prefix
 	if prNumber := os.Getenv("PR_NUMBER"); prNumber != "" {
-		return fmt.Sprintf("pr_%s_", prNumber)
+		// Validate that PR_NUMBER is numeric only
+		if matched, _ := regexp.MatchString(`^[0-9]+$`, prNumber); matched {
+			return fmt.Sprintf("pr_%s_", prNumber)
+		}
+		// Invalid PR_NUMBER - log warning and fall through to branch name
+		fmt.Fprintf(os.Stderr, "WARNING: Invalid PR_NUMBER '%s' (must be numeric), falling back to branch-based prefix\n", prNumber)
 	}
 
 	// Check for branch name

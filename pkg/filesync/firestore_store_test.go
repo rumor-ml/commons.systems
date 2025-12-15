@@ -423,6 +423,12 @@ func TestGetCollectionPrefix(t *testing.T) {
 		{"branch with only special chars", "", "/@#$%", "preview_-----_"},
 		{"exactly 50 char branch name", "", strings.Repeat("b", 50), "preview_" + strings.Repeat("b", 50) + "_"},
 		{"51 char branch name truncated", "", strings.Repeat("c", 51), "preview_" + strings.Repeat("c", 50) + "_"},
+		// Invalid PR_NUMBER cases (should fall back to branch or empty)
+		{"non-numeric PR_NUMBER with branch", "abc", "feature/test", "preview_feature-test_"},
+		{"PR_NUMBER with special chars", "12#34", "feature/test", "preview_feature-test_"},
+		{"PR_NUMBER with slash", "123/456", "feature/test", "preview_feature-test_"},
+		{"non-numeric PR_NUMBER without branch", "invalid", "", ""},
+		{"PR_NUMBER with spaces", "12 34", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

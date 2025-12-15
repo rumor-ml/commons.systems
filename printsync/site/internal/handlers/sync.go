@@ -184,10 +184,11 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 				"Extraction pipeline ended unexpectedly. Please contact support if this persists.",
 				"error")
 
-			// Clean up resources
+			// Clean up resources - use background context since request context may be cancelled
 			close(progressCh)
 			cancel()
-			h.registry.Remove(sessionID) // Add this cleanup
+			h.hub.StopSession(sessionID)
+			h.registry.Remove(sessionID)
 			return
 		}
 
@@ -197,13 +198,18 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 			h.hub.SendErrorToClients(sessionID,
 				"Extraction pipeline returned invalid result. Please try again.",
 				"error")
+			// Clean up resources
 			close(progressCh)
 			cancel()
+			h.hub.StopSession(sessionID)
+			h.registry.Remove(sessionID)
 			return
 		}
 
+		// Clean up resources after successful completion
 		close(progressCh) // Signal forwarder to stop
 		cancel()
+		h.hub.StopSession(result.SessionID)
 		h.registry.Remove(result.SessionID)
 	}()
 

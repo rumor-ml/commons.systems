@@ -187,7 +187,7 @@ func NewStreamHub(sessionStore filesync.SessionStore, fileStore filesync.FileSto
 }
 
 // Register registers a client for a session and returns the client
-func (h *StreamHub) Register(ctx context.Context, sessionID string) *Client {
+func (h *StreamHub) Register(ctx context.Context, sessionID string) (*Client, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -199,15 +199,14 @@ func (h *StreamHub) Register(ctx context.Context, sessionID string) *Client {
 		// Broadcaster will be started when StartSession is called
 		merger, err := NewStreamMerger(h.sessionStore, h.fileStore)
 		if err != nil {
-			log.Printf("ERROR: Failed to create StreamMerger for session %s: %v", sessionID, err)
-			return nil
+			return nil, fmt.Errorf("failed to create stream merger: %w", err)
 		}
 		broadcaster = NewSessionBroadcaster(ctx, merger)
 		h.broadcasters[sessionID] = broadcaster
 	}
 
 	broadcaster.Register(client)
-	return client
+	return client, nil
 }
 
 // Unregister removes a client from a session

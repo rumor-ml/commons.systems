@@ -2,7 +2,6 @@ package streaming
 
 import (
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -32,15 +31,12 @@ func TestIsExpectedPanic(t *testing.T) {
 	}
 }
 
-func TestHandlePanic_DevelopmentMode(t *testing.T) {
-	// Unset GO_ENV for development mode
-	os.Unsetenv("GO_ENV")
-
-	// Should re-panic unexpected errors
+func TestHandlePanic_UnexpectedPanics(t *testing.T) {
+	// Should always re-panic unexpected errors (regardless of environment)
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("Expected panic to be re-raised in development mode")
+			t.Error("Expected panic to be re-raised for unexpected errors")
 		}
 		if !strings.Contains(r.(string), "unexpected error") {
 			t.Errorf("Expected panic message 'unexpected error', got: %v", r)
@@ -48,22 +44,6 @@ func TestHandlePanic_DevelopmentMode(t *testing.T) {
 	}()
 
 	HandlePanic("unexpected error", "test context")
-}
-
-func TestHandlePanic_ProductionMode(t *testing.T) {
-	// Set production mode
-	os.Setenv("GO_ENV", "production")
-	defer os.Unsetenv("GO_ENV")
-
-	// Should NOT re-panic
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("Unexpected panic in production mode: %v", r)
-		}
-	}()
-
-	HandlePanic("unexpected error", "test context")
-	// If we get here, panic was suppressed successfully
 }
 
 func TestHandlePanic_ExpectedPanics(t *testing.T) {
