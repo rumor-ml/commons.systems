@@ -96,65 +96,56 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       throw new ValidationError(`PR #${input.pr_number} is ${pr.state}, not open`);
     }
 
-    // Build gh pr checks --watch command
-    const args = [
-      'pr',
-      'checks',
-      input.pr_number.toString(),
-      '--watch',
-      '--json',
-      'name,state,link,startedAt,completedAt,workflow,bucket',
-    ];
+    // First: Wait for checks using --watch (no JSON)
+    const watchArgs = ['pr', 'checks', input.pr_number.toString(), '--watch'];
 
     if (input.fail_fast) {
-      args.push('--fail-fast');
+      watchArgs.push('--fail-fast');
     }
 
     if (input.poll_interval_seconds) {
-      args.push('-i', input.poll_interval_seconds.toString());
+      watchArgs.push('-i', input.poll_interval_seconds.toString());
     }
 
-    let checks: CheckData[] = [];
     let failedEarly = false;
 
+    // Wait for checks to complete (or fail-fast triggers)
     try {
-      const output = await ghCli(args, {
+      await ghCli(watchArgs, {
         repo: resolvedRepo,
         timeout: input.timeout_seconds * 1000,
       });
-      checks = JSON.parse(output);
     } catch (error) {
-      // Exit code 8 means checks are still pending (timeout reached)
-      // When --fail-fast is used and a check fails, gh CLI exits with code 1
-      // In both cases, JSON output is in stdout
-      if (error instanceof GitHubCliError && (error.exitCode === 8 || error.exitCode === 1)) {
-        // Try to parse stdout which contains the JSON output
-        if (error.stdout) {
-          try {
-            checks = JSON.parse(error.stdout);
-            failedEarly = error.exitCode === 1 && input.fail_fast;
-          } catch {
-            // If JSON parsing fails, throw appropriate error
-            if (error.exitCode === 8) {
-              throw new TimeoutError(
-                `PR checks did not complete within ${input.timeout_seconds} seconds`
-              );
-            }
-            throw error;
-          }
+      // Exit code 1 means fail-fast triggered (check failed)
+      // Exit code 8 means timeout reached
+      // Both are expected - we'll fetch JSON data regardless
+      if (error instanceof GitHubCliError) {
+        if (error.exitCode === 1 && input.fail_fast) {
+          failedEarly = true;
+        } else if (error.exitCode === 8) {
+          throw new TimeoutError(
+            `PR checks did not complete within ${input.timeout_seconds} seconds`
+          );
         } else {
-          // If we don't have stdout, throw appropriate error
-          if (error.exitCode === 8) {
-            throw new TimeoutError(
-              `PR checks did not complete within ${input.timeout_seconds} seconds`
-            );
-          }
+          // Unexpected error code
           throw error;
         }
       } else {
         throw error;
       }
     }
+
+    // Second: Fetch JSON data now that checks are done
+    const jsonArgs = [
+      'pr',
+      'checks',
+      input.pr_number.toString(),
+      '--json',
+      'name,state,link,startedAt,completedAt,workflow,bucket',
+    ];
+
+    const output = await ghCli(jsonArgs, { repo: resolvedRepo });
+    const checks: CheckData[] = JSON.parse(output);
 
     if (!checks || checks.length === 0) {
       return {
