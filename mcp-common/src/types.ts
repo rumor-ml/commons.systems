@@ -15,7 +15,7 @@
  */
 export interface ToolSuccess {
   content: Array<{ type: 'text'; text: string }>;
-  isError?: false;
+  readonly isError?: false; // Discriminant should be immutable
   _meta?: { [key: string]: unknown };
   [key: string]: unknown; // MCP SDK compatibility
 }
@@ -28,11 +28,11 @@ export interface ToolSuccess {
  */
 export interface ToolError {
   content: Array<{ type: 'text'; text: string }>;
-  isError: true; // Required discriminant
+  readonly isError: true; // Required discriminant - should be immutable
   _meta: {
     // Required for errors
-    errorType: string;
-    errorCode?: string;
+    readonly errorType: string; // Error type should be immutable
+    readonly errorCode?: string; // Error code should be immutable
     [key: string]: unknown;
   };
   [key: string]: unknown; // MCP SDK compatibility

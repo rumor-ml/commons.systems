@@ -15,15 +15,15 @@ export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/typ
  * - failed: Test failed (includes module, duration, and error message)
  */
 export type TestStatus =
-  | { status: 'not_started' }
-  | { status: 'running'; module: string; start_time: number }
-  | { status: 'passed'; module: string; duration_ms: number }
-  | { status: 'failed'; module: string; duration_ms: number; error_message: string };
+  | { readonly status: 'not_started' } // Discriminant
+  | { readonly status: 'running'; readonly module: string; start_time: number }
+  | { readonly status: 'passed'; readonly module: string; duration_ms: number }
+  | { readonly status: 'failed'; readonly module: string; duration_ms: number; error_message: string };
 
 export interface ModuleInfo {
-  name: string;
-  path: string;
-  test_files: string[];
+  readonly name: string;
+  readonly path: string;
+  readonly test_files: ReadonlyArray<string>;
 }
 
 /**
@@ -34,13 +34,13 @@ export interface ModuleInfo {
  * - running: true - Emulators are active (includes services array)
  */
 export type EmulatorStatus =
-  | { running: false }
+  | { readonly running: false } // Discriminant
   | {
-      running: true;
+      readonly running: true; // Discriminant
       services: Array<{
-        name: string;
-        port: number;
-        host: string;
+        readonly name: string; // Service identity
+        readonly port: number; // Service identity
+        readonly host: string; // Service identity
       }>;
     };
 
@@ -52,11 +52,11 @@ export type EmulatorStatus =
  * - running: true - Dev server is active (includes URL, port, and module)
  */
 export type DevServerStatus =
-  | { running: false }
-  | { running: true; url: string; port: number; module: string };
+  | { readonly running: false } // Discriminant
+  | { readonly running: true; readonly url: string; readonly port: number; readonly module: string }; // All are server identity
 
 export interface PortAllocation {
-  service: string;
-  port: number;
-  in_use: boolean;
+  readonly service: string; // Service identity
+  readonly port: number; // Port identity
+  in_use: boolean; // Mutable status
 }
