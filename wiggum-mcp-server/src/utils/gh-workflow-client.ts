@@ -182,6 +182,7 @@ export async function getGhWorkflowClient(): Promise<Client> {
     logger.error('Failed to connect to gh-workflow-mcp-server', { error: errorMsg });
 
     // Clean up transport to prevent resource leaks
+    let resourceLeakWarning = '';
     try {
       await transport.close();
       logger.debug('Cleaned up transport after connection failure');
@@ -199,8 +200,11 @@ export async function getGhWorkflowClient(): Promise<Client> {
           checkLimits: 'ulimit -a'
         }
       });
-      // Don't throw here - we want to propagate the original connection error
-      // The cleanup failure is logged above with full troubleshooting context
+      // Append resource leak warning to error message for user visibility
+      resourceLeakWarning =
+        `\n\n⚠️  RESOURCE LEAK WARNING:\n` +
+        `Transport cleanup failed - ${closeMsg}\n` +
+        `Socket/process may remain open. Manual cleanup: pkill -f gh-workflow-mcp-server`;
     }
 
     const troubleshooting = [
@@ -211,7 +215,7 @@ export async function getGhWorkflowClient(): Promise<Client> {
       `2. Verify path: ${serverPath}`,
       '3. Check Node.js in PATH: which node',
     ].join('\n');
-    throw new Error(troubleshooting);
+    throw new Error(troubleshooting + resourceLeakWarning);
   }
 }
 

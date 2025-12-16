@@ -6,13 +6,6 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
-/**
- * Extract error message from unknown error type
- */
-function extractErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { hasReviewCommandEvidence, postWiggumStateComment } from './comments.js';
 import { detectCurrentState } from './detector.js';
@@ -389,24 +382,15 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_WORKFLOW],
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_MONITOR_WORKFLOW]} - Complete`,
-        'Workflow run completed successfully.'
-      );
-    } catch (commentError) {
-      const errorMsg = extractErrorMessage(commentError);
-      logger.error('Failed to post state comment', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_WORKFLOW,
-        error: errorMsg,
-      });
-      output.warning =
-        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
-        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
-    }
+    // Post state comment - audit trail is mandatory, let exceptions propagate
+    // If this fails, workflow stops and user must investigate (no silent data loss)
+    // postWiggumStateComment() provides detailed troubleshooting in error message
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_MONITOR_WORKFLOW]} - Complete`,
+      'Workflow run completed successfully.'
+    );
 
     const stepsCompleted = [
       'Monitored workflow run until completion',
@@ -454,24 +438,15 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       completedSteps: [...updatedState.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState1b,
-        `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      const errorMsg = extractErrorMessage(commentError);
-      logger.error('Failed to post state comment', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_PR_CHECKS,
-        error: errorMsg,
-      });
-      output.warning =
-        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
-        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
-    }
+    // Post state comment - audit trail is mandatory, let exceptions propagate
+    // If this fails, workflow stops and user must investigate (no silent data loss)
+    // postWiggumStateComment() provides detailed troubleshooting in error message
+    await postWiggumStateComment(
+      state.pr.number,
+      newState1b,
+      `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.'
+    );
 
     stepsCompleted.push(
       'Checked for uncommitted changes',
@@ -541,23 +516,15 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
       completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = extractErrorMessage(commentError);
-      logger.warn('Failed to post state comment for Step 1b completion', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_PR_CHECKS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    // Post state comment - audit trail is mandatory, let exceptions propagate
+    // If this fails, workflow stops and user must investigate (no silent data loss)
+    // postWiggumStateComment() provides detailed troubleshooting in error message
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.'
+    );
 
     const stepsCompleted = [
       'Checked for uncommitted changes',
@@ -631,24 +598,15 @@ async function processCodeQualityAndReturnNextInstructions(
       completedSteps: [...state.wiggum.completedSteps, STEP_CODE_QUALITY],
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_CODE_QUALITY]} - Complete`,
-        'No code quality comments found. Step complete.'
-      );
-    } catch (commentError) {
-      const errorMsg = extractErrorMessage(commentError);
-      logger.error('Failed to post state comment', {
-        prNumber: state.pr.number,
-        step: STEP_CODE_QUALITY,
-        error: errorMsg,
-      });
-      output.warning =
-        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
-        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
-    }
+    // Post state comment - audit trail is mandatory, let exceptions propagate
+    // If this fails, workflow stops and user must investigate (no silent data loss)
+    // postWiggumStateComment() provides detailed troubleshooting in error message
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_CODE_QUALITY]} - Complete`,
+      'No code quality comments found. Step complete.'
+    );
 
     output.steps_completed_by_tool.push(
       'Fetched code quality comments - none found',
@@ -829,32 +787,22 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
       completedSteps: [...state.wiggum.completedSteps, STEP_VERIFY_REVIEWS],
     };
 
-    let warning: string | undefined;
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_VERIFY_REVIEWS]} - Complete`,
-        `Both review commands have been verified in PR comments:
+    // Post state comment - audit trail is mandatory, let exceptions propagate
+    // If this fails, workflow stops and user must investigate (no silent data loss)
+    // postWiggumStateComment() provides detailed troubleshooting in error message
+    await postWiggumStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_VERIFY_REVIEWS]} - Complete`,
+      `Both review commands have been verified in PR comments:
 - ✅ ${PR_REVIEW_COMMAND}
 - ✅ ${SECURITY_REVIEW_COMMAND}
 
 **Next Action:** Proceeding to approval.`
-      );
-    } catch (commentError) {
-      const errorMsg = extractErrorMessage(commentError);
-      logger.error('Failed to post state comment', {
-        prNumber: state.pr.number,
-        step: STEP_VERIFY_REVIEWS,
-        error: errorMsg,
-      });
-      warning =
-        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
-        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
-    }
+    );
 
     // Return explicit approval instructions instead of vague "proceeding to approval"
-    return handleApproval(state, warning);
+    return handleApproval(state);
   }
 
   return {
@@ -873,7 +821,7 @@ export const _testExports = {
 /**
  * Approval
  */
-function handleApproval(state: CurrentStateWithPR, warning?: string): ToolResult {
+function handleApproval(state: CurrentStateWithPR): ToolResult {
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_APPROVAL],
     step_number: STEP_APPROVAL,
@@ -887,7 +835,6 @@ Final actions:
 
 **IMPORTANT**: ALL gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md`,
     steps_completed_by_tool: [],
-    warning,
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
