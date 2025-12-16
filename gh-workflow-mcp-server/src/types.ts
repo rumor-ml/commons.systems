@@ -2,16 +2,8 @@
  * Types for GitHub Workflow MCP server
  */
 
-export interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-  _meta?: {
-    errorType?: string;
-    errorCode?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown; // Required by MCP SDK, but isError and _meta are explicitly typed
-}
+// Import shared types from mcp-common
+export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
 
 export interface WorkflowRun {
   id: number;
