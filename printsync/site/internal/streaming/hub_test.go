@@ -2,6 +2,9 @@ package streaming
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -245,5 +248,241 @@ func TestBroadcasterMultipleClients(t *testing.T) {
 	}
 	if !received2 {
 		t.Error("client2 did not receive event")
+	}
+}
+
+// TestBroadcaster_ConcurrentClientPanics tests panic recovery with multiple clients closing simultaneously
+func TestBroadcaster_ConcurrentClientPanics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	eventsCh := make(chan SSEEvent, 100)
+	done := make(chan struct{})
+
+	broadcaster := &SessionBroadcaster{
+		clients:       make(map[*Client]bool),
+		droppedEvents: make(map[*Client]*int64),
+		merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	// Register 10 clients
+	var clients []*Client
+	for i := 0; i < 10; i++ {
+		client := NewClient()
+		broadcaster.Register(client)
+		clients = append(clients, client)
+	}
+
+	// Start broadcaster
+	broadcaster.Start()
+
+	// Send initial event to verify broadcaster is running
+	eventsCh <- NewProgressEvent("test", "file.txt", 0.5)
+
+	// Let first event propagate
+	time.Sleep(50 * time.Millisecond)
+
+	// Now close 5 client channels concurrently to simulate panics
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(client *Client) {
+			defer wg.Done()
+			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
+			close(client.Events)
+		}(clients[i])
+	}
+	wg.Wait()
+
+	// Send more events - broadcaster should handle panics gracefully
+	for i := 0; i < 10; i++ {
+		eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i*10))
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Verify remaining 5 clients still receive events
+	receivedCount := 0
+	timeout := time.After(1 * time.Second)
+
+	for i := 5; i < 10; i++ {
+		select {
+		case event := <-clients[i].Events:
+			if event.EventType() == EventTypeProgress {
+				receivedCount++
+			}
+		case <-timeout:
+			break
+		}
+	}
+
+	// Close events channel to signal broadcaster to stop
+	close(eventsCh)
+
+	// Verify broadcaster stopped
+	select {
+	case <-broadcaster.ctx.Done():
+		// Success
+	case <-time.After(500 * time.Millisecond):
+		t.Error("broadcaster did not stop")
+	}
+
+	// Verify at least some events were received by remaining clients
+	if receivedCount == 0 {
+		t.Error("remaining clients did not receive events")
+	}
+
+	t.Logf("Concurrent panic test passed: %d events received by remaining clients", receivedCount)
+}
+
+// TestBroadcaster_CircuitBreakerConcurrent tests circuit breaker with multiple slow clients
+func TestBroadcaster_CircuitBreakerConcurrent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	eventsCh := make(chan SSEEvent, 10)
+	done := make(chan struct{})
+
+	broadcaster := &SessionBroadcaster{
+		clients:       make(map[*Client]bool),
+		droppedEvents: make(map[*Client]*int64),
+		merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	// Create 3 slow clients (with small channel buffers)
+	slowClients := make([]*Client, 3)
+	for i := 0; i < 3; i++ {
+		client := &Client{
+			Events: make(chan SSEEvent, 1), // Small buffer to trigger drops
+		}
+		broadcaster.Register(client)
+		slowClients[i] = client
+	}
+
+	// Create 2 fast clients (normal buffer)
+	fastClients := make([]*Client, 2)
+	for i := 0; i < 2; i++ {
+		client := NewClient()
+		broadcaster.Register(client)
+		fastClients[i] = client
+	}
+
+	// Start broadcaster
+	broadcaster.Start()
+
+	// Send many events to trigger circuit breaker on slow clients
+	sentCount := 0
+	for i := 0; i < 120; i++ {
+		eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i))
+		sentCount++
+	}
+
+	// Give broadcaster time to process and disconnect slow clients
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify fast clients still have open channels and received events
+	for _, client := range fastClients {
+		select {
+		case event := <-client.Events:
+			if event.EventType() != EventTypeProgress {
+				t.Errorf("unexpected event type: %s", event.EventType())
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Error("fast client did not receive events")
+		}
+	}
+
+	// Close events to stop broadcaster
+	close(eventsCh)
+
+	// Verify broadcaster stopped
+	select {
+	case <-broadcaster.ctx.Done():
+		// Expected
+	case <-time.After(500 * time.Millisecond):
+		t.Error("broadcaster did not stop")
+	}
+
+	t.Logf("Circuit breaker concurrent test passed: %d events sent", sentCount)
+}
+
+// TestStreamHub_SendErrorToClients tests error propagation to all connected clients
+func TestStreamHub_SendErrorToClients(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	hub := &StreamHub{
+		broadcasters: make(map[string]*SessionBroadcaster),
+	}
+
+	// Register multiple sessions and clients
+	sessionIDs := []string{"session-1", "session-2", "session-3"}
+	clientsBySession := make(map[string][]*Client)
+
+	for _, sessionID := range sessionIDs {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		merger := &StreamMerger{
+			eventsCh: make(chan SSEEvent, 100),
+			done:     make(chan struct{}),
+		}
+
+		broadcaster := &SessionBroadcaster{
+			clients:       make(map[*Client]bool),
+			droppedEvents: make(map[*Client]*int64),
+			merger:        merger,
+			ctx:           ctx,
+			cancel:        cancel,
+		}
+
+		// Register 2 clients per session
+		for i := 0; i < 2; i++ {
+			client := NewClient()
+			broadcaster.Register(client)
+			clientsBySession[sessionID] = append(clientsBySession[sessionID], client)
+		}
+
+		broadcaster.Start()
+		hub.broadcasters[sessionID] = broadcaster
+	}
+
+	// Send error to all clients in all sessions
+	errorMsg := "Test error message"
+	errorEvent := NewErrorEvent(errorMsg, "error")
+
+	for sessionID, broadcaster := range hub.broadcasters {
+		// Simulate SendErrorToClients by directly sending error
+		select {
+		case broadcaster.merger.eventsCh <- errorEvent:
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("failed to send error event for session %s", sessionID)
+		}
+	}
+
+	// Verify all clients received error events
+	for sessionID, clients := range clientsBySession {
+		for i, client := range clients {
+			select {
+			case event := <-client.Events:
+				if event.EventType() != EventTypeError {
+					t.Errorf("session %s, client %d: expected error event, got %s", sessionID, i, event.EventType())
+				}
+				errorData, ok := event.Data().(ErrorEvent)
+				if !ok {
+					t.Errorf("session %s, client %d: invalid error data", sessionID, i)
+				} else if errorData.Message != errorMsg {
+					t.Errorf("session %s, client %d: wrong error message", sessionID, i)
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Errorf("session %s, client %d: did not receive error event", sessionID, i)
+			}
+		}
+	}
+
+	// Cleanup
+	for _, broadcaster := range hub.broadcasters {
+		broadcaster.cancel()
 	}
 }

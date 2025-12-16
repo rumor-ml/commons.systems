@@ -1820,7 +1820,7 @@ func TestPeriodicStatsFlush_FailureNotifications(t *testing.T) {
 	go pipeline.periodicStatsFlush(ctx, stats, progressCh)
 
 	// Collect progress notifications
-	var notifications []string
+	var notifications []Progress
 	timeout := time.After(2 * time.Second)
 	expectedNotifications := 3 // First failure, 5th failure escalation, recovery
 
@@ -1828,8 +1828,8 @@ collectLoop:
 	for len(notifications) < expectedNotifications {
 		select {
 		case progress := <-progressCh:
-			notifications = append(notifications, progress.Operation)
-			t.Logf("Received notification %d: %s", len(notifications), progress.Operation)
+			notifications = append(notifications, progress)
+			t.Logf("Received notification %d: %s (type=%s)", len(notifications), progress.Operation, progress.Type)
 		case <-timeout:
 			break collectLoop
 		}
@@ -1840,17 +1840,32 @@ collectLoop:
 
 	// Verify we got the expected notifications
 	if len(notifications) < 2 {
-		t.Errorf("expected at least 2 notifications (first failure + recovery), got %d: %v", len(notifications), notifications)
+		t.Errorf("expected at least 2 notifications (first failure + recovery), got %d", len(notifications))
+		for i, notif := range notifications {
+			t.Logf("  Notification %d: %s", i+1, notif.Operation)
+		}
+		return
 	}
 
 	// Check for first failure notification
 	foundFirstFailure := false
+	foundEscalation := false
 	foundRecovery := false
-	for _, notif := range notifications {
-		if notif == "Stats update experiencing issues - counts may be slightly delayed" {
+
+	for i, notif := range notifications {
+		// Validate all notifications are status type
+		if notif.Type != ProgressTypeStatus {
+			t.Errorf("notification %d has wrong type: expected %s, got %s", i+1, ProgressTypeStatus, notif.Type)
+		}
+
+		// Check for specific messages
+		if notif.Operation == "Stats update experiencing issues - counts may be slightly delayed" {
 			foundFirstFailure = true
 		}
-		if notif == "Stats update recovered - counts are now up to date" {
+		if notif.Operation == "Stats update still experiencing issues - counts may be delayed" {
+			foundEscalation = true
+		}
+		if notif.Operation == "Stats update recovered - counts are now up to date" {
 			foundRecovery = true
 		}
 	}
@@ -1861,4 +1876,105 @@ collectLoop:
 	if !foundRecovery {
 		t.Error("did not receive recovery notification")
 	}
+
+	// Escalation is optional but if recovery happens after 5 failures, escalation should have occurred
+	if len(notifications) >= 3 && !foundEscalation {
+		t.Log("Warning: expected escalation notification after 5 failures (optional check)")
+	}
+}
+
+// TestPeriodicStatsFlush_NotificationProgression tests the exact sequence of notifications
+func TestPeriodicStatsFlush_NotificationProgression(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create mock store that will fail 10 times then succeed
+	sessionStore := newMockSessionStoreWithFailures(10)
+	session := &SyncSession{
+		ID:        "test-session-progression",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Create pipeline with very short batch interval for testing
+	config := DefaultPipelineConfig()
+	config.StatsBatchInterval = 50 * time.Millisecond
+	config.StatsBatchSize = 1
+
+	pipeline := &Pipeline{
+		sessionStore: sessionStore,
+		fileStore:    newMockFileStore(),
+		config:       config,
+	}
+
+	stats, _ := newStatsAccumulator(sessionStore, session, config.StatsBatchInterval, int64(config.StatsBatchSize))
+
+	// Force stats to need flushing
+	stats.incrementDiscovered()
+
+	// Start periodic flush
+	progressCh := make(chan Progress, 100)
+	go pipeline.periodicStatsFlush(ctx, stats, progressCh)
+
+	// Collect all notifications with progress type filter
+	var notifications []Progress
+	timeout := time.After(3 * time.Second)
+	notificationCount := 0
+
+collectLoop:
+	for {
+		select {
+		case progress := <-progressCh:
+			if progress.Type == ProgressTypeStatus {
+				notifications = append(notifications, progress)
+				notificationCount++
+				t.Logf("Received notification %d: %s", notificationCount, progress.Operation)
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	// Cancel context to stop periodic flush
+	cancel()
+
+	// Verify notification sequence
+	if len(notifications) < 2 {
+		t.Errorf("expected at least 2 notifications (first failure + recovery), got %d", len(notifications))
+		return
+	}
+
+	// First notification should be "first failure"
+	if notifications[0].Operation != "Stats update experiencing issues - counts may be slightly delayed" {
+		t.Errorf("first notification incorrect: expected first failure message, got %q", notifications[0].Operation)
+	}
+
+	// Last notification should be "recovery"
+	lastNotif := notifications[len(notifications)-1]
+	if lastNotif.Operation != "Stats update recovered - counts are now up to date" {
+		t.Errorf("last notification incorrect: expected recovery message, got %q", lastNotif.Operation)
+	}
+
+	// Verify no duplicate consecutive messages
+	for i := 1; i < len(notifications); i++ {
+		if notifications[i].Operation == notifications[i-1].Operation {
+			t.Errorf("duplicate consecutive notifications at position %d: %q", i+1, notifications[i].Operation)
+		}
+	}
+
+	// All notifications should have type ProgressTypeStatus
+	for i, notif := range notifications {
+		if notif.Type != ProgressTypeStatus {
+			t.Errorf("notification %d has wrong type: expected %s, got %s", i+1, ProgressTypeStatus, notif.Type)
+		}
+		if notif.Percentage != 0 {
+			t.Errorf("notification %d should have 0 percentage, got %f", i+1, notif.Percentage)
+		}
+	}
+
+	t.Logf("Notification progression test passed with %d notifications", len(notifications))
 }
