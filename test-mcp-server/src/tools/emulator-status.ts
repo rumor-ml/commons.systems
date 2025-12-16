@@ -3,6 +3,7 @@
  */
 
 import type { ToolResult, EmulatorStatus } from '../types.js';
+import { createPort } from '@commons/types/branded';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult } from '../utils/errors.js';
 import { execaCommand } from 'execa';
@@ -265,7 +266,7 @@ export async function emulatorStatus(_args: EmulatorStatusArgs): Promise<ToolRes
           running: true,
           services: services.map((s) => ({
             name: s.name,
-            port: s.port,
+            port: createPort(s.port),
             host: s.host,
           })),
         }

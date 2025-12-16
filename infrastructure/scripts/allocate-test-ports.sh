@@ -7,9 +7,10 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 
 # Hash the worktree path (not just name) for deterministic port allocation.
 # This ensures:
-# 1. The same worktree always gets the same ports even if moved/recreated
-# 2. Different worktrees with the same branch name get different ports
-# 3. Ports remain stable across emulator restarts
+# 1. The same worktree path always gets the same ports (path-based hash)
+# 2. Moving a worktree to a different location will get different ports
+# 3. Different worktrees with the same branch name get different ports
+# 4. Ports remain stable across emulator restarts within same worktree path
 # Use cksum for cross-platform compatibility
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
 PORT_OFFSET=$(($HASH % 100))
@@ -48,7 +49,8 @@ export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
 export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
 # Port availability check function
-# Tries BASE_OFFSET first, then probes for available ports if needed
+# Returns 0 if port is available, 1 if in use
+# (Port probing/allocation happens in find_available_port)
 check_port_available() {
   local port=$1
   if lsof -ti :${port} >/dev/null 2>&1; then

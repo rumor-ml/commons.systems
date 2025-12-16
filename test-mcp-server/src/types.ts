@@ -5,6 +5,9 @@
 // Import shared types from mcp-common
 export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
 
+// Import branded types for type safety
+import type { Port, URL } from '@commons/types/branded';
+
 /**
  * Test execution status (discriminated union)
  *
@@ -39,7 +42,7 @@ export type EmulatorStatus =
       readonly running: true; // Discriminant
       services: Array<{
         readonly name: string; // Service identity
-        readonly port: number; // Service identity
+        readonly port: Port; // Service identity - branded type
         readonly host: string; // Service identity
       }>;
     };
@@ -53,10 +56,10 @@ export type EmulatorStatus =
  */
 export type DevServerStatus =
   | { readonly running: false } // Discriminant
-  | { readonly running: true; readonly url: string; readonly port: number; readonly module: string }; // All are server identity
+  | { readonly running: true; readonly url: URL; readonly port: Port; readonly module: string }; // All are server identity - using branded types
 
 export interface PortAllocation {
   readonly service: string; // Service identity
-  readonly port: number; // Port identity
+  readonly port: Port; // Port identity - branded type
   in_use: boolean; // Mutable status
 }

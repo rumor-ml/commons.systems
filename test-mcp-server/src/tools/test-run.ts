@@ -40,6 +40,21 @@ interface TestRunOutput {
 }
 
 /**
+ * Sanitize output to redact potential secrets
+ */
+function sanitizeOutput(output: string): string {
+  // Redact long base64 strings (likely secrets/tokens)
+  let sanitized = output.replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED_BASE64]');
+
+  // Redact common API key patterns
+  sanitized = sanitized.replace(/AIza[A-Za-z0-9_-]{35}/g, '[REDACTED_GOOGLE_API_KEY]');
+  sanitized = sanitized.replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED_GITHUB_TOKEN]');
+  sanitized = sanitized.replace(/sk-[A-Za-z0-9]{32,}/g, '[REDACTED_SECRET_KEY]');
+
+  return sanitized;
+}
+
+/**
  * Parse JSON output from test script
  */
 function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Error } {
@@ -48,7 +63,8 @@ function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Erro
   } catch (error) {
     const parseError = error instanceof Error ? error : new Error(String(error));
     console.error('[test-run] Failed to parse test output as JSON:', parseError.message);
-    console.error('[test-run] Raw output (first 500 chars):', stdout.substring(0, 500));
+    const sanitizedOutput = sanitizeOutput(stdout.substring(0, 100));
+    console.error('[test-run] Raw output (first 100 chars, sanitized):', sanitizedOutput);
     return {
       error: new TestOutputParseError(
         'Test script returned non-JSON output. This indicates a script error or unexpected output format.',

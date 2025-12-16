@@ -7,7 +7,12 @@ import { onAuthStateChange } from './github-auth.js';
 
 const AUTH_STATE_KEY = 'commons_auth_state';
 const listeners = new Set();
-const listenerFailures = [];
+
+// Circular buffer for tracking listener failures (fixed capacity, thread-safe)
+const FAILURE_BUFFER_SIZE = 100;
+const listenerFailures = new Array(FAILURE_BUFFER_SIZE);
+let failureWritePos = 0;
+let failureCount = 0;
 
 let currentAuthState = {
   user: null,
@@ -44,6 +49,7 @@ function updateAuthState(user) {
   currentAuthState = newState;
 
   // Persist to localStorage
+  const operation = user ? 'save' : 'clear';
   try {
     if (user) {
       localStorage.setItem(AUTH_STATE_KEY, JSON.stringify(newState));
@@ -51,10 +57,10 @@ function updateAuthState(user) {
       localStorage.removeItem(AUTH_STATE_KEY);
     }
   } catch (error) {
-    console.error('Error persisting auth state:', error);
+    console.error(`Error persisting auth state (${operation}):`, error);
 
     // Categorize and handle storage error
-    const errorInfo = categorizeStorageError(error);
+    const errorInfo = categorizeStorageError(error, operation);
     currentAuthState.error = errorInfo;
 
     // Display toast notification
@@ -182,14 +188,14 @@ function loadPersistedState() {
  * @param {Error} error - The caught error
  * @returns {Object} Structured error information
  */
-function categorizeStorageError(error) {
+function categorizeStorageError(error, operation = 'access') {
   const timestamp = Date.now();
 
   // Quota exceeded error
   if (error.name === 'QuotaExceededError' || error.code === 22) {
     return {
       code: 'auth/storage-quota-exceeded',
-      message: 'Browser storage is full. Please clear browser data or use incognito mode.',
+      message: `Failed to ${operation} authentication state: Browser storage is full. Please clear browser data or use incognito mode.`,
       action: 'Clear and Reload',
       recoverable: true,
       timestamp,
@@ -201,7 +207,7 @@ function categorizeStorageError(error) {
   if (error instanceof SyntaxError || error.name === 'SyntaxError') {
     return {
       code: 'auth/storage-parse-failed',
-      message: 'Authentication data is corrupted. Your session will be reset.',
+      message: `Failed to ${operation} authentication state: Authentication data is corrupted. Your session will be reset.`,
       action: 'Clear and Reload',
       recoverable: true,
       timestamp,
@@ -213,7 +219,7 @@ function categorizeStorageError(error) {
   if (error.name === 'SecurityError' || error.code === 18) {
     return {
       code: 'auth/storage-access-denied',
-      message: 'Cannot access browser storage. Please check your browser settings.',
+      message: `Failed to ${operation} authentication state: Cannot access browser storage. Please check your browser settings.`,
       action: 'Check Settings',
       recoverable: false,
       timestamp,
@@ -224,7 +230,7 @@ function categorizeStorageError(error) {
   // Generic storage error
   return {
     code: 'auth/storage-failed',
-    message: 'Failed to load authentication state. Your session may not persist.',
+    message: `Failed to ${operation} authentication state. Your session may not persist.`,
     action: null,
     recoverable: true,
     timestamp,
@@ -268,25 +274,32 @@ function notifyListeners(state) {
     } catch (error) {
       console.error('Error in auth state listener:', error);
 
-      // Track listener failures
+      // Track listener failures using circular buffer
       const timestamp = Date.now();
-      listenerFailures.push({ timestamp, error });
+      listenerFailures[failureWritePos] = { timestamp, error };
+      failureWritePos = (failureWritePos + 1) % FAILURE_BUFFER_SIZE;
+      if (failureCount < FAILURE_BUFFER_SIZE) {
+        failureCount++;
+      }
 
-      // Clean up old failures (keep last 10 seconds)
+      // Count recent failures within time window (last 10 seconds)
       const cutoff = timestamp - 10000;
-      while (listenerFailures.length > 0 && listenerFailures[0].timestamp < cutoff) {
-        listenerFailures.shift();
+      let recentFailures = 0;
+      for (let i = 0; i < failureCount; i++) {
+        if (listenerFailures[i] && listenerFailures[i].timestamp >= cutoff) {
+          recentFailures++;
+        }
       }
 
       // Detect systemic failures (3+ failures in 10 seconds)
-      if (listenerFailures.length >= 3) {
+      if (recentFailures >= 3) {
         const errorInfo = {
           code: 'auth/listener-systemic-failure',
           message: 'Multiple authentication components are failing',
           action: 'Refresh Page',
           recoverable: true,
           timestamp,
-          details: `${listenerFailures.length} listener failures in the last 10 seconds`,
+          details: `${recentFailures} listener failures in the last 10 seconds`,
         };
 
         currentAuthState.error = errorInfo;
@@ -313,7 +326,8 @@ function notifyListeners(state) {
         }
 
         // Clear failures to avoid repeated notifications
-        listenerFailures.length = 0;
+        failureCount = 0;
+        failureWritePos = 0;
       }
     }
   });

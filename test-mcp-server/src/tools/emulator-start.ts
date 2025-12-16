@@ -5,7 +5,7 @@
 import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
-import { createErrorResult, ValidationError } from '../utils/errors.js';
+import { createErrorResult, ValidationError, ScriptExecutionError, TestOutputParseError, InfrastructureError } from '../utils/errors.js';
 import { parseEmulatorPorts } from '../utils/port-parsing.js';
 import { EmulatorStartArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
@@ -103,26 +103,56 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
     const scriptPath = path.join(root, 'infrastructure', 'scripts', 'start-emulators.sh');
 
     // Execute the start script
-    const result = await execScript(scriptPath, [], {
-      timeout: validatedArgs.timeout_seconds * 1000, // Convert to milliseconds
-      cwd: root,
-    });
+    let result;
+    try {
+      result = await execScript(scriptPath, [], {
+        timeout: validatedArgs.timeout_seconds * 1000, // Convert to milliseconds
+        cwd: root,
+      });
+    } catch (error) {
+      // Re-throw with more context for script execution failures
+      if (error instanceof Error) {
+        throw new ScriptExecutionError(
+          `Failed to execute start-emulators.sh: ${error.message}. Check that Firebase tools are installed and the script has execute permissions.`,
+          (error as any).exitCode,
+          (error as any).stderr
+        );
+      }
+      throw error;
+    }
 
     // Parse port information from output
-    const ports = parsePorts(result.stdout);
-    if (!ports) {
-      throw new Error('Failed to parse emulator port information from script output');
+    let ports;
+    try {
+      ports = parsePorts(result.stdout);
+      if (!ports) {
+        throw new Error('parsePorts returned null');
+      }
+    } catch (error) {
+      const parseError = error instanceof Error ? error : new Error(String(error));
+      throw new TestOutputParseError(
+        'Failed to parse emulator port information from script output. The script may have produced unexpected output format.',
+        result.stdout,
+        parseError
+      );
     }
 
     // Check if emulators were already running (script exit 0 with "already running" message)
     const alreadyRunning = result.stdout.includes('already running');
 
     // Verify all services are actually running
-    const servicesHealth = await Promise.all([
-      isServiceRunning(ports.auth),
-      isServiceRunning(ports.firestore),
-      isServiceRunning(ports.storage),
-    ]);
+    let servicesHealth;
+    try {
+      servicesHealth = await Promise.all([
+        isServiceRunning(ports.auth),
+        isServiceRunning(ports.firestore),
+        isServiceRunning(ports.storage),
+      ]);
+    } catch (error) {
+      throw new InfrastructureError(
+        `Health check network error: ${error instanceof Error ? error.message : String(error)}. Check network connectivity.`
+      );
+    }
 
     const allRunning = servicesHealth.every((healthy) => healthy);
     if (!allRunning) {
@@ -131,8 +161,8 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
       if (!servicesHealth[1]) failedServices.push('firestore');
       if (!servicesHealth[2]) failedServices.push('storage');
 
-      throw new Error(
-        `Emulators started but health check failed for: ${failedServices.join(', ')}`
+      throw new InfrastructureError(
+        `Emulators started but health check failed for: ${failedServices.join(', ')}. Check that ports ${ports.auth}, ${ports.firestore}, ${ports.storage} are accessible.`
       );
     }
 

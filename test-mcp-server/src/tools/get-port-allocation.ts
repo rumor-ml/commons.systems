@@ -3,6 +3,7 @@
  */
 
 import type { ToolResult, PortAllocation } from '../types.js';
+import { createPort } from '@commons/types/branded';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError } from '../utils/errors.js';
@@ -45,10 +46,10 @@ function parsePortAllocation(stdout: string): PortAllocation[] {
       };
 
       const serviceName = serviceMap[varName];
-      if (serviceName) {
+      if (serviceName && !isNaN(port)) {
         allocations.push({
           service: serviceName,
-          port,
+          port: createPort(port),
           in_use: false, // Will check this next
         });
       }

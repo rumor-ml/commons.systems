@@ -659,3 +659,21 @@ func TestStreamMerger_CallbackWithNilData(t *testing.T) {
 		// Expected - no events for nil data
 	}
 }
+
+func TestStreamMerger_ConcurrentStop(t *testing.T) {
+	sessionStore := newMockSessionStore()
+	fileStore := newMockFileStore()
+	merger, _ := NewStreamMerger(sessionStore, fileStore)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			merger.Stop()
+		}()
+	}
+
+	wg.Wait()
+	// Success if no panic/race
+}

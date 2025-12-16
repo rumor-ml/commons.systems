@@ -2,25 +2,32 @@
  * Utilities for parsing port information from script output
  */
 
+import { createPort, type Port } from '@commons/types/branded';
+
 /**
  * Parse a single port number from a regex match
  * @param match - The regex match result
  * @param index - The capture group index (default: 1)
- * @returns Parsed port number or undefined
+ * @returns Parsed branded Port or undefined
  */
-export function parsePort(match: RegExpMatchArray | null, index: number = 1): number | undefined {
+export function parsePort(match: RegExpMatchArray | null, index: number = 1): Port | undefined {
   if (!match) return undefined;
   const portStr = match[index];
   if (!portStr) return undefined;
   const port = parseInt(portStr, 10);
-  return isNaN(port) ? undefined : port;
+  if (isNaN(port)) return undefined;
+  try {
+    return createPort(port);
+  } catch {
+    return undefined;
+  }
 }
 
 export interface EmulatorPorts {
-  auth?: number;
-  firestore?: number;
-  storage?: number;
-  ui?: number;
+  auth?: Port;
+  firestore?: Port;
+  storage?: Port;
+  ui?: Port;
 }
 
 /**
@@ -58,7 +65,7 @@ export function parseEmulatorPorts(lines: string[]): EmulatorPorts {
 }
 
 export interface ServiceHealth {
-  port: number;
+  port: Port;
   healthy: boolean;
 }
 

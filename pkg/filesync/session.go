@@ -2,6 +2,7 @@ package filesync
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -38,6 +39,40 @@ type SessionStats struct {
 	Uploaded   int `firestore:"uploaded"`
 	Skipped    int `firestore:"skipped"`
 	Errors     int `firestore:"errors"`
+}
+
+// NewSessionStats creates a validated SessionStats instance with zero values
+func NewSessionStats() SessionStats {
+	return SessionStats{
+		Discovered: 0,
+		Extracted:  0,
+		Approved:   0,
+		Rejected:   0,
+		Uploaded:   0,
+		Skipped:    0,
+		Errors:     0,
+	}
+}
+
+// Validate checks if SessionStats contains valid data
+func (s SessionStats) Validate() error {
+	fields := map[string]int{
+		"discovered": s.Discovered,
+		"extracted":  s.Extracted,
+		"approved":   s.Approved,
+		"rejected":   s.Rejected,
+		"uploaded":   s.Uploaded,
+		"skipped":    s.Skipped,
+		"errors":     s.Errors,
+	}
+
+	for name, value := range fields {
+		if value < 0 {
+			return fmt.Errorf("%s cannot be negative, got %d", name, value)
+		}
+	}
+
+	return nil
 }
 
 // SyncSession represents a file synchronization session

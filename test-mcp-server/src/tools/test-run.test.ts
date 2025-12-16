@@ -540,3 +540,10 @@ describe('Test Results Formatter', () => {
     assert.ok(formatted.includes('- fellspiral (e2e)'));
   });
 });
+
+// Note: Integration test for TestOutputParseError MCP response would require
+// mocking execScript which is not easily testable with node:test.
+// The error type is tested via unit tests in errors.test.ts and the parseTestOutput
+// function correctly constructs TestOutputParseError instances.
+// The createErrorResult function in errors.ts correctly maps TestOutputParseError
+// to the MCP error response format with errorType: 'TestOutputParseError'.

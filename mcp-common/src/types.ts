@@ -14,9 +14,9 @@
  * is either false or undefined to distinguish from error results.
  */
 export interface ToolSuccess {
-  content: Array<{ type: 'text'; text: string }>;
+  readonly content: ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
   readonly isError?: false; // Discriminant should be immutable
-  _meta?: { [key: string]: unknown };
+  readonly _meta?: Readonly<{ [key: string]: unknown }>;
   [key: string]: unknown; // MCP SDK compatibility
 }
 
@@ -27,14 +27,14 @@ export interface ToolSuccess {
  * must be true, and _meta must include errorType for error categorization.
  */
 export interface ToolError {
-  content: Array<{ type: 'text'; text: string }>;
+  readonly content: ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
   readonly isError: true; // Required discriminant - should be immutable
-  _meta: {
+  readonly _meta: Readonly<{
     // Required for errors
     readonly errorType: string; // Error type should be immutable
     readonly errorCode?: string; // Error code should be immutable
     [key: string]: unknown;
-  };
+  }>;
   [key: string]: unknown; // MCP SDK compatibility
 }
 

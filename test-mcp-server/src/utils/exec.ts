@@ -211,9 +211,16 @@ export async function execScriptBackground(
     subprocess.unref();
 
     // Catch any subprocess errors to prevent unhandled rejections
-    // Background processes are fire-and-forget, so we don't care about failures
-    subprocess.catch(() => {
-      // Silently ignore subprocess failures for background processes
+    subprocess.catch((error) => {
+      // Log background process failures for diagnostics
+      const errorDetails = {
+        script: scriptPath,
+        args,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+        exitCode: error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
+      };
+      console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails));
     });
   } catch (error: unknown) {
     // Re-throw ScriptExecutionError

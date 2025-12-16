@@ -2275,3 +2275,16 @@ func (m *mockSessionStoreWithCreateFailure) Subscribe(ctx context.Context, sessi
 func (m *mockSessionStoreWithCreateFailure) Delete(ctx context.Context, sessionID string) error {
 	return nil
 }
+
+func TestPipelineConfig_Validate_BoundaryValues(t *testing.T) {
+	// Test ProgressBufferSize = 0 (should pass)
+	config := PipelineConfig{
+		ConcurrentJobs:     1,
+		StatsBatchInterval: 1 * time.Millisecond,
+		ProgressBufferSize: 0,
+		StatsBatchSize:     1,
+	}
+	if err := config.Validate(); err != nil {
+		t.Errorf("ProgressBufferSize=0 should be valid, got: %v", err)
+	}
+}

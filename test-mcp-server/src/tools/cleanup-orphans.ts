@@ -292,14 +292,23 @@ async function killProcess(pid: number): Promise<boolean> {
 /**
  * Format cleanup results
  */
+interface CleanupResults {
+  stalePidFilesRemoved: number;
+  stalePidFilesFailed: number;
+  processesKilled: number;
+  processesKillFailed: number;
+  diagnosticErrors: Array<{
+    type: 'pid-removal' | 'process-kill';
+    target: string | number;
+    error: string;
+  }>;
+}
+
 function formatCleanupResult(
   stalePidFiles: StalePidFile[],
   escapedProcesses: EscapedProcess[],
   dryRun: boolean,
-  cleaned: {
-    stalePidFilesRemoved: number;
-    processesKilled: number;
-  }
+  cleaned: CleanupResults
 ): string {
   const lines: string[] = [];
 
@@ -350,6 +359,17 @@ function formatCleanupResult(
     lines.push('Run with dry_run=false to perform cleanup');
   } else {
     lines.push('Cleanup complete');
+
+    // Add diagnostic summary if there were any failures
+    if (cleaned.diagnosticErrors.length > 0) {
+      lines.push('');
+      lines.push('Diagnostic Warnings');
+      lines.push('===================');
+      lines.push(`${cleaned.diagnosticErrors.length} operation(s) failed during cleanup:`);
+      for (const error of cleaned.diagnosticErrors) {
+        lines.push(`  - ${error.type === 'pid-removal' ? 'PID file removal' : 'Process kill'} failed for ${error.target}: ${error.error}`);
+      }
+    }
   }
 
   return lines.join('\n');
@@ -374,9 +394,12 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
     const stalePidFiles = await findStalePidFiles();
     const escapedProcesses = await findEscapedProcesses();
 
-    const cleaned = {
+    const cleaned: CleanupResults = {
       stalePidFilesRemoved: 0,
+      stalePidFilesFailed: 0,
       processesKilled: 0,
+      processesKillFailed: 0,
+      diagnosticErrors: [],
     };
 
     // Clean up if not in dry run mode
@@ -387,10 +410,15 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
           await cleanupStalePidFile(stalePidFile);
           cleaned.stalePidFilesRemoved++;
         } catch (error) {
-          // Continue on error, will be reflected in the count
-          console.error(
-            `Failed to clean up ${stalePidFile.path}: ${error instanceof Error ? error.message : String(error)}`
-          );
+          // Track failure for diagnostics
+          cleaned.stalePidFilesFailed++;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          cleaned.diagnosticErrors.push({
+            type: 'pid-removal',
+            target: stalePidFile.path,
+            error: errorMessage,
+          });
+          console.error(`Failed to clean up ${stalePidFile.path}: ${errorMessage}`);
         }
       }
 
@@ -400,12 +428,25 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
           const success = await killProcess(proc.pid);
           if (success) {
             cleaned.processesKilled++;
+          } else {
+            // killProcess returned false - process wasn't killed
+            cleaned.processesKillFailed++;
+            cleaned.diagnosticErrors.push({
+              type: 'process-kill',
+              target: proc.pid,
+              error: 'killProcess returned false',
+            });
           }
         } catch (error) {
-          // Continue on error
-          console.error(
-            `Failed to kill process ${proc.pid}: ${error instanceof Error ? error.message : String(error)}`
-          );
+          // Track failure for diagnostics
+          cleaned.processesKillFailed++;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          cleaned.diagnosticErrors.push({
+            type: 'process-kill',
+            target: proc.pid,
+            error: errorMessage,
+          });
+          console.error(`Failed to kill process ${proc.pid}: ${errorMessage}`);
         }
       }
     }
@@ -423,8 +464,13 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
         stale_pid_files_found: stalePidFiles.length,
         escaped_processes_found: escapedProcesses.length,
         stale_pid_files_removed: cleaned.stalePidFilesRemoved,
+        stale_pid_files_failed: cleaned.stalePidFilesFailed,
         processes_killed: cleaned.processesKilled,
+        processes_kill_failed: cleaned.processesKillFailed,
         dry_run: dryRun,
+        ...(cleaned.diagnosticErrors.length > 0 && {
+          diagnostic_errors: cleaned.diagnosticErrors,
+        }),
       },
     };
   } catch (error) {

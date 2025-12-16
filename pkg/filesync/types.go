@@ -118,6 +118,30 @@ type Progress struct {
 	Message        string
 }
 
+// NewProgress creates a validated Progress instance
+func NewProgress(typ ProgressType, operation, file string, bytesProcessed, totalBytes int64, message string) (Progress, error) {
+	var percentage float64
+	if totalBytes > 0 {
+		percentage = float64(bytesProcessed) / float64(totalBytes) * 100
+	}
+
+	p := Progress{
+		Type:           typ,
+		Operation:      operation,
+		File:           file,
+		BytesProcessed: bytesProcessed,
+		TotalBytes:     totalBytes,
+		Percentage:     percentage,
+		Message:        message,
+	}
+
+	if err := p.Validate(); err != nil {
+		return Progress{}, fmt.Errorf("invalid progress: %w", err)
+	}
+
+	return p, nil
+}
+
 // Validate checks if the Progress struct contains valid data.
 // Returns an error if any of the following conditions are violated:
 //   - Percentage must be between 0 and 100

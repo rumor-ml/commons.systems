@@ -39,6 +39,10 @@ export function initializeAuth() {
     } catch (error) {
       if (error.code === 'auth/emulator-config-failed') {
         console.log('[Auth] Emulator already connected');
+      } else if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
+        console.error('[Auth] Emulator unreachable at', authEmulatorHost, '- is the emulator running?');
+      } else if (error.message?.includes('ERR_NAME_NOT_RESOLVED')) {
+        console.error('[Auth] Network error - check connection');
       } else {
         console.error('[Auth] Failed to connect to emulator:', error.code || error.message);
       }
@@ -72,7 +76,20 @@ export function initializeAuth() {
           await signInAnonymously(auth);
           console.log('[Auth] Dev mode: signed in anonymously');
         } catch (error) {
-          console.error('[Auth] Anonymous sign-in failed:', error);
+          console.error('[Auth] Anonymous sign-in failed:', {
+            errorCode: error.code,
+            errorMessage: error.message,
+            emulatorHost: authEmulatorHost,
+            isDev: window.location.hostname === 'localhost',
+            stack: error.stack,
+          });
+
+          // Enhanced error messages for common issues
+          let enhancedMessage = 'Anonymous sign-in failed';
+          if (error.code === 'auth/network-request-failed') {
+            enhancedMessage += `. Cannot reach auth emulator at ${authEmulatorHost}. Check that Firebase emulators are running.`;
+          }
+
           // Dispatch auth-ready anyway to prevent UI from hanging
           document.dispatchEvent(
             new CustomEvent('auth-ready', {
@@ -80,7 +97,7 @@ export function initializeAuth() {
                 authenticated: false,
                 error: {
                   code: 'auth/sign-in-failed',
-                  message: 'Anonymous sign-in failed',
+                  message: enhancedMessage,
                   action: 'Refresh the page',
                   recoverable: true,
                   details: error.message,
