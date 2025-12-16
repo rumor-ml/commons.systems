@@ -65,9 +65,7 @@ export class PrettierExtractor implements FrameworkExtractor {
             currentFile,
             validationTracker
           );
-          if (validatedError) {
-            errors.push(validatedError);
-          }
+          errors.push(validatedError);
         }
 
         currentFile = fileMatch[1];
@@ -104,9 +102,7 @@ export class PrettierExtractor implements FrameworkExtractor {
             currentFile,
             validationTracker
           );
-          if (validatedError) {
-            errors.push(validatedError);
-          }
+          errors.push(validatedError);
           currentFile = null;
           currentDiff = [];
         }
@@ -124,9 +120,7 @@ export class PrettierExtractor implements FrameworkExtractor {
         currentFile,
         validationTracker
       );
-      if (validatedError) {
-        errors.push(validatedError);
-      }
+      errors.push(validatedError);
     }
 
     // If no specific files found but we detected prettier, return the whole log
@@ -140,23 +134,9 @@ export class PrettierExtractor implements FrameworkExtractor {
         validationTracker
       );
 
-      if (validatedError) {
-        return {
-          framework: 'unknown',
-          errors: [validatedError],
-          parseWarnings: validationTracker.getSummaryWarning(),
-        };
-      }
-
-      // Fallback if validation failed
       return {
         framework: 'unknown',
-        errors: [
-          {
-            message: 'Prettier formatting check failed - see logs for details',
-            rawOutput: lines.slice(-100),
-          },
-        ],
+        errors: [validatedError],
         parseWarnings: validationTracker.getSummaryWarning(),
       };
     }

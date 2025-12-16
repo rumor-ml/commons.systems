@@ -115,48 +115,13 @@ export class GoExtractor implements FrameworkExtractor {
       const line = this.stripTimestamp(rawLine);
       if (!line.startsWith('{')) continue;
 
+      // SECTION 1: Parse JSON (narrow catch scope - only catches JSON.parse errors)
+      let event: GoTestEvent;
       try {
-        const event = JSON.parse(line) as GoTestEvent;
-
-        // Validate this is actually a test event (has required fields)
-        // This fail-fast approach prevents processing invalid JSON that happens to parse
-        if (!('Time' in event && 'Action' in event && 'Package' in event)) {
-          // Valid JSON but not a test event - likely build output JSON
-          if (skippedNonJsonLines < 3) {
-            console.error(
-              `[DEBUG] Go extractor: skipped valid JSON that is not a test event (missing Time/Action/Package fields). ` +
-              `Fields present: ${Object.keys(event).join(', ')}`
-            );
-          }
-          skippedNonJsonLines++;
-          continue;
-        }
-
-        // Use a more specific key that includes both package and test
-        // This ensures we don't mix up tests from different packages
-        const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
-
-        // Collect output lines for each test
-        if (event.Action === 'output' && event.Output) {
-          if (!testOutputs.has(key)) {
-            testOutputs.set(key, []);
-          }
-          testOutputs.get(key)!.push(event.Output);
-        }
-
-        // Track test results and duration
-        if (event.Action === 'fail' && event.Test) {
-          testResults.set(key, 'fail');
-          if (event.Elapsed !== undefined) {
-            testDurations.set(key, event.Elapsed * 1000); // Convert to ms
-          }
-        } else if (event.Action === 'pass' && event.Test) {
-          testResults.set(key, 'pass');
-        }
-      } catch (error) {
-        // Failed to parse as JSON - determine if this is unexpected
-        // Expected non-JSON: build output, compilation messages, GitHub Actions logs
-        // Unexpected: malformed test events that contain test-related keywords
+        event = JSON.parse(line) as GoTestEvent;
+      } catch (parseError) {
+        // ONLY handles JSON.parse() failures - EXPECTED
+        // Expected: build output, compilation messages, GitHub Actions logs
         const looksLikeTestEvent =
           line.includes('"Time"') || line.includes('"Action"') || line.includes('"Package"');
 
@@ -165,9 +130,9 @@ export class GoExtractor implements FrameworkExtractor {
           testEventParseErrors++;
           const lineSnippet = line.length > 200 ? line.substring(0, 200) + '...' : line;
           console.error(
-            `[ERROR] Go extractor: failed to parse test event JSON (line starts with '{' and contains test event keywords)\n` +
-            `  Parse error: ${error instanceof Error ? error.message : String(error)}\n` +
-            `  Line content: ${lineSnippet}`
+            `[ERROR] Go extractor: failed to parse test event JSON\n` +
+              `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
+              `  Line content: ${lineSnippet}`
           );
         } else {
           // Malformed JSON that doesn't look like a test event
@@ -175,14 +140,50 @@ export class GoExtractor implements FrameworkExtractor {
           if (skippedNonJsonLines < 3) {
             const lineSnippet = line.length > 100 ? line.substring(0, 100) + '...' : line;
             console.error(
-              `[DEBUG] Go extractor: skipped malformed JSON that doesn't appear to be a test event\n` +
-              `  Parse error: ${error instanceof Error ? error.message : String(error)}\n` +
-              `  Line content: ${lineSnippet}`
+              `[DEBUG] Go extractor: skipped malformed JSON (not a test event)\n` +
+                `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
+                `  Line content: ${lineSnippet}`
             );
           }
           skippedNonJsonLines++;
         }
+        continue; // Skip this line
+      }
+
+      // SECTION 2: Validate test event structure (NO catch - bugs should propagate)
+      if (!('Time' in event && 'Action' in event && 'Package' in event)) {
+        // Valid JSON but not a test event - likely build output JSON
+        if (skippedNonJsonLines < 3) {
+          console.error(
+            `[DEBUG] Go extractor: skipped valid JSON that is not a test event. ` +
+              `Fields present: ${Object.keys(event).join(', ')}`
+          );
+        }
+        skippedNonJsonLines++;
         continue;
+      }
+
+      // SECTION 3: Process event (NO catch - bugs should propagate)
+      // Use a more specific key that includes both package and test
+      // This ensures we don't mix up tests from different packages
+      const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
+
+      // Collect output lines for each test
+      if (event.Action === 'output' && event.Output) {
+        if (!testOutputs.has(key)) {
+          testOutputs.set(key, []);
+        }
+        testOutputs.get(key)!.push(event.Output);
+      }
+
+      // Track test results and duration
+      if (event.Action === 'fail' && event.Test) {
+        testResults.set(key, 'fail');
+        if (event.Elapsed !== undefined) {
+          testDurations.set(key, event.Elapsed * 1000); // Convert to ms
+        }
+      } else if (event.Action === 'pass' && event.Test) {
+        testResults.set(key, 'pass');
       }
     }
 
@@ -254,9 +255,7 @@ export class GoExtractor implements FrameworkExtractor {
           validationTracker
         );
 
-        if (validatedError) {
-          failures.push(validatedError);
-        }
+        failures.push(validatedError);
       }
     }
 
@@ -344,10 +343,8 @@ export class GoExtractor implements FrameworkExtractor {
           validationTracker
         );
 
-        if (validatedError) {
-          failures.push(validatedError);
-          failed++;
-        }
+        failures.push(validatedError);
+        failed++;
       }
     }
 

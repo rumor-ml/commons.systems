@@ -492,6 +492,215 @@ Just plain text
   });
 });
 
+describe('Validation Infrastructure', () => {
+  // Import validation functions for testing
+  const {
+    createFallbackError,
+    safeValidateExtractedError,
+    ValidationErrorTracker,
+  } = require('./types.js');
+  const { z } = require('zod');
+
+  describe('createFallbackError', () => {
+    test('handles empty message by constructing diagnostic message', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'string',
+          inclusive: true,
+          message: 'String must contain at least 1 character(s)',
+          path: ['message'],
+        },
+      ]);
+      const fallback = createFallbackError('test #1', { message: '' }, validationError);
+
+      assert.ok(fallback.message.includes('Malformed test output detected for test #1'));
+      assert.ok(fallback.message.includes('message: String must contain at least 1 character(s)'));
+      assert.strictEqual(fallback.rawOutput.length, 1);
+      assert.ok(fallback.rawOutput[0].includes('Test output failed validation'));
+    });
+
+    test('handles empty rawOutput by constructing fallback', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'array',
+          inclusive: true,
+          message: 'Array must contain at least 1 element(s)',
+          path: ['rawOutput'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #2',
+        { message: 'Test failed', rawOutput: [] },
+        validationError
+      );
+
+      assert.ok(fallback.message.includes('Malformed test output detected for test #2'));
+      assert.strictEqual(fallback.rawOutput.length, 1);
+      assert.strictEqual(fallback.rawOutput[0], 'Test failed');
+    });
+
+    test('filters out negative line numbers', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'number',
+          inclusive: false,
+          message: 'Number must be greater than 0',
+          path: ['lineNumber'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #3',
+        {
+          message: 'Test failed',
+          rawOutput: ['output'],
+          lineNumber: -1,
+          columnNumber: -5,
+        },
+        validationError
+      );
+
+      assert.strictEqual(fallback.lineNumber, undefined);
+      assert.strictEqual(fallback.columnNumber, undefined);
+      assert.ok(fallback.message.includes('lineNumber: Number must be greater than 0'));
+    });
+
+    test('preserves valid metadata fields', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'string',
+          inclusive: true,
+          message: 'String must contain at least 1 character(s)',
+          path: ['message'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #4',
+        {
+          message: '',
+          rawOutput: ['output'],
+          testName: 'TestFoo',
+          fileName: 'test.go',
+          lineNumber: 42,
+          duration: 100,
+        },
+        validationError
+      );
+
+      assert.strictEqual(fallback.testName, 'TestFoo');
+      assert.strictEqual(fallback.fileName, 'test.go');
+      assert.strictEqual(fallback.lineNumber, 42);
+      assert.strictEqual(fallback.duration, 100);
+    });
+
+    test('truncates long validation messages to 500 chars', () => {
+      const longMessage = 'x'.repeat(600);
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          message: longMessage,
+          path: ['field'],
+        },
+      ]);
+      const fallback = createFallbackError('test #5', { message: 'test' }, validationError);
+
+      assert.ok(fallback.message.includes('... (truncated)'));
+      // The total message should be longer than 500 but the validation details part should be truncated
+      const validationPart = fallback.message.split('Validation errors: ')[1]?.split('\n\n')[0];
+      assert.ok(validationPart && validationPart.length <= 515); // 500 + "... (truncated)"
+    });
+  });
+
+  describe('safeValidateExtractedError', () => {
+    test('always returns an ExtractedError (never null)', () => {
+      const tracker = new ValidationErrorTracker();
+
+      // Valid data - should pass validation
+      const valid = safeValidateExtractedError(
+        {
+          message: 'Test failed',
+          rawOutput: ['output'],
+        },
+        'test #1',
+        tracker
+      );
+      assert.ok(valid);
+      assert.strictEqual(valid.message, 'Test failed');
+      assert.strictEqual(tracker.getFailureCount(), 0);
+
+      // Invalid data - should return fallback
+      const invalid = safeValidateExtractedError(
+        {
+          message: '', // Empty message violates schema
+          rawOutput: ['output'],
+        },
+        'test #2',
+        tracker
+      );
+      assert.ok(invalid);
+      assert.ok(invalid.message.includes('Malformed test output detected'));
+      assert.strictEqual(tracker.getFailureCount(), 1);
+    });
+
+    test('fallback errors include validation diagnostics', () => {
+      const tracker = new ValidationErrorTracker();
+
+      const result = safeValidateExtractedError(
+        {
+          message: '', // Violates min length
+          rawOutput: [], // Violates min array length
+          lineNumber: -1, // Violates positive integer
+        },
+        'test #3',
+        tracker
+      );
+
+      assert.ok(result.message.includes('Malformed test output detected for test #3'));
+      assert.ok(result.message.includes('Validation errors:'));
+      assert.ok(
+        result.message.includes('message:') ||
+          result.message.includes('rawOutput:') ||
+          result.message.includes('lineNumber:')
+      );
+      assert.strictEqual(tracker.getFailureCount(), 1);
+    });
+
+    test('tracks validation failures across multiple calls', () => {
+      const tracker = new ValidationErrorTracker();
+
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #1', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #2', tracker);
+      safeValidateExtractedError({ message: 'valid', rawOutput: ['x'] }, 'test #3', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #4', tracker);
+
+      assert.strictEqual(tracker.getFailureCount(), 3);
+
+      const warning = tracker.getSummaryWarning();
+      assert.ok(warning);
+      assert.ok(warning.includes('3 test events failed validation'));
+    });
+
+    test('ValidationErrorTracker provides detailed warnings', () => {
+      const tracker = new ValidationErrorTracker();
+
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'TestFoo', tracker);
+      safeValidateExtractedError({ message: 'x', rawOutput: [] }, 'TestBar', tracker);
+
+      const detailed = tracker.getDetailedWarnings();
+      assert.strictEqual(detailed.length, 2);
+      assert.ok(detailed[0].includes('TestFoo'));
+      assert.ok(detailed[1].includes('TestBar'));
+    });
+  });
+});
+
 describe('formatExtractionResult', () => {
   test('formats Go test failures with duration and stack trace', () => {
     const result = {

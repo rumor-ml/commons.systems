@@ -188,9 +188,7 @@ export class TapExtractor implements FrameworkExtractor {
           validationTracker
         );
 
-        if (validatedError) {
-          failures.push(validatedError);
-        }
+        failures.push(validatedError);
 
         if (failures.length >= maxErrors) break;
       }

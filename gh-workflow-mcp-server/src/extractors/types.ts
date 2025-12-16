@@ -86,6 +86,73 @@ export function formatValidationError(error: z.ZodError): string {
 }
 
 /**
+ * Create a fallback error that is valid-by-construction
+ *
+ * Used when validation fails - ensures we always return SOMETHING to the user
+ * rather than silently dropping test failures.
+ *
+ * @param context - Description of what failed (e.g., "test TestFoo")
+ * @param originalData - The data that failed validation (for diagnostics)
+ * @param validationError - The Zod error describing what was invalid
+ * @returns ExtractedError guaranteed to pass validation
+ */
+export function createFallbackError(
+  context: string,
+  originalData: unknown,
+  validationError: z.ZodError
+): ExtractedError {
+  // Extract whatever we can from original data
+  const partial = originalData as Partial<ExtractedError>;
+
+  // Construct message with validation diagnostics
+  const validationDetails = formatValidationError(validationError);
+  const truncatedDetails =
+    validationDetails.length > 500
+      ? validationDetails.substring(0, 500) + '... (truncated)'
+      : validationDetails;
+
+  let message = `Malformed test output detected for ${context}.\n\n`;
+  message += `Validation errors: ${truncatedDetails}\n\n`;
+
+  // Include original message if it exists and is non-empty
+  if (typeof partial.message === 'string' && partial.message.length > 0) {
+    message += `Original message:\n${partial.message}`;
+  }
+
+  // Construct rawOutput - ensure at least one element
+  let rawOutput: string[];
+  if (Array.isArray(partial.rawOutput) && partial.rawOutput.length > 0) {
+    rawOutput = partial.rawOutput;
+  } else if (typeof partial.message === 'string' && partial.message.length > 0) {
+    rawOutput = [partial.message];
+  } else {
+    rawOutput = [`Test output failed validation: ${context}`];
+  }
+
+  // Return valid-by-construction error
+  return {
+    message, // Always non-empty
+    rawOutput, // Always has at least 1 element
+    // Include valid metadata if present
+    testName: partial.testName,
+    fileName: partial.fileName,
+    // Only include line/column if they're positive integers
+    lineNumber:
+      typeof partial.lineNumber === 'number' && partial.lineNumber > 0 ? partial.lineNumber : undefined,
+    columnNumber:
+      typeof partial.columnNumber === 'number' && partial.columnNumber > 0
+        ? partial.columnNumber
+        : undefined,
+    duration:
+      typeof partial.duration === 'number' && partial.duration >= 0 ? partial.duration : undefined,
+    failureType: partial.failureType,
+    errorCode: partial.errorCode,
+    stack: partial.stack,
+    codeSnippet: partial.codeSnippet,
+  };
+}
+
+/**
  * Track validation failures across extraction process
  *
  * Distinguishes expected validation errors (malformed test output)
@@ -135,24 +202,41 @@ export class ValidationErrorTracker {
 /**
  * Safe wrapper for validateExtractedError that distinguishes error types
  *
+ * Always returns an ExtractedError (either validated or fallback). When validation
+ * fails, creates a fallback error that includes validation diagnostics so users
+ * can see what went wrong rather than silently losing test failures.
+ *
  * @param data - Data to validate
  * @param context - Context for error messages (e.g., "test #5")
  * @param tracker - ValidationErrorTracker to record failures
- * @returns Validated error or null if validation failed
+ * @returns Always returns an ExtractedError (validated or fallback)
  * @throws Non-Zod errors (bugs in extraction code)
  */
 export function safeValidateExtractedError(
   data: unknown,
   context: string,
   tracker: ValidationErrorTracker
-): ValidatedExtractedError | null {
+): ExtractedError {
   try {
     return validateExtractedError(data);
   } catch (error) {
     if (isZodError(error)) {
       // Expected validation error - malformed test output
       tracker.recordValidationFailure(context, error);
-      return null;
+
+      // CRITICAL: Log prominently that we're showing fallback to user
+      const dataSnippet = JSON.stringify(data, null, 2);
+      const truncatedData =
+        dataSnippet.length > 500 ? dataSnippet.substring(0, 500) + '... (truncated)' : dataSnippet;
+
+      console.error(
+        `[ERROR] Extractor validation failure for ${context}: ${formatValidationError(error)}\n` +
+          `  This test failure will be shown to user as fallback error.\n` +
+          `  Original data: ${truncatedData}`
+      );
+
+      // Return valid-by-construction fallback
+      return createFallbackError(context, data, error);
     }
     // Unexpected error - bug in extraction code, let it propagate
     throw error;

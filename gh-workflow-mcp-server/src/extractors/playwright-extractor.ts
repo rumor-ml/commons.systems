@@ -162,6 +162,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     let timeGap: number | null | undefined;
     let setupTimestamp: string | undefined;
     let configTimestamp: string | undefined;
+    let timeDiagnostic: string | undefined;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -194,6 +195,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
             // Store diagnostic for inclusion in error message if parsing failed
             if (timeResult.seconds === null && timeResult.diagnostic) {
+              timeDiagnostic = timeResult.diagnostic;
               console.error(
                 `[WARN] parsePlaywrightTimeout: ${timeResult.diagnostic}. Continuing without time gap information.`
               );
@@ -213,10 +215,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (timeGap !== null && timeGap !== undefined && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
-    } else if (timeGap === null && setupTimestamp && configTimestamp) {
-      // Include diagnostic info if timestamp parsing failed
-      message += `\n\nTimestamp diagnostic: Unable to calculate time gap. `;
-      message += `Setup time: ${setupTimestamp}, Config time: ${configTimestamp}. `;
+    } else if (timeGap === null && timeDiagnostic) {
+      // Include diagnostic directly in user-facing message
+      message += `\n\nTimestamp diagnostic: ${timeDiagnostic}\n`;
       message += `This may indicate log format changes or timestamp extraction issues. `;
     }
 
@@ -248,23 +249,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       validationTracker
     );
 
-    if (validatedError) {
-      return {
-        framework: 'playwright',
-        errors: [validatedError],
-        summary: 'Playwright timeout (no tests executed)',
-      };
-    }
-
-    // Fallback if validation failed
     return {
       framework: 'playwright',
-      errors: [
-        {
-          message: 'Playwright timeout - see logs for details',
-          rawOutput: lines.slice(-50),
-        },
-      ],
+      errors: [validatedError],
       summary: 'Playwright timeout (no tests executed)',
     };
   }
@@ -369,13 +356,59 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     const validationTracker = new ValidationErrorTracker();
 
+    // Phase 1: Extract JSON from logs (let failure propagate for now)
+    let jsonText: string;
     try {
-      // Extract JSON from logs - it may be embedded within other output
-      const jsonText = this.extractJsonFromLogs(logText);
-      const report = JSON.parse(jsonText) as PlaywrightJsonReport;
-      console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
+      jsonText = this.extractJsonFromLogs(logText);
+    } catch (extractErr) {
+      // extractJsonFromLogs failed - no valid JSON structure found
+      console.error(
+        `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ` +
+          `${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
+      );
+      const validatedError = safeValidateExtractedError(
+        {
+          message: `Failed to extract Playwright JSON from logs: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+          rawOutput: [logText.substring(0, 500)],
+        },
+        'JSON extraction error',
+        validationTracker
+      );
+      return {
+        framework: 'playwright',
+        errors: [validatedError],
+      };
+    }
 
-      const extractFromSuite = (suite: PlaywrightSuite) => {
+    // Phase 2: Parse JSON (narrow catch)
+    let report: PlaywrightJsonReport;
+    try {
+      report = JSON.parse(jsonText) as PlaywrightJsonReport;
+    } catch (parseErr) {
+      // JSON.parse failed - malformed JSON after extraction
+      console.error(
+        `[ERROR] parsePlaywrightJson: JSON.parse failed after successful extraction: ` +
+          `${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+      );
+      console.error(`[DEBUG] First 200 chars of extracted JSON: ${jsonText.substring(0, 200)}`);
+      const validatedError = safeValidateExtractedError(
+        {
+          message: `Failed to parse Playwright JSON report: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          rawOutput: [jsonText.substring(0, 500)],
+        },
+        'JSON parse error',
+        validationTracker
+      );
+      return {
+        framework: 'playwright',
+        errors: [validatedError],
+      };
+    }
+
+    // Phase 3: Traverse suites (NO catch - bugs should propagate)
+    console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
+
+    const extractFromSuite = (suite: PlaywrightSuite) => {
         for (const spec of suite.specs || []) {
           if (!spec.ok) {
             for (const test of spec.tests || []) {
@@ -411,9 +444,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                     validationTracker
                   );
 
-                  if (validatedError) {
-                    failures.push(validatedError);
-                  }
+                  failures.push(validatedError);
                 }
               }
             }
@@ -460,56 +491,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         summary,
         parseWarnings,
       };
-    } catch (err) {
-      // JSON parsing failed - determine failure phase for diagnostics
-      // Phase 1: extractJsonFromLogs() failure (no valid JSON structure in logs)
-      // Phase 2: JSON.parse() failure (malformed JSON after extraction)
-      // Phase 3: Suite traversal failure (unexpected structure)
-      try {
-        const jsonText = this.extractJsonFromLogs(logText);
-        // extractJsonFromLogs succeeded - failure was in JSON.parse or suite traversal
-        console.error(
-          `[ERROR] parsePlaywrightJson: JSON extraction succeeded but parsing/traversal failed: ${err instanceof Error ? err.message : String(err)}`
-        );
-        console.error(`[DEBUG] First 200 chars of extracted JSON: ${jsonText.substring(0, 200)}`);
-      } catch (extractErr) {
-        // extractJsonFromLogs failed - no valid JSON structure found in logs
-        console.error(
-          `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
-        );
-        console.error(
-          `[ERROR] parsePlaywrightJson: Original parsing error: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-
-      const validationTracker = new ValidationErrorTracker();
-      const validatedError = safeValidateExtractedError(
-        {
-          message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
-          rawOutput: [logText.substring(0, 500)],
-        },
-        'JSON parse error',
-        validationTracker
-      );
-
-      if (validatedError) {
-        return {
-          framework: 'playwright',
-          errors: [validatedError],
-        };
-      }
-
-      // Fallback if validation failed
-      return {
-        framework: 'playwright',
-        errors: [
-          {
-            message: 'Failed to parse Playwright JSON report - see logs for details',
-            rawOutput: ['See stderr for parsing errors'],
-          },
-        ],
-      };
-    }
   }
 
   private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
@@ -573,10 +554,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           validationTracker
         );
 
-        if (validatedError) {
-          failures.push(validatedError);
-          failed++;
-        }
+        failures.push(validatedError);
+        failed++;
       }
     }
 
