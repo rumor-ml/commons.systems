@@ -108,9 +108,12 @@ export function createToolSuccess(
   text: string,
   meta?: Record<string, unknown>
 ): ToolSuccess {
+  if (text.length === 0) {
+    throw new Error("Tool result text cannot be empty");
+  }
   return {
-    content: [{ type: 'text', text }],
-    isError: false,
+    content: [{ type: 'text', text }] as const,
+    isError: false as const,
     ...(meta && { _meta: meta }),
   };
 }

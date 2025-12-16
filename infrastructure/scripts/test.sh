@@ -127,10 +127,19 @@ fi
 
 # Discover modules
 MODULES=$(discover_all_modules "$ROOT_DIR" "" "")
+DISCOVER_EXIT=$?
+
+if [[ $DISCOVER_EXIT -ne 0 ]]; then
+  echo "ERROR: Module discovery failed with exit code $DISCOVER_EXIT"
+  echo "Check that infrastructure/scripts/test-lib/discover.sh is working correctly"
+  exit 1
+fi
 
 if [[ -z "$MODULES" ]]; then
-  echo "No modules found"
-  exit 1
+  echo "No test modules found in repository"
+  echo "Searched in: $ROOT_DIR"
+  echo "Looking for: .module-type files with content: firebase, go-fullstack, go-tui, go-package, mcp-server"
+  exit 0  # Not an error, just nothing to test
 fi
 
 # Apply filters
@@ -220,7 +229,19 @@ while IFS=: read -r name type path; do
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
-        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        if [[ ! -r "$TEST_OUTPUT_FILE" ]]; then
+          echo "ERROR: Cannot read test output file: $TEST_OUTPUT_FILE" >&2
+          TEST_STATUS="failed"
+          EXIT_CODE=1
+          TEST_OUTPUT="Error: Test output file is not readable"
+        else
+          TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE") || {
+            echo "ERROR: Failed to read test output from $TEST_OUTPUT_FILE" >&2
+            TEST_STATUS="failed"
+            EXIT_CODE=1
+            TEST_OUTPUT="Error: Failed to read test output"
+          }
+        fi
         rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-fullstack)
@@ -229,7 +250,19 @@ while IFS=: read -r name type path; do
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
-        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        if [[ ! -r "$TEST_OUTPUT_FILE" ]]; then
+          echo "ERROR: Cannot read test output file: $TEST_OUTPUT_FILE" >&2
+          TEST_STATUS="failed"
+          EXIT_CODE=1
+          TEST_OUTPUT="Error: Test output file is not readable"
+        else
+          TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE") || {
+            echo "ERROR: Failed to read test output from $TEST_OUTPUT_FILE" >&2
+            TEST_STATUS="failed"
+            EXIT_CODE=1
+            TEST_OUTPUT="Error: Failed to read test output"
+          }
+        fi
         rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-tui)
@@ -238,7 +271,19 @@ while IFS=: read -r name type path; do
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
-        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        if [[ ! -r "$TEST_OUTPUT_FILE" ]]; then
+          echo "ERROR: Cannot read test output file: $TEST_OUTPUT_FILE" >&2
+          TEST_STATUS="failed"
+          EXIT_CODE=1
+          TEST_OUTPUT="Error: Test output file is not readable"
+        else
+          TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE") || {
+            echo "ERROR: Failed to read test output from $TEST_OUTPUT_FILE" >&2
+            TEST_STATUS="failed"
+            EXIT_CODE=1
+            TEST_OUTPUT="Error: Failed to read test output"
+          }
+        fi
         rm -f "$TEST_OUTPUT_FILE"
         ;;
       go-package)
@@ -247,7 +292,19 @@ while IFS=: read -r name type path; do
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
-        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        if [[ ! -r "$TEST_OUTPUT_FILE" ]]; then
+          echo "ERROR: Cannot read test output file: $TEST_OUTPUT_FILE" >&2
+          TEST_STATUS="failed"
+          EXIT_CODE=1
+          TEST_OUTPUT="Error: Test output file is not readable"
+        else
+          TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE") || {
+            echo "ERROR: Failed to read test output from $TEST_OUTPUT_FILE" >&2
+            TEST_STATUS="failed"
+            EXIT_CODE=1
+            TEST_OUTPUT="Error: Failed to read test output"
+          }
+        fi
         rm -f "$TEST_OUTPUT_FILE"
         ;;
       mcp-server)
@@ -256,7 +313,19 @@ while IFS=: read -r name type path; do
           TEST_STATUS="failed"
           EXIT_CODE=1
         fi
-        TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE")
+        if [[ ! -r "$TEST_OUTPUT_FILE" ]]; then
+          echo "ERROR: Cannot read test output file: $TEST_OUTPUT_FILE" >&2
+          TEST_STATUS="failed"
+          EXIT_CODE=1
+          TEST_OUTPUT="Error: Test output file is not readable"
+        else
+          TEST_OUTPUT=$(cat "$TEST_OUTPUT_FILE") || {
+            echo "ERROR: Failed to read test output from $TEST_OUTPUT_FILE" >&2
+            TEST_STATUS="failed"
+            EXIT_CODE=1
+            TEST_OUTPUT="Error: Failed to read test output"
+          }
+        fi
         rm -f "$TEST_OUTPUT_FILE"
         ;;
     esac

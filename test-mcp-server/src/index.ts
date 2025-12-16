@@ -305,6 +305,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
+    // Log full error with stack for server-side debugging
+    console.error('[test-mcp-server] Unhandled error in tool handler:', {
+      tool: name,
+      args,
+      error: error instanceof Error ? {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      } : String(error),
+    });
+
     return createErrorResult(error);
   }
 });

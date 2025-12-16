@@ -28,8 +28,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
         `GitHub CLI command failed: ${result.stderr || result.stdout}`,
-        result.exitCode,
-        result.stderr || undefined
+        result.exitCode ?? 1,
+        result.stderr || ''
       );
     }
 
@@ -39,9 +39,9 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       throw error;
     }
     if (error instanceof Error) {
-      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`);
+      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`, 1, error.message);
     }
-    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
+    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`, 1, String(error));
   }
 }
 
@@ -54,8 +54,11 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      `Failed to parse JSON response from gh CLI: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to parse JSON response from gh CLI: ${errorMessage}`,
+      1,
+      errorMessage
     );
   }
 }
@@ -68,8 +71,11 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag.",
+      1,
+      errorMessage
     );
   }
 }

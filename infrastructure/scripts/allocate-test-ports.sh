@@ -9,7 +9,7 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 # This ensures:
 # 1. The same worktree path always gets the same ports (path-based hash)
 # 2. Moving a worktree to a different location will get different ports
-# 3. Different worktrees with the same branch name get different ports
+# 3. Different worktree paths get different ports (even with same branch name)
 # 4. Ports remain stable across emulator restarts within same worktree path
 # Use cksum for cross-platform compatibility
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
@@ -50,7 +50,6 @@ export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
 # Port availability check function
 # Returns 0 if port is available, 1 if in use
-# (Port probing/allocation happens in find_available_port)
 check_port_available() {
   local port=$1
   if lsof -ti :${port} >/dev/null 2>&1; then

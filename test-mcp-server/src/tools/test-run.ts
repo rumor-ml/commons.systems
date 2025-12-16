@@ -43,13 +43,19 @@ interface TestRunOutput {
  * Sanitize output to redact potential secrets
  */
 function sanitizeOutput(output: string): string {
-  // Redact long base64 strings (likely secrets/tokens)
-  let sanitized = output.replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED_BASE64]');
+  // Only redact strings that look like base64 (contain + or / or end with =)
+  // and are >40 chars to avoid over-redaction
+  let sanitized = output.replace(/[A-Za-z0-9+/]{40,}={0,2}(?=[^A-Za-z0-9+/=]|$)/g, (match) => {
+    // Check if it actually looks like base64 (has + or / or ends with =)
+    if (match.includes('+') || match.includes('/') || match.endsWith('=')) {
+      return '[REDACTED_BASE64]';
+    }
+    return match; // Don't redact pure alphanumeric strings
+  });
 
   // Redact common API key patterns
-  sanitized = sanitized.replace(/AIza[A-Za-z0-9_-]{35}/g, '[REDACTED_GOOGLE_API_KEY]');
-  sanitized = sanitized.replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED_GITHUB_TOKEN]');
-  sanitized = sanitized.replace(/sk-[A-Za-z0-9]{32,}/g, '[REDACTED_SECRET_KEY]');
+  sanitized = sanitized.replace(/sk_[a-zA-Z0-9]{32,}/g, '[REDACTED_API_KEY]');
+  sanitized = sanitized.replace(/ghp_[a-zA-Z0-9]{36,}/g, '[REDACTED_GITHUB_TOKEN]');
 
   return sanitized;
 }
@@ -62,9 +68,21 @@ function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Erro
     return { output: JSON.parse(stdout) };
   } catch (error) {
     const parseError = error instanceof Error ? error : new Error(String(error));
-    console.error('[test-run] Failed to parse test output as JSON:', parseError.message);
-    const sanitizedOutput = sanitizeOutput(stdout.substring(0, 100));
-    console.error('[test-run] Raw output (first 100 chars, sanitized):', sanitizedOutput);
+    // Use structured logging with JSON
+    console.error(JSON.stringify({
+      level: 'error',
+      component: 'test-run',
+      message: 'Failed to parse test output as JSON',
+      error: {
+        message: parseError.message,
+        name: parseError.name,
+      },
+      context: {
+        outputPreview: sanitizeOutput(stdout.substring(0, 100)),
+        outputLength: stdout.length,
+      },
+      timestamp: new Date().toISOString(),
+    }));
     return {
       error: new TestOutputParseError(
         'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
@@ -96,11 +114,14 @@ function formatTestResults(output: TestRunOutput): string {
     failedTests.forEach((test) => {
       lines.push(`  - ${test.module} (${test.test_type})`);
       if (test.output) {
-        // Truncate long output
-        const outputLines = test.output.split('\n').slice(0, 20);
+        const allLines = test.output.split('\n');
+        const outputLines = allLines.slice(0, 20);
         outputLines.forEach((line) => lines.push(`    ${line}`));
-        if (test.output.split('\n').length > 20) {
-          lines.push('    ... (output truncated)');
+
+        if (allLines.length > 20) {
+          const omittedCount = allLines.length - 20;
+          lines.push(`    ... (${omittedCount} more lines omitted, ${allLines.length} total)`);
+          lines.push(`    Run with --verbose for full output`);
         }
       }
     });
@@ -134,7 +155,7 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
     // Validate test type if present (internal interface supports this)
     if (args.type && !['unit', 'e2e', 'deployed-e2e'].includes(args.type)) {
       throw new ValidationError(
-        `Invalid test type: ${args.type}. Must be one of: unit, e2e, deployed-e2e`
+        `Invalid test type: "${args.type}". Must be one of: "unit", "e2e", "deployed-e2e"`
       );
     }
 

@@ -43,9 +43,14 @@ export function validateShellArg(arg: string): void {
   const unsafeChars = /[`|;&<>(){}[\]\\!]/;
   if (unsafeChars.test(arg)) {
     throw new Error(
-      `Unsafe shell metacharacter detected in argument: "${arg}"\n` +
-        `Arguments must not contain: \` | ; & < > ( ) { } [ ] \\ !\n` +
-        `Use the shell-quote library for complex arguments or pass data via stdin.`
+      `Shell injection risk detected in argument: "${arg}"\n\n` +
+      `Rejected characters: \` | ; & < > ( ) { } [ ] \\ !\n\n` +
+      `These metacharacters can execute arbitrary commands when passed to shell:\n` +
+      `  Example: "file.txt; rm -rf /" could delete your entire filesystem\n\n` +
+      `Solutions:\n` +
+      `  1. Use shell-quote library for complex escaping\n` +
+      `  2. Pass data via stdin instead of command line arguments\n` +
+      `  3. Use array-based execution without shell: true`
     );
   }
 }
@@ -117,11 +122,32 @@ export async function execScript(
     });
 
     if (result.exitCode !== 0) {
-      throw new ScriptExecutionError(
-        `Script failed with exit code ${result.exitCode}: ${result.stderr || result.stdout}`,
-        result.exitCode,
-        result.stderr
-      );
+      // Provide context-specific error messages for common exit codes
+      let contextMessage = '';
+      switch (result.exitCode) {
+        case 126:
+          contextMessage = 'Permission denied or script is not executable. Try: chmod +x <script>';
+          break;
+        case 127:
+          contextMessage = 'Command not found. Check that the script exists and is in PATH.';
+          break;
+        case 130:
+          contextMessage = 'Script interrupted by Ctrl+C (SIGINT).';
+          break;
+        case 137:
+          contextMessage = 'Script killed by SIGKILL (possible OOM or manual kill -9).';
+          break;
+        case 143:
+          contextMessage = 'Script terminated by SIGTERM.';
+          break;
+      }
+
+      const errorOutput = result.stderr || result.stdout;
+      const message = contextMessage
+        ? `Script failed with exit code ${result.exitCode}: ${contextMessage}\n\nOutput: ${errorOutput}`
+        : `Script failed with exit code ${result.exitCode}: ${errorOutput}`;
+
+      throw new ScriptExecutionError(message, result.exitCode, result.stderr);
     }
 
     return {
@@ -132,7 +158,16 @@ export async function execScript(
   } catch (error: unknown) {
     // Check for timeout using execa's timedOut property
     if (error && typeof error === 'object' && 'timedOut' in error && error.timedOut === true) {
-      throw new TimeoutError(`Script execution timed out after ${timeout}ms`);
+      throw new TimeoutError(
+        `Script execution timed out after ${timeout}ms\n` +
+        `Script: ${scriptPath}\n` +
+        `Arguments: ${args.join(' ') || '(none)'}\n` +
+        `Working directory: ${cwd || process.cwd()}\n\n` +
+        `Troubleshooting:\n` +
+        `  - Increase timeout with timeout_seconds parameter\n` +
+        `  - Check if script is hanging on input\n` +
+        `  - Verify script doesn't have infinite loops or deadlocks`
+      );
     }
 
     // Re-throw ScriptExecutionError as-is
@@ -229,6 +264,34 @@ export async function execScriptBackground(
     });
 
     await startupPromise;
+
+    // Check if process errored during startup
+    if (processError !== null) {
+      const errorExitCode = 'exitCode' in processError ? (processError as any).exitCode as number | undefined : undefined;
+      throw new ScriptExecutionError(
+        `Background script failed during startup: ${(processError as Error).message}`,
+        errorExitCode,
+        (processError as Error).message
+      );
+    }
+
+    // Verify process is still running
+    try {
+      const checkResult = await execaCommand(`ps -p ${subprocess.pid}`, { reject: false });
+      if (checkResult.exitCode !== 0) {
+        throw new ScriptExecutionError(
+          `Background script exited immediately after startup. Check logs for details.`,
+          undefined,
+          'Process terminated during startup'
+        );
+      }
+    } catch {
+      throw new ScriptExecutionError(
+        `Background script exited immediately after startup. Check logs for details.`,
+        undefined,
+        'Process terminated during startup'
+      );
+    }
 
     // Unref the subprocess so it doesn't keep Node.js alive
     subprocess.unref();

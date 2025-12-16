@@ -59,9 +59,9 @@ async function findStalePidFiles(
         if (isNaN(pid)) continue;
 
         // Check if process is still running
-        const isRunning = await isProcessRunning(pid);
+        const processStatus = await isProcessRunning(pid);
 
-        if (!isRunning) {
+        if (!processStatus.running) {
           stalePidFiles.push({
             path: pidFilePath,
             pid,
@@ -69,22 +69,30 @@ async function findStalePidFiles(
           });
         }
       } catch (error) {
-        // Expected: file doesn't exist. Log unexpected errors.
-        if (error instanceof Error && !error.message.includes('ENOENT')) {
-          console.error(
-            `[cleanup-orphans] Unexpected error reading PID file ${pidFilePath}: ${error.message}`,
-            {
-              pidFile: pidFilePath,
-              worktree: worktreeDir,
-              error: error.message,
-            }
-          );
-          diagnosticErrors.push({
-            type: 'pid-scan',
-            target: pidFilePath,
-            error: error.message,
-          });
+        // ENOENT is expected - PID file may not exist
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+          continue; // Expected, skip silently
         }
+
+        // Other errors are unexpected and should be surfaced
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : 'unknown';
+
+        console.error(
+          `[cleanup-orphans] Unexpected error (${errorCode}) reading PID file ${pidFilePath}: ${errorMessage}`,
+          {
+            pidFile: pidFilePath,
+            worktree: worktreeDir,
+            error: errorMessage,
+            errorCode,
+          }
+        );
+
+        diagnosticErrors.push({
+          type: 'pid-scan',
+          target: pidFilePath,
+          error: `${errorCode}: ${errorMessage}`,
+        });
         continue;
       }
     }
@@ -151,22 +159,38 @@ async function findEscapedProcesses(
 /**
  * Check if a process is running
  */
-async function isProcessRunning(pid: number): Promise<boolean> {
+async function isProcessRunning(pid: number): Promise<{ running: boolean; error?: string }> {
   try {
     const result = await execaCommand(`ps -p ${pid}`, {
       shell: true,
       reject: false,
     });
-    return result.exitCode === 0;
-  } catch (error) {
-    // Log unexpected errors (permission issues, etc.)
-    if (error instanceof Error && error.message && !error.message.includes('ESRCH')) {
-      console.error(`[cleanup-orphans] Failed to check process ${pid}: ${error.message}`, {
-        pid,
-        error: error.message,
-      });
+
+    if (result.exitCode === 0) {
+      return { running: true };
+    } else if (result.exitCode === 1) {
+      // Process not found
+      return { running: false };
+    } else {
+      // Unexpected exit code (permission error, etc.)
+      return {
+        running: false,
+        error: `ps command failed with exit code ${result.exitCode}: ${result.stderr}`,
+      };
     }
-    return false;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    // ESRCH means process doesn't exist - this is definitive
+    if (errorMessage.includes('ESRCH')) {
+      return { running: false };
+    }
+
+    // Other errors are ambiguous - we don't know if process is running
+    console.error(`[cleanup-orphans] Cannot determine if process ${pid} is running: ${errorMessage}`);
+    return {
+      running: false, // Conservative: assume not running
+      error: errorMessage,
+    };
   }
 }
 
@@ -199,22 +223,30 @@ async function hasCorrespondingPidFile(
           return true;
         }
       } catch (error) {
-        // Expected: file doesn't exist. Log unexpected errors.
-        if (error instanceof Error && !error.message.includes('ENOENT')) {
-          console.error(
-            `[cleanup-orphans] Unexpected error reading PID file ${pidFilePath}: ${error.message}`,
-            {
-              pidFile: pidFilePath,
-              worktree: worktreeDir,
-              error: error.message,
-            }
-          );
-          diagnosticErrors.push({
-            type: 'pid-scan',
-            target: pidFilePath,
-            error: error.message,
-          });
+        // ENOENT is expected - PID file may not exist
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+          continue; // Expected, skip silently
         }
+
+        // Other errors are unexpected and should be surfaced
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : 'unknown';
+
+        console.error(
+          `[cleanup-orphans] Unexpected error (${errorCode}) reading PID file ${pidFilePath}: ${errorMessage}`,
+          {
+            pidFile: pidFilePath,
+            worktree: worktreeDir,
+            error: errorMessage,
+            errorCode,
+          }
+        );
+
+        diagnosticErrors.push({
+          type: 'pid-scan',
+          target: pidFilePath,
+          error: `${errorCode}: ${errorMessage}`,
+        });
         continue;
       }
     }
@@ -243,7 +275,10 @@ async function hasCorrespondingPidFile(
 /**
  * Clean up a stale PID file and associated files
  */
-async function cleanupStalePidFile(stalePidFile: StalePidFile): Promise<void> {
+async function cleanupStalePidFile(
+  stalePidFile: StalePidFile,
+  diagnosticErrors: CleanupResults['diagnosticErrors']
+): Promise<void> {
   const worktreeDir = path.dirname(stalePidFile.path);
 
   // Remove PID file
@@ -255,9 +290,13 @@ async function cleanupStalePidFile(stalePidFile: StalePidFile): Promise<void> {
     await fs.unlink(logFile);
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
-      console.error(
-        `[cleanup-orphans] Unexpected error removing log file ${logFile}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[cleanup-orphans] Failed to remove log file ${logFile}: ${errorMessage}`);
+      diagnosticErrors.push({
+        type: 'log-file-removal',
+        target: logFile,
+        error: errorMessage,
+      });
     }
   }
 
@@ -267,9 +306,13 @@ async function cleanupStalePidFile(stalePidFile: StalePidFile): Promise<void> {
     await fs.unlink(firebaseJson);
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
-      console.error(
-        `[cleanup-orphans] Unexpected error removing firebase.json ${firebaseJson}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[cleanup-orphans] Failed to remove firebase.json ${firebaseJson}: ${errorMessage}`);
+      diagnosticErrors.push({
+        type: 'config-removal',
+        target: firebaseJson,
+        error: errorMessage,
+      });
     }
   }
 }
@@ -277,37 +320,54 @@ async function cleanupStalePidFile(stalePidFile: StalePidFile): Promise<void> {
 /**
  * Kill an escaped process
  */
-async function killProcess(pid: number): Promise<boolean> {
+async function killProcess(pid: number): Promise<{ success: boolean; error?: string }> {
   try {
-    await execaCommand(`kill ${pid}`, {
+    const killResult = await execaCommand(`kill ${pid}`, {
       shell: true,
       reject: false,
     });
 
-    // Wait a moment for graceful shutdown
+    if (killResult.exitCode !== 0) {
+      return {
+        success: false,
+        error: `kill command failed (exit ${killResult.exitCode}): ${killResult.stderr || 'No error message'}`,
+      };
+    }
+
+    // Wait for graceful shutdown
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Check if still running
-    const stillRunning = await isProcessRunning(pid);
+    const processStatus = await isProcessRunning(pid);
 
-    if (stillRunning) {
+    if (processStatus.running) {
       // Force kill
-      await execaCommand(`kill -9 ${pid}`, {
+      const forceResult = await execaCommand(`kill -9 ${pid}`, {
         shell: true,
         reject: false,
       });
+
+      if (forceResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: `kill -9 command failed (exit ${forceResult.exitCode}): ${forceResult.stderr || 'No error message'}`,
+        };
+      }
     }
 
-    return true;
+    return { success: true };
   } catch (error) {
-    // Expected: process doesn't exist. Log unexpected errors.
-    if (error instanceof Error && !error.message.includes('ESRCH')) {
-      console.error(`[cleanup-orphans] Failed to kill process ${pid}: ${error.message}`, {
-        pid,
-        error: error.message,
-      });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    // ESRCH means process doesn't exist - this is success
+    if (errorMessage.includes('ESRCH')) {
+      return { success: true };
     }
-    return false;
+
+    console.error(`[cleanup-orphans] Failed to kill process ${pid}: ${errorMessage}`, {
+      pid,
+      error: errorMessage,
+    });
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -320,7 +380,7 @@ interface CleanupResults {
   processesKilled: number;
   processesKillFailed: number;
   diagnosticErrors: Array<{
-    type: 'pid-removal' | 'process-kill' | 'pid-scan';
+    type: 'pid-removal' | 'process-kill' | 'pid-scan' | 'log-file-removal' | 'config-removal';
     target: string | number;
     error: string;
   }>;
@@ -435,7 +495,7 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
       // Clean up stale PID files
       for (const stalePidFile of stalePidFiles) {
         try {
-          await cleanupStalePidFile(stalePidFile);
+          await cleanupStalePidFile(stalePidFile, cleaned.diagnosticErrors);
           cleaned.stalePidFilesRemoved++;
         } catch (error) {
           // Track failure for diagnostics
@@ -452,29 +512,16 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
 
       // Kill escaped processes
       for (const proc of escapedProcesses) {
-        try {
-          const success = await killProcess(proc.pid);
-          if (success) {
-            cleaned.processesKilled++;
-          } else {
-            // killProcess returned false - process wasn't killed
-            cleaned.processesKillFailed++;
-            cleaned.diagnosticErrors.push({
-              type: 'process-kill',
-              target: proc.pid,
-              error: 'killProcess returned false',
-            });
-          }
-        } catch (error) {
-          // Track failure for diagnostics
+        const killResult = await killProcess(proc.pid);
+        if (killResult.success) {
+          cleaned.processesKilled++;
+        } else {
           cleaned.processesKillFailed++;
-          const errorMessage = error instanceof Error ? error.message : String(error);
           cleaned.diagnosticErrors.push({
             type: 'process-kill',
             target: proc.pid,
-            error: errorMessage,
+            error: killResult.error || 'Unknown error',
           });
-          console.error(`Failed to kill process ${proc.pid}: ${errorMessage}`);
         }
       }
     }

@@ -28,7 +28,7 @@ export const MonitorRunInputSchema = z
   .object({
     run_id: z.number().int().positive().optional(),
     pr_number: z.number().int().positive().optional(),
-    branch: z.string().optional(),
+    branch: z.string().min(1).max(255).optional(),
     repo: z.string().optional(),
     poll_interval_seconds: z
       .number()
@@ -36,7 +36,7 @@ export const MonitorRunInputSchema = z
       .min(MIN_POLL_INTERVAL)
       .max(MAX_POLL_INTERVAL)
       .default(DEFAULT_POLL_INTERVAL),
-    timeout_seconds: z.number().int().positive().max(MAX_TIMEOUT).default(DEFAULT_TIMEOUT),
+    timeout_seconds: z.number().int().min(1).max(MAX_TIMEOUT).default(DEFAULT_TIMEOUT),
     fail_fast: z
       .boolean()
       .default(true)
@@ -44,7 +44,14 @@ export const MonitorRunInputSchema = z
         'Exit immediately on first failure detection. Set to false to wait for all checks to complete.'
       ),
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) => {
+      const count = [data.run_id, data.pr_number, data.branch].filter(x => x !== undefined).length;
+      return count === 1;
+    },
+    { message: 'Must provide exactly one of: run_id, pr_number, or branch' }
+  );
 
 export type MonitorRunInput = z.infer<typeof MonitorRunInputSchema>;
 
@@ -141,7 +148,10 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       // Use gh run watch to wait for completion
       // Exit code 0 = success, non-zero = failure (but we continue to fetch details)
       let watchFailed = false;
-      // @ts-expect-error - Preserved for potential future debugging use
+      // NOTE: watchError is intentionally unused but preserved for debugging.
+      // If troubleshooting watch command failures, uncomment the logging below:
+      // console.error('Watch command failed:', watchError);
+      // @ts-expect-error - Preserved for debugging purposes
       let watchError: Error | undefined;
       try {
         await ghCli(

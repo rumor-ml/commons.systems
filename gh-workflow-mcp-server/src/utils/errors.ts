@@ -18,10 +18,13 @@ export { McpError, TimeoutError, ValidationError, formatError, isTerminalError }
 export class GitHubCliError extends McpError {
   constructor(
     message: string,
-    public readonly exitCode?: number,
-    public readonly stderr?: string,
-    public readonly stdout?: string
+    public readonly exitCode: number, // Required
+    public readonly stderr: string,   // Required
+    public readonly stdout?: string   // Optional
   ) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw new Error(`Invalid exit code: ${exitCode}`);
+    }
     super(message, 'GH_CLI_ERROR');
     this.name = 'GitHubCliError';
   }
