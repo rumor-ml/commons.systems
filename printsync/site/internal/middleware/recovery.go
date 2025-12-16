@@ -6,7 +6,11 @@ import (
 	"runtime/debug"
 )
 
-// Recovery is middleware that recovers from panics and logs them
+// Recovery recovers from panics in HTTP handlers.
+//
+// Scope: HTTP request processing (ServeHTTP chain)
+// Does NOT recover: Background goroutines
+// For background recovery, see streaming.StreamMerger methods
 func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
