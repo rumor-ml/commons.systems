@@ -5,6 +5,7 @@
  */
 
 import { initAuth, initAuthState, onAuthStateChange, getAuthInstance } from '@commons/auth';
+import { setupAuthErrorHandling } from '@commons/auth/auth-errors.js';
 import { signInAnonymously, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from './firebase-config.js';
 
@@ -12,6 +13,9 @@ import { firebaseConfig } from './firebase-config.js';
  * Initialize authentication and set up token sync
  */
 export function initializeAuth() {
+  // Setup global auth error handling
+  setupAuthErrorHandling();
+
   // Initialize Firebase Auth (GitHub provider for production, anonymous for dev)
   initAuth(firebaseConfig);
 
@@ -72,7 +76,16 @@ export function initializeAuth() {
           // Dispatch auth-ready anyway to prevent UI from hanging
           document.dispatchEvent(
             new CustomEvent('auth-ready', {
-              detail: { authenticated: false, error: error.message },
+              detail: {
+                authenticated: false,
+                error: {
+                  code: 'auth/sign-in-failed',
+                  message: 'Anonymous sign-in failed',
+                  action: 'Refresh the page',
+                  recoverable: true,
+                  details: error.message,
+                },
+              },
             })
           );
         }

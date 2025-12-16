@@ -2,6 +2,7 @@ package layouts
 
 import (
 	"os"
+	"commons.systems/shared/templates"
 )
 
 templ Base(title string) {
@@ -29,14 +30,20 @@ templ Base(title string) {
 				"imports": {
 					"@commons/auth": "/static/js/vendor/@commons/auth/index.js",
 					"@commons/auth/": "/static/js/vendor/@commons/auth/",
+					"@commons/design-system/toast": "/static/js/vendor/@commons/design-system/toast.js",
 					"firebase/app": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js",
 					"firebase/auth": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js"
 				}
 			}
 		</script>
+		<!-- Initialize toast system -->
+		<script type="module">
+			import '@commons/design-system/toast';
+		</script>
 	</head>
 	<body class="bg-bg-base text-text-primary font-sans" hx-boost="true">
 		{ children... }
+		@templates.ToastContainer()
 		<!-- Auth initialization -->
 		<script type="module">
 			import { initializeAuth } from '/static/js/auth-init.js';

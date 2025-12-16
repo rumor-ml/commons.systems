@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"commons.systems/shared/templates"
 	"os"
 )
 
@@ -45,7 +46,7 @@ func Base(title string) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layouts/base.templ`, Line: 15, Col: 94}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layouts/base.templ`, Line: 16, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -63,17 +64,21 @@ func Base(title string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layouts/base.templ`, Line: 17, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layouts/base.templ`, Line: 18, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " - Printsync</title><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap\"><link rel=\"stylesheet\" href=\"/static/css/styles.css\"><script src=\"https://unpkg.com/htmx.org@1.9.10\"></script><script src=\"https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js\"></script><script src=\"/static/js/file-selection.js\"></script><!-- Firebase SDK (compat version) --><script src=\"https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js\"></script><script src=\"https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js\"></script><!-- Import Map for shared libraries --><script type=\"importmap\">\n\t\t\t{\n\t\t\t\t\"imports\": {\n\t\t\t\t\t\"@commons/auth\": \"/static/js/vendor/@commons/auth/index.js\",\n\t\t\t\t\t\"@commons/auth/\": \"/static/js/vendor/@commons/auth/\",\n\t\t\t\t\t\"firebase/app\": \"https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js\",\n\t\t\t\t\t\"firebase/auth\": \"https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js\"\n\t\t\t\t}\n\t\t\t}\n\t\t</script></head><body class=\"bg-bg-base text-text-primary font-sans\" hx-boost=\"true\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " - Printsync</title><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap\"><link rel=\"stylesheet\" href=\"/static/css/styles.css\"><script src=\"https://unpkg.com/htmx.org@1.9.10\"></script><script src=\"https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js\"></script><script src=\"/static/js/file-selection.js\"></script><!-- Firebase SDK (compat version) --><script src=\"https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js\"></script><script src=\"https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js\"></script><!-- Import Map for shared libraries --><script type=\"importmap\">\n\t\t\t{\n\t\t\t\t\"imports\": {\n\t\t\t\t\t\"@commons/auth\": \"/static/js/vendor/@commons/auth/index.js\",\n\t\t\t\t\t\"@commons/auth/\": \"/static/js/vendor/@commons/auth/\",\n\t\t\t\t\t\"@commons/design-system/toast\": \"/static/js/vendor/@commons/design-system/toast.js\",\n\t\t\t\t\t\"firebase/app\": \"https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js\",\n\t\t\t\t\t\"firebase/auth\": \"https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js\"\n\t\t\t\t}\n\t\t\t}\n\t\t</script><!-- Initialize toast system --><script type=\"module\">\n\t\t\timport '@commons/design-system/toast';\n\t\t</script></head><body class=\"bg-bg-base text-text-primary font-sans\" hx-boost=\"true\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templ_7745c5c3_Var1.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templates.ToastContainer().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
