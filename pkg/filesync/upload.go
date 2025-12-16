@@ -359,5 +359,18 @@ func sendProgress(ch chan<- Progress, p Progress) {
 		// Channel is full or closed, don't block
 		log.Printf("WARNING: Dropped progress event - Operation: %s, File: %s, Channel likely full or closed",
 			p.Operation, p.File)
+
+		// Attempt to notify user about delayed progress updates (non-blocking)
+		errorNotif := Progress{
+			Type:      ProgressTypeStatus,
+			Operation: "Progress updates delayed - processing is faster than UI can display",
+			Message:   "Some progress updates are being skipped to maintain performance",
+		}
+		select {
+		case ch <- errorNotif:
+			// Notification sent successfully
+		default:
+			// Channel completely blocked, user notification also dropped (logged above)
+		}
 	}
 }
