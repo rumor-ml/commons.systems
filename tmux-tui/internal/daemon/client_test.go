@@ -105,17 +105,17 @@ func TestQueryBlockedState_Success(t *testing.T) {
 	}()
 
 	// Query blocked state
-	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	state, err := client.QueryBlockedState("feature-branch")
 	if err != nil {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if !isBlocked {
+	if !state.IsBlocked {
 		t.Error("Expected branch to be blocked")
 	}
 
-	if blockedBy != "main" {
-		t.Errorf("Expected blockedBy=main, got %s", blockedBy)
+	if state.BlockedBy != "main" {
+		t.Errorf("Expected blockedBy=main, got %s", state.BlockedBy)
 	}
 
 	// Verify no events were lost (eventCh should be empty)
@@ -163,7 +163,7 @@ func TestQueryBlockedState_Timeout(t *testing.T) {
 
 	// Query should timeout after 2 seconds
 	start := time.Now()
-	_, _, err := client.QueryBlockedState("feature-branch")
+	_, err := client.QueryBlockedState("feature-branch")
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -232,17 +232,17 @@ func TestQueryBlockedState_WrongBranchResponse(t *testing.T) {
 	}()
 
 	// Query should wait for correct branch response
-	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	state, err := client.QueryBlockedState("feature-branch")
 	if err != nil {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if isBlocked {
+	if state.IsBlocked {
 		t.Error("Expected branch to not be blocked (correct response)")
 	}
 
-	if blockedBy != "" {
-		t.Errorf("Expected empty blockedBy, got %s", blockedBy)
+	if state.BlockedBy != "" {
+		t.Errorf("Expected empty blockedBy, got %s", state.BlockedBy)
 	}
 }
 
@@ -305,7 +305,7 @@ func TestQueryBlockedState_NoEventLoss(t *testing.T) {
 	}()
 
 	// Query blocked state
-	_, _, err := client.QueryBlockedState("feature-branch")
+	_, err := client.QueryBlockedState("feature-branch")
 	if err != nil {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestQueryBlockedState_ClientClosed(t *testing.T) {
 	}()
 
 	// Query should return error when client closes
-	_, _, err := client.QueryBlockedState("feature-branch")
+	_, err := client.QueryBlockedState("feature-branch")
 	if err == nil {
 		t.Fatal("Expected error when client closes")
 	}
@@ -450,13 +450,13 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 		branchName := "branch-" + string(rune('0'+i))
 		go func(branch string) {
 			defer wg.Done()
-			_, isBlocked, err := client.QueryBlockedState(branch)
+			state, err := client.QueryBlockedState(branch)
 			if err != nil {
 				t.Logf("Query for %s failed: %v", branch, err)
 				return
 			}
 			resultsMu.Lock()
-			results[branch] = isBlocked
+			results[branch] = state.IsBlocked
 			resultsMu.Unlock()
 		}(branchName)
 	}
@@ -570,13 +570,13 @@ func TestQueryBlockedState_ErrorPropagation(t *testing.T) {
 	}()
 
 	// Query should succeed with first response
-	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	state, err := client.QueryBlockedState("feature-branch")
 	if err != nil {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if !isBlocked || blockedBy != "main" {
-		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s", isBlocked, blockedBy)
+	if !state.IsBlocked || state.BlockedBy != "main" {
+		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s", state.IsBlocked, state.BlockedBy)
 	}
 }
 
@@ -611,7 +611,7 @@ func TestQueryBlockedState_SendFailure(t *testing.T) {
 	serverWriter.Close()
 
 	// Query should fail immediately with a send error
-	_, _, err := client.QueryBlockedState("feature-branch")
+	_, err := client.QueryBlockedState("feature-branch")
 	if err == nil {
 		t.Fatal("Expected error when send fails")
 	}
@@ -684,7 +684,7 @@ func TestQueryBlockedState_RapidSequential(t *testing.T) {
 	// Rapid sequential queries
 	for i := 0; i < 10; i++ {
 		branch := "branch-" + string(rune('A'+i))
-		_, _, err := client.QueryBlockedState(branch)
+		_, err := client.QueryBlockedState(branch)
 		if err != nil {
 			t.Errorf("Query %d failed: %v", i, err)
 		}
@@ -724,7 +724,7 @@ func TestQueryBlockedState_TimeoutUsesDefinedError(t *testing.T) {
 	}()
 
 	// Query should timeout with defined error
-	_, _, err := client.QueryBlockedState("feature-branch")
+	_, err := client.QueryBlockedState("feature-branch")
 	if err == nil {
 		t.Fatal("Expected timeout error")
 	}
@@ -1887,7 +1887,7 @@ func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
 
 	// Issue query while broadcasts are happening
 	queryStart := time.Now()
-	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	state, err := client.QueryBlockedState("feature-branch")
 	queryDuration := time.Since(queryStart)
 	queryCompleted <- true
 
@@ -1900,9 +1900,9 @@ func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
 		t.Fatalf("Query failed: %v", err)
 	}
 
-	if !isBlocked || blockedBy != "main" {
+	if !state.IsBlocked || state.BlockedBy != "main" {
 		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s",
-			isBlocked, blockedBy)
+			state.IsBlocked, state.BlockedBy)
 	}
 
 	t.Logf("Query completed in %v (no starvation)", queryDuration)
@@ -2013,7 +2013,7 @@ func TestGapDetection_QueryRace_ConnectionFailure(t *testing.T) {
 
 	// Issue QueryBlockedState() while gap resync is processing
 	queryStart := time.Now()
-	_, _, err := client.QueryBlockedState("test-branch")
+	_, err := client.QueryBlockedState("test-branch")
 	queryDuration := time.Since(queryStart)
 
 	// Verify query fails gracefully (no deadlock, no panic)

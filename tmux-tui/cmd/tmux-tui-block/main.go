@@ -49,15 +49,9 @@ func getCurrentBranch(executor tmux.CommandExecutor, paneID string) (string, err
 	return branch, nil
 }
 
-// BlockedState represents the result of checking if a branch is blocked
-type BlockedState struct {
-	IsBlocked bool
-	BlockedBy string // Empty if not blocked
-}
-
 // branchBlocker defines the interface needed for toggle operations
 type branchBlocker interface {
-	QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error)
+	QueryBlockedState(branch string) (daemon.BlockedState, error)
 	UnblockBranch(branch string) error
 }
 
@@ -73,7 +67,7 @@ func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 		return false
 	}
 
-	blockedBy, isBlocked, err := client.QueryBlockedState(branch)
+	state, err := client.QueryBlockedState(branch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not query blocked state for '%s': %v\n", branch, err)
 		printErrorHint(err)
@@ -82,12 +76,12 @@ func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 		return false
 	}
 
-	if !isBlocked {
+	if !state.IsBlocked {
 		return false // Not blocked, show picker
 	}
 
 	// Branch is blocked - unblock it
-	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, blockedBy)
+	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, state.BlockedBy)
 	if err := client.UnblockBranch(branch); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to unblock branch: %v\n", err)
 		printErrorHint(err)

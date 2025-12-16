@@ -242,34 +242,34 @@ func TestBlockedPaneFlow(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Query the blocked state
-	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	state, err := client.QueryBlockedState("feature-branch")
 	if err != nil {
 		t.Fatalf("Failed to query blocked state: %v", err)
 	}
 
-	if !isBlocked {
+	if !state.IsBlocked {
 		t.Error("Expected feature-branch to be blocked")
 	}
 
-	if blockedBy != "main" {
-		t.Errorf("Expected feature-branch to be blocked by 'main', got '%s'", blockedBy)
+	if state.BlockedBy != "main" {
+		t.Errorf("Expected feature-branch to be blocked by 'main', got '%s'", state.BlockedBy)
 	}
-	t.Logf("Query result: branch=%s isBlocked=%v blockedBy=%s", "feature-branch", isBlocked, blockedBy)
+	t.Logf("Query result: branch=%s isBlocked=%v blockedBy=%s", "feature-branch", state.IsBlocked, state.BlockedBy)
 
 	// Query a non-blocked branch
-	notBlockedBy, notBlocked, err := client.QueryBlockedState("some-other-branch")
+	notBlockedState, err := client.QueryBlockedState("some-other-branch")
 	if err != nil {
 		t.Fatalf("Failed to query non-blocked branch: %v", err)
 	}
 
-	if notBlocked {
+	if notBlockedState.IsBlocked {
 		t.Error("Expected some-other-branch to not be blocked")
 	}
 
-	if notBlockedBy != "" {
-		t.Errorf("Expected blockedBy to be empty for non-blocked branch, got '%s'", notBlockedBy)
+	if notBlockedState.BlockedBy != "" {
+		t.Errorf("Expected blockedBy to be empty for non-blocked branch, got '%s'", notBlockedState.BlockedBy)
 	}
-	t.Logf("Query result for non-blocked: branch=%s isBlocked=%v blockedBy=%s", "some-other-branch", notBlocked, notBlockedBy)
+	t.Logf("Query result for non-blocked: branch=%s isBlocked=%v blockedBy=%s", "some-other-branch", notBlockedState.IsBlocked, notBlockedState.BlockedBy)
 
 	t.Log("All blocked pane tests passed!")
 }
@@ -347,17 +347,17 @@ func TestToggleUnblockFlow(t *testing.T) {
 
 	// Step 2: Query to verify blocked
 	t.Log("Step 2: Querying blocked state (should be blocked)")
-	blockedBy, isBlocked, err := client.QueryBlockedState(testBranch)
+	state, err := client.QueryBlockedState(testBranch)
 	if err != nil {
 		t.Fatalf("Failed to query blocked state: %v", err)
 	}
-	if !isBlocked {
+	if !state.IsBlocked {
 		t.Errorf("Expected %s to be blocked, but it was not", testBranch)
 	}
-	if blockedBy != blockingBranch {
-		t.Errorf("Expected %s to be blocked by %s, got %s", testBranch, blockingBranch, blockedBy)
+	if state.BlockedBy != blockingBranch {
+		t.Errorf("Expected %s to be blocked by %s, got %s", testBranch, blockingBranch, state.BlockedBy)
 	}
-	t.Logf("Verified: %s is blocked by %s", testBranch, blockedBy)
+	t.Logf("Verified: %s is blocked by %s", testBranch, state.BlockedBy)
 
 	// Step 3: Unblock the branch
 	t.Logf("Step 3: Unblocking %s", testBranch)
@@ -368,15 +368,15 @@ func TestToggleUnblockFlow(t *testing.T) {
 
 	// Step 4: Query to verify unblocked
 	t.Log("Step 4: Querying blocked state (should be unblocked)")
-	blockedBy2, isBlocked2, err := client.QueryBlockedState(testBranch)
+	state2, err := client.QueryBlockedState(testBranch)
 	if err != nil {
 		t.Fatalf("Failed to query blocked state after unblock: %v", err)
 	}
-	if isBlocked2 {
-		t.Errorf("Expected %s to be unblocked, but it was blocked by %s", testBranch, blockedBy2)
+	if state2.IsBlocked {
+		t.Errorf("Expected %s to be unblocked, but it was blocked by %s", testBranch, state2.BlockedBy)
 	}
-	if blockedBy2 != "" {
-		t.Errorf("Expected blockedBy to be empty for unblocked branch, got %s", blockedBy2)
+	if state2.BlockedBy != "" {
+		t.Errorf("Expected blockedBy to be empty for unblocked branch, got %s", state2.BlockedBy)
 	}
 	t.Logf("Verified: %s is unblocked", testBranch)
 
@@ -389,17 +389,17 @@ func TestToggleUnblockFlow(t *testing.T) {
 
 	// Step 6: Query to verify blocked again
 	t.Log("Step 6: Querying blocked state (should be blocked again)")
-	blockedBy3, isBlocked3, err := client.QueryBlockedState(testBranch)
+	state3, err := client.QueryBlockedState(testBranch)
 	if err != nil {
 		t.Fatalf("Failed to query blocked state after second block: %v", err)
 	}
-	if !isBlocked3 {
+	if !state3.IsBlocked {
 		t.Errorf("Expected %s to be blocked again, but it was not", testBranch)
 	}
-	if blockedBy3 != blockingBranch {
-		t.Errorf("Expected %s to be blocked by %s again, got %s", testBranch, blockingBranch, blockedBy3)
+	if state3.BlockedBy != blockingBranch {
+		t.Errorf("Expected %s to be blocked by %s again, got %s", testBranch, blockingBranch, state3.BlockedBy)
 	}
-	t.Logf("Verified: %s is blocked by %s again", testBranch, blockedBy3)
+	t.Logf("Verified: %s is blocked by %s again", testBranch, state3.BlockedBy)
 
 	t.Log("Toggle-unblock flow test passed!")
 }
@@ -559,17 +559,17 @@ func TestBlockedBranchPersistence_DaemonRestart(t *testing.T) {
 	// Phase 5: Query each branch to double-check
 	t.Log("Phase 5: Querying individual branches...")
 	for _, tc := range testCases {
-		blockedBy, isBlocked, err := client2.QueryBlockedState(tc.branch)
+		state, err := client2.QueryBlockedState(tc.branch)
 		if err != nil {
 			t.Errorf("Failed to query %s: %v", tc.branch, err)
 			continue
 		}
-		if !isBlocked {
+		if !state.IsBlocked {
 			t.Errorf("Branch %s should be blocked after restart", tc.branch)
 		}
-		if blockedBy != tc.blockedBy {
+		if state.BlockedBy != tc.blockedBy {
 			t.Errorf("Branch %s: expected blocked by %s, got %s",
-				tc.branch, tc.blockedBy, blockedBy)
+				tc.branch, tc.blockedBy, state.BlockedBy)
 		}
 	}
 

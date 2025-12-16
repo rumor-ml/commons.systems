@@ -101,14 +101,14 @@ type Message struct {
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
-	Timestamp          time.Time `json:"timestamp"`
-	BroadcastFailures  int64     `json:"broadcast_failures"`
-	LastBroadcastError string    `json:"last_broadcast_error,omitempty"`
-	WatcherErrors      int64     `json:"watcher_errors"`
-	LastWatcherError   string    `json:"last_watcher_error,omitempty"`
-	ConnectedClients   int       `json:"connected_clients"`
-	ActiveAlerts       int       `json:"active_alerts"`
-	BlockedBranches    int       `json:"blocked_branches"`
+	timestamp          time.Time `json:"timestamp"`
+	broadcastFailures  int64     `json:"broadcast_failures"`
+	lastBroadcastError string    `json:"last_broadcast_error,omitempty"`
+	watcherErrors      int64     `json:"watcher_errors"`
+	lastWatcherError   string    `json:"last_watcher_error,omitempty"`
+	connectedClients   int       `json:"connected_clients"`
+	activeAlerts       int       `json:"active_alerts"`
+	blockedBranches    int       `json:"blocked_branches"`
 }
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
@@ -140,15 +140,45 @@ func NewHealthStatus(
 	}
 
 	return HealthStatus{
-		Timestamp:          time.Now(),
-		BroadcastFailures:  broadcastFailures,
-		LastBroadcastError: strings.TrimSpace(lastBroadcastError),
-		WatcherErrors:      watcherErrors,
-		LastWatcherError:   strings.TrimSpace(lastWatcherError),
-		ConnectedClients:   connectedClients,
-		ActiveAlerts:       activeAlerts,
-		BlockedBranches:    blockedBranches,
+		timestamp:          time.Now(),
+		broadcastFailures:  broadcastFailures,
+		lastBroadcastError: strings.TrimSpace(lastBroadcastError),
+		watcherErrors:      watcherErrors,
+		lastWatcherError:   strings.TrimSpace(lastWatcherError),
+		connectedClients:   connectedClients,
+		activeAlerts:       activeAlerts,
+		blockedBranches:    blockedBranches,
 	}, nil
+}
+
+// Timestamp returns the timestamp when the health status was captured
+func (h HealthStatus) Timestamp() time.Time { return h.timestamp }
+
+// BroadcastFailures returns the total broadcast failures since daemon startup
+func (h HealthStatus) BroadcastFailures() int64 { return h.broadcastFailures }
+
+// LastBroadcastError returns the most recent broadcast error message
+func (h HealthStatus) LastBroadcastError() string { return h.lastBroadcastError }
+
+// WatcherErrors returns the total watcher errors since daemon startup
+func (h HealthStatus) WatcherErrors() int64 { return h.watcherErrors }
+
+// LastWatcherError returns the most recent watcher error message
+func (h HealthStatus) LastWatcherError() string { return h.lastWatcherError }
+
+// ConnectedClients returns the current number of connected clients
+func (h HealthStatus) ConnectedClients() int { return h.connectedClients }
+
+// ActiveAlerts returns the current number of active alerts
+func (h HealthStatus) ActiveAlerts() int { return h.activeAlerts }
+
+// BlockedBranches returns the current number of blocked branches
+func (h HealthStatus) BlockedBranches() int { return h.blockedBranches }
+
+// BlockedState represents the result of checking if a branch is blocked
+type BlockedState struct {
+	IsBlocked bool
+	BlockedBy string // Empty if not blocked
 }
 
 // ValidateMessage validates that a Message has required fields for its type.

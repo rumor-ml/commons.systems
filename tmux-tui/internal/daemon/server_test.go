@@ -324,32 +324,32 @@ func TestGetHealthStatus(t *testing.T) {
 
 	status := daemon.GetHealthStatus()
 
-	if status.BroadcastFailures != 5 {
-		t.Errorf("Expected 5 broadcast failures, got %d", status.BroadcastFailures)
+	if status.BroadcastFailures() != 5 {
+		t.Errorf("Expected 5 broadcast failures, got %d", status.BroadcastFailures())
 	}
 
-	if status.LastBroadcastError != "test error" {
-		t.Errorf("Expected 'test error', got '%s'", status.LastBroadcastError)
+	if status.LastBroadcastError() != "test error" {
+		t.Errorf("Expected 'test error', got '%s'", status.LastBroadcastError())
 	}
 
-	if status.WatcherErrors != 3 {
-		t.Errorf("Expected 3 watcher errors, got %d", status.WatcherErrors)
+	if status.WatcherErrors() != 3 {
+		t.Errorf("Expected 3 watcher errors, got %d", status.WatcherErrors())
 	}
 
-	if status.LastWatcherError != "watcher error" {
-		t.Errorf("Expected 'watcher error', got '%s'", status.LastWatcherError)
+	if status.LastWatcherError() != "watcher error" {
+		t.Errorf("Expected 'watcher error', got '%s'", status.LastWatcherError())
 	}
 
-	if status.ActiveAlerts != 1 {
-		t.Errorf("Expected 1 active alert, got %d", status.ActiveAlerts)
+	if status.ActiveAlerts() != 1 {
+		t.Errorf("Expected 1 active alert, got %d", status.ActiveAlerts())
 	}
 
-	if status.BlockedBranches != 1 {
-		t.Errorf("Expected 1 blocked branch, got %d", status.BlockedBranches)
+	if status.BlockedBranches() != 1 {
+		t.Errorf("Expected 1 blocked branch, got %d", status.BlockedBranches())
 	}
 
-	if status.ConnectedClients != 0 {
-		t.Errorf("Expected 0 connected clients, got %d", status.ConnectedClients)
+	if status.ConnectedClients() != 0 {
+		t.Errorf("Expected 0 connected clients, got %d", status.ConnectedClients())
 	}
 }
 

@@ -795,16 +795,21 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 	blockedCount := len(d.blockedBranches)
 	d.blockedMu.RUnlock()
 
-	return HealthStatus{
-		Timestamp:          time.Now(),
-		BroadcastFailures:  d.broadcastFailures.Load(),
-		LastBroadcastError: lastBroadcastErr,
-		WatcherErrors:      d.watcherErrors.Load(),
-		LastWatcherError:   lastWatcherErr,
-		ConnectedClients:   clientCount,
-		ActiveAlerts:       alertCount,
-		BlockedBranches:    blockedCount,
+	status, err := NewHealthStatus(
+		d.broadcastFailures.Load(),
+		lastBroadcastErr,
+		d.watcherErrors.Load(),
+		lastWatcherErr,
+		clientCount,
+		alertCount,
+		blockedCount,
+	)
+	if err != nil {
+		debug.Log("DAEMON_HEALTH_STATUS_ERROR error=%v", err)
+		// Return zero status on error (should never happen with valid inputs)
+		status, _ = NewHealthStatus(0, "", 0, "", 0, 0, 0)
 	}
+	return status
 }
 
 // Stop stops the daemon server.

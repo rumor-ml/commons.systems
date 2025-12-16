@@ -18,7 +18,7 @@ import (
 const (
 	heartbeatInterval        = 5 * time.Second   // How often to send pings
 	heartbeatTimeout         = 3 * time.Second   // How long to wait for pong response
-	messagePropagationDelay  = 100 * time.Millisecond // Best-effort delay after send (not an ack mechanism)
+	messagePropagationDelay  = 100 * time.Millisecond // Time to wait for daemon to process messages
 )
 
 // DaemonClient represents a client connection to the alert daemon.
@@ -217,24 +217,23 @@ func (c *DaemonClient) receive() {
 						}
 						c.mu.Unlock()
 
-						// Send disconnect event with timeout to prevent goroutine leak
+						// Send disconnect event
 						select {
 						case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync: %v", err)}:
-						case <-time.After(100 * time.Millisecond):
-							debug.Log("CLIENT_RESYNC_DISCONNECT_EVENT_BLOCKED id=%s error=%v", c.clientID, err)
 						case <-c.done:
 						}
 						return
+					} else {
+						debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 					}
-					debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 				}()
 			}
 			c.lastSeq.Store(msg.SeqNum)
 		}
 
-		// Route query responses to dedicated channels to ensure QueryBlockedState() receives them.
-		// Without this routing, responses would be delivered to the general event channel,
-		// requiring the caller to poll Events() instead of receiving a direct return value.
+		// Route query responses to dedicated channels to prevent race conditions.
+		// Without dedicated channels, responses could be consumed by the general
+		// event loop before QueryBlockedState() returns them to the caller.
 		if msg.Type == MsgTypeBlockedStateResponse {
 			c.queryMu.Lock()
 			if resp, exists := c.queryResponses[msg.Branch]; exists {
@@ -265,16 +264,12 @@ func (c *DaemonClient) receive() {
 						}
 						c.mu.Unlock()
 
-						// Send disconnect event with timeout to prevent goroutine leak
+						// Send disconnect event
 						select {
 						case c.eventCh <- Message{
 							Type:  "disconnect",
 							Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
 						}:
-						case <-time.After(100 * time.Millisecond):
-							// Fallback: eventCh blocked, log to debug since we can't notify via event channel
-							debug.Log("CLIENT_DISCONNECT_EVENT_BLOCKED id=%s branch=%s - event channel full",
-								c.clientID, msg.Branch)
 						case <-c.done:
 							return
 						}
@@ -501,7 +496,7 @@ func (c *DaemonClient) UnblockBranch(branch string) error {
 }
 
 // QueryBlockedState queries whether a branch is blocked and returns the blocking branch if so
-func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
+func (c *DaemonClient) QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error) {
 	// Create response channels (buffered to prevent blocking)
 	resp := newQueryResponse()
 
@@ -526,7 +521,7 @@ func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
 		Branch: branch,
 	}
 	if err := c.sendMessage(queryMsg); err != nil {
-		return BlockedState{}, fmt.Errorf("failed to send query blocked state message: %w", err)
+		return "", false, fmt.Errorf("failed to send query blocked state message: %w", err)
 	}
 	debug.Log("CLIENT_QUERY_BLOCKED_STATE id=%s branch=%s", c.clientID, branch)
 
@@ -539,18 +534,15 @@ func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
 	case msg := <-resp.dataCh:
 		debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
 			c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
-		return BlockedState{
-			IsBlocked: msg.IsBlocked,
-			BlockedBy: msg.BlockedBranch,
-		}, nil
+		return msg.BlockedBranch, msg.IsBlocked, nil
 	case queryErr := <-resp.errCh:
 		// Receive() detected an issue (channel full/closed) and notified us
 		debug.Log("CLIENT_QUERY_ERROR id=%s branch=%s error=%v", c.clientID, branch, queryErr)
-		return BlockedState{}, fmt.Errorf("query failed: %w", queryErr)
+		return "", false, fmt.Errorf("query failed: %w", queryErr)
 	case <-timeout:
-		return BlockedState{}, ErrQueryTimeout
+		return "", false, ErrQueryTimeout
 	case <-c.done:
-		return BlockedState{}, fmt.Errorf("client closed")
+		return "", false, fmt.Errorf("client closed")
 	}
 }
 
