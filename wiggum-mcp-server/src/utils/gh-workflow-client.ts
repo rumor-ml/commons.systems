@@ -187,11 +187,22 @@ export async function getGhWorkflowClient(): Promise<Client> {
       logger.debug('Cleaned up transport after connection failure');
     } catch (closeError) {
       const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
-      logger.warn('Failed to close transport', {
+      logger.error('Failed to close MCP transport after connection failure', {
         closeError: closeMsg,
         originalError: errorMsg,
+        resourceLeakRisk: 'Socket/process may remain open',
       });
-      // Continue - cleanup failure is not critical
+
+      throw new Error(
+        `MCP transport cleanup failed: ${closeMsg}\n\n` +
+          `Original connection error: ${errorMsg}\n\n` +
+          `Troubleshooting:\n` +
+          `  1. Check for zombie processes: ps aux | grep gh-workflow\n` +
+          `  2. Kill stuck processes: pkill -f gh-workflow-mcp-server\n` +
+          `  3. Verify Node.js can spawn processes\n` +
+          `  4. Check resource limits: ulimit -a\n\n` +
+          `Resource Leak Risk: Transport cleanup failure may leave sockets/processes open.`
+      );
     }
 
     const troubleshooting = [

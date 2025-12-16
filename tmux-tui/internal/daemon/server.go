@@ -73,10 +73,21 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 }
 
 // playAlertSound plays the system alert sound in the background.
-// It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
-// The sound only plays once when transitioning to an alert state.
-// Rate limiting prevents audio daemon overload.
-// If audio playback fails, broadcasts MsgTypeAudioError to all clients.
+//
+// Playback Conditions:
+//   - Skipped during E2E tests (CLAUDE_E2E_TEST env var set)
+//   - Rate limited: Maximum 1 sound per 500ms to prevent audio daemon overload
+//   - Only plays when transitioning TO an alert state (handleAlertEvent determines this)
+//
+// Error Handling:
+//   - Logs to stderr for immediate visibility
+//   - Broadcasts MsgTypeAudioError to all connected clients
+//   - Audio failures don't block other daemon operations
+//
+// Implementation Notes:
+//   - Runs asynchronously in goroutine to avoid blocking daemon
+//   - Rate limiting uses global audioMutex and lastAudioPlay timestamp
+//   - afplay command targets macOS system sounds
 func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
 	if os.Getenv("CLAUDE_E2E_TEST") != "" {
@@ -95,13 +106,16 @@ func (d *AlertDaemon) playAlertSound() {
 	}
 	lastAudioPlay = now
 
-	// Play sound and WAIT for completion to prevent process accumulation
+	// Play sound asynchronously to avoid blocking daemon operations.
+	// The goroutine waits for afplay to complete, preventing process accumulation.
+	// Rate limiting (500ms) ensures we don't spawn processes faster than they terminate.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
 	go func() {
 		debug.Log("AUDIO_PLAYING")
 		if err := cmd.Run(); err != nil {
 			debug.Log("AUDIO_ERROR error=%v", err)
-			// Broadcast error to clients so they know notifications are broken
+
+			// CRITICAL: Log to stderr FIRST - broadcast may fail
 			errorMsg := fmt.Sprintf(
 				"Audio playback failed: %v\n\n"+
 					"Troubleshooting:\n"+
@@ -111,6 +125,9 @@ func (d *AlertDaemon) playAlertSound() {
 					"  Note: Audio failures don't affect tmux-tui functionality",
 				err,
 			)
+			fmt.Fprintf(os.Stderr, "ERROR: %s\n", errorMsg)
+
+			// Also broadcast to connected clients
 			d.broadcast(Message{
 				Type:  MsgTypeAudioError,
 				Error: errorMsg,
@@ -693,6 +710,15 @@ func (d *AlertDaemon) broadcast(msg Message) {
 		d.clientsMu.Lock()
 		for _, clientID := range failedClients {
 			if client, exists := d.clients[clientID]; exists {
+				// Send disconnect notification BEFORE closing
+				disconnectMsg := Message{
+					Type:  "disconnect",
+					Error: "Broadcast send failed - forcing reconnect for state resync",
+				}
+				if err := client.sendMessage(disconnectMsg); err != nil {
+					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
+				}
+
 				client.conn.Close()
 				delete(d.clients, clientID)
 				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)

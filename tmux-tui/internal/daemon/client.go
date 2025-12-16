@@ -253,9 +253,27 @@ func (c *DaemonClient) receive() {
 						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s count=%d",
 							c.clientID, msg.Branch, c.queryChannelFull.Load())
 					default:
-						// Error channel also full (shouldn't happen with buffered channel)
-						debug.Log("CLIENT_QUERY_ERROR_CHANNEL_FULL id=%s branch=%s",
+						// CRITICAL: Both channels full - force disconnect
+						debug.Log("CLIENT_QUERY_DEADLOCK_DETECTED id=%s branch=%s - forcing disconnect",
 							c.clientID, msg.Branch)
+
+						c.mu.Lock()
+						c.connected = false
+						if c.conn != nil {
+							c.conn.Close()
+						}
+						c.mu.Unlock()
+
+						// Send disconnect event
+						select {
+						case c.eventCh <- Message{
+							Type:  "disconnect",
+							Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
+						}:
+						case <-c.done:
+							return
+						}
+						return // Exit receive() goroutine
 					}
 				}
 				delete(c.queryResponses, msg.Branch)

@@ -1924,3 +1924,121 @@ func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
 
 	t.Logf("Received all 150 alerts without loss")
 }
+
+// TestGapDetection_QueryRace_ConnectionFailure tests the race condition when gap detection
+// spawns resync goroutine concurrently with QueryBlockedState() during connection failure.
+// This test verifies that the client handles gracefully when:
+// 1. Gap detection triggers a resync request in a background goroutine
+// 2. QueryBlockedState() is issued concurrently
+// 3. Connection fails BEFORE query response arrives
+func TestGapDetection_QueryRace_ConnectionFailure(t *testing.T) {
+	// Setup client with pipe-based connection
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+	defer client.Close()
+
+	// Server simulation
+	serverDone := make(chan bool)
+	go func() {
+		defer close(serverDone)
+		encoder := json.NewEncoder(serverWriter)
+		decoder := json.NewDecoder(serverReader)
+
+		// Phase 1: Send SeqNum 1
+		if err := encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1"}); err != nil {
+			t.Logf("Server encode error (Phase 1): %v", err)
+			return
+		}
+		time.Sleep(50 * time.Millisecond) // Allow processing
+
+		// Phase 2: Send SeqNum 10 (triggers gap detection)
+		if err := encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 10, PaneID: "pane2"}); err != nil {
+			t.Logf("Server encode error (Phase 2): %v", err)
+			return
+		}
+
+		// Phase 3: Read resync request (should arrive from gap detection)
+		var resyncMsg Message
+		if err := decoder.Decode(&resyncMsg); err != nil {
+			t.Logf("Server decode error (resync): %v", err)
+			return
+		}
+		if resyncMsg.Type != MsgTypeResyncRequest {
+			t.Errorf("Expected MsgTypeResyncRequest, got %s", resyncMsg.Type)
+			return
+		}
+
+		// Phase 4: Read query message (issued concurrently with gap resync)
+		var queryMsg Message
+		if err := decoder.Decode(&queryMsg); err != nil {
+			t.Logf("Server decode error (query): %v", err)
+			return
+		}
+		if queryMsg.Type != MsgTypeQueryBlockedState {
+			t.Errorf("Expected MsgTypeQueryBlockedState, got %s", queryMsg.Type)
+			return
+		}
+
+		// Phase 5: CRITICAL - Close connection BEFORE sending query response
+		// This simulates network failure during concurrent operations
+		serverWriter.Close()
+		serverReader.Close()
+	}()
+
+	// Wait for gap detection to trigger
+	time.Sleep(100 * time.Millisecond)
+
+	// Issue QueryBlockedState() while gap resync is processing
+	queryStart := time.Now()
+	_, _, err := client.QueryBlockedState("test-branch")
+	queryDuration := time.Since(queryStart)
+
+	// Verify query fails gracefully (no deadlock, no panic)
+	if err == nil {
+		t.Error("Expected error when connection fails during query")
+	}
+
+	// Verify query fails within reasonable time (no deadlock)
+	if queryDuration > 3*time.Second {
+		t.Errorf("Query took too long (%v), possible deadlock", queryDuration)
+	}
+
+	// Verify gap detection was triggered
+	if client.lastSeq.Load() != 10 {
+		t.Errorf("Expected lastSeq=10 after gap detection, got %d", client.lastSeq.Load())
+	}
+
+	// Verify client disconnects cleanly
+	select {
+	case msg := <-client.eventCh:
+		if msg.Type != "disconnect" {
+			t.Errorf("Expected disconnect event, got %s", msg.Type)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Expected disconnect event after connection failure")
+	}
+
+	// Wait for server goroutine to complete
+	<-serverDone
+
+	t.Logf("Race test passed: query failed gracefully in %v, client disconnected cleanly", queryDuration)
+}

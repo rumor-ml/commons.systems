@@ -1242,3 +1242,147 @@ func TestConcurrentBlockUnblock_SameBranch(t *testing.T) {
 	t.Logf("Test completed: in-memory blocked=%v, persisted blocked=%v, client1 broadcasts=%d, client2 broadcasts=%d",
 		inMemoryIsBlocked, persistedIsBlocked, client1Count, client2Count)
 }
+
+// TestBlockBranch_PersistenceFailureRollback tests that revertBlockedBranchChange()
+// correctly restores in-memory state when saveBlockedBranches() fails during block/unblock operations
+func TestBlockBranch_PersistenceFailureRollback(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("Skipping permission test when running as root")
+	}
+
+	tmpDir := t.TempDir()
+	readonlyDir := filepath.Join(tmpDir, "readonly-dir")
+	blockedPath := filepath.Join(readonlyDir, "blocked-branches.json")
+
+	// Create readonly directory to force persistence failure
+	if err := os.Mkdir(readonlyDir, 0555); err != nil {
+		t.Fatalf("Failed to create readonly dir: %v", err)
+	}
+	defer os.Chmod(readonlyDir, 0755) // Cleanup
+
+	// Create daemon with initial state: feature-1 blocked by main
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+		blockedBranches: map[string]string{
+			"feature-1": "main",
+		},
+		blockedPath: blockedPath,
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create pipe-based client connection
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+	defer serverReader.Close()
+	defer serverWriter.Close()
+
+	clientConn := &mockConn{
+		reader: serverReader,
+		writer: serverWriter,
+	}
+
+	// Start handleClient in background
+	go daemon.handleClient(clientConn)
+
+	// Send hello message
+	encoder := json.NewEncoder(clientWriter)
+	if err := encoder.Encode(Message{Type: MsgTypeHello, ClientID: "test-client"}); err != nil {
+		t.Fatalf("Failed to send hello: %v", err)
+	}
+
+	// Read full state message
+	decoder := json.NewDecoder(clientReader)
+	var fullStateMsg Message
+	if err := decoder.Decode(&fullStateMsg); err != nil {
+		t.Fatalf("Failed to receive full state: %v", err)
+	}
+
+	// Verify initial state: feature-1 blocked by main
+	if fullStateMsg.BlockedBranches["feature-1"] != "main" {
+		t.Fatalf("Expected initial state: feature-1 blocked by main, got %s",
+			fullStateMsg.BlockedBranches["feature-1"])
+	}
+
+	// Background goroutine to read broadcasts from client
+	broadcasts := make(chan Message, 10)
+	go func() {
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			broadcasts <- msg
+		}
+	}()
+
+	// Attempt to change block from main to develop (will fail to persist)
+	blockMsg := Message{
+		Type:          MsgTypeBlockBranch,
+		Branch:        "feature-1",
+		BlockedBranch: "develop",
+	}
+	if err := encoder.Encode(blockMsg); err != nil {
+		t.Fatalf("Failed to send block message: %v", err)
+	}
+
+	// Wait for broadcasts - should receive:
+	// 1. MsgTypePersistenceError (persistence failed)
+	// 2. MsgTypeBlockChange (revert to original state: main)
+	timeout := time.After(2 * time.Second)
+	receivedPersistenceError := false
+	receivedRevert := false
+
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-broadcasts:
+			if msg.Type == MsgTypePersistenceError {
+				receivedPersistenceError = true
+			}
+			if msg.Type == MsgTypeBlockChange {
+				// Should be reverted to main (original state)
+				if msg.Branch != "feature-1" {
+					t.Errorf("Expected revert for feature-1, got %s", msg.Branch)
+				}
+				if msg.BlockedBranch != "main" {
+					t.Errorf("Expected revert to main, got %s", msg.BlockedBranch)
+				}
+				if !msg.Blocked {
+					t.Error("Expected Blocked=true in revert message")
+				}
+				receivedRevert = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for broadcasts")
+		}
+	}
+
+	if !receivedPersistenceError {
+		t.Error("Expected MsgTypePersistenceError broadcast")
+	}
+
+	if !receivedRevert {
+		t.Error("Expected MsgTypeBlockChange revert broadcast")
+	}
+
+	// Verify in-memory state reverted to main (not develop)
+	daemon.blockedMu.RLock()
+	inMemoryBlocked := daemon.blockedBranches["feature-1"]
+	daemon.blockedMu.RUnlock()
+
+	if inMemoryBlocked != "main" {
+		t.Errorf("Expected in-memory state reverted to main, got %s", inMemoryBlocked)
+	}
+
+	// Verify broadcast failure counter NOT incremented (revert broadcast succeeded)
+	// The persistence error itself is logged but doesn't increment broadcast failures
+	// because the broadcast of the persistence error message succeeded
+	if daemon.broadcastFailures.Load() > 0 {
+		t.Logf("Note: broadcastFailures=%d (expected 0, but non-zero acceptable if client disconnected)",
+			daemon.broadcastFailures.Load())
+	}
+
+	t.Logf("Rollback test passed: reverted to main, broadcasts received")
+}
