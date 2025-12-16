@@ -1,6 +1,9 @@
 package filesync
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // FileInfo represents basic information about a file to be synced
 type FileInfo struct {
@@ -113,4 +116,42 @@ type Progress struct {
 	TotalBytes     int64
 	Percentage     float64 // Always 0-100, no magic -1 values
 	Message        string
+}
+
+// Validate checks if the Progress struct contains valid data.
+// Returns an error if any of the following conditions are violated:
+//   - Percentage must be between 0 and 100
+//   - BytesProcessed and TotalBytes must not be negative
+//   - BytesProcessed must not exceed TotalBytes (when TotalBytes > 0)
+//   - Type must be one of the valid ProgressType constants
+func (p Progress) Validate() error {
+	// Validate percentage range
+	if p.Percentage < 0 || p.Percentage > 100 {
+		return fmt.Errorf("percentage must be 0-100, got %.2f", p.Percentage)
+	}
+
+	// Validate bytes are not negative
+	if p.BytesProcessed < 0 {
+		return fmt.Errorf("bytesProcessed cannot be negative, got %d", p.BytesProcessed)
+	}
+	if p.TotalBytes < 0 {
+		return fmt.Errorf("totalBytes cannot be negative, got %d", p.TotalBytes)
+	}
+
+	// Validate bytesProcessed doesn't exceed totalBytes (when totalBytes > 0)
+	if p.TotalBytes > 0 && p.BytesProcessed > p.TotalBytes {
+		return fmt.Errorf("bytesProcessed (%d) cannot exceed totalBytes (%d)", p.BytesProcessed, p.TotalBytes)
+	}
+
+	// Validate progress type
+	validTypes := map[ProgressType]bool{
+		ProgressTypeOperation: true,
+		ProgressTypeStatus:    true,
+		ProgressTypeError:     true,
+	}
+	if !validTypes[p.Type] {
+		return fmt.Errorf("invalid progress type: %q", p.Type)
+	}
+
+	return nil
 }
