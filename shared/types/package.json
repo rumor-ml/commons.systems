@@ -1,0 +1,31 @@
+{
+  "name": "@commons/types",
+  "version": "1.0.0",
+  "description": "Shared branded types for type safety across commons.systems",
+  "type": "module",
+  "main": "dist/branded.js",
+  "types": "dist/branded.d.ts",
+  "exports": {
+    "./branded": {
+      "types": "./dist/branded.d.ts",
+      "default": "./dist/branded.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "types",
+    "branded-types",
+    "type-safety"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
