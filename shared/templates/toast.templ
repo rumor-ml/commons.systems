@@ -1,0 +1,69 @@
+package templates
+
+import "fmt"
+
+// ToastType represents the semantic type of toast notification
+type ToastType string
+
+const (
+	ToastTypeError   ToastType = "error"
+	ToastTypeWarning ToastType = "warning"
+	ToastTypeSuccess ToastType = "success"
+	ToastTypeInfo    ToastType = "info"
+)
+
+// ToastContainer renders the fixed container for toast notifications
+templ ToastContainer() {
+	<div class="toast-container" aria-label="Notifications"></div>
+}
+
+// Toast renders a single toast notification
+// Can be used with hx-swap-oob="true" for HTMX out-of-band swaps
+templ Toast(id, title, message string, toastType ToastType, duration int, actionLabel string) {
+	<div
+		id={ id }
+		class={ fmt.Sprintf("toast toast--%s", toastType) }
+		role="alert"
+		aria-live={ templ.SafeString(getAriaLive(toastType)) }
+		if duration > 0 {
+			data-duration={ fmt.Sprintf("%d", duration) }
+		}
+	>
+		<div class="toast__header">
+			<div class={ fmt.Sprintf("toast__title toast__title--%s", toastType) }>
+				{ title }
+			</div>
+			<button
+				class="toast__close"
+				aria-label="Close notification"
+				onclick={ templ.SafeScript(fmt.Sprintf("dismissToast('%s')", id)) }
+			>
+				<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+				</svg>
+			</button>
+		</div>
+		<div class="toast__body">
+			{ message }
+		</div>
+		if actionLabel != "" {
+			<div class="toast__action">
+				<button>{ actionLabel }</button>
+			</div>
+		}
+	</div>
+}
+
+// ToastOOB renders a toast with hx-swap-oob="true" for server-side injection
+templ ToastOOB(id, title, message string, toastType ToastType, duration int, actionLabel string) {
+	<div hx-swap-oob="afterbegin:.toast-container">
+		@Toast(id, title, message, toastType, duration, actionLabel)
+	</div>
+}
+
+func getAriaLive(toastType ToastType) string {
+	if toastType == ToastTypeError {
+		return "assertive"
+	}
+	return "polite"
+}
