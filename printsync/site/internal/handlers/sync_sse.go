@@ -68,30 +68,14 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	defer h.hub.Unregister(sessionID, client)
 
 	// Send initial session state
-	initialEvent := streaming.SSEEvent{
-		Type:      streaming.EventTypeSession,
-		Timestamp: time.Now(),
-		Data: streaming.SessionEvent{
-			ID:          session.ID,
-			Status:      session.Status,
-			Stats:       session.Stats,
-			CompletedAt: session.CompletedAt,
-		},
-	}
+	initialEvent := streaming.NewSessionEvent(session)
 	if err := h.writeSSEEventHTML(w, r.Context(), initialEvent); err != nil {
 		log.Printf("ERROR: StreamSession for session %s - failed to write initial session event: %v", sessionID, err)
 		return
 	}
 
 	// Send initial action buttons state
-	actionsEvent := streaming.SSEEvent{
-		Type:      streaming.EventTypeActions,
-		Timestamp: time.Now(),
-		Data: streaming.ActionsEvent{
-			SessionID: session.ID,
-			Stats:     session.Stats,
-		},
-	}
+	actionsEvent := streaming.NewActionsEvent(session.ID, session.Stats)
 	if err := h.writeSSEEventHTML(w, r.Context(), actionsEvent); err != nil {
 		log.Printf("ERROR: StreamSession for session %s - failed to write initial actions event: %v", sessionID, err)
 		return
@@ -115,14 +99,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		progressOperation = "Processing..."
 	}
-	progressEvent := streaming.SSEEvent{
-		Type:      streaming.EventTypeProgress,
-		Timestamp: time.Now(),
-		Data: streaming.ProgressEvent{
-			Operation:  progressOperation,
-			Percentage: 0,
-		},
-	}
+	progressEvent := streaming.NewProgressEvent(progressOperation, "", 0)
 	if err := h.writeSSEEventHTML(w, r.Context(), progressEvent); err != nil {
 		log.Printf("ERROR: StreamSession for session %s - failed to write initial progress event: %v", sessionID, err)
 		return
@@ -136,14 +113,10 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARNING: Failed to list initial files for session %s: %v", sessionID, err) // WARNING not ERROR
 
 		// Send warning event to user
-		errorEvent := streaming.SSEEvent{
-			Type:      streaming.EventTypeError,
-			Timestamp: time.Now(),
-			Data: streaming.ErrorEvent{
-				Message:  "Unable to load existing files, but new files will appear as they're processed. If this persists, try refreshing the page.",
-				Severity: "warning", // warning not error
-			},
-		}
+		errorEvent := streaming.NewErrorEvent(
+			"Unable to load existing files, but new files will appear as they're processed. If this persists, try refreshing the page.",
+			"warning", // warning not error
+		)
 		if writeErr := h.writeSSEEventHTML(w, r.Context(), errorEvent); writeErr != nil {
 			log.Printf("ERROR: Failed to write error event: %v", writeErr)
 			return
@@ -151,19 +124,7 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	} else {
 		for _, file := range files {
-			fileEvent := streaming.SSEEvent{
-				Type:      streaming.EventTypeFile,
-				Timestamp: time.Now(),
-				Data: streaming.FileEvent{
-					ID:        file.ID,
-					SessionID: file.SessionID,
-					LocalPath: file.LocalPath,
-					Status:    file.Status,
-					Metadata:  file.Metadata,
-					Error:     file.Error,
-					IsUpdate:  false, // Initial load - will append
-				},
-			}
+			fileEvent := streaming.NewFileEvent(file, false) // IsUpdate=false for initial load
 			if err := h.writeSSEEventHTML(w, r.Context(), fileEvent); err != nil {
 				log.Printf("ERROR: StreamSession for session %s - failed to write file event for %s: %v", sessionID, file.ID, err)
 				return
@@ -191,13 +152,13 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if err := h.writeSSEEventHTML(w, r.Context(), event); err != nil {
-				log.Printf("ERROR: StreamSession for session %s - failed to write event %s: %v", sessionID, event.Type, err)
+				log.Printf("ERROR: StreamSession for session %s - failed to write event %s: %v", sessionID, event.EventType(), err)
 				return
 			}
 			flusher.Flush()
 
 			// If this is a complete event, end the stream
-			if event.Type == streaming.EventTypeComplete {
+			if event.EventType() == streaming.EventTypeComplete {
 				return
 			}
 
@@ -220,9 +181,9 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Context, event streaming.SSEEvent) error {
 	var buf bytes.Buffer
 
-	switch event.Type {
+	switch event.EventType() {
 	case streaming.EventTypeSession:
-		sessionData, ok := event.Data.(streaming.SessionEvent)
+		sessionData, ok := event.Data().(streaming.SessionEvent)
 		if !ok {
 			return fmt.Errorf("invalid session event data type")
 		}
@@ -238,7 +199,7 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		// See streaming/events.go for event type definitions.
 
 	case streaming.EventTypeActions:
-		actionsData, ok := event.Data.(streaming.ActionsEvent)
+		actionsData, ok := event.Data().(streaming.ActionsEvent)
 		if !ok {
 			return fmt.Errorf("invalid actions event data type")
 		}
@@ -247,7 +208,7 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		}
 
 	case streaming.EventTypeProgress:
-		progressData, ok := event.Data.(streaming.ProgressEvent)
+		progressData, ok := event.Data().(streaming.ProgressEvent)
 		if !ok {
 			return fmt.Errorf("invalid progress event data type")
 		}
@@ -256,7 +217,7 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		}
 
 	case streaming.EventTypeFile:
-		fileData, ok := event.Data.(streaming.FileEvent)
+		fileData, ok := event.Data().(streaming.FileEvent)
 		if !ok {
 			return fmt.Errorf("invalid file event data type")
 		}
@@ -275,7 +236,7 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		}
 
 	case streaming.EventTypeError:
-		errorData, ok := event.Data.(streaming.ErrorEvent)
+		errorData, ok := event.Data().(streaming.ErrorEvent)
 		if !ok {
 			return fmt.Errorf("invalid error event data type")
 		}
@@ -298,14 +259,14 @@ func (h *SyncHandlers) writeSSEEventHTML(w http.ResponseWriter, ctx context.Cont
 		buf.WriteString(completeHTML)
 
 	default:
-		return fmt.Errorf("unknown event type: %s", event.Type)
+		return fmt.Errorf("unknown event type: %s", event.EventType())
 	}
 
 	// Remove newlines for compact SSE
 	html := strings.ReplaceAll(buf.String(), "\n", "")
 
 	// Write SSE event
-	if _, err := fmt.Fprintf(w, "event: %s\n", event.Type); err != nil {
+	if _, err := fmt.Fprintf(w, "event: %s\n", event.EventType()); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", html); err != nil {
