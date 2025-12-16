@@ -80,6 +80,14 @@ export class NetworkError extends McpError {
  * - NetworkError: Potentially retryable (transient network issues)
  * - Other errors: Treated as potentially retryable (conservative approach)
  *
+ * Conservative Default Rationale:
+ * Unknown errors are assumed retryable because:
+ * 1. Many infrastructure failures (DB locks, rate limits, transient service issues) are temporary
+ * 2. Retrying maximizes system resilience without user intervention
+ * 3. Retry limits (maxRetries) prevent infinite loops
+ * 4. Only ValidationError is definitively terminal (bad input won't become valid via retry)
+ * This errs on the side of availability over failing fast.
+ *
  * @param error - Error to check
  * @returns true if error is terminal and should not be retried
  */

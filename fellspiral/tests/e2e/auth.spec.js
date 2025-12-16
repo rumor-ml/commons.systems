@@ -64,8 +64,10 @@ test.describe('@emulator-only Authentication', () => {
     expect(profileCount).toBe(1);
   });
 
-  // Note: We cannot test actual OAuth flow in E2E tests without real credentials
-  // These tests verify the UI is properly set up and visible
+  // Note: We cannot test actual OAuth flow in E2E tests because Firebase Auth Emulator
+  // does not support OAuth providers (Google, GitHub, etc.). The emulator only supports
+  // email/password and custom tokens. OAuth requires real credentials and cannot be
+  // simulated locally. These tests verify the UI is properly set up and visible.
   test('clicking sign in button should trigger OAuth (UI only)', async ({ page }) => {
     await page.goto('/');
 

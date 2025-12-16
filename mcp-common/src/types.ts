@@ -41,16 +41,22 @@ export interface ToolError {
 /**
  * Discriminated union for tool results
  *
- * Use type narrowing with isError to distinguish between success and error:
+ * This uses TypeScript's discriminated union pattern with `isError` as the discriminant.
+ * TypeScript's type narrowing automatically refines the type based on the discriminant check:
+ * - When `result.isError === true`, TypeScript knows `result` is `ToolError` (has `_meta.errorType`)
+ * - When `result.isError !== true`, TypeScript knows `result` is `ToolSuccess` (no required `_meta`)
+ *
+ * This provides compile-time type safety without runtime overhead. The type guards
+ * `isToolError()` and `isToolSuccess()` leverage this for convenient type narrowing.
  *
  * @example
  * ```typescript
  * function handleResult(result: ToolResult) {
  *   if (result.isError) {
- *     // TypeScript knows this is ToolError
+ *     // TypeScript knows this is ToolError - errorType is guaranteed to exist
  *     console.error(result._meta.errorType);
  *   } else {
- *     // TypeScript knows this is ToolSuccess
+ *     // TypeScript knows this is ToolSuccess - no required _meta
  *     console.log(result.content);
  *   }
  * }
