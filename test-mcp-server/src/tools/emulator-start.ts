@@ -6,8 +6,8 @@ import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError } from '../utils/errors.js';
-import { DEFAULT_INFRA_TIMEOUT, MAX_INFRA_TIMEOUT } from '../constants.js';
 import { parseEmulatorPorts } from '../utils/port-parsing.js';
+import { EmulatorStartArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
 import path from 'path';
 
@@ -87,24 +87,16 @@ function formatStartupResult(ports: EmulatorPorts, alreadyRunning: boolean): str
  */
 export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult> {
   try {
-    // Validate arguments
-    const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
-    if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(EmulatorStartArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
     }
+    const validatedArgs = validation.data;
 
     // Note: The start-emulators.sh script doesn't support selective service starting
     // It always starts auth, firestore, and storage. The services parameter is
     // included in the schema for future extensibility but currently not used.
-    if (args.services && args.services.length > 0) {
-      const validServices = ['auth', 'firestore', 'storage'];
-      const invalidServices = args.services.filter((s) => !validServices.includes(s));
-      if (invalidServices.length > 0) {
-        throw new ValidationError(
-          `Invalid services: ${invalidServices.join(', ')}. Valid services are: ${validServices.join(', ')}`
-        );
-      }
-    }
 
     // Get script path
     const root = await getWorktreeRoot();
@@ -112,7 +104,7 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
 
     // Execute the start script
     const result = await execScript(scriptPath, [], {
-      timeout: timeout * 1000, // Convert to milliseconds
+      timeout: validatedArgs.timeout_seconds * 1000, // Convert to milliseconds
       cwd: root,
     });
 

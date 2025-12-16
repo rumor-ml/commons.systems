@@ -5,6 +5,7 @@
 import type { ToolResult } from '../types.js';
 import { createErrorResult, ValidationError, InfrastructureError } from '../utils/errors.js';
 import { getWorktreeRoot } from '../utils/paths.js';
+import { CleanupWorktreeArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
 import fs from 'fs/promises';
 import path from 'path';
@@ -122,9 +123,16 @@ async function removeDirectory(dirPath: string): Promise<boolean> {
  */
 export async function cleanupWorktree(args: CleanupWorktreeArgs): Promise<ToolResult> {
   try {
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(CleanupWorktreeArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
+    }
+    const validatedArgs = validation.data;
+
     // Get worktree path (use provided or default to current)
-    const worktreeRoot = args.worktree_path
-      ? path.resolve(args.worktree_path)
+    const worktreeRoot = validatedArgs.worktree_path
+      ? path.resolve(validatedArgs.worktree_path)
       : await getWorktreeRoot();
 
     // Validate that the path exists

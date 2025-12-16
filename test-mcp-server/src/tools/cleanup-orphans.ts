@@ -3,7 +3,8 @@
  */
 
 import type { ToolResult } from '../types.js';
-import { createErrorResult, InfrastructureError } from '../utils/errors.js';
+import { createErrorResult, InfrastructureError, ValidationError } from '../utils/errors.js';
+import { CleanupOrphansArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
 import fs from 'fs/promises';
 import path from 'path';
@@ -359,8 +360,15 @@ function formatCleanupResult(
  */
 export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResult> {
   try {
-    const dryRun = args.dry_run ?? false;
-    const force = args.force ?? true; // Default to true for MCP (non-interactive)
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(CleanupOrphansArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
+    }
+    const validatedArgs = validation.data;
+
+    const dryRun = validatedArgs.dry_run;
+    const force = validatedArgs.force;
 
     // Scan for orphans
     const stalePidFiles = await findStalePidFiles();

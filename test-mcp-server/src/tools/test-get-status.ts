@@ -5,7 +5,8 @@
 import type { ToolResult } from '../types.js';
 import { execaCommand } from 'execa';
 import { getWorktreeRoot } from '../utils/paths.js';
-import { createErrorResult } from '../utils/errors.js';
+import { createErrorResult, ValidationError } from '../utils/errors.js';
+import { TestGetStatusArgsSchema, safeValidateArgs } from '../schemas.js';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -170,6 +171,13 @@ function formatAge(ms: number): string {
  */
 export async function testGetStatus(args: TestGetStatusArgs): Promise<ToolResult> {
   try {
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(TestGetStatusArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
+    }
+    const validatedArgs = validation.data;
+
     const root = await getWorktreeRoot();
 
     // Find running processes
@@ -179,8 +187,8 @@ export async function testGetStatus(args: TestGetStatusArgs): Promise<ToolResult
     let recentResults = await getRecentTestResults(root);
 
     // Filter by module if specified
-    if (args.module) {
-      recentResults = recentResults.filter((r) => r.module === args.module);
+    if (validatedArgs.module) {
+      recentResults = recentResults.filter((r) => r.module === validatedArgs.module);
     }
 
     // Format output

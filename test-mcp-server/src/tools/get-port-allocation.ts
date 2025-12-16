@@ -5,7 +5,8 @@
 import type { ToolResult, PortAllocation } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
-import { createErrorResult } from '../utils/errors.js';
+import { createErrorResult, ValidationError } from '../utils/errors.js';
+import { GetPortAllocationArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
 import path from 'path';
 
@@ -109,6 +110,13 @@ function formatPortAllocation(allocations: PortAllocation[]): string {
  */
 export async function getPortAllocation(args: GetPortAllocationArgs): Promise<ToolResult> {
   try {
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(GetPortAllocationArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
+    }
+    const validatedArgs = validation.data;
+
     // Get script path
     const root = await getWorktreeRoot();
     const scriptPath = path.join(root, 'infrastructure', 'scripts', 'allocate-test-ports.sh');
@@ -130,8 +138,8 @@ export async function getPortAllocation(args: GetPortAllocationArgs): Promise<To
     );
 
     // Filter by service if specified
-    if (args.service) {
-      allocations = allocations.filter((a) => a.service === args.service);
+    if (validatedArgs.service) {
+      allocations = allocations.filter((a) => a.service === validatedArgs.service);
     }
 
     // Format output

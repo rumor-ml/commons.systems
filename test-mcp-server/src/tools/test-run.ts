@@ -6,7 +6,7 @@ import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError, TestOutputParseError } from '../utils/errors.js';
-import { DEFAULT_TEST_TIMEOUT, MAX_TEST_TIMEOUT } from '../constants.js';
+import { TestRunArgsSchema, safeValidateArgs } from '../schemas.js';
 import path from 'path';
 
 export interface TestRunArgs {
@@ -108,12 +108,14 @@ function formatTestResults(output: TestRunOutput): string {
  */
 export async function testRun(args: TestRunArgs): Promise<ToolResult> {
   try {
-    // Validate arguments
-    const timeout = args.timeout_seconds || DEFAULT_TEST_TIMEOUT;
-    if (timeout > MAX_TEST_TIMEOUT) {
-      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_TEST_TIMEOUT}s`);
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(TestRunArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
     }
+    const validatedArgs = validation.data;
 
+    // Validate test type if present (internal interface supports this)
     if (args.type && !['unit', 'e2e', 'deployed-e2e'].includes(args.type)) {
       throw new ValidationError(
         `Invalid test type: ${args.type}. Must be one of: unit, e2e, deployed-e2e`
@@ -151,7 +153,7 @@ export async function testRun(args: TestRunArgs): Promise<ToolResult> {
 
     // Execute the test script
     const result = await execScript(scriptPath, scriptArgs, {
-      timeout: timeout * 1000, // Convert to milliseconds
+      timeout: validatedArgs.timeout_seconds * 1000, // Convert to milliseconds
       cwd: root,
     });
 

@@ -6,7 +6,7 @@ import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
 import { createErrorResult, ValidationError } from '../utils/errors.js';
-import { DEFAULT_INFRA_TIMEOUT, MAX_INFRA_TIMEOUT } from '../constants.js';
+import { DevServerStopArgsSchema, safeValidateArgs } from '../schemas.js';
 import path from 'path';
 
 export interface DevServerStopArgs {
@@ -55,13 +55,14 @@ function formatStopResult(stdout: string, withEmulators: boolean): string {
  */
 export async function devServerStop(args: DevServerStopArgs): Promise<ToolResult> {
   try {
-    // Validate arguments
-    const timeout = args.timeout_seconds || DEFAULT_INFRA_TIMEOUT;
-    if (timeout > MAX_INFRA_TIMEOUT) {
-      throw new ValidationError(`Timeout ${timeout}s exceeds maximum ${MAX_INFRA_TIMEOUT}s`);
+    // Validate arguments with Zod schema
+    const validation = safeValidateArgs(DevServerStopArgsSchema, args);
+    if (!validation.success) {
+      throw new ValidationError(validation.error);
     }
+    const validatedArgs = validation.data;
 
-    const withEmulators = args.with_emulators ?? false; // Default to false
+    const withEmulators = validatedArgs.with_emulators;
 
     // Get script path
     const root = await getWorktreeRoot();
@@ -75,7 +76,7 @@ export async function devServerStop(args: DevServerStopArgs): Promise<ToolResult
 
     // Execute the stop script
     const result = await execScript(scriptPath, scriptArgs, {
-      timeout: timeout * 1000, // Convert to milliseconds
+      timeout: validatedArgs.timeout_seconds * 1000, // Convert to milliseconds
       cwd: root,
     });
 
