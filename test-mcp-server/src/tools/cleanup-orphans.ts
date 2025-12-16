@@ -28,7 +28,9 @@ interface EscapedProcess {
 /**
  * Scan for stale PID files in /tmp/claude/ subdirectories
  */
-async function findStalePidFiles(): Promise<StalePidFile[]> {
+async function findStalePidFiles(
+  diagnosticErrors: CleanupResults['diagnosticErrors']
+): Promise<StalePidFile[]> {
   const stalePidFiles: StalePidFile[] = [];
   const claudeTmpDir = '/tmp/claude';
 
@@ -77,6 +79,11 @@ async function findStalePidFiles(): Promise<StalePidFile[]> {
               error: error.message,
             }
           );
+          diagnosticErrors.push({
+            type: 'pid-scan',
+            target: pidFilePath,
+            error: error.message,
+          });
         }
         continue;
       }
@@ -93,7 +100,9 @@ async function findStalePidFiles(): Promise<StalePidFile[]> {
 /**
  * Find Firebase emulator processes without corresponding PID files
  */
-async function findEscapedProcesses(): Promise<EscapedProcess[]> {
+async function findEscapedProcesses(
+  diagnosticErrors: CleanupResults['diagnosticErrors']
+): Promise<EscapedProcess[]> {
   const escapedProcesses: EscapedProcess[] = [];
 
   try {
@@ -116,7 +125,7 @@ async function findEscapedProcesses(): Promise<EscapedProcess[]> {
 
     // For each PID, check if it has a corresponding PID file
     for (const pid of pids) {
-      const hasPidFile = await hasCorrespondingPidFile(pid);
+      const hasPidFile = await hasCorrespondingPidFile(pid, diagnosticErrors);
 
       if (!hasPidFile) {
         // Get command line for this process
@@ -164,7 +173,10 @@ async function isProcessRunning(pid: number): Promise<boolean> {
 /**
  * Check if a PID has a corresponding PID file in /tmp/claude directory
  */
-async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
+async function hasCorrespondingPidFile(
+  pid: number,
+  diagnosticErrors: CleanupResults['diagnosticErrors']
+): Promise<boolean> {
   const claudeTmpDir = '/tmp/claude';
 
   try {
@@ -197,6 +209,11 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
               error: error.message,
             }
           );
+          diagnosticErrors.push({
+            type: 'pid-scan',
+            target: pidFilePath,
+            error: error.message,
+          });
         }
         continue;
       }
@@ -211,6 +228,11 @@ async function hasCorrespondingPidFile(pid: number): Promise<boolean> {
           error: error.message,
         }
       );
+      diagnosticErrors.push({
+        type: 'pid-scan',
+        target: claudeTmpDir,
+        error: error.message,
+      });
     }
     return false;
   }
@@ -298,7 +320,7 @@ interface CleanupResults {
   processesKilled: number;
   processesKillFailed: number;
   diagnosticErrors: Array<{
-    type: 'pid-removal' | 'process-kill';
+    type: 'pid-removal' | 'process-kill' | 'pid-scan';
     target: string | number;
     error: string;
   }>;
@@ -367,7 +389,13 @@ function formatCleanupResult(
       lines.push('===================');
       lines.push(`${cleaned.diagnosticErrors.length} operation(s) failed during cleanup:`);
       for (const error of cleaned.diagnosticErrors) {
-        lines.push(`  - ${error.type === 'pid-removal' ? 'PID file removal' : 'Process kill'} failed for ${error.target}: ${error.error}`);
+        const typeLabel =
+          error.type === 'pid-removal'
+            ? 'PID file removal'
+            : error.type === 'process-kill'
+              ? 'Process kill'
+              : 'PID scan';
+        lines.push(`  - ${typeLabel} failed for ${error.target}: ${error.error}`);
       }
     }
   }
@@ -390,10 +418,6 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
     const dryRun = validatedArgs.dry_run;
     const force = validatedArgs.force;
 
-    // Scan for orphans
-    const stalePidFiles = await findStalePidFiles();
-    const escapedProcesses = await findEscapedProcesses();
-
     const cleaned: CleanupResults = {
       stalePidFilesRemoved: 0,
       stalePidFilesFailed: 0,
@@ -401,6 +425,10 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
       processesKillFailed: 0,
       diagnosticErrors: [],
     };
+
+    // Scan for orphans (pass diagnosticErrors to track scan errors)
+    const stalePidFiles = await findStalePidFiles(cleaned.diagnosticErrors);
+    const escapedProcesses = await findEscapedProcesses(cleaned.diagnosticErrors);
 
     // Clean up if not in dry run mode
     if (!dryRun && force) {

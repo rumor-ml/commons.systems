@@ -18,6 +18,12 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+const (
+	maxStatsFlushAttempts = 10
+	statsFlushBackoffBase = 2 * time.Second
+	statsFlushBackoffMax  = 1 * time.Minute
+)
+
 // Pipeline orchestrates file synchronization in two phases:
 // Phase 1 (Extraction): discovery -> metadata extraction (files stop at FileStatusExtracted awaiting approval)
 //   - Started via RunExtractionAsync (creates session) or RunExtractionAsyncWithSession (uses existing session for streaming)
@@ -620,6 +626,7 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 	defer ticker.Stop()
 
 	wasFailingBefore := false
+	backoffDuration := statsFlushBackoffBase
 
 	for {
 		select {
@@ -630,7 +637,7 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 				// Non-fatal: flush will be retried on next cycle
 				if err := stats.flush(ctx); err != nil {
 					failCount := stats.getConsecutiveFlushFails()
-					log.Printf("WARNING: periodic stats flush failed (attempt %d, will retry): %v", failCount, err)
+					log.Printf("WARNING: periodic stats flush failed (attempt %d of %d, will retry): %v", failCount, maxStatsFlushAttempts, err)
 
 					// Notify user immediately on first failure
 					if failCount == 1 {
@@ -639,25 +646,36 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 							Operation:  "Stats update experiencing issues - counts may be slightly delayed. Check your network connection.",
 							Percentage: 0,
 						})
-					}
-
-					// Escalate notification after 5 consecutive failures
-					if failCount == 5 {
+					} else if failCount == 5 {
+						// Escalate notification after 5 consecutive failures
 						sendProgress(progressCh, Progress{
 							Type:       ProgressTypeStatus,
-							Operation:  "Stats update still experiencing issues after 5 attempts - counts may be delayed. Try refreshing the page if this continues.",
+							Operation:  "Stats update still experiencing issues - counts are delayed. Check your network and Firestore connection.",
 							Percentage: 0,
 						})
+					} else if failCount >= maxStatsFlushAttempts {
+						// Terminal failure - give up after max attempts
+						sendProgress(progressCh, Progress{
+							Type:       ProgressTypeStatus,
+							Operation:  fmt.Sprintf("Stats update failed after %d attempts. Session stats will not be updated. Please check your network and Firestore connection.", maxStatsFlushAttempts),
+							Percentage: 0,
+						})
+						log.Printf("ERROR: Stats flush failed permanently after %d attempts - giving up", maxStatsFlushAttempts)
+						return // Exit goroutine
 					}
 
+					// Apply exponential backoff with max cap
+					backoffDuration = min(backoffDuration*2, statsFlushBackoffMax)
+					time.Sleep(backoffDuration)
 					wasFailingBefore = true
 				} else {
-					// Success - if we were failing before, notify recovery
+					// Success - reset backoff and notify recovery if we were failing
+					backoffDuration = statsFlushBackoffBase
 					if wasFailingBefore {
 						log.Printf("INFO: Stats flush recovered after failures")
 						sendProgress(progressCh, Progress{
 							Type:       ProgressTypeStatus,
-							Operation:  "Stats update recovered - counts are now up to date and synchronized.",
+							Operation:  "Stats update recovered - counts are now synchronized.",
 							Percentage: 0,
 						})
 						wasFailingBefore = false

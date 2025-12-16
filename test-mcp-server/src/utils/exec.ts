@@ -17,6 +17,12 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export interface BackgroundProcess {
+  pid: number;
+  isRunning: () => Promise<boolean>;
+  getError: () => Error | null;
+}
+
 /**
  * Validate that a shell argument doesn't contain unsafe metacharacters
  *
@@ -164,13 +170,13 @@ export async function captureOutput(
  * @param scriptPath - Full path to the script to execute
  * @param args - Arguments to pass to the script
  * @param options - Execution options
- * @returns Promise resolving when script is started (not completed)
+ * @returns Promise resolving to BackgroundProcess when script is started
  */
 export async function execScriptBackground(
   scriptPath: string,
   args: string[] = [],
   options: ExecOptions = {}
-): Promise<void> {
+): Promise<BackgroundProcess> {
   const { cwd, env } = options;
 
   // Build command with proper quoting
@@ -185,6 +191,9 @@ export async function execScriptBackground(
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout/stderr temporarily
     });
+
+    // Track process error
+    let processError: Error | null = null;
 
     // Create promise for background process startup
     const startupPromise = new Promise<void>((resolve) => {
@@ -205,23 +214,38 @@ export async function execScriptBackground(
       }, 100);
     });
 
-    await startupPromise;
-
-    // Unref the subprocess so it doesn't keep Node.js alive
-    subprocess.unref();
-
-    // Catch any subprocess errors to prevent unhandled rejections
+    // Catch any subprocess errors to prevent unhandled rejections and track them
     subprocess.catch((error) => {
+      processError = error instanceof Error ? error : new Error(String(error));
       // Log background process failures for diagnostics
       const errorDetails = {
         script: scriptPath,
         args,
         timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error),
+        error: processError.message,
         exitCode: error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
       };
       console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails));
     });
+
+    await startupPromise;
+
+    // Unref the subprocess so it doesn't keep Node.js alive
+    subprocess.unref();
+
+    // Return BackgroundProcess interface with error tracking
+    return {
+      pid: subprocess.pid!,
+      isRunning: async () => {
+        try {
+          const result = await execaCommand(`ps -p ${subprocess.pid}`, { reject: false });
+          return result.exitCode === 0;
+        } catch {
+          return false;
+        }
+      },
+      getError: () => processError,
+    };
   } catch (error: unknown) {
     // Re-throw ScriptExecutionError
     if (error instanceof ScriptExecutionError) {

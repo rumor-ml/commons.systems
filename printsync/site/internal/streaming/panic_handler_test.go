@@ -8,34 +8,37 @@ import (
 
 func TestIsExpectedPanic(t *testing.T) {
 	tests := []struct {
-		name  string
-		panic interface{}
-		want  bool
+		name    string
+		panic   interface{}
+		context string
+		want    bool
 	}{
-		// Expected shutdown-related panics
-		{"string panic with send on closed channel", "send on closed channel", true},
-		{"error panic with send on closed channel", errors.New("send on closed channel during cleanup"), true},
-		{"close of closed channel - string", "close of closed channel", true},
-		{"close of closed channel - error", errors.New("panic: close of closed channel"), true},
-		{"write broken pipe - string", "write: broken pipe", true},
-		{"write broken pipe - error", errors.New("write: broken pipe"), true},
-		{"use of closed network connection - string", "use of closed network connection", true},
-		{"use of closed network connection - error", errors.New("use of closed network connection"), true},
+		// Expected shutdown-related panics (shutdown context + pattern)
+		{"string panic with send on closed channel in broadcast", "send on closed channel", "broadcast", true},
+		{"error panic with send on closed channel in session callback", errors.New("send on closed channel during cleanup"), "session subscription callback", true},
+		{"close of closed channel in file callback", "close of closed channel", "file subscription callback", true},
+		{"write broken pipe in broadcast", "write: broken pipe", "broadcast", true},
+		{"use of closed network connection in progress forwarder", "use of closed network connection", "progress forwarder", true},
 
-		// Unexpected panics
-		{"string panic without send on closed channel", "nil pointer dereference", false},
-		{"error panic without send on closed channel", errors.New("nil pointer"), false},
-		{"nil panic", nil, false},
-		{"int panic", 42, false},
-		{"empty string", "", false},
-		{"runtime error - nil pointer", "runtime error: invalid memory address or nil pointer dereference", false},
-		{"runtime error - index out of range", "runtime error: index out of range", false},
-		{"custom application error", errors.New("database connection failed"), false},
+		// Same panics but NOT in shutdown contexts - should NOT be suppressed
+		{"send on closed channel in normal context", "send on closed channel", "normal operation", false},
+		{"close of closed channel in handler", "close of closed channel", "request handler", false},
+
+		// Unexpected panics (even in shutdown contexts)
+		{"nil pointer in shutdown context", "nil pointer dereference", "broadcast", false},
+		{"index out of range in shutdown context", "runtime error: index out of range", "session subscription callback", false},
+
+		// Nil and non-shutdown contexts
+		{"nil panic", nil, "any context", false},
+		{"int panic", 42, "broadcast", false},
+		{"empty string", "", "broadcast", false},
+		{"runtime error - nil pointer", "runtime error: invalid memory address or nil pointer dereference", "normal context", false},
+		{"custom application error", errors.New("database connection failed"), "broadcast", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsExpectedPanic(tt.panic)
+			got := IsExpectedPanic(tt.panic, tt.context)
 			if got != tt.want {
 				t.Errorf("IsExpectedPanic() = %v, want %v", got, tt.want)
 			}
@@ -59,18 +62,18 @@ func TestHandlePanic_UnexpectedPanics(t *testing.T) {
 }
 
 func TestHandlePanic_ExpectedPanics(t *testing.T) {
-	// Expected panics should always be suppressed
+	// Expected panics should be suppressed when in shutdown context
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("Expected panic should be suppressed: %v", r)
 		}
 	}()
 
-	HandlePanic("send on closed channel", "test context")
+	HandlePanic("send on closed channel", "broadcast")
 }
 
 func TestHandlePanic_AllExpectedPatterns(t *testing.T) {
-	// Test all expected panic patterns are suppressed
+	// Test all expected panic patterns are suppressed in shutdown contexts
 	expectedPanics := []string{
 		"send on closed channel",
 		"close of closed channel",
@@ -86,7 +89,7 @@ func TestHandlePanic_AllExpectedPatterns(t *testing.T) {
 				}
 			}()
 
-			HandlePanic(panicMsg, "test context")
+			HandlePanic(panicMsg, "broadcast") // Use a shutdown context
 		})
 	}
 }

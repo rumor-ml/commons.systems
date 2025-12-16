@@ -45,19 +45,49 @@ import (
 // expectedPanicPatterns lists panic message patterns that are expected during normal shutdown.
 // These represent race conditions between goroutines terminating and attempting channel operations.
 var expectedPanicPatterns = []string{
-	"send on closed channel",         // Sending to closed client/progress/event channel
-	"close of closed channel",        // Double-close during cleanup
-	"write: broken pipe",             // Client disconnected during SSE write
+	"send on closed channel",           // Sending to closed client/progress/event channel
+	"close of closed channel",          // Double-close during cleanup
+	"write: broken pipe",               // Client disconnected during SSE write
 	"use of closed network connection", // Network connection closed during operation
 }
 
+// shutdownContexts lists the specific contexts where shutdown-related panics are expected.
+// Only panics matching BOTH a shutdown context AND a panic pattern will be suppressed.
+// This prevents accidentally suppressing real bugs that happen to have similar panic messages.
+var shutdownContexts = []string{
+	"broadcaster Start",
+	"broadcast",
+	"progress forwarder",
+	"session subscription callback",
+	"file subscription callback",
+}
+
 // IsExpectedPanic checks if a panic is an expected shutdown-related race condition.
-// These panics occur during normal shutdown when goroutines are terminating concurrently.
-func IsExpectedPanic(r interface{}) bool {
+// It requires BOTH conditions to be true:
+// 1. The context must be in the known shutdown contexts list
+// 2. The panic message must match a known shutdown pattern
+//
+// This dual requirement prevents accidentally suppressing real bugs that happen to match
+// a panic pattern but occur outside of shutdown scenarios.
+func IsExpectedPanic(r interface{}, context string) bool {
 	if r == nil {
 		return false
 	}
 
+	// First check: Must be in a known shutdown context
+	isShutdownContext := false
+	for _, c := range shutdownContexts {
+		if c == context {
+			isShutdownContext = true
+			break
+		}
+	}
+
+	if !isShutdownContext {
+		return false // Never suppress panics outside shutdown contexts
+	}
+
+	// Second check: Must match a known panic pattern
 	panicMsg := ""
 	switch v := r.(type) {
 	case string:
@@ -94,7 +124,7 @@ func HandlePanic(r interface{}, context string) {
 	log.Printf("PANIC recovered in %s: %v\n%s", context, r, debug.Stack())
 
 	// If it's an expected shutdown-related panic, log as INFO and suppress
-	if IsExpectedPanic(r) {
+	if IsExpectedPanic(r, context) {
 		log.Printf("INFO: Expected shutdown panic in %s - this is normal during concurrent cleanup: %v", context, r)
 		return
 	}

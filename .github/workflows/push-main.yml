@@ -53,7 +53,6 @@ jobs:
             echo "CI image not found, will use fallback"
           fi
 
-  # ==================== Step 1: Discover Apps ====================
   # ==================== Firebase App Tests ====================
   test-firebase-fellspiral:
     name: Test Firebase - fellspiral

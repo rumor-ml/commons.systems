@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -661,8 +662,8 @@ func TestStreamMerger_CallbackWithNilData(t *testing.T) {
 }
 
 func TestStreamMerger_ConcurrentStop(t *testing.T) {
-	sessionStore := newMockSessionStore()
-	fileStore := newMockFileStore()
+	sessionStore := &MockSessionStore{}
+	fileStore := &MockFileStore{}
 	merger, _ := NewStreamMerger(sessionStore, fileStore)
 
 	var wg sync.WaitGroup
@@ -676,4 +677,329 @@ func TestStreamMerger_ConcurrentStop(t *testing.T) {
 
 	wg.Wait()
 	// Success if no panic/race
+}
+
+// TestStreamMerger_PropagatesSubscriptionErrors tests that errors flow from Firestore to merger events
+func TestStreamMerger_PropagatesSubscriptionErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Create mock session store that triggers error callback
+	sessionStore := &MockSessionStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncSession), errCallback func(error)) {
+			// Simulate subscription error
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("firestore subscription quota exceeded"))
+			}()
+		},
+	}
+	fileStore := &MockFileStore{}
+
+	merger, err := NewStreamMerger(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("failed to create merger: %v", err)
+	}
+	defer merger.Stop()
+
+	// Start session subscription
+	err = merger.StartSessionSubscription(ctx, "test-session-456")
+	if err != nil {
+		t.Fatalf("StartSessionSubscription returned error: %v", err)
+	}
+
+	// Wait for error to propagate
+	select {
+	case event := <-merger.Events():
+		// Verify error event received
+		if event.EventType() != EventTypeError {
+			t.Errorf("expected EventTypeError, got %s", event.EventType())
+		}
+
+		errorData, ok := event.Data().(ErrorEvent)
+		if !ok {
+			t.Fatal("event data is not ErrorEvent")
+		}
+
+		// Verify error includes subscription context
+		if errorData.Message != "Session subscription error: firestore subscription quota exceeded" {
+			t.Errorf("unexpected error message: %s", errorData.Message)
+		}
+		if errorData.Severity != "error" {
+			t.Errorf("expected severity 'error', got %s", errorData.Severity)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for error event")
+	}
+}
+
+// TestStreamMerger_FileSubscriptionErrorPropagation tests file subscription error propagation
+func TestStreamMerger_FileSubscriptionErrorPropagation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	sessionStore := &MockSessionStore{}
+	// Create mock file store that triggers error callback
+	fileStore := &MockFileStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncFile), errCallback func(error)) {
+			// Simulate subscription error
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("firestore file query limit exceeded"))
+			}()
+		},
+	}
+
+	merger, err := NewStreamMerger(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("failed to create merger: %v", err)
+	}
+	defer merger.Stop()
+
+	// Start file subscription
+	err = merger.StartFileSubscription(ctx, "test-session-789")
+	if err != nil {
+		t.Fatalf("StartFileSubscription returned error: %v", err)
+	}
+
+	// Wait for error to propagate
+	select {
+	case event := <-merger.Events():
+		// Verify error event received
+		if event.EventType() != EventTypeError {
+			t.Errorf("expected EventTypeError, got %s", event.EventType())
+		}
+
+		errorData, ok := event.Data().(ErrorEvent)
+		if !ok {
+			t.Fatal("event data is not ErrorEvent")
+		}
+
+		// Verify error includes file subscription context
+		if errorData.Message != "File subscription error: firestore file query limit exceeded" {
+			t.Errorf("unexpected error message: %s", errorData.Message)
+		}
+		if errorData.Severity != "error" {
+			t.Errorf("expected severity 'error', got %s", errorData.Severity)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for error event")
+	}
+}
+
+// TestStreamMerger_ErrorDeduplication tests that duplicate errors are not sent twice
+func TestStreamMerger_ErrorDeduplication(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Track how many times errCallback is invoked
+	callCount := 0
+	var mu sync.Mutex
+
+	// Create mock session store that triggers error callback multiple times
+	sessionStore := &MockSessionStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncSession), errCallback func(error)) {
+			// Simulate multiple errors in rapid succession
+			go func() {
+				for i := 0; i < 5; i++ {
+					time.Sleep(20 * time.Millisecond)
+					mu.Lock()
+					callCount++
+					mu.Unlock()
+					errCallback(errors.New("repeated firestore error"))
+				}
+			}()
+		},
+	}
+	fileStore := &MockFileStore{}
+
+	merger, err := NewStreamMerger(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("failed to create merger: %v", err)
+	}
+	defer merger.Stop()
+
+	// Start session subscription
+	err = merger.StartSessionSubscription(ctx, "test-session-dedup")
+	if err != nil {
+		t.Fatalf("StartSessionSubscription returned error: %v", err)
+	}
+
+	// Collect all error events
+	var errorEvents []SSEEvent
+	timeout := time.After(500 * time.Millisecond)
+
+collectLoop:
+	for {
+		select {
+		case event := <-merger.Events():
+			if event.EventType() == EventTypeError {
+				errorEvents = append(errorEvents, event)
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	// Verify error callback was invoked multiple times
+	mu.Lock()
+	actualCallCount := callCount
+	mu.Unlock()
+
+	if actualCallCount < 2 {
+		t.Logf("Warning: expected multiple error callbacks, got %d", actualCallCount)
+	}
+
+	// Verify only ONE error event was sent (deduplication working)
+	if len(errorEvents) != 1 {
+		t.Errorf("expected exactly 1 error event due to deduplication, got %d", len(errorEvents))
+	}
+
+	// Verify the error event has correct content
+	if len(errorEvents) > 0 {
+		errorData, ok := errorEvents[0].Data().(ErrorEvent)
+		if !ok {
+			t.Fatal("event data is not ErrorEvent")
+		}
+		if errorData.Message != "Session subscription error: repeated firestore error" {
+			t.Errorf("unexpected error message: %s", errorData.Message)
+		}
+	}
+
+	t.Logf("Error callback invoked %d times, but only 1 error event sent (deduplication working)", actualCallCount)
+}
+
+// TestStreamMerger_ErrorDeduplicationSeparateSubscriptions tests deduplication works separately for session and file subscriptions
+func TestStreamMerger_ErrorDeduplicationSeparateSubscriptions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Create mocks that both trigger errors
+	sessionStore := &MockSessionStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncSession), errCallback func(error)) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("session error"))
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("session error duplicate"))
+			}()
+		},
+	}
+	fileStore := &MockFileStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncFile), errCallback func(error)) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("file error"))
+				time.Sleep(50 * time.Millisecond)
+				errCallback(errors.New("file error duplicate"))
+			}()
+		},
+	}
+
+	merger, err := NewStreamMerger(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("failed to create merger: %v", err)
+	}
+	defer merger.Stop()
+
+	// Start both subscriptions
+	err = merger.StartSessionSubscription(ctx, "test-session")
+	if err != nil {
+		t.Fatalf("StartSessionSubscription returned error: %v", err)
+	}
+
+	err = merger.StartFileSubscription(ctx, "test-session")
+	if err != nil {
+		t.Fatalf("StartFileSubscription returned error: %v", err)
+	}
+
+	// Collect error events
+	var errorEvents []SSEEvent
+	timeout := time.After(1 * time.Second)
+
+collectLoop:
+	for len(errorEvents) < 2 {
+		select {
+		case event := <-merger.Events():
+			if event.EventType() == EventTypeError {
+				errorEvents = append(errorEvents, event)
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	// Verify we got exactly 2 error events (one for session, one for file)
+	if len(errorEvents) != 2 {
+		t.Errorf("expected exactly 2 error events (one per subscription type), got %d", len(errorEvents))
+	}
+
+	// Verify error messages are different
+	if len(errorEvents) == 2 {
+		msg1 := errorEvents[0].Data().(ErrorEvent).Message
+		msg2 := errorEvents[1].Data().(ErrorEvent).Message
+
+		if msg1 == msg2 {
+			t.Error("expected different error messages for session and file subscriptions")
+		}
+
+		// One should be about session, one about file
+		hasSessionError := false
+		hasFileError := false
+		for _, event := range errorEvents {
+			msg := event.Data().(ErrorEvent).Message
+			if msg == "Session subscription error: session error" {
+				hasSessionError = true
+			}
+			if msg == "File subscription error: file error" {
+				hasFileError = true
+			}
+		}
+
+		if !hasSessionError || !hasFileError {
+			t.Error("expected one session error and one file error")
+		}
+	}
+
+	t.Log("Verified deduplication works separately for session and file subscriptions")
+}
+
+// TestStreamMerger_ErrorAfterStop tests that errors are handled gracefully after merger is stopped
+func TestStreamMerger_ErrorAfterStop(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock that triggers error after a longer delay
+	sessionStore := &MockSessionStore{
+		onSubscribe: func(ctx context.Context, sessionID string, callback func(*filesync.SyncSession), errCallback func(error)) {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				errCallback(errors.New("late error"))
+			}()
+		},
+	}
+	fileStore := &MockFileStore{}
+
+	merger, err := NewStreamMerger(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("failed to create merger: %v", err)
+	}
+
+	// Start subscription
+	err = merger.StartSessionSubscription(ctx, "test-session")
+	if err != nil {
+		t.Fatalf("StartSessionSubscription returned error: %v", err)
+	}
+
+	// Wait a bit then stop merger before error is triggered
+	time.Sleep(100 * time.Millisecond)
+	merger.Stop()
+
+	// Wait for error to be triggered (after stop)
+	time.Sleep(500 * time.Millisecond)
+
+	// After Stop(), the Events() channel is closed, so we can't receive from it
+	// The error callback will be invoked but won't send to the closed channel
+	// This is expected behavior - the test verifies no panic occurs
+
+	t.Log("Verified merger handles late errors gracefully after stop")
 }

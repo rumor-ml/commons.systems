@@ -24,10 +24,11 @@ model: haiku
 7. Configure git hooks path in the new worktree (required for pre-commit/pre-push hooks to work):
    `cd $HOME/worktrees/<branch-name> && git config core.hooksPath /Users/n8/commons.systems/.git/hooks`
 
-   NOTE: Git worktrees do NOT automatically inherit hooks from the main repository. Each worktree
-   needs its hooksPath explicitly configured to point to the main repo's .git/hooks directory.
-   Without this, pre-commit hooks (formatting, linting) and pre-push hooks (tests) will be skipped,
-   leading to CI failures.
+   NOTE: Git worktrees share hooks from the main repository's .git/hooks directory by default,
+   but hook scripts must be written to work correctly in worktree contexts. Setting core.hooksPath
+   explicitly ensures hooks execute from the main repository's hooks directory with correct paths.
+   Without this configuration in some git environments, pre-commit hooks (formatting, linting)
+   and pre-push hooks (tests) may fail or be skipped, leading to CI failures.
 8. Run `direnv allow` in the new worktree directory to enable the environment.
 9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
    `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`

@@ -148,12 +148,36 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 		iter := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Snapshots(ctx)
 		defer iter.Stop()
 
+		// Add panic recovery
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC: Session subscription panicked for %s: %v", sessionID, r)
+				if errCallback != nil {
+					errCallback(fmt.Errorf("session subscription panicked [sessionID=%s]: %v", sessionID, r))
+				}
+			}
+		}()
+
 		consecutiveErrors := 0
 		maxConsecutiveErrors := 5
 
 		for {
+			// Check context before iter.Next()
+			select {
+			case <-ctx.Done():
+				if errCallback != nil {
+					errCallback(fmt.Errorf("session subscription cancelled [sessionID=%s]: %w", sessionID, ctx.Err()))
+				}
+				return
+			default:
+			}
+
 			snap, err := iter.Next()
 			if err == iterator.Done {
+				// Notify on normal termination
+				if errCallback != nil {
+					errCallback(fmt.Errorf("session subscription ended normally [sessionID=%s]", sessionID))
+				}
 				log.Printf("INFO: Session subscription for %s completed normally", sessionID)
 				return
 			}
@@ -285,12 +309,36 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 			Snapshots(ctx)
 		defer iter.Stop()
 
+		// Add panic recovery
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC: File subscription panicked for session %s: %v", sessionID, r)
+				if errCallback != nil {
+					errCallback(fmt.Errorf("file subscription panicked [sessionID=%s]: %v", sessionID, r))
+				}
+			}
+		}()
+
 		consecutiveErrors := 0
 		maxConsecutiveErrors := 5
 
 		for {
+			// Check context before iter.Next()
+			select {
+			case <-ctx.Done():
+				if errCallback != nil {
+					errCallback(fmt.Errorf("file subscription cancelled [sessionID=%s]: %w", sessionID, ctx.Err()))
+				}
+				return
+			default:
+			}
+
 			snap, err := iter.Next()
 			if err == iterator.Done {
+				// Notify on normal termination
+				if errCallback != nil {
+					errCallback(fmt.Errorf("file subscription ended normally [sessionID=%s]", sessionID))
+				}
 				log.Printf("INFO: File subscription for session %s completed normally", sessionID)
 				return
 			}

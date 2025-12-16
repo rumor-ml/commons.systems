@@ -10,12 +10,14 @@ import (
 
 // StreamMerger merges pipeline progress and Firestore subscriptions into a unified event stream
 type StreamMerger struct {
-	sessionStore filesync.SessionStore
-	fileStore    filesync.FileStore
-	eventsCh     chan SSEEvent
-	done         chan struct{}
-	mu           sync.Mutex
-	stopped      bool
+	sessionStore  filesync.SessionStore
+	fileStore     filesync.FileStore
+	eventsCh      chan SSEEvent
+	done          chan struct{}
+	mu            sync.Mutex
+	stopped       bool
+	sessionSubErr error // Track session subscription error to deduplicate
+	fileSubErr    error // Track file subscription error to deduplicate
 }
 
 // NewStreamMerger creates a new stream merger
@@ -113,6 +115,15 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 			return
 		}
 
+		// Deduplicate error events
+		m.mu.Lock()
+		if m.sessionSubErr != nil {
+			m.mu.Unlock()
+			return // Already sent error for this subscription
+		}
+		m.sessionSubErr = err
+		m.mu.Unlock()
+
 		errorEvent := NewErrorEvent(
 			fmt.Sprintf("Session subscription error: %v", err),
 			"error",
@@ -150,6 +161,15 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 		if err == nil {
 			return
 		}
+
+		// Deduplicate error events
+		m.mu.Lock()
+		if m.fileSubErr != nil {
+			m.mu.Unlock()
+			return // Already sent error for this subscription
+		}
+		m.fileSubErr = err
+		m.mu.Unlock()
 
 		errorEvent := NewErrorEvent(
 			fmt.Sprintf("File subscription error: %v", err),
