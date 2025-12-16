@@ -84,3 +84,59 @@ export function isToolSuccess(result: ToolResult): result is ToolSuccess {
  * @deprecated Use ToolResult instead
  */
 export type ErrorResult = ToolError;
+
+/**
+ * Factory function to create a successful tool result
+ *
+ * @param text - Success message text
+ * @param meta - Optional metadata to include
+ * @returns A properly typed ToolSuccess object
+ *
+ * @example
+ * ```typescript
+ * return createToolSuccess("Operation completed successfully");
+ * return createToolSuccess("User created", { userId: "123" });
+ * ```
+ */
+export function createToolSuccess(
+  text: string,
+  meta?: Record<string, unknown>
+): ToolSuccess {
+  return {
+    content: [{ type: 'text', text }],
+    isError: false,
+    ...(meta && { _meta: meta }),
+  };
+}
+
+/**
+ * Factory function to create an error tool result
+ *
+ * @param text - Error message text
+ * @param errorType - Error type for categorization (e.g., "ValidationError", "TimeoutError")
+ * @param errorCode - Optional error code for programmatic handling
+ * @param meta - Optional additional metadata
+ * @returns A properly typed ToolError object
+ *
+ * @example
+ * ```typescript
+ * return createToolError("File not found", "NotFoundError", "FILE_NOT_FOUND");
+ * return createToolError("Invalid input", "ValidationError");
+ * ```
+ */
+export function createToolError(
+  text: string,
+  errorType: string,
+  errorCode?: string,
+  meta?: Record<string, unknown>
+): ToolError {
+  return {
+    content: [{ type: 'text', text }],
+    isError: true,
+    _meta: {
+      errorType,
+      ...(errorCode && { errorCode }),
+      ...meta,
+    },
+  };
+}
