@@ -34,6 +34,9 @@ export {
 // State management
 export { initAuthState, getAuthState, subscribeToAuthState, clearAuthState } from './auth-state.js';
 
+// Error handling
+export { setupAuthErrorHandling } from './auth-errors.js';
+
 // UI Components
 export { createAuthButton, destroyAuthButton } from './components/auth-button.js';
 
