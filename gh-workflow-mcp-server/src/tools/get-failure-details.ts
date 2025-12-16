@@ -150,7 +150,8 @@ function extractTestSummary(logText: string): string | null {
 function formatJobSummaries(
   run: WorkflowRunData,
   summaries: FailedJobSummary[],
-  maxChars: number
+  maxChars: number,
+  parseWarnings?: string[]
 ): ToolResult {
   const lines: string[] = [
     `Workflow Run Failed: ${run.name}`,
@@ -177,6 +178,16 @@ function formatJobSummaries(
   }
 
   let output = lines.join('\n');
+
+  // Surface parse warnings if any occurred
+  if (parseWarnings && parseWarnings.length > 0) {
+    output += '\n\n⚠️  EXTRACTION WARNING: Test output parsing encountered issues\n';
+    for (const warning of parseWarnings) {
+      output += `  - ${warning}\n`;
+    }
+    output += 'Some test results may be incomplete. Check logs for details.\n';
+  }
+
   if (output.length > maxChars) {
     output = output.substring(0, maxChars - 50) + '\n\n[... truncated due to length limit ...]';
   }
@@ -195,11 +206,12 @@ function formatJobSummaries(
 async function getFailureDetailsFromLogFailed(
   runId: number,
   repo: string
-): Promise<FailedJobSummary[]> {
+): Promise<{ summaries: FailedJobSummary[]; parseWarnings: string[] }> {
   const output = await getFailedStepLogs(runId, repo);
   const parsedSteps = parseFailedStepLogs(output);
 
   const jobSummaries: Map<string, FailedJobSummary> = new Map();
+  const parseWarnings: string[] = [];
 
   for (const step of parsedSteps) {
     // Create job summary if it doesn't exist
@@ -218,6 +230,11 @@ async function getFailureDetailsFromLogFailed(
     const extraction = extractErrors(fullLog, 15);
     const errorLines = formatExtractionResult(extraction);
 
+    // Collect parse warnings if present
+    if (extraction.parseWarnings) {
+      parseWarnings.push(`${step.jobName} / ${step.stepName}: ${extraction.parseWarnings}`);
+    }
+
     // For unknown framework (generic extractor), use raw log lines instead of formatted output
     // This preserves formatting for diffs, build errors, etc.
     const finalLines = extraction.framework === 'unknown' ? step.lines.slice(-100) : errorLines;
@@ -230,7 +247,10 @@ async function getFailureDetailsFromLogFailed(
     });
   }
 
-  return Array.from(jobSummaries.values());
+  return {
+    summaries: Array.from(jobSummaries.values()),
+    parseWarnings,
+  };
 }
 
 export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
@@ -301,15 +321,18 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
     if (runCompleted && runFailed) {
       try {
-        const summaries = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
+        const result = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
 
         // Validate we got meaningful results
-        if (summaries.length === 0 || summaries.every(s => s.failed_steps.length === 0)) {
+        if (
+          result.summaries.length === 0 ||
+          result.summaries.every((s) => s.failed_steps.length === 0)
+        ) {
           throw new Error('--log-failed returned no failure details despite run failing');
         }
 
         // Format and return results using the new helper
-        return formatJobSummaries(run, summaries, input.max_chars);
+        return formatJobSummaries(run, result.summaries, input.max_chars, result.parseWarnings);
       } catch (error) {
         // Fall through to job-based approach if --log-failed fails
         // This can happen if:
@@ -427,6 +450,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
     // Collect failure details for each failed job
     const failedJobSummaries: FailedJobSummary[] = [];
+    const parseWarnings: string[] = [];
     let totalChars = 0;
 
     for (const job of failedJobs) {
@@ -448,6 +472,11 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // The extractor will identify framework-specific patterns
         const extraction = extractErrors(logs, 15);
         const errorLines = formatExtractionResult(extraction);
+
+        // Collect parse warnings if present
+        if (extraction.parseWarnings) {
+          parseWarnings.push(`${job.name}: ${extraction.parseWarnings}`);
+        }
 
         if (failedStepNames.length > 0) {
           // We know which steps failed, include that info
@@ -539,7 +568,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // Indicate if run is still in progress (fail-fast scenario)
     const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
 
-    const summary = [
+    let summary = [
       // Prepend fallback warning if --log-failed failed
       ...(usingFallbackDueToLogFailedError ? [fallbackWarningPrefix] : []),
       `Workflow Run Failed${headerSuffix}: ${run.name}`,
@@ -549,6 +578,15 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       `Failed Jobs (${failedJobSummaries.length}):`,
       ...jobSummaries,
     ].join('\n');
+
+    // Surface parse warnings if any occurred
+    if (parseWarnings.length > 0) {
+      summary += '\n\n⚠️  EXTRACTION WARNING: Test output parsing encountered issues\n';
+      for (const warning of parseWarnings) {
+        summary += `  - ${warning}\n`;
+      }
+      summary += 'Some test results may be incomplete. Check logs for details.\n';
+    }
 
     // Truncate if needed
     const finalSummary =

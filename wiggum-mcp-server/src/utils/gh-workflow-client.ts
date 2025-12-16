@@ -79,8 +79,15 @@ async function callToolWithRetry(
     const elapsed = Date.now() - startTime;
 
     if (elapsed >= maxDurationMs) {
-      const errorMsg = `Operation exceeded maximum duration of ${maxDurationMs}ms after ${elapsed}ms`;
-      logger.error(`callToolWithRetry failed: ${errorMsg}`, { toolName, args });
+      const errorMsg = [
+        `Operation exceeded maximum duration of ${maxDurationMs}ms`,
+        'Possible causes:',
+        '  1. GitHub workflow still running (check: gh run list)',
+        '  2. Network connectivity issues (check: gh auth status)',
+        '  3. GitHub API rate limiting (check: gh api rate_limit)',
+        `Tool: ${toolName}, Timeout: ${maxDurationMs / 1000}s`,
+      ].join('\n');
+      logger.error(`callToolWithRetry failed: timeout`, { toolName, args, elapsed, maxDurationMs });
       throw new Error(errorMsg);
     }
 
@@ -149,7 +156,7 @@ export async function getGhWorkflowClient(): Promise<Client> {
       `MCP server not found: ${serverPath}`,
       '',
       'To fix: cd gh-workflow-mcp-server && npm run build',
-      `Current directory: ${process.cwd()}`
+      `Current directory: ${process.cwd()}`,
     ].join('\n');
     logger.error('MCP server file not found', { serverPath, cwd: process.cwd() });
     throw new Error(guidance);
@@ -174,13 +181,26 @@ export async function getGhWorkflowClient(): Promise<Client> {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error('Failed to connect to gh-workflow-mcp-server', { error: errorMsg });
 
+    // Clean up transport to prevent resource leaks
+    try {
+      await transport.close();
+      logger.debug('Cleaned up transport after connection failure');
+    } catch (closeError) {
+      const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
+      logger.warn('Failed to close transport', {
+        closeError: closeMsg,
+        originalError: errorMsg,
+      });
+      // Continue - cleanup failure is not critical
+    }
+
     const troubleshooting = [
       `Failed to connect: ${errorMsg}`,
       '',
       'Troubleshooting:',
       '1. npm run build in gh-workflow-mcp-server',
       `2. Verify path: ${serverPath}`,
-      '3. Check Node.js in PATH: which node'
+      '3. Check Node.js in PATH: which node',
     ].join('\n');
     throw new Error(troubleshooting);
   }

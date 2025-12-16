@@ -63,6 +63,7 @@ interface WiggumInstructions {
   pr_title?: string;
   pr_labels?: string[];
   closing_issue?: string;
+  warning?: string; // Non-fatal warnings to display to user
   context: {
     pr_number?: number;
     current_branch?: string;
@@ -389,14 +390,15 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
         'Workflow run completed successfully.'
       );
     } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 1 completion', {
+      logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_MONITOR_WORKFLOW,
         error: errorMsg,
       });
-      // Workflow continues - missing state comment is recoverable
+      output.warning =
+        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
+        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
     }
 
     const stepsCompleted = [
@@ -453,14 +455,15 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
         'All PR checks passed successfully.'
       );
     } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 1b completion', {
+      logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_MONITOR_PR_CHECKS,
         error: errorMsg,
       });
-      // Workflow continues - missing state comment is recoverable
+      output.warning =
+        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
+        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
     }
 
     stepsCompleted.push(
@@ -629,14 +632,15 @@ async function processCodeQualityAndReturnNextInstructions(
         'No code quality comments found. Step complete.'
       );
     } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 2 completion', {
+      logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_CODE_QUALITY,
         error: errorMsg,
       });
-      // Workflow continues - missing state comment is recoverable
+      output.warning =
+        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
+        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
     }
 
     output.steps_completed_by_tool.push(
@@ -818,6 +822,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
       completedSteps: [...state.wiggum.completedSteps, STEP_VERIFY_REVIEWS],
     };
 
+    let warning: string | undefined;
     try {
       await postWiggumStateComment(
         state.pr.number,
@@ -830,18 +835,19 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 **Next Action:** Proceeding to approval.`
       );
     } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 4b completion', {
+      logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_VERIFY_REVIEWS,
         error: errorMsg,
       });
-      // Workflow continues - missing state comment is recoverable
+      warning =
+        `⚠️ WARNING: Failed to post state comment to PR #${state.pr.number}. ` +
+        `Workflow continues but audit trail incomplete. Error: ${errorMsg}`;
     }
 
     // Return explicit approval instructions instead of vague "proceeding to approval"
-    return handleApproval(state);
+    return handleApproval(state, warning);
   }
 
   return {
@@ -860,7 +866,7 @@ export const _testExports = {
 /**
  * Approval
  */
-function handleApproval(state: CurrentStateWithPR): ToolResult {
+function handleApproval(state: CurrentStateWithPR, warning?: string): ToolResult {
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_APPROVAL],
     step_number: STEP_APPROVAL,
@@ -874,6 +880,7 @@ Final actions:
 
 **IMPORTANT**: ALL gh commands must use dangerouslyDisableSandbox: true per CLAUDE.md`,
     steps_completed_by_tool: [],
+    warning,
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,

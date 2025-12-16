@@ -46,6 +46,7 @@ interface ResponseData {
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
+  warning?: string;
   context: ResponseContext;
 }
 
@@ -170,8 +171,15 @@ export function formatWiggumResponse(data: unknown): string {
     iteration_count,
     instructions,
     steps_completed_by_tool,
+    warning,
     context,
   } = data;
+
+  // Format warning banner if present
+  let response = '';
+  if (warning) {
+    response += `${warning}\n\n`;
+  }
 
   // Format steps completed section
   const stepsSection =
@@ -194,7 +202,7 @@ export function formatWiggumResponse(data: unknown): string {
     })
     .join('\n');
 
-  return `## ${current_step} (Step ${step_number})
+  response += `## ${current_step} (Step ${step_number})
 **Iteration:** ${iteration_count}
 
 ### BINDING INSTRUCTIONS - EXECUTE IMMEDIATELY
@@ -215,4 +223,6 @@ ${stepsSection}
 
 ### Context
 ${contextEntries}`;
+
+  return response;
 }
