@@ -412,7 +412,9 @@ func (m *mockDaemonClient) QueryBlockedState(branch string) (daemon.BlockedState
 	if m.queryBlockedStateFunc != nil {
 		return m.queryBlockedStateFunc(branch)
 	}
-	return daemon.BlockedState{}, nil
+	// Return not blocked by default
+	state, _ := daemon.NewBlockedState(false, "")
+	return state, nil
 }
 
 func (m *mockDaemonClient) UnblockBranch(branch string) error {
@@ -420,12 +422,6 @@ func (m *mockDaemonClient) UnblockBranch(branch string) error {
 		return m.unblockBranchFunc(branch)
 	}
 	return nil
-}
-
-// Helper type to track function calls
-type mockClient interface {
-	QueryBlockedState(branch string) (blockedBy string, isBlocked bool, err error)
-	UnblockBranch(branch string) error
 }
 
 func TestToggleBlockedState_EmptyBranch(t *testing.T) {
@@ -444,7 +440,8 @@ func TestToggleBlockedState_BranchIsBlocked(t *testing.T) {
 			if branch != "feature-branch" {
 				t.Errorf("Expected query for 'feature-branch', got '%s'", branch)
 			}
-			return daemon.BlockedState{IsBlocked: true, BlockedBy: "main"}, nil // Branch is blocked by main
+			// Branch is blocked by main
+			return daemon.NewBlockedState(true, "main")
 		},
 		unblockBranchFunc: func(branch string) error {
 			unblockCalled = true
@@ -471,7 +468,8 @@ func TestToggleBlockedState_BranchNotBlocked(t *testing.T) {
 
 	mock := &mockDaemonClient{
 		queryBlockedStateFunc: func(branch string) (daemon.BlockedState, error) {
-			return daemon.BlockedState{IsBlocked: false, BlockedBy: ""}, nil // Branch is not blocked
+			// Branch is not blocked
+			return daemon.NewBlockedState(false, "")
 		},
 		unblockBranchFunc: func(branch string) error {
 			unblockCalled = true
@@ -493,7 +491,9 @@ func TestToggleBlockedState_BranchNotBlocked(t *testing.T) {
 func TestToggleBlockedState_QueryError(t *testing.T) {
 	mock := &mockDaemonClient{
 		queryBlockedStateFunc: func(branch string) (daemon.BlockedState, error) {
-			return daemon.BlockedState{}, fmt.Errorf("connection timeout")
+			// Return zero value on error (doesn't matter since we're returning an error)
+			state, _ := daemon.NewBlockedState(false, "")
+			return state, fmt.Errorf("connection timeout")
 		},
 	}
 
@@ -595,9 +595,9 @@ func TestRapidToggle_ConcurrentInvocations(t *testing.T) {
 			simulateLatency()
 			isBlocked := currentlyBlocked.Load()
 			if isBlocked {
-				return daemon.BlockedState{IsBlocked: true, BlockedBy: "main"}, nil
+				return daemon.NewBlockedState(true, "main")
 			}
-			return daemon.BlockedState{IsBlocked: false, BlockedBy: ""}, nil
+			return daemon.NewBlockedState(false, "")
 		},
 		unblockBranchFunc: func(branch string) error {
 			unblockCallCount.Add(1)

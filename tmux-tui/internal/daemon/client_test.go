@@ -430,11 +430,16 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 			queryMu.Unlock()
 
 			// Send response
+			isBlocked := queryMsg.Branch == "branch-2" // Only branch-2 is blocked
+			blockedBy := ""
+			if isBlocked {
+				blockedBy = "main"
+			}
 			response := Message{
 				Type:          MsgTypeBlockedStateResponse,
 				Branch:        queryMsg.Branch,
-				IsBlocked:     queryMsg.Branch == "branch-2", // Only branch-2 is blocked
-				BlockedBranch: "main",
+				IsBlocked:     isBlocked,
+				BlockedBranch: blockedBy,
 			}
 			encoder.Encode(response)
 		}
@@ -671,11 +676,16 @@ func TestQueryBlockedState_RapidSequential(t *testing.T) {
 				return
 			}
 
+			isBlocked := i%2 == 0 // Alternate
+			blockedBy := ""
+			if isBlocked {
+				blockedBy = "main"
+			}
 			response := Message{
 				Type:          MsgTypeBlockedStateResponse,
 				Branch:        queryMsg.Branch,
-				IsBlocked:     i%2 == 0, // Alternate
-				BlockedBranch: "main",
+				IsBlocked:     isBlocked,
+				BlockedBranch: blockedBy,
 			}
 			encoder.Encode(response)
 		}

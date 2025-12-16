@@ -336,6 +336,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
+    let validationErrors = 0;
 
     try {
       // Extract JSON from logs - it may be embedded within other output
@@ -376,7 +377,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                     });
                     failures.push(extractedError);
                   } catch (e) {
-                    // Log validation error but don't fail the entire extraction
+                    // Track validation errors for parseWarnings
+                    validationErrors++;
                     console.error(`[WARN] Playwright extractor (JSON): Validation failed for extracted error: ${e}`);
                     console.error(`[DEBUG] Test: [${test.projectName}] ${spec.title}, file: ${suite.file}`);
                   }
@@ -418,10 +420,15 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       const summary =
         totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
 
+      const parseWarnings = validationErrors > 0
+        ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Playwright extractor messages`
+        : undefined;
+
       return {
         framework: 'playwright',
         errors: failures,
         summary,
+        parseWarnings,
       };
     } catch (err) {
       // JSON parsing failed - determine failure phase for diagnostics
@@ -477,6 +484,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
+    let validationErrors = 0;
 
     // Pattern: [✘✗] 1 [chromium] › file.spec.ts:123 › Test Name (100ms)
     const failPattern =
@@ -530,17 +538,23 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           failures.push(error);
           failed++;
         } catch (e) {
-          // Log validation error but don't fail the entire extraction
+          // Track validation errors for parseWarnings
+          validationErrors++;
           console.error(`[WARN] Playwright extractor (text): Validation failed for extracted error: ${e}`);
           console.error(`[DEBUG] Test: [${projectName}] ${testName}, file: ${fileName}`);
         }
       }
     }
 
+    const parseWarnings = validationErrors > 0
+      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Playwright extractor messages`
+      : undefined;
+
     return {
       framework: 'playwright',
       errors: failures,
       summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
+      parseWarnings,
     };
   }
 

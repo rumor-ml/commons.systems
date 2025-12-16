@@ -41,6 +41,7 @@ export class PrettierExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n').map((line) => this.stripTimestamp(line));
     const errors: ExtractedError[] = [];
+    let validationErrors = 0;
 
     // Find files with formatting issues
     let currentFile: string | null = null;
@@ -63,7 +64,8 @@ export class PrettierExtractor implements FrameworkExtractor {
             });
             errors.push(error);
           } catch (e) {
-            // Log validation error but don't fail the entire extraction
+            // Track validation errors for parseWarnings
+            validationErrors++;
             console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
             console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
           }
@@ -102,7 +104,8 @@ export class PrettierExtractor implements FrameworkExtractor {
             });
             errors.push(error);
           } catch (e) {
-            // Log validation error but don't fail the entire extraction
+            // Track validation errors for parseWarnings
+            validationErrors++;
             console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
             console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
           }
@@ -122,7 +125,8 @@ export class PrettierExtractor implements FrameworkExtractor {
         });
         errors.push(error);
       } catch (e) {
-        // Log validation error but don't fail the entire extraction
+        // Track validation errors for parseWarnings
+        validationErrors++;
         console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
         console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
       }
@@ -135,14 +139,22 @@ export class PrettierExtractor implements FrameworkExtractor {
           message: 'Prettier formatting check failed',
           rawOutput: lines.slice(-100), // Last 100 lines as fallback
         });
+        const parseWarnings = validationErrors > 0
+          ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
+          : undefined;
         return {
           framework: 'unknown',
           errors: [error],
+          parseWarnings,
         };
       } catch (e) {
-        // Log validation error but don't fail the entire extraction
+        // Track validation errors for parseWarnings
+        validationErrors++;
         console.error(`[WARN] Prettier extractor (fallback): Validation failed for extracted error: ${e}`);
         // Return fallback error without validation
+        const parseWarnings = validationErrors > 0
+          ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
+          : undefined;
         return {
           framework: 'unknown',
           errors: [
@@ -151,13 +163,19 @@ export class PrettierExtractor implements FrameworkExtractor {
               rawOutput: lines.slice(-100),
             },
           ],
+          parseWarnings,
         };
       }
     }
 
+    const parseWarnings = validationErrors > 0
+      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
+      : undefined;
+
     return {
       framework: 'unknown',
       errors: errors.slice(0, maxErrors),
+      parseWarnings,
     };
   }
 

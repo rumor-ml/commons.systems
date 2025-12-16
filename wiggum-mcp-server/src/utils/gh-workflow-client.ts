@@ -199,17 +199,8 @@ export async function getGhWorkflowClient(): Promise<Client> {
           checkLimits: 'ulimit -a'
         }
       });
-
-      throw new Error(
-        `MCP transport cleanup failed: ${closeMsg}\n\n` +
-          `Original connection error: ${errorMsg}\n\n` +
-          `Troubleshooting:\n` +
-          `  1. Check for zombie processes: ps aux | grep gh-workflow\n` +
-          `  2. Kill stuck processes: pkill -f gh-workflow-mcp-server\n` +
-          `  3. Verify Node.js can spawn processes\n` +
-          `  4. Check resource limits: ulimit -a\n\n` +
-          `Resource Leak Risk: Transport cleanup failure may leave sockets/processes open.`
-      );
+      // Don't throw here - we want to propagate the original connection error
+      // The cleanup failure is logged above with full troubleshooting context
     }
 
     const troubleshooting = [
@@ -446,12 +437,6 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
  * @returns MonitorResult with success boolean and error summary
  * @throws ParsingError if result format is invalid or required fields cannot be parsed
  */
-// Export internal functions for testing
-export const _testExports = {
-  callToolWithRetry,
-  extractTextFromMCPResult,
-};
-
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_pr_checks', `PR #${prNumber}`);
@@ -538,3 +523,9 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     };
   }
 }
+
+// Export internal functions for testing
+export const _testExports = {
+  callToolWithRetry,
+  extractTextFromMCPResult,
+};

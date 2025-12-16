@@ -58,6 +58,7 @@ export class TapExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n');
     const failures: ExtractedError[] = [];
+    let validationErrors = 0;
 
     // TAP failure line format:
     // not ok N - test name
@@ -185,7 +186,8 @@ export class TapExtractor implements FrameworkExtractor {
           });
           failures.push(error);
         } catch (e) {
-          // Log validation error but don't fail the entire extraction
+          // Track validation errors for parseWarnings
+          validationErrors++;
           console.error(`[WARN] TAP extractor: Validation failed for extracted error: ${e}`);
           console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
         }
@@ -223,10 +225,15 @@ export class TapExtractor implements FrameworkExtractor {
       summary = `${failed} failed`;
     }
 
+    const parseWarnings = validationErrors > 0
+      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] TAP extractor messages`
+      : undefined;
+
     return {
       framework: 'tap',
       errors: failures,
       summary,
+      parseWarnings,
     };
   }
 }

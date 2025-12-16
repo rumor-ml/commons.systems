@@ -81,7 +81,7 @@ export interface ExtractionResult {
    * Optional warning message about parse issues
    * Example: "5 test events failed to parse - check stderr for [ERROR] Go extractor messages"
    */
-  parseWarnings?: string;
+  readonly parseWarnings?: string;
 }
 
 export interface FrameworkExtractor {

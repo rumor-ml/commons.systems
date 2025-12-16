@@ -109,6 +109,7 @@ export class GoExtractor implements FrameworkExtractor {
     const testDurations = new Map<string, number>();
     let skippedNonJsonLines = 0;
     let testEventParseErrors = 0;
+    let validationErrors = 0;
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
@@ -251,7 +252,8 @@ export class GoExtractor implements FrameworkExtractor {
           });
           failures.push(error);
         } catch (e) {
-          // Log validation error but don't fail the entire extraction
+          // Track validation errors for parseWarnings
+          validationErrors++;
           console.error(`[WARN] Go extractor: Validation failed for extracted error: ${e}`);
           console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
         }
@@ -263,10 +265,15 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
-    // Add parse warnings if test event parsing failed
-    const parseWarnings = testEventParseErrors > 0
-      ? `${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - check stderr for [ERROR] Go extractor messages`
-      : undefined;
+    // Build parse warnings from test event parsing errors and validation errors
+    const warnings: string[] = [];
+    if (testEventParseErrors > 0) {
+      warnings.push(`${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - check stderr for [ERROR] Go extractor messages`);
+    }
+    if (validationErrors > 0) {
+      warnings.push(`${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Go extractor messages`);
+    }
+    const parseWarnings = warnings.length > 0 ? warnings.join('; ') : undefined;
 
     return {
       framework: 'go',
@@ -281,6 +288,7 @@ export class GoExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
+    let validationErrors = 0;
 
     // Pattern: --- FAIL: TestName (0.01s)
     const failPattern = /^---\s*FAIL:\s+(\w+)\s+\((\d+(?:\.\d+)?)s\)/;
@@ -334,17 +342,23 @@ export class GoExtractor implements FrameworkExtractor {
           failures.push(error);
           failed++;
         } catch (e) {
-          // Log validation error but don't fail the entire extraction
+          // Track validation errors for parseWarnings
+          validationErrors++;
           console.error(`[WARN] Go extractor (text): Validation failed for extracted error: ${e}`);
           console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
         }
       }
     }
 
+    const parseWarnings = validationErrors > 0
+      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Go extractor messages`
+      : undefined;
+
     return {
       framework: 'go',
       errors: failures,
       summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
+      parseWarnings,
     };
   }
 }

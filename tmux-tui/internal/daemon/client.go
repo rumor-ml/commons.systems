@@ -539,10 +539,7 @@ func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
 	case msg := <-resp.dataCh:
 		debug.Log("CLIENT_BLOCKED_STATE_RESPONSE id=%s branch=%s isBlocked=%v blockedBy=%s",
 			c.clientID, branch, msg.IsBlocked, msg.BlockedBranch)
-		return BlockedState{
-			IsBlocked: msg.IsBlocked,
-			BlockedBy: msg.BlockedBranch,
-		}, nil
+		return NewBlockedState(msg.IsBlocked, msg.BlockedBranch)
 	case queryErr := <-resp.errCh:
 		// Receive() detected an issue (channel full/closed) and notified us
 		debug.Log("CLIENT_QUERY_ERROR id=%s branch=%s error=%v", c.clientID, branch, queryErr)

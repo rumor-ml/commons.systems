@@ -101,14 +101,14 @@ type Message struct {
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
-	timestamp          time.Time `json:"timestamp"`
-	broadcastFailures  int64     `json:"broadcast_failures"`
-	lastBroadcastError string    `json:"last_broadcast_error,omitempty"`
-	watcherErrors      int64     `json:"watcher_errors"`
-	lastWatcherError   string    `json:"last_watcher_error,omitempty"`
-	connectedClients   int       `json:"connected_clients"`
-	activeAlerts       int       `json:"active_alerts"`
-	blockedBranches    int       `json:"blocked_branches"`
+	timestamp          time.Time
+	broadcastFailures  int64
+	lastBroadcastError string
+	watcherErrors      int64
+	lastWatcherError   string
+	connectedClients   int
+	activeAlerts       int
+	blockedBranches    int
 }
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
@@ -179,6 +179,20 @@ func (h HealthStatus) BlockedBranches() int { return h.blockedBranches }
 type BlockedState struct {
 	IsBlocked bool
 	BlockedBy string // Empty if not blocked
+}
+
+// NewBlockedState creates a validated BlockedState.
+// Returns error if BlockedBy is provided when IsBlocked is false.
+func NewBlockedState(isBlocked bool, blockedBy string) (BlockedState, error) {
+	// Validation: BlockedBy must be empty when not blocked
+	if !isBlocked && blockedBy != "" {
+		return BlockedState{}, fmt.Errorf("blockedBy must be empty when isBlocked is false, got %q", blockedBy)
+	}
+
+	return BlockedState{
+		IsBlocked: isBlocked,
+		BlockedBy: blockedBy,
+	}, nil
 }
 
 // ValidateMessage validates that a Message has required fields for its type.
