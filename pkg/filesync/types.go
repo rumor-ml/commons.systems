@@ -92,12 +92,25 @@ type FileProcessingState struct {
 	UploadResult *UploadResult
 }
 
+// ProgressType represents the type of progress update
+type ProgressType string
+
+const (
+	// ProgressTypeOperation represents normal progress for file operations
+	ProgressTypeOperation ProgressType = "operation"
+	// ProgressTypeStatus represents status messages (e.g., stats flush notifications)
+	ProgressTypeStatus ProgressType = "status"
+	// ProgressTypeError represents error notifications
+	ProgressTypeError ProgressType = "error"
+)
+
 // Progress represents progress information for a file operation
 type Progress struct {
+	Type           ProgressType // Explicit type (operation, status, or error)
 	Operation      string
 	File           string
 	BytesProcessed int64
 	TotalBytes     int64
-	Percentage     float64
+	Percentage     float64 // Always 0-100, no magic -1 values
 	Message        string
 }

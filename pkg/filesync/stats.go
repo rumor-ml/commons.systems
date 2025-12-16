@@ -2,6 +2,7 @@ package filesync
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,14 +40,27 @@ type statsAccumulator struct {
 }
 
 // newStatsAccumulator creates a new stats accumulator
-func newStatsAccumulator(sessionStore SessionStore, session *SyncSession, batchInterval time.Duration, batchSize int64) *statsAccumulator {
+func newStatsAccumulator(sessionStore SessionStore, session *SyncSession, batchInterval time.Duration, batchSize int64) (*statsAccumulator, error) {
+	if sessionStore == nil {
+		return nil, fmt.Errorf("sessionStore is required")
+	}
+	if session == nil {
+		return nil, fmt.Errorf("session is required")
+	}
+	if batchInterval <= 0 {
+		return nil, fmt.Errorf("batchInterval must be > 0, got %v", batchInterval)
+	}
+	if batchSize < 1 {
+		return nil, fmt.Errorf("batchSize must be >= 1, got %d", batchSize)
+	}
+
 	return &statsAccumulator{
 		sessionStore:  sessionStore,
 		session:       session,
 		batchInterval: batchInterval,
 		batchSize:     batchSize,
 		lastFlush:     time.Now(),
-	}
+	}, nil
 }
 
 // incrementDiscovered atomically increments the discovered counter

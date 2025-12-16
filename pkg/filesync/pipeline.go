@@ -278,7 +278,11 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	startTime := time.Now()
 
 	// Initialize stats accumulator
-	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	stats, err := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	if err != nil {
+		resultCh <- ExtractionResult{Error: fmt.Errorf("failed to initialize stats accumulator: %w", err)}
+		return
+	}
 
 	// Start periodic stats flusher
 	flushCtx, cancelFlush := context.WithCancel(ctx)
@@ -286,7 +290,10 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	go p.periodicStatsFlush(flushCtx, stats, progressCh)
 
 	// Start discovery
-	sendProgress(progressCh, Progress{Operation: "Discovering files..."})
+	sendProgress(progressCh, Progress{
+		Type:      ProgressTypeOperation,
+		Operation: "Discovering files...",
+	})
 	filesCh, discoveryCh := p.discoverer.Discover(ctx, rootDir)
 
 	// Process files concurrently
@@ -466,6 +473,7 @@ func (p *Pipeline) processFile(
 
 	// Emit extraction progress
 	sendProgress(progressCh, Progress{
+		Type:      ProgressTypeOperation,
 		Operation: "Extracting metadata",
 		File:      filepath.Base(file.Path),
 	})
@@ -619,16 +627,18 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 					// Notify user immediately on first failure
 					if failCount == 1 {
 						sendProgress(progressCh, Progress{
+							Type:       ProgressTypeStatus,
 							Operation:  "Stats update experiencing issues - counts may be slightly delayed",
-							Percentage: -1, // Status message
+							Percentage: 0,
 						})
 					}
 
 					// Escalate notification after 5 consecutive failures
 					if failCount == 5 {
 						sendProgress(progressCh, Progress{
+							Type:       ProgressTypeStatus,
 							Operation:  "Stats update still experiencing issues - counts may be delayed",
-							Percentage: -1, // Status message
+							Percentage: 0,
 						})
 					}
 
@@ -638,8 +648,9 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 					if wasFailingBefore {
 						log.Printf("INFO: Stats flush recovered after failures")
 						sendProgress(progressCh, Progress{
+							Type:       ProgressTypeStatus,
 							Operation:  "Stats update recovered - counts are now up to date",
-							Percentage: -1, // Status message
+							Percentage: 0,
 						})
 						wasFailingBefore = false
 					}
@@ -676,7 +687,10 @@ func (p *Pipeline) ApproveAndUpload(ctx context.Context, sessionID string, fileI
 	}
 
 	// Initialize stats accumulator for this approval operation
-	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	stats, err := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize stats accumulator: %w", err)
+	}
 
 	// Process each file
 	for _, fileID := range fileIDs {
@@ -760,7 +774,10 @@ func (p *Pipeline) RejectFiles(ctx context.Context, sessionID string, fileIDs []
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	stats, err := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	if err != nil {
+		return fmt.Errorf("failed to initialize stats accumulator: %w", err)
+	}
 
 	for _, fileID := range fileIDs {
 		// Get file
@@ -802,7 +819,10 @@ func (p *Pipeline) TrashFiles(ctx context.Context, sessionID string, fileIDs []s
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	stats := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	stats, err := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
+	if err != nil {
+		return fmt.Errorf("failed to initialize stats accumulator: %w", err)
+	}
 
 	for _, fileID := range fileIDs {
 		// Get file

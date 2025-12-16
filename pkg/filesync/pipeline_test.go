@@ -606,7 +606,7 @@ func TestStatsAccumulator_Batching(t *testing.T) {
 	sessionStore.Create(ctx, session)
 
 	// Create stats accumulator with small batch size
-	stats := newStatsAccumulator(sessionStore, session, 1*time.Second, 5)
+	stats, _ := newStatsAccumulator(sessionStore, session, 1*time.Second, 5)
 
 	// Increment counters
 	for i := 0; i < 3; i++ {
@@ -1341,7 +1341,7 @@ func TestStatsAccumulator_ConcurrentAccuracy(t *testing.T) {
 	sessionStore.Create(ctx, session)
 
 	// Create stats accumulator
-	stats := newStatsAccumulator(sessionStore, session, 10*time.Second, 1000000)
+	stats, _ := newStatsAccumulator(sessionStore, session, 10*time.Second, 1000000)
 
 	// Launch goroutines doing concurrent increments
 	var wg sync.WaitGroup
@@ -1388,7 +1388,7 @@ func TestStatsAccumulator_BatchSizeResets(t *testing.T) {
 	sessionStore.Create(ctx, session)
 
 	// Create stats accumulator with batch size of 5
-	stats := newStatsAccumulator(sessionStore, session, 10*time.Second, 5)
+	stats, _ := newStatsAccumulator(sessionStore, session, 10*time.Second, 5)
 
 	// Add 5 operations (should trigger flush)
 	for i := 0; i < 5; i++ {
@@ -1644,7 +1644,7 @@ func TestStatsFlush_SingleFailureRecovery(t *testing.T) {
 	}
 
 	// Create stats accumulator with short batch interval for testing
-	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+	stats, _ := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
 
 	// Increment some stats
 	stats.incrementDiscovered()
@@ -1697,7 +1697,7 @@ func TestStatsFlush_PersistentFailures(t *testing.T) {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+	stats, _ := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
 	stats.incrementDiscovered()
 
 	// All 5 flushes should fail and increment counter
@@ -1742,7 +1742,7 @@ func TestStatsFlush_StatsPersistenceAfterFailures(t *testing.T) {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+	stats, _ := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
 
 	// Add stats before flush attempts
 	stats.incrementDiscovered()
@@ -1810,7 +1810,7 @@ func TestPeriodicStatsFlush_FailureNotifications(t *testing.T) {
 		config:       config,
 	}
 
-	stats := newStatsAccumulator(sessionStore, session, config.StatsBatchInterval, int64(config.StatsBatchSize))
+	stats, _ := newStatsAccumulator(sessionStore, session, config.StatsBatchInterval, int64(config.StatsBatchSize))
 
 	// Force stats to need flushing
 	stats.incrementDiscovered()

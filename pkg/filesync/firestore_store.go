@@ -20,8 +20,9 @@ const (
 // getCollectionPrefix returns the collection prefix based on environment variables.
 //
 // Priority order (highest to lowest):
-//  1. PR_NUMBER - if set, returns "pr_<number>_"
-//     WARNING: PR_NUMBER must be numeric only - no validation performed
+//  1. PR_NUMBER - if set and numeric, returns "pr_<number>_"
+//     Validation: Must match ^[0-9]+$ (numeric only)
+//     Invalid values trigger warning and fallback to branch prefix
 //  2. BRANCH_NAME - if set and not "main", returns "preview_<sanitized>_"
 //     Sanitization: lowercase, replace [^a-z0-9-] with -, truncate to 50 chars
 //  3. Production - returns empty string (no prefix) when main branch or no env vars
@@ -160,15 +161,15 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 				consecutiveErrors++
 				log.Printf("ERROR: Session subscription error for %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
 
-				// Notify caller of subscription error
+				// Notify caller of subscription error with session context
 				if errCallback != nil {
-					errCallback(fmt.Errorf("subscription error (consecutive: %d): %w", consecutiveErrors, err))
+					errCallback(fmt.Errorf("session subscription error [sessionID=%s, consecutive=%d]: %w", sessionID, consecutiveErrors, err))
 				}
 
 				if consecutiveErrors >= maxConsecutiveErrors {
 					log.Printf("ERROR: Session subscription for %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
 					if errCallback != nil {
-						errCallback(fmt.Errorf("subscription stopped after %d consecutive errors", maxConsecutiveErrors))
+						errCallback(fmt.Errorf("session subscription stopped [sessionID=%s, maxErrors=%d]: after %d consecutive errors", sessionID, maxConsecutiveErrors, maxConsecutiveErrors))
 					}
 					return
 				}
@@ -182,7 +183,7 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 			if err := snap.DataTo(&session); err != nil {
 				log.Printf("ERROR: Failed to parse session data for %s: %v", sessionID, err)
 				if errCallback != nil {
-					errCallback(fmt.Errorf("failed to parse session data: %w", err))
+					errCallback(fmt.Errorf("failed to parse session data [sessionID=%s]: %w", sessionID, err))
 				}
 				continue
 			}
@@ -297,15 +298,15 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 				consecutiveErrors++
 				log.Printf("ERROR: File subscription error for session %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
 
-				// Notify caller of subscription error
+				// Notify caller of subscription error with session context
 				if errCallback != nil {
-					errCallback(fmt.Errorf("subscription error (consecutive: %d): %w", consecutiveErrors, err))
+					errCallback(fmt.Errorf("file subscription error [sessionID=%s, consecutive=%d]: %w", sessionID, consecutiveErrors, err))
 				}
 
 				if consecutiveErrors >= maxConsecutiveErrors {
 					log.Printf("ERROR: File subscription for session %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
 					if errCallback != nil {
-						errCallback(fmt.Errorf("subscription stopped after %d consecutive errors", maxConsecutiveErrors))
+						errCallback(fmt.Errorf("file subscription stopped [sessionID=%s, maxErrors=%d]: after %d consecutive errors", sessionID, maxConsecutiveErrors, maxConsecutiveErrors))
 					}
 					return
 				}
@@ -320,7 +321,7 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 				if err := change.Doc.DataTo(&file); err != nil {
 					log.Printf("ERROR: Failed to parse file data in session %s: %v", sessionID, err)
 					if errCallback != nil {
-						errCallback(fmt.Errorf("failed to parse file data: %w", err))
+						errCallback(fmt.Errorf("failed to parse file data [sessionID=%s]: %w", sessionID, err))
 					}
 					continue
 				}

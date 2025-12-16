@@ -220,6 +220,7 @@ func (u *GCSUploader) uploadToGCS(ctx context.Context, file FileInfo, gcsPath st
 
 			// Send progress update
 			sendProgress(progress, Progress{
+				Type:           ProgressTypeOperation,
 				Operation:      "uploading",
 				File:           file.Path,
 				BytesProcessed: totalWritten,
