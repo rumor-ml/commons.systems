@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"testing"
+	"time"
 )
 
 // TestValidateMessage_Valid tests validation of valid messages
@@ -436,6 +437,145 @@ func TestNewHealthStatus_Invalid(t *testing.T) {
 	}
 }
 
+// TestNewHealthStatus_BoundaryConditions tests NewHealthStatus with extreme but valid values
+func TestNewHealthStatus_BoundaryConditions(t *testing.T) {
+	tests := []struct {
+		name                string
+		broadcastFailures   int64
+		lastBroadcastError  string
+		watcherErrors       int64
+		lastWatcherError    string
+		connectedClients    int
+		activeAlerts        int
+		blockedBranches     int
+		expectError         bool
+	}{
+		{
+			name:                "All zeros",
+			broadcastFailures:   0,
+			lastBroadcastError:  "",
+			watcherErrors:       0,
+			lastWatcherError:    "",
+			connectedClients:    0,
+			activeAlerts:        0,
+			blockedBranches:     0,
+			expectError:         false,
+		},
+		{
+			name:                "MaxInt64 for int64 fields",
+			broadcastFailures:   9223372036854775807, // math.MaxInt64
+			lastBroadcastError:  "error",
+			watcherErrors:       9223372036854775807, // math.MaxInt64
+			lastWatcherError:    "error",
+			connectedClients:    100,
+			activeAlerts:        100,
+			blockedBranches:     100,
+			expectError:         false,
+		},
+		{
+			name:                "MaxInt32 for int fields",
+			broadcastFailures:   1000,
+			lastBroadcastError:  "error",
+			watcherErrors:       1000,
+			lastWatcherError:    "error",
+			connectedClients:    2147483647, // math.MaxInt32
+			activeAlerts:        2147483647, // math.MaxInt32
+			blockedBranches:     2147483647, // math.MaxInt32
+			expectError:         false,
+		},
+		{
+			name:                "Large error messages (10KB)",
+			broadcastFailures:   1,
+			lastBroadcastError:  string(make([]byte, 10000)), // 10KB of null bytes
+			watcherErrors:       1,
+			lastWatcherError:    string(make([]byte, 10000)), // 10KB of null bytes
+			connectedClients:    10,
+			activeAlerts:        10,
+			blockedBranches:     10,
+			expectError:         false,
+		},
+		{
+			name:                "Whitespace-only error messages",
+			broadcastFailures:   1,
+			lastBroadcastError:  "   \t\n   ",
+			watcherErrors:       1,
+			lastWatcherError:    "   \t\n   ",
+			connectedClients:    5,
+			activeAlerts:        5,
+			blockedBranches:     5,
+			expectError:         false,
+		},
+		{
+			name:                "Empty strings with positive counts",
+			broadcastFailures:   100,
+			lastBroadcastError:  "",
+			watcherErrors:       200,
+			lastWatcherError:    "",
+			connectedClients:    50,
+			activeAlerts:        30,
+			blockedBranches:     20,
+			expectError:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			health, err := NewHealthStatus(
+				tt.broadcastFailures,
+				tt.lastBroadcastError,
+				tt.watcherErrors,
+				tt.lastWatcherError,
+				tt.connectedClients,
+				tt.activeAlerts,
+				tt.blockedBranches,
+			)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+
+				// Verify values are accessible
+				if health.BroadcastFailures() != tt.broadcastFailures {
+					t.Errorf("BroadcastFailures = %d, want %d", health.BroadcastFailures(), tt.broadcastFailures)
+				}
+				if health.WatcherErrors() != tt.watcherErrors {
+					t.Errorf("WatcherErrors = %d, want %d", health.WatcherErrors(), tt.watcherErrors)
+				}
+				if health.ConnectedClients() != tt.connectedClients {
+					t.Errorf("ConnectedClients = %d, want %d", health.ConnectedClients(), tt.connectedClients)
+				}
+				if health.ActiveAlerts() != tt.activeAlerts {
+					t.Errorf("ActiveAlerts = %d, want %d", health.ActiveAlerts(), tt.activeAlerts)
+				}
+				if health.BlockedBranches() != tt.blockedBranches {
+					t.Errorf("BlockedBranches = %d, want %d", health.BlockedBranches(), tt.blockedBranches)
+				}
+
+				// Verify timestamp is reasonable (within last 5 seconds)
+				timeSinceCreation := time.Since(health.Timestamp())
+				if timeSinceCreation < 0 || timeSinceCreation > 5*time.Second {
+					t.Errorf("Timestamp looks unreasonable: %v ago", timeSinceCreation)
+				}
+
+				// For whitespace-only error messages, verify trimming occurred
+				if tt.name == "Whitespace-only error messages" {
+					if health.LastBroadcastError() != "" {
+						t.Errorf("Expected LastBroadcastError to be trimmed to empty, got %q", health.LastBroadcastError())
+					}
+					if health.LastWatcherError() != "" {
+						t.Errorf("Expected LastWatcherError to be trimmed to empty, got %q", health.LastWatcherError())
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestNewBlockedState_Valid tests successful creation of BlockedState
 func TestNewBlockedState_Valid(t *testing.T) {
 	tests := []struct {
@@ -458,11 +598,6 @@ func TestNewBlockedState_Valid(t *testing.T) {
 			isBlocked: true,
 			blockedBy: "develop",
 		},
-		{
-			name:      "Blocked with empty blockedBy (valid but unusual)",
-			isBlocked: true,
-			blockedBy: "",
-		},
 	}
 
 	for _, tt := range tests {
@@ -472,11 +607,11 @@ func TestNewBlockedState_Valid(t *testing.T) {
 				t.Errorf("NewBlockedState() returned unexpected error: %v", err)
 			}
 
-			if state.IsBlocked != tt.isBlocked {
-				t.Errorf("IsBlocked = %v, want %v", state.IsBlocked, tt.isBlocked)
+			if state.IsBlocked() != tt.isBlocked {
+				t.Errorf("IsBlocked = %v, want %v", state.IsBlocked(), tt.isBlocked)
 			}
-			if state.BlockedBy != tt.blockedBy {
-				t.Errorf("BlockedBy = %q, want %q", state.BlockedBy, tt.blockedBy)
+			if state.BlockedBy() != tt.blockedBy {
+				t.Errorf("BlockedBy = %q, want %q", state.BlockedBy(), tt.blockedBy)
 			}
 		})
 	}
@@ -494,13 +629,19 @@ func TestNewBlockedState_Invalid(t *testing.T) {
 			name:        "Not blocked but has blockedBy value",
 			isBlocked:   false,
 			blockedBy:   "main",
-			expectedErr: "blockedBy must be empty when isBlocked is false, got \"main\"",
+			expectedErr: "blockedBy must be empty when not blocked, got \"main\"",
 		},
 		{
 			name:        "Not blocked but has different blockedBy value",
 			isBlocked:   false,
 			blockedBy:   "develop",
-			expectedErr: "blockedBy must be empty when isBlocked is false, got \"develop\"",
+			expectedErr: "blockedBy must be empty when not blocked, got \"develop\"",
+		},
+		{
+			name:        "Blocked but has empty blockedBy",
+			isBlocked:   true,
+			blockedBy:   "",
+			expectedErr: "blockedBy must be specified when blocked",
 		},
 	}
 

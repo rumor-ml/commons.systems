@@ -254,31 +254,45 @@ func (c *DaemonClient) receive() {
 						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s count=%d",
 							c.clientID, msg.Branch, c.queryChannelFull.Load())
 					default:
-						// CRITICAL: Both channels full - force disconnect
-						debug.Log("CLIENT_QUERY_DEADLOCK_DETECTED id=%s branch=%s - forcing disconnect",
+						// Both channels full - retry once after brief delay before forcing disconnect
+						debug.Log("CLIENT_QUERY_CHANNELS_BOTH_FULL id=%s branch=%s - retrying after 50ms",
 							c.clientID, msg.Branch)
+						time.Sleep(50 * time.Millisecond)
 
-						c.mu.Lock()
-						c.connected = false
-						if c.conn != nil {
-							c.conn.Close()
-						}
-						c.mu.Unlock()
-
-						// Send disconnect event with timeout to prevent goroutine leak
 						select {
-						case c.eventCh <- Message{
-							Type:  "disconnect",
-							Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
-						}:
-						case <-time.After(100 * time.Millisecond):
-							// Fallback: eventCh blocked, log to debug since we can't notify via event channel
-							debug.Log("CLIENT_DISCONNECT_EVENT_BLOCKED id=%s branch=%s - event channel full",
+						case resp.dataCh <- msg:
+							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s - sent to dataCh",
 								c.clientID, msg.Branch)
-						case <-c.done:
-							return
+						case resp.errCh <- errMsg:
+							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s - sent to errCh",
+								c.clientID, msg.Branch)
+						default:
+							// CRITICAL: Still deadlocked after retry - force disconnect
+							debug.Log("CLIENT_QUERY_DEADLOCK_CONFIRMED id=%s branch=%s - forcing disconnect",
+								c.clientID, msg.Branch)
+
+							c.mu.Lock()
+							c.connected = false
+							if c.conn != nil {
+								c.conn.Close()
+							}
+							c.mu.Unlock()
+
+							// Send disconnect event with timeout to prevent goroutine leak
+							select {
+							case c.eventCh <- Message{
+								Type:  "disconnect",
+								Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
+							}:
+							case <-time.After(100 * time.Millisecond):
+								// Fallback: eventCh blocked, log to debug since we can't notify via event channel
+								debug.Log("CLIENT_DISCONNECT_EVENT_BLOCKED id=%s branch=%s - event channel full",
+									c.clientID, msg.Branch)
+							case <-c.done:
+								return
+							}
+							return // Exit receive() goroutine
 						}
-						return // Exit receive() goroutine
 					}
 				}
 				delete(c.queryResponses, msg.Branch)

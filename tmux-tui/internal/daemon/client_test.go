@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -110,12 +111,12 @@ func TestQueryBlockedState_Success(t *testing.T) {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if !state.IsBlocked {
+	if !state.IsBlocked() {
 		t.Error("Expected branch to be blocked")
 	}
 
-	if state.BlockedBy != "main" {
-		t.Errorf("Expected blockedBy=main, got %s", state.BlockedBy)
+	if state.BlockedBy() != "main" {
+		t.Errorf("Expected blockedBy=main, got %s", state.BlockedBy())
 	}
 
 	// Verify no events were lost (eventCh should be empty)
@@ -237,12 +238,12 @@ func TestQueryBlockedState_WrongBranchResponse(t *testing.T) {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if state.IsBlocked {
+	if state.IsBlocked() {
 		t.Error("Expected branch to not be blocked (correct response)")
 	}
 
-	if state.BlockedBy != "" {
-		t.Errorf("Expected empty blockedBy, got %s", state.BlockedBy)
+	if state.BlockedBy() != "" {
+		t.Errorf("Expected empty blockedBy, got %s", state.BlockedBy())
 	}
 }
 
@@ -461,7 +462,7 @@ func TestQueryBlockedState_ConcurrentQueries(t *testing.T) {
 				return
 			}
 			resultsMu.Lock()
-			results[branch] = state.IsBlocked
+			results[branch] = state.IsBlocked()
 			resultsMu.Unlock()
 		}(branchName)
 	}
@@ -580,8 +581,8 @@ func TestQueryBlockedState_ErrorPropagation(t *testing.T) {
 		t.Fatalf("QueryBlockedState failed: %v", err)
 	}
 
-	if !state.IsBlocked || state.BlockedBy != "main" {
-		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s", state.IsBlocked, state.BlockedBy)
+	if !state.IsBlocked() || state.BlockedBy() != "main" {
+		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s", state.IsBlocked(), state.BlockedBy())
 	}
 }
 
@@ -1533,6 +1534,121 @@ done:
 	serverWriter.Close()
 }
 
+// TestGapDetection_FullStateWithGap_NoInfiniteLoop tests that FullState messages with gaps
+// don't cause infinite resync loops. This is a critical edge case where:
+// 1. Initial gap triggers resync
+// 2. FullState response itself has a gap (daemon restarts or heavy broadcast flood)
+// 3. System should request resync ONCE more, not infinitely
+func TestGapDetection_FullStateWithGap_NoInfiniteLoop(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:   json.NewEncoder(clientWriter),
+		decoder:   json.NewDecoder(clientReader),
+		eventCh:   make(chan Message, 100),
+		done:      make(chan struct{}),
+		connected: true,
+		lastPong:  time.Now(),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	encoder := json.NewEncoder(serverWriter)
+	decoder := json.NewDecoder(serverReader)
+
+	// Establish baseline: Send messages 1-10
+	for i := uint64(1); i <= 10; i++ {
+		encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: i, PaneID: fmt.Sprintf("pane%d", i)})
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify client is at SeqNum=10
+	if client.lastSeq.Load() != 10 {
+		t.Fatalf("Expected lastSeq=10, got %d", client.lastSeq.Load())
+	}
+
+	// SCENARIO: Send message with SeqNum=20 (gap detected)
+	encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 20, PaneID: "pane20"})
+	time.Sleep(50 * time.Millisecond)
+
+	// Expect ResyncRequest due to gap
+	var resyncReq1 Message
+	if err := decoder.Decode(&resyncReq1); err != nil {
+		t.Fatalf("Expected resync request after gap, got error: %v", err)
+	}
+	if resyncReq1.Type != MsgTypeResyncRequest {
+		t.Fatalf("Expected resync request after gap, got: %s", resyncReq1.Type)
+	}
+	t.Logf("✓ First resync request received (expected)")
+
+	// SCENARIO: Daemon sends FullState but with SeqNum=30 (another gap!)
+	// This simulates daemon restart or broadcast flood during resync
+	encoder.Encode(Message{
+		Type:            MsgTypeFullState,
+		SeqNum:          30,
+		Alerts:          map[string]string{"pane1": "stop"},
+		BlockedBranches: map[string]string{},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// CRITICAL: Client should send ONE more resync request (not infinite)
+	var resyncReq2 Message
+	if err := decoder.Decode(&resyncReq2); err != nil {
+		t.Fatalf("Expected second resync request after FullState gap, got error: %v", err)
+	}
+	if resyncReq2.Type != MsgTypeResyncRequest {
+		t.Fatalf("Expected second resync request after FullState gap, got: %s", resyncReq2.Type)
+	}
+	t.Logf("✓ Second resync request received (expected)")
+
+	// SCENARIO: Daemon sends FullState with SeqNum=31 (no gap from 30)
+	encoder.Encode(Message{
+		Type:            MsgTypeFullState,
+		SeqNum:          31,
+		Alerts:          map[string]string{"pane1": "stop", "pane2": "start"},
+		BlockedBranches: map[string]string{},
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	// CRITICAL: Client should NOT send another resync request (no gap)
+	// Try to read resync request - should timeout
+	done := make(chan bool)
+	go func() {
+		var msg Message
+		if decoder.Decode(&msg) == nil && msg.Type == MsgTypeResyncRequest {
+			t.Errorf("INFINITE LOOP DETECTED: Unexpected resync request after FullState with no gap. This indicates infinite resync loop!")
+		}
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Either timeout or no resync - both acceptable
+	case <-time.After(200 * time.Millisecond):
+		// Timeout is expected - no resync request
+		t.Logf("✓ No infinite loop - client accepted FullState and continued normally")
+	}
+
+	// Verify client updated lastSeq to 31
+	if client.lastSeq.Load() != 31 {
+		t.Errorf("Expected lastSeq=31 after accepting FullState, got %d", client.lastSeq.Load())
+	}
+
+	// Clean up
+	close(client.done)
+	serverWriter.Close()
+	clientWriter.Close()
+}
+
 // TestGapDetection_FullStateResetsSequence tests that full_state messages update lastSeq
 func TestGapDetection_FullStateResetsSequence(t *testing.T) {
 	clientReader, serverWriter := io.Pipe()
@@ -1910,9 +2026,9 @@ func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
 		t.Fatalf("Query failed: %v", err)
 	}
 
-	if !state.IsBlocked || state.BlockedBy != "main" {
+	if !state.IsBlocked() || state.BlockedBy() != "main" {
 		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s",
-			state.IsBlocked, state.BlockedBy)
+			state.IsBlocked(), state.BlockedBy())
 	}
 
 	t.Logf("Query completed in %v (no starvation)", queryDuration)
@@ -1937,6 +2053,130 @@ func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
 	}
 
 	t.Logf("Received all 150 alerts without loss")
+}
+
+// TestQueryBlockedState_NoStarvationDuringResyncFlood tests that QueryBlockedState()
+// doesn't starve when daemon floods with FullState messages (resync scenario).
+// This is a critical edge case where large FullState messages could block query responses.
+func TestQueryBlockedState_NoStarvationDuringResyncFlood(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+	defer serverReader.Close()
+	defer serverWriter.Close()
+
+	client := &DaemonClient{
+		clientID:       "test-client",
+		conn:           &mockConn{reader: clientReader, writer: clientWriter, localAddr: &mockAddr{"unix", "/tmp/test.sock"}, remoteAddr: &mockAddr{"unix", "/tmp/test.sock"}},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 50), // Smaller buffer to increase pressure
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	go client.receive()
+	defer client.Close()
+
+	// Drain eventCh to simulate client processing
+	go func() {
+		for {
+			select {
+			case <-client.eventCh:
+				// Process and discard
+			case <-client.done:
+				return
+			}
+		}
+	}()
+
+	// Server simulation
+	queryResponseSent := make(chan bool, 1)
+	go func() {
+		encoder := json.NewEncoder(serverWriter)
+		decoder := json.NewDecoder(serverReader)
+
+		// Flood with 10 FullState messages (large payloads)
+		for i := 1; i <= 10; i++ {
+			// Create large FullState with many alerts and branches
+			largeAlerts := make(map[string]string)
+			for j := 0; j < 20; j++ {
+				largeAlerts[fmt.Sprintf("pane-%d", j)] = "stop"
+			}
+			largeBlockedBranches := make(map[string]string)
+			for j := 0; j < 10; j++ {
+				largeBlockedBranches[fmt.Sprintf("feature-%d", j)] = "main"
+			}
+
+			if err := encoder.Encode(Message{
+				Type:            MsgTypeFullState,
+				SeqNum:          uint64(i),
+				Alerts:          largeAlerts,
+				BlockedBranches: largeBlockedBranches,
+			}); err != nil {
+				t.Errorf("Failed to send FullState %d: %v", i, err)
+				return
+			}
+			// Rapid fire - no delays
+		}
+
+		// Read query request
+		var queryMsg Message
+		if err := decoder.Decode(&queryMsg); err != nil {
+			t.Errorf("Failed to read query: %v", err)
+			return
+		}
+		if queryMsg.Type != MsgTypeQueryBlockedState {
+			t.Errorf("Expected QueryBlockedState, got %s", queryMsg.Type)
+			return
+		}
+
+		// Send query response
+		if err := encoder.Encode(Message{
+			Type:          MsgTypeBlockedStateResponse,
+			Branch:        queryMsg.Branch,
+			IsBlocked:     true,
+			BlockedBranch: "main",
+		}); err != nil {
+			t.Errorf("Failed to send query response: %v", err)
+			return
+		}
+		queryResponseSent <- true
+	}()
+
+	// Wait for FullState flood to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Issue query during flood
+	queryStart := time.Now()
+	state, err := client.QueryBlockedState("feature-branch")
+	queryDuration := time.Since(queryStart)
+
+	// Verify no starvation - query must complete within 2 seconds
+	if queryDuration > 2*time.Second {
+		t.Errorf("STARVATION DETECTED: Query took %v during FullState flood (should be < 2s)", queryDuration)
+	}
+
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if !state.IsBlocked() || state.BlockedBy() != "main" {
+		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s",
+			state.IsBlocked(), state.BlockedBy())
+	}
+
+	t.Logf("Query completed in %v (no starvation)", queryDuration)
+
+	// Verify query response was sent by server
+	select {
+	case <-queryResponseSent:
+		t.Logf("✓ Query response sent successfully during FullState flood")
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Server did not send query response")
+	}
 }
 
 // TestGapDetection_QueryRace_ConnectionFailure tests the race condition when gap detection
