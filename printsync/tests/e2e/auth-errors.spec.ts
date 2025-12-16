@@ -255,4 +255,110 @@ test.describe('Auth Error Handling', () => {
     expect(authErrorDetail).toHaveProperty('recoverable');
     expect((authErrorDetail as any).code).toMatch(/^auth\//);
   });
+
+  test('Clear and Reload button clears storage and reloads page', async ({ page }) => {
+    // Set initial auth state in storage
+    await page.addInitScript(() => {
+      localStorage.setItem('commons_auth_state', JSON.stringify({ token: 'test-token' }));
+    });
+
+    // Navigate to homepage
+    await page.goto('/');
+
+    // Wait for page to load
+    await page.waitForLoadState('domcontentloaded');
+
+    // Inject a mock that makes localStorage.setItem throw QuotaExceededError
+    await page.evaluate(() => {
+      const originalSetItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (key: string, value: string) {
+        if (key === 'commons_auth_state') {
+          const err = new Error('QuotaExceededError');
+          err.name = 'QuotaExceededError';
+          throw err;
+        }
+        return originalSetItem(key, value);
+      };
+    });
+
+    // Trigger auth state change that will attempt to persist
+    await page.evaluate(() => {
+      const event = new CustomEvent('auth-state-update');
+      window.dispatchEvent(event);
+    });
+
+    // Wait for toast to appear
+    const toast = page.locator('.toast.toast--warning');
+    await expect(toast).toBeVisible({ timeout: 5000 });
+
+    // Wait for page reload after button click
+    const reloadPromise = page.waitForEvent('load');
+
+    // Click the "Clear and Reload" button
+    const actionButton = toast.locator('.toast__action button');
+    await expect(actionButton).toContainText('Clear and Reload');
+    await actionButton.click();
+
+    // Wait for page reload to complete
+    await reloadPromise;
+
+    // Verify localStorage was cleared
+    const clearedAuthState = await page.evaluate(() => {
+      return localStorage.getItem('commons_auth_state');
+    });
+    expect(clearedAuthState).toBeNull();
+
+    // Verify page reloaded by checking URL is still valid
+    await expect(page).toHaveURL('/');
+  });
+
+  test('Refresh Page button reloads the page', async ({ page }) => {
+    // Navigate to homepage
+    await page.goto('/');
+
+    // Wait for auth to initialize
+    await page.waitForFunction(
+      () => {
+        return document.cookie.includes('firebase_token=');
+      },
+      { timeout: 15000 }
+    );
+
+    // Inject code to simulate listener failures that show Refresh button
+    await page.evaluate(() => {
+      const { subscribeToAuthState } = (window as any).authState || {};
+      if (subscribeToAuthState) {
+        // Create listeners that will fail
+        for (let i = 0; i < 3; i++) {
+          subscribeToAuthState(() => {
+            throw new Error(`Listener failure ${i + 1}`);
+          });
+        }
+
+        // Trigger auth state change to invoke listeners
+        const event = new CustomEvent('auth-state-change');
+        window.dispatchEvent(event);
+      }
+    });
+
+    // Wait for error toast to appear
+    const toast = page.locator('.toast.toast--error');
+    await expect(toast).toBeVisible({ timeout: 5000 });
+
+    // Verify "Refresh Page" button is present
+    const actionButton = toast.locator('.toast__action button');
+    await expect(actionButton).toContainText('Refresh Page');
+
+    // Wait for page reload after button click
+    const reloadPromise = page.waitForEvent('load');
+
+    // Click the "Refresh Page" button
+    await actionButton.click();
+
+    // Wait for page reload to complete
+    await reloadPromise;
+
+    // Verify page reloaded by checking we're still on the page
+    await expect(page).toHaveURL('/');
+  });
 });
