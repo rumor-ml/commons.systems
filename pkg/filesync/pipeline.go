@@ -636,7 +636,7 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 					if failCount == 1 {
 						sendProgress(progressCh, Progress{
 							Type:       ProgressTypeStatus,
-							Operation:  "Stats update experiencing issues - counts may be slightly delayed",
+							Operation:  "Stats update experiencing issues - counts may be slightly delayed. Check your network connection.",
 							Percentage: 0,
 						})
 					}
@@ -645,7 +645,7 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 					if failCount == 5 {
 						sendProgress(progressCh, Progress{
 							Type:       ProgressTypeStatus,
-							Operation:  "Stats update still experiencing issues - counts may be delayed",
+							Operation:  "Stats update still experiencing issues after 5 attempts - counts may be delayed. Try refreshing the page if this continues.",
 							Percentage: 0,
 						})
 					}
@@ -657,7 +657,7 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 						log.Printf("INFO: Stats flush recovered after failures")
 						sendProgress(progressCh, Progress{
 							Type:       ProgressTypeStatus,
-							Operation:  "Stats update recovered - counts are now up to date",
+							Operation:  "Stats update recovered - counts are now up to date and synchronized.",
 							Percentage: 0,
 						})
 						wasFailingBefore = false

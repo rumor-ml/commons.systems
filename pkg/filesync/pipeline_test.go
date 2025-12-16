@@ -1859,13 +1859,13 @@ collectLoop:
 		}
 
 		// Check for specific messages
-		if notif.Operation == "Stats update experiencing issues - counts may be slightly delayed" {
+		if notif.Operation == "Stats update experiencing issues - counts may be slightly delayed. Check your network connection." {
 			foundFirstFailure = true
 		}
-		if notif.Operation == "Stats update still experiencing issues - counts may be delayed" {
+		if notif.Operation == "Stats update still experiencing issues after 5 attempts - counts may be delayed. Try refreshing the page if this continues." {
 			foundEscalation = true
 		}
-		if notif.Operation == "Stats update recovered - counts are now up to date" {
+		if notif.Operation == "Stats update recovered - counts are now up to date and synchronized." {
 			foundRecovery = true
 		}
 	}
@@ -1949,13 +1949,13 @@ collectLoop:
 	}
 
 	// First notification should be "first failure"
-	if notifications[0].Operation != "Stats update experiencing issues - counts may be slightly delayed" {
+	if notifications[0].Operation != "Stats update experiencing issues - counts may be slightly delayed. Check your network connection." {
 		t.Errorf("first notification incorrect: expected first failure message, got %q", notifications[0].Operation)
 	}
 
 	// Last notification should be "recovery"
 	lastNotif := notifications[len(notifications)-1]
-	if lastNotif.Operation != "Stats update recovered - counts are now up to date" {
+	if lastNotif.Operation != "Stats update recovered - counts are now up to date and synchronized." {
 		t.Errorf("last notification incorrect: expected recovery message, got %q", lastNotif.Operation)
 	}
 
