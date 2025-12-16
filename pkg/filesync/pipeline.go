@@ -280,7 +280,10 @@ func (p *Pipeline) execute(ctx context.Context, session *SyncSession, rootDir st
 	// Initialize stats accumulator
 	stats, err := newStatsAccumulator(p.sessionStore, session, p.config.StatsBatchInterval, int64(p.config.StatsBatchSize))
 	if err != nil {
-		resultCh <- ExtractionResult{Error: fmt.Errorf("failed to initialize stats accumulator: %w", err)}
+		resultCh <- &PipelineResult{
+			SessionID:       session.ID,
+			SecondaryErrors: []error{fmt.Errorf("failed to initialize stats accumulator: %w", err)},
+		}
 		return
 	}
 

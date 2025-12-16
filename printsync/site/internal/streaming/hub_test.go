@@ -76,8 +76,8 @@ func TestBroadcasterPanicRecovery(t *testing.T) {
 	// Receive the event
 	select {
 	case event := <-client.Events:
-		if event.Type != EventTypeProgress {
-			t.Errorf("expected EventTypeProgress, got %s", event.Type)
+		if event.EventType() != EventTypeProgress {
+			t.Errorf("expected EventTypeProgress, got %s", event.EventType())
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("timeout waiting for first event")
@@ -154,7 +154,7 @@ eventLoop:
 			}
 			receivedEvents = append(receivedEvents, event)
 			// Stop after receiving complete event
-			if event.Type == EventTypeComplete {
+			if event.EventType() == EventTypeComplete {
 				break eventLoop
 			}
 		case <-timeout:
@@ -169,11 +169,11 @@ eventLoop:
 
 	// Verify event types
 	if len(receivedEvents) >= 3 {
-		if receivedEvents[0].Type != EventTypeProgress {
-			t.Errorf("expected first event to be Progress, got %s", receivedEvents[0].Type)
+		if receivedEvents[0].EventType() != EventTypeProgress {
+			t.Errorf("expected first event to be Progress, got %s", receivedEvents[0].EventType())
 		}
-		if receivedEvents[2].Type != EventTypeComplete {
-			t.Errorf("expected third event to be Complete, got %s", receivedEvents[2].Type)
+		if receivedEvents[2].EventType() != EventTypeComplete {
+			t.Errorf("expected third event to be Complete, got %s", receivedEvents[2].EventType())
 		}
 	}
 
@@ -224,7 +224,7 @@ func TestBroadcasterMultipleClients(t *testing.T) {
 
 	select {
 	case event := <-client1.Events:
-		if event.Type == EventTypeProgress {
+		if event.EventType() == EventTypeProgress {
 			received1 = true
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -233,7 +233,7 @@ func TestBroadcasterMultipleClients(t *testing.T) {
 
 	select {
 	case event := <-client2.Events:
-		if event.Type == EventTypeProgress {
+		if event.EventType() == EventTypeProgress {
 			received2 = true
 		}
 	case <-time.After(500 * time.Millisecond):
