@@ -81,7 +81,7 @@ type SessionStore interface {
 	Update(ctx context.Context, session *SyncSession) error
 	Get(ctx context.Context, sessionID string) (*SyncSession, error)
 	List(ctx context.Context, userID string) ([]*SyncSession, error)
-	Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession)) error
+	Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession), errCallback func(error)) error
 	Delete(ctx context.Context, sessionID string) error
 }
 
@@ -91,6 +91,6 @@ type FileStore interface {
 	Update(ctx context.Context, file *SyncFile) error
 	Get(ctx context.Context, fileID string) (*SyncFile, error)
 	ListBySession(ctx context.Context, sessionID string) ([]*SyncFile, error)
-	SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile)) error
+	SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile), errCallback func(error)) error
 	Delete(ctx context.Context, fileID string) error
 }

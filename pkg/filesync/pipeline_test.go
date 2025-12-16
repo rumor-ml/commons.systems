@@ -189,7 +189,7 @@ func (m *mockSessionStore) List(ctx context.Context, userID string) ([]*SyncSess
 	return sessions, nil
 }
 
-func (m *mockSessionStore) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession)) error {
+func (m *mockSessionStore) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession), errCallback func(error)) error {
 	return nil
 }
 
@@ -250,7 +250,7 @@ func (m *mockFileStore) ListBySession(ctx context.Context, sessionID string) ([]
 	return files, nil
 }
 
-func (m *mockFileStore) SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile)) error {
+func (m *mockFileStore) SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile), errCallback func(error)) error {
 	return nil
 }
 
@@ -1538,5 +1538,327 @@ func TestPipeline_RunExtractionAsyncWithSession(t *testing.T) {
 		if file.SessionID != customSessionID {
 			t.Errorf("expected file to have session ID %s, got %s", customSessionID, file.SessionID)
 		}
+	}
+}
+
+// mockSessionStoreWithFailures is a mock that can simulate Update failures
+type mockSessionStoreWithFailures struct {
+	sessions       map[string]*SyncSession
+	mu             sync.Mutex
+	failuresLeft   int
+	totalFailures  int
+	updateAttempts int
+}
+
+func newMockSessionStoreWithFailures(failureCount int) *mockSessionStoreWithFailures {
+	return &mockSessionStoreWithFailures{
+		sessions:     make(map[string]*SyncSession),
+		failuresLeft: failureCount,
+	}
+}
+
+func (m *mockSessionStoreWithFailures) Create(ctx context.Context, session *SyncSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessions[session.ID] = session
+	return nil
+}
+
+func (m *mockSessionStoreWithFailures) Update(ctx context.Context, session *SyncSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.updateAttempts++
+
+	if m.failuresLeft > 0 {
+		m.failuresLeft--
+		m.totalFailures++
+		return errors.New("simulated update failure")
+	}
+
+	if _, exists := m.sessions[session.ID]; !exists {
+		return errors.New("session not found")
+	}
+	m.sessions[session.ID] = session
+	return nil
+}
+
+func (m *mockSessionStoreWithFailures) Get(ctx context.Context, sessionID string) (*SyncSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return nil, errors.New("session not found")
+	}
+	return session, nil
+}
+
+func (m *mockSessionStoreWithFailures) List(ctx context.Context, userID string) ([]*SyncSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var sessions []*SyncSession
+	for _, s := range m.sessions {
+		if s.UserID == userID {
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions, nil
+}
+
+func (m *mockSessionStoreWithFailures) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession), errCallback func(error)) error {
+	return nil
+}
+
+func (m *mockSessionStoreWithFailures) Delete(ctx context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, sessionID)
+	return nil
+}
+
+func (m *mockSessionStoreWithFailures) getUpdateAttempts() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.updateAttempts
+}
+
+func (m *mockSessionStoreWithFailures) getTotalFailures() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.totalFailures
+}
+
+// TestStatsFlush_SingleFailureRecovery tests that stats flush recovers from a single transient failure
+func TestStatsFlush_SingleFailureRecovery(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock store that will fail once then succeed
+	sessionStore := newMockSessionStoreWithFailures(1)
+	session := &SyncSession{
+		ID:        "test-session",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Create stats accumulator with short batch interval for testing
+	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+
+	// Increment some stats
+	stats.incrementDiscovered()
+	stats.incrementExtracted()
+
+	// First flush should fail
+	err := stats.flush(ctx)
+	if err == nil {
+		t.Error("expected first flush to fail, but it succeeded")
+	}
+	if stats.consecutiveFlushFails != 1 {
+		t.Errorf("expected consecutiveFlushFails=1, got %d", stats.consecutiveFlushFails)
+	}
+
+	// Second flush should succeed and reset failure counter
+	err = stats.flush(ctx)
+	if err != nil {
+		t.Errorf("expected second flush to succeed, got error: %v", err)
+	}
+	if stats.consecutiveFlushFails != 0 {
+		t.Errorf("expected consecutiveFlushFails=0 after recovery, got %d", stats.consecutiveFlushFails)
+	}
+
+	// Verify session was updated with correct stats
+	updatedSession, err := sessionStore.Get(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+	if updatedSession.Stats.Discovered != 1 {
+		t.Errorf("expected discovered=1, got %d", updatedSession.Stats.Discovered)
+	}
+	if updatedSession.Stats.Extracted != 1 {
+		t.Errorf("expected extracted=1, got %d", updatedSession.Stats.Extracted)
+	}
+}
+
+// TestStatsFlush_PersistentFailures tests behavior with multiple consecutive failures
+func TestStatsFlush_PersistentFailures(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock store that will fail 5 times
+	sessionStore := newMockSessionStoreWithFailures(5)
+	session := &SyncSession{
+		ID:        "test-session",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+	stats.incrementDiscovered()
+
+	// All 5 flushes should fail and increment counter
+	for i := 1; i <= 5; i++ {
+		err := stats.flush(ctx)
+		if err == nil {
+			t.Errorf("expected flush %d to fail, but it succeeded", i)
+		}
+		if stats.consecutiveFlushFails != i {
+			t.Errorf("flush %d: expected consecutiveFlushFails=%d, got %d", i, i, stats.consecutiveFlushFails)
+		}
+	}
+
+	// 6th flush should succeed (no more failures configured)
+	err := stats.flush(ctx)
+	if err != nil {
+		t.Errorf("expected 6th flush to succeed, got error: %v", err)
+	}
+	if stats.consecutiveFlushFails != 0 {
+		t.Errorf("expected consecutiveFlushFails=0 after recovery, got %d", stats.consecutiveFlushFails)
+	}
+
+	// Verify we had exactly 5 failures
+	if sessionStore.getTotalFailures() != 5 {
+		t.Errorf("expected 5 total failures, got %d", sessionStore.getTotalFailures())
+	}
+}
+
+// TestStatsFlush_StatsPersistenceAfterFailures tests that stats are not lost during flush failures
+func TestStatsFlush_StatsPersistenceAfterFailures(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock store that will fail 3 times
+	sessionStore := newMockSessionStoreWithFailures(3)
+	session := &SyncSession{
+		ID:        "test-session",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	stats := newStatsAccumulator(sessionStore, session, 100*time.Millisecond, 10)
+
+	// Add stats before flush attempts
+	stats.incrementDiscovered()
+	stats.incrementDiscovered()
+	stats.incrementExtracted()
+
+	// Fail 3 times
+	for i := 0; i < 3; i++ {
+		err := stats.flush(ctx)
+		if err == nil {
+			t.Errorf("expected flush %d to fail", i+1)
+		}
+	}
+
+	// Add more stats while failing
+	stats.incrementApproved()
+
+	// This flush should succeed
+	err := stats.flush(ctx)
+	if err != nil {
+		t.Fatalf("expected flush to succeed, got error: %v", err)
+	}
+
+	// Verify all stats were persisted correctly
+	updatedSession, err := sessionStore.Get(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+	if updatedSession.Stats.Discovered != 2 {
+		t.Errorf("expected discovered=2, got %d", updatedSession.Stats.Discovered)
+	}
+	if updatedSession.Stats.Extracted != 1 {
+		t.Errorf("expected extracted=1, got %d", updatedSession.Stats.Extracted)
+	}
+	if updatedSession.Stats.Approved != 1 {
+		t.Errorf("expected approved=1, got %d", updatedSession.Stats.Approved)
+	}
+}
+
+// TestPeriodicStatsFlush_FailureNotifications tests that periodicStatsFlush sends proper notifications
+func TestPeriodicStatsFlush_FailureNotifications(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create mock store that will fail 6 times then succeed
+	sessionStore := newMockSessionStoreWithFailures(6)
+	session := &SyncSession{
+		ID:        "test-session",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Create pipeline with very short batch interval for testing
+	config := DefaultPipelineConfig()
+	config.StatsBatchInterval = 50 * time.Millisecond
+	config.StatsBatchSize = 1
+
+	pipeline := &Pipeline{
+		sessionStore: sessionStore,
+		fileStore:    newMockFileStore(),
+		config:       config,
+	}
+
+	stats := newStatsAccumulator(sessionStore, session, config.StatsBatchInterval, int64(config.StatsBatchSize))
+
+	// Force stats to need flushing
+	stats.incrementDiscovered()
+
+	// Start periodic flush
+	progressCh := make(chan Progress, 100)
+	go pipeline.periodicStatsFlush(ctx, stats, progressCh)
+
+	// Collect progress notifications
+	var notifications []string
+	timeout := time.After(2 * time.Second)
+	expectedNotifications := 3 // First failure, 5th failure escalation, recovery
+
+collectLoop:
+	for len(notifications) < expectedNotifications {
+		select {
+		case progress := <-progressCh:
+			notifications = append(notifications, progress.Operation)
+			t.Logf("Received notification %d: %s", len(notifications), progress.Operation)
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	// Cancel context to stop periodic flush
+	cancel()
+
+	// Verify we got the expected notifications
+	if len(notifications) < 2 {
+		t.Errorf("expected at least 2 notifications (first failure + recovery), got %d: %v", len(notifications), notifications)
+	}
+
+	// Check for first failure notification
+	foundFirstFailure := false
+	foundRecovery := false
+	for _, notif := range notifications {
+		if notif == "Stats update experiencing issues - counts may be slightly delayed" {
+			foundFirstFailure = true
+		}
+		if notif == "Stats update recovered - counts are now up to date" {
+			foundRecovery = true
+		}
+	}
+
+	if !foundFirstFailure {
+		t.Error("did not receive first failure notification")
+	}
+	if !foundRecovery {
+		t.Error("did not receive recovery notification")
 	}
 }

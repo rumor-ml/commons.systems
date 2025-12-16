@@ -603,6 +603,8 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 	ticker := time.NewTicker(p.config.StatsBatchInterval)
 	defer ticker.Stop()
 
+	wasFailingBefore := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -614,12 +616,32 @@ func (p *Pipeline) periodicStatsFlush(ctx context.Context, stats *statsAccumulat
 					failCount := stats.getConsecutiveFlushFails()
 					log.Printf("WARNING: periodic stats flush failed (attempt %d, will retry): %v", failCount, err)
 
-					// After 5 consecutive failures, alert users that stats may be stale
-					if failCount >= 5 {
+					// Notify user immediately on first failure
+					if failCount == 1 {
 						sendProgress(progressCh, Progress{
 							Operation:  "Stats update experiencing issues - counts may be slightly delayed",
 							Percentage: -1, // Status message
 						})
+					}
+
+					// Escalate notification after 5 consecutive failures
+					if failCount == 5 {
+						sendProgress(progressCh, Progress{
+							Operation:  "Stats update still experiencing issues - counts may be delayed",
+							Percentage: -1, // Status message
+						})
+					}
+
+					wasFailingBefore = true
+				} else {
+					// Success - if we were failing before, notify recovery
+					if wasFailingBefore {
+						log.Printf("INFO: Stats flush recovered after failures")
+						sendProgress(progressCh, Progress{
+							Operation:  "Stats update recovered - counts are now up to date",
+							Percentage: -1, // Status message
+						})
+						wasFailingBefore = false
 					}
 				}
 			}

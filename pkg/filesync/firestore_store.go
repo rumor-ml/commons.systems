@@ -142,7 +142,7 @@ func (s *FirestoreSessionStore) List(ctx context.Context, userID string) ([]*Syn
 }
 
 // Subscribe subscribes to real-time updates for a session
-func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession)) error {
+func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string, callback func(*SyncSession), errCallback func(error)) error {
 	go func() {
 		iter := s.client.Collection(getCollectionName(sessionsCollectionBase)).Doc(sessionID).Snapshots(ctx)
 		defer iter.Stop()
@@ -160,8 +160,16 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 				consecutiveErrors++
 				log.Printf("ERROR: Session subscription error for %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
 
+				// Notify caller of subscription error
+				if errCallback != nil {
+					errCallback(fmt.Errorf("subscription error (consecutive: %d): %w", consecutiveErrors, err))
+				}
+
 				if consecutiveErrors >= maxConsecutiveErrors {
 					log.Printf("ERROR: Session subscription for %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
+					if errCallback != nil {
+						errCallback(fmt.Errorf("subscription stopped after %d consecutive errors", maxConsecutiveErrors))
+					}
 					return
 				}
 				continue
@@ -173,6 +181,9 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 			var session SyncSession
 			if err := snap.DataTo(&session); err != nil {
 				log.Printf("ERROR: Failed to parse session data for %s: %v", sessionID, err)
+				if errCallback != nil {
+					errCallback(fmt.Errorf("failed to parse session data: %w", err))
+				}
 				continue
 			}
 			session.ID = snap.Ref.ID
@@ -266,7 +277,7 @@ func (f *FirestoreFileStore) ListBySession(ctx context.Context, sessionID string
 }
 
 // SubscribeBySession subscribes to real-time updates for all files in a session
-func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile)) error {
+func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID string, callback func(*SyncFile), errCallback func(error)) error {
 	go func() {
 		iter := f.client.Collection(getCollectionName(filesCollectionBase)).
 			Where("sessionId", "==", sessionID).
@@ -286,8 +297,16 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 				consecutiveErrors++
 				log.Printf("ERROR: File subscription error for session %s (consecutive: %d): %v", sessionID, consecutiveErrors, err)
 
+				// Notify caller of subscription error
+				if errCallback != nil {
+					errCallback(fmt.Errorf("subscription error (consecutive: %d): %w", consecutiveErrors, err))
+				}
+
 				if consecutiveErrors >= maxConsecutiveErrors {
 					log.Printf("ERROR: File subscription for session %s stopped after %d consecutive errors", sessionID, maxConsecutiveErrors)
+					if errCallback != nil {
+						errCallback(fmt.Errorf("subscription stopped after %d consecutive errors", maxConsecutiveErrors))
+					}
 					return
 				}
 				continue
@@ -300,6 +319,9 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 				var file SyncFile
 				if err := change.Doc.DataTo(&file); err != nil {
 					log.Printf("ERROR: Failed to parse file data in session %s: %v", sessionID, err)
+					if errCallback != nil {
+						errCallback(fmt.Errorf("failed to parse file data: %w", err))
+					}
 					continue
 				}
 				file.ID = change.Doc.Ref.ID

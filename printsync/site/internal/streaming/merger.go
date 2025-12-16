@@ -139,6 +139,21 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 				return
 			}
 		}
+	}, func(err error) {
+		// Send error event on subscription failure
+		if err == nil {
+			return
+		}
+
+		errorEvent := NewErrorEvent(
+			fmt.Sprintf("Session subscription error: %v", err),
+			"error",
+		)
+		select {
+		case m.eventsCh <- errorEvent:
+		case <-m.done:
+			return
+		}
 	})
 }
 
@@ -171,6 +186,21 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 		}
 		select {
 		case m.eventsCh <- event:
+		case <-m.done:
+			return
+		}
+	}, func(err error) {
+		// Send error event on subscription failure
+		if err == nil {
+			return
+		}
+
+		errorEvent := NewErrorEvent(
+			fmt.Sprintf("File subscription error: %v", err),
+			"error",
+		)
+		select {
+		case m.eventsCh <- errorEvent:
 		case <-m.done:
 			return
 		}
