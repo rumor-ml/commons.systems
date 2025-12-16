@@ -13,6 +13,11 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
+var (
+	ErrPanePathFailed  = errors.New("failed to get pane current path")
+	ErrGitBranchFailed = errors.New("failed to get current branch")
+)
+
 // printErrorHint prints a contextual hint based on error type
 func printErrorHint(err error) {
 	switch {
@@ -37,17 +42,15 @@ func printErrorHint(err error) {
 
 // getCurrentBranch gets the current git branch for the given pane
 func getCurrentBranch(executor tmux.CommandExecutor, paneID string) (string, error) {
-	// Get pane current path
 	output, err := executor.ExecCommandOutput("tmux", "display-message", "-p", "-t", paneID, "#{pane_current_path}")
 	if err != nil {
-		return "", fmt.Errorf("failed to get pane current path: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrPanePathFailed, err)
 	}
 	path := strings.TrimSpace(string(output))
 
-	// Get current branch
 	output, err = executor.ExecCommandOutput("git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("failed to get current branch: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrGitBranchFailed, err)
 	}
 	branch := strings.TrimSpace(string(output))
 
@@ -61,7 +64,12 @@ type branchBlocker interface {
 }
 
 // toggleBlockedState queries the blocked state of a branch and unblocks it if blocked.
-// Returns true if the branch was unblocked (handled), false to show picker.
+//
+// Returns true if the branch was blocked and successfully unblocked (operation complete).
+// Returns false to show the branch picker in these cases:
+//   - Branch is empty (no current branch detected)
+//   - Query failed (falls back to picker for user selection)
+//   - Branch is not blocked (show picker for blocking it)
 func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 	if branch == "" {
 		return false
@@ -106,9 +114,9 @@ func main() {
 	branch, err := getCurrentBranch(executor, paneID)
 	if err != nil {
 		// Provide user feedback based on error type
-		if strings.Contains(err.Error(), "failed to get pane current path") {
+		if errors.Is(err, ErrPanePathFailed) {
 			fmt.Fprintln(os.Stderr, "Warning: Could not detect pane directory. Showing branch picker.")
-		} else if strings.Contains(err.Error(), "failed to get current branch") {
+		} else if errors.Is(err, ErrGitBranchFailed) {
 			fmt.Fprintln(os.Stderr, "Warning: Not in a git repository or detached HEAD. Showing branch picker.")
 		} else {
 			fmt.Fprintln(os.Stderr, "Warning: Could not detect current branch. Showing branch picker.")

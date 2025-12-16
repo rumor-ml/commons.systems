@@ -153,6 +153,33 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
+  // Calculate warning text size FIRST to reserve space in budget
+  let warningText = '';
+  if (parseWarnings && parseWarnings.length > 0) {
+    const warningLines = [
+      '',
+      '',
+      '⚠️  EXTRACTION WARNING: Test output parsing encountered issues',
+    ];
+    for (const warning of parseWarnings) {
+      warningLines.push(`  - ${warning}`);
+    }
+    warningLines.push('Some test results may be incomplete. Check logs for details.');
+    warningText = warningLines.join('\n');
+  }
+
+  const warningSize = warningText.length;
+  const truncationMarker = '\n\n[... truncated due to length limit ...]';
+  const truncationMarkerSize = truncationMarker.length;
+
+  // Reserve space for warnings and truncation marker
+  // Use Math.max to ensure we don't get negative budget
+  const summaryBudget = Math.max(
+    100, // Minimum budget to show at least some content
+    maxChars - warningSize - truncationMarkerSize
+  );
+
+  // Build summary content
   const lines: string[] = [
     `Workflow Run Failed: ${run.name}`,
     `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
@@ -179,17 +206,25 @@ function formatJobSummaries(
 
   let output = lines.join('\n');
 
-  // Surface parse warnings if any occurred
-  if (parseWarnings && parseWarnings.length > 0) {
-    output += '\n\n⚠️  EXTRACTION WARNING: Test output parsing encountered issues\n';
-    for (const warning of parseWarnings) {
-      output += `  - ${warning}\n`;
-    }
-    output += 'Some test results may be incomplete. Check logs for details.\n';
+  // Truncate summary if it exceeds budget
+  if (output.length > summaryBudget) {
+    output = output.substring(0, summaryBudget) + truncationMarker;
   }
 
+  // Append warnings (guaranteed to fit since we reserved space)
+  if (warningText) {
+    output += warningText;
+  }
+
+  // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
-    output = output.substring(0, maxChars - 50) + '\n\n[... truncated due to length limit ...]';
+    console.error(
+      `[WARN] formatJobSummaries: output exceeded maxChars despite budget calculation. ` +
+      `Expected: ${maxChars}, Actual: ${output.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+    );
+    // Emergency truncation preserving as much warning as possible
+    const emergencyCut = output.length - maxChars;
+    output = output.substring(0, summaryBudget - emergencyCut) + truncationMarker + warningText;
   }
 
   return { content: [{ type: 'text', text: output }] };
@@ -354,7 +389,9 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
           'Attempted: gh run view --log-failed (provides cleanest output)',
           `Error: ${errorDetails}${errorTypeInfo}`,
           '',
-          'Falling back to: GitHub API jobs endpoint (may be less precise)',
+          'Falling back to: GitHub API jobs endpoint',
+          `  - Returns raw step logs without framework-specific parsing`,
+          `  - May include build output mixed with test failures`,
           '',
           'To fix:',
           '- Ensure latest gh CLI: gh upgrade',
@@ -568,6 +605,32 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // Indicate if run is still in progress (fail-fast scenario)
     const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
 
+    // Calculate warning text size FIRST to reserve space in budget
+    let warningText = '';
+    if (parseWarnings.length > 0) {
+      const warningLines = [
+        '',
+        '',
+        '⚠️  EXTRACTION WARNING: Test output parsing encountered issues',
+      ];
+      for (const warning of parseWarnings) {
+        warningLines.push(`  - ${warning}`);
+      }
+      warningLines.push('Some test results may be incomplete. Check logs for details.');
+      warningText = warningLines.join('\n');
+    }
+
+    const warningSize = warningText.length;
+    const truncationMarker = '\n\n... (truncated due to length limit)';
+    const truncationMarkerSize = truncationMarker.length;
+
+    // Reserve space for warnings and truncation marker
+    const summaryBudget = Math.max(
+      100, // Minimum budget
+      input.max_chars - warningSize - truncationMarkerSize
+    );
+
+    // Build summary content
     let summary = [
       // Prepend fallback warning if --log-failed failed
       ...(usingFallbackDueToLogFailedError ? [fallbackWarningPrefix] : []),
@@ -579,20 +642,21 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       ...jobSummaries,
     ].join('\n');
 
-    // Surface parse warnings if any occurred
-    if (parseWarnings.length > 0) {
-      summary += '\n\n⚠️  EXTRACTION WARNING: Test output parsing encountered issues\n';
-      for (const warning of parseWarnings) {
-        summary += `  - ${warning}\n`;
-      }
-      summary += 'Some test results may be incomplete. Check logs for details.\n';
+    // Truncate summary if needed
+    if (summary.length > summaryBudget) {
+      summary = summary.substring(0, summaryBudget) + truncationMarker;
     }
 
-    // Truncate if needed
-    const finalSummary =
-      summary.length > input.max_chars
-        ? summary.substring(0, input.max_chars) + '\n\n... (truncated due to length limit)'
-        : summary;
+    // Append warnings (guaranteed to fit)
+    const finalSummary = summary + warningText;
+
+    // Final safety check
+    if (finalSummary.length > input.max_chars) {
+      console.error(
+        `[WARN] getFailureDetails: output exceeded max_chars despite budget calculation. ` +
+        `Expected: ${input.max_chars}, Actual: ${finalSummary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+      );
+    }
 
     return {
       content: [{ type: 'text', text: finalSummary }],

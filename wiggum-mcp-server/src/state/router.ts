@@ -6,6 +6,13 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
+/**
+ * Extract error message from unknown error type
+ */
+function extractErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { hasReviewCommandEvidence, postWiggumStateComment } from './comments.js';
 import { detectCurrentState } from './detector.js';
@@ -390,7 +397,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
         'Workflow run completed successfully.'
       );
     } catch (commentError) {
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const errorMsg = extractErrorMessage(commentError);
       logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_MONITOR_WORKFLOW,
@@ -455,7 +462,7 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
         'All PR checks passed successfully.'
       );
     } catch (commentError) {
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const errorMsg = extractErrorMessage(commentError);
       logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_MONITOR_PR_CHECKS,
@@ -543,7 +550,7 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
       );
     } catch (commentError) {
       // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const errorMsg = extractErrorMessage(commentError);
       logger.warn('Failed to post state comment for Step 1b completion', {
         prNumber: state.pr.number,
         step: STEP_MONITOR_PR_CHECKS,
@@ -632,7 +639,7 @@ async function processCodeQualityAndReturnNextInstructions(
         'No code quality comments found. Step complete.'
       );
     } catch (commentError) {
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const errorMsg = extractErrorMessage(commentError);
       logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_CODE_QUALITY,
@@ -835,7 +842,7 @@ async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolR
 **Next Action:** Proceeding to approval.`
       );
     } catch (commentError) {
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const errorMsg = extractErrorMessage(commentError);
       logger.error('Failed to post state comment', {
         prNumber: state.pr.number,
         step: STEP_VERIFY_REVIEWS,

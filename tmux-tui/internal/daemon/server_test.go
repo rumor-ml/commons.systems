@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1385,4 +1386,65 @@ func TestBlockBranch_PersistenceFailureRollback(t *testing.T) {
 	}
 
 	t.Logf("Rollback test passed: reverted to main, broadcasts received")
+}
+
+// TestPlayAlertSound_ErrorBroadcast tests that audio errors are broadcast to clients
+func TestPlayAlertSound_ErrorBroadcast(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create client to receive broadcasts
+	clientR, serverW := io.Pipe()
+	serverR, clientW := io.Pipe()
+	defer clientR.Close()
+	defer serverW.Close()
+	defer serverR.Close()
+	defer clientW.Close()
+
+	client := &clientConnection{
+		encoder: json.NewEncoder(serverW),
+	}
+
+	daemon.clientsMu.Lock()
+	daemon.clients["test-client"] = client
+	daemon.clientsMu.Unlock()
+
+	// Collect received messages
+	received := make(chan Message, 10)
+	go func() {
+		decoder := json.NewDecoder(clientR)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			received <- msg
+		}
+	}()
+
+	// Simulate audio error broadcast (what playAlertSound() does on error)
+	audioErrorMsg := "Audio playback failed: exit status 1\n\n" +
+		"Troubleshooting:\n" +
+		"  1. Verify audio system: afplay /System/Library/Sounds/Ping.aiff\n" +
+		"  2. Check audio output device is connected and unmuted\n"
+
+	daemon.broadcast(Message{Type: MsgTypeAudioError, Error: audioErrorMsg})
+
+	// Verify audio error message was broadcast
+	select {
+	case msg := <-received:
+		if msg.Type != MsgTypeAudioError {
+			t.Errorf("Expected MsgTypeAudioError, got %s", msg.Type)
+		}
+		if !strings.Contains(msg.Error, "Troubleshooting") {
+			t.Error("Audio error should contain troubleshooting instructions")
+		}
+		if !strings.Contains(msg.Error, "Audio playback failed") {
+			t.Error("Audio error should contain error description")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for audio error broadcast")
+	}
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/tmux/testutil"
 )
 
-// TestGetCurrentBranch_Success tests getting branch from a git repo
 func TestGetCurrentBranch_Success(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -32,7 +31,6 @@ func TestGetCurrentBranch_Success(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_TmuxError tests error when tmux command fails
 func TestGetCurrentBranch_TmuxError(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "",
@@ -49,7 +47,6 @@ func TestGetCurrentBranch_TmuxError(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_NonGitDirectory tests error in non-git directory
 func TestGetCurrentBranch_NonGitDirectory(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/non-git\n",
@@ -66,7 +63,6 @@ func TestGetCurrentBranch_NonGitDirectory(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_DetachedHead tests behavior with detached HEAD
 func TestGetCurrentBranch_DetachedHead(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -85,7 +81,6 @@ func TestGetCurrentBranch_DetachedHead(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_WhitespaceHandling tests trimming of whitespace
 func TestGetCurrentBranch_WhitespaceHandling(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "  /home/user/repo  \n",
@@ -104,7 +99,6 @@ func TestGetCurrentBranch_WhitespaceHandling(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_MainBranch tests getting main branch
 func TestGetCurrentBranch_MainBranch(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -123,7 +117,6 @@ func TestGetCurrentBranch_MainBranch(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_DevelopBranch tests getting develop branch
 func TestGetCurrentBranch_DevelopBranch(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -142,7 +135,6 @@ func TestGetCurrentBranch_DevelopBranch(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_BranchWithSlashes tests branch names with slashes
 func TestGetCurrentBranch_BranchWithSlashes(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -161,7 +153,6 @@ func TestGetCurrentBranch_BranchWithSlashes(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_BranchWithHyphens tests branch names with hyphens
 func TestGetCurrentBranch_BranchWithHyphens(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
@@ -180,7 +171,6 @@ func TestGetCurrentBranch_BranchWithHyphens(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_EmptyPaneID tests behavior with empty pane ID
 func TestGetCurrentBranch_EmptyPaneID(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "",
@@ -197,7 +187,6 @@ func TestGetCurrentBranch_EmptyPaneID(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_InvalidPaneID tests behavior with invalid pane ID
 func TestGetCurrentBranch_InvalidPaneID(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "",
@@ -214,7 +203,6 @@ func TestGetCurrentBranch_InvalidPaneID(t *testing.T) {
 	}
 }
 
-// TestGetCurrentBranch_PathWithSpaces tests paths with spaces
 func TestGetCurrentBranch_PathWithSpaces(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/my repo with spaces\n",
@@ -233,7 +221,6 @@ func TestGetCurrentBranch_PathWithSpaces(t *testing.T) {
 	}
 }
 
-// TestErrorMessageSelection tests error message selection logic
 func TestErrorMessageSelection(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -276,7 +263,6 @@ func TestErrorMessageSelection(t *testing.T) {
 	}
 }
 
-// TestConnectionErrorHints tests that connection errors produce helpful hints
 func TestConnectionErrorHints(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -325,7 +311,6 @@ func TestConnectionErrorHints(t *testing.T) {
 	}
 }
 
-// TestQueryErrorHints tests that query errors produce helpful hints
 func TestQueryErrorHints(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -360,7 +345,6 @@ func TestQueryErrorHints(t *testing.T) {
 	}
 }
 
-// TestPrintErrorHint_SentinelErrors tests that errors.Is() works with wrapped sentinel errors
 func TestPrintErrorHint_SentinelErrors(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -444,7 +428,6 @@ type mockClient interface {
 	UnblockBranch(branch string) error
 }
 
-// TestToggleBlockedState_EmptyBranch tests toggleBlockedState with empty branch
 func TestToggleBlockedState_EmptyBranch(t *testing.T) {
 	// Empty branch should return false (show picker)
 	result := toggleBlockedState(nil, "%1", "")
@@ -453,7 +436,6 @@ func TestToggleBlockedState_EmptyBranch(t *testing.T) {
 	}
 }
 
-// TestToggleBlockedState_BranchIsBlocked tests unblocking a blocked branch
 func TestToggleBlockedState_BranchIsBlocked(t *testing.T) {
 	unblockCalled := false
 
@@ -484,7 +466,6 @@ func TestToggleBlockedState_BranchIsBlocked(t *testing.T) {
 	}
 }
 
-// TestToggleBlockedState_BranchNotBlocked tests behavior when branch is not blocked
 func TestToggleBlockedState_BranchNotBlocked(t *testing.T) {
 	unblockCalled := false
 
@@ -509,7 +490,6 @@ func TestToggleBlockedState_BranchNotBlocked(t *testing.T) {
 	}
 }
 
-// TestToggleBlockedState_QueryError tests error handling during query
 func TestToggleBlockedState_QueryError(t *testing.T) {
 	mock := &mockDaemonClient{
 		queryBlockedStateFunc: func(branch string) (string, bool, error) {
@@ -539,7 +519,6 @@ func BenchmarkGetCurrentBranch(b *testing.B) {
 	}
 }
 
-// TestGetCurrentBranch_MultipleRepos tests handling of multiple repos
 func TestGetCurrentBranch_MultipleRepos(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -592,7 +571,6 @@ func TestGetCurrentBranch_MultipleRepos(t *testing.T) {
 	}
 }
 
-// TestRapidToggle_ConcurrentInvocations tests rapid double-invocation of block toggle
 // This validates that concurrent calls (e.g., user double-tapping keybinding) don't cause
 // race conditions or unexpected behavior
 func TestRapidToggle_ConcurrentInvocations(t *testing.T) {

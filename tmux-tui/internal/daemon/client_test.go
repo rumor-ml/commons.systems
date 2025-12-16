@@ -3,8 +3,12 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -2041,4 +2045,167 @@ func TestGapDetection_QueryRace_ConnectionFailure(t *testing.T) {
 	<-serverDone
 
 	t.Logf("Race test passed: query failed gracefully in %v, client disconnected cleanly", queryDuration)
+}
+
+// TestConnect_ErrorClassification tests connection error classification
+func TestConnect_ErrorClassification(t *testing.T) {
+	tests := []struct {
+		name                string
+		setupSocket         func(t *testing.T) string
+		expectedError       error
+		skipIfRoot          bool
+		checkErrorInMessage bool
+	}{
+		{
+			name: "ConnectionFailed_NotASocket",
+			setupSocket: func(t *testing.T) string {
+				tmpFile := filepath.Join(t.TempDir(), "not-a-socket")
+				if err := os.WriteFile(tmpFile, []byte("fake"), 0644); err != nil {
+					t.Fatalf("WriteFile failed: %v", err)
+				}
+				return tmpFile
+			},
+			expectedError: ErrConnectionFailed,
+		},
+		{
+			name: "ConnectionFailed_SocketNotFound",
+			setupSocket: func(t *testing.T) string {
+				return "/tmp/nonexistent-socket-" + t.Name()
+			},
+			expectedError:       ErrConnectionFailed,
+			checkErrorInMessage: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipIfRoot && os.Getuid() == 0 {
+				t.Skip("Skipping permission test when running as root")
+			}
+
+			socketPath := tt.setupSocket(t)
+			client := &DaemonClient{
+				clientID:   "test-client",
+				socketPath: socketPath,
+			}
+
+			err := client.Connect()
+			if err == nil {
+				t.Fatal("Expected connection error")
+			}
+
+			// Check that error is wrapped with expected type
+			if !errors.Is(err, tt.expectedError) {
+				t.Errorf("Expected error type %v, got: %v", tt.expectedError, err)
+			}
+
+			// Verify error message contains socket path
+			if !strings.Contains(err.Error(), socketPath) {
+				t.Errorf("Error should contain socket path, got: %v", err)
+			}
+
+			// For some tests, also check that specific error details are in the message
+			if tt.checkErrorInMessage {
+				errMsg := err.Error()
+				if !strings.Contains(errMsg, "no such file") && !strings.Contains(errMsg, "not found") {
+					t.Logf("Note: Error message doesn't contain 'no such file': %s", errMsg)
+				}
+			}
+		})
+	}
+}
+
+// TestQueryBlockedState_DeadlockDetection tests the critical deadlock detection path
+// when both dataCh and errCh are full
+func TestQueryBlockedState_DeadlockDetection(t *testing.T) {
+	// Setup: Create client with pipes
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer serverWriter.Close()
+	defer serverReader.Close()
+	defer clientWriter.Close()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		queryResponses: make(map[string]*queryResponse),
+		connected:      true,
+	}
+	// Initialize atomic fields (required for receive() to work)
+	client.lastSeq.Store(0)
+	client.syncWarnings.Store(0)
+	client.resyncFailures.Store(0)
+	client.queryChannelFull.Store(0)
+
+	// Create response with unbuffered channels (force deadlock scenario)
+	resp := &queryResponse{
+		dataCh: make(chan Message), // Unbuffered - will block
+		errCh:  make(chan error),   // Unbuffered - will block
+	}
+
+	branch := "test-branch"
+	client.queryMu.Lock()
+	client.queryResponses[branch] = resp
+	client.queryMu.Unlock()
+
+	// Start receive() goroutine
+	receiveExited := make(chan struct{})
+	go func() {
+		client.receive()
+		close(receiveExited)
+	}()
+
+	// Send response that triggers deadlock (without waiting for query)
+	go func() {
+		encoder := json.NewEncoder(serverWriter)
+		// Give receive() time to start
+		time.Sleep(100 * time.Millisecond)
+
+		// Send blocked state response (will trigger deadlock since no one reads from channels)
+		response := Message{
+			Type:          MsgTypeBlockedStateResponse,
+			Branch:        branch,
+			IsBlocked:     true,
+			BlockedBranch: "main",
+		}
+		encoder.Encode(response)
+	}()
+
+	// Verify: receive() exits due to deadlock detection
+	select {
+	case <-receiveExited:
+		// Good - receive() exited
+	case <-time.After(3 * time.Second):
+		t.Fatal("receive() should have exited due to deadlock detection")
+	}
+
+	// Verify client disconnected
+	if client.IsConnected() {
+		t.Error("Client should be disconnected after deadlock detection")
+	}
+
+	// Verify disconnect event sent
+	select {
+	case msg := <-client.eventCh:
+		if msg.Type != "disconnect" {
+			t.Errorf("Expected disconnect event, got: %s", msg.Type)
+		}
+		if !strings.Contains(msg.Error, "deadlock") {
+			t.Errorf("Disconnect error should mention deadlock, got: %s", msg.Error)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Expected disconnect event in eventCh")
+	}
+
+	client.Close()
 }

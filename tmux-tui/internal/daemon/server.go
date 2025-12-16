@@ -28,6 +28,13 @@ type clientConnection struct {
 	encoderMu sync.Mutex
 }
 
+// successfulClient pairs a client ID with its connection for tracking
+// broadcast successes during partial failure scenarios
+type successfulClient struct {
+	id     string
+	client *clientConnection
+}
+
 // sendMessage safely sends a message to the client with mutex protection
 func (c *clientConnection) sendMessage(msg Message) error {
 	c.encoderMu.Lock()
@@ -685,10 +692,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	totalClients := len(d.clients)
 
 	var failedClients []string
-	var successfulClients []struct {
-		id     string
-		client *clientConnection
-	}
+	var successfulClients []successfulClient
 
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
@@ -696,10 +700,10 @@ func (d *AlertDaemon) broadcast(msg Message) {
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
 			d.lastBroadcastError.Store(err.Error())
 		} else {
-			successfulClients = append(successfulClients, struct {
-				id     string
-				client *clientConnection
-			}{clientID, client})
+			successfulClients = append(successfulClients, successfulClient{
+				id:     clientID,
+				client: client,
+			})
 		}
 	}
 	d.clientsMu.RUnlock()

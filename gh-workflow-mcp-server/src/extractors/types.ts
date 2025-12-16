@@ -25,10 +25,23 @@ export interface ExtractedError {
   rawOutput: string[]; // All output lines for this test
 }
 
+/**
+ * Result of extracting test failures from framework output
+ */
 export interface ExtractionResult {
-  framework: TestFramework;
-  errors: ExtractedError[];
-  summary?: string;
+  /** Test framework that produced this output */
+  readonly framework: TestFramework;
+
+  /** Structured error information extracted from test failures */
+  readonly errors: ExtractedError[];
+
+  /** Human-readable summary (e.g., "3 failed, 77 passed") */
+  readonly summary?: string;
+
+  /**
+   * Optional warning message about parse issues
+   * Example: "5 test events failed to parse - check stderr for [ERROR] Go extractor messages"
+   */
   parseWarnings?: string;
 }
 

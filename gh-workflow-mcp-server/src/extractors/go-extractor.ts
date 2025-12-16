@@ -116,6 +116,20 @@ export class GoExtractor implements FrameworkExtractor {
       try {
         const event = JSON.parse(line) as GoTestEvent;
 
+        // Validate this is actually a test event (has required fields)
+        // This fail-fast approach prevents processing invalid JSON that happens to parse
+        if (!('Time' in event && 'Action' in event && 'Package' in event)) {
+          // Valid JSON but not a test event - likely build output JSON
+          if (skippedNonJsonLines < 3) {
+            console.error(
+              `[DEBUG] Go extractor: skipped valid JSON that is not a test event (missing Time/Action/Package fields). ` +
+              `Fields present: ${Object.keys(event).join(', ')}`
+            );
+          }
+          skippedNonJsonLines++;
+          continue;
+        }
+
         // Use a more specific key that includes both package and test
         // This ensures we don't mix up tests from different packages
         const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
@@ -138,28 +152,34 @@ export class GoExtractor implements FrameworkExtractor {
           testResults.set(key, 'pass');
         }
       } catch (error) {
-        // Distinguish test events (which should parse) from build output (which won't)
-        // Test events start with { and contain test-related keywords (Time, Action, Package)
-        // Build output includes: compilation messages, GitHub Actions logs, package downloads, etc.
+        // Failed to parse as JSON - determine if this is unexpected
+        // Expected non-JSON: build output, compilation messages, GitHub Actions logs
+        // Unexpected: malformed test events that contain test-related keywords
         const looksLikeTestEvent =
           line.includes('"Time"') || line.includes('"Action"') || line.includes('"Package"');
 
         if (looksLikeTestEvent) {
-          // Always log test event parse failures - these are unexpected
+          // CRITICAL: Test event JSON that failed to parse - always log prominently
           testEventParseErrors++;
+          const lineSnippet = line.length > 200 ? line.substring(0, 200) + '...' : line;
           console.error(
-            `[ERROR] Go extractor: failed to parse test event JSON: ${error instanceof Error ? error.message : String(error)}`,
-            `Line: ${line.substring(0, 200)}`
+            `[ERROR] Go extractor: failed to parse test event JSON (line starts with '{' and contains test event keywords)\n` +
+            `  Parse error: ${error instanceof Error ? error.message : String(error)}\n` +
+            `  Line content: ${lineSnippet}`
           );
         } else {
-          // Log only first 3 non-test lines to avoid spam from build output
+          // Malformed JSON that doesn't look like a test event
+          // This could be build output, dependency downloads, etc.
           if (skippedNonJsonLines < 3) {
+            const lineSnippet = line.length > 100 ? line.substring(0, 100) + '...' : line;
             console.error(
-              `[DEBUG] Go extractor: skipped non-JSON build output: ${error instanceof Error ? error.message : String(error)}`
+              `[DEBUG] Go extractor: skipped malformed JSON that doesn't appear to be a test event\n` +
+              `  Parse error: ${error instanceof Error ? error.message : String(error)}\n` +
+              `  Line content: ${lineSnippet}`
             );
           }
+          skippedNonJsonLines++;
         }
-        skippedNonJsonLines++;
         continue;
       }
     }
@@ -234,7 +254,7 @@ export class GoExtractor implements FrameworkExtractor {
 
     // Add parse warnings if test event parsing failed
     const parseWarnings = testEventParseErrors > 0
-      ? `${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - see console for details`
+      ? `${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - check stderr for [ERROR] Go extractor messages`
       : undefined;
 
     return {

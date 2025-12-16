@@ -223,9 +223,8 @@ func (c *DaemonClient) receive() {
 						case <-c.done:
 						}
 						return
-					} else {
-						debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 					}
+					debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 				}()
 			}
 			c.lastSeq.Store(msg.SeqNum)
