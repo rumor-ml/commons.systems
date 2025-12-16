@@ -191,6 +191,13 @@ export async function getGhWorkflowClient(): Promise<Client> {
         closeError: closeMsg,
         originalError: errorMsg,
         resourceLeakRisk: 'Socket/process may remain open',
+        serverPath,
+        troubleshooting: {
+          verifyServer: `ls -la ${serverPath}`,
+          findZombies: 'ps aux | grep gh-workflow-mcp-server',
+          killStuck: 'pkill -f gh-workflow-mcp-server',
+          checkLimits: 'ulimit -a'
+        }
       });
 
       throw new Error(

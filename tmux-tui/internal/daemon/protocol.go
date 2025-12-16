@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -107,6 +109,46 @@ type HealthStatus struct {
 	ConnectedClients   int       `json:"connected_clients"`
 	ActiveAlerts       int       `json:"active_alerts"`
 	BlockedBranches    int       `json:"blocked_branches"`
+}
+
+// NewHealthStatus creates a validated HealthStatus with current timestamp.
+// Returns error if any count fields are negative.
+func NewHealthStatus(
+	broadcastFailures int64,
+	lastBroadcastError string,
+	watcherErrors int64,
+	lastWatcherError string,
+	connectedClients int,
+	activeAlerts int,
+	blockedBranches int,
+) (HealthStatus, error) {
+	// Validation: all counts must be non-negative
+	if broadcastFailures < 0 {
+		return HealthStatus{}, fmt.Errorf("broadcastFailures must be non-negative, got %d", broadcastFailures)
+	}
+	if watcherErrors < 0 {
+		return HealthStatus{}, fmt.Errorf("watcherErrors must be non-negative, got %d", watcherErrors)
+	}
+	if connectedClients < 0 {
+		return HealthStatus{}, fmt.Errorf("connectedClients must be non-negative, got %d", connectedClients)
+	}
+	if activeAlerts < 0 {
+		return HealthStatus{}, fmt.Errorf("activeAlerts must be non-negative, got %d", activeAlerts)
+	}
+	if blockedBranches < 0 {
+		return HealthStatus{}, fmt.Errorf("blockedBranches must be non-negative, got %d", blockedBranches)
+	}
+
+	return HealthStatus{
+		Timestamp:          time.Now(),
+		BroadcastFailures:  broadcastFailures,
+		LastBroadcastError: strings.TrimSpace(lastBroadcastError),
+		WatcherErrors:      watcherErrors,
+		LastWatcherError:   strings.TrimSpace(lastWatcherError),
+		ConnectedClients:   connectedClients,
+		ActiveAlerts:       activeAlerts,
+		BlockedBranches:    blockedBranches,
+	}, nil
 }
 
 // ValidateMessage validates that a Message has required fields for its type.

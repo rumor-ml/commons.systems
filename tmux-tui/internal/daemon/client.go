@@ -18,7 +18,7 @@ import (
 const (
 	heartbeatInterval        = 5 * time.Second   // How often to send pings
 	heartbeatTimeout         = 3 * time.Second   // How long to wait for pong response
-	messagePropagationDelay  = 100 * time.Millisecond // Time to wait for daemon to process messages
+	messagePropagationDelay  = 100 * time.Millisecond // Best-effort delay after send (not an ack mechanism)
 )
 
 // DaemonClient represents a client connection to the alert daemon.
@@ -217,9 +217,11 @@ func (c *DaemonClient) receive() {
 						}
 						c.mu.Unlock()
 
-						// Send disconnect event
+						// Send disconnect event with timeout to prevent goroutine leak
 						select {
 						case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync: %v", err)}:
+						case <-time.After(100 * time.Millisecond):
+							debug.Log("CLIENT_RESYNC_DISCONNECT_EVENT_BLOCKED id=%s error=%v", c.clientID, err)
 						case <-c.done:
 						}
 						return
@@ -230,9 +232,9 @@ func (c *DaemonClient) receive() {
 			c.lastSeq.Store(msg.SeqNum)
 		}
 
-		// Route query responses to dedicated channels to prevent race conditions.
-		// Without dedicated channels, responses could be consumed by the general
-		// event loop before QueryBlockedState() returns them to the caller.
+		// Route query responses to dedicated channels to ensure QueryBlockedState() receives them.
+		// Without this routing, responses would be delivered to the general event channel,
+		// requiring the caller to poll Events() instead of receiving a direct return value.
 		if msg.Type == MsgTypeBlockedStateResponse {
 			c.queryMu.Lock()
 			if resp, exists := c.queryResponses[msg.Branch]; exists {
@@ -263,12 +265,16 @@ func (c *DaemonClient) receive() {
 						}
 						c.mu.Unlock()
 
-						// Send disconnect event
+						// Send disconnect event with timeout to prevent goroutine leak
 						select {
 						case c.eventCh <- Message{
 							Type:  "disconnect",
 							Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
 						}:
+						case <-time.After(100 * time.Millisecond):
+							// Fallback: eventCh blocked, log to debug since we can't notify via event channel
+							debug.Log("CLIENT_DISCONNECT_EVENT_BLOCKED id=%s branch=%s - event channel full",
+								c.clientID, msg.Branch)
 						case <-c.done:
 							return
 						}

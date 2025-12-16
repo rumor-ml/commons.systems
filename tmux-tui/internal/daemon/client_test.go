@@ -2031,14 +2031,21 @@ func TestGapDetection_QueryRace_ConnectionFailure(t *testing.T) {
 		t.Errorf("Expected lastSeq=10 after gap detection, got %d", client.lastSeq.Load())
 	}
 
-	// Verify client disconnects cleanly
-	select {
-	case msg := <-client.eventCh:
-		if msg.Type != "disconnect" {
-			t.Errorf("Expected disconnect event, got %s", msg.Type)
+	// Verify client disconnects cleanly - drain event channel to find disconnect event
+	// (alert_change messages sent before disconnect may arrive first)
+	disconnectReceived := false
+	timeout := time.After(1 * time.Second)
+	for !disconnectReceived {
+		select {
+		case msg := <-client.eventCh:
+			if msg.Type == "disconnect" {
+				disconnectReceived = true
+			}
+			// Ignore other messages (alert_change from Phase 1/2)
+		case <-timeout:
+			t.Error("Expected disconnect event after connection failure")
+			disconnectReceived = true // Break loop
 		}
-	case <-time.After(1 * time.Second):
-		t.Error("Expected disconnect event after connection failure")
 	}
 
 	// Wait for server goroutine to complete

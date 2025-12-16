@@ -29,14 +29,6 @@ func printErrorHint(err error) {
 		fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond.")
 	case errors.Is(err, daemon.ErrConnectionFailed):
 		fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
-	default:
-		// Fallback for other errors that may contain timeout/connection in message
-		errStr := err.Error()
-		if strings.Contains(errStr, "timeout") {
-			fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond.")
-		} else if strings.Contains(errStr, "connection") {
-			fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
-		}
 	}
 }
 
@@ -55,6 +47,12 @@ func getCurrentBranch(executor tmux.CommandExecutor, paneID string) (string, err
 	branch := strings.TrimSpace(string(output))
 
 	return branch, nil
+}
+
+// BlockedState represents the result of checking if a branch is blocked
+type BlockedState struct {
+	IsBlocked bool
+	BlockedBy string // Empty if not blocked
 }
 
 // branchBlocker defines the interface needed for toggle operations

@@ -114,8 +114,9 @@ func (d *AlertDaemon) playAlertSound() {
 	lastAudioPlay = now
 
 	// Play sound asynchronously to avoid blocking daemon operations.
-	// The goroutine waits for afplay to complete, preventing process accumulation.
-	// Rate limiting (500ms) ensures we don't spawn processes faster than they terminate.
+	// cmd.Run() blocks the goroutine until afplay exits, cleaning up the process.
+	// Rate limiting (500ms) prevents spawning goroutines faster than afplay can complete
+	// (typical duration ~200ms), avoiding goroutine accumulation and zombie processes.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
 	go func() {
 		debug.Log("AUDIO_PLAYING")
@@ -139,6 +140,7 @@ func (d *AlertDaemon) playAlertSound() {
 				Type:  MsgTypeAudioError,
 				Error: errorMsg,
 			})
+			debug.Log("AUDIO_ERROR_BROADCAST_SENT error=%s", errorMsg)
 		}
 		debug.Log("AUDIO_COMPLETED")
 	}()
