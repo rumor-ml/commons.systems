@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/commons-systems/filesync"
 )
@@ -56,15 +55,7 @@ func (m *StreamMerger) StartProgressForwarder(ctx context.Context, progressCh <-
 				if !ok {
 					return
 				}
-				event := SSEEvent{
-					Type:      EventTypeProgress,
-					Timestamp: time.Now(),
-					Data: ProgressEvent{
-						Operation:  progress.Operation,
-						File:       progress.File,
-						Percentage: progress.Percentage,
-					},
-				}
+				event := NewProgressEvent(progress.Operation, progress.File, progress.Percentage)
 				// Use non-blocking send with done check to prevent panic on closed channel
 				select {
 				case m.eventsCh <- event:
@@ -92,16 +83,7 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 			return
 		}
 
-		event := SSEEvent{
-			Type:      EventTypeSession,
-			Timestamp: time.Now(),
-			Data: SessionEvent{
-				ID:          session.ID,
-				Status:      session.Status,
-				Stats:       session.Stats,
-				CompletedAt: session.CompletedAt,
-			},
-		}
+		event := NewSessionEvent(session)
 		select {
 		case m.eventsCh <- event:
 		case <-m.done:
@@ -109,14 +91,7 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 		}
 
 		// Send action buttons update (separate event, not OOB)
-		actionsEvent := SSEEvent{
-			Type:      EventTypeActions,
-			Timestamp: time.Now(),
-			Data: ActionsEvent{
-				SessionID: session.ID,
-				Stats:     session.Stats,
-			},
-		}
+		actionsEvent := NewActionsEvent(session.ID, session.Stats)
 		select {
 		case m.eventsCh <- actionsEvent:
 		case <-m.done:
@@ -125,14 +100,7 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 
 		// If session is completed or failed, send complete event
 		if session.Status == filesync.SessionStatusCompleted || session.Status == filesync.SessionStatusFailed {
-			completeEvent := SSEEvent{
-				Type:      EventTypeComplete,
-				Timestamp: time.Now(),
-				Data: CompleteEvent{
-					SessionID: session.ID,
-					Status:    session.Status,
-				},
-			}
+			completeEvent := NewCompleteEvent(session.ID, session.Status)
 			select {
 			case m.eventsCh <- completeEvent:
 			case <-m.done:
@@ -171,19 +139,7 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 			return
 		}
 
-		event := SSEEvent{
-			Type:      EventTypeFile,
-			Timestamp: time.Now(),
-			Data: FileEvent{
-				ID:        file.ID,
-				SessionID: file.SessionID,
-				LocalPath: file.LocalPath,
-				Status:    file.Status,
-				Metadata:  file.Metadata,
-				Error:     file.Error,
-				IsUpdate:  true, // Subscription update - will use OOB swap
-			},
-		}
+		event := NewFileEvent(file, true) // true = isUpdate for subscription updates
 		select {
 		case m.eventsCh <- event:
 		case <-m.done:
