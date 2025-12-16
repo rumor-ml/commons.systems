@@ -65,17 +65,19 @@ const (
 
 // Message represents a message exchanged between daemon and clients
 type Message struct {
-	Type         string            `json:"type"`
-	ClientID     string            `json:"client_id,omitempty"`
-	SeqNum       uint64            `json:"seq_num,omitempty"`        // Sequence number for ordering/gap detection
-	Alerts       map[string]string `json:"alerts,omitempty"`         // Full alert state (for full_state messages)
-	PaneID       string            `json:"pane_id,omitempty"`        // For alert_change and block messages
-	EventType    string            `json:"event_type,omitempty"`     // For alert_change messages
-	Created      bool              `json:"created,omitempty"`        // For alert_change messages
-	ActivePaneID string            `json:"active_pane_id,omitempty"` // For pane_focus messages
+	Type            string            `json:"type"`
+	ClientID        string            `json:"client_id,omitempty"`
+	SeqNum          uint64            `json:"seq_num,omitempty"`           // Sequence number for ordering/gap detection
+	OriginalMsgType string            `json:"original_msg_type,omitempty"` // For sync_warning messages - indicates which message type failed (e.g., "full_state" means full_state broadcast failed to sync)
+	Alerts          map[string]string `json:"alerts,omitempty"`            // Full alert state (for full_state messages)
+	PaneID          string            `json:"pane_id,omitempty"`           // For alert_change and block messages
+	EventType       string            `json:"event_type,omitempty"`        // For alert_change messages
+	Created         bool              `json:"created,omitempty"`           // For alert_change messages
+	ActivePaneID    string            `json:"active_pane_id,omitempty"`    // For pane_focus messages
 	// BlockedPanes maps paneID to the branch it's blocked on (inverse of BlockedBranches)
 	// DEPRECATED: Use BlockedBranches (branch -> blockedByBranch) instead
-	// STATUS: Never implemented in daemon, retained only for JSON backward compatibility
+	// STATUS: Deprecated and never populated by daemon (always nil/empty)
+	// CLIENTS: Safe to ignore - no client code should read this field
 	// REMOVAL: Can be safely removed in next major version when breaking protocol changes are acceptable
 	// Example: {"pane-1": "main"} means pane-1 is blocked on branch main
 	// This is the INVERSE of BlockedBranches which maps blocked branch -> blocking branch
@@ -177,21 +179,36 @@ func (h HealthStatus) BlockedBranches() int { return h.blockedBranches }
 
 // BlockedState represents the result of checking if a branch is blocked
 type BlockedState struct {
-	IsBlocked bool
-	BlockedBy string // Empty if not blocked
+	isBlocked bool
+	blockedBy string // Empty if not blocked
 }
 
+// IsBlocked returns whether the branch is blocked
+func (b BlockedState) IsBlocked() bool { return b.isBlocked }
+
+// BlockedBy returns the branch that is blocking (empty if not blocked)
+func (b BlockedState) BlockedBy() string { return b.blockedBy }
+
 // NewBlockedState creates a validated BlockedState.
-// Returns error if BlockedBy is provided when IsBlocked is false.
+// Returns error if:
+//   - IsBlocked is false but BlockedBy is provided (non-empty after trimming)
+//   - IsBlocked is true but BlockedBy is empty (empty after trimming whitespace)
 func NewBlockedState(isBlocked bool, blockedBy string) (BlockedState, error) {
+	blockedBy = strings.TrimSpace(blockedBy)
+
 	// Validation: BlockedBy must be empty when not blocked
 	if !isBlocked && blockedBy != "" {
-		return BlockedState{}, fmt.Errorf("blockedBy must be empty when isBlocked is false, got %q", blockedBy)
+		return BlockedState{}, fmt.Errorf("blockedBy must be empty when not blocked, got %q", blockedBy)
+	}
+
+	// Validation: BlockedBy must be specified when blocked
+	if isBlocked && blockedBy == "" {
+		return BlockedState{}, fmt.Errorf("blockedBy must be specified when blocked")
 	}
 
 	return BlockedState{
-		IsBlocked: isBlocked,
-		BlockedBy: blockedBy,
+		isBlocked: isBlocked,
+		blockedBy: blockedBy,
 	}, nil
 }
 

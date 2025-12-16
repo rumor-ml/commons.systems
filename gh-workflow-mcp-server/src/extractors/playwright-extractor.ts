@@ -8,7 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
-import { validateExtractedError } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 interface PlaywrightJsonReport {
   config?: any; // Config object (optional, may not be present in all reports)
@@ -160,6 +160,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     let globalSetupComplete = false;
     let webServerCommand: string | undefined;
     let timeGap: number | null | undefined;
+    let setupTimestamp: string | undefined;
+    let configTimestamp: string | undefined;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -185,15 +187,15 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           const setupTimeMatch = setupMatch.match(/(\d{2}:\d{2}:\d{2})/);
           const configTimeMatch = line.match(/(\d{2}:\d{2}:\d{2})/);
           if (setupTimeMatch && configTimeMatch) {
-            const setupTime = setupTimeMatch[1];
-            const configTime = configTimeMatch[1];
-            timeGap = this.parseTimeDiff(setupTime, configTime);
-            // parseTimeDiff returns null on parse errors (invalid format, NaN values, unexpected errors)
-            // This is expected in edge cases where timestamp extraction from logs is unreliable
-            // We continue timeout analysis without time gap information rather than failing
-            if (timeGap === null) {
+            setupTimestamp = setupTimeMatch[1];
+            configTimestamp = configTimeMatch[1];
+            const timeResult = this.parseTimeDiff(setupTimestamp, configTimestamp);
+            timeGap = timeResult.seconds;
+
+            // Store diagnostic for inclusion in error message if parsing failed
+            if (timeResult.seconds === null && timeResult.diagnostic) {
               console.error(
-                `[WARN] parsePlaywrightTimeout: parseTimeDiff returned null for timestamps "${setupTime}" and "${configTime}". Unable to calculate time gap for timeout analysis. Continuing without time gap information.`
+                `[WARN] parsePlaywrightTimeout: ${timeResult.diagnostic}. Continuing without time gap information.`
               );
             }
           }
@@ -211,6 +213,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (timeGap !== null && timeGap !== undefined && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
+    } else if (timeGap === null && setupTimestamp && configTimestamp) {
+      // Include diagnostic info if timestamp parsing failed
+      message += `\n\nTimestamp diagnostic: Unable to calculate time gap. `;
+      message += `Setup time: ${setupTimestamp}, Config time: ${configTimestamp}. `;
+      message += `This may indicate log format changes or timestamp extraction issues. `;
     }
 
     message +=
@@ -230,33 +237,70 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += `\n\nwebServer command: ${webServerCommand}`;
     }
 
-    try {
-      const error = validateExtractedError({
+    const validationTracker = new ValidationErrorTracker();
+    const validatedError = safeValidateExtractedError(
+      {
         message,
         failureType: 'timeout',
         rawOutput: lines.slice(-50), // Include last 50 lines for context
-      });
+      },
+      'timeout error',
+      validationTracker
+    );
 
+    if (validatedError) {
       return {
         framework: 'playwright',
-        errors: [error],
-        summary: 'Playwright timeout (no tests executed)',
-      };
-    } catch (e) {
-      // Log validation error but don't fail the entire extraction
-      console.error(`[WARN] Playwright extractor (timeout): Validation failed for extracted error: ${e}`);
-      // Return fallback error without validation
-      return {
-        framework: 'playwright',
-        errors: [
-          {
-            message: 'Playwright timeout - see logs for details',
-            rawOutput: lines.slice(-50),
-          },
-        ],
+        errors: [validatedError],
         summary: 'Playwright timeout (no tests executed)',
       };
     }
+
+    // Fallback if validation failed
+    return {
+      framework: 'playwright',
+      errors: [
+        {
+          message: 'Playwright timeout - see logs for details',
+          rawOutput: lines.slice(-50),
+        },
+      ],
+      summary: 'Playwright timeout (no tests executed)',
+    };
+  }
+
+  /**
+   * Parse a single HH:MM:SS timestamp string into seconds
+   *
+   * @param timestamp - Timestamp string in HH:MM:SS format
+   * @param label - Descriptive label for error messages (e.g., "time1", "time2")
+   * @returns Seconds since midnight, or null if parsing fails
+   *
+   * @example
+   * parseTimestamp("12:30:45", "time1") // returns 45045
+   * parseTimestamp("invalid", "time1")  // returns null (logs warning)
+   */
+  private parseTimestamp(timestamp: string, label: string): number | null {
+    // Validate format is HH:MM:SS
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(timestamp)) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} has invalid format "${timestamp}" (expected HH:MM:SS)`
+      );
+      return null;
+    }
+
+    // Parse without try-catch - let unexpected errors propagate
+    const [h, m, s] = timestamp.split(':').map(Number);
+
+    // Check for NaN values (expected error - malformed input)
+    if (isNaN(h) || isNaN(m) || isNaN(s)) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} "${timestamp}" contains non-numeric values (h=${h}, m=${m}, s=${s})`
+      );
+      return null;
+    }
+
+    return h * 3600 + m * 60 + s;
   }
 
   /**
@@ -265,61 +309,48 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * Extracts timestamps from GitHub Actions logs to calculate time gaps
    * (e.g., between global setup completion and test execution timeout).
    *
-   * FALLBACK STRATEGY:
-   * - Returns null on any parse error instead of throwing
+   * FAILURE HANDLING:
+   * - Returns structured result with optional diagnostic on failure
    * - Logs warnings for invalid formats or NaN values
-   * - Caller should handle null gracefully (e.g., skip time gap message)
+   * - Caller conditionally includes diagnostic in error messages when available
    *
-   * NULL RETURN CASES:
+   * FAILURE CASES:
    * - Invalid format (not HH:MM:SS)
    * - NaN after parsing (e.g., "12:AB:34")
    * - Unexpected parsing errors
    *
    * @param time1 - First timestamp in HH:MM:SS format
    * @param time2 - Second timestamp in HH:MM:SS format
-   * @returns Absolute difference in seconds, or null if parsing fails
+   * @returns Object with seconds (or null on failure) and optional diagnostic
    *
    * @example
-   * parseTimeDiff("12:30:00", "12:35:30") // returns 330 (5 minutes 30 seconds)
-   * parseTimeDiff("invalid", "12:30:00")  // returns null (logs warning)
+   * parseTimeDiff("12:30:00", "12:35:30") // returns { seconds: 330 }
+   * parseTimeDiff("invalid", "12:30:00")  // returns { seconds: null, diagnostic: "..." }
    */
-  private parseTimeDiff(time1: string, time2: string): number | null {
-    const parse = (t: string): number | null => {
-      try {
-        // Validate format is HH:MM:SS
-        if (!/^\d{2}:\d{2}:\d{2}$/.test(t)) {
-          console.error(
-            `[WARN] parseTimeDiff: invalid time format "${t}", expected HH:MM:SS. Returning null.`
-          );
-          return null;
-        }
+  private parseTimeDiff(time1: string, time2: string): {
+    seconds: number | null;
+    diagnostic?: string;
+  } {
+    const errors: string[] = [];
 
-        const [h, m, s] = t.split(':').map(Number);
-
-        // Check for NaN values
-        if (isNaN(h) || isNaN(m) || isNaN(s)) {
-          console.error(
-            `[WARN] parseTimeDiff: failed to parse numbers from "${t}" (h=${h}, m=${m}, s=${s}). Returning null.`
-          );
-          return null;
-        }
-
-        return h * 3600 + m * 60 + s;
-      } catch (error) {
-        console.error(
-          `[ERROR] parseTimeDiff: unexpected error parsing "${t}": ${error instanceof Error ? error.message : String(error)}. Returning null.`
-        );
-        return null;
-      }
-    };
-    const seconds1 = parse(time1);
-    const seconds2 = parse(time2);
-
-    if (seconds1 === null || seconds2 === null) {
-      return null;
+    const seconds1 = this.parseTimestamp(time1, 'time1');
+    if (seconds1 === null) {
+      errors.push(`time1 "${time1}" failed to parse`);
     }
 
-    return Math.abs(seconds2 - seconds1);
+    const seconds2 = this.parseTimestamp(time2, 'time2');
+    if (seconds2 === null) {
+      errors.push(`time2 "${time2}" failed to parse`);
+    }
+
+    if (seconds1 === null || seconds2 === null) {
+      return {
+        seconds: null,
+        diagnostic: `Failed to parse timestamps: ${errors.join('; ')}`,
+      };
+    }
+
+    return { seconds: Math.abs(seconds2 - seconds1) };
   }
 
   /**
@@ -336,7 +367,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     try {
       // Extract JSON from logs - it may be embedded within other output
@@ -362,9 +393,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                     rawOutput.push('Test failed');
                   }
 
-                  try {
-                    const extractedError = validateExtractedError({
-                      testName: `[${test.projectName}] ${spec.title}`,
+                  const testName = `[${test.projectName}] ${spec.title}`;
+                  const validatedError = safeValidateExtractedError(
+                    {
+                      testName,
                       fileName: suite.file,
                       lineNumber: suite.line,
                       columnNumber: suite.column > 0 ? suite.column : undefined, // Schema requires positive integers
@@ -374,13 +406,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                       duration: result.duration,
                       failureType: result.status,
                       rawOutput,
-                    });
-                    failures.push(extractedError);
-                  } catch (e) {
-                    // Track validation errors for parseWarnings
-                    validationErrors++;
-                    console.error(`[WARN] Playwright extractor (JSON): Validation failed for extracted error: ${e}`);
-                    console.error(`[DEBUG] Test: [${test.projectName}] ${spec.title}, file: ${suite.file}`);
+                    },
+                    testName,
+                    validationTracker
+                  );
+
+                  if (validatedError) {
+                    failures.push(validatedError);
                   }
                 }
               }
@@ -420,9 +452,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       const summary =
         totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
 
-      const parseWarnings = validationErrors > 0
-        ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Playwright extractor messages`
-        : undefined;
+      const parseWarnings = validationTracker.getSummaryWarning();
 
       return {
         framework: 'playwright',
@@ -452,30 +482,33 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         );
       }
 
-      try {
-        const error = validateExtractedError({
+      const validationTracker = new ValidationErrorTracker();
+      const validatedError = safeValidateExtractedError(
+        {
           message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
           rawOutput: [logText.substring(0, 500)],
-        });
+        },
+        'JSON parse error',
+        validationTracker
+      );
 
+      if (validatedError) {
         return {
           framework: 'playwright',
-          errors: [error],
-        };
-      } catch (e) {
-        // Log validation error but don't fail the entire extraction
-        console.error(`[WARN] Playwright extractor (JSON parse error): Validation failed for extracted error: ${e}`);
-        // Return fallback error without validation
-        return {
-          framework: 'playwright',
-          errors: [
-            {
-              message: 'Failed to parse Playwright JSON report - see logs for details',
-              rawOutput: ['See stderr for parsing errors'],
-            },
-          ],
+          errors: [validatedError],
         };
       }
+
+      // Fallback if validation failed
+      return {
+        framework: 'playwright',
+        errors: [
+          {
+            message: 'Failed to parse Playwright JSON report - see logs for details',
+            rawOutput: ['See stderr for parsing errors'],
+          },
+        ],
+      };
     }
   }
 
@@ -484,7 +517,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // Pattern: [✘✗] 1 [chromium] › file.spec.ts:123 › Test Name (100ms)
     const failPattern =
@@ -526,29 +559,28 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           rawOutput.push(`Test failed: ${testName}`);
         }
 
-        try {
-          const error = validateExtractedError({
-            testName: `[${projectName}] ${testName}`,
+        const fullTestName = `[${projectName}] ${testName}`;
+        const validatedError = safeValidateExtractedError(
+          {
+            testName: fullTestName,
             fileName,
             lineNumber,
             message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
             duration,
             rawOutput,
-          });
-          failures.push(error);
+          },
+          fullTestName,
+          validationTracker
+        );
+
+        if (validatedError) {
+          failures.push(validatedError);
           failed++;
-        } catch (e) {
-          // Track validation errors for parseWarnings
-          validationErrors++;
-          console.error(`[WARN] Playwright extractor (text): Validation failed for extracted error: ${e}`);
-          console.error(`[DEBUG] Test: [${projectName}] ${testName}, file: ${fileName}`);
         }
       }
     }
 
-    const parseWarnings = validationErrors > 0
-      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Playwright extractor messages`
-      : undefined;
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'playwright',

@@ -114,8 +114,9 @@ func (d *AlertDaemon) playAlertSound() {
 	lastAudioPlay = now
 
 	// Play sound asynchronously to avoid blocking daemon operations.
-	// Rate limiting (500ms above) prevents spawning goroutines faster than afplay can
-	// complete (~200ms typical), avoiding goroutine accumulation and zombie processes.
+	// Rate limiting (500ms above) reduces but does not eliminate goroutine accumulation
+	// during rapid alert bursts. Each goroutine blocks until afplay completes (~200ms typical).
+	// Accumulation is mitigated by rate limiting but not prevented entirely.
 	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
 	go func() {
@@ -739,9 +740,14 @@ func (d *AlertDaemon) broadcast(msg Message) {
 		// Notify successful clients that some peers missed the update
 		// This is informational - clients can decide how to handle it
 		syncWarning := Message{
-			Type:   MsgTypeSyncWarning,
-			SeqNum: msg.SeqNum,
-			Error:  fmt.Sprintf("%d of %d clients failed to receive update", len(failedClients), totalClients),
+			Type:            MsgTypeSyncWarning,
+			SeqNum:          msg.SeqNum,
+			OriginalMsgType: msg.Type,
+			Error: fmt.Sprintf(
+				"%d of %d clients failed to receive %s update (seq %d). "+
+					"Affected clients disconnected and will resync on reconnect.",
+				len(failedClients), totalClients, msg.Type, msg.SeqNum,
+			),
 		}
 		for _, sc := range successfulClients {
 			if err := sc.client.sendMessage(syncWarning); err != nil {

@@ -76,12 +76,12 @@ func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 		return false
 	}
 
-	if !state.IsBlocked {
+	if !state.IsBlocked() {
 		return false // Not blocked, show picker
 	}
 
 	// Branch is blocked - unblock it
-	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, state.BlockedBy)
+	debug.Log("BLOCK_CLI_UNBLOCK paneID=%s branch=%s blockedBy=%s", paneID, branch, state.BlockedBy())
 	if err := client.UnblockBranch(branch); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to unblock branch: %v\n", err)
 		printErrorHint(err)

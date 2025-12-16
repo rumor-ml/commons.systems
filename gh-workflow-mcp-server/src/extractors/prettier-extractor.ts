@@ -16,7 +16,7 @@ import type {
   DetectionResult,
   ExtractedError,
 } from './types.js';
-import { validateExtractedError } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 export class PrettierExtractor implements FrameworkExtractor {
   readonly name = 'unknown' as const; // Still 'unknown' since it's not a test framework
@@ -41,7 +41,7 @@ export class PrettierExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n').map((line) => this.stripTimestamp(line));
     const errors: ExtractedError[] = [];
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // Find files with formatting issues
     let currentFile: string | null = null;
@@ -56,18 +56,17 @@ export class PrettierExtractor implements FrameworkExtractor {
       if (fileMatch) {
         // Save previous file's diff if any
         if (currentFile && currentDiff.length > 0) {
-          try {
-            const error = validateExtractedError({
+          const validatedError = safeValidateExtractedError(
+            {
               fileName: currentFile,
               message: `Formatting issues in ${currentFile}`,
               rawOutput: currentDiff,
-            });
-            errors.push(error);
-          } catch (e) {
-            // Track validation errors for parseWarnings
-            validationErrors++;
-            console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
-            console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+            },
+            currentFile,
+            validationTracker
+          );
+          if (validatedError) {
+            errors.push(validatedError);
           }
         }
 
@@ -96,18 +95,17 @@ export class PrettierExtractor implements FrameworkExtractor {
       // Detect "Code style issues found" summary
       if (line.match(/Code style issues found|Forgot to run Prettier/i)) {
         if (currentFile && currentDiff.length > 0) {
-          try {
-            const error = validateExtractedError({
+          const validatedError = safeValidateExtractedError(
+            {
               fileName: currentFile,
               message: `Formatting issues in ${currentFile}`,
               rawOutput: currentDiff,
-            });
-            errors.push(error);
-          } catch (e) {
-            // Track validation errors for parseWarnings
-            validationErrors++;
-            console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
-            console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+            },
+            currentFile,
+            validationTracker
+          );
+          if (validatedError) {
+            errors.push(validatedError);
           }
           currentFile = null;
           currentDiff = [];
@@ -117,60 +115,53 @@ export class PrettierExtractor implements FrameworkExtractor {
 
     // Don't forget last file
     if (currentFile && currentDiff.length > 0) {
-      try {
-        const error = validateExtractedError({
+      const validatedError = safeValidateExtractedError(
+        {
           fileName: currentFile,
           message: `Formatting issues in ${currentFile}`,
           rawOutput: currentDiff,
-        });
-        errors.push(error);
-      } catch (e) {
-        // Track validation errors for parseWarnings
-        validationErrors++;
-        console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
-        console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+        },
+        currentFile,
+        validationTracker
+      );
+      if (validatedError) {
+        errors.push(validatedError);
       }
     }
 
     // If no specific files found but we detected prettier, return the whole log
     if (errors.length === 0 && this.detect(logText)?.confidence === 'high') {
-      try {
-        const error = validateExtractedError({
+      const validatedError = safeValidateExtractedError(
+        {
           message: 'Prettier formatting check failed',
           rawOutput: lines.slice(-100), // Last 100 lines as fallback
-        });
-        const parseWarnings = validationErrors > 0
-          ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
-          : undefined;
+        },
+        'fallback',
+        validationTracker
+      );
+
+      if (validatedError) {
         return {
           framework: 'unknown',
-          errors: [error],
-          parseWarnings,
-        };
-      } catch (e) {
-        // Track validation errors for parseWarnings
-        validationErrors++;
-        console.error(`[WARN] Prettier extractor (fallback): Validation failed for extracted error: ${e}`);
-        // Return fallback error without validation
-        const parseWarnings = validationErrors > 0
-          ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
-          : undefined;
-        return {
-          framework: 'unknown',
-          errors: [
-            {
-              message: 'Prettier formatting check failed - see logs for details',
-              rawOutput: lines.slice(-100),
-            },
-          ],
-          parseWarnings,
+          errors: [validatedError],
+          parseWarnings: validationTracker.getSummaryWarning(),
         };
       }
+
+      // Fallback if validation failed
+      return {
+        framework: 'unknown',
+        errors: [
+          {
+            message: 'Prettier formatting check failed - see logs for details',
+            rawOutput: lines.slice(-100),
+          },
+        ],
+        parseWarnings: validationTracker.getSummaryWarning(),
+      };
     }
 
-    const parseWarnings = validationErrors > 0
-      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Prettier extractor messages`
-      : undefined;
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'unknown',

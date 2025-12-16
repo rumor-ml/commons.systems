@@ -8,7 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
-import { validateExtractedError } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 export class TapExtractor implements FrameworkExtractor {
   readonly name = 'tap' as const;
@@ -58,7 +58,7 @@ export class TapExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n');
     const failures: ExtractedError[] = [];
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // TAP failure line format:
     // not ok N - test name
@@ -171,8 +171,8 @@ export class TapExtractor implements FrameworkExtractor {
           }
         }
 
-        try {
-          const error = validateExtractedError({
+        const validatedError = safeValidateExtractedError(
+          {
             testName,
             fileName,
             lineNumber,
@@ -183,13 +183,13 @@ export class TapExtractor implements FrameworkExtractor {
             failureType,
             errorCode,
             rawOutput,
-          });
-          failures.push(error);
-        } catch (e) {
-          // Track validation errors for parseWarnings
-          validationErrors++;
-          console.error(`[WARN] TAP extractor: Validation failed for extracted error: ${e}`);
-          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
+          },
+          testName,
+          validationTracker
+        );
+
+        if (validatedError) {
+          failures.push(validatedError);
         }
 
         if (failures.length >= maxErrors) break;
@@ -225,9 +225,7 @@ export class TapExtractor implements FrameworkExtractor {
       summary = `${failed} failed`;
     }
 
-    const parseWarnings = validationErrors > 0
-      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] TAP extractor messages`
-      : undefined;
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'tap',

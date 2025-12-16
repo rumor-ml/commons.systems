@@ -65,6 +65,101 @@ export function validateExtractedError(data: unknown): ValidatedExtractedError {
 }
 
 /**
+ * Type guard to check if an error is a Zod validation error
+ */
+export function isZodError(error: unknown): error is z.ZodError {
+  return error instanceof z.ZodError;
+}
+
+/**
+ * Format a Zod validation error into a human-readable string
+ *
+ * @param error - Zod error to format
+ * @returns Formatted error message with field paths and issues
+ */
+export function formatValidationError(error: z.ZodError): string {
+  const issues = error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join('.') : 'root';
+    return `${path}: ${issue.message}`;
+  });
+  return issues.join('; ');
+}
+
+/**
+ * Track validation failures across extraction process
+ *
+ * Distinguishes expected validation errors (malformed test output)
+ * from unexpected errors (bugs in extraction code).
+ */
+export class ValidationErrorTracker {
+  private validationFailures = 0;
+  private warnings: string[] = [];
+
+  /**
+   * Record a validation failure
+   * @param context - Context about what failed (e.g., "test #5", "Go test event")
+   * @param error - The Zod validation error
+   */
+  recordValidationFailure(context: string, error: z.ZodError): void {
+    this.validationFailures++;
+    const formatted = formatValidationError(error);
+    this.warnings.push(`${context}: ${formatted}`);
+  }
+
+  /**
+   * Get count of validation failures
+   */
+  getFailureCount(): number {
+    return this.validationFailures;
+  }
+
+  /**
+   * Generate summary warning message for parse warnings
+   * Returns undefined if no failures
+   */
+  getSummaryWarning(): string | undefined {
+    if (this.validationFailures === 0) {
+      return undefined;
+    }
+    return `${this.validationFailures} test events failed validation - malformed output detected`;
+  }
+
+  /**
+   * Get detailed warnings for debugging
+   */
+  getDetailedWarnings(): string[] {
+    return [...this.warnings];
+  }
+}
+
+/**
+ * Safe wrapper for validateExtractedError that distinguishes error types
+ *
+ * @param data - Data to validate
+ * @param context - Context for error messages (e.g., "test #5")
+ * @param tracker - ValidationErrorTracker to record failures
+ * @returns Validated error or null if validation failed
+ * @throws Non-Zod errors (bugs in extraction code)
+ */
+export function safeValidateExtractedError(
+  data: unknown,
+  context: string,
+  tracker: ValidationErrorTracker
+): ValidatedExtractedError | null {
+  try {
+    return validateExtractedError(data);
+  } catch (error) {
+    if (isZodError(error)) {
+      // Expected validation error - malformed test output
+      tracker.recordValidationFailure(context, error);
+      return null;
+    }
+    // Unexpected error - bug in extraction code, let it propagate
+    throw error;
+  }
+}
+
+/**
  * Result of extracting test failures from framework output
  */
 export interface ExtractionResult {

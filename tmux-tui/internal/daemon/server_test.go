@@ -210,6 +210,221 @@ func TestSaveBlockedBranches_EmptyMap(t *testing.T) {
 	}
 }
 
+// TestRevertBlockedBranchChange_MultiClientConsistency tests that when persistence fails
+// and a revert occurs, clients connecting DURING the revert window receive consistent state.
+// This is a critical edge case where:
+// 1. Client1 and Client2 connected, both see successful block change
+// 2. Persistence fails, daemon reverts in-memory state
+// 3. Client3 connects DURING revert window
+// 4. All clients must end up with the same (reverted) state
+func TestRevertBlockedBranchChange_MultiClientConsistency(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("Skipping permission test when running as root")
+	}
+
+	tmpDir := t.TempDir()
+	readonlyDir := filepath.Join(tmpDir, "readonly-dir")
+	blockedPath := filepath.Join(readonlyDir, "blocked-branches.json")
+
+	// Create readonly directory to force persistence failure
+	if err := os.Mkdir(readonlyDir, 0555); err != nil {
+		t.Fatalf("Failed to create readonly dir: %v", err)
+	}
+	defer os.Chmod(readonlyDir, 0755) // Cleanup
+
+	// Create daemon with initial state: feature-1 blocked by main
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+		blockedBranches: map[string]string{
+			"feature-1": "main",
+		},
+		blockedPath: blockedPath,
+	}
+	daemon.lastBroadcastError.Store("")
+	daemon.broadcastFailures.Store(0)
+
+	// Create Client1
+	client1Reader, server1Writer := io.Pipe()
+	server1Reader, client1Writer := io.Pipe()
+	defer client1Reader.Close()
+	defer client1Writer.Close()
+	defer server1Reader.Close()
+	defer server1Writer.Close()
+
+	client1Conn := &mockConn{
+		reader: server1Reader,
+		writer: server1Writer,
+	}
+
+	// Start handleClient for Client1
+	go daemon.handleClient(client1Conn)
+
+	// Client1: Send hello
+	enc1 := json.NewEncoder(client1Writer)
+	if err := enc1.Encode(Message{Type: MsgTypeHello, ClientID: "client-1"}); err != nil {
+		t.Fatalf("Failed to send hello from client1: %v", err)
+	}
+
+	// Client1: Read full state
+	dec1 := json.NewDecoder(client1Reader)
+	var fullState1 Message
+	if err := dec1.Decode(&fullState1); err != nil {
+		t.Fatalf("Failed to receive full state for client1: %v", err)
+	}
+
+	// Verify initial state: feature-1 blocked by main
+	if fullState1.BlockedBranches["feature-1"] != "main" {
+		t.Fatalf("Expected initial state: feature-1 blocked by main, got %s",
+			fullState1.BlockedBranches["feature-1"])
+	}
+
+	// Create Client2
+	client2Reader, server2Writer := io.Pipe()
+	server2Reader, client2Writer := io.Pipe()
+	defer client2Reader.Close()
+	defer client2Writer.Close()
+	defer server2Reader.Close()
+	defer server2Writer.Close()
+
+	client2Conn := &mockConn{
+		reader: server2Reader,
+		writer: server2Writer,
+	}
+
+	// Start handleClient for Client2
+	go daemon.handleClient(client2Conn)
+
+	// Client2: Send hello
+	enc2 := json.NewEncoder(client2Writer)
+	if err := enc2.Encode(Message{Type: MsgTypeHello, ClientID: "client-2"}); err != nil {
+		t.Fatalf("Failed to send hello from client2: %v", err)
+	}
+
+	// Client2: Read full state
+	dec2 := json.NewDecoder(client2Reader)
+	var fullState2 Message
+	if err := dec2.Decode(&fullState2); err != nil {
+		t.Fatalf("Failed to receive full state for client2: %v", err)
+	}
+
+	// Start goroutines to collect broadcasts
+	client1Msgs := make(chan Message, 10)
+	client2Msgs := make(chan Message, 10)
+
+	go func() {
+		for {
+			var msg Message
+			if err := dec1.Decode(&msg); err != nil {
+				return
+			}
+			client1Msgs <- msg
+		}
+	}()
+
+	go func() {
+		for {
+			var msg Message
+			if err := dec2.Decode(&msg); err != nil {
+				return
+			}
+			client2Msgs <- msg
+		}
+	}()
+
+	// Client1: Attempt to change block from main to develop (will fail to persist)
+	blockMsg := Message{
+		Type:          MsgTypeBlockBranch,
+		Branch:        "feature-1",
+		BlockedBranch: "develop",
+	}
+	if err := enc1.Encode(blockMsg); err != nil {
+		t.Fatalf("Failed to send block message: %v", err)
+	}
+
+	// Wait briefly for persistence failure and revert to process
+	time.Sleep(100 * time.Millisecond)
+
+	// NOW: Connect Client3 DURING revert window
+	client3Reader, server3Writer := io.Pipe()
+	server3Reader, client3Writer := io.Pipe()
+	defer client3Reader.Close()
+	defer client3Writer.Close()
+	defer server3Reader.Close()
+	defer server3Writer.Close()
+
+	client3Conn := &mockConn{
+		reader: server3Reader,
+		writer: server3Writer,
+	}
+
+	// Start handleClient for Client3
+	go daemon.handleClient(client3Conn)
+
+	// Client3: Send hello
+	enc3 := json.NewEncoder(client3Writer)
+	if err := enc3.Encode(Message{Type: MsgTypeHello, ClientID: "client-3"}); err != nil {
+		t.Fatalf("Failed to send hello from client3: %v", err)
+	}
+
+	// Client3: Read full state
+	dec3 := json.NewDecoder(client3Reader)
+	var fullState3 Message
+	if err := dec3.Decode(&fullState3); err != nil {
+		t.Fatalf("Failed to receive full state for client3: %v", err)
+	}
+
+	// CRITICAL: Client3 should receive REVERTED state (feature-1 blocked by main)
+	// Not the temporary "successful" state (feature-1 blocked by develop)
+	if fullState3.BlockedBranches["feature-1"] != "main" {
+		t.Errorf("CONSISTENCY VIOLATION: Client3 received stale state. "+
+			"Expected feature-1 blocked by main (reverted), got %s",
+			fullState3.BlockedBranches["feature-1"])
+	}
+
+	// Verify all clients eventually see consistent state
+	// Allow time for broadcasts to propagate
+	time.Sleep(200 * time.Millisecond)
+
+	// Drain and verify Client1 and Client2 received revert notifications
+	client1SawRevert := false
+	client2SawRevert := false
+
+drainLoop:
+	for {
+		select {
+		case msg := <-client1Msgs:
+			if msg.Type == MsgTypeBlockChange && msg.Branch == "feature-1" && msg.BlockedBranch == "main" {
+				client1SawRevert = true
+			}
+		case msg := <-client2Msgs:
+			if msg.Type == MsgTypeBlockChange && msg.Branch == "feature-1" && msg.BlockedBranch == "main" {
+				client2SawRevert = true
+			}
+		case <-time.After(100 * time.Millisecond):
+			break drainLoop
+		}
+	}
+
+	if !client1SawRevert {
+		t.Error("Client1 did not receive revert notification (BlockChange to main)")
+	}
+	if !client2SawRevert {
+		t.Error("Client2 did not receive revert notification (BlockChange to main)")
+	}
+
+	// Final check: All clients consistent
+	daemon.blockedMu.RLock()
+	finalState := daemon.blockedBranches["feature-1"]
+	daemon.blockedMu.RUnlock()
+
+	if finalState != "main" {
+		t.Errorf("Final daemon state inconsistent: expected feature-1 blocked by main, got %s", finalState)
+	}
+
+	t.Logf("✓ All clients eventually consistent after persistence failure and revert")
+}
+
 // TestLoadSaveRoundtrip tests that data survives load->save->load cycle
 func TestLoadSaveRoundtrip(t *testing.T) {
 	tmpDir := t.TempDir()

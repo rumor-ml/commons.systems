@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -643,16 +644,119 @@ func TestNewBlockedState_Invalid(t *testing.T) {
 			blockedBy:   "",
 			expectedErr: "blockedBy must be specified when blocked",
 		},
+		{
+			name:        "Blocked but blockedBy is whitespace only",
+			isBlocked:   true,
+			blockedBy:   "   \t\n   ",
+			expectedErr: "blockedBy must be specified when blocked",
+		},
+		{
+			name:        "Not blocked with whitespace-only blockedBy",
+			isBlocked:   false,
+			blockedBy:   "  \t  ",
+			expectedErr: "", // Should succeed after trimming
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewBlockedState(tt.isBlocked, tt.blockedBy)
-			if err == nil {
-				t.Errorf("NewBlockedState() did not return error for invalid input")
-			} else if err.Error() != tt.expectedErr {
-				t.Errorf("NewBlockedState() returned wrong error:\nGot:  %q\nWant: %q", err.Error(), tt.expectedErr)
+			if tt.expectedErr == "" {
+				// Expect success
+				if err != nil {
+					t.Errorf("NewBlockedState() returned unexpected error: %v", err)
+				}
+			} else {
+				// Expect failure
+				if err == nil {
+					t.Errorf("NewBlockedState() did not return error for invalid input")
+				} else if err.Error() != tt.expectedErr {
+					t.Errorf("NewBlockedState() returned wrong error:\nGot:  %q\nWant: %q", err.Error(), tt.expectedErr)
+				}
 			}
 		})
 	}
+}
+
+// TestNewBlockedState_BoundaryConditions tests NewBlockedState with edge cases
+func TestNewBlockedState_BoundaryConditions(t *testing.T) {
+	tests := []struct {
+		name      string
+		isBlocked bool
+		blockedBy string
+		wantErr   bool
+	}{
+		{
+			name:      "Very long branch name (1000 chars)",
+			isBlocked: true,
+			blockedBy: string(make([]byte, 1000)),
+			wantErr:   false,
+		},
+		{
+			name:      "Branch name with special characters",
+			isBlocked: true,
+			blockedBy: "feature/JIRA-123_update-api",
+			wantErr:   false,
+		},
+		{
+			name:      "Branch name with unicode",
+			isBlocked: true,
+			blockedBy: "feature-测试-branch",
+			wantErr:   false,
+		},
+		{
+			name:      "Branch name with spaces",
+			isBlocked: true,
+			blockedBy: "feature branch",
+			wantErr:   false,
+		},
+		{
+			name:      "Leading/trailing whitespace gets trimmed",
+			isBlocked: true,
+			blockedBy: "  main  ",
+			wantErr:   false,
+		},
+		{
+			name:      "Not blocked with leading/trailing whitespace",
+			isBlocked: false,
+			blockedBy: "  \t  ",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, err := NewBlockedState(tt.isBlocked, tt.blockedBy)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+
+				// Verify state is accessible
+				if state.IsBlocked() != tt.isBlocked {
+					t.Errorf("IsBlocked = %v, want %v", state.IsBlocked(), tt.isBlocked)
+				}
+
+				// Verify trimming occurred
+				expected := ""
+				if tt.isBlocked {
+					expected = tt.blockedBy
+				}
+				expected = trimString(expected)
+				if state.BlockedBy() != expected {
+					t.Errorf("BlockedBy = %q, want %q", state.BlockedBy(), expected)
+				}
+			}
+		})
+	}
+}
+
+// trimString replicates the trimming behavior in NewBlockedState
+func trimString(s string) string {
+	// Trim spaces, tabs, and newlines
+	return strings.TrimSpace(s)
 }

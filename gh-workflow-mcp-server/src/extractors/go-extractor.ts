@@ -8,7 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
-import { validateExtractedError } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 interface GoTestEvent {
   Time: string;
@@ -109,7 +109,7 @@ export class GoExtractor implements FrameworkExtractor {
     const testDurations = new Map<string, number>();
     let skippedNonJsonLines = 0;
     let testEventParseErrors = 0;
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     for (const rawLine of lines) {
       const line = this.stripTimestamp(rawLine);
@@ -240,8 +240,8 @@ export class GoExtractor implements FrameworkExtractor {
           ? outputs.map((line) => line.trimEnd())
           : [`Test failed: ${testName}`];
 
-        try {
-          const error = validateExtractedError({
+        const validatedError = safeValidateExtractedError(
+          {
             testName,
             fileName,
             lineNumber,
@@ -249,13 +249,13 @@ export class GoExtractor implements FrameworkExtractor {
             stack,
             duration: testDurations.get(key),
             rawOutput,
-          });
-          failures.push(error);
-        } catch (e) {
-          // Track validation errors for parseWarnings
-          validationErrors++;
-          console.error(`[WARN] Go extractor: Validation failed for extracted error: ${e}`);
-          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
+          },
+          `test ${testName}`,
+          validationTracker
+        );
+
+        if (validatedError) {
+          failures.push(validatedError);
         }
       }
     }
@@ -270,8 +270,9 @@ export class GoExtractor implements FrameworkExtractor {
     if (testEventParseErrors > 0) {
       warnings.push(`${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - check stderr for [ERROR] Go extractor messages`);
     }
-    if (validationErrors > 0) {
-      warnings.push(`${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Go extractor messages`);
+    const validationWarning = validationTracker.getSummaryWarning();
+    if (validationWarning) {
+      warnings.push(validationWarning);
     }
     const parseWarnings = warnings.length > 0 ? warnings.join('; ') : undefined;
 
@@ -288,7 +289,7 @@ export class GoExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
-    let validationErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // Pattern: --- FAIL: TestName (0.01s)
     const failPattern = /^---\s*FAIL:\s+(\w+)\s+\((\d+(?:\.\d+)?)s\)/;
@@ -330,29 +331,27 @@ export class GoExtractor implements FrameworkExtractor {
           rawOutput.push(`Test failed: ${testName}`);
         }
 
-        try {
-          const error = validateExtractedError({
+        const validatedError = safeValidateExtractedError(
+          {
             testName,
             fileName,
             lineNumber,
             message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
             duration,
             rawOutput,
-          });
-          failures.push(error);
+          },
+          `test ${testName}`,
+          validationTracker
+        );
+
+        if (validatedError) {
+          failures.push(validatedError);
           failed++;
-        } catch (e) {
-          // Track validation errors for parseWarnings
-          validationErrors++;
-          console.error(`[WARN] Go extractor (text): Validation failed for extracted error: ${e}`);
-          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
         }
       }
     }
 
-    const parseWarnings = validationErrors > 0
-      ? `${validationErrors} extracted error${validationErrors > 1 ? 's' : ''} failed validation - check stderr for [WARN] Go extractor messages`
-      : undefined;
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'go',
