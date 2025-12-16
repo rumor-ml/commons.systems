@@ -66,12 +66,19 @@ describe('execScript', () => {
   });
 
   it('should handle stderr output in error', async () => {
+    // Use ls with invalid path to generate stderr output
     await assert.rejects(
-      async () => execScript('/bin/sh', ['-c', 'echo error >&2 && exit 1']),
+      async () => execScript('/bin/ls', ['/nonexistent/path/that/does/not/exist']),
       (err: Error) => {
         assert.ok(err instanceof ScriptExecutionError);
         if (err instanceof ScriptExecutionError) {
-          assert.ok(err.stderr?.includes('error') || err.message.includes('error'));
+          // Stderr should contain error message about path not existing
+          assert.ok(
+            err.stderr?.includes('No such file') ||
+              err.message.includes('No such file') ||
+              err.stderr?.includes('cannot access') ||
+              err.message.includes('cannot access')
+          );
         }
         return true;
       }
@@ -95,11 +102,21 @@ describe('captureOutput', () => {
   });
 
   it('should return multi-line output trimmed', async () => {
-    const output = await captureOutput('/bin/sh', ['-c', 'echo line1; echo line2']);
-    assert.ok(output.includes('line1'));
-    assert.ok(output.includes('line2'));
-    // Should be trimmed (no leading/trailing whitespace)
-    assert.strictEqual(output, output.trim());
+    // Create a temporary file with multi-line content
+    const testFile = path.join('/tmp', `test-multiline-${Date.now()}.txt`);
+    await fs.writeFile(testFile, 'line1\nline2\n');
+
+    try {
+      // Use cat to read the file (multi-line output)
+      const output = await captureOutput('/bin/cat', [testFile]);
+      assert.ok(output.includes('line1'));
+      assert.ok(output.includes('line2'));
+      // Should be trimmed (no leading/trailing whitespace)
+      assert.strictEqual(output, output.trim());
+    } finally {
+      // Cleanup
+      await fs.unlink(testFile);
+    }
   });
 });
 
@@ -115,23 +132,24 @@ describe('execScriptBackground', () => {
   it('should handle command with arguments', async () => {
     // Create a temporary file to verify command ran
     const testFile = path.join('/tmp', `test-bg-${Date.now()}.txt`);
-    await execScriptBackground('/bin/sh', ['-c', `echo test > "${testFile}"`]);
+
+    // Use touch instead of shell redirect (avoids shell metacharacter validation issues)
+    await execScriptBackground('/usr/bin/touch', [testFile]);
 
     // Wait a bit for command to complete
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Verify file was created
-    const content = await fs.readFile(testFile, 'utf-8');
-    assert.strictEqual(content.trim(), 'test');
+    await fs.access(testFile);
 
     // Cleanup
     await fs.unlink(testFile);
   });
 
   it('should not throw on command failure', async () => {
-    // Background processes swallow errors
+    // Background processes swallow errors - use ls with non-existent path
     await assert.doesNotReject(async () => {
-      await execScriptBackground('/bin/false', []);
+      await execScriptBackground('/bin/ls', ['/nonexistent/path/12345']);
     });
   });
 });

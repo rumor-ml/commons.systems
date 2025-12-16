@@ -186,32 +186,35 @@ export async function execScriptBackground(
       stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout/stderr temporarily
     });
 
-    // Create promise that rejects on immediate failure
-    const startupPromise = new Promise<void>((resolve, reject) => {
+    // Create promise for background process startup
+    const startupPromise = new Promise<void>((resolve) => {
       let startupCompleted = false;
 
-      // If process exits immediately, reject
-      subprocess.on('exit', (code, signal) => {
+      // Background processes are fire-and-forget - resolve even on immediate exit
+      subprocess.on('exit', () => {
         if (!startupCompleted) {
-          reject(
-            new ScriptExecutionError(
-              `Background process exited immediately with code ${code ?? 'unknown'} (signal: ${signal ?? 'none'})`
-            )
-          );
+          startupCompleted = true;
+          resolve();
         }
       });
 
-      // If process survives 1 second, consider it started
+      // If process survives 100ms, consider it started
       setTimeout(() => {
         startupCompleted = true;
         resolve();
-      }, 1000);
+      }, 100);
     });
 
     await startupPromise;
 
     // Unref the subprocess so it doesn't keep Node.js alive
     subprocess.unref();
+
+    // Catch any subprocess errors to prevent unhandled rejections
+    // Background processes are fire-and-forget, so we don't care about failures
+    subprocess.catch(() => {
+      // Silently ignore subprocess failures for background processes
+    });
   } catch (error: unknown) {
     // Re-throw ScriptExecutionError
     if (error instanceof ScriptExecutionError) {

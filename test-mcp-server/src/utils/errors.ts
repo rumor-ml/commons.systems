@@ -8,11 +8,11 @@ import {
   TimeoutError,
   ValidationError,
   formatError,
-  isTerminalError,
+  isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
 
 // Re-export common errors for convenience
-export { McpError, TimeoutError, ValidationError, formatError, isTerminalError };
+export { McpError, TimeoutError, ValidationError, formatError };
 
 // Test-specific error classes
 export class ScriptExecutionError extends McpError {
@@ -42,6 +42,26 @@ export class TestOutputParseError extends McpError {
     super(message, 'TEST_OUTPUT_PARSE_ERROR');
     this.name = 'TestOutputParseError';
   }
+}
+
+/**
+ * Check if an error is terminal (should stop retrying)
+ *
+ * Extends the base isTerminalError from mcp-common to handle test-specific errors:
+ * - ScriptExecutionError with non-zero exit code: terminal
+ * - Other errors: delegate to base implementation
+ *
+ * @param error - The error to check
+ * @returns true if the error is terminal
+ */
+export function isTerminalError(error: unknown): boolean {
+  // ScriptExecutionError with non-zero exit code is terminal
+  if (error instanceof ScriptExecutionError) {
+    return error.exitCode !== undefined && error.exitCode !== 0;
+  }
+
+  // Delegate to base implementation for other errors
+  return baseIsTerminalError(error);
 }
 
 /**

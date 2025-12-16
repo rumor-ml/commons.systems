@@ -4,27 +4,29 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm, mkdir, access } from 'fs/promises';
+import { mkdtemp, writeFile, rm, access } from 'fs/promises';
 import path from 'path';
 import { cleanupOrphans } from './cleanup-orphans.js';
 
 describe('Cleanup Orphans - Stale PID Files', () => {
   let testDir: string;
+  let testDirs: string[] = [];
 
   beforeEach(async () => {
     testDir = await mkdtemp(path.join('/tmp/claude', 'cleanup-test-'));
+    testDirs = [];
   });
 
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true });
+    for (const dir of testDirs) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('should detect stale PID file when process not running', async () => {
-    const worktreeDir = path.join(testDir, 'worktree1');
-    await mkdir(worktreeDir, { recursive: true });
-
-    // Create PID file with non-existent PID
-    await writeFile(path.join(worktreeDir, 'firebase-emulators.pid'), '99999');
+    // Create PID file with non-existent PID directly in testDir (2 levels deep)
+    await writeFile(path.join(testDir, 'firebase-emulators.pid'), '99999');
 
     const result = await cleanupOrphans({ dry_run: true, force: true });
 
@@ -34,10 +36,7 @@ describe('Cleanup Orphans - Stale PID Files', () => {
   });
 
   it('should remove stale PID file in non-dry-run mode', async () => {
-    const worktreeDir = path.join(testDir, 'worktree1');
-    await mkdir(worktreeDir, { recursive: true });
-
-    const pidFile = path.join(worktreeDir, 'firebase-emulators.pid');
+    const pidFile = path.join(testDir, 'firebase-emulators.pid');
     await writeFile(pidFile, '99999');
 
     await cleanupOrphans({ dry_run: false, force: true });
@@ -53,10 +52,10 @@ describe('Cleanup Orphans - Stale PID Files', () => {
   });
 
   it('should handle multiple stale PID files', async () => {
-    const worktree1 = path.join(testDir, 'worktree1');
-    const worktree2 = path.join(testDir, 'worktree2');
-    await mkdir(worktree1, { recursive: true });
-    await mkdir(worktree2, { recursive: true });
+    // Create two separate temp directories (like production)
+    const worktree1 = await mkdtemp(path.join('/tmp/claude', 'cleanup-test-'));
+    const worktree2 = await mkdtemp(path.join('/tmp/claude', 'cleanup-test-'));
+    testDirs.push(worktree1, worktree2);
 
     await writeFile(path.join(worktree1, 'firebase-emulators.pid'), '99999');
     await writeFile(path.join(worktree2, 'firebase-emulators.pid'), '99998');
@@ -78,12 +77,9 @@ describe('Cleanup Orphans - Stale PID Files', () => {
   });
 
   it('should clean up associated files (log, firebase.json)', async () => {
-    const worktreeDir = path.join(testDir, 'worktree1');
-    await mkdir(worktreeDir, { recursive: true });
-
-    const pidFile = path.join(worktreeDir, 'firebase-emulators.pid');
-    const logFile = path.join(worktreeDir, 'firebase-emulators.log');
-    const firebaseJson = path.join(worktreeDir, 'firebase.json');
+    const pidFile = path.join(testDir, 'firebase-emulators.pid');
+    const logFile = path.join(testDir, 'firebase-emulators.log');
+    const firebaseJson = path.join(testDir, 'firebase.json');
 
     await writeFile(pidFile, '99999');
     await writeFile(logFile, 'log content');
