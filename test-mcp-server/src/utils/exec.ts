@@ -40,11 +40,25 @@ export interface BackgroundProcess {
  * @throws {Error} If argument contains unsafe shell metacharacters
  */
 export function validateShellArg(arg: string): void {
+  // Check for newlines first
+  if (arg.includes('\n') || arg.includes('\r')) {
+    throw new Error(
+      `Shell injection risk: Argument contains newline characters\n\n` +
+      `Argument: ${JSON.stringify(arg)}\n\n` +
+      `Newlines can split commands and execute arbitrary code:\n` +
+      `  Example: "file.txt\\nrm -rf /" becomes two commands\n\n` +
+      `Solutions:\n` +
+      `  1. Strip newlines before passing: arg.replace(/[\\r\\n]/g, '')\n` +
+      `  2. Pass data via stdin instead of command line arguments\n` +
+      `  3. Use array-based execution without shell: true`
+    );
+  }
+
   const unsafeChars = /[`|;&<>(){}[\]\\!]/;
   if (unsafeChars.test(arg)) {
     throw new Error(
       `Shell injection risk detected in argument: "${arg}"\n\n` +
-      `Rejected characters: \` | ; & < > ( ) { } [ ] \\ !\n\n` +
+      `Rejected characters: \` | ; & < > ( ) { } [ ] \\ ! \\n \\r\n\n` +
       `These metacharacters can execute arbitrary commands when passed to shell:\n` +
       `  Example: "file.txt; rm -rf /" could delete your entire filesystem\n\n` +
       `Solutions:\n` +
@@ -249,18 +263,32 @@ export async function execScriptBackground(
       }, 100);
     });
 
-    // Catch any subprocess errors to prevent unhandled rejections and track them
+    // Track subprocess errors for diagnostics and caller visibility
+    // Note: This handler continues tracking errors even after startup succeeds
     subprocess.catch((error) => {
       processError = error instanceof Error ? error : new Error(String(error));
-      // Log background process failures for diagnostics
+
+      // Log background process failures with actionable context
       const errorDetails = {
         script: scriptPath,
         args,
         timestamp: new Date().toISOString(),
         error: processError.message,
         exitCode: error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
+        stack: processError.stack,
       };
-      console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails));
+
+      console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails, null, 2));
+
+      // Emit error to stderr for visibility in logs and monitoring systems
+      console.error(`\n[BACKGROUND PROCESS FAILURE]`);
+      console.error(`Script: ${scriptPath}`);
+      console.error(`Arguments: ${args.join(' ') || '(none)'}`);
+      console.error(`Error: ${processError.message}`);
+      if (errorDetails.exitCode !== undefined) {
+        console.error(`Exit Code: ${errorDetails.exitCode}`);
+      }
+      console.error(`Timestamp: ${errorDetails.timestamp}\n`);
     });
 
     await startupPromise;
@@ -275,21 +303,38 @@ export async function execScriptBackground(
       );
     }
 
-    // Verify process is still running
+    // Verify process is still running after startup delay
+    // Note: We don't throw if the process isn't running, as background processes
+    // may legitimately exit quickly. Errors are tracked via getError() instead.
     try {
       const checkResult = await execaCommand(`ps -p ${subprocess.pid}`, { reject: false });
-      if (checkResult.exitCode !== 0) {
-        throw new ScriptExecutionError(
-          `Background script exited immediately after startup. Check logs for details.`,
-          undefined,
-          'Process terminated during startup'
+
+      if (checkResult.exitCode === 0) {
+        // Process is running - success
+      } else if (checkResult.exitCode === 1) {
+        // Exit code 1: process not found
+        // This is normal for background processes that complete quickly or fail
+        // Errors are available via getError() if needed
+      } else {
+        // Unexpected exit code from ps command - system issue
+        console.error(
+          `[exec] Unexpected ps exit code ${checkResult.exitCode} when checking PID ${subprocess.pid}\n` +
+          `stderr: ${checkResult.stderr || '(none)'}`
         );
       }
-    } catch {
-      throw new ScriptExecutionError(
-        `Background script exited immediately after startup. Check logs for details.`,
-        undefined,
-        'Process terminated during startup'
+    } catch (error) {
+      // System-level errors (EPERM, EACCES, etc.) checking process status
+      // Log but don't throw - background processes should not fail on status checks
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = error && typeof error === 'object' && 'code' in error
+        ? String((error as any).code)
+        : 'UNKNOWN';
+
+      console.error(
+        `[exec] System error checking background process status\n` +
+        `Error: ${errorMessage}\n` +
+        `Error Code: ${errorCode}\n` +
+        `PID: ${subprocess.pid}`
       );
     }
 

@@ -14,7 +14,7 @@
  * is either false or undefined to distinguish from error results.
  */
 export interface ToolSuccess {
-  readonly content: ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
   readonly isError?: false; // Discriminant should be immutable
   readonly _meta?: Readonly<{ [key: string]: unknown }>;
   [key: string]: unknown; // MCP SDK compatibility
@@ -27,7 +27,7 @@ export interface ToolSuccess {
  * must be true, and _meta must include errorType for error categorization.
  */
 export interface ToolError {
-  readonly content: ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
   readonly isError: true; // Required discriminant - should be immutable
   readonly _meta: Readonly<{
     // Required for errors
@@ -108,9 +108,6 @@ export function createToolSuccess(
   text: string,
   meta?: Record<string, unknown>
 ): ToolSuccess {
-  if (text.length === 0) {
-    throw new Error("Tool result text cannot be empty");
-  }
   return {
     content: [{ type: 'text', text }] as const,
     isError: false as const,
@@ -139,6 +136,9 @@ export function createToolError(
   errorCode?: string,
   meta?: Record<string, unknown>
 ): ToolError {
+  if (!errorType || errorType.trim().length === 0) {
+    throw new Error("errorType is required and cannot be empty");
+  }
   return {
     content: [{ type: 'text', text }],
     isError: true,

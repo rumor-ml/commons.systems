@@ -171,6 +171,11 @@ describe('Edge cases', () => {
     assert.equal(result._meta.errorType, 'EmptyError');
   });
 
+  it('should throw when errorType is empty', () => {
+    assert.throws(() => createToolError('error', ''), /errorType is required/);
+    assert.throws(() => createToolError('error', '  '), /errorType is required/);
+  });
+
   it('handles empty metadata object', () => {
     const result = createToolSuccess('Test', {});
     assert.deepEqual(result._meta, {});

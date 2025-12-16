@@ -50,7 +50,7 @@ function parsePortAllocation(stdout: string): PortAllocation[] {
         allocations.push({
           service: serviceName,
           port: createPort(port),
-          in_use: false, // Will check this next
+          inUse: false, // Will check this next
         });
       }
     }
@@ -85,8 +85,8 @@ function formatPortAllocation(allocations: PortAllocation[]): string {
   lines.push('');
 
   // Group by status
-  const inUse = allocations.filter((a) => a.in_use);
-  const available = allocations.filter((a) => !a.in_use);
+  const inUse = allocations.filter((a) => a.inUse);
+  const available = allocations.filter((a) => !a.inUse);
 
   if (inUse.length > 0) {
     lines.push('In Use:');
@@ -134,7 +134,7 @@ export async function getPortAllocation(args: GetPortAllocationArgs): Promise<To
     // Check which ports are actually in use
     await Promise.all(
       allocations.map(async (alloc) => {
-        alloc.in_use = await isPortInUse(alloc.port);
+        alloc.inUse = await isPortInUse(alloc.port);
       })
     );
 
@@ -156,7 +156,7 @@ export async function getPortAllocation(args: GetPortAllocationArgs): Promise<To
       _meta: {
         allocations,
         total_ports: allocations.length,
-        in_use_count: allocations.filter((a) => a.in_use).length,
+        in_use_count: allocations.filter((a) => a.inUse).length,
       },
     };
   } catch (error) {

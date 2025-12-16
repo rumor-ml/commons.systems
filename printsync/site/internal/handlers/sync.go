@@ -167,14 +167,14 @@ func (h *SyncHandlers) StartSync(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ERROR: Result channel closed unexpectedly for session %s without sending result", sessionID)
 
 			// Update session to failed state
-			session, err := h.sessionStore.Get(r.Context(), sessionID)
+			session, err := h.sessionStore.Get(context.Background(), sessionID)
 			if err != nil {
 				log.Printf("ERROR: Failed to retrieve session %s for cleanup: %v", sessionID, err)
 			} else {
 				now := time.Now()
 				session.Status = filesync.SessionStatusFailed
 				session.CompletedAt = &now
-				if updateErr := h.sessionStore.Update(r.Context(), session); updateErr != nil {
+				if updateErr := h.sessionStore.Update(context.Background(), session); updateErr != nil {
 					log.Printf("ERROR: Failed to update session %s to failed state: %v", sessionID, updateErr)
 				}
 			}

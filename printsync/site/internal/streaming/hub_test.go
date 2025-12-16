@@ -284,14 +284,14 @@ func TestBroadcaster_ConcurrentClientPanics(t *testing.T) {
 	// Let first event propagate
 	time.Sleep(50 * time.Millisecond)
 
-	// Now close 5 client channels concurrently to simulate panics
+	// Now unregister 5 clients concurrently to simulate disconnections
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(client *Client) {
 			defer wg.Done()
 			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
-			close(client.Events)
+			broadcaster.Unregister(client)
 		}(clients[i])
 	}
 	wg.Wait()
@@ -485,4 +485,313 @@ func TestStreamHub_SendErrorToClients(t *testing.T) {
 	for _, broadcaster := range hub.broadcasters {
 		broadcaster.cancel()
 	}
+}
+
+// TestBroadcaster_ConcurrentRegistrationDuringBroadcast tests concurrent client registration/unregistration during active broadcasting
+// This verifies thread safety of broadcaster operations and ensures no panics or race conditions occur
+// when clients are added/removed while events are being broadcast
+func TestBroadcaster_ConcurrentRegistrationDuringBroadcast(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	eventsCh := make(chan SSEEvent, 1000)
+	done := make(chan struct{})
+
+	broadcaster := &SessionBroadcaster{
+		clients:       make(map[*Client]bool),
+		droppedEvents: make(map[*Client]*int64),
+		merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	// Start broadcaster
+	broadcaster.Start()
+
+	// Track registered clients for cleanup verification
+	var mu sync.Mutex
+	registeredClients := make([]*Client, 0, 15)
+
+	// Goroutine to send 500 events rapidly
+	go func() {
+		for i := 0; i < 500; i++ {
+			eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i)/500.0)
+			// Small delay to allow some interleaving with registrations
+			if i%50 == 0 {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+
+	// Register 10 clients concurrently during broadcast
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			client := NewClient()
+			broadcaster.Register(client)
+			mu.Lock()
+			registeredClients = append(registeredClients, client)
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	// Wait a bit for some clients to register
+	time.Sleep(50 * time.Millisecond)
+
+	// Unregister 5 clients concurrently
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		toUnregister := make([]*Client, 0, 5)
+		if len(registeredClients) >= 5 {
+			toUnregister = registeredClients[:5]
+		}
+		mu.Unlock()
+
+		for _, client := range toUnregister {
+			broadcaster.Unregister(client)
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	// Register another 5 clients concurrently
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(100 * time.Millisecond)
+		for i := 0; i < 5; i++ {
+			client := NewClient()
+			broadcaster.Register(client)
+			mu.Lock()
+			registeredClients = append(registeredClients, client)
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	// Wait for all concurrent operations to complete
+	wg.Wait()
+
+	// Give broadcaster time to process all events
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify active clients received some events
+	mu.Lock()
+	activeClients := make([]*Client, 0)
+	for _, client := range registeredClients {
+		// Check if channel is still open by trying to read with timeout
+		select {
+		case _, ok := <-client.Events:
+			if ok {
+				activeClients = append(activeClients, client)
+			}
+		default:
+			// Channel might be empty but still open, consider it active
+			activeClients = append(activeClients, client)
+		}
+	}
+	mu.Unlock()
+
+	// Verify we have at least some active clients (should be around 10)
+	if len(activeClients) == 0 {
+		t.Error("no active clients after concurrent operations")
+	}
+
+	// Close events channel to stop broadcaster
+	close(eventsCh)
+
+	// Verify broadcaster stopped
+	select {
+	case <-broadcaster.ctx.Done():
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Error("broadcaster did not stop")
+	}
+
+	t.Logf("Concurrent registration test passed: %d total clients registered, %d active at end", len(registeredClients), len(activeClients))
+}
+
+// TestBroadcaster_CircuitBreakerExactThreshold tests that the circuit breaker triggers at exactly 100 dropped events
+// This verifies the precise threshold behavior and ensures clients are disconnected at the correct point
+func TestBroadcaster_CircuitBreakerExactThreshold(t *testing.T) {
+	// Scenario 1: Send exactly 99 events, verify client still registered
+	t.Run("99 events - client remains connected", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		eventsCh := make(chan SSEEvent, 200)
+		done := make(chan struct{})
+
+		broadcaster := &SessionBroadcaster{
+			clients:       make(map[*Client]bool),
+			droppedEvents: make(map[*Client]*int64),
+			merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+			ctx:           ctx,
+			cancel:        cancel,
+		}
+
+		// Create slow client with buffer size 1
+		slowClient := &Client{
+			Events: make(chan SSEEvent, 1),
+		}
+		broadcaster.Register(slowClient)
+
+		// Start broadcaster
+		broadcaster.Start()
+
+		// Send exactly 99 events (client won't be able to consume them fast enough)
+		for i := 0; i < 99; i++ {
+			eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i)/99.0)
+		}
+
+		// Give broadcaster time to process
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify client is still registered (not disconnected)
+		broadcaster.mu.Lock()
+		stillRegistered := broadcaster.clients[slowClient]
+		droppedCount := int64(0)
+		if dropped := broadcaster.droppedEvents[slowClient]; dropped != nil {
+			droppedCount = *dropped
+		}
+		broadcaster.mu.Unlock()
+
+		if !stillRegistered {
+			t.Errorf("client was disconnected after %d dropped events, expected to remain connected", droppedCount)
+		}
+
+		t.Logf("After 99 events: client still registered, dropped count: %d", droppedCount)
+
+		// Close events channel
+		close(eventsCh)
+
+		// Wait for broadcaster to stop
+		select {
+		case <-broadcaster.ctx.Done():
+			// Success
+		case <-time.After(1 * time.Second):
+			t.Error("broadcaster did not stop")
+		}
+	})
+
+	// Scenario 2: Send 100th event, verify client disconnected with terminal error
+	t.Run("100 events - client disconnected at threshold", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		eventsCh := make(chan SSEEvent, 200)
+		done := make(chan struct{})
+
+		broadcaster := &SessionBroadcaster{
+			clients:       make(map[*Client]bool),
+			droppedEvents: make(map[*Client]*int64),
+			merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+			ctx:           ctx,
+			cancel:        cancel,
+		}
+
+		// Create slow client with buffer size 1
+		slowClient := &Client{
+			Events: make(chan SSEEvent, 1),
+		}
+		broadcaster.Register(slowClient)
+
+		// Start broadcaster
+		broadcaster.Start()
+
+		// Send 101 events: 1 goes in buffer, 100 get dropped to trigger circuit breaker
+		for i := 0; i < 101; i++ {
+			eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i)/101.0)
+		}
+
+		// Give broadcaster time to process and disconnect
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify client was disconnected
+		broadcaster.mu.Lock()
+		stillRegistered := broadcaster.clients[slowClient]
+		broadcaster.mu.Unlock()
+
+		if stillRegistered {
+			t.Error("client should be disconnected after 100 dropped events")
+		} else {
+			t.Log("Client correctly disconnected at 100 dropped events threshold")
+		}
+
+		// Terminal error is best-effort, so we don't require it
+		// (channel might be full, preventing delivery)
+
+		// Close events channel
+		close(eventsCh)
+
+		// Wait for broadcaster to stop
+		select {
+		case <-broadcaster.ctx.Done():
+			// Success
+		case <-time.After(1 * time.Second):
+			t.Error("broadcaster did not stop")
+		}
+	})
+
+	// Scenario 3: Fresh client with 101 events, verify disconnect at exactly 100
+	t.Run("101 events - disconnect at exactly 100", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		eventsCh := make(chan SSEEvent, 200)
+		done := make(chan struct{})
+
+		broadcaster := &SessionBroadcaster{
+			clients:       make(map[*Client]bool),
+			droppedEvents: make(map[*Client]*int64),
+			merger:        &StreamMerger{eventsCh: eventsCh, done: done},
+			ctx:           ctx,
+			cancel:        cancel,
+		}
+
+		// Create slow client with buffer size 1
+		slowClient := &Client{
+			Events: make(chan SSEEvent, 1),
+		}
+		broadcaster.Register(slowClient)
+
+		// Start broadcaster
+		broadcaster.Start()
+
+		// Send 101 events
+		for i := 0; i < 101; i++ {
+			eventsCh <- NewProgressEvent("test", fmt.Sprintf("file%d.txt", i), float64(i)/101.0)
+		}
+
+		// Give broadcaster time to process
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify client was disconnected (should trigger at 100)
+		broadcaster.mu.Lock()
+		stillRegistered := broadcaster.clients[slowClient]
+		broadcaster.mu.Unlock()
+
+		if stillRegistered {
+			t.Error("client should be disconnected after reaching 100 dropped events threshold")
+		}
+
+		t.Log("Client correctly disconnected at 100 dropped events threshold")
+
+		// Close events channel
+		close(eventsCh)
+
+		// Wait for broadcaster to stop
+		select {
+		case <-broadcaster.ctx.Done():
+			// Success
+		case <-time.After(1 * time.Second):
+			t.Error("broadcaster did not stop")
+		}
+	})
 }

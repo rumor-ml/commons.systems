@@ -24,7 +24,7 @@ interface RecentTestResult {
   module: string;
   timestamp: Date;
   status: 'passed' | 'failed';
-  duration_ms?: number;
+  durationMs?: number;
 }
 
 /**
@@ -91,7 +91,7 @@ async function getRecentTestResults(root: string): Promise<RecentTestResult[]> {
             module: entry.name,
             timestamp: stat.mtime,
             status: data.status || 'passed',
-            duration_ms: data.duration_ms,
+            durationMs: data.duration_ms,
           });
         } catch {
           // Ignore directories without result.json
@@ -134,7 +134,7 @@ function formatStatus(processes: TestProcessInfo[], recentResults: RecentTestRes
     lines.push('Recent Test Results:');
     recentResults.slice(0, 10).forEach((result) => {
       const status = result.status === 'passed' ? '✓' : '✗';
-      const duration = result.duration_ms ? ` (${(result.duration_ms / 1000).toFixed(1)}s)` : '';
+      const duration = result.durationMs ? ` (${(result.durationMs / 1000).toFixed(1)}s)` : '';
       const age = new Date().getTime() - result.timestamp.getTime();
       const ageStr = formatAge(age);
 

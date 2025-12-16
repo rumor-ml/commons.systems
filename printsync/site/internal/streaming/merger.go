@@ -117,9 +117,10 @@ func (m *StreamMerger) StartSessionSubscription(ctx context.Context, sessionID s
 
 		// Deduplicate error events
 		m.mu.Lock()
-		if m.sessionSubErr != nil {
+		errMsg := err.Error()
+		if m.sessionSubErr != nil && m.sessionSubErr.Error() == errMsg {
 			m.mu.Unlock()
-			return // Already sent error for this subscription
+			return // Already sent this exact error
 		}
 		m.sessionSubErr = err
 		m.mu.Unlock()
@@ -164,9 +165,10 @@ func (m *StreamMerger) StartFileSubscription(ctx context.Context, sessionID stri
 
 		// Deduplicate error events
 		m.mu.Lock()
-		if m.fileSubErr != nil {
+		errMsg := err.Error()
+		if m.fileSubErr != nil && m.fileSubErr.Error() == errMsg {
 			m.mu.Unlock()
-			return // Already sent error for this subscription
+			return // Already sent this exact error
 		}
 		m.fileSubErr = err
 		m.mu.Unlock()

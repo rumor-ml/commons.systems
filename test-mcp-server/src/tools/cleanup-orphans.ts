@@ -9,6 +9,31 @@ import { execaCommand } from 'execa';
 import fs from 'fs/promises';
 import path from 'path';
 
+/**
+ * Classify filesystem errors by severity
+ *
+ * @param errorCode - Node.js error code (ENOENT, EACCES, etc.)
+ * @returns 'expected' | 'warning' | 'critical'
+ */
+function classifyFilesystemError(errorCode: string): 'expected' | 'warning' | 'critical' {
+  // Expected errors - normal operation, don't log
+  if (errorCode === 'ENOENT') return 'expected';
+
+  // Critical errors - system failure, may want to abort
+  // EACCES: Permission denied
+  // EPERM: Operation not permitted
+  // EROFS: Read-only filesystem
+  // EIO: I/O error (disk failure)
+  // EMFILE: Too many open files (process limit)
+  // ENFILE: Too many open files (system limit)
+  if (['EACCES', 'EPERM', 'EROFS', 'EIO', 'EMFILE', 'ENFILE'].includes(errorCode)) {
+    return 'critical';
+  }
+
+  // Everything else is a warning
+  return 'warning';
+}
+
 export interface CleanupOrphansArgs {
   dry_run?: boolean;
   force?: boolean;
@@ -69,30 +94,34 @@ async function findStalePidFiles(
           });
         }
       } catch (error) {
-        // ENOENT is expected - PID file may not exist
-        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-          continue; // Expected, skip silently
-        }
-
         // Other errors are unexpected and should be surfaced
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : 'unknown';
+        const errorCode = error && typeof error === 'object' && 'code' in error
+          ? String((error as any).code)
+          : 'unknown';
+        const severity = classifyFilesystemError(errorCode);
 
-        console.error(
-          `[cleanup-orphans] Unexpected error (${errorCode}) reading PID file ${pidFilePath}: ${errorMessage}`,
-          {
-            pidFile: pidFilePath,
-            worktree: worktreeDir,
-            error: errorMessage,
+        // Only log non-expected errors
+        if (severity !== 'expected') {
+          console.error(
+            `[cleanup-orphans] ${severity === 'critical' ? 'CRITICAL' : 'Warning'} error (${errorCode}) reading PID file ${pidFilePath}: ${errorMessage}`,
+            {
+              pidFile: pidFilePath,
+              worktree: worktreeDir,
+              error: errorMessage,
+              errorCode,
+              severity,
+            }
+          );
+
+          diagnosticErrors.push({
+            type: 'pid-scan',
+            target: pidFilePath,
+            error: `${errorCode}: ${errorMessage}`,
+            severity,
             errorCode,
-          }
-        );
-
-        diagnosticErrors.push({
-          type: 'pid-scan',
-          target: pidFilePath,
-          error: `${errorCode}: ${errorMessage}`,
-        });
+          });
+        }
         continue;
       }
     }
@@ -383,7 +412,10 @@ interface CleanupResults {
     type: 'pid-removal' | 'process-kill' | 'pid-scan' | 'log-file-removal' | 'config-removal';
     target: string | number;
     error: string;
+    severity?: 'warning' | 'critical';
+    errorCode?: string;
   }>;
+  criticalErrorCount: number;
 }
 
 function formatCleanupResult(
@@ -484,6 +516,7 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
       processesKilled: 0,
       processesKillFailed: 0,
       diagnosticErrors: [],
+      criticalErrorCount: 0,
     };
 
     // Scan for orphans (pass diagnosticErrors to track scan errors)

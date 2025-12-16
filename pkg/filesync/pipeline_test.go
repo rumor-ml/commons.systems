@@ -2375,6 +2375,140 @@ collectLoop:
 	}
 }
 
+// TestPeriodicStatsFlush_FullFailureProgression tests the complete failure progression from 1 to 10 attempts
+// This verifies that all expected notification messages are sent at the correct failure counts
+// and that the goroutine exits gracefully after reaching the maximum attempt limit
+func TestPeriodicStatsFlush_FullFailureProgression(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create mock store that will fail all 10 attempts
+	sessionStore := newMockSessionStoreWithFailures(10)
+	session := &SyncSession{
+		ID:        "test-session-progression",
+		UserID:    "test-user",
+		Status:    SessionStatusRunning,
+		StartedAt: time.Now(),
+	}
+	if err := sessionStore.Create(ctx, session); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Create pipeline with very short batch interval (50ms) to avoid long test duration
+	// This allows us to reach all 10 failures quickly without exponential backoff delays
+	config := DefaultPipelineConfig()
+	config.StatsBatchInterval = 50 * time.Millisecond
+	config.StatsBatchSize = 1
+
+	pipeline := &Pipeline{
+		sessionStore: sessionStore,
+		fileStore:    newMockFileStore(),
+		config:       config,
+	}
+
+	stats, _ := newStatsAccumulator(sessionStore, session, config.StatsBatchInterval, int64(config.StatsBatchSize))
+
+	// Force stats to need flushing
+	stats.incrementDiscovered()
+
+	// Start periodic flush
+	progressCh := make(chan Progress, 100)
+	flushDone := make(chan struct{})
+	go func() {
+		pipeline.periodicStatsFlush(ctx, stats, progressCh)
+		close(flushDone)
+	}()
+
+	// Collect all progress notifications
+	var notifications []Progress
+	timeout := time.After(15 * time.Second)
+
+collectLoop:
+	for {
+		select {
+		case progress, ok := <-progressCh:
+			if !ok {
+				t.Log("Progress channel closed")
+				break collectLoop
+			}
+			if progress.Type == ProgressTypeStatus {
+				notifications = append(notifications, progress)
+				t.Logf("Received notification %d: %s", len(notifications), progress.Operation)
+			}
+		case <-flushDone:
+			t.Log("Periodic flush goroutine exited")
+			// Drain remaining notifications
+			for {
+				select {
+				case progress, ok := <-progressCh:
+					if !ok {
+						break collectLoop
+					}
+					if progress.Type == ProgressTypeStatus {
+						notifications = append(notifications, progress)
+						t.Logf("Drained notification %d: %s", len(notifications), progress.Operation)
+					}
+				default:
+					break collectLoop
+				}
+			}
+			break collectLoop
+		case <-timeout:
+			t.Fatal("Timeout waiting for periodic flush to complete")
+		}
+	}
+
+	// Verify we received notifications at the expected failure counts
+	expectedMessages := map[int]string{
+		1:  "Stats update experiencing issues - counts may be slightly delayed",
+		5:  "Stats update still experiencing issues - counts are delayed",
+		10: "Stats update failed after 10 attempts",
+	}
+
+	foundMessages := make(map[int]bool)
+	for _, notif := range notifications {
+		for failureCount, expectedMsg := range expectedMessages {
+			if strings.Contains(notif.Operation, expectedMsg) {
+				foundMessages[failureCount] = true
+				t.Logf("Found expected message for failure %d: %s", failureCount, notif.Operation)
+			}
+		}
+	}
+
+	// Verify all expected messages were received
+	for failureCount, expectedMsg := range expectedMessages {
+		if !foundMessages[failureCount] {
+			t.Errorf("Did not receive expected notification for failure %d: %s", failureCount, expectedMsg)
+		}
+	}
+
+	// Verify exactly 10 update attempts were made
+	actualAttempts := sessionStore.getUpdateAttempts()
+	if actualAttempts != 10 {
+		t.Errorf("Expected exactly 10 update attempts, got %d", actualAttempts)
+	}
+
+	// Verify total failures matches attempts (all should fail)
+	totalFailures := sessionStore.getTotalFailures()
+	if totalFailures != 10 {
+		t.Errorf("Expected 10 total failures, got %d", totalFailures)
+	}
+
+	// Verify goroutine exited (flushDone channel should be closed)
+	select {
+	case <-flushDone:
+		t.Log("Goroutine exited successfully after 10th failure")
+	case <-time.After(1 * time.Second):
+		t.Error("Goroutine did not exit after 10th failure")
+	}
+
+	// Log all notifications for debugging
+	t.Logf("Received %d total status notifications:", len(notifications))
+	for i, notif := range notifications {
+		t.Logf("  Notification %d: %s", i+1, notif.Operation)
+	}
+}
+
 func TestPipelineConfig_Validate_BoundaryValues(t *testing.T) {
 	// Test ProgressBufferSize = 0 (should pass)
 	config := PipelineConfig{

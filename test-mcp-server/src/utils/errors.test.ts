@@ -10,6 +10,7 @@ import {
   TimeoutError,
   ValidationError,
   InfrastructureError,
+  TestOutputParseError,
   createErrorResult,
   formatError,
   isTerminalError,
@@ -172,9 +173,14 @@ describe('isTerminalError', () => {
     assert.strictEqual(isTerminalError(error), false);
   });
 
-  it('should return false for InfrastructureError', () => {
+  it('should return true for InfrastructureError', () => {
     const error = new InfrastructureError('Infrastructure failed');
-    assert.strictEqual(isTerminalError(error), false);
+    assert.strictEqual(isTerminalError(error), true);
+  });
+
+  it('should return true for TestOutputParseError', () => {
+    const error = new TestOutputParseError('Parse failed', 'raw output', new Error());
+    assert.strictEqual(isTerminalError(error), true);
   });
 
   it('should return false for generic Error', () => {
