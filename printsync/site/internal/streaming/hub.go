@@ -11,6 +11,12 @@ import (
 	"github.com/commons-systems/filesync"
 )
 
+const (
+	// maxDroppedEvents: Circuit breaker threshold for slow clients
+	// 100 events at ~10/sec = ~10 sec buffer overrun before disconnection
+	maxDroppedEvents = 100
+)
+
 // Client represents a connected SSE client
 type Client struct {
 	Events chan SSEEvent
@@ -103,7 +109,7 @@ func (b *SessionBroadcaster) Start() {
 
 				// If this is a complete event, stop the broadcaster after a short delay
 				// to allow final events to be sent
-				if event.Type == EventTypeComplete {
+				if event.EventType() == EventTypeComplete {
 					time.Sleep(100 * time.Millisecond)
 					return
 				}
@@ -132,10 +138,10 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 			if droppedPtr := b.droppedEvents[client]; droppedPtr != nil {
 				dropped := atomic.AddInt64(droppedPtr, 1)
 				log.Printf("WARNING: Dropped event %s for slow client - Total dropped: %d",
-					event.Type, dropped)
+					event.EventType(), dropped)
 
 				// Circuit breaker: disconnect client after N drops
-				if dropped >= 100 {
+				if dropped >= maxDroppedEvents {
 					log.Printf("ERROR: Disconnecting slow client after %d dropped events", dropped)
 
 					// Send terminal error event before disconnecting

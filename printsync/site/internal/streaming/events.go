@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/commons-systems/filesync"
@@ -17,11 +18,45 @@ const (
 	EventTypeError     = "error"
 )
 
+// TimeSource is a function that returns the current time
+// Default implementation uses time.Now, but can be overridden for testing
+type TimeSource func() time.Time
+
+var defaultTimeSource TimeSource = time.Now
+
 // SSEEvent represents a server-sent event
+// Fields are unexported to enforce immutability - use getters to access
 type SSEEvent struct {
-	Type      string      `json:"-"`
-	Timestamp time.Time   `json:"timestamp"`
-	Data      interface{} `json:"data"`
+	eventType string      `json:"-"`
+	timestamp time.Time   `json:"timestamp"`
+	data      interface{} `json:"data"`
+}
+
+// EventType returns the event type
+func (e SSEEvent) EventType() string {
+	return e.eventType
+}
+
+// Timestamp returns the event timestamp
+func (e SSEEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// Data returns the event data
+func (e SSEEvent) Data() interface{} {
+	return e.data
+}
+
+// MarshalJSON implements custom JSON marshaling for SSEEvent
+// This ensures the unexported fields are properly serialized
+func (e SSEEvent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Timestamp time.Time   `json:"timestamp"`
+		Data      interface{} `json:"data"`
+	}{
+		Timestamp: e.timestamp,
+		Data:      e.data,
+	})
 }
 
 // ProgressEvent represents a pipeline progress update
@@ -72,10 +107,15 @@ type ErrorEvent struct {
 
 // NewProgressEvent creates a progress event with type safety
 func NewProgressEvent(operation, file string, percentage float64) SSEEvent {
+	return newProgressEventWithTime(operation, file, percentage, defaultTimeSource)
+}
+
+// newProgressEventWithTime creates a progress event with injectable time source (for testing)
+func newProgressEventWithTime(operation, file string, percentage float64, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeProgress,
-		Timestamp: time.Now(),
-		Data: ProgressEvent{
+		eventType: EventTypeProgress,
+		timestamp: timeSource(),
+		data: ProgressEvent{
 			Operation:  operation,
 			File:       file,
 			Percentage: percentage,
@@ -85,10 +125,15 @@ func NewProgressEvent(operation, file string, percentage float64) SSEEvent {
 
 // NewSessionEvent creates a session stats event
 func NewSessionEvent(session *filesync.SyncSession) SSEEvent {
+	return newSessionEventWithTime(session, defaultTimeSource)
+}
+
+// newSessionEventWithTime creates a session event with injectable time source (for testing)
+func newSessionEventWithTime(session *filesync.SyncSession, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeSession,
-		Timestamp: time.Now(),
-		Data: SessionEvent{
+		eventType: EventTypeSession,
+		timestamp: timeSource(),
+		data: SessionEvent{
 			ID:          session.ID,
 			Status:      session.Status,
 			Stats:       session.Stats,
@@ -99,10 +144,15 @@ func NewSessionEvent(session *filesync.SyncSession) SSEEvent {
 
 // NewActionsEvent creates an actions event
 func NewActionsEvent(sessionID string, stats filesync.SessionStats) SSEEvent {
+	return newActionsEventWithTime(sessionID, stats, defaultTimeSource)
+}
+
+// newActionsEventWithTime creates an actions event with injectable time source (for testing)
+func newActionsEventWithTime(sessionID string, stats filesync.SessionStats, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeActions,
-		Timestamp: time.Now(),
-		Data: ActionsEvent{
+		eventType: EventTypeActions,
+		timestamp: timeSource(),
+		data: ActionsEvent{
 			SessionID: sessionID,
 			Stats:     stats,
 		},
@@ -111,10 +161,15 @@ func NewActionsEvent(sessionID string, stats filesync.SessionStats) SSEEvent {
 
 // NewFileEvent creates a file update event
 func NewFileEvent(file *filesync.SyncFile, isUpdate bool) SSEEvent {
+	return newFileEventWithTime(file, isUpdate, defaultTimeSource)
+}
+
+// newFileEventWithTime creates a file event with injectable time source (for testing)
+func newFileEventWithTime(file *filesync.SyncFile, isUpdate bool, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeFile,
-		Timestamp: time.Now(),
-		Data: FileEvent{
+		eventType: EventTypeFile,
+		timestamp: timeSource(),
+		data: FileEvent{
 			ID:        file.ID,
 			SessionID: file.SessionID,
 			LocalPath: file.LocalPath,
@@ -128,10 +183,15 @@ func NewFileEvent(file *filesync.SyncFile, isUpdate bool) SSEEvent {
 
 // NewCompleteEvent creates a session completion event
 func NewCompleteEvent(sessionID string, status filesync.SessionStatus) SSEEvent {
+	return newCompleteEventWithTime(sessionID, status, defaultTimeSource)
+}
+
+// newCompleteEventWithTime creates a complete event with injectable time source (for testing)
+func newCompleteEventWithTime(sessionID string, status filesync.SessionStatus, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeComplete,
-		Timestamp: time.Now(),
-		Data: CompleteEvent{
+		eventType: EventTypeComplete,
+		timestamp: timeSource(),
+		data: CompleteEvent{
 			SessionID: sessionID,
 			Status:    status,
 		},
@@ -140,10 +200,15 @@ func NewCompleteEvent(sessionID string, status filesync.SessionStatus) SSEEvent 
 
 // NewErrorEvent creates an error event
 func NewErrorEvent(message, severity string) SSEEvent {
+	return newErrorEventWithTime(message, severity, defaultTimeSource)
+}
+
+// newErrorEventWithTime creates an error event with injectable time source (for testing)
+func newErrorEventWithTime(message, severity string, timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeError,
-		Timestamp: time.Now(),
-		Data: ErrorEvent{
+		eventType: EventTypeError,
+		timestamp: timeSource(),
+		data: ErrorEvent{
 			Message:  message,
 			Severity: severity,
 		},
@@ -152,9 +217,14 @@ func NewErrorEvent(message, severity string) SSEEvent {
 
 // NewHeartbeatEvent creates a heartbeat event
 func NewHeartbeatEvent() SSEEvent {
+	return newHeartbeatEventWithTime(defaultTimeSource)
+}
+
+// newHeartbeatEventWithTime creates a heartbeat event with injectable time source (for testing)
+func newHeartbeatEventWithTime(timeSource TimeSource) SSEEvent {
 	return SSEEvent{
-		Type:      EventTypeHeartbeat,
-		Timestamp: time.Now(),
-		Data:      nil,
+		eventType: EventTypeHeartbeat,
+		timestamp: timeSource(),
+		data:      nil,
 	}
 }

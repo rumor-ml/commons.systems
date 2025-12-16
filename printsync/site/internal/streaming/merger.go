@@ -213,8 +213,13 @@ func (m *StreamMerger) Events() <-chan SSEEvent {
 }
 
 // Stop stops the stream merger and signals all forwarders to stop.
-// The events channel is NOT closed to avoid race conditions with concurrent senders.
-// The broadcaster will exit via context cancellation or done channel.
+//
+// Channel Closing Strategy:
+// The events channel is NOT closed to avoid panics from concurrent
+// Firestore callbacks. Cleanup happens via:
+// 1. close(m.done) signals goroutines to stop
+// 2. Context cancellation stops subscriptions
+// The channel is garbage collected after broadcaster exits.
 func (m *StreamMerger) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
