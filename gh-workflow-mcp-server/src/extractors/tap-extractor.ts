@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { validateExtractedError } from './types.js';
 
 export class TapExtractor implements FrameworkExtractor {
   readonly name = 'tap' as const;
@@ -169,18 +170,25 @@ export class TapExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          columnNumber,
-          message: errorMessage,
-          stack,
-          duration,
-          failureType,
-          errorCode,
-          rawOutput,
-        });
+        try {
+          const error = validateExtractedError({
+            testName,
+            fileName,
+            lineNumber,
+            columnNumber,
+            message: errorMessage,
+            stack,
+            duration,
+            failureType,
+            errorCode,
+            rawOutput,
+          });
+          failures.push(error);
+        } catch (e) {
+          // Log validation error but don't fail the entire extraction
+          console.error(`[WARN] TAP extractor: Validation failed for extracted error: ${e}`);
+          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
+        }
 
         if (failures.length >= maxErrors) break;
       }

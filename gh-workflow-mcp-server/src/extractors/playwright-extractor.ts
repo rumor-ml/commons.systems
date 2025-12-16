@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { validateExtractedError } from './types.js';
 
 interface PlaywrightJsonReport {
   config?: any; // Config object (optional, may not be present in all reports)
@@ -229,17 +230,33 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += `\n\nwebServer command: ${webServerCommand}`;
     }
 
-    return {
-      framework: 'playwright',
-      errors: [
-        {
-          message,
-          failureType: 'timeout',
-          rawOutput: lines.slice(-50), // Include last 50 lines for context
-        },
-      ],
-      summary: 'Playwright timeout (no tests executed)',
-    };
+    try {
+      const error = validateExtractedError({
+        message,
+        failureType: 'timeout',
+        rawOutput: lines.slice(-50), // Include last 50 lines for context
+      });
+
+      return {
+        framework: 'playwright',
+        errors: [error],
+        summary: 'Playwright timeout (no tests executed)',
+      };
+    } catch (e) {
+      // Log validation error but don't fail the entire extraction
+      console.error(`[WARN] Playwright extractor (timeout): Validation failed for extracted error: ${e}`);
+      // Return fallback error without validation
+      return {
+        framework: 'playwright',
+        errors: [
+          {
+            message: 'Playwright timeout - see logs for details',
+            rawOutput: lines.slice(-50),
+          },
+        ],
+        summary: 'Playwright timeout (no tests executed)',
+      };
+    }
   }
 
   /**
@@ -339,18 +356,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                   if (error?.stack) rawOutput.push(error.stack);
                   if (error?.snippet) rawOutput.push(error.snippet);
 
-                  failures.push({
-                    testName: `[${test.projectName}] ${spec.title}`,
-                    fileName: suite.file,
-                    lineNumber: suite.line,
-                    columnNumber: suite.column,
-                    message: error?.message || 'Test failed',
-                    stack: error?.stack,
-                    codeSnippet: error?.snippet,
-                    duration: result.duration,
-                    failureType: result.status,
-                    rawOutput,
-                  });
+                  // Ensure rawOutput has at least one element for schema validation
+                  if (rawOutput.length === 0) {
+                    rawOutput.push('Test failed');
+                  }
+
+                  try {
+                    const extractedError = validateExtractedError({
+                      testName: `[${test.projectName}] ${spec.title}`,
+                      fileName: suite.file,
+                      lineNumber: suite.line,
+                      columnNumber: suite.column > 0 ? suite.column : undefined, // Schema requires positive integers
+                      message: error?.message || 'Test failed',
+                      stack: error?.stack,
+                      codeSnippet: error?.snippet,
+                      duration: result.duration,
+                      failureType: result.status,
+                      rawOutput,
+                    });
+                    failures.push(extractedError);
+                  } catch (e) {
+                    // Log validation error but don't fail the entire extraction
+                    console.error(`[WARN] Playwright extractor (JSON): Validation failed for extracted error: ${e}`);
+                    console.error(`[DEBUG] Test: [${test.projectName}] ${spec.title}, file: ${suite.file}`);
+                  }
                 }
               }
             }
@@ -416,15 +445,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         );
       }
 
-      return {
-        framework: 'playwright',
-        errors: [
-          {
-            message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
-            rawOutput: [logText.substring(0, 500)],
-          },
-        ],
-      };
+      try {
+        const error = validateExtractedError({
+          message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
+          rawOutput: [logText.substring(0, 500)],
+        });
+
+        return {
+          framework: 'playwright',
+          errors: [error],
+        };
+      } catch (e) {
+        // Log validation error but don't fail the entire extraction
+        console.error(`[WARN] Playwright extractor (JSON parse error): Validation failed for extracted error: ${e}`);
+        // Return fallback error without validation
+        return {
+          framework: 'playwright',
+          errors: [
+            {
+              message: 'Failed to parse Playwright JSON report - see logs for details',
+              rawOutput: ['See stderr for parsing errors'],
+            },
+          ],
+        };
+      }
     }
   }
 
@@ -469,15 +513,27 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
-          testName: `[${projectName}] ${testName}`,
-          fileName,
-          lineNumber,
-          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
-          duration,
-          rawOutput,
-        });
-        failed++;
+        // Ensure rawOutput has at least one element for schema validation
+        if (rawOutput.length === 0) {
+          rawOutput.push(`Test failed: ${testName}`);
+        }
+
+        try {
+          const error = validateExtractedError({
+            testName: `[${projectName}] ${testName}`,
+            fileName,
+            lineNumber,
+            message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+            duration,
+            rawOutput,
+          });
+          failures.push(error);
+          failed++;
+        } catch (e) {
+          // Log validation error but don't fail the entire extraction
+          console.error(`[WARN] Playwright extractor (text): Validation failed for extracted error: ${e}`);
+          console.error(`[DEBUG] Test: [${projectName}] ${testName}, file: ${fileName}`);
+        }
       }
     }
 

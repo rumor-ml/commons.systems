@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { validateExtractedError } from './types.js';
 
 interface GoTestEvent {
   Time: string;
@@ -233,17 +234,27 @@ export class GoExtractor implements FrameworkExtractor {
         }
 
         // Store all output lines for this test
-        const rawOutput = outputs.map((line) => line.trimEnd());
+        // Ensure rawOutput has at least one element for schema validation
+        const rawOutput = outputs.length > 0
+          ? outputs.map((line) => line.trimEnd())
+          : [`Test failed: ${testName}`];
 
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          message: fullOutput.trim() || `Test failed: ${testName}`,
-          stack,
-          duration: testDurations.get(key),
-          rawOutput,
-        });
+        try {
+          const error = validateExtractedError({
+            testName,
+            fileName,
+            lineNumber,
+            message: fullOutput.trim() || `Test failed: ${testName}`,
+            stack,
+            duration: testDurations.get(key),
+            rawOutput,
+          });
+          failures.push(error);
+        } catch (e) {
+          // Log validation error but don't fail the entire extraction
+          console.error(`[WARN] Go extractor: Validation failed for extracted error: ${e}`);
+          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
+        }
       }
     }
 
@@ -306,15 +317,27 @@ export class GoExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
-          duration,
-          rawOutput,
-        });
-        failed++;
+        // Ensure rawOutput has at least one element for schema validation
+        if (rawOutput.length === 0) {
+          rawOutput.push(`Test failed: ${testName}`);
+        }
+
+        try {
+          const error = validateExtractedError({
+            testName,
+            fileName,
+            lineNumber,
+            message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+            duration,
+            rawOutput,
+          });
+          failures.push(error);
+          failed++;
+        } catch (e) {
+          // Log validation error but don't fail the entire extraction
+          console.error(`[WARN] Go extractor (text): Validation failed for extracted error: ${e}`);
+          console.error(`[DEBUG] Test name: ${testName}, raw output lines: ${rawOutput.length}`);
+        }
       }
     }
 

@@ -16,6 +16,7 @@ import type {
   DetectionResult,
   ExtractedError,
 } from './types.js';
+import { validateExtractedError } from './types.js';
 
 export class PrettierExtractor implements FrameworkExtractor {
   readonly name = 'unknown' as const; // Still 'unknown' since it's not a test framework
@@ -54,11 +55,18 @@ export class PrettierExtractor implements FrameworkExtractor {
       if (fileMatch) {
         // Save previous file's diff if any
         if (currentFile && currentDiff.length > 0) {
-          errors.push({
-            fileName: currentFile,
-            message: `Formatting issues in ${currentFile}`,
-            rawOutput: currentDiff,
-          });
+          try {
+            const error = validateExtractedError({
+              fileName: currentFile,
+              message: `Formatting issues in ${currentFile}`,
+              rawOutput: currentDiff,
+            });
+            errors.push(error);
+          } catch (e) {
+            // Log validation error but don't fail the entire extraction
+            console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
+            console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+          }
         }
 
         currentFile = fileMatch[1];
@@ -86,11 +94,18 @@ export class PrettierExtractor implements FrameworkExtractor {
       // Detect "Code style issues found" summary
       if (line.match(/Code style issues found|Forgot to run Prettier/i)) {
         if (currentFile && currentDiff.length > 0) {
-          errors.push({
-            fileName: currentFile,
-            message: `Formatting issues in ${currentFile}`,
-            rawOutput: currentDiff,
-          });
+          try {
+            const error = validateExtractedError({
+              fileName: currentFile,
+              message: `Formatting issues in ${currentFile}`,
+              rawOutput: currentDiff,
+            });
+            errors.push(error);
+          } catch (e) {
+            // Log validation error but don't fail the entire extraction
+            console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
+            console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+          }
           currentFile = null;
           currentDiff = [];
         }
@@ -99,24 +114,45 @@ export class PrettierExtractor implements FrameworkExtractor {
 
     // Don't forget last file
     if (currentFile && currentDiff.length > 0) {
-      errors.push({
-        fileName: currentFile,
-        message: `Formatting issues in ${currentFile}`,
-        rawOutput: currentDiff,
-      });
+      try {
+        const error = validateExtractedError({
+          fileName: currentFile,
+          message: `Formatting issues in ${currentFile}`,
+          rawOutput: currentDiff,
+        });
+        errors.push(error);
+      } catch (e) {
+        // Log validation error but don't fail the entire extraction
+        console.error(`[WARN] Prettier extractor: Validation failed for extracted error: ${e}`);
+        console.error(`[DEBUG] File: ${currentFile}, diff lines: ${currentDiff.length}`);
+      }
     }
 
     // If no specific files found but we detected prettier, return the whole log
     if (errors.length === 0 && this.detect(logText)?.confidence === 'high') {
-      return {
-        framework: 'unknown',
-        errors: [
-          {
-            message: 'Prettier formatting check failed',
-            rawOutput: lines.slice(-100), // Last 100 lines as fallback
-          },
-        ],
-      };
+      try {
+        const error = validateExtractedError({
+          message: 'Prettier formatting check failed',
+          rawOutput: lines.slice(-100), // Last 100 lines as fallback
+        });
+        return {
+          framework: 'unknown',
+          errors: [error],
+        };
+      } catch (e) {
+        // Log validation error but don't fail the entire extraction
+        console.error(`[WARN] Prettier extractor (fallback): Validation failed for extracted error: ${e}`);
+        // Return fallback error without validation
+        return {
+          framework: 'unknown',
+          errors: [
+            {
+              message: 'Prettier formatting check failed - see logs for details',
+              rawOutput: lines.slice(-100),
+            },
+          ],
+        };
+      }
     }
 
     return {

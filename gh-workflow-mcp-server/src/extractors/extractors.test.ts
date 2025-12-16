@@ -299,7 +299,8 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
       assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 5);
-      assert.strictEqual(result.errors[0].columnNumber, 0);
+      // columnNumber 0 is filtered out by validation (schema requires positive integers)
+      assert.strictEqual(result.errors[0].columnNumber, undefined);
       assert.strictEqual(result.errors[0].message, 'expect(received).toBe(expected)');
       assert.ok(result.errors[0].stack);
       assert.ok(result.errors[0].codeSnippet);
