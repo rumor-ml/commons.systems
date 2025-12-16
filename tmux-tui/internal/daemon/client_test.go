@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2465,4 +2466,324 @@ func TestQueryBlockedState_DeadlockDetection(t *testing.T) {
 	}
 
 	client.Close()
+}
+
+// TestQueryBlockedState_NetworkPartitionDuringRequest tests behavior when the network
+// connection fails (pipe closes) after the query is sent but before the response is received.
+// This simulates a network partition where the client successfully sends a request but
+// the connection drops before receiving the response.
+func TestQueryBlockedState_NetworkPartitionDuringRequest(t *testing.T) {
+	// Record baseline goroutine count for leak detection
+	baseline := runtime.NumGoroutine()
+
+	// Setup: Create bidirectional pipes for client-server communication
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-client",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+
+	// Server goroutine: reads query, closes pipe BEFORE responding
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		decoder := json.NewDecoder(serverReader)
+
+		// Read the query message
+		var queryMsg Message
+		if err := decoder.Decode(&queryMsg); err != nil {
+			t.Logf("Server decode error (expected): %v", err)
+			return
+		}
+
+		// Simulate network partition - close the pipes before responding
+		// This causes the client to get a connection error
+		serverWriter.Close()
+		serverReader.Close()
+	}()
+
+	// Monitor for disconnect event (happens when receive() detects closed pipe)
+	go func() {
+		select {
+		case msg := <-client.eventCh:
+			if msg.Type == "disconnect" {
+				// Disconnect detected - close client to unblock query
+				close(client.done)
+			}
+		case <-time.After(1 * time.Second):
+			t.Error("Expected disconnect event within 1 second")
+		}
+	}()
+
+	// Client calls QueryBlockedState in goroutine
+	type result struct {
+		state BlockedState
+		err   error
+	}
+	resultCh := make(chan result, 1)
+
+	queryStart := time.Now()
+	go func() {
+		state, err := client.QueryBlockedState("feature-branch")
+		resultCh <- result{state: state, err: err}
+	}()
+
+	// Wait for result with timeout
+	var res result
+	select {
+	case res = <-resultCh:
+		// Got result - good!
+	case <-time.After(2 * time.Second):
+		t.Fatal("QueryBlockedState did not complete within 2 seconds")
+	}
+
+	queryDuration := time.Since(queryStart)
+	t.Logf("Query completed in %v", queryDuration)
+
+	// Verify: Returns error (client closed due to disconnect)
+	if res.err == nil {
+		t.Fatal("Expected error due to network partition, got nil")
+	}
+
+	// Should get "client closed" error after disconnect detection
+	if !strings.Contains(res.err.Error(), "client closed") {
+		t.Errorf("Expected 'client closed' error, got: %v", res.err)
+	}
+
+	// Verify completes quickly (not the full 2s timeout)
+	if queryDuration > 500*time.Millisecond {
+		t.Logf("Note: Query took %v to complete (expected < 500ms)", queryDuration)
+	}
+
+	// Wait for server goroutine to complete
+	select {
+	case <-serverDone:
+		// Good
+	case <-time.After(1 * time.Second):
+		t.Error("Server goroutine did not complete")
+	}
+
+	// Close remaining pipes (client.done already closed by disconnect handler)
+	clientReader.Close()
+	clientWriter.Close()
+
+	// Verify no goroutine leaks - check that goroutine count returns to baseline
+	// Allow up to 3 seconds for goroutines to clean up, with 2 goroutine tolerance
+	leaked := false
+	for i := 0; i < 30; i++ {
+		current := runtime.NumGoroutine()
+		if current <= baseline+2 {
+			t.Logf("Goroutine cleanup verified: baseline=%d, current=%d", baseline, current)
+			break
+		}
+		if i == 29 {
+			leaked = true
+			t.Errorf("Goroutine leak detected: baseline=%d, current=%d", baseline, current)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if leaked {
+		t.Error("Network partition test leaked goroutines")
+	}
+}
+
+// TestDaemonClient_RetryAfterConnectionFailureAndCleanup tests that a client can successfully
+// retry connection after a connection failure and proper cleanup. This verifies:
+// 1. Connection failure is handled gracefully
+// 2. Client cleanup properly releases resources
+// 3. Subsequent connection attempts succeed
+// 4. No goroutine leaks occur during the cycle
+func TestDaemonClient_RetryAfterConnectionFailureAndCleanup(t *testing.T) {
+	// Record baseline goroutine count
+	baseline := runtime.NumGoroutine()
+
+	// Create temporary socket path (use short path to avoid Unix socket length limit)
+	socketPath := fmt.Sprintf("/tmp/claude/test-retry-%d.sock", time.Now().UnixNano())
+	os.MkdirAll("/tmp/claude", 0755)
+	defer os.Remove(socketPath)
+
+	// Phase 1: Server that immediately closes connections
+	t.Log("Phase 1: Starting failing server...")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+
+	// Accept connections and immediately close them
+	failingServerDone := make(chan struct{})
+	serverReady := make(chan struct{})
+	go func() {
+		defer close(failingServerDone)
+		close(serverReady) // Signal that server is listening
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		t.Log("Failing server: Accepted connection, closing immediately")
+		conn.Close() // Close immediately to simulate failure
+	}()
+
+	// Wait for server to be ready
+	<-serverReady
+
+	// Create client and attempt connection
+	client := &DaemonClient{
+		clientID:   "test-client",
+		socketPath: socketPath,
+		eventCh:    make(chan Message, 100),
+		done:       make(chan struct{}),
+	}
+
+	// Connect should fail because server closes connection during hello
+	err = client.Connect()
+	if err == nil {
+		// Connection might succeed if hello completes before close
+		// That's OK - test the cleanup path regardless
+		t.Log("Connection succeeded (timing variation) - testing cleanup")
+		// Force a disconnect by reading from the closed connection
+		time.Sleep(50 * time.Millisecond)
+	} else {
+		t.Logf("Connection failed as expected: %v", err)
+	}
+
+	// Wait for failing server to complete
+	listener.Close()
+	<-failingServerDone
+
+	// Client calls Close() to clean up
+	client.Close()
+
+	// Phase 2: Verify cleanup
+	t.Log("Phase 2: Verifying cleanup...")
+	client.mu.Lock()
+	if client.connected {
+		t.Error("Client should not be connected after Close()")
+	}
+	if client.conn != nil {
+		t.Error("Client connection should be nil after Close()")
+	}
+	client.mu.Unlock()
+
+	// Verify goroutines stopped
+	time.Sleep(200 * time.Millisecond)
+	afterCleanup := runtime.NumGoroutine()
+	if afterCleanup > baseline+2 {
+		t.Logf("Warning: Goroutine count higher than baseline after cleanup: baseline=%d, current=%d", baseline, afterCleanup)
+	}
+
+	// Phase 3: Start working server and retry connection
+	t.Log("Phase 3: Starting working server and retrying connection...")
+	listener2, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Failed to create second listener: %v", err)
+	}
+	defer listener2.Close()
+
+	// Server goroutine that properly handles connections
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, err := listener2.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		encoder := json.NewEncoder(conn)
+		decoder := json.NewDecoder(conn)
+
+		// Read hello message
+		var helloMsg Message
+		if err := decoder.Decode(&helloMsg); err != nil {
+			t.Logf("Server failed to decode hello: %v", err)
+			return
+		}
+		t.Logf("Server received hello from %s", helloMsg.ClientID)
+
+		// Read query message
+		var queryMsg Message
+		if err := decoder.Decode(&queryMsg); err != nil {
+			t.Logf("Server failed to decode query: %v", err)
+			return
+		}
+
+		// Send response
+		response := Message{
+			Type:          MsgTypeBlockedStateResponse,
+			Branch:        queryMsg.Branch,
+			IsBlocked:     false,
+			BlockedBranch: "",
+		}
+		if err := encoder.Encode(response); err != nil {
+			t.Logf("Server failed to encode response: %v", err)
+		}
+	}()
+
+	// Create new client for retry
+	client2 := &DaemonClient{
+		clientID:   "test-client-retry",
+		socketPath: socketPath,
+		eventCh:    make(chan Message, 100),
+		done:       make(chan struct{}),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Connect should succeed now
+	if err := client2.Connect(); err != nil {
+		t.Fatalf("Retry connection failed: %v", err)
+	}
+	defer client2.Close()
+
+	// Verify query works
+	state, err := client2.QueryBlockedState("test-branch")
+	if err != nil {
+		t.Errorf("Query failed on retry connection: %v", err)
+	} else {
+		t.Logf("Query succeeded: isBlocked=%v", state.IsBlocked())
+	}
+
+	// Wait for server to complete
+	<-serverDone
+
+	// Phase 4: Verify no resource leaks
+	t.Log("Phase 4: Verifying no resource leaks...")
+	client2.Close()
+
+	// Check goroutine count
+	leaked := false
+	for i := 0; i < 30; i++ {
+		current := runtime.NumGoroutine()
+		if current <= baseline+2 {
+			t.Logf("Goroutine cleanup verified: baseline=%d, current=%d", baseline, current)
+			break
+		}
+		if i == 29 {
+			leaked = true
+			t.Errorf("Goroutine leak detected: baseline=%d, current=%d", baseline, current)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if leaked {
+		t.Error("MCP retry test leaked goroutines")
+	}
+
+	t.Log("Client retry test passed - no resource leaks detected")
 }

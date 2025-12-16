@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -585,5 +586,22 @@ func startDaemon(t *testing.T, socketName, sessionName string) func() {
 		// Kill the daemon window
 		killCmd := tmuxCmd(socketName, "kill-window", "-t", daemonWindow)
 		killCmd.Run() // Ignore errors - window might already be gone
+	}
+}
+
+// assertNoGoroutineLeak verifies that goroutine count returns to baseline
+func assertNoGoroutineLeak(t *testing.T, baseline int, description string) {
+	t.Helper()
+	err := waitForCondition(t, WaitCondition{
+		Name: fmt.Sprintf("goroutine cleanup: %s", description),
+		CheckFunc: func() (bool, error) {
+			current := runtime.NumGoroutine()
+			return current <= baseline+2, nil // Allow 2 goroutine tolerance
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  3 * time.Second,
+	})
+	if err != nil {
+		t.Errorf("Goroutine leak detected: %v", err)
 	}
 }

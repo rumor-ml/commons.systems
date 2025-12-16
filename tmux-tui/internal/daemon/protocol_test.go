@@ -306,31 +306,31 @@ func TestNewHealthStatus_Valid(t *testing.T) {
 			}
 
 			// Verify fields are set correctly using getters
-			if status.BroadcastFailures() != tt.broadcastFailures {
-				t.Errorf("BroadcastFailures() = %d, want %d", status.BroadcastFailures(), tt.broadcastFailures)
+			if status.GetBroadcastFailures() != tt.broadcastFailures {
+				t.Errorf("BroadcastFailures() = %d, want %d", status.GetBroadcastFailures(), tt.broadcastFailures)
 			}
-			if status.LastBroadcastError() != tt.lastBroadcastError {
-				t.Errorf("LastBroadcastError() = %q, want %q", status.LastBroadcastError(), tt.lastBroadcastError)
+			if status.GetLastBroadcastError() != tt.lastBroadcastError {
+				t.Errorf("LastBroadcastError() = %q, want %q", status.GetLastBroadcastError(), tt.lastBroadcastError)
 			}
-			if status.WatcherErrors() != tt.watcherErrors {
-				t.Errorf("WatcherErrors() = %d, want %d", status.WatcherErrors(), tt.watcherErrors)
+			if status.GetWatcherErrors() != tt.watcherErrors {
+				t.Errorf("WatcherErrors() = %d, want %d", status.GetWatcherErrors(), tt.watcherErrors)
 			}
-			if status.LastWatcherError() != tt.lastWatcherError {
-				t.Errorf("LastWatcherError() = %q, want %q", status.LastWatcherError(), tt.lastWatcherError)
+			if status.GetLastWatcherError() != tt.lastWatcherError {
+				t.Errorf("LastWatcherError() = %q, want %q", status.GetLastWatcherError(), tt.lastWatcherError)
 			}
-			if status.ConnectedClients() != tt.connectedClients {
-				t.Errorf("ConnectedClients() = %d, want %d", status.ConnectedClients(), tt.connectedClients)
+			if status.GetConnectedClients() != tt.connectedClients {
+				t.Errorf("ConnectedClients() = %d, want %d", status.GetConnectedClients(), tt.connectedClients)
 			}
-			if status.ActiveAlerts() != tt.activeAlerts {
-				t.Errorf("ActiveAlerts() = %d, want %d", status.ActiveAlerts(), tt.activeAlerts)
+			if status.GetActiveAlerts() != tt.activeAlerts {
+				t.Errorf("ActiveAlerts() = %d, want %d", status.GetActiveAlerts(), tt.activeAlerts)
 			}
-			if status.BlockedBranches() != tt.blockedBranches {
-				t.Errorf("BlockedBranches() = %d, want %d", status.BlockedBranches(), tt.blockedBranches)
+			if status.GetBlockedBranches() != tt.blockedBranches {
+				t.Errorf("BlockedBranches() = %d, want %d", status.GetBlockedBranches(), tt.blockedBranches)
 			}
 
 			// Verify timestamp is recent (within last second)
 			// Note: We can't check exact timestamp due to timing, but we can verify it's set
-			if status.Timestamp().IsZero() {
+			if status.GetTimestamp().IsZero() {
 				t.Errorf("Timestamp() should not be zero")
 			}
 		})
@@ -541,35 +541,35 @@ func TestNewHealthStatus_BoundaryConditions(t *testing.T) {
 				}
 
 				// Verify values are accessible
-				if health.BroadcastFailures() != tt.broadcastFailures {
-					t.Errorf("BroadcastFailures = %d, want %d", health.BroadcastFailures(), tt.broadcastFailures)
+				if health.GetBroadcastFailures() != tt.broadcastFailures {
+					t.Errorf("BroadcastFailures = %d, want %d", health.GetBroadcastFailures(), tt.broadcastFailures)
 				}
-				if health.WatcherErrors() != tt.watcherErrors {
-					t.Errorf("WatcherErrors = %d, want %d", health.WatcherErrors(), tt.watcherErrors)
+				if health.GetWatcherErrors() != tt.watcherErrors {
+					t.Errorf("WatcherErrors = %d, want %d", health.GetWatcherErrors(), tt.watcherErrors)
 				}
-				if health.ConnectedClients() != tt.connectedClients {
-					t.Errorf("ConnectedClients = %d, want %d", health.ConnectedClients(), tt.connectedClients)
+				if health.GetConnectedClients() != tt.connectedClients {
+					t.Errorf("ConnectedClients = %d, want %d", health.GetConnectedClients(), tt.connectedClients)
 				}
-				if health.ActiveAlerts() != tt.activeAlerts {
-					t.Errorf("ActiveAlerts = %d, want %d", health.ActiveAlerts(), tt.activeAlerts)
+				if health.GetActiveAlerts() != tt.activeAlerts {
+					t.Errorf("ActiveAlerts = %d, want %d", health.GetActiveAlerts(), tt.activeAlerts)
 				}
-				if health.BlockedBranches() != tt.blockedBranches {
-					t.Errorf("BlockedBranches = %d, want %d", health.BlockedBranches(), tt.blockedBranches)
+				if health.GetBlockedBranches() != tt.blockedBranches {
+					t.Errorf("BlockedBranches = %d, want %d", health.GetBlockedBranches(), tt.blockedBranches)
 				}
 
 				// Verify timestamp is reasonable (within last 5 seconds)
-				timeSinceCreation := time.Since(health.Timestamp())
+				timeSinceCreation := time.Since(health.GetTimestamp())
 				if timeSinceCreation < 0 || timeSinceCreation > 5*time.Second {
 					t.Errorf("Timestamp looks unreasonable: %v ago", timeSinceCreation)
 				}
 
 				// For whitespace-only error messages, verify trimming occurred
 				if tt.name == "Whitespace-only error messages" {
-					if health.LastBroadcastError() != "" {
-						t.Errorf("Expected LastBroadcastError to be trimmed to empty, got %q", health.LastBroadcastError())
+					if health.GetLastBroadcastError() != "" {
+						t.Errorf("Expected LastBroadcastError to be trimmed to empty, got %q", health.GetLastBroadcastError())
 					}
-					if health.LastWatcherError() != "" {
-						t.Errorf("Expected LastWatcherError to be trimmed to empty, got %q", health.LastWatcherError())
+					if health.GetLastWatcherError() != "" {
+						t.Errorf("Expected LastWatcherError to be trimmed to empty, got %q", health.GetLastWatcherError())
 					}
 				}
 			}

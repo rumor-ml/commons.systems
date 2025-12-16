@@ -25,11 +25,53 @@ func printErrorHint(err error) {
 		fmt.Fprintln(os.Stderr, "Hint: Daemon not running. Start with: tmux-tui-daemon")
 	case errors.Is(err, daemon.ErrPermissionDenied):
 		fmt.Fprintln(os.Stderr, "Hint: Permission issue accessing daemon socket.")
-	case errors.Is(err, daemon.ErrConnectionTimeout):
-		fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond.")
+	case errors.Is(err, daemon.ErrConnectionTimeout), errors.Is(err, daemon.ErrQueryTimeout):
+		fmt.Fprintln(os.Stderr, "Hint: Daemon may be slow to respond. Check health with: tmux-tui-daemon health")
 	case errors.Is(err, daemon.ErrConnectionFailed):
 		fmt.Fprintln(os.Stderr, "Hint: Connection issue. Check if tmux-tui-daemon is running.")
 	}
+}
+
+// isRetryableError determines if an error should trigger a retry
+func isRetryableError(err error) bool {
+	return errors.Is(err, daemon.ErrConnectionTimeout) ||
+		errors.Is(err, daemon.ErrQueryTimeout) ||
+		errors.Is(err, daemon.ErrQueryChannelFull)
+}
+
+// queryBlockedStateWithRetry queries blocked state with exponential backoff retries
+func queryBlockedStateWithRetry(client branchBlocker, branch string, maxRetries int) (daemon.BlockedState, error) {
+	backoff := 100 * time.Millisecond
+	maxBackoff := 1 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			debug.Log("BLOCK_CLI_QUERY_RETRY attempt=%d branch=%s backoff=%v", attempt+1, branch, backoff)
+		}
+
+		state, err := client.QueryBlockedState(branch)
+		if err == nil {
+			if attempt > 0 {
+				debug.Log("BLOCK_CLI_QUERY_RETRY_SUCCESS attempt=%d branch=%s", attempt+1, branch)
+			}
+			return state, nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			// Non-retryable error, fail immediately
+			return daemon.BlockedState{}, err
+		}
+		debug.Log("BLOCK_CLI_QUERY_RETRY_ERROR attempt=%d branch=%s error=%v", attempt+1, branch, err)
+	}
+
+	return daemon.BlockedState{}, fmt.Errorf("query failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // getCurrentBranch gets the current git branch for the given pane
@@ -67,7 +109,8 @@ func toggleBlockedState(client branchBlocker, paneID, branch string) bool {
 		return false
 	}
 
-	state, err := client.QueryBlockedState(branch)
+	// Query with retry (max 3 attempts)
+	state, err := queryBlockedStateWithRetry(client, branch, 3)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not query blocked state for '%s': %v\n", branch, err)
 		printErrorHint(err)

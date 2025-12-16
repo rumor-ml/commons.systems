@@ -674,6 +674,20 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 					msg.Branch, isBlocked, blockedBy)
 			}
 
+		case MsgTypeHealthQuery:
+			// Return health status
+			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
+			status := d.GetHealthStatus()
+			response := Message{
+				Type:         MsgTypeHealthResponse,
+				HealthStatus: &status,
+			}
+			if err := client.sendMessage(response); err != nil {
+				debug.Log("DAEMON_HEALTH_RESPONSE_ERROR client=%s error=%v", clientID, err)
+			} else {
+				debug.Log("DAEMON_HEALTH_RESPONSE client=%s", clientID)
+			}
+
 		case MsgTypeResyncRequest:
 			// Client detected a gap in sequence numbers, send full state
 			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)

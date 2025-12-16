@@ -71,17 +71,35 @@ type model struct {
 }
 
 func initialModel() model {
-	collector, collectorErr := tmux.NewCollector()
-	if collectorErr != nil {
-		return model{
-			err: fmt.Errorf("failed to initialize collector: %w", collectorErr),
-		}
+	// Initialize model with mutexes first to ensure safe concurrent access
+	m := model{
+		alerts:          make(map[string]string),
+		alertsMu:        &sync.RWMutex{},
+		blockedBranches: make(map[string]string),
+		blockedMu:       &sync.RWMutex{},
+		errorMu:         &sync.RWMutex{},
+		width:           80,
+		height:          24,
+		pickingBranch:   false,
+		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
 	}
 
+	collector, collectorErr := tmux.NewCollector()
+	if collectorErr != nil {
+		// Set error under lock
+		m.errorMu.Lock()
+		m.err = fmt.Errorf("failed to initialize collector: %w", collectorErr)
+		m.errorMu.Unlock()
+		return m
+	}
+	m.collector = collector
+
 	renderer := ui.NewTreeRenderer(80) // Default width
+	m.renderer = renderer
 
 	// Initial tree load
 	tree, err := collector.GetTree()
+	m.tree = tree
 
 	// Initialize daemon client
 	var alertsDisabled bool
@@ -115,25 +133,16 @@ func initialModel() model {
 		alertsDisabled = true
 		alertError = enhancedError
 	}
+	m.daemonClient = daemonClient
 
-	return model{
-		collector:       collector,
-		renderer:        renderer,
-		daemonClient:    daemonClient,
-		tree:            tree,
-		alerts:          make(map[string]string),
-		alertsMu:        &sync.RWMutex{},
-		blockedBranches: make(map[string]string),
-		blockedMu:       &sync.RWMutex{},
-		errorMu:         &sync.RWMutex{}, // NEW
-		width:           80,
-		height:          24,
-		err:             err,
-		alertsDisabled:  alertsDisabled,
-		alertError:      alertError,
-		pickingBranch:   false,
-		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
-	}
+	// Set error fields under lock to prevent races with concurrent access
+	m.errorMu.Lock()
+	m.err = err
+	m.alertsDisabled = alertsDisabled
+	m.alertError = alertError
+	m.errorMu.Unlock()
+
+	return m
 }
 
 func (m model) Init() tea.Cmd {

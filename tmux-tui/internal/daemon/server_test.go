@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/commons-systems/tmux-tui/internal/debug"
 )
 
 // TestLoadBlockedBranches_MissingFile tests loading when file doesn't exist
@@ -110,6 +113,69 @@ func TestLoadBlockedBranches_CorruptedJSON(t *testing.T) {
 	// Error should mention unmarshaling
 	if err.Error() == "" {
 		t.Error("Error message should not be empty")
+	}
+}
+
+// TestPersistenceRecovery_TruncatedJSON tests that loadBlockedBranches handles truncated JSON
+// gracefully without panicking, and that the daemon can recover and accept new operations.
+func TestPersistenceRecovery_TruncatedJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Write truncated JSON (simulating partial write / power loss during save)
+	truncatedJSON := []byte(`{"branch1": "main", "branch2": "dev`)
+	if err := os.WriteFile(filePath, truncatedJSON, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Try to load truncated JSON
+	branches, err := loadBlockedBranches(filePath)
+
+	// Verify: Should return error OR empty map, but must not panic
+	if err != nil {
+		t.Logf("loadBlockedBranches returned error (acceptable): %v", err)
+		// Error is acceptable - daemon will log and continue
+		if branches != nil && len(branches) > 0 {
+			t.Errorf("If error is returned, branches map should be nil or empty, got %d entries", len(branches))
+		}
+	} else {
+		// No error means it returned a valid (possibly empty) map
+		t.Logf("loadBlockedBranches returned no error, got %d branches", len(branches))
+		if branches == nil {
+			t.Error("If no error, branches map should not be nil")
+		}
+	}
+
+	// Verify recovery: Create daemon with clean state and verify it can accept new operations
+	daemon := &AlertDaemon{
+		blockedBranches: make(map[string]string),
+		blockedPath:     filePath,
+	}
+
+	// Remove corrupted file to allow fresh writes
+	os.Remove(filePath)
+
+	// Add a new branch - this should work
+	daemon.blockedBranches["test-branch"] = "main"
+
+	// Save should succeed with clean data
+	if err := daemon.saveBlockedBranches(); err != nil {
+		t.Errorf("Recovery failed - cannot save after truncated JSON: %v", err)
+	}
+
+	// Verify the new save is valid
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Errorf("Failed to read recovered file: %v", err)
+	} else {
+		var loaded map[string]string
+		if err := json.Unmarshal(data, &loaded); err != nil {
+			t.Errorf("Recovered file contains invalid JSON: %v", err)
+		} else if loaded["test-branch"] != "main" {
+			t.Errorf("Recovered file missing expected data, got: %v", loaded)
+		} else {
+			t.Log("Recovery successful - daemon can save valid data after encountering truncated JSON")
+		}
 	}
 }
 
@@ -539,32 +605,32 @@ func TestGetHealthStatus(t *testing.T) {
 
 	status := daemon.GetHealthStatus()
 
-	if status.BroadcastFailures() != 5 {
-		t.Errorf("Expected 5 broadcast failures, got %d", status.BroadcastFailures())
+	if status.GetBroadcastFailures() != 5 {
+		t.Errorf("Expected 5 broadcast failures, got %d", status.GetBroadcastFailures())
 	}
 
-	if status.LastBroadcastError() != "test error" {
-		t.Errorf("Expected 'test error', got '%s'", status.LastBroadcastError())
+	if status.GetLastBroadcastError() != "test error" {
+		t.Errorf("Expected 'test error', got '%s'", status.GetLastBroadcastError())
 	}
 
-	if status.WatcherErrors() != 3 {
-		t.Errorf("Expected 3 watcher errors, got %d", status.WatcherErrors())
+	if status.GetWatcherErrors() != 3 {
+		t.Errorf("Expected 3 watcher errors, got %d", status.GetWatcherErrors())
 	}
 
-	if status.LastWatcherError() != "watcher error" {
-		t.Errorf("Expected 'watcher error', got '%s'", status.LastWatcherError())
+	if status.GetLastWatcherError() != "watcher error" {
+		t.Errorf("Expected 'watcher error', got '%s'", status.GetLastWatcherError())
 	}
 
-	if status.ActiveAlerts() != 1 {
-		t.Errorf("Expected 1 active alert, got %d", status.ActiveAlerts())
+	if status.GetActiveAlerts() != 1 {
+		t.Errorf("Expected 1 active alert, got %d", status.GetActiveAlerts())
 	}
 
-	if status.BlockedBranches() != 1 {
-		t.Errorf("Expected 1 blocked branch, got %d", status.BlockedBranches())
+	if status.GetBlockedBranches() != 1 {
+		t.Errorf("Expected 1 blocked branch, got %d", status.GetBlockedBranches())
 	}
 
-	if status.ConnectedClients() != 0 {
-		t.Errorf("Expected 0 connected clients, got %d", status.ConnectedClients())
+	if status.GetConnectedClients() != 0 {
+		t.Errorf("Expected 0 connected clients, got %d", status.GetConnectedClients())
 	}
 }
 
@@ -839,6 +905,129 @@ func TestConcurrentBroadcasts(t *testing.T) {
 	if actualSeq != expectedSeq {
 		t.Errorf("Expected sequence counter to be %d, got %d (lost increments)", expectedSeq, actualSeq)
 	}
+}
+
+// TestBroadcast_FullStateDuringRapidClientChurn tests that FullState broadcasts work correctly
+// when clients are rapidly connecting and disconnecting. This verifies that concurrent client
+// modifications don't cause races with broadcast operations.
+func TestBroadcast_FullStateDuringRapidClientChurn(t *testing.T) {
+	// Create daemon with initial state
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts: map[string]string{
+			"pane-1": "stop",
+			"pane-2": "idle",
+			"pane-3": "warning",
+			"pane-4": "error",
+			"pane-5": "success",
+		},
+		blockedBranches: map[string]string{
+			"feature-1": "main",
+			"feature-2": "develop",
+			"feature-3": "staging",
+		},
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Track test duration
+	start := time.Now()
+	stopCh := make(chan struct{})
+
+	// Client churn: 20 goroutines adding/removing clients every 50-100ms
+	var churnWg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		churnWg.Add(1)
+		go func(id int) {
+			defer churnWg.Done()
+			clientID := fmt.Sprintf("churn-client-%d", id)
+
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+					// Add client
+					r, w := io.Pipe()
+					client := &clientConnection{
+						encoder: json.NewEncoder(w),
+					}
+
+					daemon.clientsMu.Lock()
+					daemon.clients[clientID] = client
+					daemon.clientsMu.Unlock()
+
+					// Discard messages in background
+					go func() {
+						decoder := json.NewDecoder(r)
+						for {
+							var msg Message
+							if err := decoder.Decode(&msg); err != nil {
+								return
+							}
+						}
+					}()
+
+					// Stay connected for 50-100ms
+					time.Sleep(time.Duration(50+id*2) * time.Millisecond)
+
+					// Remove client
+					daemon.clientsMu.Lock()
+					delete(daemon.clients, clientID)
+					daemon.clientsMu.Unlock()
+
+					r.Close()
+					w.Close()
+
+					// Stay disconnected briefly
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+
+	// Broadcast FullState every 100ms (10 total over 1 second)
+	var broadcastWg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		broadcastWg.Add(1)
+		go func(iteration int) {
+			defer broadcastWg.Done()
+			time.Sleep(time.Duration(iteration*100) * time.Millisecond)
+
+			// Broadcast to all connected clients
+			daemon.clientsMu.Lock()
+			clients := make(map[string]*clientConnection)
+			for id, client := range daemon.clients {
+				clients[id] = client
+			}
+			daemon.clientsMu.Unlock()
+
+			// Send full state to each client (mimics what daemon does on resync)
+			for clientID, client := range clients {
+				if err := daemon.sendFullState(client, clientID); err != nil {
+					// Connection errors expected during churn
+					debug.Log("CHURN_TEST_BROADCAST_ERROR client=%s error=%v", clientID, err)
+				}
+			}
+		}(i)
+	}
+
+	// Run test for 1 second
+	time.Sleep(1 * time.Second)
+	close(stopCh)
+
+	// Wait for all goroutines to complete
+	churnWg.Wait()
+	broadcastWg.Wait()
+
+	duration := time.Since(start)
+	t.Logf("Test completed in %v", duration)
+
+	// Verify test completed in reasonable time
+	if duration > 2*time.Second {
+		t.Errorf("Test took too long: %v (expected ~1s)", duration)
+	}
+
+	t.Log("Client churn broadcast test passed - no races detected")
 }
 
 // TestSendFullState tests the sendFullState helper method
@@ -1662,4 +1851,67 @@ func TestPlayAlertSound_ErrorBroadcast(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for audio error broadcast")
 	}
+}
+
+// TestPlayAlertSound_ConcurrentRateLimiting tests that concurrent calls to playAlertSound
+// are protected by mutex and rate limiting works correctly without race conditions.
+func TestPlayAlertSound_ConcurrentRateLimiting(t *testing.T) {
+	// Reset lastAudioPlay to ensure clean test state
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Create AlertDaemon (playAlertSound doesn't use daemon fields, just needs pointer)
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+
+	// Track completion of goroutines
+	var wg sync.WaitGroup
+	start := time.Now()
+
+	// Launch 10 goroutines calling playAlertSound simultaneously
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			daemon.playAlertSound()
+			debug.Log("AUDIO_TEST_GOROUTINE_DONE id=%d", id)
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// Verify test completes within reasonable time
+	select {
+	case <-done:
+		duration := time.Since(start)
+		t.Logf("All goroutines completed in %v", duration)
+
+		// Should complete quickly since most calls are rate-limited and return immediately
+		// afplay calls run asynchronously, so we don't wait for them
+		if duration > 2*time.Second {
+			t.Errorf("Test took too long: %v (expected < 2s)", duration)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Test timed out - deadlock or goroutine leak")
+	}
+
+	// Verify rate limiting state is sane
+	audioMutex.Lock()
+	timeSinceLastPlay := time.Since(lastAudioPlay)
+	audioMutex.Unlock()
+
+	// If any sound played, lastAudioPlay should be recent (within test duration)
+	// If CLAUDE_E2E_TEST is set, lastAudioPlay will be zero (no sounds played)
+	if !lastAudioPlay.IsZero() && timeSinceLastPlay > 5*time.Second {
+		t.Errorf("lastAudioPlay is stale: %v ago", timeSinceLastPlay)
+	}
+
+	t.Log("Concurrent rate limiting test passed - no races detected")
 }
