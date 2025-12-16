@@ -31,10 +31,10 @@ type treeRefreshMsg struct {
 }
 
 type model struct {
-	collector       *tmux.Collector
-	renderer        *ui.TreeRenderer
-	daemonClient    *daemon.DaemonClient
-	tree            tmux.RepoTree
+	collector    *tmux.Collector
+	renderer     *ui.TreeRenderer
+	daemonClient *daemon.DaemonClient
+	tree         tmux.RepoTree
 
 	// Alert state with concurrency protection
 	alerts   map[string]string
@@ -430,9 +430,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			fmt.Fprintf(os.Stderr, "Tree refresh failed: %v\n", msg.err)
 			m.errorMu.Lock()
-			if m.err == nil {
-				m.treeRefreshError = msg.err
-			}
+			m.treeRefreshError = msg.err // Always update with latest error
 			m.errorMu.Unlock()
 		}
 		return m, nil

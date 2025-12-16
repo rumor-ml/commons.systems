@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1595,4 +1596,331 @@ func TestGapDetection_FullStateResetsSequence(t *testing.T) {
 	close(client.done)
 	serverWriter.Close()
 	clientWriter.Close()
+}
+
+// TestResyncRaceCondition_ConcurrentBroadcast tests that when a client requests resync due to a gap,
+// and the daemon sends the FullState response while another broadcast occurs, the client correctly
+// receives both messages without entering an infinite resync loop.
+func TestResyncRaceCondition_ConcurrentBroadcast(t *testing.T) {
+	// Setup: Create bidirectional pipes for client-server communication
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+	defer serverReader.Close()
+	defer serverWriter.Close()
+
+	// Create client with pipes
+	client := &DaemonClient{
+		clientID:       "test-client",
+		conn:           &mockConn{reader: clientReader, writer: clientWriter, localAddr: &mockAddr{"unix", "/tmp/test.sock"}, remoteAddr: &mockAddr{"unix", "/tmp/test.sock"}},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	// Start receive goroutine
+	go client.receive()
+	defer client.Close()
+
+	// Track if second resync request is received (should NOT happen)
+	resyncRequestCount := atomic.Int32{}
+
+	// Server simulation goroutine
+	serverDone := make(chan bool)
+	go func() {
+		defer close(serverDone)
+		encoder := json.NewEncoder(serverWriter)
+		decoder := json.NewDecoder(serverReader)
+
+		// Phase 1: Send message with SeqNum=1
+		if err := encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 1, PaneID: "pane1", EventType: "stop", Created: true}); err != nil {
+			t.Errorf("Failed to send SeqNum=1: %v", err)
+			return
+		}
+		time.Sleep(50 * time.Millisecond) // Allow processing
+
+		// Phase 2: Send message with SeqNum=10 (gap detected - should trigger resync)
+		if err := encoder.Encode(Message{Type: MsgTypeAlertChange, SeqNum: 10, PaneID: "pane2", EventType: "stop", Created: true}); err != nil {
+			t.Errorf("Failed to send SeqNum=10: %v", err)
+			return
+		}
+
+		// Phase 3: Read resync request from client
+		var resyncMsg Message
+		decoder.Decode(&resyncMsg)
+		if resyncMsg.Type != MsgTypeResyncRequest {
+			t.Errorf("Expected MsgTypeResyncRequest, got %s", resyncMsg.Type)
+			return
+		}
+		resyncRequestCount.Add(1)
+
+		// Phase 4: CRITICAL - Send concurrent broadcast BEFORE FullState
+		// This simulates daemon receiving new alert while processing resync
+		if err := encoder.Encode(Message{
+			Type:      MsgTypeAlertChange,
+			SeqNum:    11, // Next in sequence after gap
+			PaneID:    "pane3",
+			EventType: "stop",
+			Created:   true,
+		}); err != nil {
+			t.Errorf("Failed to send concurrent broadcast SeqNum=11: %v", err)
+			return
+		}
+
+		// Phase 5: Send FullState response (should reset sequence tracking)
+		if err := encoder.Encode(Message{
+			Type:            MsgTypeFullState,
+			SeqNum:          11, // Current sequence at time of resync
+			Alerts:          map[string]string{"pane1": "stop", "pane2": "stop", "pane3": "stop"},
+			BlockedBranches: map[string]string{},
+		}); err != nil {
+			t.Errorf("Failed to send FullState: %v", err)
+			return
+		}
+
+		// Phase 6: Send another broadcast after resync
+		time.Sleep(100 * time.Millisecond)
+		if err := encoder.Encode(Message{
+			Type:      MsgTypeAlertChange,
+			SeqNum:    12,
+			PaneID:    "pane4",
+			EventType: "idle",
+			Created:   true,
+		}); err != nil {
+			t.Errorf("Failed to send SeqNum=12: %v", err)
+			return
+		}
+
+		// Check for second resync request (should NOT happen - would indicate infinite loop)
+		// Use a channel to read messages without blocking the test
+		extraMsgChan := make(chan Message, 1)
+		go func() {
+			var extraMsg Message
+			if err := decoder.Decode(&extraMsg); err == nil {
+				extraMsgChan <- extraMsg
+			}
+		}()
+
+		select {
+		case extraMsg := <-extraMsgChan:
+			if extraMsg.Type == MsgTypeResyncRequest {
+				resyncRequestCount.Add(1)
+				t.Error("CRITICAL BUG: Infinite resync loop detected - client sent second resync request")
+			}
+		case <-time.After(500 * time.Millisecond):
+			// Good - no second resync request
+		}
+	}()
+
+	// Collect all received messages with timeout
+	timeout := time.After(3 * time.Second)
+	receivedMsgs := []Message{}
+	expectedMsgCount := 5 // SeqNum 1, 10, 11 (concurrent), FullState, 12
+
+	for len(receivedMsgs) < expectedMsgCount {
+		select {
+		case msg := <-client.eventCh:
+			receivedMsgs = append(receivedMsgs, msg)
+		case <-timeout:
+			t.Fatalf("Timeout: only received %d/%d messages. Got: %+v", len(receivedMsgs), expectedMsgCount, receivedMsgs)
+		}
+	}
+
+	// Wait for server goroutine to complete
+	<-serverDone
+
+	// ASSERTION 1: Only one resync request should have been sent
+	if resyncRequestCount.Load() != 1 {
+		t.Errorf("Expected 1 resync request, got %d (infinite loop detected)", resyncRequestCount.Load())
+	}
+
+	// ASSERTION 2: Client should have received FullState message
+	hasFullState := false
+	for _, msg := range receivedMsgs {
+		if msg.Type == MsgTypeFullState {
+			hasFullState = true
+			if len(msg.Alerts) != 3 {
+				t.Errorf("FullState should have 3 alerts, got %d", len(msg.Alerts))
+			}
+		}
+	}
+	if !hasFullState {
+		t.Error("Client should receive FullState after resync")
+	}
+
+	// ASSERTION 3: Client should have received message with SeqNum=12 (broadcast after resync)
+	hasSeq12 := false
+	for _, msg := range receivedMsgs {
+		if msg.SeqNum == 12 {
+			hasSeq12 = true
+		}
+	}
+	if !hasSeq12 {
+		t.Error("Client should receive broadcasts that occur after resync completes")
+	}
+
+	// ASSERTION 4: Client's lastSeq should be updated correctly (should be 12, not stuck)
+	finalSeq := client.lastSeq.Load()
+	if finalSeq != 12 {
+		t.Errorf("Expected lastSeq=12, got %d (indicates stale sequence tracking)", finalSeq)
+	}
+
+	t.Logf("Resync race condition test passed: received %d messages, lastSeq=%d, resyncCount=%d",
+		len(receivedMsgs), finalSeq, resyncRequestCount.Load())
+}
+
+// TestQueryBlockedState_NoStarvationUnderBroadcastLoad tests that QueryBlockedState completes
+// within reasonable time when daemon is broadcasting many rapid alerts.
+func TestQueryBlockedState_NoStarvationUnderBroadcastLoad(t *testing.T) {
+	// Setup: Create bidirectional pipes
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+	defer serverReader.Close()
+	defer serverWriter.Close()
+
+	// Create client
+	client := &DaemonClient{
+		clientID:       "test-client",
+		conn:           &mockConn{reader: clientReader, writer: clientWriter, localAddr: &mockAddr{"unix", "/tmp/test.sock"}, remoteAddr: &mockAddr{"unix", "/tmp/test.sock"}},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100), // Buffered to handle 100 alerts
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+	}
+
+	go client.receive()
+	defer client.Close()
+
+	// Track received alerts
+	alertsReceived := atomic.Int32{}
+
+	// Drain eventCh in background to simulate client processing
+	go func() {
+		for {
+			select {
+			case msg := <-client.eventCh:
+				if msg.Type == MsgTypeAlertChange {
+					alertsReceived.Add(1)
+				}
+			case <-client.done:
+				return
+			}
+		}
+	}()
+
+	// Server simulation: rapid broadcasts + query response
+	queryResponseSent := make(chan bool, 1)
+	queryCompleted := make(chan bool, 1)
+	go func() {
+		encoder := json.NewEncoder(serverWriter)
+		decoder := json.NewDecoder(serverReader)
+
+		// Start sending 100 rapid broadcasts
+		for i := 1; i <= 100; i++ {
+			if err := encoder.Encode(Message{
+				Type:      MsgTypeAlertChange,
+				SeqNum:    uint64(i),
+				PaneID:    "pane-" + string(rune('0'+i%10)),
+				EventType: "stop",
+				Created:   true,
+			}); err != nil {
+				t.Errorf("Failed to send broadcast %d: %v", i, err)
+				return
+			}
+			// No sleep - rapid fire broadcasts
+		}
+
+		// Read query request (should arrive during broadcast storm)
+		var queryMsg Message
+		if err := decoder.Decode(&queryMsg); err != nil {
+			t.Errorf("Failed to read query: %v", err)
+			return
+		}
+		if queryMsg.Type != MsgTypeQueryBlockedState {
+			t.Errorf("Expected QueryBlockedState, got %s", queryMsg.Type)
+			return
+		}
+
+		// CRITICAL: Send query response IMMEDIATELY (daemon doesn't wait for broadcasts)
+		if err := encoder.Encode(Message{
+			Type:          MsgTypeBlockedStateResponse,
+			Branch:        queryMsg.Branch,
+			IsBlocked:     true,
+			BlockedBranch: "main",
+		}); err != nil {
+			t.Errorf("Failed to send query response: %v", err)
+			return
+		}
+		queryResponseSent <- true
+
+		// Continue sending more broadcasts after query
+		for i := 101; i <= 150; i++ {
+			if err := encoder.Encode(Message{
+				Type:      MsgTypeAlertChange,
+				SeqNum:    uint64(i),
+				PaneID:    "pane-" + string(rune('0'+i%10)),
+				EventType: "idle",
+				Created:   true,
+			}); err != nil {
+				t.Errorf("Failed to send broadcast %d: %v", i, err)
+				return
+			}
+		}
+
+		<-queryCompleted // Wait for query to complete
+	}()
+
+	// Wait for broadcasts to start flooding in
+	time.Sleep(100 * time.Millisecond)
+
+	// Issue query while broadcasts are happening
+	queryStart := time.Now()
+	blockedBy, isBlocked, err := client.QueryBlockedState("feature-branch")
+	queryDuration := time.Since(queryStart)
+	queryCompleted <- true
+
+	// CRITICAL ASSERTION: Query must complete within 2 seconds
+	if queryDuration > 2*time.Second {
+		t.Errorf("STARVATION DETECTED: Query took %v (should be < 2s)", queryDuration)
+	}
+
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if !isBlocked || blockedBy != "main" {
+		t.Errorf("Expected blocked by main, got isBlocked=%v blockedBy=%s",
+			isBlocked, blockedBy)
+	}
+
+	t.Logf("Query completed in %v (no starvation)", queryDuration)
+
+	// Verify query response was sent by server
+	select {
+	case <-queryResponseSent:
+		t.Log("Server sent query response during broadcast storm (correct behavior)")
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Server failed to send query response")
+	}
+
+	// Wait for all broadcasts to be processed
+	timeout := time.After(5 * time.Second)
+	for alertsReceived.Load() < 150 {
+		select {
+		case <-timeout:
+			t.Fatalf("Only received %d/150 alerts", alertsReceived.Load())
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	t.Logf("Received all 150 alerts without loss")
 }

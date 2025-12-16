@@ -47,6 +47,31 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	})
 }
 
+// revertBlockedBranchChange reverts a failed block/unblock operation and broadcasts the revert.
+// This is called when persistence fails to ensure in-memory state matches disk state.
+func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, previousBlockedBy string) {
+	d.blockedMu.Lock()
+	if wasBlocked {
+		// Restore previous blocked state
+		d.blockedBranches[branch] = previousBlockedBy
+	} else {
+		// Remove the block that failed to persist
+		delete(d.blockedBranches, branch)
+	}
+	d.blockedMu.Unlock()
+
+	// Broadcast revert so all clients show correct state
+	d.broadcast(Message{
+		Type:          MsgTypeBlockChange,
+		Branch:        branch,
+		BlockedBranch: previousBlockedBy,
+		Blocked:       wasBlocked,
+	})
+
+	debug.Log("DAEMON_REVERTED_BLOCK_CHANGE branch=%s wasBlocked=%v previousBlockedBy=%s",
+		branch, wasBlocked, previousBlockedBy)
+}
+
 // playAlertSound plays the system alert sound in the background.
 // It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
 // The sound only plays once when transitioning to an alert state.
@@ -77,9 +102,18 @@ func (d *AlertDaemon) playAlertSound() {
 		if err := cmd.Run(); err != nil {
 			debug.Log("AUDIO_ERROR error=%v", err)
 			// Broadcast error to clients so they know notifications are broken
+			errorMsg := fmt.Sprintf(
+				"Audio playback failed: %v\n\n"+
+					"Troubleshooting:\n"+
+					"  1. Verify audio system: afplay /System/Library/Sounds/Ping.aiff\n"+
+					"  2. Check audio output device is connected and unmuted\n"+
+					"  3. On headless systems, consider disabling audio in config\n"+
+					"  Note: Audio failures don't affect tmux-tui functionality",
+				err,
+			)
 			d.broadcast(Message{
 				Type:  MsgTypeAudioError,
-				Error: fmt.Sprintf("Audio playback failed: %v", err),
+				Error: errorMsg,
 			})
 		}
 		debug.Log("AUDIO_COMPLETED")
@@ -96,6 +130,13 @@ func (d *AlertDaemon) playAlertSound() {
 //   These don't interact with clientsMu in ways that create deadlock risk.
 //   Can be acquired in any order relative to each other.
 //   Use RLock when only reading to allow concurrent access.
+//
+//   WHY INDEPENDENT:
+//     - Both locks are held only during map copying (copyAlerts, copyBlockedBranches)
+//     - Locks are RELEASED before I/O operations (sendMessage, broadcast)
+//     - Never held during network writes that could block indefinitely
+//     - This design isolates data structure synchronization from I/O timing
+//     - Result: No circular wait dependencies with clientsMu or encoderMu
 //
 // RATIONALE:
 //   - clientsMu → encoderMu ordering prevents broadcast() deadlock
@@ -531,16 +572,25 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeBlockBranch:
 			// Block a branch with another branch
 			debug.Log("DAEMON_BLOCK_BRANCH branch=%s blockedBy=%s", msg.Branch, msg.BlockedBranch)
+
+			// Capture previous state before making changes
+			d.blockedMu.RLock()
+			previousBlockedBy, wasBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Update in-memory state
 			d.blockedMu.Lock()
 			d.blockedBranches[msg.Branch] = msg.BlockedBranch
 			d.blockedMu.Unlock()
 
-			// Save to disk
+			// Save to disk - revert if persistence fails
 			if err := d.saveBlockedBranches(); err != nil {
 				d.handlePersistenceError(err)
+				d.revertBlockedBranchChange(msg.Branch, wasBlocked, previousBlockedBy)
+				continue // Skip success broadcast
 			}
 
-			// Broadcast change to all clients (this will close pickers in all TUI windows)
+			// Only broadcast success if persistence succeeded
 			d.broadcast(Message{
 				Type:          MsgTypeBlockChange,
 				Branch:        msg.Branch,
@@ -551,16 +601,25 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeUnblockBranch:
 			// Unblock a branch
 			debug.Log("DAEMON_UNBLOCK_BRANCH branch=%s", msg.Branch)
+
+			// Capture previous state before making changes
+			d.blockedMu.RLock()
+			previousBlockedBy, wasBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Update in-memory state
 			d.blockedMu.Lock()
 			delete(d.blockedBranches, msg.Branch)
 			d.blockedMu.Unlock()
 
-			// Save to disk
+			// Save to disk - revert if persistence fails
 			if err := d.saveBlockedBranches(); err != nil {
 				d.handlePersistenceError(err)
+				d.revertBlockedBranchChange(msg.Branch, wasBlocked, previousBlockedBy)
+				continue // Skip success broadcast
 			}
 
-			// Broadcast change to all clients
+			// Only broadcast success if persistence succeeded
 			d.broadcast(Message{
 				Type:    MsgTypeBlockChange,
 				Branch:  msg.Branch,

@@ -403,3 +403,316 @@ func TestToggleUnblockFlow(t *testing.T) {
 
 	t.Log("Toggle-unblock flow test passed!")
 }
+
+func TestBlockedBranchPersistence_DaemonRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Verify tmux is available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found")
+	}
+
+	socketName := uniqueSocketName()
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
+	tuiDir, _ := filepath.Abs("..")
+
+	// Build binaries
+	t.Log("Building binaries...")
+	buildCmd := exec.Command("make", "build")
+	buildCmd.Dir = tuiDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build: %v\n%s", err, output)
+	}
+
+	// Create test session
+	sessionName := fmt.Sprintf("restart-test-%d", time.Now().Unix())
+	cmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName, "-x", "120", "-y", "40")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer func() {
+		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
+		killCmd.Run()
+	}()
+
+	// Wait for tmux socket
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
+
+	// Phase 1: Start daemon and block branches
+	t.Log("Phase 1: Starting daemon and blocking branches...")
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	time.Sleep(500 * time.Millisecond)
+
+	// Set TMUX env for client connection
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	tmuxEnv := fmt.Sprintf("%s,%d,0", tmuxSocketPath, os.Getpid())
+	os.Setenv("TMUX", tmuxEnv)
+	defer os.Unsetenv("TMUX")
+
+	// Connect and block multiple branches
+	client := daemon.NewDaemonClient()
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Failed to connect to daemon: %v", err)
+	}
+
+	// Block 3 different branches
+	testCases := []struct {
+		branch    string
+		blockedBy string
+	}{
+		{"feature-1", "main"},
+		{"feature-2", "develop"},
+		{"bugfix-123", "release-1.0"},
+	}
+
+	for _, tc := range testCases {
+		if err := client.BlockBranch(tc.branch, tc.blockedBy); err != nil {
+			t.Fatalf("Failed to block %s: %v", tc.branch, err)
+		}
+	}
+	time.Sleep(300 * time.Millisecond) // Allow persistence
+
+	// Verify persistence file exists and has correct content
+	blockedFile := fmt.Sprintf("/tmp/claude/%s/tui-blocked-branches.json", socketName)
+	data, err := os.ReadFile(blockedFile)
+	if err != nil {
+		t.Fatalf("Persistence file should exist: %v", err)
+	}
+
+	var blockedBranches map[string]string
+	if err := json.Unmarshal(data, &blockedBranches); err != nil {
+		t.Fatalf("Failed to parse persistence file: %v", err)
+	}
+
+	if len(blockedBranches) != 3 {
+		t.Errorf("Expected 3 blocked branches in file, got %d", len(blockedBranches))
+	}
+	for _, tc := range testCases {
+		if blockedBranches[tc.branch] != tc.blockedBy {
+			t.Errorf("Persistence file: expected %s blocked by %s, got %s",
+				tc.branch, tc.blockedBy, blockedBranches[tc.branch])
+		}
+	}
+	t.Logf("Verified persistence file contains all 3 blocked branches")
+
+	// Close client
+	client.Close()
+	time.Sleep(200 * time.Millisecond)
+
+	// Phase 2: Stop daemon gracefully
+	t.Log("Phase 2: Stopping daemon...")
+	cleanupDaemon() // Kills daemon window
+	time.Sleep(500 * time.Millisecond)
+
+	// Note: Daemon socket may not be immediately removed when window is killed
+	// This is acceptable - the important part is that persistence file survives
+
+	// Verify persistence file still exists (not deleted on shutdown)
+	if _, err := os.ReadFile(blockedFile); err != nil {
+		t.Errorf("Persistence file should survive daemon shutdown: %v", err)
+	}
+
+	// Phase 3: Restart daemon
+	t.Log("Phase 3: Restarting daemon...")
+	cleanupDaemon2 := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon2()
+	time.Sleep(500 * time.Millisecond)
+
+	// Phase 4: Connect new client and verify state was loaded
+	t.Log("Phase 4: Verifying state loaded from disk...")
+	client2 := daemon.NewDaemonClient()
+	if err := client2.Connect(); err != nil {
+		t.Fatalf("Failed to reconnect after restart: %v", err)
+	}
+	defer client2.Close()
+
+	// Wait for full state message
+	timeout := time.After(2 * time.Second)
+	var fullStateMsg daemon.Message
+	select {
+	case fullStateMsg = <-client2.Events():
+		if fullStateMsg.Type != daemon.MsgTypeFullState {
+			t.Errorf("Expected full_state, got %s", fullStateMsg.Type)
+		}
+	case <-timeout:
+		t.Fatal("Timeout waiting for full_state after reconnect")
+	}
+
+	// Verify full state contains all 3 blocked branches
+	if len(fullStateMsg.BlockedBranches) != 3 {
+		t.Errorf("Expected 3 blocked branches in full_state, got %d",
+			len(fullStateMsg.BlockedBranches))
+	}
+
+	for _, tc := range testCases {
+		if fullStateMsg.BlockedBranches[tc.branch] != tc.blockedBy {
+			t.Errorf("Full state: expected %s blocked by %s, got %s",
+				tc.branch, tc.blockedBy, fullStateMsg.BlockedBranches[tc.branch])
+		}
+	}
+
+	// Phase 5: Query each branch to double-check
+	t.Log("Phase 5: Querying individual branches...")
+	for _, tc := range testCases {
+		blockedBy, isBlocked, err := client2.QueryBlockedState(tc.branch)
+		if err != nil {
+			t.Errorf("Failed to query %s: %v", tc.branch, err)
+			continue
+		}
+		if !isBlocked {
+			t.Errorf("Branch %s should be blocked after restart", tc.branch)
+		}
+		if blockedBy != tc.blockedBy {
+			t.Errorf("Branch %s: expected blocked by %s, got %s",
+				tc.branch, tc.blockedBy, blockedBy)
+		}
+	}
+
+	t.Log("All persistence tests passed!")
+}
+
+func TestBlockedBranchPersistence_CorruptedFileRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found")
+	}
+
+	socketName := uniqueSocketName()
+	os.MkdirAll(getTestAlertDir(socketName), 0755)
+	tuiDir, _ := filepath.Abs("..")
+
+	// Build binaries
+	buildCmd := exec.Command("make", "build")
+	buildCmd.Dir = tuiDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build: %v\n%s", err, output)
+	}
+
+	// Create test session
+	sessionName := fmt.Sprintf("corrupt-test-%d", time.Now().Unix())
+	cmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName, "-x", "120", "-y", "40")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer func() {
+		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
+		killCmd.Run()
+	}()
+
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
+
+	// Start daemon and block a branch
+	t.Log("Starting daemon and creating valid state...")
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	time.Sleep(500 * time.Millisecond)
+
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	tmuxEnv := fmt.Sprintf("%s,%d,0", tmuxSocketPath, os.Getpid())
+	os.Setenv("TMUX", tmuxEnv)
+	defer os.Unsetenv("TMUX")
+
+	client := daemon.NewDaemonClient()
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+
+	if err := client.BlockBranch("feature-1", "main"); err != nil {
+		t.Fatalf("Failed to block branch: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	client.Close()
+	cleanupDaemon()
+	time.Sleep(500 * time.Millisecond)
+
+	// Corrupt the persistence file
+	t.Log("Corrupting persistence file...")
+	blockedFile := fmt.Sprintf("/tmp/claude/%s/tui-blocked-branches.json", socketName)
+	corruptedContent := `{"feature-1": "main", INVALID_JSON`
+	if err := os.WriteFile(blockedFile, []byte(corruptedContent), 0644); err != nil {
+		t.Fatalf("Failed to corrupt file: %v", err)
+	}
+
+	// Try to restart daemon - should fail to start due to corrupted file
+	t.Log("Attempting to restart daemon with corrupted file...")
+	// We expect the daemon to fail to start, so we'll start it in a window
+	// and check that the socket is never created
+	daemonBinary := filepath.Join(tuiDir, "build", "tmux-tui-daemon")
+	uid2 := os.Getuid()
+	tmuxSocketPath2 := fmt.Sprintf("/tmp/tmux-%d/%s", uid2, socketName)
+	tmuxEnv2 := fmt.Sprintf("%s,$$,0", tmuxSocketPath2)
+
+	// Create daemon window
+	createWindowCmd := tmuxCmd(socketName, "new-window", "-t", sessionName, "-n", "daemon2", "-d")
+	if err := createWindowCmd.Run(); err != nil {
+		t.Fatalf("Failed to create daemon window: %v", err)
+	}
+
+	// Start daemon
+	daemonTarget := fmt.Sprintf("%s:daemon2", sessionName)
+	startCmd := fmt.Sprintf("TMUX='%s' TMUX_TUI_DEBUG=1 %s", tmuxEnv2, daemonBinary)
+	sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", daemonTarget, startCmd, "Enter")
+	if err := sendKeysCmd.Run(); err != nil {
+		t.Fatalf("Failed to start daemon: %v", err)
+	}
+
+	// Wait and verify daemon socket is NOT created (daemon failed to start)
+	t.Log("Verifying daemon fails to start with corrupted file...")
+	daemonSocket := filepath.Join(getTestAlertDir(socketName), "daemon.sock")
+	time.Sleep(1 * time.Second) // Give daemon time to fail
+
+	if _, err := os.Stat(daemonSocket); err == nil {
+		t.Error("Daemon socket should not exist - daemon should have failed to start with corrupted file")
+	} else if !os.IsNotExist(err) {
+		t.Errorf("Unexpected error checking socket: %v", err)
+	}
+
+	// Clean up daemon window
+	killCmd := tmuxCmd(socketName, "kill-window", "-t", fmt.Sprintf("%s:daemon2", sessionName))
+	killCmd.Run()
+
+	// Fix the corrupted file and verify daemon can start with clean state
+	t.Log("Fixing corrupted file and restarting daemon...")
+	if err := os.WriteFile(blockedFile, []byte("{}"), 0644); err != nil {
+		t.Fatalf("Failed to write fixed file: %v", err)
+	}
+
+	// Now daemon should start successfully
+	cleanupDaemon3 := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon3()
+	time.Sleep(500 * time.Millisecond)
+
+	// Connect and verify empty state
+	client3 := daemon.NewDaemonClient()
+	if err := client3.Connect(); err != nil {
+		t.Fatalf("Failed to connect after fixing file: %v", err)
+	}
+	defer client3.Close()
+
+	timeout := time.After(2 * time.Second)
+	select {
+	case msg := <-client3.Events():
+		if msg.Type != daemon.MsgTypeFullState {
+			t.Errorf("Expected full_state, got %s", msg.Type)
+		}
+		if len(msg.BlockedBranches) != 0 {
+			t.Errorf("Expected empty state after file fix, got %d branches", len(msg.BlockedBranches))
+		}
+		t.Logf("Daemon started successfully with empty state after file fix")
+	case <-timeout:
+		t.Fatal("Timeout waiting for full_state after file fix")
+	}
+
+	t.Log("Corrupted file recovery test passed!")
+}

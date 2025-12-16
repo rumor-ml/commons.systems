@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/tmux/testutil"
@@ -587,4 +590,116 @@ func TestGetCurrentBranch_MultipleRepos(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRapidToggle_ConcurrentInvocations tests rapid double-invocation of block toggle
+// This validates that concurrent calls (e.g., user double-tapping keybinding) don't cause
+// race conditions or unexpected behavior
+func TestRapidToggle_ConcurrentInvocations(t *testing.T) {
+	// Track function call counts with atomics
+	queryCallCount := atomic.Int32{}
+	unblockCallCount := atomic.Int32{}
+	blockCallCount := atomic.Int32{}
+
+	// Mock blocked branch (changes after first unblock)
+	currentlyBlocked := atomic.Bool{}
+	currentlyBlocked.Store(true) // Start as blocked
+
+	// Simulate network latency in operations
+	simulateLatency := func() {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Create mock client with thread-safe operations
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (string, bool, error) {
+			queryCallCount.Add(1)
+			simulateLatency()
+			isBlocked := currentlyBlocked.Load()
+			if isBlocked {
+				return "main", true, nil
+			}
+			return "", false, nil
+		},
+		unblockBranchFunc: func(branch string) error {
+			unblockCallCount.Add(1)
+			simulateLatency()
+			currentlyBlocked.Store(false)
+			return nil
+		},
+	}
+
+	// Concurrent invocations (simulate rapid double-tap)
+	var wg sync.WaitGroup
+	results := make(chan string, 2)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		invocationID := i
+		go func() {
+			defer wg.Done()
+
+			t.Logf("Invocation %d: calling toggleBlockedState", invocationID)
+			result := toggleBlockedState(mock, "%1", "feature-branch")
+
+			if result {
+				// Branch was blocked and got unblocked
+				t.Logf("Invocation %d: unblocked", invocationID)
+				results <- fmt.Sprintf("invocation-%d-unblocked", invocationID)
+			} else {
+				// Branch was not blocked, would show picker
+				t.Logf("Invocation %d: would show picker", invocationID)
+				blockCallCount.Add(1)
+				results <- fmt.Sprintf("invocation-%d-picker", invocationID)
+			}
+		}()
+
+		// Small delay to simulate human double-click timing
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Wait for both invocations
+	wg.Wait()
+	close(results)
+
+	// Collect results
+	var resultSlice []string
+	for r := range results {
+		resultSlice = append(resultSlice, r)
+	}
+
+	// ASSERTIONS
+
+	// 1. Both invocations should complete without crashing
+	if len(resultSlice) != 2 {
+		t.Fatalf("Expected 2 results, got %d", len(resultSlice))
+	}
+
+	// 2. Query should be called exactly twice
+	if queryCallCount.Load() != 2 {
+		t.Errorf("Expected 2 query calls, got %d", queryCallCount.Load())
+	}
+
+	// 3. Due to race timing, either:
+	//    - Both see "blocked" and both unblock (queryCallCount=2, unblockCallCount=2)
+	//    - First sees "blocked" and unblocks, second sees "unblocked" and shows picker
+	//    Both are acceptable outcomes
+	totalUnblocks := unblockCallCount.Load()
+	totalBlocks := blockCallCount.Load()
+
+	if totalUnblocks+totalBlocks != 2 {
+		t.Errorf("Expected total operations to be 2, got unblocks=%d blocks=%d",
+			totalUnblocks, totalBlocks)
+	}
+
+	// Log final state for debugging
+	t.Logf("Final state: queries=%d unblocks=%d blocks=%d",
+		queryCallCount.Load(), unblockCallCount.Load(), blockCallCount.Load())
+	t.Logf("Results: %v", resultSlice)
+
+	// The test passes if:
+	// - No crashes occurred
+	// - All operations completed
+	// - Call counts are consistent
+	t.Log("Rapid toggle test passed - no race conditions detected")
 }

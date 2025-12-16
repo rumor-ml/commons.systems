@@ -1028,3 +1028,217 @@ func TestBroadcast_MemoryLeakPrevention(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestConcurrentBlockUnblock_SameBranch tests concurrent block/unblock operations
+// on the same branch to verify state consistency and persistence integrity
+func TestConcurrentBlockUnblock_SameBranch(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          make(map[string]string),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create two pipe-based client connections
+	// Client 1 will repeatedly block the branch
+	client1Reader, server1Writer := io.Pipe()
+	server1Reader, client1Writer := io.Pipe()
+	defer client1Reader.Close()
+	defer client1Writer.Close()
+	defer server1Reader.Close()
+	defer server1Writer.Close()
+
+	client1Conn := &mockConn{
+		reader: server1Reader,
+		writer: server1Writer,
+	}
+
+	// Client 2 will repeatedly unblock the branch
+	client2Reader, server2Writer := io.Pipe()
+	server2Reader, client2Writer := io.Pipe()
+	defer client2Reader.Close()
+	defer client2Writer.Close()
+	defer server2Reader.Close()
+	defer server2Writer.Close()
+
+	client2Conn := &mockConn{
+		reader: server2Reader,
+		writer: server2Writer,
+	}
+
+	// Start handleClient for both clients in background
+	go daemon.handleClient(client1Conn)
+	go daemon.handleClient(client2Conn)
+
+	// Send hello messages from both clients
+	encoder1 := json.NewEncoder(client1Writer)
+	encoder2 := json.NewEncoder(client2Writer)
+
+	if err := encoder1.Encode(Message{Type: MsgTypeHello, ClientID: "blocker-client"}); err != nil {
+		t.Fatalf("Failed to send hello from client1: %v", err)
+	}
+	if err := encoder2.Encode(Message{Type: MsgTypeHello, ClientID: "unblocker-client"}); err != nil {
+		t.Fatalf("Failed to send hello from client2: %v", err)
+	}
+
+	// Read full state messages from both clients
+	decoder1 := json.NewDecoder(client1Reader)
+	decoder2 := json.NewDecoder(client2Reader)
+
+	var fullState1, fullState2 Message
+	if err := decoder1.Decode(&fullState1); err != nil {
+		t.Fatalf("Failed to receive full state on client1: %v", err)
+	}
+	if err := decoder2.Decode(&fullState2); err != nil {
+		t.Fatalf("Failed to receive full state on client2: %v", err)
+	}
+
+	// Track broadcasts received by each client
+	client1Broadcasts := make(chan Message, 100)
+	client2Broadcasts := make(chan Message, 100)
+	stopReading := make(chan struct{})
+
+	// Background goroutine to read broadcasts from client1
+	go func() {
+		for {
+			select {
+			case <-stopReading:
+				return
+			default:
+				var msg Message
+				if err := decoder1.Decode(&msg); err != nil {
+					return
+				}
+				if msg.Type == MsgTypeBlockChange {
+					select {
+					case client1Broadcasts <- msg:
+					case <-stopReading:
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// Background goroutine to read broadcasts from client2
+	go func() {
+		for {
+			select {
+			case <-stopReading:
+				return
+			default:
+				var msg Message
+				if err := decoder2.Decode(&msg); err != nil {
+					return
+				}
+				if msg.Type == MsgTypeBlockChange {
+					select {
+					case client2Broadcasts <- msg:
+					case <-stopReading:
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// Goroutine 1: Repeatedly block the branch
+	const numOperations = 20
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOperations; i++ {
+			blockMsg := Message{
+				Type:          MsgTypeBlockBranch,
+				Branch:        "test-branch",
+				BlockedBranch: "main",
+			}
+			if err := encoder1.Encode(blockMsg); err != nil {
+				return
+			}
+			time.Sleep(5 * time.Millisecond) // Small delay between operations
+		}
+	}()
+
+	// Goroutine 2: Repeatedly unblock the branch
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOperations; i++ {
+			unblockMsg := Message{
+				Type:   MsgTypeUnblockBranch,
+				Branch: "test-branch",
+			}
+			if err := encoder2.Encode(unblockMsg); err != nil {
+				return
+			}
+			time.Sleep(5 * time.Millisecond) // Small delay between operations
+		}
+	}()
+
+	// Wait for all operations to complete
+	wg.Wait()
+
+	// Give daemon time to process final messages
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop reading broadcasts
+	close(stopReading)
+
+	// Verify final state consistency
+	daemon.blockedMu.RLock()
+	inMemoryBlocked := daemon.blockedBranches["test-branch"]
+	inMemoryIsBlocked := (inMemoryBlocked != "")
+	daemon.blockedMu.RUnlock()
+
+	// Load from persistence file
+	persistedBranches, err := loadBlockedBranches(blockedPath)
+	if err != nil {
+		t.Fatalf("Failed to load persistence file: %v", err)
+	}
+
+	persistedBlocked := persistedBranches["test-branch"]
+	persistedIsBlocked := (persistedBlocked != "")
+
+	// Verify in-memory matches disk
+	if inMemoryIsBlocked != persistedIsBlocked {
+		t.Errorf("State mismatch: in-memory blocked=%v, persisted blocked=%v",
+			inMemoryIsBlocked, persistedIsBlocked)
+	}
+
+	if inMemoryIsBlocked && inMemoryBlocked != persistedBlocked {
+		t.Errorf("Blocked-by mismatch: in-memory=%s, persisted=%s",
+			inMemoryBlocked, persistedBlocked)
+	}
+
+	// Verify no JSON corruption
+	data, err := os.ReadFile(blockedPath)
+	if err != nil {
+		t.Fatalf("Failed to read persistence file: %v", err)
+	}
+
+	var jsonCheck map[string]string
+	if err := json.Unmarshal(data, &jsonCheck); err != nil {
+		t.Errorf("Persistence file is corrupted (invalid JSON): %v", err)
+	}
+
+	// Verify both clients received broadcasts
+	client1Count := len(client1Broadcasts)
+	client2Count := len(client2Broadcasts)
+
+	if client1Count == 0 {
+		t.Error("Client 1 should have received block_change broadcasts")
+	}
+	if client2Count == 0 {
+		t.Error("Client 2 should have received block_change broadcasts")
+	}
+
+	t.Logf("Test completed: in-memory blocked=%v, persisted blocked=%v, client1 broadcasts=%d, client2 broadcasts=%d",
+		inMemoryIsBlocked, persistedIsBlocked, client1Count, client2Count)
+}

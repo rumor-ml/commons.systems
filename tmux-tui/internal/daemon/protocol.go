@@ -9,7 +9,9 @@ import (
 var (
 	ErrQueryChannelFull   = errors.New("query response channel full")
 	ErrQueryChannelClosed = errors.New("query response channel closed")
-	ErrQueryTimeout       = errors.New("timeout waiting for blocked state response")
+	ErrQueryTimeout       = errors.New("timeout waiting for blocked state response (2s). " +
+		"Troubleshooting: Check daemon health with 'tmux-tui-daemon health' " +
+		"or review debug logs for sequence gaps")
 )
 
 // Connection error types
@@ -61,17 +63,18 @@ const (
 
 // Message represents a message exchanged between daemon and clients
 type Message struct {
-	Type            string            `json:"type"`
-	ClientID        string            `json:"client_id,omitempty"`
-	SeqNum          uint64            `json:"seq_num,omitempty"`          // Sequence number for ordering/gap detection
-	Alerts          map[string]string `json:"alerts,omitempty"`           // Full alert state (for full_state messages)
-	PaneID          string            `json:"pane_id,omitempty"`          // For alert_change and block messages
-	EventType       string            `json:"event_type,omitempty"`       // For alert_change messages
-	Created         bool              `json:"created,omitempty"`          // For alert_change messages
-	ActivePaneID    string            `json:"active_pane_id,omitempty"`   // For pane_focus messages
+	Type         string            `json:"type"`
+	ClientID     string            `json:"client_id,omitempty"`
+	SeqNum       uint64            `json:"seq_num,omitempty"`        // Sequence number for ordering/gap detection
+	Alerts       map[string]string `json:"alerts,omitempty"`         // Full alert state (for full_state messages)
+	PaneID       string            `json:"pane_id,omitempty"`        // For alert_change and block messages
+	EventType    string            `json:"event_type,omitempty"`     // For alert_change messages
+	Created      bool              `json:"created,omitempty"`        // For alert_change messages
+	ActivePaneID string            `json:"active_pane_id,omitempty"` // For pane_focus messages
 	// BlockedPanes maps paneID to the branch it's blocked on (inverse of BlockedBranches)
 	// DEPRECATED: Use BlockedBranches (branch -> blockedByBranch) instead
-	// Timeline: Will be removed in v2.0.0 (tentatively Q2 2025)
+	// STATUS: Never implemented in daemon, retained only for JSON backward compatibility
+	// REMOVAL: Can be safely removed in next major version when breaking protocol changes are acceptable
 	// Example: {"pane-1": "main"} means pane-1 is blocked on branch main
 	// This is the INVERSE of BlockedBranches which maps blocked branch -> blocking branch
 	BlockedPanes    map[string]string `json:"blocked_panes,omitempty"`
@@ -83,7 +86,7 @@ type Message struct {
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 }
 
-// FUTURE WORK: Message Struct Redesign (v2.0.0)
+// FUTURE WORK: Message Struct Redesign
 //
 // The current Message struct uses optional fields for all message types, which has drawbacks:
 //   1. Easy to forget required fields (compile-time safety lost)
@@ -91,8 +94,8 @@ type Message struct {
 //   3. Unclear which fields are valid for each message type
 //
 // PROPOSED: Use interface-based discriminated union with type-specific structs
-// TIMELINE: Target v2.0.0 (Q2 2025)
-// INTERIM: Use ValidateMessage() for runtime validation (see below)
+// CURRENT MITIGATION: ValidateMessage() provides runtime validation (see below)
+// DECISION: Redesign deferred until protocol breaking changes become necessary
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {

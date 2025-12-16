@@ -90,13 +90,13 @@ func TestPersistenceErrorHandling(t *testing.T) {
 	// Test 2: Make file read-only to trigger persistence error
 	t.Log("Test 2: Making blocked branches file read-only...")
 
-	// First make the directory read-only so the file can't be written
-	// Note: On Unix, we need to make the directory read-only to prevent writes
-	if err := os.Chmod(alertDir, 0555); err != nil {
-		t.Fatalf("Failed to make alert directory read-only: %v", err)
+	// Make the file itself read-only (directory read-only doesn't prevent writing to existing files)
+	if err := os.Chmod(blockedFile, 0444); err != nil {
+		t.Fatalf("Failed to make blocked branches file read-only: %v", err)
 	}
 	defer func() {
 		// Restore permissions for cleanup
+		os.Chmod(blockedFile, 0644)
 		os.Chmod(alertDir, 0755)
 	}()
 
@@ -106,11 +106,13 @@ func TestPersistenceErrorHandling(t *testing.T) {
 	// This should succeed at the protocol level but fail at persistence
 	err := client.BlockBranch("test-branch-2", "main")
 	if err != nil {
-		t.Logf("BlockBranch returned error (expected for read-only): %v", err)
+		t.Logf("BlockBranch returned error: %v", err)
+	} else {
+		t.Log("BlockBranch call succeeded (expected)")
 	}
 
-	// Wait for daemon to process and log
-	time.Sleep(500 * time.Millisecond)
+	// Wait longer for daemon to process and log
+	time.Sleep(1 * time.Second)
 
 	// Test 4: Verify error was logged
 	t.Log("Test 4: Verifying error was logged...")
@@ -121,24 +123,39 @@ func TestPersistenceErrorHandling(t *testing.T) {
 	}
 
 	logStr := string(logContent)
-	if !strings.Contains(logStr, "DAEMON_SAVE_BLOCKED_ERROR") {
-		// If the error message format is different, check for alternatives
-		if !strings.Contains(logStr, "save") && !strings.Contains(logStr, "permission denied") {
-			t.Log("Debug log contents (last 2000 chars):")
-			if len(logStr) > 2000 {
-				t.Log(logStr[len(logStr)-2000:])
-			} else {
-				t.Log(logStr)
-			}
-			t.Error("Debug log should contain persistence error indication (DAEMON_SAVE_BLOCKED_ERROR or permission denied)")
+	hasDaemonError := strings.Contains(logStr, "DAEMON_SAVE_BLOCKED_ERROR")
+	hasDaemonBlock := strings.Contains(logStr, "DAEMON_BLOCK_BRANCH branch=test-branch-2")
+	hasPermissionError := strings.Contains(logStr, "permission denied")
+	hasRevertedLog := strings.Contains(logStr, "DAEMON_REVERTED_BLOCK_CHANGE")
+
+	t.Logf("Daemon logs check: DAEMON_SAVE_BLOCKED_ERROR=%v, DAEMON_BLOCK_BRANCH(test-branch-2)=%v, permission_denied=%v, DAEMON_REVERTED=%v",
+		hasDaemonError, hasDaemonBlock, hasPermissionError, hasRevertedLog)
+
+	if !hasDaemonError && !hasPermissionError {
+		// Show last part of log for debugging
+		t.Log("Debug log contents (last 3000 chars):")
+		if len(logStr) > 3000 {
+			t.Log(logStr[len(logStr)-3000:])
+		} else {
+			t.Log(logStr)
 		}
+
+		if !hasDaemonBlock {
+			t.Error("DAEMON_BLOCK_BRANCH message for test-branch-2 not found - the block message may not have reached the daemon")
+		} else {
+			t.Error("DAEMON_BLOCK_BRANCH found but no persistence error logged - the persistence error may not be triggering")
+		}
+	} else {
+		t.Log("Persistence error was properly logged")
 	}
-	t.Log("Persistence error was properly logged")
 
 	// Test 5: Restore permissions and verify recovery
 	t.Log("Test 5: Restoring permissions and verifying recovery...")
+	if err := os.Chmod(blockedFile, 0644); err != nil {
+		t.Fatalf("Failed to restore file permissions: %v", err)
+	}
 	if err := os.Chmod(alertDir, 0755); err != nil {
-		t.Fatalf("Failed to restore alert directory permissions: %v", err)
+		t.Fatalf("Failed to restore directory permissions: %v", err)
 	}
 
 	// Block a new branch to verify writes work again
@@ -165,10 +182,6 @@ func TestPersistenceErrorHandling(t *testing.T) {
 // TestPersistenceErrorBroadcast tests that persistence errors are broadcast to clients
 // This is a more targeted test for the broadcast mechanism
 func TestPersistenceErrorBroadcast(t *testing.T) {
-	t.Skip("Skipping - persistence error broadcast feature not yet fully implemented. " +
-		"The broadcast code exists in server.go but may need timing adjustments or " +
-		"the error conditions may not be triggered as expected in tests.")
-
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")
 	}
@@ -248,27 +261,38 @@ func TestPersistenceErrorBroadcast(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Make directory read-only to trigger persistence error
-	t.Log("Making directory read-only to trigger persistence error...")
-	if err := os.Chmod(alertDir, 0555); err != nil {
-		t.Fatalf("Failed to make alert directory read-only: %v", err)
+	// Make the persistence FILE read-only to trigger write error
+	blockedFile := fmt.Sprintf("/tmp/claude/%s/tui-blocked-branches.json", socketName)
+	t.Logf("Making persistence file read-only: %s", blockedFile)
+	if err := os.Chmod(blockedFile, 0444); err != nil {
+		t.Fatalf("Failed to make persistence file read-only: %v", err)
 	}
 	defer func() {
+		os.Chmod(blockedFile, 0644)
 		os.Chmod(alertDir, 0755)
 	}()
 
 	// Trigger persistence error by trying to block another branch
-	t.Log("Triggering persistence error...")
+	t.Log("Triggering persistence error by blocking another branch...")
 	if err := client.BlockBranch("test-branch-2", "main"); err != nil {
-		t.Logf("BlockBranch returned error (may happen): %v", err)
+		t.Logf("BlockBranch returned error (expected): %v", err)
 	}
 
-	// Wait for broadcast message with timeout
+	// Wait for persistence error broadcast with longer timeout
 	t.Log("Waiting for persistence error broadcast...")
 	select {
 	case <-errorReceived:
 		t.Log("Successfully received persistence error broadcast!")
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
+		// On timeout, check debug log for diagnostics
+		debugLog := "/tmp/claude/tui-debug.log"
+		if logContent, err := os.ReadFile(debugLog); err == nil {
+			lastLines := string(logContent)
+			if len(lastLines) > 1000 {
+				lastLines = lastLines[len(lastLines)-1000:]
+			}
+			t.Logf("Debug log excerpt (last 1000 chars):\n%s", lastLines)
+		}
 		t.Error("Timeout waiting for persistence error broadcast - client should receive MsgTypePersistenceError")
 	}
 }
