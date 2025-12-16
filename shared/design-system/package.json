@@ -10,6 +10,7 @@
     "./base": "./src/base/index.css",
     "./components": "./src/components/index.css",
     "./components/*": "./src/components/*.css",
+    "./components/toast.js": "./src/components/toast.js",
     "./layouts": "./src/layouts/index.css",
     "./utilities": "./src/utilities/index.css",
     "./themes/dark": "./src/themes/dark.css",
