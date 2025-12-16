@@ -280,6 +280,10 @@ function handleStepEnsurePR(state: CurrentState): ToolResult {
     return {
       content: [{ type: 'text', text: formatWiggumResponse(output) }],
       isError: true,
+      _meta: {
+        errorType: 'ValidationError',
+        errorCode: 'INVALID_BRANCH',
+      },
     };
   }
 
