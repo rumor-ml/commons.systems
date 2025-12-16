@@ -110,12 +110,12 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 	log.Printf("DEBUG: ListBySession(sessionID=%s) returned %d files, err=%v", sessionID, len(files), err)
 	if err != nil {
 		// Continue streaming anyway - files may arrive via subscriptions
-		log.Printf("WARNING: Failed to list initial files for session %s: %v", sessionID, err) // WARNING not ERROR
+		log.Printf("ERROR: Failed to list initial files for session %s: %v", sessionID, err)
 
-		// Send warning event to user
+		// Send warning event to user with actionable guidance
 		errorEvent := streaming.NewErrorEvent(
-			"Unable to load existing files, but new files will appear as they're processed. If this persists, try refreshing the page.",
-			"warning", // warning not error
+			"Unable to load existing files due to a database connection issue. New files will appear as they're processed. If this persists, check your network connection and try refreshing the page.",
+			"warning", // still warning for user since we can recover via subscriptions
 		)
 		if writeErr := h.writeSSEEventHTML(w, r.Context(), errorEvent); writeErr != nil {
 			log.Printf("ERROR: Failed to write error event: %v", writeErr)
