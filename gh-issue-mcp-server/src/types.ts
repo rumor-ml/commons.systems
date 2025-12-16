@@ -2,14 +2,8 @@
  * Common types for GitHub Issue MCP server
  */
 
-export interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-  [key: string]: unknown;
-}
+// Import shared types from mcp-common
+export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
 
-export interface ErrorResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError: true;
-  [key: string]: unknown;
-}
+// Legacy alias for backward compatibility
+export type { ToolError as ErrorResult } from '@commons/mcp-common/types';
