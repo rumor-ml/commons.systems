@@ -247,6 +247,11 @@ func (p *Pipeline) RunExtractionAsyncWithSession(
 	sessionID string,
 	progressCh chan<- Progress,
 ) (<-chan *PipelineResult, error) {
+	// Validate progress channel
+	if progressCh == nil {
+		return nil, fmt.Errorf("progressCh is required and cannot be nil")
+	}
+
 	// Create session with provided ID
 	session := &SyncSession{
 		ID:        sessionID, // Use provided ID instead of generating
