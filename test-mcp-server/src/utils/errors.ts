@@ -2,18 +2,19 @@
  * Error handling utilities for Test MCP server
  */
 
-import type { ToolResult } from '../types.js';
+import type { ToolError } from '@commons/mcp-common/types';
+import {
+  McpError,
+  TimeoutError,
+  ValidationError,
+  formatError,
+  isTerminalError,
+} from '@commons/mcp-common/errors';
 
-export class McpError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string
-  ) {
-    super(message);
-    this.name = 'McpError';
-  }
-}
+// Re-export common errors for convenience
+export { McpError, TimeoutError, ValidationError, formatError, isTerminalError };
 
+// Test-specific error classes
 export class ScriptExecutionError extends McpError {
   constructor(
     message: string,
@@ -22,20 +23,6 @@ export class ScriptExecutionError extends McpError {
   ) {
     super(message, 'SCRIPT_EXECUTION_ERROR');
     this.name = 'ScriptExecutionError';
-  }
-}
-
-export class TimeoutError extends McpError {
-  constructor(message: string) {
-    super(message, 'TIMEOUT');
-    this.name = 'TimeoutError';
-  }
-}
-
-export class ValidationError extends McpError {
-  constructor(message: string) {
-    super(message, 'VALIDATION_ERROR');
-    this.name = 'ValidationError';
   }
 }
 
@@ -60,35 +47,38 @@ export class TestOutputParseError extends McpError {
 /**
  * Create a standardized error result for MCP tool responses
  *
- * Categorizes errors by type to help consumers handle different error scenarios:
- * - TimeoutError: Operation exceeded time limit
- * - ValidationError: Invalid input parameters
+ * Extends the base createErrorResult from mcp-common to handle test-specific errors:
  * - ScriptExecutionError: Shell script execution failed
  * - InfrastructureError: Infrastructure service failure
- * - McpError: Base MCP error with custom code
- * - Generic errors: Unexpected failures
+ * - TestOutputParseError: Test output parsing failed
+ *
+ * For common errors (TimeoutError, ValidationError), this delegates to the base
+ * implementation in mcp-common.
  *
  * @param error - The error to convert to a tool result
- * @returns Standardized ToolResult with error information and type metadata
+ * @returns Standardized ToolError with error information and type metadata
  */
-export function createErrorResult(error: unknown): ToolResult {
+export function createErrorResult(error: unknown): ToolError {
   const message = error instanceof Error ? error.message : String(error);
   let errorType = 'UnknownError';
   let errorCode: string | undefined;
 
-  // Categorize error types for better handling
-  if (error instanceof TimeoutError) {
-    errorType = 'TimeoutError';
-    errorCode = 'TIMEOUT';
-  } else if (error instanceof ValidationError) {
-    errorType = 'ValidationError';
-    errorCode = 'VALIDATION_ERROR';
-  } else if (error instanceof ScriptExecutionError) {
+  // Categorize test-specific error types
+  if (error instanceof ScriptExecutionError) {
     errorType = 'ScriptExecutionError';
     errorCode = 'SCRIPT_EXECUTION_ERROR';
   } else if (error instanceof InfrastructureError) {
     errorType = 'InfrastructureError';
     errorCode = 'INFRASTRUCTURE_ERROR';
+  } else if (error instanceof TestOutputParseError) {
+    errorType = 'TestOutputParseError';
+    errorCode = 'TEST_OUTPUT_PARSE_ERROR';
+  } else if (error instanceof TimeoutError) {
+    errorType = 'TimeoutError';
+    errorCode = 'TIMEOUT';
+  } else if (error instanceof ValidationError) {
+    errorType = 'ValidationError';
+    errorCode = 'VALIDATION_ERROR';
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;
@@ -107,19 +97,4 @@ export function createErrorResult(error: unknown): ToolResult {
       errorCode,
     },
   };
-}
-
-export function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-export function isTerminalError(error: unknown): boolean {
-  if (error instanceof ScriptExecutionError) {
-    // Some errors are retryable (transient issues), others are not
-    return error.exitCode !== undefined && error.exitCode !== 0;
-  }
-  return error instanceof ValidationError;
 }

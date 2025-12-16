@@ -18,6 +18,33 @@ export interface ExecResult {
 }
 
 /**
+ * Validate that a shell argument doesn't contain unsafe metacharacters
+ *
+ * Rejects arguments containing shell metacharacters that could enable command injection:
+ * - Backticks (`) for command substitution
+ * - Pipes (|) for command chaining
+ * - Semicolons (;) for command chaining
+ * - Ampersands (&) for background execution
+ * - Angle brackets (<, >) for redirects
+ * - Parentheses ((), {}, []) for subshells/grouping
+ * - Backslashes (\) for escaping (except in already-quoted strings)
+ * - Exclamation marks (!) for history expansion
+ *
+ * @param arg - The argument to validate
+ * @throws {Error} If argument contains unsafe shell metacharacters
+ */
+export function validateShellArg(arg: string): void {
+  const unsafeChars = /[`|;&<>(){}[\]\\!]/;
+  if (unsafeChars.test(arg)) {
+    throw new Error(
+      `Unsafe shell metacharacter detected in argument: "${arg}"\n` +
+        `Arguments must not contain: \` | ; & < > ( ) { } [ ] \\ !\n` +
+        `Use the shell-quote library for complex arguments or pass data via stdin.`
+    );
+  }
+}
+
+/**
  * Quote a shell argument for simple cases
  *
  * WARNING: This is NOT comprehensive shell escaping. Only handles:
@@ -25,15 +52,17 @@ export interface ExecResult {
  * - Dollar signs ($)
  * - Double quotes (")
  *
- * Does NOT handle: single quotes, backticks, pipes, redirects, semicolons,
- * ampersands, or other shell metacharacters.
- *
- * For full shell escaping, consider using a library like shell-quote.
+ * This function validates arguments before quoting to reject unsafe metacharacters.
+ * For complex shell escaping needs, use the shell-quote library.
  *
  * @param arg - The argument to quote
  * @returns Properly quoted argument string
+ * @throws {Error} If argument contains unsafe shell metacharacters
  */
 export function quoteShellArg(arg: string): string {
+  // Validate first - fail fast on unsafe characters
+  validateShellArg(arg);
+
   // Quote arguments that contain spaces or special characters
   if (arg.includes(' ') || arg.includes('$') || arg.includes('"')) {
     return `"${arg.replace(/"/g, '\\"')}"`;

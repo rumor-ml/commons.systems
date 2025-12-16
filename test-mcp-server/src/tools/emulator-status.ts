@@ -259,18 +259,17 @@ export async function emulatorStatus(_args: EmulatorStatusArgs): Promise<ToolRes
     // Format output
     const formatted = formatStatus(processStatus.running, processStatus.pid, services);
 
-    // Build EmulatorStatus result
-    const status: EmulatorStatus = {
-      running: processStatus.running,
-    };
-
-    if (processStatus.running) {
-      status.services = services.map((s) => ({
-        name: s.name,
-        port: s.port,
-        host: s.host,
-      }));
-    }
+    // Build EmulatorStatus result (discriminated union)
+    const status: EmulatorStatus = processStatus.running
+      ? {
+          running: true,
+          services: services.map((s) => ({
+            name: s.name,
+            port: s.port,
+            host: s.host,
+          })),
+        }
+      : { running: false };
 
     return {
       content: [
@@ -280,6 +279,7 @@ export async function emulatorStatus(_args: EmulatorStatusArgs): Promise<ToolRes
         },
       ],
       _meta: {
+        status,
         process_running: processStatus.running,
         pid: processStatus.pid,
         services,
