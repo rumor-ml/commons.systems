@@ -168,12 +168,10 @@ func (p Progress) Validate() error {
 	}
 
 	// Validate progress type
-	validTypes := map[ProgressType]bool{
-		ProgressTypeOperation: true,
-		ProgressTypeStatus:    true,
-		ProgressTypeError:     true,
-	}
-	if !validTypes[p.Type] {
+	switch p.Type {
+	case ProgressTypeOperation, ProgressTypeStatus, ProgressTypeError:
+		// Valid
+	default:
 		return fmt.Errorf("invalid progress type: %q", p.Type)
 	}
 

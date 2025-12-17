@@ -18,9 +18,9 @@ import {
 
 describe('Error Classes', () => {
   it('should create McpError with message and code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.strictEqual(error.message, 'Test error');
-    assert.strictEqual(error.code, 'TEST_CODE');
+    assert.strictEqual(error.code, 'TIMEOUT');
     assert.strictEqual(error.name, 'McpError');
   });
 
@@ -108,11 +108,11 @@ describe('createErrorResult', () => {
   });
 
   it('should create error result for McpError', () => {
-    const error = new McpError('MCP error', 'CUSTOM_CODE');
+    const error = new McpError('MCP error', 'GIT_ERROR');
     const result = createErrorResult(error);
 
     assert.strictEqual((result._meta as any)?.errorType, 'McpError');
-    assert.strictEqual((result._meta as any)?.errorCode, 'CUSTOM_CODE');
+    assert.strictEqual((result._meta as any)?.errorCode, 'GIT_ERROR');
   });
 
   it('should create error result for generic Error', () => {

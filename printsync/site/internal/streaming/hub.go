@@ -13,7 +13,10 @@ import (
 
 const (
 	// maxDroppedEvents: Circuit breaker threshold for slow clients
-	// 100 events at ~10/sec = ~10 sec buffer overrun before disconnection
+	// Typical event rate: ~10 events/sec during active file processing
+	// Buffer size: 10 events (from NewClient)
+	// 100 dropped events ≈ 10 seconds of sustained buffer overflow
+	// This indicates a client that cannot keep up with the event stream
 	maxDroppedEvents = 100
 )
 

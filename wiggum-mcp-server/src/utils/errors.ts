@@ -26,31 +26,15 @@ import {
   TimeoutError,
   ValidationError,
   NetworkError,
+  GitHubCliError,
   formatError,
   isTerminalError,
 } from '@commons/mcp-common/errors';
+import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
+import { createToolError } from '@commons/mcp-common/types';
 
 // Re-export common errors for convenience
-export { McpError, TimeoutError, ValidationError, NetworkError, formatError, isTerminalError };
-
-/**
- * Error thrown when GitHub CLI (gh) commands fail
- *
- * Captures exit code, stderr output, and optional cause for detailed
- * debugging of gh command failures. Common for API errors, auth issues,
- * or invalid gh command parameters.
- */
-export class GitHubCliError extends McpError {
-  constructor(
-    message: string,
-    public readonly exitCode?: number,
-    public readonly stderr?: string,
-    public readonly cause?: Error
-  ) {
-    super(message, 'GH_CLI_ERROR');
-    this.name = 'GitHubCliError';
-  }
-}
+export { McpError, TimeoutError, ValidationError, NetworkError, GitHubCliError, formatError, isTerminalError };
 
 /**
  * Error thrown when git commands fail
@@ -112,15 +96,14 @@ export class FormattingError extends McpError {
  * @returns Standardized ToolError with error information and type metadata
  */
 export function createErrorResult(error: unknown): ToolError {
+  const commonResult = createErrorResultFromError(error);
+  if (commonResult) return commonResult;
+
   const message = error instanceof Error ? error.message : String(error);
   let errorType = 'UnknownError';
   let errorCode: string | undefined;
 
-  // Categorize wiggum-specific error types first
-  if (error instanceof GitHubCliError) {
-    errorType = 'GitHubCliError';
-    errorCode = 'GH_CLI_ERROR';
-  } else if (error instanceof GitError) {
+  if (error instanceof GitError) {
     errorType = 'GitError';
     errorCode = 'GIT_ERROR';
   } else if (error instanceof ParsingError) {
@@ -129,31 +112,7 @@ export function createErrorResult(error: unknown): ToolError {
   } else if (error instanceof FormattingError) {
     errorType = 'FormattingError';
     errorCode = 'FORMATTING_ERROR';
-  } else if (error instanceof TimeoutError) {
-    errorType = 'TimeoutError';
-    errorCode = 'TIMEOUT';
-  } else if (error instanceof ValidationError) {
-    errorType = 'ValidationError';
-    errorCode = 'VALIDATION_ERROR';
-  } else if (error instanceof NetworkError) {
-    errorType = 'NetworkError';
-    errorCode = 'NETWORK_ERROR';
-  } else if (error instanceof McpError) {
-    errorType = 'McpError';
-    errorCode = error.code;
   }
 
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}`,
-      },
-    ],
-    isError: true,
-    _meta: {
-      errorType,
-      errorCode,
-    },
-  };
+  return createToolError(`Error: ${message}`, errorType, errorCode);
 }

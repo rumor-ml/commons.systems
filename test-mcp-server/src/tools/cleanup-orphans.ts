@@ -5,6 +5,7 @@
 import type { ToolResult } from '../types.js';
 import { createErrorResult, InfrastructureError, ValidationError } from '../utils/errors.js';
 import { CleanupOrphansArgsSchema, safeValidateArgs } from '../schemas.js';
+import { getErrorCode, getClaudeTmpDir } from '../utils/filesystem.js';
 import { execaCommand } from 'execa';
 import fs from 'fs/promises';
 import path from 'path';
@@ -57,7 +58,7 @@ async function findStalePidFiles(
   diagnosticErrors: CleanupResults['diagnosticErrors']
 ): Promise<StalePidFile[]> {
   const stalePidFiles: StalePidFile[] = [];
-  const claudeTmpDir = '/tmp/claude';
+  const claudeTmpDir = getClaudeTmpDir();
 
   try {
     await fs.access(claudeTmpDir);
@@ -96,9 +97,7 @@ async function findStalePidFiles(
       } catch (error) {
         // Other errors are unexpected and should be surfaced
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorCode = error && typeof error === 'object' && 'code' in error
-          ? String((error as any).code)
-          : 'unknown';
+        const errorCode = getErrorCode(error);
         const severity = classifyFilesystemError(errorCode);
 
         // Only log non-expected errors
@@ -230,7 +229,7 @@ async function hasCorrespondingPidFile(
   pid: number,
   diagnosticErrors: CleanupResults['diagnosticErrors']
 ): Promise<boolean> {
-  const claudeTmpDir = '/tmp/claude';
+  const claudeTmpDir = getClaudeTmpDir();
 
   try {
     await fs.access(claudeTmpDir);
@@ -259,7 +258,7 @@ async function hasCorrespondingPidFile(
 
         // Other errors are unexpected and should be surfaced
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : 'unknown';
+        const errorCode = getErrorCode(error);
 
         console.error(
           `[cleanup-orphans] Unexpected error (${errorCode}) reading PID file ${pidFilePath}: ${errorMessage}`,
@@ -418,6 +417,15 @@ interface CleanupResults {
   criticalErrorCount: number;
 }
 
+// Type labels for diagnostic error reporting
+const TYPE_LABELS: Record<CleanupResults['diagnosticErrors'][number]['type'], string> = {
+  'pid-removal': 'PID file removal',
+  'process-kill': 'Process kill',
+  'pid-scan': 'PID scan',
+  'log-file-removal': 'Log file removal',
+  'config-removal': 'Config removal',
+};
+
 function formatCleanupResult(
   stalePidFiles: StalePidFile[],
   escapedProcesses: EscapedProcess[],
@@ -481,12 +489,7 @@ function formatCleanupResult(
       lines.push('===================');
       lines.push(`${cleaned.diagnosticErrors.length} operation(s) failed during cleanup:`);
       for (const error of cleaned.diagnosticErrors) {
-        const typeLabel =
-          error.type === 'pid-removal'
-            ? 'PID file removal'
-            : error.type === 'process-kill'
-              ? 'Process kill'
-              : 'PID scan';
+        const typeLabel = TYPE_LABELS[error.type];
         lines.push(`  - ${typeLabel} failed for ${error.target}: ${error.error}`);
       }
     }

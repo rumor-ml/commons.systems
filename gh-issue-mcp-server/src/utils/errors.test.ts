@@ -18,9 +18,9 @@ import {
 
 describe('Error Classes', () => {
   it('McpError includes error code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.equal(error.message, 'Test error');
-    assert.equal(error.code, 'TEST_CODE');
+    assert.equal(error.code, 'TIMEOUT');
     assert.equal(error.name, 'McpError');
   });
 

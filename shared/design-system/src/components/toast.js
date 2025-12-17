@@ -153,14 +153,33 @@ if (typeof window !== 'undefined') {
 
   // Listen for HTMX-triggered toasts (optional integration)
   document.addEventListener('htmx:oobAfterSwap', (event) => {
-    const element = event.detail.target;
-    if (element.classList?.contains('toast')) {
-      // Toast was swapped in via hx-swap-oob
-      // Set up auto-dismiss if data-duration is present
-      const duration = parseInt(element.dataset.duration, 10);
-      if (duration > 0) {
-        setTimeout(() => dismissToast(element.id), duration);
+    try {
+      const element = event.detail.target;
+
+      if (!element.classList?.contains('toast')) {
+        return;
       }
+
+      if (!element.id || typeof element.id !== 'string') {
+        console.error('[Toast] HTMX toast element missing valid id attribute', element);
+        return;
+      }
+
+      const durationAttr = element.dataset.duration;
+      if (durationAttr) {
+        const duration = parseInt(durationAttr, 10);
+
+        if (isNaN(duration) || duration < 0) {
+          console.warn(`[Toast] Invalid duration "${durationAttr}" for toast ${element.id}`);
+          return;
+        }
+
+        if (duration > 0) {
+          setTimeout(() => dismissToast(element.id), duration);
+        }
+      }
+    } catch (error) {
+      console.error('[Toast] Error handling HTMX out-of-band toast swap:', error);
     }
   });
 }

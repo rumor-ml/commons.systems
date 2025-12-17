@@ -198,6 +198,12 @@ func (m *StreamMerger) Events() <-chan SSEEvent {
 // 1. close(m.done) signals goroutines to stop
 // 2. Context cancellation stops subscriptions
 // The channel is garbage collected after broadcaster exits.
+//
+// Race Condition Example:
+// Thread 1 (Firestore callback): Acquires m.mu.RLock(), reads m.stopped=false, attempts m.eventsCh <- event
+// Thread 2 (Stop): Acquires m.mu.Lock(), sets m.stopped=true, close(m.eventsCh)
+// Thread 1 panics with "send on closed channel" because it passed the m.stopped check before the channel closed.
+// Solution: Use select with m.done to detect shutdown without closing m.eventsCh.
 func (m *StreamMerger) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

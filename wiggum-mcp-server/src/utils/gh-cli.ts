@@ -47,8 +47,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
         `GitHub CLI command failed (gh ${fullArgs.join(' ')}): ${result.stderr || result.stdout}`,
-        result.exitCode,
-        result.stderr || undefined
+        result.exitCode ?? 1,
+        result.stderr || ''
       );
     }
 
@@ -61,9 +61,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const originalError = error instanceof Error ? error : new Error(String(error));
     throw new GitHubCliError(
       `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
-      undefined,
-      undefined,
-      originalError
+      1,
+      originalError.message
     );
   }
 }
@@ -90,8 +89,11 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      `Failed to parse JSON response from gh CLI: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to parse JSON response from gh CLI: ${errorMsg}`,
+      1,
+      errorMsg
     );
   }
 }
@@ -120,9 +122,8 @@ export async function getCurrentRepo(): Promise<string> {
     const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
-      error instanceof GitHubCliError ? error.exitCode : undefined,
-      error instanceof GitHubCliError ? error.stderr : undefined,
-      error instanceof Error ? error : undefined
+      error instanceof GitHubCliError ? error.exitCode : 1,
+      error instanceof GitHubCliError ? error.stderr : originalMessage
     );
   }
 }
@@ -333,8 +334,11 @@ export async function getPRReviewComments(
     try {
       comments.push(JSON.parse(line));
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       throw new GitHubCliError(
-        `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`
+        `Failed to parse review comment JSON for PR ${prNumber}: ${errorMsg}. Line: ${line.substring(0, 100)}`,
+        1,
+        errorMsg
       );
     }
   }

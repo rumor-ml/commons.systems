@@ -10,6 +10,8 @@ import {
   formatError,
   isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
+import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
+import { createToolError } from '@commons/mcp-common/types';
 
 // Re-export common errors for convenience
 export { McpError, TimeoutError, ValidationError, formatError };
@@ -64,6 +66,10 @@ export class TestOutputParseError extends McpError {
  * - Script execution failures with exit codes are definitive failures
  * - Timeouts and network errors may be transient and worth retrying
  *
+ * Note: "Potentially retryable" means the error MAY succeed on retry, not that it WILL succeed.
+ * Retry logic should still implement exponential backoff, retry limits, and consider user intervention
+ * for persistent failures. TimeoutError with short duration may succeed with increased timeout.
+ *
  * @param error - The error to check
  * @returns true if the error is terminal and should not be retried
  */
@@ -105,11 +111,13 @@ export function isTerminalError(error: unknown): boolean {
  * @returns Standardized ToolError with error information and type metadata
  */
 export function createErrorResult(error: unknown): ToolError {
+  const commonResult = createErrorResultFromError(error);
+  if (commonResult) return commonResult;
+
   const message = error instanceof Error ? error.message : String(error);
   let errorType = 'UnknownError';
   let errorCode: string | undefined;
 
-  // Categorize test-specific error types
   if (error instanceof ScriptExecutionError) {
     errorType = 'ScriptExecutionError';
     errorCode = 'SCRIPT_EXECUTION_ERROR';
@@ -119,28 +127,7 @@ export function createErrorResult(error: unknown): ToolError {
   } else if (error instanceof TestOutputParseError) {
     errorType = 'TestOutputParseError';
     errorCode = 'TEST_OUTPUT_PARSE_ERROR';
-  } else if (error instanceof TimeoutError) {
-    errorType = 'TimeoutError';
-    errorCode = 'TIMEOUT';
-  } else if (error instanceof ValidationError) {
-    errorType = 'ValidationError';
-    errorCode = 'VALIDATION_ERROR';
-  } else if (error instanceof McpError) {
-    errorType = 'McpError';
-    errorCode = error.code;
   }
 
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}`,
-      },
-    ],
-    isError: true,
-    _meta: {
-      errorType,
-      errorCode,
-    },
-  };
+  return createToolError(`Error: ${message}`, errorType, errorCode);
 }

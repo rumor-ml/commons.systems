@@ -146,21 +146,7 @@ function loadPersistedState() {
         duration: errorInfo.recoverable ? 8000 : 0,
         actionLabel: errorInfo.action || null,
         onAction: errorInfo.action
-          ? () => {
-              if (errorInfo.code === 'auth/storage-quota-exceeded') {
-                // Try to clear corrupted data
-                try {
-                  localStorage.removeItem(AUTH_STATE_KEY);
-                  window.location.reload();
-                } catch (e) {
-                  console.error('Failed to clear storage:', e);
-                }
-              } else if (errorInfo.code === 'auth/storage-parse-failed') {
-                // Clear corrupted data and reload
-                localStorage.removeItem(AUTH_STATE_KEY);
-                window.location.reload();
-              }
-            }
+          ? () => attemptStorageRecoveryAndReload(errorInfo)
           : null,
       });
     }
@@ -239,6 +225,47 @@ function categorizeStorageError(error, operation = 'access') {
 }
 
 /**
+ * Attempt to recover from storage error by clearing corrupted data and reloading
+ *
+ * Handles both quota-exceeded and parse-failed errors with consistent recovery:
+ * 1. Remove corrupted AUTH_STATE_KEY from localStorage
+ * 2. Show error toast if recovery fails with specific error messages
+ * 3. Reload page to restart with clean state
+ *
+ * @param {Object} errorInfo - Error info from categorizeStorageError
+ */
+function attemptStorageRecoveryAndReload(errorInfo) {
+  try {
+    localStorage.removeItem(AUTH_STATE_KEY);
+  } catch (clearError) {
+    console.error('Failed to clear storage:', clearError);
+
+    // Provide specific error messages for known error types
+    let clearMessage = 'Unable to clear corrupted storage.';
+    if (clearError.name === 'QuotaExceededError') {
+      clearMessage = 'Storage is full - cannot clear corrupted data. Try closing other tabs or clearing browser data manually.';
+    } else if (clearError.name === 'SecurityError') {
+      clearMessage = 'Browser security settings prevent storage access. Check your browser settings.';
+    } else if (clearError instanceof DOMException) {
+      clearMessage = `DOM error during storage cleanup: ${clearError.message}`;
+    }
+
+    if (window.showToast) {
+      window.showToast({
+        title: 'Recovery Failed',
+        message: clearMessage,
+        type: 'error',
+        duration: 0,
+        actionLabel: 'Reload Anyway',
+        onAction: () => window.location.reload(),
+      });
+    }
+    return;
+  }
+  window.location.reload();
+}
+
+/**
  * Get current auth state
  * @returns {Object} Current auth state
  */
@@ -291,7 +318,17 @@ function notifyListeners(state) {
         }
       }
 
-      // Detect systemic failures (3+ failures in 10 seconds)
+      // NEW: Show warning for first failure
+      if (recentFailures === 1 && typeof window !== 'undefined' && window.showToast) {
+        window.showToast({
+          title: 'Component Warning',
+          message: 'An authentication component encountered an error. If you experience issues, try refreshing the page.',
+          type: 'warning',
+          duration: 6000,
+        });
+      }
+
+      // Existing: Systemic failure detection (3+ failures)
       if (recentFailures >= 3) {
         const errorInfo = {
           code: 'auth/listener-systemic-failure',

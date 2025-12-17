@@ -19,9 +19,9 @@ import {
 
 describe('Error Classes', () => {
   it('should create McpError with message and code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.strictEqual(error.message, 'Test error');
-    assert.strictEqual(error.code, 'TEST_CODE');
+    assert.strictEqual(error.code, 'TIMEOUT');
     assert.strictEqual(error.name, 'McpError');
   });
 
@@ -53,12 +53,6 @@ describe('Error Classes', () => {
     assert.strictEqual(error.exitCode, 1);
     assert.strictEqual(error.stderr, 'stderr output');
     assert.strictEqual(error.name, 'GitHubCliError');
-  });
-
-  it('should create GitHubCliError with cause', () => {
-    const cause = new Error('Original error');
-    const error = new GitHubCliError('Command failed', undefined, undefined, cause);
-    assert.strictEqual(error.cause, cause);
   });
 
   it('should create GitError with exit code and stderr', () => {
@@ -107,7 +101,7 @@ describe('createErrorResult', () => {
   });
 
   it('should create error result for GitHubCliError', () => {
-    const error = new GitHubCliError('CLI failed');
+    const error = new GitHubCliError('CLI failed', 1, 'stderr');
     const result = createErrorResult(error);
 
     assert.strictEqual(result._meta?.errorType, 'GitHubCliError');

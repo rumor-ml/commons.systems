@@ -3,7 +3,11 @@
  */
 
 import { execaCommand } from 'execa';
-import { ScriptExecutionError, TimeoutError } from './errors.js';
+import { EventEmitter } from 'node:events';
+import { ScriptExecutionError, TimeoutError, InfrastructureError } from './errors.js';
+import { getErrorCode } from './filesystem.js';
+
+export const execEvents = new EventEmitter();
 
 export interface ExecOptions {
   timeout?: number; // in milliseconds
@@ -268,27 +272,19 @@ export async function execScriptBackground(
     subprocess.catch((error) => {
       processError = error instanceof Error ? error : new Error(String(error));
 
-      // Log background process failures with actionable context
       const errorDetails = {
         script: scriptPath,
         args,
         timestamp: new Date().toISOString(),
         error: processError.message,
         exitCode: error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
-        stack: processError.stack,
       };
 
-      console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails, null, 2));
+      // Emit event for monitoring
+      execEvents.emit('backgroundProcessError', errorDetails);
 
-      // Emit error to stderr for visibility in logs and monitoring systems
-      console.error(`\n[BACKGROUND PROCESS FAILURE]`);
-      console.error(`Script: ${scriptPath}`);
-      console.error(`Arguments: ${args.join(' ') || '(none)'}`);
-      console.error(`Error: ${processError.message}`);
-      if (errorDetails.exitCode !== undefined) {
-        console.error(`Exit Code: ${errorDetails.exitCode}`);
-      }
-      console.error(`Timestamp: ${errorDetails.timestamp}\n`);
+      // Enhanced console logging
+      console.error('[exec] Background subprocess failed:', JSON.stringify(errorDetails, null, 2));
     });
 
     await startupPromise;
@@ -323,19 +319,33 @@ export async function execScriptBackground(
         );
       }
     } catch (error) {
-      // System-level errors (EPERM, EACCES, etc.) checking process status
-      // Log but don't throw - background processes should not fail on status checks
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode = error && typeof error === 'object' && 'code' in error
         ? String((error as any).code)
         : 'UNKNOWN';
 
-      console.error(
-        `[exec] System error checking background process status\n` +
-        `Error: ${errorMessage}\n` +
-        `Error Code: ${errorCode}\n` +
-        `PID: ${subprocess.pid}`
-      );
+      if (errorCode === 'ENOENT') {
+        throw new InfrastructureError(
+          `Cannot check background process status: ps command not found\n` +
+          `PID: ${subprocess.pid}\n` +
+          `This indicates a system configuration problem.`
+        );
+      }
+
+      if (errorCode === 'EPERM' || errorCode === 'EACCES') {
+        console.warn(
+          `[exec] Permission denied checking process status\n` +
+          `Error: ${errorMessage}\n` +
+          `PID: ${subprocess.pid}`
+        );
+      } else {
+        console.error(
+          `[exec] System error checking process status\n` +
+          `Error: ${errorMessage}\n` +
+          `Error Code: ${errorCode}\n` +
+          `PID: ${subprocess.pid}`
+        );
+      }
     }
 
     // Unref the subprocess so it doesn't keep Node.js alive
@@ -348,7 +358,23 @@ export async function execScriptBackground(
         try {
           const result = await execaCommand(`ps -p ${subprocess.pid}`, { reject: false });
           return result.exitCode === 0;
-        } catch {
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorCode = getErrorCode(error);
+
+          // Log all errors for diagnostics
+          console.error(
+            `[exec] Error checking if process ${subprocess.pid} is running: ${errorMessage} (${errorCode})`
+          );
+
+          // Re-throw system errors - cannot determine status
+          if (['ENOMEM', 'ENOSPC', 'EMFILE', 'ENFILE'].includes(errorCode)) {
+            throw new InfrastructureError(
+              `Cannot determine if background process ${subprocess.pid} is running: ${errorMessage} (${errorCode})`
+            );
+          }
+
+          // For permission errors (EPERM) or command not found (ENOENT), assume not running
           return false;
         }
       },

@@ -103,16 +103,24 @@ export type ErrorResult = ToolError;
  * return createToolSuccess("Operation completed successfully");
  * return createToolSuccess("User created", { userId: "123" });
  * ```
+ *
+ * Note: Uses Object.freeze for shallow immutability. Nested objects in meta
+ * remain mutable. TypeScript's readonly provides compile-time safety for
+ * the entire structure, which is the primary guarantee.
  */
 export function createToolSuccess(
   text: string,
   meta?: Record<string, unknown>
 ): ToolSuccess {
-  return {
-    content: [{ type: 'text', text }] as const,
+  if (!text && text !== '') {
+    throw new Error('content text is required (empty string is allowed)');
+  }
+  const result = {
+    content: [{ type: 'text' as const, text }],
     isError: false as const,
-    ...(meta && { _meta: meta }),
+    ...(meta && { _meta: Object.freeze(meta) }),
   };
+  return Object.freeze(result) as ToolSuccess;
 }
 
 /**
@@ -139,13 +147,17 @@ export function createToolError(
   if (!errorType || errorType.trim().length === 0) {
     throw new Error("errorType is required and cannot be empty");
   }
-  return {
-    content: [{ type: 'text', text }],
-    isError: true,
-    _meta: {
+  if (!text && text !== '') {
+    throw new Error('content text is required (empty string is allowed)');
+  }
+  const result = {
+    content: [{ type: 'text' as const, text }],
+    isError: true as const,
+    _meta: Object.freeze({
       errorType,
       ...(errorCode && { errorCode }),
       ...meta,
-    },
+    }),
   };
+  return Object.freeze(result) as ToolError;
 }

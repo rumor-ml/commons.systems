@@ -76,13 +76,20 @@ export function initializeAuth() {
           await signInAnonymously(auth);
           console.log('[Auth] Dev mode: signed in anonymously');
         } catch (error) {
-          console.error('[Auth] Anonymous sign-in failed:', {
+          const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+          const errorDetails = {
             errorCode: error.code,
             errorMessage: error.message,
             emulatorHost: authEmulatorHost,
-            isDev: window.location.hostname === 'localhost',
-            stack: error.stack,
-          });
+            isDev: isDev,
+          };
+
+          if (isDev) {
+            errorDetails.stack = error.stack;
+          }
+
+          console.error('[Auth] Anonymous sign-in failed:', errorDetails);
 
           // Enhanced error messages for common issues
           let enhancedMessage = 'Anonymous sign-in failed';

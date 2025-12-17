@@ -26,7 +26,9 @@ const (
 
 // Pipeline orchestrates file synchronization in two phases:
 // Phase 1 (Extraction): discovery -> metadata extraction (files stop at FileStatusExtracted awaiting approval)
-//   - Started via RunExtractionAsync (creates session) or RunExtractionAsyncWithSession (uses existing session for streaming)
+//   - RunExtractionAsync: Creates new session, returns sessionID for client registration
+//   - RunExtractionAsyncWithSession: Uses caller's session and progress channel for streaming
+//   - RunExtraction: Synchronous wrapper that drains progress and blocks until complete
 //
 // Phase 2 (Upload): approval -> normalization -> upload (triggered by ApproveAndUpload or ApproveAllAndUpload)
 type Pipeline struct {
@@ -183,13 +185,11 @@ func NewPipeline(
 }
 
 // Run is deprecated. Use RunExtraction instead.
-// Run executes the extraction pipeline synchronously and returns the result.
 func (p *Pipeline) Run(ctx context.Context, rootDir, userID string) (*PipelineResult, error) {
 	return p.RunExtraction(ctx, rootDir, userID)
 }
 
 // RunAsync is deprecated. Use RunExtractionAsync instead.
-// RunAsync executes the extraction pipeline asynchronously and returns result and progress channels.
 func (p *Pipeline) RunAsync(ctx context.Context, rootDir, userID string) (<-chan *PipelineResult, <-chan Progress, error) {
 	_, resultCh, progressCh, err := p.RunExtractionAsync(ctx, rootDir, userID)
 	return resultCh, progressCh, err

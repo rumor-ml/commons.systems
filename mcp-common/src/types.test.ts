@@ -13,6 +13,7 @@ import {
   type ToolSuccess,
   type ToolError,
 } from './types.js';
+import { GitHubCliError, isSystemError } from './errors.js';
 
 describe('createToolSuccess', () => {
   it('creates success result with text only', () => {
@@ -191,5 +192,52 @@ describe('Edge cases', () => {
       nested: { deep: { value: 123 } },
       array: [1, 2, 3],
     });
+  });
+});
+
+describe('GitHubCliError exit code validation', () => {
+  it('accepts valid exit codes (0-255)', () => {
+    assert.doesNotThrow(() => new GitHubCliError('msg', 0, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 1, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 127, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 255, 'stderr'));
+  });
+
+  it('rejects invalid exit codes', () => {
+    assert.throws(
+      () => new GitHubCliError('msg', -1, 'stderr'),
+      /Invalid exit code: -1/
+    );
+    assert.throws(
+      () => new GitHubCliError('msg', 256, 'stderr'),
+      /Invalid exit code: 256/
+    );
+  });
+
+  it('accepts optional stdout parameter', () => {
+    const error = new GitHubCliError('msg', 1, 'stderr', 'stdout');
+    assert.equal(error.stdout, 'stdout');
+  });
+});
+
+describe('isSystemError', () => {
+  it('identifies system error codes', () => {
+    assert.equal(isSystemError({ code: 'ENOMEM' }), true);
+    assert.equal(isSystemError({ code: 'ENOSPC' }), true);
+    assert.equal(isSystemError({ code: 'EMFILE' }), true);
+    assert.equal(isSystemError({ code: 'ENFILE' }), true);
+  });
+
+  it('rejects non-system error codes', () => {
+    assert.equal(isSystemError({ code: 'ENOENT' }), false);
+    assert.equal(isSystemError({ code: 'EPERM' }), false);
+    assert.equal(isSystemError(new Error('msg')), false);
+  });
+
+  it('handles edge cases', () => {
+    assert.equal(isSystemError(null), false);
+    assert.equal(isSystemError(undefined), false);
+    assert.equal(isSystemError('string'), false);
+    assert.equal(isSystemError({}), false);
   });
 });

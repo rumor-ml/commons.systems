@@ -3,7 +3,8 @@
  */
 
 import { execa } from 'execa';
-import { GitHubCliError } from './errors.js';
+import { GitHubCliError } from '@commons/mcp-common/errors';
+import { isSystemError } from '@commons/mcp-common/errors';
 
 export interface GhCliOptions {
   repo?: string;
@@ -14,20 +15,20 @@ export interface GhCliOptions {
  * Execute a GitHub CLI command safely with proper error handling
  */
 export async function ghCli(args: string[], options: GhCliOptions = {}): Promise<string> {
+  // Add repo flag if provided (defined here so it's available in catch block)
+  const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
+
   try {
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
     };
 
-    // Add repo flag if provided
-    const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
-
     const result = await execa('gh', fullArgs, execaOptions);
 
     if (result.exitCode !== 0) {
       throw new GitHubCliError(
-        `GitHub CLI command failed: ${result.stderr || result.stdout}`,
+        `GitHub CLI command failed (gh ${fullArgs.join(' ')}): ${result.stderr || result.stdout}`,
         result.exitCode ?? 1,
         result.stderr || ''
       );
@@ -38,10 +39,23 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (error instanceof GitHubCliError) {
       throw error;
     }
-    if (error instanceof Error) {
-      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`, 1, error.message);
+
+    // Re-throw non-Error types unchanged
+    if (!(error instanceof Error)) {
+      throw error;
     }
-    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`, 1, String(error));
+
+    // Re-throw system errors unchanged
+    if (isSystemError(error)) {
+      throw error;
+    }
+
+    // Only wrap actual gh CLI failures
+    throw new GitHubCliError(
+      `Failed to execute gh CLI (gh ${fullArgs.join(' ')}): ${error.message}`,
+      1,
+      error.message
+    );
   }
 }
 

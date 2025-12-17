@@ -43,8 +43,9 @@ interface TestRunOutput {
  * Sanitize output to redact potential secrets
  */
 function sanitizeOutput(output: string): string {
-  // Only redact strings that look like base64 (contain + or / or end with =)
-  // and are >40 chars to avoid over-redaction
+  // Match alphanumeric strings 40+ chars, then check if they look like base64
+  // (contain + or / or end with =). Pure alphanumeric strings like file paths
+  // and hashes are NOT redacted to avoid over-redaction.
   let sanitized = output.replace(/[A-Za-z0-9+/]{40,}={0,2}(?=[^A-Za-z0-9+/=]|$)/g, (match) => {
     // Check if it actually looks like base64 (has + or / or ends with =)
     if (match.includes('+') || match.includes('/') || match.endsWith('=')) {
@@ -68,7 +69,9 @@ function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Erro
     return { output: JSON.parse(stdout) };
   } catch (error) {
     const parseError = error instanceof Error ? error : new Error(String(error));
-    // Use structured logging with JSON
+    const sanitized = sanitizeOutput(stdout);
+
+    // Log first AND last portions to capture both start and end of output
     console.error(JSON.stringify({
       level: 'error',
       component: 'test-run',
@@ -78,11 +81,26 @@ function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Erro
         name: parseError.name,
       },
       context: {
-        outputPreview: sanitizeOutput(stdout.substring(0, 100)),
-        outputLength: stdout.length,
+        outputPreviewStart: sanitized.substring(0, 200),
+        outputPreviewEnd: sanitized.substring(Math.max(0, sanitized.length - 200)),
+        outputLength: sanitized.length,
       },
       timestamp: new Date().toISOString(),
     }));
+
+    // Write full output to debug file (fire-and-forget)
+    import('fs/promises')
+      .then((fs) => {
+        const debugFile = `/tmp/claude/test-output-parse-error-${Date.now()}.txt`;
+        return fs.writeFile(debugFile, sanitized)
+          .then(() => console.error(`Full output written to: ${debugFile}`));
+      })
+      .catch((error) => {
+        // Log but don't throw - this is best-effort debug output
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`Could not write debug output: ${errorMessage}`);
+      });
+
     return {
       error: new TestOutputParseError(
         'Test script returned non-JSON output. This indicates a script error or unexpected output format.',
