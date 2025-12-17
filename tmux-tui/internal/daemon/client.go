@@ -38,9 +38,11 @@ type DaemonClient struct {
 	lastSeq    atomic.Uint64 // Last received sequence number for gap detection
 
 	// Health metrics for diagnostics
-	syncWarnings     atomic.Uint64 // Sync warning count
-	resyncFailures   atomic.Uint64 // Failed resync request count
-	queryChannelFull atomic.Uint64 // Query channel overflow count
+	syncWarnings            atomic.Uint64 // Sync warning count
+	resyncFailures          atomic.Uint64 // Failed resync request count
+	queryChannelFull        atomic.Uint64 // Query channel overflow count
+	queryDeadlockRecoveries atomic.Uint64 // Query channel deadlock recovery count
+	lastDeadlockBranch      atomic.Value  // Most recent branch that caused deadlock (string)
 
 	// Query response routing (prevents event loss in QueryBlockedState)
 	queryResponses map[string]*queryResponse // Response channels keyed by branch
@@ -268,8 +270,19 @@ func (c *DaemonClient) receive() {
 								c.clientID, msg.Branch, c.queryChannelFull.Load())
 						default:
 							// CRITICAL: Still deadlocked after retry - force disconnect
-							debug.Log("CLIENT_QUERY_DEADLOCK_CONFIRMED id=%s branch=%s fallback_level=3 total_overflows=%d reason=retry_failed_both_channels_still_full action=forcing_disconnect",
-								c.clientID, msg.Branch, c.queryChannelFull.Load())
+							c.queryDeadlockRecoveries.Add(1)
+							c.lastDeadlockBranch.Store(msg.Branch)
+
+							errMsg := fmt.Sprintf("Query channel deadlock for branch %s - forcing disconnect (total deadlocks: %d)",
+								msg.Branch, c.queryDeadlockRecoveries.Load())
+
+							// ERROR VISIBILITY: Make deadlock visible to users
+							fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+							fmt.Fprintf(os.Stderr, "  Client ID: %s\n", c.clientID)
+							fmt.Fprintf(os.Stderr, "  This indicates a severe congestion issue - daemon will reconnect and resync\n")
+
+							debug.Log("CLIENT_QUERY_DEADLOCK_CONFIRMED id=%s branch=%s fallback_level=3 total_overflows=%d total_deadlocks=%d reason=retry_failed_both_channels_still_full action=forcing_disconnect",
+								c.clientID, msg.Branch, c.queryChannelFull.Load(), c.queryDeadlockRecoveries.Load())
 
 							c.mu.Lock()
 							c.connected = false
@@ -282,7 +295,7 @@ func (c *DaemonClient) receive() {
 							select {
 							case c.eventCh <- Message{
 								Type:  "disconnect",
-								Error: fmt.Sprintf("Query channel deadlock for branch %s", msg.Branch),
+								Error: errMsg,
 							}:
 							case <-time.After(100 * time.Millisecond):
 								// Fallback: eventCh blocked, log to debug since we can't notify via event channel
@@ -566,6 +579,21 @@ func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
 }
 
 // GetHealthMetrics returns diagnostic counters for monitoring client health.
-func (c *DaemonClient) GetHealthMetrics() (syncWarnings, resyncFailures, queryChannelFull uint64) {
-	return c.syncWarnings.Load(), c.resyncFailures.Load(), c.queryChannelFull.Load()
+func (c *DaemonClient) GetHealthMetrics() (syncWarnings, resyncFailures, queryChannelFull, queryDeadlockRecoveries uint64) {
+	return c.syncWarnings.Load(), c.resyncFailures.Load(), c.queryChannelFull.Load(), c.queryDeadlockRecoveries.Load()
+}
+
+// GetDeadlockRecoveries returns the count of query channel deadlock recoveries
+func (c *DaemonClient) GetDeadlockRecoveries() uint64 {
+	return c.queryDeadlockRecoveries.Load()
+}
+
+// GetLastDeadlockBranch returns the most recent branch that caused a deadlock
+func (c *DaemonClient) GetLastDeadlockBranch() string {
+	if val := c.lastDeadlockBranch.Load(); val != nil {
+		if branch, ok := val.(string); ok {
+			return branch
+		}
+	}
+	return ""
 }

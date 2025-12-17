@@ -1915,3 +1915,173 @@ func TestPlayAlertSound_ConcurrentRateLimiting(t *testing.T) {
 
 	t.Log("Concurrent rate limiting test passed - no races detected")
 }
+
+// TestServerBroadcastRecoveryAfterClientDisconnect verifies that the daemon
+// properly handles client disconnection during broadcast and continues serving
+// healthy clients without disruption.
+//
+// Test scenario:
+//  1. Start daemon with 2 connected clients
+//  2. Simulate network failure by closing client2's connection
+//  3. Trigger broadcast (should fail for client2)
+//  4. Verify client1 receives message successfully
+//  5. Verify client2 is removed from clients map
+//  6. Verify sync_warning sent to client1
+//  7. Verify broadcastFailures counter incremented
+func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
+	// Create daemon with minimal setup
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+	}
+
+	// Create 2 mock clients using pipes
+	// Client 1: healthy connection
+	client1Reader, client1Writer := io.Pipe()
+	defer client1Writer.Close()
+	defer client1Reader.Close()
+
+	client1Conn := &clientConnection{
+		conn:    &mockConn{Reader: client1Reader, Writer: client1Writer},
+		encoder: json.NewEncoder(client1Writer),
+	}
+
+	// Client 2: connection that will fail
+	client2Reader, client2Writer := io.Pipe()
+	// We'll close client2Writer to simulate network failure
+
+	client2Conn := &clientConnection{
+		conn:    &mockConn{Reader: client2Reader, Writer: client2Writer},
+		encoder: json.NewEncoder(client2Writer),
+	}
+
+	// Add both clients to daemon
+	daemon.clients["client1"] = client1Conn
+	daemon.clients["client2"] = client2Conn
+
+	// Verify initial state
+	if len(daemon.clients) != 2 {
+		t.Fatalf("Expected 2 clients initially, got %d", len(daemon.clients))
+	}
+
+	// Setup goroutine to read from client1 (healthy client)
+	var wg sync.WaitGroup
+	client1Messages := make(chan Message, 10)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		decoder := json.NewDecoder(client1Reader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				if err != io.EOF {
+					t.Logf("Client1 decode error (expected): %v", err)
+				}
+				return
+			}
+			client1Messages <- msg
+		}
+	}()
+
+	// SIMULATE FAILURE: Close client2's writer to simulate network failure
+	// This will cause the next encode to fail
+	client2Writer.Close()
+
+	// Trigger broadcast - this should:
+	// 1. Fail to send to client2 (writer closed)
+	// 2. Successfully send to client1
+	// 3. Remove client2 from clients map
+	// 4. Send sync_warning to client1
+	testMessage := Message{
+		Type:      MsgTypeAlertChange,
+		PaneID:    "pane1",
+		EventType: "stop",
+		Created:   true,
+	}
+
+	daemon.broadcast(testMessage)
+
+	// Give time for broadcast to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// VERIFY 1: Client1 received the original message
+	select {
+	case msg := <-client1Messages:
+		if msg.Type != MsgTypeAlertChange {
+			t.Errorf("Expected alert_change message, got %s", msg.Type)
+		}
+		if msg.PaneID != "pane1" {
+			t.Errorf("Expected pane1, got %s", msg.PaneID)
+		}
+		if msg.SeqNum == 0 {
+			t.Error("Expected non-zero sequence number")
+		}
+		t.Logf("Client1 received alert_change with seq=%d", msg.SeqNum)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for alert_change message on client1")
+	}
+
+	// VERIFY 2: Client1 received sync_warning
+	select {
+	case msg := <-client1Messages:
+		if msg.Type != MsgTypeSyncWarning {
+			t.Errorf("Expected sync_warning message, got %s", msg.Type)
+		}
+		if msg.OriginalMsgType != MsgTypeAlertChange {
+			t.Errorf("Expected original_msg_type=alert_change, got %s", msg.OriginalMsgType)
+		}
+		if !strings.Contains(msg.Error, "failed to receive") {
+			t.Errorf("Expected error message about failed clients, got: %s", msg.Error)
+		}
+		t.Logf("Client1 received sync_warning: %s", msg.Error)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for sync_warning message on client1")
+	}
+
+	// VERIFY 3: Client2 was removed from clients map
+	daemon.clientsMu.RLock()
+	clientCount := len(daemon.clients)
+	_, client2Exists := daemon.clients["client2"]
+	daemon.clientsMu.RUnlock()
+
+	if clientCount != 1 {
+		t.Errorf("Expected 1 client after failed broadcast, got %d", clientCount)
+	}
+	if client2Exists {
+		t.Error("Client2 should have been removed from clients map")
+	}
+
+	// VERIFY 4: Broadcast failure counter incremented
+	failures := daemon.broadcastFailures.Load()
+	if failures != 1 {
+		t.Errorf("Expected 1 broadcast failure, got %d", failures)
+	}
+
+	// VERIFY 5: Last broadcast error was set
+	if lastErr, ok := daemon.lastBroadcastError.Load().(string); !ok || lastErr == "" {
+		t.Error("Expected lastBroadcastError to be set")
+	} else {
+		t.Logf("Last broadcast error: %s", lastErr)
+	}
+
+	// Cleanup
+	client1Writer.Close()
+	client2Reader.Close()
+	wg.Wait()
+
+	t.Log("SUCCESS: Broadcast recovery test passed - daemon properly handled client failure")
+}
+
+// mockConn implements net.Conn interface for testing
+type mockConn struct {
+	io.Reader
+	io.Writer
+}
+
+func (m *mockConn) Close() error                       { return nil }
+func (m *mockConn) LocalAddr() net.Addr                { return nil }
+func (m *mockConn) RemoteAddr() net.Addr               { return nil }
+func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
+func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }

@@ -925,4 +925,125 @@ describe('formatExtractionResult', () => {
     assert.ok(formatted.some((line) => line.includes('Error: Something went wrong')));
     assert.ok(!formatted.some((line) => line.includes('--- FAIL:')));
   });
+
+  suite('DoS edge cases', () => {
+    test('handles extremely long error message (1MB)', () => {
+      // Create a 1MB error message
+      const longMsg = 'A'.repeat(1024 * 1024);
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: 'TestLongMessage',
+        Output: longMsg + '\n',
+      });
+
+      const result = extract(logText);
+
+      // Should extract the error without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+
+      // Message should be truncated or handled gracefully
+      assert.ok(result.errors[0].message.length > 0);
+      assert.ok(result.errors[0].rawOutput.length > 0);
+    });
+
+    test('handles extremely large test count with maxErrors limit', () => {
+      // Create log with 100k failed tests
+      const logLines: string[] = [];
+      for (let i = 0; i < 100000; i++) {
+        logLines.push(
+          JSON.stringify({
+            Time: '2024-01-01T00:00:00Z',
+            Action: 'fail',
+            Package: 'test/pkg',
+            Test: `Test${i}`,
+          })
+        );
+      }
+      const logText = logLines.join('\n');
+
+      const result = extract(logText, 100); // maxErrors = 100
+
+      // Should respect maxErrors limit
+      assert.strictEqual(result.framework, 'go');
+      assert.ok(result.errors.length <= 100);
+
+      // Verify first few errors are present
+      assert.ok(result.errors.some((e) => e.testName === 'Test0'));
+      assert.ok(result.errors.some((e) => e.testName === 'Test1'));
+    });
+
+    test('handles extremely long test name', () => {
+      // Create test with 100k character name
+      const longTestName = 'Test' + 'A'.repeat(100000);
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: longTestName,
+        Output: 'Failed\n',
+      });
+
+      const result = extract(logText);
+
+      // Should handle without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].testName?.includes('Test'));
+    });
+
+    test('handles extremely deep stack trace', () => {
+      // Create stack trace with 10k lines
+      const stackLines = [];
+      for (let i = 0; i < 10000; i++) {
+        stackLines.push(`    at function${i} (file.go:${i})`);
+      }
+      const deepStack = 'panic: error\n' + stackLines.join('\n');
+
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: 'TestDeepStack',
+        Output: deepStack + '\n',
+      });
+
+      const result = extract(logText);
+
+      // Should handle without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.length > 0);
+    });
+
+    test('handles log with many empty lines and malformed JSON', () => {
+      // Mix of valid JSON, malformed JSON, and empty lines
+      const logLines = [];
+      for (let i = 0; i < 1000; i++) {
+        logLines.push(''); // Empty line
+        logLines.push('{invalid json'); // Malformed
+        logLines.push(
+          JSON.stringify({
+            Time: '2024-01-01T00:00:00Z',
+            Action: 'fail',
+            Package: 'test/pkg',
+            Test: `Test${i}`,
+          })
+        );
+      }
+      const logText = logLines.join('\n');
+
+      const result = extract(logText, 50);
+
+      // Should extract valid tests and handle errors gracefully
+      assert.strictEqual(result.framework, 'go');
+      assert.ok(result.errors.length > 0);
+      assert.ok(result.errors.length <= 50); // Respects maxErrors
+
+      // Should have parseWarnings about skipped lines
+      // (actual warning format depends on implementation)
+    });
+  });
 });

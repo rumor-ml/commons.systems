@@ -2787,3 +2787,130 @@ func TestDaemonClient_RetryAfterConnectionFailureAndCleanup(t *testing.T) {
 
 	t.Log("Client retry test passed - no resource leaks detected")
 }
+
+// TestClientReceiveGoroutineCleanup verifies that the receive() and heartbeat()
+// goroutines properly exit when Close() is called, preventing goroutine leaks.
+//
+// Test flow:
+//  1. Record baseline goroutine count
+//  2. Create client and start receive/heartbeat goroutines
+//  3. Verify goroutine count increased
+//  4. Close client
+//  5. Poll for goroutine count to return to baseline
+//  6. Fail if goroutines don't clean up within timeout
+func TestClientReceiveGoroutineCleanup(t *testing.T) {
+	// Record baseline goroutine count before creating client
+	runtime.GC() // Run GC to clean up any lingering goroutines
+	time.Sleep(50 * time.Millisecond)
+	baseline := runtime.NumGoroutine()
+	t.Logf("Baseline goroutine count: %d", baseline)
+
+	// Create pipe connections for mock client
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	client := &DaemonClient{
+		clientID: "test-cleanup",
+		conn: &mockConn{
+			reader:     clientReader,
+			writer:     clientWriter,
+			localAddr:  &mockAddr{"unix", "/tmp/test.sock"},
+			remoteAddr: &mockAddr{"unix", "/tmp/test.sock"},
+		},
+		encoder:        json.NewEncoder(clientWriter),
+		decoder:        json.NewDecoder(clientReader),
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
+		lastPong:       time.Now(),
+		queryResponses: make(map[string]*queryResponse),
+		connected:      true,
+	}
+
+	// Start goroutines (simulating Connect() behavior)
+	go client.receive()
+	go client.heartbeat()
+
+	// Give goroutines time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify goroutine count increased (should have +2: receive + heartbeat)
+	afterStart := runtime.NumGoroutine()
+	t.Logf("Goroutine count after starting client: %d (expected >= %d)", afterStart, baseline+2)
+	if afterStart < baseline+2 {
+		t.Errorf("Expected at least 2 new goroutines, got %d new goroutines", afterStart-baseline)
+	}
+
+	// Setup mock server to prevent EOF errors in receive loop
+	var serverWg sync.WaitGroup
+	serverWg.Add(1)
+	go func() {
+		defer serverWg.Done()
+		decoder := json.NewDecoder(serverReader)
+		encoder := json.NewEncoder(serverWriter)
+
+		// Read and respond to heartbeat pings
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return // Connection closed
+			}
+			if msg.Type == MsgTypePing {
+				// Send pong response
+				pong := Message{Type: MsgTypePong}
+				if err := encoder.Encode(pong); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	// CLOSE CLIENT - This should signal goroutines to exit
+	t.Log("Closing client...")
+	if err := client.Close(); err != nil {
+		t.Errorf("Close() returned error: %v", err)
+	}
+
+	// Close pipes to unblock server goroutine
+	serverWriter.Close()
+	clientWriter.Close()
+
+	// Wait for server goroutine to exit
+	serverWg.Wait()
+
+	// Poll for goroutine cleanup with timeout
+	// Allow some margin (baseline+2) for background goroutines
+	cleaned := false
+	maxAttempts := 30
+	for i := 0; i < maxAttempts; i++ {
+		current := runtime.NumGoroutine()
+		t.Logf("Attempt %d/%d: Current goroutines=%d, baseline=%d", i+1, maxAttempts, current, baseline)
+
+		if current <= baseline+2 {
+			cleaned = true
+			t.Logf("SUCCESS: Goroutines cleaned up. Baseline=%d, Current=%d", baseline, current)
+			break
+		}
+
+		if i < maxAttempts-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	if !cleaned {
+		current := runtime.NumGoroutine()
+		t.Errorf("FAILED: Goroutine leak detected. Baseline=%d, Current=%d, Leaked=%d",
+			baseline, current, current-baseline)
+		t.Error("receive() and/or heartbeat() goroutines did not exit within 3 seconds")
+
+		// Print goroutine dump for debugging
+		buf := make([]byte, 1<<20) // 1MB buffer
+		stackLen := runtime.Stack(buf, true)
+		t.Logf("Goroutine dump:\n%s", buf[:stackLen])
+	}
+
+	// Cleanup
+	serverReader.Close()
+	clientReader.Close()
+
+	t.Log("Goroutine cleanup test completed")
+}

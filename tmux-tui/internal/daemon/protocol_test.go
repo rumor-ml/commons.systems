@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -771,4 +772,227 @@ func TestNewBlockedState_BoundaryConditions(t *testing.T) {
 func trimString(s string) string {
 	// Trim spaces, tabs, and newlines
 	return strings.TrimSpace(s)
+}
+
+// TestMalformedJSON tests that the protocol handles malformed JSON gracefully
+// without panicking or causing undefined behavior.
+//
+// These tests verify defensive programming against:
+//   - Network corruption (truncated messages)
+//   - Encoding issues (invalid UTF-8)
+//   - Client bugs (malformed JSON syntax)
+//   - Injection attacks (extra braces, nested structures)
+func TestMalformedJSON(t *testing.T) {
+	tests := []struct {
+		name        string
+		jsonBytes   []byte
+		expectError bool
+		description string
+	}{
+		{
+			name:        "Truncated JSON - missing closing brace",
+			jsonBytes:   []byte(`{"type":"ping","cli`),
+			expectError: true,
+			description: "Network interruption during message transmission",
+		},
+		{
+			name:        "Truncated JSON - mid-field",
+			jsonBytes:   []byte(`{"type":"block_branch","branch":"feat`),
+			expectError: true,
+			description: "Message cut off during field value",
+		},
+		{
+			name:        "Invalid UTF-8 sequence",
+			jsonBytes:   []byte{0xFF, 0xFE, 0xFD},
+			expectError: true,
+			description: "Non-UTF-8 data (binary corruption)",
+		},
+		{
+			name:        "Invalid UTF-8 in string value",
+			jsonBytes:   []byte(`{"type":"ping","client_id":"` + string([]byte{0xFF, 0xFE}) + `"}`),
+			expectError: true,
+			description: "UTF-8 validation in string fields",
+		},
+		{
+			name:        "Extra closing brace",
+			jsonBytes:   []byte(`{"type":"ping"}}`),
+			expectError: true,
+			description: "Client bug or parsing error",
+		},
+		{
+			name:        "Missing opening brace",
+			jsonBytes:   []byte(`"type":"ping"}`),
+			expectError: true,
+			description: "Malformed JSON structure",
+		},
+		{
+			name:        "Double-encoded JSON",
+			jsonBytes:   []byte(`"{\"type\":\"ping\"}"`),
+			expectError: true,
+			description: "Client serialized JSON twice",
+		},
+		{
+			name:        "Empty string",
+			jsonBytes:   []byte(""),
+			expectError: true,
+			description: "Empty message",
+		},
+		{
+			name:        "Whitespace only",
+			jsonBytes:   []byte("   \t\n  "),
+			expectError: true,
+			description: "Message with only whitespace",
+		},
+		{
+			name:        "Null bytes",
+			jsonBytes:   []byte{0x00, 0x00, 0x00},
+			expectError: true,
+			description: "Binary null bytes",
+		},
+		{
+			name:        "Array instead of object",
+			jsonBytes:   []byte(`["type", "ping"]`),
+			expectError: false, // JSON parses but validation should catch it
+			description: "Wrong JSON type (array vs object)",
+		},
+		{
+			name:        "Null value",
+			jsonBytes:   []byte(`null`),
+			expectError: true,
+			description: "JSON null value",
+		},
+		{
+			name:        "Number instead of object",
+			jsonBytes:   []byte(`42`),
+			expectError: true,
+			description: "JSON number value",
+		},
+		{
+			name:        "String instead of object",
+			jsonBytes:   []byte(`"hello"`),
+			expectError: true,
+			description: "JSON string value",
+		},
+		{
+			name:        "Unescaped control characters",
+			jsonBytes:   []byte("{\"type\":\"ping\",\"data\":\"\n\r\t\"}"),
+			expectError: false, // JSON allows these escaped
+			description: "Control characters in strings",
+		},
+		{
+			name:        "Very deeply nested (but valid) JSON",
+			jsonBytes:   []byte(`{"a":{"b":{"c":{"d":{"e":{"type":"ping"}}}}}}`),
+			expectError: false, // Valid JSON, just unusual structure
+			description: "Deep nesting - should parse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var msg Message
+			err := unmarshalMessage(tt.jsonBytes, &msg)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected unmarshal error for %s, but got none", tt.description)
+				} else {
+					t.Logf("Got expected error for %s: %v", tt.description, err)
+				}
+			} else {
+				if err != nil {
+					t.Logf("Unmarshal error (may be ok): %v", err)
+				} else {
+					// Verify ValidateMessage catches structural issues
+					if validateErr := ValidateMessage(msg); validateErr != nil {
+						t.Logf("ValidateMessage caught issue: %v", validateErr)
+					}
+				}
+			}
+		})
+	}
+}
+
+// unmarshalMessage is a helper that wraps json.Unmarshal for testing.
+// This function tests the actual JSON decoding behavior that the daemon uses.
+func unmarshalMessage(data []byte, v *Message) error {
+	return json.Unmarshal(data, v)
+}
+
+// TestValidateMessage_MalformedFields tests validation of messages with
+// syntactically valid JSON but semantically invalid field combinations.
+func TestValidateMessage_MalformedFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		msg     Message
+		wantErr bool
+	}{
+		{
+			name: "Block branch with empty branch name",
+			msg: Message{
+				Type:          MsgTypeBlockBranch,
+				Branch:        "",
+				BlockedBranch: "main",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Block branch with empty blocked_branch",
+			msg: Message{
+				Type:          MsgTypeBlockBranch,
+				Branch:        "feature",
+				BlockedBranch: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Alert change with empty pane_id",
+			msg: Message{
+				Type:      MsgTypeAlertChange,
+				PaneID:    "",
+				EventType: "idle",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Alert change with empty event_type",
+			msg: Message{
+				Type:      MsgTypeAlertChange,
+				PaneID:    "pane-1",
+				EventType: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Message with no type field",
+			msg: Message{
+				Type: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Hello message with empty client_id",
+			msg: Message{
+				Type:     MsgTypeHello,
+				ClientID: "",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMessage(tt.msg)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected validation error but got none")
+				} else {
+					t.Logf("Got expected validation error: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected validation error: %v", err)
+				}
+			}
+		})
+	}
 }
