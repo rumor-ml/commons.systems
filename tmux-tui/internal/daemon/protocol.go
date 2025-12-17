@@ -108,14 +108,18 @@ type Message struct {
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
-	Timestamp          time.Time `json:"timestamp"`
-	BroadcastFailures  int64     `json:"broadcast_failures"`
-	LastBroadcastError string    `json:"last_broadcast_error"`
-	WatcherErrors      int64     `json:"watcher_errors"`
-	LastWatcherError   string    `json:"last_watcher_error"`
-	ConnectedClients   int       `json:"connected_clients"`
-	ActiveAlerts       int       `json:"active_alerts"`
-	BlockedBranches    int       `json:"blocked_branches"`
+	Timestamp             time.Time `json:"timestamp"`
+	BroadcastFailures     int64     `json:"broadcast_failures"`
+	LastBroadcastError    string    `json:"last_broadcast_error"`
+	WatcherErrors         int64     `json:"watcher_errors"`
+	LastWatcherError      string    `json:"last_watcher_error"`
+	ConnectionCloseErrors  int64     `json:"connection_close_errors"`
+	LastCloseError         string    `json:"last_close_error"`
+	AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
+	LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
+	ConnectedClients       int       `json:"connected_clients"`
+	ActiveAlerts           int       `json:"active_alerts"`
+	BlockedBranches        int       `json:"blocked_branches"`
 }
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
@@ -125,6 +129,10 @@ func NewHealthStatus(
 	lastBroadcastError string,
 	watcherErrors int64,
 	lastWatcherError string,
+	connectionCloseErrors int64,
+	lastCloseError string,
+	audioBroadcastFailures int64,
+	lastAudioBroadcastErr string,
 	connectedClients int,
 	activeAlerts int,
 	blockedBranches int,
@@ -135,6 +143,12 @@ func NewHealthStatus(
 	}
 	if watcherErrors < 0 {
 		return HealthStatus{}, fmt.Errorf("watcherErrors must be non-negative, got %d", watcherErrors)
+	}
+	if connectionCloseErrors < 0 {
+		return HealthStatus{}, fmt.Errorf("connectionCloseErrors must be non-negative, got %d", connectionCloseErrors)
+	}
+	if audioBroadcastFailures < 0 {
+		return HealthStatus{}, fmt.Errorf("audioBroadcastFailures must be non-negative, got %d", audioBroadcastFailures)
 	}
 	if connectedClients < 0 {
 		return HealthStatus{}, fmt.Errorf("connectedClients must be non-negative, got %d", connectedClients)
@@ -147,14 +161,18 @@ func NewHealthStatus(
 	}
 
 	return HealthStatus{
-		Timestamp:          time.Now(),
-		BroadcastFailures:  broadcastFailures,
-		LastBroadcastError: strings.TrimSpace(lastBroadcastError),
-		WatcherErrors:      watcherErrors,
-		LastWatcherError:   strings.TrimSpace(lastWatcherError),
-		ConnectedClients:   connectedClients,
-		ActiveAlerts:       activeAlerts,
-		BlockedBranches:    blockedBranches,
+		Timestamp:              time.Now(),
+		BroadcastFailures:      broadcastFailures,
+		LastBroadcastError:     strings.TrimSpace(lastBroadcastError),
+		WatcherErrors:          watcherErrors,
+		LastWatcherError:       strings.TrimSpace(lastWatcherError),
+		ConnectionCloseErrors:  connectionCloseErrors,
+		LastCloseError:         strings.TrimSpace(lastCloseError),
+		AudioBroadcastFailures: audioBroadcastFailures,
+		LastAudioBroadcastErr:  strings.TrimSpace(lastAudioBroadcastErr),
+		ConnectedClients:       connectedClients,
+		ActiveAlerts:           activeAlerts,
+		BlockedBranches:        blockedBranches,
 	}, nil
 }
 
@@ -172,6 +190,18 @@ func (h HealthStatus) GetWatcherErrors() int64 { return h.WatcherErrors }
 
 // GetLastWatcherError returns the most recent watcher error message
 func (h HealthStatus) GetLastWatcherError() string { return h.LastWatcherError }
+
+// GetConnectionCloseErrors returns the total connection close errors since daemon startup
+func (h HealthStatus) GetConnectionCloseErrors() int64 { return h.ConnectionCloseErrors }
+
+// GetLastCloseError returns the most recent connection close error message
+func (h HealthStatus) GetLastCloseError() string { return h.LastCloseError }
+
+// GetAudioBroadcastFailures returns the total audio broadcast failures since daemon startup
+func (h HealthStatus) GetAudioBroadcastFailures() int64 { return h.AudioBroadcastFailures }
+
+// GetLastAudioBroadcastErr returns the most recent audio broadcast error message
+func (h HealthStatus) GetLastAudioBroadcastErr() string { return h.LastAudioBroadcastErr }
 
 // GetConnectedClients returns the current number of connected clients
 func (h HealthStatus) GetConnectedClients() int { return h.ConnectedClients }

@@ -251,25 +251,25 @@ func (c *DaemonClient) receive() {
 					errMsg := ErrQueryChannelFull
 					select {
 					case resp.errCh <- errMsg:
-						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s count=%d",
+						debug.Log("CLIENT_QUERY_CHANNEL_FULL id=%s branch=%s fallback_level=1 total_overflows=%d reason=dataCh_full",
 							c.clientID, msg.Branch, c.queryChannelFull.Load())
 					default:
 						// Both channels full - retry once after brief delay before forcing disconnect
-						debug.Log("CLIENT_QUERY_CHANNELS_BOTH_FULL id=%s branch=%s - retrying after 50ms",
-							c.clientID, msg.Branch)
+						debug.Log("CLIENT_QUERY_CHANNELS_BOTH_FULL id=%s branch=%s fallback_level=2 total_overflows=%d reason=both_channels_full retrying_after=50ms",
+							c.clientID, msg.Branch, c.queryChannelFull.Load())
 						time.Sleep(50 * time.Millisecond)
 
 						select {
 						case resp.dataCh <- msg:
-							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s - sent to dataCh",
-								c.clientID, msg.Branch)
+							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s fallback_level=2 total_overflows=%d retry_path=dataCh",
+								c.clientID, msg.Branch, c.queryChannelFull.Load())
 						case resp.errCh <- errMsg:
-							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s - sent to errCh",
-								c.clientID, msg.Branch)
+							debug.Log("CLIENT_QUERY_RETRY_SUCCESS id=%s branch=%s fallback_level=2 total_overflows=%d retry_path=errCh",
+								c.clientID, msg.Branch, c.queryChannelFull.Load())
 						default:
 							// CRITICAL: Still deadlocked after retry - force disconnect
-							debug.Log("CLIENT_QUERY_DEADLOCK_CONFIRMED id=%s branch=%s - forcing disconnect",
-								c.clientID, msg.Branch)
+							debug.Log("CLIENT_QUERY_DEADLOCK_CONFIRMED id=%s branch=%s fallback_level=3 total_overflows=%d reason=retry_failed_both_channels_still_full action=forcing_disconnect",
+								c.clientID, msg.Branch, c.queryChannelFull.Load())
 
 							c.mu.Lock()
 							c.connected = false

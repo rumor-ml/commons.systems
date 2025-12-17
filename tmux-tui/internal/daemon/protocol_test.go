@@ -297,6 +297,10 @@ func TestNewHealthStatus_Valid(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
+				0, // connectionCloseErrors
+				"", // lastCloseError
+				0, // audioBroadcastFailures
+				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,
 				tt.blockedBranches,
@@ -425,6 +429,10 @@ func TestNewHealthStatus_Invalid(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
+				0, // connectionCloseErrors
+				"", // lastCloseError
+				0, // audioBroadcastFailures
+				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,
 				tt.blockedBranches,
@@ -526,6 +534,10 @@ func TestNewHealthStatus_BoundaryConditions(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
+				0, // connectionCloseErrors
+				"", // lastCloseError
+				0, // audioBroadcastFailures
+				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,
 				tt.blockedBranches,

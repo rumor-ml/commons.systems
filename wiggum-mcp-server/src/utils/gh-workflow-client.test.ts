@@ -21,8 +21,10 @@ const { callToolWithRetry } = _testExports;
  */
 class MockMCPClient {
   private callCount = 0;
-  private responses: Array<{ type: 'success'; result: unknown } | { type: 'error'; error: Error }> =
-    [];
+  private responses: Array<
+    | { type: 'success'; result: unknown; delay?: number }
+    | { type: 'error'; error: Error; delay?: number }
+  > = [];
 
   /**
    * Queue a successful response
@@ -38,6 +40,15 @@ class MockMCPClient {
     const error = new Error('Request timed out') as Error & { code: number };
     error.code = -32001;
     this.responses.push({ type: 'error', error });
+  }
+
+  /**
+   * Queue a timeout error with delay (for Phase 3.4 real timeout tests)
+   */
+  queueTimeoutErrorWithDelay(delayMs: number): void {
+    const error = new Error('Request timed out') as Error & { code: number };
+    error.code = -32001;
+    this.responses.push({ type: 'error', error, delay: delayMs });
   }
 
   /**
@@ -80,6 +91,11 @@ class MockMCPClient {
     }
 
     const response = this.responses.shift()!;
+
+    // Simulate delay if specified
+    if (response.delay) {
+      await new Promise((resolve) => setTimeout(resolve, response.delay));
+    }
 
     if (response.type === 'error') {
       throw response.error;
@@ -269,6 +285,69 @@ describe('callToolWithRetry', () => {
 
       // At least 1 attempt was made before timing out
       assert.ok(mockClient.getCallCount() >= 1);
+    });
+  });
+
+  describe('MCP retry with real timeouts (Phase 3.4)', () => {
+    it('enforces maxDurationMs with real delays', async () => {
+      // Mock 50ms delay per call, maxDurationMs=120ms
+      // Should get 2-3 attempts before timing out at ~120ms
+      for (let i = 0; i < 10; i++) {
+        mockClient.queueTimeoutErrorWithDelay(50);
+      }
+
+      const startTime = Date.now();
+      const maxDurationMs = 120;
+
+      await assert.rejects(
+        () => callToolWithRetry(mockClient as any, 'test_tool', {}, maxDurationMs),
+        /Operation exceeded maximum duration/
+      );
+
+      const elapsed = Date.now() - startTime;
+
+      // Should complete around 120ms (give ±50ms buffer for timing variance)
+      assert.ok(elapsed >= maxDurationMs, `Expected elapsed (${elapsed}ms) >= ${maxDurationMs}ms`);
+      assert.ok(
+        elapsed < maxDurationMs + 100,
+        `Expected elapsed (${elapsed}ms) < ${maxDurationMs + 100}ms (with buffer)`
+      );
+
+      // Should have made 2-3 attempts (each taking ~50ms)
+      const callCount = mockClient.getCallCount();
+      assert.ok(callCount >= 2, `Expected at least 2 attempts, got ${callCount}`);
+      assert.ok(callCount <= 3, `Expected at most 3 attempts, got ${callCount}`);
+    });
+
+    it('continues retrying until maxDurationMs', async () => {
+      // Queue 100 timeouts with 10ms delay each, maxDurationMs=250ms
+      // Should get ~25 attempts before timing out
+      for (let i = 0; i < 100; i++) {
+        mockClient.queueTimeoutErrorWithDelay(10);
+      }
+
+      const startTime = Date.now();
+      const maxDurationMs = 250;
+
+      await assert.rejects(
+        () => callToolWithRetry(mockClient as any, 'test_tool', {}, maxDurationMs),
+        /Operation exceeded maximum duration/
+      );
+
+      const elapsed = Date.now() - startTime;
+
+      // Should complete around 250ms (give ±50ms buffer)
+      assert.ok(elapsed >= maxDurationMs, `Expected elapsed (${elapsed}ms) >= ${maxDurationMs}ms`);
+      assert.ok(
+        elapsed < maxDurationMs + 100,
+        `Expected elapsed (${elapsed}ms) < ${maxDurationMs + 100}ms (with buffer)`
+      );
+
+      // Should have made approximately 25 attempts (250ms / 10ms per attempt)
+      // Allow range 20-30 for timing variance
+      const callCount = mockClient.getCallCount();
+      assert.ok(callCount >= 20, `Expected at least 20 attempts, got ${callCount}`);
+      assert.ok(callCount <= 30, `Expected at most 30 attempts, got ${callCount}`);
     });
   });
 

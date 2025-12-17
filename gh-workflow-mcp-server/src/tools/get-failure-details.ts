@@ -218,13 +218,32 @@ function formatJobSummaries(
 
   // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
+    const overage = output.length - maxChars;
+
+    const truncationNotice = [
+      '',
+      '⚠️  EMERGENCY TRUNCATION OCCURRED',
+      '',
+      `Content ${overage} chars over limit (${output.length} > ${maxChars})`,
+      'This indicates a budget calculation bug.',
+      '',
+      'Budget Breakdown:',
+      `  - Summary: ${summaryBudget} chars`,
+      `  - Warnings: ${warningSize} chars`,
+      `  - Expected: ${summaryBudget + warningSize + truncationMarkerSize}`,
+      `  - Actual: ${output.length}`,
+      '',
+      'PLEASE FILE BUG REPORT with budget breakdown',
+    ].join('\n');
+
     console.error(
-      `[WARN] formatJobSummaries: output exceeded maxChars despite budget calculation. ` +
-      `Expected: ${maxChars}, Actual: ${output.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+      `[BUG] formatJobSummaries: output exceeded maxChars despite budget calculation. ` +
+        `Expected: ${maxChars}, Actual: ${output.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
     );
-    // Emergency truncation preserving as much warning as possible
-    const emergencyCut = output.length - maxChars;
-    output = output.substring(0, summaryBudget - emergencyCut) + truncationMarker + warningText;
+
+    // Emergency truncation preserving as much context as possible
+    const preserveAmount = Math.max(500, maxChars - truncationNotice.length - warningText.length);
+    output = output.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
   }
 
   return { content: [{ type: 'text', text: output }] };
@@ -651,15 +670,38 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     const finalSummary = summary + warningText;
 
     // Final safety check
+    let outputText = finalSummary;
     if (finalSummary.length > input.max_chars) {
+      const overage = finalSummary.length - input.max_chars;
+
+      const truncationNotice = [
+        '',
+        '⚠️  EMERGENCY TRUNCATION OCCURRED',
+        '',
+        `Content ${overage} chars over limit (${finalSummary.length} > ${input.max_chars})`,
+        'This indicates a budget calculation bug.',
+        '',
+        'Budget Breakdown:',
+        `  - Summary: ${summaryBudget} chars`,
+        `  - Warnings: ${warningSize} chars`,
+        `  - Expected: ${summaryBudget + warningSize + truncationMarkerSize}`,
+        `  - Actual: ${finalSummary.length}`,
+        '',
+        'PLEASE FILE BUG REPORT with budget breakdown',
+      ].join('\n');
+
       console.error(
-        `[WARN] getFailureDetails: output exceeded max_chars despite budget calculation. ` +
-        `Expected: ${input.max_chars}, Actual: ${finalSummary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+        `[BUG] getFailureDetails: output exceeded max_chars despite budget calculation. ` +
+          `Expected: ${input.max_chars}, Actual: ${finalSummary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
       );
+
+      // Emergency truncation
+      const preserveAmount = Math.max(500, input.max_chars - truncationNotice.length - warningText.length);
+      outputText = summary.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
     }
 
     return {
-      content: [{ type: 'text', text: finalSummary }],
+      content: [{ type: 'text', text: outputText }],
     };
   } catch (error) {
     return createErrorResult(error);

@@ -182,40 +182,40 @@ export async function getGhWorkflowClient(): Promise<Client> {
     logger.error('Failed to connect to gh-workflow-mcp-server', { error: errorMsg });
 
     // Clean up transport to prevent resource leaks
-    let resourceLeakWarning = '';
     try {
       await transport.close();
       logger.debug('Cleaned up transport after connection failure');
     } catch (closeError) {
       const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
-      logger.error('Failed to close MCP transport after connection failure', {
-        closeError: closeMsg,
-        originalError: errorMsg,
-        resourceLeakRisk: 'Socket/process may remain open',
-        serverPath,
-        troubleshooting: {
-          verifyServer: `ls -la ${serverPath}`,
-          findZombies: 'ps aux | grep gh-workflow-mcp-server',
-          killStuck: 'pkill -f gh-workflow-mcp-server',
-          checkLimits: 'ulimit -a'
-        }
-      });
-      // Append resource leak warning to error message for user visibility
-      resourceLeakWarning =
-        `\n\n⚠️  RESOURCE LEAK WARNING:\n` +
-        `Transport cleanup failed - ${closeMsg}\n` +
-        `Socket/process may remain open. Manual cleanup: pkill -f gh-workflow-mcp-server`;
+
+      const diagnosticLines = [
+        '⚠️  CRITICAL: MCP TRANSPORT CLEANUP FAILED',
+        '',
+        `Connection Error: ${errorMsg}`,
+        `Cleanup Error: ${closeMsg}`,
+        '',
+        'RESOURCE LEAK DETECTED:',
+        '  - Socket/process may remain open',
+        `  - Server path: ${serverPath}`,
+        '',
+        'IMMEDIATE ACTIONS:',
+        '  1. Kill stuck: pkill -f gh-workflow-mcp-server',
+        '  2. Check zombies: ps aux | grep gh-workflow-mcp-server',
+        '  3. Verify limits: ulimit -a',
+        '',
+        'DIAGNOSIS:',
+        `  - Verify server: ls -la ${serverPath}`,
+        '  - Check Node: node --version',
+        '',
+        'If persists, rebuild: cd gh-workflow-mcp-server && npm run build',
+      ].join('\n');
+
+      logger.error('MCP transport cleanup failed', { closeError: closeMsg, serverPath });
+      throw new Error(diagnosticLines);
     }
 
-    const troubleshooting = [
-      `Failed to connect: ${errorMsg}`,
-      '',
-      'Troubleshooting:',
-      '1. npm run build in gh-workflow-mcp-server',
-      `2. Verify path: ${serverPath}`,
-      '3. Check Node.js in PATH: which node',
-    ].join('\n');
-    throw new Error(troubleshooting + resourceLeakWarning);
+    // Re-throw the original connection error after successful cleanup
+    throw new Error(`Failed to connect to gh-workflow-mcp-server: ${errorMsg}`);
   }
 }
 

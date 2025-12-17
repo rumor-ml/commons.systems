@@ -129,6 +129,16 @@ export function createFallbackError(
     rawOutput = [`Test output failed validation: ${context}`];
   }
 
+  // Helper to validate positive integers
+  function positiveIntOrUndefined(value: unknown): number | undefined {
+    return typeof value === 'number' && value > 0 ? value : undefined;
+  }
+
+  // Helper to validate non-negative numbers
+  function nonNegativeOrUndefined(value: unknown): number | undefined {
+    return typeof value === 'number' && value >= 0 ? value : undefined;
+  }
+
   // Return valid-by-construction error
   return {
     message, // Always non-empty
@@ -136,15 +146,9 @@ export function createFallbackError(
     // Include valid metadata if present
     testName: partial.testName,
     fileName: partial.fileName,
-    // Only include line/column if they're positive integers
-    lineNumber:
-      typeof partial.lineNumber === 'number' && partial.lineNumber > 0 ? partial.lineNumber : undefined,
-    columnNumber:
-      typeof partial.columnNumber === 'number' && partial.columnNumber > 0
-        ? partial.columnNumber
-        : undefined,
-    duration:
-      typeof partial.duration === 'number' && partial.duration >= 0 ? partial.duration : undefined,
+    lineNumber: positiveIntOrUndefined(partial.lineNumber),
+    columnNumber: positiveIntOrUndefined(partial.columnNumber),
+    duration: nonNegativeOrUndefined(partial.duration),
     failureType: partial.failureType,
     errorCode: partial.errorCode,
     stack: partial.stack,
@@ -168,9 +172,26 @@ export class ValidationErrorTracker {
    * @param error - The Zod validation error
    */
   recordValidationFailure(context: string, error: z.ZodError): void {
+    // Sanity check: detect count corruption
+    if (this.validationFailures < 0) {
+      console.error(
+        `[BUG] ValidationErrorTracker.recordValidationFailure: validationFailures is negative (${this.validationFailures}). Resetting to 0.`
+      );
+      this.validationFailures = 0;
+    }
+
     this.validationFailures++;
     const formatted = formatValidationError(error);
     this.warnings.push(`${context}: ${formatted}`);
+
+    // Sanity check: count should match warnings array length
+    if (this.validationFailures !== this.warnings.length) {
+      console.error(
+        `[BUG] ValidationErrorTracker.recordValidationFailure: count mismatch after increment. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `This indicates state corruption.`
+      );
+    }
   }
 
   /**
@@ -185,6 +206,30 @@ export class ValidationErrorTracker {
    * Returns undefined if no failures
    */
   getSummaryWarning(): string | undefined {
+    // Sanity check: detect negative count
+    if (this.validationFailures < 0) {
+      console.error(
+        `[BUG] ValidationErrorTracker.getSummaryWarning: validationFailures is negative (${this.validationFailures}). ` +
+          `Returning diagnostic message.`
+      );
+      return `INTERNAL ERROR: Validation failure count corrupted (${this.validationFailures} < 0). Please file bug report.`;
+    }
+
+    // Sanity check: count should match warnings array length
+    if (this.validationFailures !== this.warnings.length) {
+      console.error(
+        `[BUG] ValidationErrorTracker.getSummaryWarning: count mismatch. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `Using warnings.length as source of truth.`
+      );
+      // Use warnings.length as source of truth
+      const actualCount = this.warnings.length;
+      if (actualCount === 0) {
+        return undefined;
+      }
+      return `${actualCount} test events failed validation - malformed output detected (count mismatch detected)`;
+    }
+
     if (this.validationFailures === 0) {
       return undefined;
     }

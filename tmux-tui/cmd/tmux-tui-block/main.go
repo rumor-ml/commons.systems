@@ -1,3 +1,14 @@
+// Package main implements the tmux-tui-block command for managing blocked branch state.
+//
+// Sentinel Errors Pattern:
+// This package defines two sentinel errors (ErrPanePathFailed, ErrGitBranchFailed) to distinguish
+// failure modes during branch detection. The error type determines user-facing messaging:
+//
+//   - ErrPanePathFailed: Could not detect pane directory (tmux integration issue)
+//   - ErrGitBranchFailed: Not in a git repository or detached HEAD (git issue)
+//
+// Callers use errors.Is() to check these sentinels and provide specific guidance.
+// This pattern prevents string matching on error messages and enables clear error handling.
 package main
 
 import (
@@ -98,6 +109,17 @@ type branchBlocker interface {
 }
 
 // toggleBlockedState queries the blocked state of a branch and unblocks it if blocked.
+//
+// User Interaction Flow:
+//  1. User presses keybinding while on a git branch
+//  2. If branch IS blocked: Unblock it immediately (toggle off) → return true → CLI exits
+//  3. If branch NOT blocked: Show picker UI to select blocker branch → return false → picker shown
+//  4. User selects blocker in picker → Branch becomes blocked (toggle on)
+//
+// This creates an intuitive toggle UX:
+//  - First press: Block (via picker)
+//  - Second press: Unblock (immediate)
+//  - Third press: Block again (via picker)
 //
 // Returns true if the branch was blocked and successfully unblocked (operation complete).
 // Returns false to show the branch picker in these cases:

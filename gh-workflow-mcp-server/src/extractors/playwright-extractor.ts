@@ -287,6 +287,19 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return null;
     }
 
+    // Validate ranges (hours: 0-23, minutes/seconds: 0-59)
+    const rangeErrors: string[] = [];
+    if (h < 0 || h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
+    if (m < 0 || m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
+    if (s < 0 || s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
+
+    if (rangeErrors.length > 0) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} "${timestamp}" out-of-range: ${rangeErrors.join(', ')}`
+      );
+      return null;
+    }
+
     return h * 3600 + m * 60 + s;
   }
 
@@ -347,6 +360,12 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * Unlike Go test JSON (which streams line-by-line and can be limited), Playwright JSON reports
    * are emitted as a single complete document at the end of test execution. The entire report
    * must be parsed to extract failures - there's no streaming or partial extraction.
+   *
+   * The _maxErrors parameter exists because:
+   * 1. FrameworkExtractor interface requires it for consistency across extractors
+   * 2. Go extractor uses it to limit line-by-line parsing overhead in massive logs
+   * 3. Future extractors might support error limiting for other streaming formats
+   * 4. Keeping the parameter maintains API compatibility if limiting becomes useful later
    *
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
@@ -578,6 +597,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    *
    * EXTRACTION STRATEGY:
    * 1. Strip GitHub Actions timestamps (YYYY-MM-DDTHH:MM:SS.nnnnnnnZ) from all lines
+   *    Example: "2025-03-15T14:32:18.123456789Z {config: ...}" → "{config: ...}"
    * 2. Find JSON start marker: standalone "{" or line starting with '{"suites":'
    * 3. Verify next ~20 lines contain "config" or "suites" to confirm this is the report
    * 4. Progressively parse from start marker, adding lines until valid JSON with expected structure

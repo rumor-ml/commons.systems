@@ -111,7 +111,23 @@ export class GoExtractor implements FrameworkExtractor {
     let testEventParseErrors = 0;
     const validationTracker = new ValidationErrorTracker();
 
-    for (const rawLine of lines) {
+    // ARCHITECTURAL PATTERN: Two-stage error handling with narrow catch scopes
+    // - SECTION 1: JSON.parse() wrapped in minimal try-catch
+    // - SECTION 2: Validation errors caught and enriched with context
+    // This separation ensures JSON syntax errors don't mask validation issues,
+    // and validation errors get full diagnostic context (line number, raw JSON).
+
+    // Parse error samples for user visibility
+    interface ParseErrorSample {
+      lineSnippet: string;    // First 200 chars
+      errorMessage: string;   // Parse error
+      lineNumber: number;     // Position in log
+    }
+    const parseErrorSamples: ParseErrorSample[] = [];
+    const MAX_ERROR_SAMPLES = 3;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const rawLine = lines[lineIndex];
       const line = this.stripTimestamp(rawLine);
       if (!line.startsWith('{')) continue;
 
@@ -129,6 +145,16 @@ export class GoExtractor implements FrameworkExtractor {
           // CRITICAL: Test event JSON that failed to parse - always log prominently
           testEventParseErrors++;
           const lineSnippet = line.length > 200 ? line.substring(0, 200) + '...' : line;
+
+          // Store sample for user visibility
+          if (parseErrorSamples.length < MAX_ERROR_SAMPLES) {
+            parseErrorSamples.push({
+              lineSnippet,
+              errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
+              lineNumber: lineIndex + 1,
+            });
+          }
+
           console.error(
             `[ERROR] Go extractor: failed to parse test event JSON\n` +
               `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
@@ -267,7 +293,17 @@ export class GoExtractor implements FrameworkExtractor {
     // Build parse warnings from test event parsing errors and validation errors
     const warnings: string[] = [];
     if (testEventParseErrors > 0) {
-      warnings.push(`${testEventParseErrors} test event${testEventParseErrors > 1 ? 's' : ''} failed to parse - check stderr for [ERROR] Go extractor messages`);
+      let warning = `${testEventParseErrors} test event(s) failed to parse`;
+
+      if (parseErrorSamples.length > 0) {
+        warning += '\n\nFirst ' + parseErrorSamples.length + ' error(s):';
+        for (const sample of parseErrorSamples) {
+          warning += `\n  Line ${sample.lineNumber}: ${sample.errorMessage}`;
+          warning += `\n    Content: ${sample.lineSnippet}`;
+        }
+        warning += '\n\nCheck: (1) -json flag set, (2) no mixed output, (3) valid UTF-8';
+      }
+      warnings.push(warning);
     }
     const validationWarning = validationTracker.getSummaryWarning();
     if (validationWarning) {

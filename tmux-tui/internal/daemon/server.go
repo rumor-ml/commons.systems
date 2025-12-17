@@ -123,28 +123,33 @@ func (d *AlertDaemon) playAlertSound() {
 		debug.Log("AUDIO_PLAYING")
 		if err := cmd.Run(); err != nil {
 			debug.Log("AUDIO_ERROR error=%v", err)
-
-			// CRITICAL: Log to stderr FIRST - broadcast may fail
-			errorMsg := fmt.Sprintf(
-				"Audio playback failed: %v\n\n"+
-					"Troubleshooting:\n"+
-					"  1. Verify audio system: afplay /System/Library/Sounds/Ping.aiff\n"+
-					"  2. Check audio output device is connected and unmuted\n"+
-					"  3. On headless systems, consider disabling audio in config\n"+
-					"  Note: Audio failures don't affect tmux-tui functionality",
-				err,
-			)
-			fmt.Fprintf(os.Stderr, "ERROR: %s\n", errorMsg)
-
-			// Also broadcast to connected clients
-			d.broadcast(Message{
-				Type:  MsgTypeAudioError,
-				Error: errorMsg,
-			})
-			debug.Log("AUDIO_ERROR_BROADCAST_SENT error=%s", errorMsg)
+			d.broadcastAudioError(err)
 		}
 		debug.Log("AUDIO_COMPLETED")
 	}()
+}
+
+// broadcastAudioError broadcasts an audio playback error with tracking
+func (d *AlertDaemon) broadcastAudioError(audioErr error) {
+	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
+		"Troubleshooting:\n"+
+		"  1. Verify: afplay /System/Library/Sounds/Ping.aiff\n"+
+		"  2. Check audio device connected and unmuted\n"+
+		"  Note: Audio failures don't affect functionality", audioErr)
+
+	fmt.Fprintf(os.Stderr, "ERROR: %s\n", errorMsg)
+
+	preBroadcastFailures := d.broadcastFailures.Load()
+	d.broadcast(Message{Type: MsgTypeAudioError, Error: errorMsg})
+	postBroadcastFailures := d.broadcastFailures.Load()
+
+	if postBroadcastFailures > preBroadcastFailures {
+		newFailures := postBroadcastFailures - preBroadcastFailures
+		d.audioBroadcastFailures.Add(int64(newFailures))
+		d.lastAudioBroadcastErr.Store(fmt.Sprintf("failed to broadcast to %d clients", newFailures))
+		debug.Log("AUDIO_ERROR_BROADCAST_FAILED failures=%d total=%d",
+			newFailures, d.audioBroadcastFailures.Load())
+	}
 }
 
 // Lock Ordering Rules
@@ -196,9 +201,13 @@ type AlertDaemon struct {
 	// Health monitoring (accessed atomically)
 	broadcastFailures  atomic.Int64  // Total broadcast failures since startup
 	lastBroadcastError atomic.Value  // Most recent broadcast error (string)
-	watcherErrors      atomic.Int64  // Total watcher errors since startup
-	lastWatcherError   atomic.Value  // Most recent watcher error (string)
-	seqCounter         atomic.Uint64 // Global sequence number for message ordering
+	watcherErrors         atomic.Int64  // Total watcher errors since startup
+	lastWatcherError      atomic.Value  // Most recent watcher error (string)
+	connectionCloseErrors atomic.Int64  // Total connection close errors since startup
+	lastCloseError        atomic.Value  // Most recent connection close error (string)
+	audioBroadcastFailures atomic.Int64  // Total audio broadcast failures since startup
+	lastAudioBroadcastErr  atomic.Value  // Most recent audio broadcast error (string)
+	seqCounter            atomic.Uint64 // Global sequence number for message ordering
 }
 
 // copyAlerts returns a copy of the alerts map with read lock protection
@@ -352,6 +361,8 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	// Initialize atomic.Value fields
 	daemon.lastBroadcastError.Store("")
 	daemon.lastWatcherError.Store("")
+	daemon.lastCloseError.Store("")
+	daemon.lastAudioBroadcastErr.Store("")
 
 	return daemon, nil
 }
@@ -740,7 +751,12 @@ func (d *AlertDaemon) broadcast(msg Message) {
 					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
 				}
 
-				client.conn.Close()
+				if closeErr := client.conn.Close(); closeErr != nil {
+					d.connectionCloseErrors.Add(1)
+					d.lastCloseError.Store(closeErr.Error())
+					debug.Log("DAEMON_CONNECTION_CLOSE_ERROR client=%s close_error=%v total=%d",
+						clientID, closeErr, d.connectionCloseErrors.Load())
+				}
 				delete(d.clients, clientID)
 				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)
 			}
@@ -802,6 +818,8 @@ func (d *AlertDaemon) removeClient(clientID string) {
 func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 	lastBroadcastErr, _ := d.lastBroadcastError.Load().(string)
 	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
+	lastCloseErr, _ := d.lastCloseError.Load().(string)
+	lastAudioBroadcastErr, _ := d.lastAudioBroadcastErr.Load().(string)
 
 	d.clientsMu.RLock()
 	clientCount := len(d.clients)
@@ -820,6 +838,10 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 		lastBroadcastErr,
 		d.watcherErrors.Load(),
 		lastWatcherErr,
+		d.connectionCloseErrors.Load(),
+		lastCloseErr,
+		d.audioBroadcastFailures.Load(),
+		lastAudioBroadcastErr,
 		clientCount,
 		alertCount,
 		blockedCount,
@@ -827,7 +849,7 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 	if err != nil {
 		debug.Log("DAEMON_HEALTH_STATUS_ERROR error=%v", err)
 		// Return zero status on error (should never happen with valid inputs)
-		status, _ = NewHealthStatus(0, "", 0, "", 0, 0, 0)
+		status, _ = NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
 	}
 	return status
 }
