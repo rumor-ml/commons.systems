@@ -164,7 +164,13 @@ func (b *SessionBroadcaster) broadcast(event SSEEvent) {
 					// Small delay to allow error event to be processed before disconnect
 					time.Sleep(50 * time.Millisecond)
 
-					go b.Unregister(client) // Async to avoid deadlock
+					// Async unregister to avoid deadlock: We're currently holding b.mu.RLock()
+					// in broadcast(), and Unregister() needs b.mu.Lock(). Calling Unregister
+					// synchronously would deadlock. The async approach is safe because:
+					// 1. Client is immediately removed from iteration (we're in the middle of the loop)
+					// 2. Unregister is idempotent (checks if client exists before removing)
+					// 3. Terminal error event sent above ensures client receives final notification
+					go b.Unregister(client)
 				}
 			}
 		}

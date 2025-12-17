@@ -795,3 +795,80 @@ func TestBroadcaster_CircuitBreakerExactThreshold(t *testing.T) {
 		}
 	})
 }
+
+func TestStreamHub_EarlyClientRegistration(t *testing.T) {
+	ctx := context.Background()
+
+	sessionStore := &mockSessionStore{
+		sessions: make(map[string]*SyncSession),
+	}
+	fileStore := &mockFileStore{
+		files: make(map[string]*SyncFile),
+	}
+
+	hub, err := NewStreamHub(sessionStore, fileStore)
+	if err != nil {
+		t.Fatalf("Failed to create hub: %v", err)
+	}
+
+	sessionID := "early-reg-session"
+
+	// Register client BEFORE StartSession
+	client, err := hub.Register(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("Failed to register early client: %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil client from early registration")
+	}
+
+	// Verify broadcaster was created
+	hub.mu.RLock()
+	broadcaster, exists := hub.broadcasters[sessionID]
+	hub.mu.RUnlock()
+
+	if !exists {
+		t.Fatal("Expected broadcaster to be created during early registration")
+	}
+	if broadcaster == nil {
+		t.Fatal("Expected non-nil broadcaster")
+	}
+
+	// Create test session
+	session := &SyncSession{
+		ID:     sessionID,
+		UserID: "user-123",
+		Status: SessionStatusRunning,
+		Stats:  SessionStats{},
+	}
+	sessionStore.Create(ctx, session)
+
+	// Start session with progress channel
+	progressCh := make(chan filesync.Progress, 10)
+	err = hub.StartSession(ctx, sessionID, progressCh)
+	if err != nil {
+		t.Fatalf("Failed to start session after early registration: %v", err)
+	}
+
+	// Send progress event
+	testProgress := filesync.Progress{
+		Type:      filesync.ProgressTypeOperation,
+		Operation: "Test",
+		Percentage: 50,
+	}
+	progressCh <- testProgress
+	close(progressCh)
+
+	// Verify client receives events
+	select {
+	case event := <-client.Events:
+		if event.EventType() != EventTypeProgress {
+			t.Errorf("Expected progress event, got %s", event.EventType())
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for event after early registration")
+	}
+
+	// Cleanup
+	hub.Unregister(sessionID, client)
+}

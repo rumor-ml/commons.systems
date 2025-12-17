@@ -14,6 +14,7 @@ type mockSessionStoreForStats struct {
 	mu               sync.Mutex
 	updateCalled     int
 	updateShouldFail bool
+	updateDelay      time.Duration // Simulate slow flushes
 }
 
 func (m *mockSessionStoreForStats) Create(ctx context.Context, session *SyncSession) error {
@@ -27,6 +28,9 @@ func (m *mockSessionStoreForStats) Update(ctx context.Context, session *SyncSess
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.updateCalled++
+	if m.updateDelay > 0 {
+		time.Sleep(m.updateDelay)
+	}
 	if m.updateShouldFail {
 		return errors.New("update failed")
 	}
@@ -441,4 +445,67 @@ func stringContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestStatsAccumulator_ConcurrentFlushRace(t *testing.T) {
+	session := &SyncSession{
+		ID:     "test-session",
+		UserID: "user-123",
+		Stats:  SessionStats{},
+	}
+
+	// Mock store with slow Update to simulate flush delay
+	sessionStore := &mockSessionStoreForStats{
+		sessions:    make(map[string]*SyncSession),
+		updateDelay: 100 * time.Millisecond, // Simulate slow flush
+	}
+	sessionStore.Create(context.Background(), session)
+
+	// Create accumulator with small batch size to trigger shouldFlush
+	acc, err := newStatsAccumulator(sessionStore, session, 50*time.Millisecond, 10)
+	if err != nil {
+		t.Fatalf("Failed to create accumulator: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Start concurrent flush in background
+	go func() {
+		time.Sleep(20 * time.Millisecond) // Let some increments happen first
+		acc.flush(ctx) // This will take 100ms due to updateDelay
+	}()
+
+	// Increment counters concurrently while flush may be in progress
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			acc.incrementDiscovered()
+			time.Sleep(1 * time.Millisecond)
+			acc.incrementExtracted()
+		}()
+	}
+
+	// Wait for all increments
+	wg.Wait()
+
+	// Do final flush to ensure all data is persisted
+	time.Sleep(150 * time.Millisecond) // Wait for background flush to complete
+	if err := acc.flush(ctx); err != nil {
+		t.Fatalf("Final flush failed: %v", err)
+	}
+
+	// Verify all increments were captured
+	finalSession, err := sessionStore.Get(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get final session: %v", err)
+	}
+
+	if finalSession.Stats.Discovered != 50 {
+		t.Errorf("Expected 50 discovered, got %d", finalSession.Stats.Discovered)
+	}
+	if finalSession.Stats.Extracted != 50 {
+		t.Errorf("Expected 50 extracted, got %d", finalSession.Stats.Extracted)
+	}
 }

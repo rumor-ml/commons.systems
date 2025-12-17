@@ -2527,3 +2527,86 @@ func TestPipelineConfig_Validate_BoundaryValues(t *testing.T) {
 		t.Errorf("ProgressBufferSize=0 should be valid, got: %v", err)
 	}
 }
+
+// panicMockExtractor for testing panic recovery
+type panicMockExtractor struct {
+	panicOn   int
+	callCount int64
+}
+
+func (m *panicMockExtractor) Extract(ctx context.Context, file FileInfo, progress chan<- Progress) (*ExtractedMetadata, error) {
+	count := int(m.callCount)
+	m.callCount++
+	if count == m.panicOn {
+		panic("intentional panic for testing")
+	}
+	return &ExtractedMetadata{Title: "Test"}, nil
+}
+
+func (m *panicMockExtractor) CanExtract(file FileInfo) bool {
+	return true
+}
+
+func TestPipeline_ExtractorPanicRecovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Mock extractor that panics on second file
+	panicExtractor := &panicMockExtractor{
+		panicOn: 1, // Panic on second call (0-indexed)
+	}
+
+	sessionStore := &mockSessionStore{
+		sessions: make(map[string]*SyncSession),
+	}
+	fileStore := &mockFileStore{
+		files: make(map[string]*SyncFile),
+	}
+
+	session := &SyncSession{
+		ID:     "panic-test",
+		UserID: "user-123",
+		Status: SessionStatusRunning,
+		Stats:  SessionStats{},
+	}
+	sessionStore.Create(ctx, session)
+
+	// Create pipeline with 3 files
+	files := []FileInfo{
+		{RelativePath: "1.pdf", Size: 100},
+		{RelativePath: "2.pdf", Size: 100}, // This will panic
+		{RelativePath: "3.pdf", Size: 100},
+	}
+
+	discoverer := &mockDiscoverer{files: files}
+	normalizer := &mockNormalizer{}
+	uploader := &mockUploader{}
+
+	pipeline, err := NewPipeline(
+		discoverer,
+		panicExtractor,
+		normalizer,
+		uploader,
+		sessionStore,
+		fileStore,
+		WithConcurrentJobs(1),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create pipeline: %v", err)
+	}
+
+	// Run pipeline - should recover from panic
+	result, err := pipeline.Run(ctx, "/test", "user-123")
+	if err != nil {
+		t.Fatalf("Pipeline run failed: %v", err)
+	}
+
+	// Verify extractor was called at least once
+	if panicExtractor.callCount == 0 {
+		t.Error("Expected extractor to be called before panic")
+	}
+
+	// The pipeline should complete without hanging (timeout proves this)
+	// Note: We can't guarantee all files process due to panic, but we verify no hang
+	t.Logf("Pipeline completed with %d extractor calls and %d errors", panicExtractor.callCount, len(result.Errors))
+}
