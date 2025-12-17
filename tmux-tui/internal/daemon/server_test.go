@@ -560,7 +560,8 @@ func TestBroadcast_EmptyClientList(t *testing.T) {
 	daemon.lastBroadcastError.Store("")
 
 	// Should not panic
-	daemon.broadcast(Message{Type: MsgTypeAlertChange})
+	msg, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "test-pane", "idle", true)
+	daemon.broadcast(msg.ToWireFormat())
 }
 
 // TestBroadcast_TrackFailures tests that broadcast failures are tracked
@@ -758,7 +759,8 @@ func TestBroadcastSequenceNumbers(t *testing.T) {
 
 	// Broadcast 5 messages
 	for i := 0; i < 5; i++ {
-		daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane-1"})
+		msg, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane-1", "idle", true)
+		daemon.broadcast(msg.ToWireFormat())
 	}
 
 	// Verify sequence numbers are monotonically increasing
@@ -882,7 +884,7 @@ func TestConcurrentBroadcasts(t *testing.T) {
 		}
 	}()
 
-	// Concurrent broadcasts
+	// Concurrent broadcasts using v2 constructors
 	var wg sync.WaitGroup
 	const numGoroutines = 10
 	const broadcastsPerGoroutine = 100
@@ -892,7 +894,13 @@ func TestConcurrentBroadcasts(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < broadcastsPerGoroutine; j++ {
-				daemon.broadcast(Message{Type: MsgTypeAlertChange})
+				// Use v2 constructor which increments seqCounter
+				msg, err := NewAlertChangeMessage(daemon.seqCounter.Add(1), "test-pane", "test-event", true)
+				if err != nil {
+					t.Errorf("Failed to create message: %v", err)
+					return
+				}
+				daemon.broadcast(msg.ToWireFormat())
 			}
 		}()
 	}
@@ -1071,8 +1079,9 @@ func TestSendFullState(t *testing.T) {
 		t.Errorf("Expected full_state message, got %s", msg.Type)
 	}
 
-	if msg.SeqNum != 42 {
-		t.Errorf("Expected sequence 42, got %d", msg.SeqNum)
+	// seqCounter.Add(1) increments 42 to 43, then returns 43
+	if msg.SeqNum != 43 {
+		t.Errorf("Expected sequence 43, got %d", msg.SeqNum)
 	}
 
 	if len(msg.Alerts) != 2 {
@@ -1302,7 +1311,8 @@ func TestBroadcast_FailedClientRemoval(t *testing.T) {
 	}()
 
 	// Broadcast a message
-	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane1", EventType: "stop", Created: true})
+	testMsg, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane1", "stop", true)
+	daemon.broadcast(testMsg.ToWireFormat())
 
 	// Wait for messages to be received
 	timeout := time.After(2 * time.Second)
@@ -1398,7 +1408,8 @@ func TestBroadcast_MemoryLeakPrevention(t *testing.T) {
 	}
 
 	// Broadcast a message
-	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane1", EventType: "stop", Created: true})
+	testMsg, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane1", "stop", true)
+	daemon.broadcast(testMsg.ToWireFormat())
 
 	// Give time for messages to be sent
 	time.Sleep(100 * time.Millisecond)
@@ -1414,7 +1425,8 @@ func TestBroadcast_MemoryLeakPrevention(t *testing.T) {
 	}
 
 	// Broadcast again - all remaining clients should succeed
-	daemon.broadcast(Message{Type: MsgTypeAlertChange, PaneID: "pane2", EventType: "stop", Created: true})
+	testMsg2, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane2", "stop", true)
+	daemon.broadcast(testMsg2.ToWireFormat())
 
 	// Give time for messages to be sent
 	time.Sleep(100 * time.Millisecond)
@@ -1834,7 +1846,8 @@ func TestPlayAlertSound_ErrorBroadcast(t *testing.T) {
 		"  1. Verify audio system: afplay /System/Library/Sounds/Ping.aiff\n" +
 		"  2. Check audio output device is connected and unmuted\n"
 
-	daemon.broadcast(Message{Type: MsgTypeAudioError, Error: audioErrorMsg})
+	audioMsg, _ := NewAudioErrorMessage(daemon.seqCounter.Add(1), audioErrorMsg)
+	daemon.broadcast(audioMsg.ToWireFormat())
 
 	// Verify audio error message was broadcast
 	select {
@@ -1942,7 +1955,7 @@ func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
 	defer client1Reader.Close()
 
 	client1Conn := &clientConnection{
-		conn:    &mockConn{Reader: client1Reader, Writer: client1Writer},
+		conn:    &mockConn{reader: client1Reader, writer: client1Writer},
 		encoder: json.NewEncoder(client1Writer),
 	}
 
@@ -1951,7 +1964,7 @@ func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
 	// We'll close client2Writer to simulate network failure
 
 	client2Conn := &clientConnection{
-		conn:    &mockConn{Reader: client2Reader, Writer: client2Writer},
+		conn:    &mockConn{reader: client2Reader, writer: client2Writer},
 		encoder: json.NewEncoder(client2Writer),
 	}
 
@@ -1993,14 +2006,12 @@ func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
 	// 2. Successfully send to client1
 	// 3. Remove client2 from clients map
 	// 4. Send sync_warning to client1
-	testMessage := Message{
-		Type:      MsgTypeAlertChange,
-		PaneID:    "pane1",
-		EventType: "stop",
-		Created:   true,
+	testMsg, err := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane1", "stop", true)
+	if err != nil {
+		t.Fatalf("Failed to create test message: %v", err)
 	}
 
-	daemon.broadcast(testMessage)
+	daemon.broadcast(testMsg.ToWireFormat())
 
 	// Give time for broadcast to complete
 	time.Sleep(100 * time.Millisecond)
@@ -2073,15 +2084,4 @@ func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
 	t.Log("SUCCESS: Broadcast recovery test passed - daemon properly handled client failure")
 }
 
-// mockConn implements net.Conn interface for testing
-type mockConn struct {
-	io.Reader
-	io.Writer
-}
-
-func (m *mockConn) Close() error                       { return nil }
-func (m *mockConn) LocalAddr() net.Addr                { return nil }
-func (m *mockConn) RemoteAddr() net.Addr               { return nil }
-func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
-func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
+// mockConn is defined in client_test.go and reused here

@@ -105,16 +105,59 @@ type Message struct {
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
 }
 
-// FUTURE WORK: Message Struct Redesign
+// PROTOCOL V2 MIGRATION GUIDE
 //
-// The current Message struct uses optional fields for all message types, which has drawbacks:
-//   1. Easy to forget required fields (compile-time safety lost)
-//   2. Large struct size for all messages (memory inefficient)
-//   3. Unclear which fields are valid for each message type
+// As of Phase 6, we have implemented type-safe message structs in protocol_v2.go.
+// This provides compile-time safety while maintaining wire protocol compatibility.
 //
-// PROPOSED: Use interface-based discriminated union with type-specific structs
-// CURRENT MITIGATION: ValidateMessage() provides runtime validation (see below)
-// DECISION: Redesign deferred until protocol breaking changes become necessary
+// ARCHITECTURE:
+//   - v1 Message (this file): Wire format for JSON serialization (unchanged)
+//   - v2 structs (protocol_v2.go): Type-safe internal representation with private fields
+//   - Conversion at boundaries: ToWireFormat() and FromWireFormat()
+//
+// WHEN TO USE V1 vs V2:
+//   - Use v1 Message: For JSON encoding/decoding (wire protocol)
+//   - Use v2 constructors: For creating messages internally (server/client)
+//   - Use FromWireFormat(): To convert received v1 messages to type-safe v2
+//
+// MIGRATION STATUS:
+//   - Server: Fully migrated to v2 constructors (Phase 6.3 complete)
+//   - Client: Using v1 Message directly (migration optional)
+//   - Wire protocol: Unchanged - backward compatible
+//
+// EXAMPLE SERVER USAGE:
+//   // Create type-safe v2 message
+//   msg, err := NewAlertChangeMessage(seqNum, paneID, eventType, created)
+//   if err != nil {
+//       // Handle validation error (required fields missing)
+//       return
+//   }
+//   // Convert to v1 for wire protocol
+//   d.broadcast(msg.ToWireFormat())
+//
+// EXAMPLE CLIENT USAGE (optional):
+//   // Decode from wire format (v1)
+//   var wireMsg Message
+//   decoder.Decode(&wireMsg)
+//   // Convert to type-safe v2 (optional)
+//   msg, err := FromWireFormat(wireMsg)
+//   if err != nil {
+//       // Handle invalid message
+//       return
+//   }
+//   // Type-safe access to fields
+//   switch m := msg.(type) {
+//   case *AlertChangeMessageV2:
+//       paneID := m.PaneID()  // Guaranteed to be non-empty
+//   }
+//
+// BENEFITS:
+//   1. Compile-time safety: Required fields enforced by constructors
+//   2. Encapsulation: Private fields prevent accidental mutation
+//   3. Wire compatibility: No protocol breaking changes
+//   4. Validation: Constructor errors provide clear feedback
+//
+// CURRENT MITIGATION: ValidateMessage() provides runtime validation for v1 messages
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
