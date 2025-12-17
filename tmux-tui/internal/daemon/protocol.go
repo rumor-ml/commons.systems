@@ -79,12 +79,22 @@ type Message struct {
 	Created         bool              `json:"created,omitempty"`           // For alert_change messages
 	ActivePaneID    string            `json:"active_pane_id,omitempty"`    // For pane_focus messages
 	// BlockedPanes maps paneID to the branch it's blocked on (inverse of BlockedBranches)
-	// DEPRECATED: Use BlockedBranches (branch -> blockedByBranch) instead
-	// STATUS: Deprecated and never populated by daemon (always nil/empty)
-	// CLIENTS: Safe to ignore - no client code should read this field
-	// REMOVAL: Can be safely removed in next major version when breaking protocol changes are acceptable
-	// Example: {"pane-1": "main"} means pane-1 is blocked on branch main
-	// This is the INVERSE of BlockedBranches which maps blocked branch -> blocking branch
+	//
+	// DEPRECATED AS OF: Current development (never released) - Never populated by daemon
+	// REPLACEMENT: Use BlockedBranches (branch -> blockedByBranch) for all block state queries
+	//
+	// MIGRATION:
+	//   - Daemon: Never writes this field (always nil/empty, omitempty prevents serialization)
+	//   - Clients: Should ignore this field entirely; use BlockedBranches instead
+	//   - Old clients: No clients ever used this field (introduced and deprecated before first release)
+	//
+	// REMOVAL: Can be removed in v1.0.0 when protocol breaking changes are bundled
+	//
+	// SEMANTIC NOTE: This was the INVERSE mapping of BlockedBranches
+	//   BlockedPanes: pane → blocking branch (never implemented)
+	//   BlockedBranches: blocked branch → blocking branch (correct implementation)
+	//
+	// Example of what this WOULD have been: {"pane-1": "main"} means pane-1 is blocked on branch main
 	BlockedPanes    map[string]string `json:"blocked_panes,omitempty"`
 	BlockedBranches map[string]string `json:"blocked_branches,omitempty"` // Full blocked state: branch -> blockedByBranch
 	Branch          string            `json:"branch,omitempty"`           // For block_branch messages

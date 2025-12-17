@@ -111,11 +111,27 @@ export class GoExtractor implements FrameworkExtractor {
     let testEventParseErrors = 0;
     const validationTracker = new ValidationErrorTracker();
 
-    // ARCHITECTURAL PATTERN: Two-stage error handling with narrow catch scopes
-    // - SECTION 1: JSON.parse() wrapped in minimal try-catch
-    // - SECTION 2: Validation errors caught and enriched with context
-    // This separation ensures JSON syntax errors don't mask validation issues,
-    // and validation errors get full diagnostic context (line number, raw JSON).
+    // ARCHITECTURAL PATTERN: Three-stage error handling with narrow catch scopes
+    //
+    // STAGE 1 (Lines 134-177): JSON.parse() wrapped in minimal try-catch
+    //   - ONLY catches JSON syntax errors (malformed JSON)
+    //   - Expected errors: build output, compilation messages, GitHub Actions logs
+    //   - Action: Skip line and log diagnostics
+    //
+    // STAGE 2 (Lines 179-213): Test event validation (NO catch - structural bugs propagate)
+    //   - Validates parsed JSON has required test event fields (Time, Action, Package)
+    //   - No catch block: bugs in field access should crash for debugging
+    //   - Action: Skip non-test-event JSON
+    //
+    // STAGE 3 (Line 270, 369): Schema validation with fallback errors
+    //   - safeValidateExtractedError() catches Zod validation errors
+    //   - Creates fallback ExtractedError with diagnostics
+    //   - Ensures we NEVER silently drop test failures
+    //
+    // This separation ensures:
+    // 1. JSON syntax errors don't mask validation issues
+    // 2. Validation errors get full diagnostic context (line number, raw JSON)
+    // 3. Bugs in extraction code propagate for visibility (not caught accidentally)
 
     // Parse error samples for user visibility
     interface ParseErrorSample {
