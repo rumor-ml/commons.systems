@@ -129,14 +129,12 @@ export function createFallbackError(
     rawOutput = [`Test output failed validation: ${context}`];
   }
 
-  // Helper to validate positive integers
-  function positiveIntOrUndefined(value: unknown): number | undefined {
-    return typeof value === 'number' && value > 0 ? value : undefined;
+  function isPositiveInt(value: unknown): value is number {
+    return typeof value === 'number' && value > 0;
   }
 
-  // Helper to validate non-negative numbers
-  function nonNegativeOrUndefined(value: unknown): number | undefined {
-    return typeof value === 'number' && value >= 0 ? value : undefined;
+  function isNonNegative(value: unknown): value is number {
+    return typeof value === 'number' && value >= 0;
   }
 
   // Return valid-by-construction error
@@ -146,9 +144,9 @@ export function createFallbackError(
     // Include valid metadata if present
     testName: partial.testName,
     fileName: partial.fileName,
-    lineNumber: positiveIntOrUndefined(partial.lineNumber),
-    columnNumber: positiveIntOrUndefined(partial.columnNumber),
-    duration: nonNegativeOrUndefined(partial.duration),
+    lineNumber: isPositiveInt(partial.lineNumber) ? partial.lineNumber : undefined,
+    columnNumber: isPositiveInt(partial.columnNumber) ? partial.columnNumber : undefined,
+    duration: isNonNegative(partial.duration) ? partial.duration : undefined,
     failureType: partial.failureType,
     errorCode: partial.errorCode,
     stack: partial.stack,
@@ -157,10 +155,27 @@ export function createFallbackError(
 }
 
 /**
- * Track validation failures across extraction process
+ * Track validation failures for a single extraction operation with integrity checks
  *
- * Distinguishes expected validation errors (malformed test output)
- * from unexpected errors (bugs in extraction code).
+ * Created per extract() call to accumulate validation errors from malformed test output.
+ * Not persistent across calls.
+ *
+ * FEATURES:
+ * - Distinguishes expected errors (malformed test output) from bugs (extraction code)
+ * - Tracks failure count with defensive sanity checks (detects count corruption)
+ * - Validates internal consistency (count vs warnings.length)
+ * - Generates summary messages for users
+ * - Provides detailed warnings for debugging
+ *
+ * INTEGRITY CHECKS:
+ * - Detects negative counts (indicates memory corruption or overflow)
+ * - Detects count/array length mismatch (indicates state corruption)
+ * - Logs [BUG] messages to stderr when corruption detected
+ *
+ * USAGE:
+ *   const tracker = new ValidationErrorTracker();
+ *   tracker.recordValidationFailure('test #5', zodError);
+ *   const warning = tracker.getSummaryWarning();
  */
 export class ValidationErrorTracker {
   private validationFailures = 0;

@@ -146,7 +146,12 @@ func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	if postBroadcastFailures > preBroadcastFailures {
 		newFailures := postBroadcastFailures - preBroadcastFailures
 		d.audioBroadcastFailures.Add(int64(newFailures))
-		d.lastAudioBroadcastErr.Store(fmt.Sprintf("failed to broadcast to %d clients", newFailures))
+		errMsg := fmt.Sprintf("Failed to broadcast audio error to %d clients (total audio broadcast failures: %d)",
+			newFailures, d.audioBroadcastFailures.Load())
+		d.lastAudioBroadcastErr.Store(errMsg)
+
+		// ERROR VISIBILITY: Make visible to users
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
 		debug.Log("AUDIO_ERROR_BROADCAST_FAILED failures=%d total=%d",
 			newFailures, d.audioBroadcastFailures.Load())
 	}
@@ -154,33 +159,45 @@ func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 
 // Lock Ordering Rules
 //
-// CRITICAL: clientsMu → encoderMu
-//   broadcast() holds clientsMu.RLock while calling client.sendMessage()
-//   which acquires encoderMu. NEVER acquire clientsMu while holding encoderMu (deadlock)
-//
-// INDEPENDENT: alertsMu and blockedMu
-//   These don't interact with clientsMu in ways that create deadlock risk.
-//   Can be acquired in any order relative to each other.
-//   Use RLock when only reading to allow concurrent access.
-//
-//   WHY INDEPENDENT:
-//     - Both locks are held only during map copying (copyAlerts, copyBlockedBranches)
-//     - Locks are RELEASED before I/O operations (sendMessage, broadcast)
-//     - Never held during network writes that could block indefinitely
-//     - This design isolates data structure synchronization from I/O timing
-//     - Result: No circular wait dependencies with clientsMu or encoderMu
+// CRITICAL: Complete lock hierarchy to prevent deadlock:
+//   1. server.alertsMu / server.blockedMu (state locks)
+//   2. server.clientsMu (client registry)
+//   3. client.encoderMu (per-client write lock)
 //
 // RATIONALE:
-//   - clientsMu → encoderMu ordering prevents broadcast() deadlock
-//   - alertsMu/blockedMu are independent because they're only held briefly
-//     for map copying and never held during I/O operations
-//   - encoderMu is per-client, allowing parallel writes to different clients
+//   State update paths (handleAlertChange, handleBlockBranch, etc.) follow this pattern:
+//   1. Acquire alertsMu/blockedMu (RLock or Lock depending on operation)
+//   2. Update state (if Lock acquired)
+//   3. Call broadcast() which acquires clientsMu.RLock → encoderMu
+//   4. Release alertsMu/blockedMu
+//
+//   This ordering prevents deadlock because locks are acquired top-to-bottom
+//   and never held during blocking operations.
+//
+// SAFE PATTERNS:
+//   - alertsMu → clientsMu (via broadcast after state update)
+//   - blockedMu → clientsMu (via broadcast after state update)
+//   - alertsMu → blockedMu (query blocked state for alert change)
+//   - clientsMu → encoderMu (broadcast iterates clients and sends messages)
+//
+// DEADLOCK PREVENTION:
+//   - NEVER acquire alertsMu/blockedMu while holding clientsMu
+//   - NEVER acquire clientsMu while holding encoderMu
+//   - NEVER hold alertsMu/blockedMu across blocking operations
+//   - ALWAYS release state locks before I/O operations
+//
+// INDEPENDENT: alertsMu and blockedMu
+//   Can be acquired in either order (alertsMu → blockedMu or blockedMu → alertsMu).
+//   Use RLock when only reading to allow concurrent access.
+//   These locks are held only during map copying, never during I/O.
 //
 // EXAMPLES:
-//   ✓ broadcast(): clientsMu.RLock → encoderMu
-//   ✓ handleClient(): alertsMu.RLock → encoderMu (independent, no ordering needed)
-//   ✓ saveBlockedBranches(): blockedMu.RLock (no other locks)
+//   ✓ handleAlertChange(): alertsMu.Lock → broadcast() → clientsMu.RLock → encoderMu
+//   ✓ handleBlockBranch(): blockedMu.Lock → broadcast() → clientsMu.RLock → encoderMu
+//   ✓ GetHealthStatus(): alertsMu.RLock → blockedMu.RLock (both read-only, no ordering needed)
+//   ✓ saveBlockedBranches(): blockedMu.RLock (no other locks, no I/O conflicts)
 //   ✗ NEVER: encoderMu → clientsMu (DEADLOCK with broadcast)
+//   ✗ NEVER: clientsMu → alertsMu (DEADLOCK with state update paths)
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
@@ -754,6 +771,10 @@ func (d *AlertDaemon) broadcast(msg Message) {
 				if closeErr := client.conn.Close(); closeErr != nil {
 					d.connectionCloseErrors.Add(1)
 					d.lastCloseError.Store(closeErr.Error())
+
+					// ERROR VISIBILITY: Log to stderr
+					fmt.Fprintf(os.Stderr, "WARNING: Connection close error for client %s: %v (total: %d)\n",
+						clientID, closeErr, d.connectionCloseErrors.Load())
 					debug.Log("DAEMON_CONNECTION_CLOSE_ERROR client=%s close_error=%v total=%d",
 						clientID, closeErr, d.connectionCloseErrors.Load())
 				}
@@ -764,6 +785,12 @@ func (d *AlertDaemon) broadcast(msg Message) {
 		d.clientsMu.Unlock()
 
 		d.broadcastFailures.Add(int64(len(failedClients)))
+
+		// ERROR VISIBILITY: Log to stderr for user visibility
+		errMsg := fmt.Sprintf("Broadcast partial failure: %d of %d clients failed to receive %s (seq %d). Affected clients disconnected.",
+			len(failedClients), totalClients, msg.Type, msg.SeqNum)
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", errMsg)
+
 		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total=%d total_failures=%d",
 			len(failedClients), totalClients, d.broadcastFailures.Load())
 
@@ -847,8 +874,13 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 		blockedCount,
 	)
 	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create health status: %v", err)
+
+		// CRITICAL: Make validation failures visible
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
 		debug.Log("DAEMON_HEALTH_STATUS_ERROR error=%v", err)
-		// Return zero status on error (should never happen with valid inputs)
+
+		// Return zero status as fallback (last resort to prevent panic)
 		status, _ = NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
 	}
 	return status

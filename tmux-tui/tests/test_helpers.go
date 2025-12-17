@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -604,4 +605,202 @@ func assertNoGoroutineLeak(t *testing.T, baseline int, description string) {
 	if err != nil {
 		t.Errorf("Goroutine leak detected: %v", err)
 	}
+}
+
+// WaitForMessage waits for a specific message type on a channel with timeout.
+// This replaces hardcoded time.Sleep() + channel read patterns with robust polling.
+//
+// Example:
+//
+//	msg, err := WaitForMessage(t, client.Events(), "alert_change", 5*time.Second)
+//	if err != nil {
+//	    t.Fatalf("Timeout waiting for alert_change: %v", err)
+//	}
+func WaitForMessage(t *testing.T, ch <-chan interface{}, msgType string, timeout time.Duration) (interface{}, error) {
+	t.Helper()
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg := <-ch:
+			// For daemon.Message, check Type field
+			if typed, ok := msg.(interface{ GetType() string }); ok {
+				if typed.GetType() == msgType {
+					t.Logf("Received expected message: %s", msgType)
+					return msg, nil
+				}
+			}
+			// For generic messages with Type field (via reflection)
+			if msgVal := reflect.ValueOf(msg); msgVal.Kind() == reflect.Struct {
+				typeField := msgVal.FieldByName("Type")
+				if typeField.IsValid() && typeField.Kind() == reflect.String {
+					if typeField.String() == msgType {
+						t.Logf("Received expected message: %s", msgType)
+						return msg, nil
+					}
+				}
+			}
+			// Wrong message type, continue waiting
+			t.Logf("Received message but not expected type '%s', continuing to wait...", msgType)
+
+		case <-deadline:
+			return nil, fmt.Errorf("timeout waiting for message type '%s' after %v", msgType, timeout)
+
+		case <-ticker.C:
+			// Periodic check for message availability (helps with buffered channels)
+			select {
+			case msg := <-ch:
+				if typed, ok := msg.(interface{ GetType() string }); ok {
+					if typed.GetType() == msgType {
+						t.Logf("Received expected message: %s", msgType)
+						return msg, nil
+					}
+				}
+				if msgVal := reflect.ValueOf(msg); msgVal.Kind() == reflect.Struct {
+					typeField := msgVal.FieldByName("Type")
+					if typeField.IsValid() && typeField.Kind() == reflect.String {
+						if typeField.String() == msgType {
+							t.Logf("Received expected message: %s", msgType)
+							return msg, nil
+						}
+					}
+				}
+			default:
+				// No message available, continue polling
+			}
+		}
+	}
+}
+
+// WaitForBroadcast waits for multiple clients to receive a broadcast message.
+// This is useful for testing multi-client synchronization.
+//
+// Example:
+//
+//	err := WaitForBroadcast(t, []*daemon.DaemonClient{client1, client2, client3},
+//	    "block_change", 5*time.Second)
+func WaitForBroadcast(t *testing.T, clients []interface{}, expectedMsgType string, timeout time.Duration) error {
+	t.Helper()
+
+	// Create a channel per client to track reception
+	received := make([]bool, len(clients))
+	errors := make([]error, len(clients))
+
+	// Launch goroutine per client to wait for message
+	done := make(chan int, len(clients))
+	for i, client := range clients {
+		go func(idx int, cli interface{}) {
+			// Extract Events() channel using reflection
+			clientVal := reflect.ValueOf(cli)
+			eventsMethod := clientVal.MethodByName("Events")
+			if !eventsMethod.IsValid() {
+				errors[idx] = fmt.Errorf("client %d has no Events() method", idx)
+				done <- idx
+				return
+			}
+
+			eventsResult := eventsMethod.Call(nil)
+			if len(eventsResult) == 0 {
+				errors[idx] = fmt.Errorf("Events() returned no channel for client %d", idx)
+				done <- idx
+				return
+			}
+
+			eventsChan := eventsResult[0].Interface()
+			_, err := WaitForMessage(t, eventsChan.(<-chan interface{}), expectedMsgType, timeout)
+			if err != nil {
+				errors[idx] = fmt.Errorf("client %d: %w", idx, err)
+			} else {
+				received[idx] = true
+			}
+			done <- idx
+		}(i, client)
+	}
+
+	// Wait for all clients to complete
+	deadline := time.After(timeout + 1*time.Second) // Extra buffer for goroutine overhead
+	for range clients {
+		select {
+		case <-done:
+			// Client completed (success or failure tracked in arrays)
+		case <-deadline:
+			return fmt.Errorf("timeout waiting for all clients to receive broadcast")
+		}
+	}
+
+	// Check results
+	allReceived := true
+	var errMsgs []string
+	for i, recv := range received {
+		if !recv {
+			allReceived = false
+			if errors[i] != nil {
+				errMsgs = append(errMsgs, errors[i].Error())
+			} else {
+				errMsgs = append(errMsgs, fmt.Sprintf("client %d: no message received", i))
+			}
+		}
+	}
+
+	if !allReceived {
+		return fmt.Errorf("not all clients received broadcast: %s", strings.Join(errMsgs, "; "))
+	}
+
+	t.Logf("All %d clients received broadcast message '%s'", len(clients), expectedMsgType)
+	return nil
+}
+
+// WaitForHealthMetric polls health status until a condition is satisfied.
+// This replaces hardcoded sleeps before health checks with robust polling.
+//
+// Example:
+//
+//	err := WaitForHealthMetric(t, daemon, func(h daemon.HealthStatus) bool {
+//	    return h.GetBroadcastFailures() > 0
+//	}, 5*time.Second)
+func WaitForHealthMetric(t *testing.T, daemonInstance interface{}, checkFunc interface{}, timeout time.Duration) error {
+	t.Helper()
+
+	// Convert checkFunc to proper type using reflection
+	checkVal := reflect.ValueOf(checkFunc)
+	if checkVal.Kind() != reflect.Func {
+		return fmt.Errorf("checkFunc must be a function")
+	}
+
+	err := waitForCondition(t, WaitCondition{
+		Name: "health metric condition",
+		CheckFunc: func() (bool, error) {
+			// Call GetHealthStatus() on daemon using reflection
+			daemonVal := reflect.ValueOf(daemonInstance)
+			healthMethod := daemonVal.MethodByName("GetHealthStatus")
+			if !healthMethod.IsValid() {
+				return false, fmt.Errorf("daemon has no GetHealthStatus() method")
+			}
+
+			result := healthMethod.Call(nil)
+			if len(result) == 0 {
+				return false, fmt.Errorf("GetHealthStatus() returned no value")
+			}
+
+			// Call checkFunc with health status
+			checkResult := checkVal.Call([]reflect.Value{result[0]})
+			if len(checkResult) == 0 {
+				return false, fmt.Errorf("checkFunc returned no value")
+			}
+
+			satisfied := checkResult[0].Bool()
+			return satisfied, nil
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  timeout,
+	})
+
+	if err != nil {
+		return fmt.Errorf("health metric condition not satisfied: %w", err)
+	}
+
+	return nil
 }
