@@ -28,14 +28,18 @@ export function setupAuthErrorHandling() {
     const title = getErrorTitle(code);
 
     // Show toast notification
-    window.showToast({
-      title,
-      message,
-      type: recoverable ? 'warning' : 'error',
-      duration: recoverable ? 8000 : 0,
-      actionLabel: action || null,
-      onAction: action ? () => handleErrorAction(code) : null,
-    });
+    try {
+      window.showToast({
+        title,
+        message,
+        type: recoverable ? 'warning' : 'error',
+        duration: recoverable ? 8000 : 0,
+        actionLabel: action || null,
+        onAction: action ? () => handleErrorAction(code) : null,
+      });
+    } catch (toastError) {
+      console.error('Failed to show toast for auth error:', toastError, { code, message });
+    }
   });
 }
 

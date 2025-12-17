@@ -553,10 +553,12 @@ export async function cleanupOrphans(args: CleanupOrphansArgs): Promise<ToolResu
           cleaned.processesKilled++;
         } else {
           cleaned.processesKillFailed++;
+          const errorMessage = killResult.error || 'Unknown error';
+          console.error(`Failed to kill process ${proc.pid}: ${errorMessage}`);
           cleaned.diagnosticErrors.push({
             type: 'process-kill',
             target: proc.pid,
-            error: killResult.error || 'Unknown error',
+            error: errorMessage,
           });
         }
       }

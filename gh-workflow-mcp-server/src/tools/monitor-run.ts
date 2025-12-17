@@ -22,7 +22,7 @@ import {
   getWorkflowJobs,
   ghCli,
 } from '../utils/gh-cli.js';
-import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
+import { TimeoutError, ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
 
 export const MonitorRunInputSchema = z
   .object({
@@ -148,10 +148,6 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       // Use gh run watch to wait for completion
       // Exit code 0 = success, non-zero = failure (but we continue to fetch details)
       let watchFailed = false;
-      // NOTE: watchError is intentionally unused but preserved for debugging.
-      // If troubleshooting watch command failures, uncomment the logging below:
-      // console.error('Watch command failed:', watchError);
-      // @ts-expect-error - Preserved for debugging purposes
       let watchError: Error | undefined;
       try {
         await ghCli(
@@ -166,11 +162,32 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
           { repo: resolvedRepo, timeout: remainingTimeout }
         );
       } catch (error) {
-        // Watch command failed - could be workflow failure or timeout
-        // We'll fetch the final status to determine what happened
         watchFailed = true;
         watchError = error instanceof Error ? error : new Error(String(error));
-        // Note: We continue to fetch final status - watchError preserved for context if needed
+
+        // Categorize error for proper handling
+        const isExpectedError =
+          watchError instanceof TimeoutError ||
+          (watchError instanceof GitHubCliError && watchError.exitCode === 1);
+
+        if (!isExpectedError) {
+          // Unexpected error (network, auth, system failure) - log for debugging
+          console.error(`Unexpected error during workflow run watch for run ${runId}:`, {
+            errorType: watchError.constructor.name,
+            message: watchError.message,
+            ...(watchError instanceof GitHubCliError && {
+              exitCode: watchError.exitCode,
+              stderr: watchError.stderr?.substring(0, 200)
+            })
+          });
+
+          // For network/auth errors, fail fast rather than continuing
+          if (watchError instanceof GitHubCliError && [401, 403, 404].includes(watchError.exitCode)) {
+            throw watchError;
+          }
+        }
+
+        // Expected errors (timeout or workflow failure exit code 1) - continue to fetch final status
       }
 
       // Fetch final status with JSON

@@ -36,6 +36,10 @@ const (
 func getCollectionPrefix() string {
 	// Check for PR number first (highest priority)
 	// PR_NUMBER must be numeric - if invalid, fall back to branch-based prefix
+	// Note: PR_NUMBER="0" is technically valid (matches regex) but semantically
+	// meaningless (GitHub PR numbers start at 1). We allow it here for simplicity
+	// and because it would just create a "pr_0_" prefix in Firestore collections,
+	// which is harmless. In practice, CI systems should never set PR_NUMBER="0".
 	if prNumber := os.Getenv("PR_NUMBER"); prNumber != "" {
 		// Validate that PR_NUMBER is numeric only
 		if matched, _ := regexp.MatchString(`^[0-9]+$`, prNumber); matched {
@@ -165,19 +169,15 @@ func (s *FirestoreSessionStore) Subscribe(ctx context.Context, sessionID string,
 			// Check context before iter.Next()
 			select {
 			case <-ctx.Done():
-				if errCallback != nil {
-					errCallback(fmt.Errorf("session subscription cancelled [sessionID=%s]: %w", sessionID, ctx.Err()))
-				}
+				// Normal cancellation - log but don't notify as error
+				log.Printf("INFO: Session subscription for %s cancelled by context", sessionID)
 				return
 			default:
 			}
 
 			snap, err := iter.Next()
 			if err == iterator.Done {
-				// Notify on normal termination
-				if errCallback != nil {
-					errCallback(fmt.Errorf("session subscription ended normally [sessionID=%s]", sessionID))
-				}
+				// Normal termination - log but don't notify as error
 				log.Printf("INFO: Session subscription for %s completed normally", sessionID)
 				return
 			}
@@ -326,19 +326,15 @@ func (f *FirestoreFileStore) SubscribeBySession(ctx context.Context, sessionID s
 			// Check context before iter.Next()
 			select {
 			case <-ctx.Done():
-				if errCallback != nil {
-					errCallback(fmt.Errorf("file subscription cancelled [sessionID=%s]: %w", sessionID, ctx.Err()))
-				}
+				// Normal cancellation - log but don't notify as error
+				log.Printf("INFO: File subscription for session %s cancelled by context", sessionID)
 				return
 			default:
 			}
 
 			snap, err := iter.Next()
 			if err == iterator.Done {
-				// Notify on normal termination
-				if errCallback != nil {
-					errCallback(fmt.Errorf("file subscription ended normally [sessionID=%s]", sessionID))
-				}
+				// Normal termination - log but don't notify as error
 				log.Printf("INFO: File subscription for session %s completed normally", sessionID)
 				return
 			}

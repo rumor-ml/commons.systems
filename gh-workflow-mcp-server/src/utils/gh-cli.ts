@@ -44,13 +44,27 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     // Re-throw non-Error types unchanged
     if (!(error instanceof Error)) {
+      console.error('Non-Error exception from gh CLI:', { error, command: `gh ${fullArgs.join(' ')}` });
       throw error;
     }
 
-    // Re-throw system errors unchanged
+    // Re-throw system errors unchanged, but log for debugging
     if (isSystemError(error)) {
+      console.error('System error executing gh CLI:', {
+        command: `gh ${fullArgs.join(' ')}`,
+        error: error.message,
+        code: (error as any).code,
+        errno: (error as any).errno
+      });
       throw error;
     }
+
+    // Log before wrapping gh CLI failures
+    console.error('Failed to execute gh CLI:', {
+      command: `gh ${fullArgs.join(' ')}`,
+      error: error.message,
+      stack: error.stack?.substring(0, 500) // Truncate stack trace
+    });
 
     // Only wrap actual gh CLI failures
     throw new GitHubCliError(

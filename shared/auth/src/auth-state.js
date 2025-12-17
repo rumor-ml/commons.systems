@@ -320,12 +320,16 @@ function notifyListeners(state) {
 
       // NEW: Show warning for first failure
       if (recentFailures === 1 && typeof window !== 'undefined' && window.showToast) {
-        window.showToast({
-          title: 'Component Warning',
-          message: 'An authentication component encountered an error. If you experience issues, try refreshing the page.',
-          type: 'warning',
-          duration: 6000,
-        });
+        try {
+          window.showToast({
+            title: 'Component Warning',
+            message: 'An authentication component encountered an error. If you experience issues, try refreshing the page.',
+            type: 'warning',
+            duration: 6000,
+          });
+        } catch (toastError) {
+          console.error('Failed to show toast for listener warning:', toastError);
+        }
       }
 
       // Existing: Systemic failure detection (3+ failures)
@@ -351,14 +355,18 @@ function notifyListeners(state) {
 
           // Show toast with refresh action
           if (window.showToast) {
-            window.showToast({
-              title: 'Authentication Error',
-              message: errorInfo.message,
-              type: 'error',
-              duration: 0, // Never auto-dismiss
-              actionLabel: 'Refresh Page',
-              onAction: () => window.location.reload(),
-            });
+            try {
+              window.showToast({
+                title: 'Authentication Error',
+                message: errorInfo.message,
+                type: 'error',
+                duration: 0, // Never auto-dismiss
+                actionLabel: 'Refresh Page',
+                onAction: () => window.location.reload(),
+              });
+            } catch (toastError) {
+              console.error('Failed to show toast for systemic failure:', toastError);
+            }
           }
         }
 

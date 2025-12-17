@@ -59,12 +59,6 @@ func (h *SyncHandlers) StreamSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to initialize streaming connection. Please try refreshing.", http.StatusInternalServerError)
 		return
 	}
-	if client == nil {
-		// Should not happen after signature change, but defensive
-		log.Printf("ERROR: Client is nil after registration for session %s", sessionID)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
 	defer h.hub.Unregister(sessionID, client)
 
 	// Send initial session state
