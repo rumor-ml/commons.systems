@@ -5,13 +5,14 @@ set -eu
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 
-# Hash the worktree path (not just name) for deterministic port allocation.
+# Hash the current worktree root directory path (from git rev-parse --show-toplevel) for deterministic port allocation.
 # This ensures:
 # 1. The same worktree path always gets the same ports (path-based hash)
-# 2. Moving a worktree to a different location will get different ports
+# 2. Moving a worktree to a different location will get different ports (path changes)
 # 3. Different worktree paths get different ports (even with same branch name)
 # 4. Ports remain stable across emulator restarts within same worktree path
-# Use cksum for cross-platform compatibility
+# 5. Hash is computed from the absolute worktree path, not an external identifier
+# Use cksum for cross-platform compatibility (macOS and Linux)
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
 PORT_OFFSET=$(($HASH % 100))
 
