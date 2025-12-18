@@ -100,7 +100,9 @@ describe('checkUncommittedChanges', () => {
 
     assert.ok(result !== null);
     assert.ok(result.content[0].type === 'text');
-    assert.ok((result.content[0] as { text: string }).text.includes('Uncommitted changes detected'));
+    assert.ok(
+      (result.content[0] as { text: string }).text.includes('Uncommitted changes detected')
+    );
     assert.ok(output.instructions.includes('/commit-merge-push'));
     assert.deepStrictEqual(output.steps_completed_by_tool, [
       'previous step',
@@ -143,7 +145,10 @@ describe('checkBranchPushed', () => {
     assert.ok(result.content[0].type === 'text');
     assert.ok((result.content[0] as { text: string }).text.includes('Branch not pushed'));
     assert.ok(output.instructions.includes('/commit-merge-push'));
-    assert.deepStrictEqual(output.steps_completed_by_tool, ['previous step', 'Checked push status']);
+    assert.deepStrictEqual(output.steps_completed_by_tool, [
+      'previous step',
+      'Checked push status',
+    ]);
   });
 
   it('should return null when branch is pushed', () => {

@@ -121,7 +121,12 @@ describe('callToolWithRetry', () => {
       const expectedResult = { content: [{ type: 'text', text: 'success' }] };
       mockClient.queueSuccess(expectedResult);
 
-      const result = await callToolWithRetry(mockClient as any, 'test_tool', { arg: 'value' }, 10000);
+      const result = await callToolWithRetry(
+        mockClient as any,
+        'test_tool',
+        { arg: 'value' },
+        10000
+      );
 
       assert.deepStrictEqual(result, expectedResult);
       assert.strictEqual(mockClient.getCallCount(), 1);
@@ -281,7 +286,10 @@ describe('callToolWithRetry', () => {
 
       // Verify reasonable elapsed time (give some buffer for test overhead)
       const elapsed = Date.now() - startTime;
-      assert.ok(elapsed >= maxDurationMs, `Expected elapsed (${elapsed}ms) >= maxDurationMs (${maxDurationMs}ms)`);
+      assert.ok(
+        elapsed >= maxDurationMs,
+        `Expected elapsed (${elapsed}ms) >= maxDurationMs (${maxDurationMs}ms)`
+      );
 
       // At least 1 attempt was made before timing out
       assert.ok(mockClient.getCallCount() >= 1);

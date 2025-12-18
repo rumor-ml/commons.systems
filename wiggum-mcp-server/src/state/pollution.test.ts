@@ -70,9 +70,7 @@ describe('hasPrototypePollution', () => {
     });
 
     it('should detect pollution at depth 5', () => {
-      const malicious = JSON.parse(
-        '{"a": {"b": {"c": {"d": {"e": {"__proto__": {}}}}}}}'
-      );
+      const malicious = JSON.parse('{"a": {"b": {"c": {"d": {"e": {"__proto__": {}}}}}}}');
       assert.strictEqual(hasPrototypePollution(malicious), true);
     });
 
