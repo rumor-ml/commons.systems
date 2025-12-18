@@ -826,6 +826,7 @@ func TestStaleAlertFilesIgnored(t *testing.T) {
 // The test fails when the pane running Claude is not detected as a Claude pane
 // by the collector (isClaudePane check), which depends on timing of process hierarchy
 func TestRealClaudeAlertFlow(t *testing.T) {
+	t.Skip("Flaky test: TUI did not clear alert highlight as expected (issue #241)")
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")
 	}

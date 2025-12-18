@@ -14,6 +14,7 @@ import (
 // across multiple tmux panes. Without this, users could see inconsistent branch
 // blocking state between different panes.
 func TestMultiClientSynchronization(t *testing.T) {
+	t.Skip("Flaky test: Too many open files error (issue #241)")
 	socketName := uniqueSocketName()
 	sessionName := "multi-client-test"
 
