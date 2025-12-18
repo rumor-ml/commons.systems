@@ -145,9 +145,7 @@ function loadPersistedState() {
         type: errorInfo.recoverable ? 'warning' : 'error',
         duration: errorInfo.recoverable ? 8000 : 0,
         actionLabel: errorInfo.action || null,
-        onAction: errorInfo.action
-          ? () => attemptStorageRecoveryAndReload(errorInfo)
-          : null,
+        onAction: errorInfo.action ? () => attemptStorageRecoveryAndReload(errorInfo) : null,
       });
     }
 
@@ -243,9 +241,11 @@ function attemptStorageRecoveryAndReload(errorInfo) {
     // Provide specific error messages for known error types
     let clearMessage = 'Unable to clear corrupted storage.';
     if (clearError.name === 'QuotaExceededError') {
-      clearMessage = 'Storage is full - cannot clear corrupted data. Try closing other tabs or clearing browser data manually.';
+      clearMessage =
+        'Storage is full - cannot clear corrupted data. Try closing other tabs or clearing browser data manually.';
     } else if (clearError.name === 'SecurityError') {
-      clearMessage = 'Browser security settings prevent storage access. Check your browser settings.';
+      clearMessage =
+        'Browser security settings prevent storage access. Check your browser settings.';
     } else if (clearError instanceof DOMException) {
       clearMessage = `DOM error during storage cleanup: ${clearError.message}`;
     }
@@ -323,7 +323,8 @@ function notifyListeners(state) {
         try {
           window.showToast({
             title: 'Component Warning',
-            message: 'An authentication component encountered an error. If you experience issues, try refreshing the page.',
+            message:
+              'An authentication component encountered an error. If you experience issues, try refreshing the page.',
             type: 'warning',
             duration: 6000,
           });

@@ -72,27 +72,30 @@ function parseTestOutput(stdout: string): { output?: TestRunOutput; error?: Erro
     const sanitized = sanitizeOutput(stdout);
 
     // Log first AND last portions to capture both start and end of output
-    console.error(JSON.stringify({
-      level: 'error',
-      component: 'test-run',
-      message: 'Failed to parse test output as JSON',
-      error: {
-        message: parseError.message,
-        name: parseError.name,
-      },
-      context: {
-        outputPreviewStart: sanitized.substring(0, 200),
-        outputPreviewEnd: sanitized.substring(Math.max(0, sanitized.length - 200)),
-        outputLength: sanitized.length,
-      },
-      timestamp: new Date().toISOString(),
-    }));
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        component: 'test-run',
+        message: 'Failed to parse test output as JSON',
+        error: {
+          message: parseError.message,
+          name: parseError.name,
+        },
+        context: {
+          outputPreviewStart: sanitized.substring(0, 200),
+          outputPreviewEnd: sanitized.substring(Math.max(0, sanitized.length - 200)),
+          outputLength: sanitized.length,
+        },
+        timestamp: new Date().toISOString(),
+      })
+    );
 
     // Write full output to debug file (fire-and-forget)
     import('fs/promises')
       .then((fs) => {
         const debugFile = `/tmp/claude/test-output-parse-error-${Date.now()}.txt`;
-        return fs.writeFile(debugFile, sanitized)
+        return fs
+          .writeFile(debugFile, sanitized)
           .then(() => console.error(`Full output written to: ${debugFile}`));
       })
       .catch((error) => {

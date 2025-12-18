@@ -5,7 +5,13 @@
 import type { ToolResult } from '../types.js';
 import { execScript } from '../utils/exec.js';
 import { getWorktreeRoot } from '../utils/paths.js';
-import { createErrorResult, ValidationError, ScriptExecutionError, TestOutputParseError, InfrastructureError } from '../utils/errors.js';
+import {
+  createErrorResult,
+  ValidationError,
+  ScriptExecutionError,
+  TestOutputParseError,
+  InfrastructureError,
+} from '../utils/errors.js';
 import { parseEmulatorPorts } from '../utils/port-parsing.js';
 import { EmulatorStartArgsSchema, safeValidateArgs } from '../schemas.js';
 import { execaCommand } from 'execa';
@@ -140,12 +146,12 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
       if (error instanceof Error) {
         throw new ScriptExecutionError(
           `Failed to execute start-emulators.sh: ${error.message}\n\n` +
-          `Script: ${scriptPath}\n` +
-          `Working directory: ${root}\n\n` +
-          `Troubleshooting:\n` +
-          `  - Verify Firebase tools are installed: firebase --version\n` +
-          `  - Check script is executable: ls -l ${scriptPath}\n` +
-          `  - Run manually to see full output: ${scriptPath}`,
+            `Script: ${scriptPath}\n` +
+            `Working directory: ${root}\n\n` +
+            `Troubleshooting:\n` +
+            `  - Verify Firebase tools are installed: firebase --version\n` +
+            `  - Check script is executable: ls -l ${scriptPath}\n` +
+            `  - Run manually to see full output: ${scriptPath}`,
           (error as any).exitCode,
           (error as any).stderr
         );
@@ -166,9 +172,9 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
 
       throw new TestOutputParseError(
         `Failed to parse emulator port information from script output.\n\n` +
-        `Expected format: Lines containing "Auth Emulator: http://localhost:PORT"\n\n` +
-        `Actual output:\n${outputPreview}\n\n` +
-        `Parse error: ${parseError.message}`,
+          `Expected format: Lines containing "Auth Emulator: http://localhost:PORT"\n\n` +
+          `Actual output:\n${outputPreview}\n\n` +
+          `Parse error: ${parseError.message}`,
         result.stdout,
         parseError
       );
@@ -176,8 +182,9 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
 
     // Check if emulators were already running (script exit 0 with "already running" message)
     // Use more robust pattern matching
-    const alreadyRunning = /already\s+(running|active|started)/i.test(result.stdout) ||
-                          /reusing\s+existing/i.test(result.stdout);
+    const alreadyRunning =
+      /already\s+(running|active|started)/i.test(result.stdout) ||
+      /reusing\s+existing/i.test(result.stdout);
 
     // Verify all services are actually running
     const servicesHealth = await Promise.all([
@@ -201,10 +208,10 @@ export async function emulatorStart(args: EmulatorStartArgs): Promise<ToolResult
 
       throw new InfrastructureError(
         `Emulators started but health check failed:\n${failureDetails.join('\n')}\n\n` +
-        `Troubleshooting:\n` +
-        `  - Check if ports are already in use: lsof -i -P | grep LISTEN\n` +
-        `  - Check emulator logs in /tmp/claude/\n` +
-        `  - Verify Firebase tools are properly installed`
+          `Troubleshooting:\n` +
+          `  - Check if ports are already in use: lsof -i -P | grep LISTEN\n` +
+          `  - Check emulator logs in /tmp/claude/\n` +
+          `  - Verify Firebase tools are properly installed`
       );
     }
 

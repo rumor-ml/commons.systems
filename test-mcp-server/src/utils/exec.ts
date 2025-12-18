@@ -48,13 +48,13 @@ export function validateShellArg(arg: string): void {
   if (arg.includes('\n') || arg.includes('\r')) {
     throw new Error(
       `Shell injection risk: Argument contains newline characters\n\n` +
-      `Argument: ${JSON.stringify(arg)}\n\n` +
-      `Newlines can split commands and execute arbitrary code:\n` +
-      `  Example: "file.txt\\nrm -rf /" becomes two commands\n\n` +
-      `Solutions:\n` +
-      `  1. Strip newlines before passing: arg.replace(/[\\r\\n]/g, '')\n` +
-      `  2. Pass data via stdin instead of command line arguments\n` +
-      `  3. Use array-based execution without shell: true`
+        `Argument: ${JSON.stringify(arg)}\n\n` +
+        `Newlines can split commands and execute arbitrary code:\n` +
+        `  Example: "file.txt\\nrm -rf /" becomes two commands\n\n` +
+        `Solutions:\n` +
+        `  1. Strip newlines before passing: arg.replace(/[\\r\\n]/g, '')\n` +
+        `  2. Pass data via stdin instead of command line arguments\n` +
+        `  3. Use array-based execution without shell: true`
     );
   }
 
@@ -62,13 +62,13 @@ export function validateShellArg(arg: string): void {
   if (unsafeChars.test(arg)) {
     throw new Error(
       `Shell injection risk detected in argument: "${arg}"\n\n` +
-      `Rejected characters: \` | ; & < > ( ) { } [ ] \\ ! \\n \\r\n\n` +
-      `These metacharacters can execute arbitrary commands when passed to shell:\n` +
-      `  Example: "file.txt; rm -rf /" could delete your entire filesystem\n\n` +
-      `Solutions:\n` +
-      `  1. Use shell-quote library for complex escaping\n` +
-      `  2. Pass data via stdin instead of command line arguments\n` +
-      `  3. Use array-based execution without shell: true`
+        `Rejected characters: \` | ; & < > ( ) { } [ ] \\ ! \\n \\r\n\n` +
+        `These metacharacters can execute arbitrary commands when passed to shell:\n` +
+        `  Example: "file.txt; rm -rf /" could delete your entire filesystem\n\n` +
+        `Solutions:\n` +
+        `  1. Use shell-quote library for complex escaping\n` +
+        `  2. Pass data via stdin instead of command line arguments\n` +
+        `  3. Use array-based execution without shell: true`
     );
   }
 }
@@ -178,13 +178,13 @@ export async function execScript(
     if (error && typeof error === 'object' && 'timedOut' in error && error.timedOut === true) {
       throw new TimeoutError(
         `Script execution timed out after ${timeout}ms\n` +
-        `Script: ${scriptPath}\n` +
-        `Arguments: ${args.join(' ') || '(none)'}\n` +
-        `Working directory: ${cwd || process.cwd()}\n\n` +
-        `Troubleshooting:\n` +
-        `  - Increase timeout with timeout_seconds parameter\n` +
-        `  - Check if script is hanging on input\n` +
-        `  - Verify script doesn't have infinite loops or deadlocks`
+          `Script: ${scriptPath}\n` +
+          `Arguments: ${args.join(' ') || '(none)'}\n` +
+          `Working directory: ${cwd || process.cwd()}\n\n` +
+          `Troubleshooting:\n` +
+          `  - Increase timeout with timeout_seconds parameter\n` +
+          `  - Check if script is hanging on input\n` +
+          `  - Verify script doesn't have infinite loops or deadlocks`
       );
     }
 
@@ -277,7 +277,8 @@ export async function execScriptBackground(
         args,
         timestamp: new Date().toISOString(),
         error: processError.message,
-        exitCode: error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
+        exitCode:
+          error && typeof error === 'object' && 'exitCode' in error ? error.exitCode : undefined,
       };
 
       // Emit event for monitoring
@@ -291,7 +292,10 @@ export async function execScriptBackground(
 
     // Check if process errored during startup
     if (processError !== null) {
-      const errorExitCode = 'exitCode' in processError ? (processError as any).exitCode as number | undefined : undefined;
+      const errorExitCode =
+        'exitCode' in processError
+          ? ((processError as any).exitCode as number | undefined)
+          : undefined;
       throw new ScriptExecutionError(
         `Background script failed during startup: ${(processError as Error).message}`,
         errorExitCode,
@@ -315,35 +319,36 @@ export async function execScriptBackground(
         // Unexpected exit code from ps command - system issue
         console.error(
           `[exec] Unexpected ps exit code ${checkResult.exitCode} when checking PID ${subprocess.pid}\n` +
-          `stderr: ${checkResult.stderr || '(none)'}`
+            `stderr: ${checkResult.stderr || '(none)'}`
         );
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorCode = error && typeof error === 'object' && 'code' in error
-        ? String((error as any).code)
-        : 'UNKNOWN';
+      const errorCode =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as any).code)
+          : 'UNKNOWN';
 
       if (errorCode === 'ENOENT') {
         throw new InfrastructureError(
           `Cannot check background process status: ps command not found\n` +
-          `PID: ${subprocess.pid}\n` +
-          `This indicates a system configuration problem.`
+            `PID: ${subprocess.pid}\n` +
+            `This indicates a system configuration problem.`
         );
       }
 
       if (errorCode === 'EPERM' || errorCode === 'EACCES') {
         console.warn(
           `[exec] Permission denied checking process status\n` +
-          `Error: ${errorMessage}\n` +
-          `PID: ${subprocess.pid}`
+            `Error: ${errorMessage}\n` +
+            `PID: ${subprocess.pid}`
         );
       } else {
         console.error(
           `[exec] System error checking process status\n` +
-          `Error: ${errorMessage}\n` +
-          `Error Code: ${errorCode}\n` +
-          `PID: ${subprocess.pid}`
+            `Error: ${errorMessage}\n` +
+            `Error Code: ${errorCode}\n` +
+            `PID: ${subprocess.pid}`
         );
       }
     }

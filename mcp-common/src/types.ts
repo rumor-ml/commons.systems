@@ -108,10 +108,7 @@ export type ErrorResult = ToolError;
  * remain mutable. TypeScript's readonly provides compile-time safety for
  * the entire structure, which is the primary guarantee.
  */
-export function createToolSuccess(
-  text: string,
-  meta?: Record<string, unknown>
-): ToolSuccess {
+export function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess {
   if (!text && text !== '') {
     throw new Error('content text is required (empty string is allowed)');
   }
@@ -145,7 +142,7 @@ export function createToolError(
   meta?: Record<string, unknown>
 ): ToolError {
   if (!errorType || errorType.trim().length === 0) {
-    throw new Error("errorType is required and cannot be empty");
+    throw new Error('errorType is required and cannot be empty');
   }
   if (!text && text !== '') {
     throw new Error('content text is required (empty string is allowed)');

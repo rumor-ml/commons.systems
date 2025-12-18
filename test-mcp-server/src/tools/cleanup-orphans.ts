@@ -214,7 +214,9 @@ async function isProcessRunning(pid: number): Promise<{ running: boolean; error?
     }
 
     // Other errors are ambiguous - we don't know if process is running
-    console.error(`[cleanup-orphans] Cannot determine if process ${pid} is running: ${errorMessage}`);
+    console.error(
+      `[cleanup-orphans] Cannot determine if process ${pid} is running: ${errorMessage}`
+    );
     return {
       running: false, // Conservative: assume not running
       error: errorMessage,
@@ -335,7 +337,9 @@ async function cleanupStalePidFile(
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[cleanup-orphans] Failed to remove firebase.json ${firebaseJson}: ${errorMessage}`);
+      console.error(
+        `[cleanup-orphans] Failed to remove firebase.json ${firebaseJson}: ${errorMessage}`
+      );
       diagnosticErrors.push({
         type: 'config-removal',
         target: firebaseJson,

@@ -11,9 +11,7 @@ import path from 'path';
  * @returns Error code string, or 'unknown' if not available
  */
 export function getErrorCode(error: unknown): string {
-  return error && typeof error === 'object' && 'code' in error
-    ? String(error.code)
-    : 'unknown';
+  return error && typeof error === 'object' && 'code' in error ? String(error.code) : 'unknown';
 }
 
 /**

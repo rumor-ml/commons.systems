@@ -156,10 +156,10 @@ export function formatError(error: unknown): string {
  * cannot recover from and should propagate to the caller.
  */
 export const SYSTEM_ERROR_CODES = [
-  'ENOMEM',   // Out of memory
-  'ENOSPC',   // No space left on device
-  'EMFILE',   // Too many open files (process limit)
-  'ENFILE',   // Too many open files (system limit)
+  'ENOMEM', // Out of memory
+  'ENOSPC', // No space left on device
+  'EMFILE', // Too many open files (process limit)
+  'ENFILE', // Too many open files (system limit)
 ] as const;
 
 /**

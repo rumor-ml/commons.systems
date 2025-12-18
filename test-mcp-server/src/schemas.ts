@@ -207,10 +207,7 @@ export const GetPortAllocationArgsSchema = z.object({
  * }
  * ```
  */
-export function validateArgs<T extends z.ZodType>(
-  schema: T,
-  args: unknown
-): z.infer<T> {
+export function validateArgs<T extends z.ZodType>(schema: T, args: unknown): z.infer<T> {
   return schema.parse(args);
 }
 

@@ -22,7 +22,12 @@ export type TestStatus =
   | { readonly status: 'not_started' } // Discriminant
   | { readonly status: 'running'; readonly module: string; readonly startTime: number }
   | { readonly status: 'passed'; readonly module: string; readonly durationMs: number }
-  | { readonly status: 'failed'; readonly module: string; readonly durationMs: number; readonly errorMessage: string };
+  | {
+      readonly status: 'failed';
+      readonly module: string;
+      readonly durationMs: number;
+      readonly errorMessage: string;
+    };
 
 export interface ModuleInfo {
   readonly name: string;

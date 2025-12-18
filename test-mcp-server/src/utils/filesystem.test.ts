@@ -34,10 +34,7 @@ describe('getClaudeTmpPath', () => {
   });
 
   it('handles single segment', () => {
-    assert.equal(
-      getClaudeTmpPath('file.txt'),
-      path.join('/tmp/claude', 'file.txt')
-    );
+    assert.equal(getClaudeTmpPath('file.txt'), path.join('/tmp/claude', 'file.txt'));
   });
 
   it('handles empty segments', () => {

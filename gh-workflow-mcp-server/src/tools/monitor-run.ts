@@ -22,7 +22,12 @@ import {
   getWorkflowJobs,
   ghCli,
 } from '../utils/gh-cli.js';
-import { TimeoutError, ValidationError, GitHubCliError, createErrorResult } from '../utils/errors.js';
+import {
+  TimeoutError,
+  ValidationError,
+  GitHubCliError,
+  createErrorResult,
+} from '../utils/errors.js';
 
 export const MonitorRunInputSchema = z
   .object({
@@ -47,7 +52,9 @@ export const MonitorRunInputSchema = z
   .strict()
   .refine(
     (data) => {
-      const count = [data.run_id, data.pr_number, data.branch].filter(x => x !== undefined).length;
+      const count = [data.run_id, data.pr_number, data.branch].filter(
+        (x) => x !== undefined
+      ).length;
       return count === 1;
     },
     { message: 'Must provide exactly one of: run_id, pr_number, or branch' }
@@ -177,12 +184,15 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
             message: watchError.message,
             ...(watchError instanceof GitHubCliError && {
               exitCode: watchError.exitCode,
-              stderr: watchError.stderr?.substring(0, 200)
-            })
+              stderr: watchError.stderr?.substring(0, 200),
+            }),
           });
 
           // For network/auth errors, fail fast rather than continuing
-          if (watchError instanceof GitHubCliError && [401, 403, 404].includes(watchError.exitCode)) {
+          if (
+            watchError instanceof GitHubCliError &&
+            [401, 403, 404].includes(watchError.exitCode)
+          ) {
             throw watchError;
           }
         }

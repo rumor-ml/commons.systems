@@ -15,7 +15,15 @@ import {
 import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
 
 // Re-export common errors for convenience
-export { McpError, TimeoutError, ValidationError, NetworkError, GitHubCliError, formatError, isTerminalError };
+export {
+  McpError,
+  TimeoutError,
+  ValidationError,
+  NetworkError,
+  GitHubCliError,
+  formatError,
+  isTerminalError,
+};
 
 /**
  * Create a standardized error result for MCP tool responses

@@ -12,6 +12,7 @@ McpError (base class)
 ```
 
 All MCP-specific errors extend the base `McpError` class, which provides:
+
 - Structured error information (`errorType`, `errorCode`, `retryable`)
 - Conversion to MCP tool error results via `toToolError()`
 - TypeScript type safety through discriminated unions
@@ -23,12 +24,14 @@ All MCP-specific errors extend the base `McpError` class, which provides:
 **Purpose**: Base class for all MCP server errors
 
 **Properties**:
+
 - `message: string` - Human-readable error description
 - `errorType: string` - Machine-readable error category (e.g., "ValidationError")
 - `errorCode?: string` - Optional specific error code (e.g., "INVALID_PORT")
 - `retryable: boolean` - Whether the operation should be retried
 
 **Usage**:
+
 ```typescript
 // Extend for custom error types
 class CustomError extends McpError {
@@ -39,6 +42,7 @@ class CustomError extends McpError {
 ```
 
 **Methods**:
+
 - `toToolError(): ToolError` - Converts to MCP tool error result format
 
 ---
@@ -48,16 +52,19 @@ class CustomError extends McpError {
 **Purpose**: Input validation failures that require user correction
 
 **When to use**:
+
 - Invalid function arguments (e.g., port out of range, malformed URL)
 - Missing required parameters
 - Type mismatches
 - Format violations (e.g., invalid JSON, malformed paths)
 
 **Characteristics**:
+
 - **Retryable**: `false` - Bad input won't become valid without user intervention
 - **User action required**: Yes - user must provide correct input
 
 **Example scenarios**:
+
 ```typescript
 // Invalid port number
 throw new ValidationError('Port must be between 0 and 65535', 'INVALID_PORT');
@@ -78,16 +85,19 @@ throw new ValidationError('Invalid JSON in configuration', 'INVALID_JSON');
 **Purpose**: Operations that exceed time limits
 
 **When to use**:
+
 - Network requests that don't complete in time
 - Long-running operations exceeding deadlines
 - Process startup timeouts
 - Service health check timeouts
 
 **Characteristics**:
+
 - **Retryable**: `true` - May succeed with more time or under better conditions
 - **User action required**: Optional - user may adjust timeout settings
 
 **Example scenarios**:
+
 ```typescript
 // Workflow run monitoring timeout
 throw new TimeoutError('Workflow run did not complete within 600 seconds', 'WORKFLOW_TIMEOUT');
@@ -108,16 +118,19 @@ throw new TimeoutError('Emulator did not become ready within timeout', 'EMULATOR
 **Purpose**: Network connectivity and communication failures
 
 **When to use**:
+
 - HTTP request failures (connection refused, DNS errors)
 - API call failures (503 Service Unavailable, network timeouts)
 - Socket connection errors
 - TLS/SSL handshake failures
 
 **Characteristics**:
+
 - **Retryable**: `true` - Network issues are often transient
 - **User action required**: Optional - user may check network connection
 
 **Example scenarios**:
+
 ```typescript
 // GitHub API unavailable
 throw new NetworkError('Failed to fetch GitHub workflow run', 'GITHUB_API_ERROR');
@@ -159,14 +172,15 @@ try {
 
 ### Retry Guidelines
 
-| Error Type | Terminal? | Retry? | Max Retries | Backoff |
-|------------|-----------|--------|-------------|---------|
-| ValidationError | Yes | No | N/A | N/A |
-| TimeoutError | No | Yes | 3-5 | Exponential |
-| NetworkError | No | Yes | 3-5 | Exponential |
-| Unknown errors | No | Yes | 3 | Exponential |
+| Error Type      | Terminal? | Retry? | Max Retries | Backoff     |
+| --------------- | --------- | ------ | ----------- | ----------- |
+| ValidationError | Yes       | No     | N/A         | N/A         |
+| TimeoutError    | No        | Yes    | 3-5         | Exponential |
+| NetworkError    | No        | Yes    | 3-5         | Exponential |
+| Unknown errors  | No        | Yes    | 3           | Exponential |
 
 **Conservative Default**: Unknown errors are treated as retryable because:
+
 1. Many infrastructure failures (DB locks, rate limits) are temporary
 2. Retrying maximizes system resilience without user intervention
 3. Retry limits prevent infinite loops
@@ -192,6 +206,7 @@ function myTool(port: number): ToolResult {
 ```
 
 The `toToolError()` method returns a properly formatted `ToolError` with:
+
 - `content`: Human-readable error message
 - `isError: true`: Discriminant for type narrowing
 - `_meta`: Structured error metadata (errorType, errorCode, retryable)
@@ -201,16 +216,19 @@ The `toToolError()` method returns a properly formatted `ToolError` with:
 ## Error Code Conventions
 
 Error codes should be:
+
 - **SCREAMING_SNAKE_CASE**: All uppercase with underscores
 - **Specific**: Describe the exact failure condition
 - **Stable**: Don't change codes between versions (breaking change)
 
 **Good error codes**:
+
 - `INVALID_PORT` - Clear, specific
 - `WORKFLOW_TIMEOUT` - Describes what timed out
 - `GITHUB_API_ERROR` - Indicates external service failure
 
 **Bad error codes**:
+
 - `ERROR` - Too generic
 - `invalidPort` - Wrong case
 - `ERR_1` - Not descriptive
@@ -241,8 +259,7 @@ export class AuthenticationError extends McpError {
 
 ```typescript
 export function isTerminalError(error: unknown): boolean {
-  return error instanceof ValidationError ||
-         error instanceof AuthenticationError; // Add here
+  return error instanceof ValidationError || error instanceof AuthenticationError; // Add here
 }
 ```
 
@@ -315,10 +332,7 @@ export async function runTests(module?: string): Promise<ToolResult> {
 ### Example 3: With Retry Logic
 
 ```typescript
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetries = 3
-): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
@@ -394,6 +408,7 @@ describe('myTool error handling', () => {
 If you have existing error handling code, migrate as follows:
 
 **Before** (raw errors):
+
 ```typescript
 function myTool(input: string): ToolResult {
   if (!input) {
@@ -404,6 +419,7 @@ function myTool(input: string): ToolResult {
 ```
 
 **After** (typed errors):
+
 ```typescript
 import { ValidationError } from '@commons/mcp-common/errors';
 
@@ -416,6 +432,7 @@ function myTool(input: string): ToolResult {
 ```
 
 Benefits of migration:
+
 - Type safety - TypeScript knows the error structure
 - Consistent error format across all MCP servers
 - Automatic retry strategy via `isTerminalError()`

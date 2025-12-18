@@ -160,12 +160,12 @@ export async function devServerStart(args: DevServerStartArgs): Promise<ToolResu
       const sanitized = sanitizeAndTruncateOutput(result.stdout);
       throw new TestOutputParseError(
         `Failed to parse dev server information from script output.\n\n` +
-        `Expected format (one per line):\n` +
-        `  Module: <module-name>\n` +
-        `  URL: http://localhost:<port>\n` +
-        `  PID: <process-id>\n` +
-        `  Log: <log-file-path>\n\n` +
-        `Actual output:\n${sanitized}`,
+          `Expected format (one per line):\n` +
+          `  Module: <module-name>\n` +
+          `  URL: http://localhost:<port>\n` +
+          `  PID: <process-id>\n` +
+          `  Log: <log-file-path>\n\n` +
+          `Actual output:\n${sanitized}`,
         result.stdout,
         new Error('Required fields missing from script output')
       );

@@ -60,12 +60,10 @@ describe('createToolError', () => {
   });
 
   it('includes additional metadata when provided', () => {
-    const result = createToolError(
-      'Database error',
-      'DatabaseError',
-      'DB_CONN_FAILED',
-      { retryable: true, attempt: 3 }
-    );
+    const result = createToolError('Database error', 'DatabaseError', 'DB_CONN_FAILED', {
+      retryable: true,
+      attempt: 3,
+    });
 
     assert.deepEqual(result.content, [{ type: 'text', text: 'Database error' }]);
     assert.equal(result.isError, true);
@@ -204,14 +202,8 @@ describe('GitHubCliError exit code validation', () => {
   });
 
   it('rejects invalid exit codes', () => {
-    assert.throws(
-      () => new GitHubCliError('msg', -1, 'stderr'),
-      /Invalid exit code: -1/
-    );
-    assert.throws(
-      () => new GitHubCliError('msg', 256, 'stderr'),
-      /Invalid exit code: 256/
-    );
+    assert.throws(() => new GitHubCliError('msg', -1, 'stderr'), /Invalid exit code: -1/);
+    assert.throws(() => new GitHubCliError('msg', 256, 'stderr'), /Invalid exit code: 256/);
   });
 
   it('accepts optional stdout parameter', () => {

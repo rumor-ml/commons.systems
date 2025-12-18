@@ -39,8 +39,15 @@ export function initializeAuth() {
     } catch (error) {
       if (error.code === 'auth/emulator-config-failed') {
         console.log('[Auth] Emulator already connected');
-      } else if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
-        console.error('[Auth] Emulator unreachable at', authEmulatorHost, '- is the emulator running?');
+      } else if (
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('Failed to fetch')
+      ) {
+        console.error(
+          '[Auth] Emulator unreachable at',
+          authEmulatorHost,
+          '- is the emulator running?'
+        );
       } else if (error.message?.includes('ERR_NAME_NOT_RESOLVED')) {
         console.error('[Auth] Network error - check connection');
       } else {
@@ -76,7 +83,8 @@ export function initializeAuth() {
           await signInAnonymously(auth);
           console.log('[Auth] Dev mode: signed in anonymously');
         } catch (error) {
-          const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          const isDev =
+            window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
           const errorDetails = {
             errorCode: error.code,

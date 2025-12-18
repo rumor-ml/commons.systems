@@ -18,7 +18,14 @@ let toastIdCounter = 0;
  * @param {Function} [options.onAction] - Optional action button callback
  * @returns {string} Toast ID for programmatic dismissal
  */
-export function showToast({ title, message, type = 'info', duration = 5000, actionLabel, onAction }) {
+export function showToast({
+  title,
+  message,
+  type = 'info',
+  duration = 5000,
+  actionLabel,
+  onAction,
+}) {
   const container = getOrCreateContainer();
   const toastId = `toast-${++toastIdCounter}`;
 

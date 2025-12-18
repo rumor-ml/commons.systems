@@ -25,18 +25,17 @@ model: haiku
 
    ```bash
    cd $HOME/worktrees/<branch-name> && \
-   MAIN_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$HOME/commons.systems") && \
-   git config core.hooksPath "$MAIN_REPO_ROOT/.git/hooks"
+   MAIN_GIT_DIR=$(git rev-parse --git-common-dir) && \
+   git config core.hooksPath "$MAIN_GIT_DIR/hooks"
    ```
 
    NOTE: By default, Git looks for hooks in each worktree's specific hooks directory
    (.git/worktrees/<name>/hooks). To ensure all worktrees use the same hooks as the
    main repository, we must explicitly configure core.hooksPath to point to the main
    repository's hooks directory. This ensures pre-commit hooks (formatting, linting) and
-   pre-push hooks (tests) execute consistently across all worktrees. The command dynamically
-   resolves the main repository root using `git rev-parse` to avoid hardcoded paths. If
-   rev-parse fails (shouldn't happen in a worktree), it falls back to $HOME/commons.systems
-   for safety.
+   pre-push hooks (tests) execute consistently across all worktrees. The command uses
+   `git rev-parse --git-common-dir` which reliably returns the main repository's .git
+   directory path in both worktrees and the main repo.
 
 8. Run `direnv allow` in the new worktree directory to enable the environment.
 9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):

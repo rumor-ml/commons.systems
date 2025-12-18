@@ -40,7 +40,7 @@ describe('Toast System', () => {
         const toastId = showToast({
           title: `${type} toast`,
           message: `This is a ${type} message`,
-          type
+          type,
         });
 
         const toast = document.getElementById(toastId);
@@ -100,7 +100,7 @@ describe('Toast System', () => {
         title: 'Test',
         message: 'Message',
         type: 'info',
-        duration
+        duration,
       });
 
       const toast = document.getElementById(toastId);
@@ -118,7 +118,7 @@ describe('Toast System', () => {
         title: 'Test',
         message: 'Message',
         type: 'info',
-        duration: 0
+        duration: 0,
       });
 
       vi.advanceTimersByTime(10000);
@@ -133,7 +133,7 @@ describe('Toast System', () => {
         message: 'Message',
         type: 'info',
         actionLabel: 'Click Me',
-        onAction
+        onAction,
       });
 
       const actionBtn = document.querySelector('.toast__action button');
@@ -146,7 +146,7 @@ describe('Toast System', () => {
         title: 'Test',
         message: 'Message',
         type: 'info',
-        actionLabel: 'Click Me'
+        actionLabel: 'Click Me',
       });
 
       const actionSection = document.querySelector('.toast__action');
@@ -159,7 +159,7 @@ describe('Toast System', () => {
         title: 'Test',
         message: 'Message',
         type: 'info',
-        onAction
+        onAction,
       });
 
       const actionSection = document.querySelector('.toast__action');
@@ -251,7 +251,7 @@ describe('Toast System', () => {
         message: 'Message',
         type: 'info',
         actionLabel: 'Do Something',
-        onAction
+        onAction,
       });
 
       const actionBtn = document.querySelector('.toast__action button');
@@ -267,7 +267,7 @@ describe('Toast System', () => {
         message: 'Message',
         type: 'info',
         actionLabel: 'Do Something',
-        onAction
+        onAction,
       });
 
       const actionBtn = document.querySelector('.toast__action button');
@@ -282,17 +282,19 @@ describe('Toast System', () => {
     it('should stack multiple toasts correctly', () => {
       const ids = [];
       for (let i = 0; i < 5; i++) {
-        ids.push(showToast({
-          title: `Toast ${i + 1}`,
-          message: `Message ${i + 1}`,
-          type: 'info'
-        }));
+        ids.push(
+          showToast({
+            title: `Toast ${i + 1}`,
+            message: `Message ${i + 1}`,
+            type: 'info',
+          })
+        );
       }
 
       const container = document.querySelector('.toast-container');
       expect(container.children.length).toBe(5);
 
-      ids.forEach(id => {
+      ids.forEach((id) => {
         expect(document.getElementById(id)).toBeTruthy();
       });
     });
@@ -301,7 +303,7 @@ describe('Toast System', () => {
       const ids = [
         showToast({ title: 'Toast 1', message: 'Message 1', type: 'info' }),
         showToast({ title: 'Toast 2', message: 'Message 2', type: 'info' }),
-        showToast({ title: 'Toast 3', message: 'Message 3', type: 'info' })
+        showToast({ title: 'Toast 3', message: 'Message 3', type: 'info' }),
       ];
 
       // Dismiss middle toast
@@ -336,11 +338,11 @@ describe('Toast System', () => {
     it('should render with correct CSS classes for each severity', () => {
       const severities = ['error', 'warning', 'success', 'info'];
 
-      severities.forEach(severity => {
+      severities.forEach((severity) => {
         const toastId = showToast({
           title: `${severity} title`,
           message: 'Message',
-          type: severity
+          type: severity,
         });
 
         const toast = document.getElementById(toastId);

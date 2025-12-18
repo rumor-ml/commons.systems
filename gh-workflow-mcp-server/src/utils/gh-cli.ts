@@ -44,7 +44,10 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     // Re-throw non-Error types unchanged
     if (!(error instanceof Error)) {
-      console.error('Non-Error exception from gh CLI:', { error, command: `gh ${fullArgs.join(' ')}` });
+      console.error('Non-Error exception from gh CLI:', {
+        error,
+        command: `gh ${fullArgs.join(' ')}`,
+      });
       throw error;
     }
 
@@ -54,7 +57,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
         command: `gh ${fullArgs.join(' ')}`,
         error: error.message,
         code: (error as any).code,
-        errno: (error as any).errno
+        errno: (error as any).errno,
       });
       throw error;
     }
@@ -63,7 +66,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     console.error('Failed to execute gh CLI:', {
       command: `gh ${fullArgs.join(' ')}`,
       error: error.message,
-      stack: error.stack?.substring(0, 500) // Truncate stack trace
+      stack: error.stack?.substring(0, 500), // Truncate stack trace
     });
 
     // Only wrap actual gh CLI failures
