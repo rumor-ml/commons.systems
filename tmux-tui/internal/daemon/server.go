@@ -227,15 +227,15 @@ type AlertDaemon struct {
 	blockedPath      string // Path to persist blocked state JSON
 
 	// Health monitoring (accessed atomically)
-	broadcastFailures  atomic.Int64  // Total broadcast failures since startup
-	lastBroadcastError atomic.Value  // Most recent broadcast error (string)
-	watcherErrors         atomic.Int64  // Total watcher errors since startup
-	lastWatcherError      atomic.Value  // Most recent watcher error (string)
-	connectionCloseErrors atomic.Int64  // Total connection close errors since startup
-	lastCloseError        atomic.Value  // Most recent connection close error (string)
+	broadcastFailures      atomic.Int64  // Total broadcast failures since startup
+	lastBroadcastError     atomic.Value  // Most recent broadcast error (string)
+	watcherErrors          atomic.Int64  // Total watcher errors since startup
+	lastWatcherError       atomic.Value  // Most recent watcher error (string)
+	connectionCloseErrors  atomic.Int64  // Total connection close errors since startup
+	lastCloseError         atomic.Value  // Most recent connection close error (string)
 	audioBroadcastFailures atomic.Int64  // Total audio broadcast failures since startup
 	lastAudioBroadcastErr  atomic.Value  // Most recent audio broadcast error (string)
-	seqCounter            atomic.Uint64 // Global sequence number for message ordering
+	seqCounter             atomic.Uint64 // Global sequence number for message ordering
 }
 
 // copyAlerts returns a copy of the alerts map with read lock protection
