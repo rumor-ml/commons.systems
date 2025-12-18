@@ -161,11 +161,11 @@ func TestErrorBannerPriority(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		persistenceErr  string
-		treeRefreshErr  error
-		alertsDisabled  bool
-		alertErr        string
+		name             string
+		persistenceErr   string
+		treeRefreshErr   error
+		alertsDisabled   bool
+		alertErr         string
 		expectedContains string
 	}{
 		{

@@ -117,9 +117,9 @@ type branchBlocker interface {
 //  4. User selects blocker in picker → Branch becomes blocked (toggle on)
 //
 // This creates an intuitive toggle UX:
-//  - First press: Block (via picker)
-//  - Second press: Unblock (immediate)
-//  - Third press: Block again (via picker)
+//   - First press: Block (via picker)
+//   - Second press: Unblock (immediate)
+//   - Third press: Block again (via picker)
 //
 // Returns true if the branch was blocked and successfully unblocked (operation complete).
 // Returns false to show the branch picker in these cases:

@@ -161,11 +161,11 @@ type Message struct {
 
 // HealthStatus represents daemon health metrics for monitoring
 type HealthStatus struct {
-	Timestamp             time.Time `json:"timestamp"`
-	BroadcastFailures     int64     `json:"broadcast_failures"`
-	LastBroadcastError    string    `json:"last_broadcast_error"`
-	WatcherErrors         int64     `json:"watcher_errors"`
-	LastWatcherError      string    `json:"last_watcher_error"`
+	Timestamp              time.Time `json:"timestamp"`
+	BroadcastFailures      int64     `json:"broadcast_failures"`
+	LastBroadcastError     string    `json:"last_broadcast_error"`
+	WatcherErrors          int64     `json:"watcher_errors"`
+	LastWatcherError       string    `json:"last_watcher_error"`
 	ConnectionCloseErrors  int64     `json:"connection_close_errors"`
 	LastCloseError         string    `json:"last_close_error"`
 	AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`

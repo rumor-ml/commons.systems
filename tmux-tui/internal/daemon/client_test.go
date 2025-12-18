@@ -2738,10 +2738,10 @@ func TestDaemonClient_RetryAfterConnectionFailureAndCleanup(t *testing.T) {
 
 	// Create new client for retry
 	client2 := &DaemonClient{
-		clientID:   "test-client-retry",
-		socketPath: socketPath,
-		eventCh:    make(chan Message, 100),
-		done:       make(chan struct{}),
+		clientID:       "test-client-retry",
+		socketPath:     socketPath,
+		eventCh:        make(chan Message, 100),
+		done:           make(chan struct{}),
 		queryResponses: make(map[string]*queryResponse),
 	}
 

@@ -298,9 +298,9 @@ func TestNewHealthStatus_Valid(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
-				0, // connectionCloseErrors
+				0,  // connectionCloseErrors
 				"", // lastCloseError
-				0, // audioBroadcastFailures
+				0,  // audioBroadcastFailures
 				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,
@@ -430,9 +430,9 @@ func TestNewHealthStatus_Invalid(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
-				0, // connectionCloseErrors
+				0,  // connectionCloseErrors
 				"", // lastCloseError
-				0, // audioBroadcastFailures
+				0,  // audioBroadcastFailures
 				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,
@@ -450,81 +450,81 @@ func TestNewHealthStatus_Invalid(t *testing.T) {
 // TestNewHealthStatus_BoundaryConditions tests NewHealthStatus with extreme but valid values
 func TestNewHealthStatus_BoundaryConditions(t *testing.T) {
 	tests := []struct {
-		name                string
-		broadcastFailures   int64
-		lastBroadcastError  string
-		watcherErrors       int64
-		lastWatcherError    string
-		connectedClients    int
-		activeAlerts        int
-		blockedBranches     int
-		expectError         bool
+		name               string
+		broadcastFailures  int64
+		lastBroadcastError string
+		watcherErrors      int64
+		lastWatcherError   string
+		connectedClients   int
+		activeAlerts       int
+		blockedBranches    int
+		expectError        bool
 	}{
 		{
-			name:                "All zeros",
-			broadcastFailures:   0,
-			lastBroadcastError:  "",
-			watcherErrors:       0,
-			lastWatcherError:    "",
-			connectedClients:    0,
-			activeAlerts:        0,
-			blockedBranches:     0,
-			expectError:         false,
+			name:               "All zeros",
+			broadcastFailures:  0,
+			lastBroadcastError: "",
+			watcherErrors:      0,
+			lastWatcherError:   "",
+			connectedClients:   0,
+			activeAlerts:       0,
+			blockedBranches:    0,
+			expectError:        false,
 		},
 		{
-			name:                "MaxInt64 for int64 fields",
-			broadcastFailures:   9223372036854775807, // math.MaxInt64
-			lastBroadcastError:  "error",
-			watcherErrors:       9223372036854775807, // math.MaxInt64
-			lastWatcherError:    "error",
-			connectedClients:    100,
-			activeAlerts:        100,
-			blockedBranches:     100,
-			expectError:         false,
+			name:               "MaxInt64 for int64 fields",
+			broadcastFailures:  9223372036854775807, // math.MaxInt64
+			lastBroadcastError: "error",
+			watcherErrors:      9223372036854775807, // math.MaxInt64
+			lastWatcherError:   "error",
+			connectedClients:   100,
+			activeAlerts:       100,
+			blockedBranches:    100,
+			expectError:        false,
 		},
 		{
-			name:                "MaxInt32 for int fields",
-			broadcastFailures:   1000,
-			lastBroadcastError:  "error",
-			watcherErrors:       1000,
-			lastWatcherError:    "error",
-			connectedClients:    2147483647, // math.MaxInt32
-			activeAlerts:        2147483647, // math.MaxInt32
-			blockedBranches:     2147483647, // math.MaxInt32
-			expectError:         false,
+			name:               "MaxInt32 for int fields",
+			broadcastFailures:  1000,
+			lastBroadcastError: "error",
+			watcherErrors:      1000,
+			lastWatcherError:   "error",
+			connectedClients:   2147483647, // math.MaxInt32
+			activeAlerts:       2147483647, // math.MaxInt32
+			blockedBranches:    2147483647, // math.MaxInt32
+			expectError:        false,
 		},
 		{
-			name:                "Large error messages (10KB)",
-			broadcastFailures:   1,
-			lastBroadcastError:  string(make([]byte, 10000)), // 10KB of null bytes
-			watcherErrors:       1,
-			lastWatcherError:    string(make([]byte, 10000)), // 10KB of null bytes
-			connectedClients:    10,
-			activeAlerts:        10,
-			blockedBranches:     10,
-			expectError:         false,
+			name:               "Large error messages (10KB)",
+			broadcastFailures:  1,
+			lastBroadcastError: string(make([]byte, 10000)), // 10KB of null bytes
+			watcherErrors:      1,
+			lastWatcherError:   string(make([]byte, 10000)), // 10KB of null bytes
+			connectedClients:   10,
+			activeAlerts:       10,
+			blockedBranches:    10,
+			expectError:        false,
 		},
 		{
-			name:                "Whitespace-only error messages",
-			broadcastFailures:   1,
-			lastBroadcastError:  "   \t\n   ",
-			watcherErrors:       1,
-			lastWatcherError:    "   \t\n   ",
-			connectedClients:    5,
-			activeAlerts:        5,
-			blockedBranches:     5,
-			expectError:         false,
+			name:               "Whitespace-only error messages",
+			broadcastFailures:  1,
+			lastBroadcastError: "   \t\n   ",
+			watcherErrors:      1,
+			lastWatcherError:   "   \t\n   ",
+			connectedClients:   5,
+			activeAlerts:       5,
+			blockedBranches:    5,
+			expectError:        false,
 		},
 		{
-			name:                "Empty strings with positive counts",
-			broadcastFailures:   100,
-			lastBroadcastError:  "",
-			watcherErrors:       200,
-			lastWatcherError:    "",
-			connectedClients:    50,
-			activeAlerts:        30,
-			blockedBranches:     20,
-			expectError:         false,
+			name:               "Empty strings with positive counts",
+			broadcastFailures:  100,
+			lastBroadcastError: "",
+			watcherErrors:      200,
+			lastWatcherError:   "",
+			connectedClients:   50,
+			activeAlerts:       30,
+			blockedBranches:    20,
+			expectError:        false,
 		},
 	}
 
@@ -535,9 +535,9 @@ func TestNewHealthStatus_BoundaryConditions(t *testing.T) {
 				tt.lastBroadcastError,
 				tt.watcherErrors,
 				tt.lastWatcherError,
-				0, // connectionCloseErrors
+				0,  // connectionCloseErrors
 				"", // lastCloseError
-				0, // audioBroadcastFailures
+				0,  // audioBroadcastFailures
 				"", // lastAudioBroadcastErr
 				tt.connectedClients,
 				tt.activeAlerts,

@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	heartbeatInterval        = 5 * time.Second   // How often to send pings
-	heartbeatTimeout         = 3 * time.Second   // How long to wait for pong response
-	messagePropagationDelay  = 100 * time.Millisecond // Best-effort delay after send (not an ack mechanism)
+	heartbeatInterval       = 5 * time.Second        // How often to send pings
+	heartbeatTimeout        = 3 * time.Second        // How long to wait for pong response
+	messagePropagationDelay = 100 * time.Millisecond // Best-effort delay after send (not an ack mechanism)
 )
 
 // DaemonClient represents a client connection to the alert daemon.
@@ -33,8 +33,8 @@ type DaemonClient struct {
 	done       chan struct{}
 	mu         sync.Mutex
 	connected  bool
-	lastPong   time.Time    // Timestamp of last pong received
-	lastPongMu sync.RWMutex // Protects lastPong
+	lastPong   time.Time     // Timestamp of last pong received
+	lastPongMu sync.RWMutex  // Protects lastPong
 	lastSeq    atomic.Uint64 // Last received sequence number for gap detection
 
 	// Health metrics for diagnostics
