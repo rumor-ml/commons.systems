@@ -85,7 +85,7 @@ importers:
   gh-issue-mcp-server:
     dependencies:
       '@commons/mcp-common':
-        specifier: workspace:*
+        specifier: file:../mcp-common
         version: link:../mcp-common
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
