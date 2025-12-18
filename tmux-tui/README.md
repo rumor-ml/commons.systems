@@ -273,16 +273,19 @@ The daemon automatically assesses health based on these thresholds:
 ### Common Health Issues
 
 **High broadcast failures:**
+
 - Multiple clients disconnecting/reconnecting frequently
 - Network latency or Unix socket issues
 - Check with: `tmux list-panes -a | grep tmux-tui`
 
 **Watcher errors:**
+
 - File system monitoring issues
 - May indicate disk I/O problems
 - Check debug log: `/tmp/claude/tui-debug.log`
 
 **No connected clients:**
+
 - All TUI instances closed or crashed
 - Daemon running but no active sessions
 - Restart TUI panes: `./scripts/restart-tui.sh`
