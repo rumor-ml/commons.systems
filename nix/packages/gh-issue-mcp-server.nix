@@ -39,7 +39,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps gh-issue-mcp-server/package-lock.json
-  npmDepsHash = "sha256-tt5vnPMPLW5aUPwq0/IW9osr1bZBZcP5bxOSp/lp6Po=";
+  npmDepsHash = "sha256-+hcEk5ha/lkiu2/sH3NW14MK7MDpSPxkWE4TFus2sCw=";
 
   meta = with lib; {
     description = "MCP server for GitHub Issue management";

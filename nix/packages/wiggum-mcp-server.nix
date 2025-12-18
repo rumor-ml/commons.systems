@@ -37,7 +37,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps wiggum-mcp-server/package-lock.json
-  npmDepsHash = "sha256-iug/GUkNW8aMrEWSe6Gd/IUB16tHRWMR/VwH/7OITck=";
+  npmDepsHash = "sha256-VzwI1f1mAPLI237r6Jf8uVB9/rDtY+ZRzUGvmfZfa6g=";
 
   meta = with lib; {
     description = "MCP server for Wiggum";

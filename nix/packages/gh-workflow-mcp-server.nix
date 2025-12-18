@@ -39,7 +39,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps package-lock.json
-  npmDepsHash = "sha256-/gb/AnDr63ggwG3Ug6yT+T3+eJGd4zH7+xKkCNdfntw=";
+  npmDepsHash = "sha256-jQW8gX94acerRhW64l3X69MVdz1qpLDPuzckzvL4sdI=";
 
   meta = with lib; {
     description = "MCP server for GitHub Workflow monitoring";
