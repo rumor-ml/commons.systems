@@ -141,5 +141,49 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       pass_filenames = false;
       always_run = true;
     };
+
+    # Validate pnpm lockfile consistency
+    # Prevents CI failures from lockfile mismatches
+    pnpm-lockfile-check = {
+      enable = true;
+      name = "pnpm-lockfile-check";
+      description = "Validate pnpm lockfile matches package.json files";
+      entry = "${pkgs.writeShellScript "pnpm-lockfile-check" ''
+        set -e
+
+        # Check if any pnpm-related files changed
+        CHANGED_FILES=$(git diff --name-only --cached 2>/dev/null || git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+
+        if echo "$CHANGED_FILES" | grep -qE "(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)"; then
+          echo "Package files changed, validating lockfile consistency..."
+
+          # Use --frozen-lockfile to fail if lockfile doesn't match package.json
+          # Use --prefer-offline to avoid network calls and use local cache for speed
+          if ! ${pkgs.pnpm}/bin/pnpm install --frozen-lockfile --prefer-offline > /dev/null 2>&1; then
+            echo ""
+            echo "❌ ERROR: pnpm lockfile is out of sync with package.json files"
+            echo ""
+            echo "This means pnpm-lock.yaml doesn't match the dependencies declared in package.json."
+            echo "This check prevents CI failures from lockfile mismatches."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Run: pnpm install"
+            echo "  2. Review the changes to pnpm-lock.yaml"
+            echo "  3. Stage the updated lockfile: git add pnpm-lock.yaml"
+            echo "  4. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✓ Lockfile is consistent with package.json files"
+        else
+          echo "No package files changed, skipping lockfile validation."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
   };
 }
