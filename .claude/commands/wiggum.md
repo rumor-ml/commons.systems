@@ -79,6 +79,7 @@ The `completedSteps` array records which steps have finished successfully:
 - After fix → Call `wiggum_complete_fix` with your fix description. It will return instructions to restart verification
 
 **CRITICAL: Always follow the instructions returned by each wiggum tool exactly.**
+
 - Each tool returns the next action to take
 - Do NOT manually decide what to call next
 - Do NOT call `wiggum_init` manually after completing a step - the completion tool returns the next action

@@ -156,11 +156,7 @@ function formatJobSummaries(
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {
-    const warningLines = [
-      '',
-      '',
-      '⚠️  EXTRACTION WARNING: Test output parsing encountered issues',
-    ];
+    const warningLines = ['', '', '⚠️  EXTRACTION WARNING: Test output parsing encountered issues'];
     for (const warning of parseWarnings) {
       warningLines.push(`  - ${warning}`);
     }
@@ -243,7 +239,8 @@ function formatJobSummaries(
 
     // Emergency truncation preserving as much context as possible
     const preserveAmount = Math.max(500, maxChars - truncationNotice.length - warningText.length);
-    output = output.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
+    output =
+      output.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
   }
 
   return { content: [{ type: 'text', text: output }] };
@@ -696,8 +693,12 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       );
 
       // Emergency truncation
-      const preserveAmount = Math.max(500, input.max_chars - truncationNotice.length - warningText.length);
-      outputText = summary.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
+      const preserveAmount = Math.max(
+        500,
+        input.max_chars - truncationNotice.length - warningText.length
+      );
+      outputText =
+        summary.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
     }
 
     return {

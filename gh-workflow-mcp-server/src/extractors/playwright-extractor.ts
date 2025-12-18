@@ -327,7 +327,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * parseTimeDiff("12:30:00", "12:35:30") // returns { seconds: 330 }
    * parseTimeDiff("invalid", "12:30:00")  // returns { seconds: null, diagnostic: "..." }
    */
-  private parseTimeDiff(time1: string, time2: string): {
+  private parseTimeDiff(
+    time1: string,
+    time2: string
+  ): {
     seconds: number | null;
     diagnostic?: string;
   } {
@@ -428,88 +431,88 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
 
     const extractFromSuite = (suite: PlaywrightSuite) => {
-        for (const spec of suite.specs || []) {
-          if (!spec.ok) {
-            for (const test of spec.tests || []) {
-              for (const result of test.results || []) {
-                if (result.status !== 'passed' && result.status !== 'skipped') {
-                  const error = result.error;
-                  const rawOutput: string[] = [];
+      for (const spec of suite.specs || []) {
+        if (!spec.ok) {
+          for (const test of spec.tests || []) {
+            for (const result of test.results || []) {
+              if (result.status !== 'passed' && result.status !== 'skipped') {
+                const error = result.error;
+                const rawOutput: string[] = [];
 
-                  if (error?.message) rawOutput.push(error.message);
-                  if (error?.stack) rawOutput.push(error.stack);
-                  if (error?.snippet) rawOutput.push(error.snippet);
+                if (error?.message) rawOutput.push(error.message);
+                if (error?.stack) rawOutput.push(error.stack);
+                if (error?.snippet) rawOutput.push(error.snippet);
 
-                  // Ensure rawOutput has at least one element for schema validation
-                  if (rawOutput.length === 0) {
-                    rawOutput.push('Test failed');
-                  }
-
-                  const testName = `[${test.projectName}] ${spec.title}`;
-                  const validatedError = safeValidateExtractedError(
-                    {
-                      testName,
-                      fileName: suite.file,
-                      lineNumber: suite.line,
-                      columnNumber: suite.column > 0 ? suite.column : undefined, // Schema requires positive integers
-                      message: error?.message || 'Test failed',
-                      stack: error?.stack,
-                      codeSnippet: error?.snippet,
-                      duration: result.duration,
-                      failureType: result.status,
-                      rawOutput,
-                    },
-                    testName,
-                    validationTracker
-                  );
-
-                  failures.push(validatedError);
+                // Ensure rawOutput has at least one element for schema validation
+                if (rawOutput.length === 0) {
+                  rawOutput.push('Test failed');
                 }
+
+                const testName = `[${test.projectName}] ${spec.title}`;
+                const validatedError = safeValidateExtractedError(
+                  {
+                    testName,
+                    fileName: suite.file,
+                    lineNumber: suite.line,
+                    columnNumber: suite.column > 0 ? suite.column : undefined, // Schema requires positive integers
+                    message: error?.message || 'Test failed',
+                    stack: error?.stack,
+                    codeSnippet: error?.snippet,
+                    duration: result.duration,
+                    failureType: result.status,
+                    rawOutput,
+                  },
+                  testName,
+                  validationTracker
+                );
+
+                failures.push(validatedError);
               }
             }
           }
         }
-
-        // Recursively process nested suites
-        for (const nestedSuite of suite.suites || []) {
-          extractFromSuite(nestedSuite);
-        }
-      };
-
-      for (const suite of report.suites || []) {
-        extractFromSuite(suite);
       }
 
-      // Count total tests for summary
-      let totalPassed = 0;
-      let totalFailed = failures.length;
-
-      const countTests = (suite: PlaywrightSuite) => {
-        for (const spec of suite.specs || []) {
-          if (spec.ok) {
-            totalPassed += spec.tests.length;
-          }
-        }
-        for (const nestedSuite of suite.suites || []) {
-          countTests(nestedSuite);
-        }
-      };
-
-      for (const suite of report.suites || []) {
-        countTests(suite);
+      // Recursively process nested suites
+      for (const nestedSuite of suite.suites || []) {
+        extractFromSuite(nestedSuite);
       }
+    };
 
-      const summary =
-        totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
+    for (const suite of report.suites || []) {
+      extractFromSuite(suite);
+    }
 
-      const parseWarnings = validationTracker.getSummaryWarning();
+    // Count total tests for summary
+    let totalPassed = 0;
+    let totalFailed = failures.length;
 
-      return {
-        framework: 'playwright',
-        errors: failures,
-        summary,
-        parseWarnings,
-      };
+    const countTests = (suite: PlaywrightSuite) => {
+      for (const spec of suite.specs || []) {
+        if (spec.ok) {
+          totalPassed += spec.tests.length;
+        }
+      }
+      for (const nestedSuite of suite.suites || []) {
+        countTests(nestedSuite);
+      }
+    };
+
+    for (const suite of report.suites || []) {
+      countTests(suite);
+    }
+
+    const summary =
+      totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
+
+    const parseWarnings = validationTracker.getSummaryWarning();
+
+    return {
+      framework: 'playwright',
+      errors: failures,
+      summary,
+      parseWarnings,
+    };
   }
 
   private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {

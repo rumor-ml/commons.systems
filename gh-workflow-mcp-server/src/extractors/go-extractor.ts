@@ -135,9 +135,9 @@ export class GoExtractor implements FrameworkExtractor {
 
     // Parse error samples for user visibility
     interface ParseErrorSample {
-      lineSnippet: string;    // First 200 chars
-      errorMessage: string;   // Parse error
-      lineNumber: number;     // Position in log
+      lineSnippet: string; // First 200 chars
+      errorMessage: string; // Parse error
+      lineNumber: number; // Position in log
     }
     const parseErrorSamples: ParseErrorSample[] = [];
     const MAX_ERROR_SAMPLES = 3;
@@ -279,9 +279,8 @@ export class GoExtractor implements FrameworkExtractor {
 
         // Store all output lines for this test
         // Ensure rawOutput has at least one element for schema validation
-        const rawOutput = outputs.length > 0
-          ? outputs.map((line) => line.trimEnd())
-          : [`Test failed: ${testName}`];
+        const rawOutput =
+          outputs.length > 0 ? outputs.map((line) => line.trimEnd()) : [`Test failed: ${testName}`];
 
         const validatedError = safeValidateExtractedError(
           {
