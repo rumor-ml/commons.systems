@@ -182,17 +182,23 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
           console.error(`Unexpected error during workflow run watch for run ${runId}:`, {
             errorType: watchError.constructor.name,
             message: watchError.message,
-            ...(watchError instanceof GitHubCliError && {
-              exitCode: watchError.exitCode,
-              stderr: watchError.stderr?.substring(0, 200),
-            }),
+            ...(watchError instanceof GitHubCliError
+              ? {
+                  exitCode: watchError.exitCode,
+                  stderr: watchError.stderr?.substring(0, 200),
+                }
+              : {}),
           });
 
           // For network/auth errors, fail fast rather than continuing
-          if (
-            watchError instanceof GitHubCliError &&
-            [401, 403, 404].includes(watchError.exitCode)
-          ) {
+          let shouldThrow = false;
+          if (watchError instanceof GitHubCliError) {
+            const exitCode = watchError.exitCode;
+            if ([401, 403, 404].includes(exitCode)) {
+              shouldThrow = true;
+            }
+          }
+          if (shouldThrow) {
             throw watchError;
           }
         }
@@ -252,14 +258,14 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
         summaryLines.push(`  Jobs (${jobs.length}):`);
 
         jobs.forEach((job) => {
-          const jobDuration = job.completedAt
-            ? Math.round(
-                (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
-              )
-            : null;
-          summaryLines.push(
-            `    - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ''}`
-          );
+          let jobDuration: number | null = null;
+          if (job.completedAt) {
+            jobDuration = Math.round(
+              (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
+            );
+          }
+          const durationText = jobDuration ? ` (${jobDuration}s)` : '';
+          summaryLines.push(`    - ${job.name}: ${job.conclusion || job.status}${durationText}`);
         });
         summaryLines.push('');
       }
@@ -276,12 +282,14 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       const durationSeconds = Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
 
       const jobSummaries = jobs.map((job) => {
-        const jobDuration = job.completedAt
-          ? Math.round(
-              (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
-            )
-          : null;
-        return `  - ${job.name}: ${job.conclusion || job.status}${jobDuration ? ` (${jobDuration}s)` : ''}`;
+        let jobDuration: number | null = null;
+        if (job.completedAt) {
+          jobDuration = Math.round(
+            (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000
+          );
+        }
+        const durationText = jobDuration ? ` (${jobDuration}s)` : '';
+        return `  - ${job.name}: ${job.conclusion || job.status}${durationText}`;
       });
 
       const headerSuffix = failedEarly ? ' (early exit)' : '';

@@ -116,10 +116,16 @@ export async function getCurrentRepo(): Promise<string> {
     return result.trim();
   } catch (error) {
     const originalMessage = error instanceof Error ? error.message : String(error);
+    let exitCode = 1;
+    let stderr = originalMessage;
+    if (error instanceof GitHubCliError) {
+      exitCode = error.exitCode;
+      stderr = error.stderr;
+    }
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
-      error instanceof GitHubCliError ? error.exitCode : 1,
-      error instanceof GitHubCliError ? error.stderr : originalMessage
+      exitCode,
+      stderr
     );
   }
 }
@@ -330,7 +336,10 @@ export async function getPRReviewComments(
     try {
       comments.push(JSON.parse(line));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      let errorMsg = String(error);
+      if (error instanceof Error) {
+        errorMsg = error.message;
+      }
       throw new GitHubCliError(
         `Failed to parse review comment JSON for PR ${prNumber}: ${errorMsg}. Line: ${line.substring(0, 100)}`,
         1,

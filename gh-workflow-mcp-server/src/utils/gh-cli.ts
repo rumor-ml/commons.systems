@@ -89,7 +89,10 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   } catch (error) {
     // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    let errorMessage = String(error);
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
     throw new GitHubCliError(
       `Failed to parse JSON response from gh CLI: ${errorMessage}\n` +
         `Command: gh ${args.join(' ')}\n` +
@@ -108,7 +111,10 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    let errorMessage = String(error);
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
     throw new GitHubCliError(
       "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag.",
       1,

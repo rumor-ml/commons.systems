@@ -31,7 +31,10 @@ export function createErrorResult(error: unknown): ToolError {
   if (commonResult) return commonResult;
 
   // Fallback for unknown error types
-  const message = error instanceof Error ? error.message : String(error);
+  let message = String(error);
+  if (error instanceof Error) {
+    message = error.message;
+  }
   return {
     content: [
       {

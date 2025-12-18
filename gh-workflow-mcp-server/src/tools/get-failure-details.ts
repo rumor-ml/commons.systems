@@ -82,8 +82,14 @@ function formatErrorMessage(error: unknown, context?: string): string {
   const contextPrefix = context ? `${context}: ` : '';
 
   if (error instanceof GitHubCliError) {
-    const exitCodeInfo = error.exitCode ? ` (exit code: ${error.exitCode})` : '';
-    const stderrInfo = error.stderr ? ` - ${error.stderr}` : '';
+    let exitCodeInfo = '';
+    if (error.exitCode) {
+      exitCodeInfo = ` (exit code: ${error.exitCode})`;
+    }
+    let stderrInfo = '';
+    if (error.stderr) {
+      stderrInfo = ` - ${error.stderr}`;
+    }
     return `${contextPrefix}GitHub CLI error: ${error.message}${stderrInfo}${exitCodeInfo}`;
   }
 
@@ -426,16 +432,17 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         if (failedStepNames.length > 0) {
           // We know which steps failed, include that info
           for (const stepName of failedStepNames) {
+            const finalTestSummary = extraction.summary || testSummary;
             failedSteps.push({
               name: stepName,
               conclusion: 'failure',
               error_lines: errorLines,
-              test_summary: extraction.summary || testSummary,
+              test_summary: finalTestSummary,
             });
 
             totalChars += stepName.length + errorLines.join('\n').length;
-            if (extraction.summary || testSummary) {
-              totalChars += (extraction.summary || testSummary)!.length;
+            if (finalTestSummary) {
+              totalChars += finalTestSummary.length;
             }
           }
         } else {
@@ -460,13 +467,14 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Extract just the error details for the failed step display
         const errorDetailsOnly = formatErrorMessage(error);
 
+        const errorLines = [errorDetailsOnly];
+        if (error instanceof GitHubCliError && error.exitCode) {
+          errorLines.push(`Exit code: ${error.exitCode}`);
+        }
         failedSteps.push({
           name: 'Unable to retrieve logs',
           conclusion: job.conclusion,
-          error_lines: [
-            errorDetailsOnly,
-            error instanceof GitHubCliError && error.exitCode ? `Exit code: ${error.exitCode}` : '',
-          ].filter(Boolean),
+          error_lines: errorLines.filter(Boolean),
         });
       }
 

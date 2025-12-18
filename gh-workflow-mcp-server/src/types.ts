@@ -3,7 +3,9 @@
  */
 
 // Import shared types from mcp-common
-export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
+import type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
+
+export type { ToolResult, ToolSuccess, ToolError };
 
 export interface WorkflowRun {
   id: number;

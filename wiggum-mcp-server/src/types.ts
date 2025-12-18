@@ -3,7 +3,9 @@
  */
 
 // Import shared types from mcp-common
-export type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
+import type { ToolResult, ToolSuccess, ToolError } from '@commons/mcp-common/types';
+
+export type { ToolResult, ToolSuccess, ToolError };
 
 // Legacy alias for backward compatibility
-export type { ToolError as ErrorResult } from '@commons/mcp-common/types';
+export type ErrorResult = ToolError;

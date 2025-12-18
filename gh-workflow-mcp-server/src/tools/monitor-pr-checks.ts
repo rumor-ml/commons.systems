@@ -120,9 +120,10 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       // Exit code 8 means timeout reached
       // Both are expected - we'll fetch JSON data regardless
       if (error instanceof GitHubCliError) {
-        if (error.exitCode === 1 && input.fail_fast) {
+        const exitCode = error.exitCode;
+        if (exitCode === 1 && input.fail_fast) {
           failedEarly = true;
-        } else if (error.exitCode === 8) {
+        } else if (exitCode === 8) {
           throw new TimeoutError(
             `PR checks did not complete within ${input.timeout_seconds} seconds`
           );
@@ -161,7 +162,10 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
 
     const checkSummaries = checks.map((check) => {
       const conclusion = mapBucketToConclusion(check.bucket);
-      const icon = getCheckIcon(check.bucket);
+      let icon = '';
+      if (check.bucket) {
+        icon = getCheckIcon(check.bucket);
+      }
       return `  ${icon} ${check.name}: ${conclusion}`;
     });
 

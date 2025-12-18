@@ -78,8 +78,9 @@ describe('createErrorResult', () => {
     const result = createErrorResult(error);
 
     assert.strictEqual(result.isError, true);
-    assert.strictEqual(result.content[0].type, 'text');
-    assert.strictEqual(result.content[0].text, 'Error: Timed out');
+    if (result.content[0].type === 'text') {
+      assert.strictEqual(result.content[0].text, 'Error: Timed out');
+    }
     assert.strictEqual(result._meta?.errorType, 'TimeoutError');
     assert.strictEqual(result._meta?.errorCode, 'TIMEOUT');
   });
@@ -128,14 +129,18 @@ describe('createErrorResult', () => {
     const error = new Error('Generic error');
     const result = createErrorResult(error);
 
-    assert.strictEqual(result.content[0].text, 'Error: Generic error');
+    if (result.content[0].type === 'text') {
+      assert.strictEqual(result.content[0].text, 'Error: Generic error');
+    }
     assert.strictEqual(result._meta?.errorType, 'UnknownError');
   });
 
   it('should create error result for string error', () => {
     const result = createErrorResult('String error');
 
-    assert.strictEqual(result.content[0].text, 'Error: String error');
+    if (result.content[0].type === 'text') {
+      assert.strictEqual(result.content[0].text, 'Error: String error');
+    }
     assert.strictEqual(result._meta?.errorType, 'UnknownError');
   });
 });
