@@ -127,5 +127,32 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       pass_filenames = false;
       always_run = true;
     };
+
+    # Build MCP servers when their files change
+    # This validates npm dependency hashes and catches TypeScript compilation errors
+    # before they reach CI. Only runs when MCP server files are modified.
+    mcp-nix-build = {
+      enable = true;
+      name = "mcp-nix-build";
+      description = "Build MCP servers when their files change";
+      entry = "${pkgs.writeShellScript "mcp-nix-build" ''
+        set -e
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+
+        # Check if any MCP server directories were modified
+        if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|test-mcp-server|mcp-common)/"; then
+          echo "MCP server files changed, running Nix build validation..."
+          ./infrastructure/scripts/build-mcp-servers.sh
+        else
+          echo "No MCP server changes detected, skipping Nix build."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
   };
 }
