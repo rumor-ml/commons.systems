@@ -408,6 +408,21 @@ func (p *Pipeline) processFiles(
 			defer wg.Done()
 			defer sem.Release(1)
 
+			// Recover from panics in processing
+			defer func() {
+				if r := recover(); r != nil {
+					stats.incrementErrors()
+					resultMu.Lock()
+					result.FailedFiles++
+					result.Errors = append(result.Errors, FileError{
+						File:  f,
+						Stage: "processing",
+						Err:   fmt.Errorf("panic during processing: %v", r),
+					})
+					resultMu.Unlock()
+				}
+			}()
+
 			// Process file through pipeline stages
 			if err := p.processFile(ctx, session, f, stats, progressCh); err != nil {
 				stats.incrementErrors()

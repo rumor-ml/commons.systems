@@ -6,6 +6,7 @@ packages:
   - 'print/*'
   - 'printsync/*'
   - 'test-go-app/tests'
+  - 'mcp-common'
   - 'gh-workflow-mcp-server'
   - 'gh-issue-mcp-server'
   - 'wiggum-mcp-server'
