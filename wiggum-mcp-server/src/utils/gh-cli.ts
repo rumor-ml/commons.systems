@@ -90,11 +90,7 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
     return JSON.parse(output) as T;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new GitHubCliError(
-      `Failed to parse JSON response from gh CLI: ${errorMsg}`,
-      1,
-      errorMsg
-    );
+    throw new GitHubCliError(`Failed to parse JSON response from gh CLI: ${errorMsg}`, 1, errorMsg);
   }
 }
 

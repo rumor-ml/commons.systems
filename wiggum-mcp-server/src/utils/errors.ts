@@ -34,7 +34,15 @@ import { createErrorResultFromError } from '@commons/mcp-common/result-builders'
 import { createToolError } from '@commons/mcp-common/types';
 
 // Re-export common errors for convenience
-export { McpError, TimeoutError, ValidationError, NetworkError, GitHubCliError, formatError, isTerminalError };
+export {
+  McpError,
+  TimeoutError,
+  ValidationError,
+  NetworkError,
+  GitHubCliError,
+  formatError,
+  isTerminalError,
+};
 
 /**
  * Error thrown when git commands fail
