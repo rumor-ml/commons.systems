@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rumor-ml/commons.systems/tmux-tui/internal/daemon"
+	"github.com/commons-systems/tmux-tui/internal/daemon"
 )
 
 // TestMultiClientSynchronization verifies that multiple clients receive
