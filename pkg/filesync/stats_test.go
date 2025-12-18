@@ -472,7 +472,7 @@ func TestStatsAccumulator_ConcurrentFlushRace(t *testing.T) {
 	// Start concurrent flush in background
 	go func() {
 		time.Sleep(20 * time.Millisecond) // Let some increments happen first
-		acc.flush(ctx) // This will take 100ms due to updateDelay
+		acc.flush(ctx)                    // This will take 100ms due to updateDelay
 	}()
 
 	// Increment counters concurrently while flush may be in progress

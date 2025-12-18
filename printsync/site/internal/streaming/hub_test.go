@@ -852,8 +852,8 @@ func TestStreamHub_EarlyClientRegistration(t *testing.T) {
 
 	// Send progress event
 	testProgress := filesync.Progress{
-		Type:      filesync.ProgressTypeOperation,
-		Operation: "Test",
+		Type:       filesync.ProgressTypeOperation,
+		Operation:  "Test",
 		Percentage: 50,
 	}
 	progressCh <- testProgress

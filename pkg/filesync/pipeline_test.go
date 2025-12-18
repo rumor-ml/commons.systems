@@ -2247,7 +2247,6 @@ func TestRunExtractionAsyncWithSession_NilProgressChannel(t *testing.T) {
 	}
 }
 
-
 // mockSessionStoreWithCreateFailure simulates session creation failures
 type mockSessionStoreWithCreateFailure struct {
 	createErr error

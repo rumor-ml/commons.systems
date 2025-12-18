@@ -56,8 +56,8 @@ type mockPipeline struct {
 // what happens when various error conditions occur in the goroutine
 
 type mockSessionStore struct {
-	sessions map[string]*filesync.SyncSession
-	getError error
+	sessions    map[string]*filesync.SyncSession
+	getError    error
 	updateError error
 }
 

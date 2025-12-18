@@ -672,9 +672,9 @@ func TestSendProgress_SuccessfulSend(t *testing.T) {
 	progressCh := make(chan Progress, 10)
 
 	sendProgress(progressCh, Progress{
-		Type:      ProgressTypeOperation,
-		Operation: "uploading",
-		File:      "file.txt",
+		Type:       ProgressTypeOperation,
+		Operation:  "uploading",
+		File:       "file.txt",
 		Percentage: 50.0,
 	})
 
