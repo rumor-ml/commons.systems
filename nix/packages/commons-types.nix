@@ -12,11 +12,16 @@
 {
   lib,
   buildNpmPackage,
+  nodejs,
+  typescript,
 }:
 
 buildNpmPackage {
   pname = "commons-types";
   version = "1.0.0";
+
+  # Provide TypeScript as a build input since devDependencies won't be installed
+  nativeBuildInputs = [ nodejs typescript ];
 
   # Include all source files (no dist/ since it's not git-tracked)
   src = builtins.path {
@@ -36,9 +41,10 @@ buildNpmPackage {
       && !(lib.hasSuffix "~" baseName);
   };
 
-  # Empty hash - package has only devDependencies (not needed for build)
-  # pnpm workspace links don't have resolved URLs, so we use empty cache
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  # Empty cache - package has only devDependencies (not needed for build)
+  # pnpm workspace links don't have resolved URLs, so we use forceEmptyCache
+  npmDepsHash = "sha256-k3+Cwq/nZI+TZvAfVFntxmNXpwkdhHuSOnMFKw1lom8=";
+  forceEmptyCache = true;
 
   # Simple build - just TypeScript compilation
   # buildNpmPackage handles: npm ci && npm run build

@@ -139,6 +139,7 @@
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           mcp-common = pkgs.callPackage ./nix/packages/mcp-common.nix { };
+          commons-types = pkgs.callPackage ./nix/packages/commons-types.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix {
             inherit mcp-common;
           };
@@ -146,7 +147,9 @@
             inherit mcp-common;
           };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { inherit mcp-common; };
-          test-mcp-server = pkgs.callPackage ./nix/packages/test-mcp-server.nix { inherit mcp-common; };
+          test-mcp-server = pkgs.callPackage ./nix/packages/test-mcp-server.nix {
+            inherit mcp-common commons-types;
+          };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Hooks
@@ -169,7 +172,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
-              # test-mcp-server  # TODO: Requires @commons/types package (similar to mcp-common)
+              test-mcp-server
             ];
 
             shellHook = ''

@@ -14,6 +14,7 @@
   lib,
   buildNpmPackage,
   mcp-common,
+  commons-types,
 }:
 
 buildNpmPackage {
@@ -42,19 +43,22 @@ buildNpmPackage {
   # Computed with: nix run nixpkgs#prefetch-npm-deps package-lock.json
   npmDepsHash = "sha256-08LP33IVC1BdxgYL+shM80G4EC3cJ2SIMU1t+iMgh1g=";
 
-  # Link the built mcp-common package to satisfy file:../mcp-common reference
-  # npm needs this directory to exist with package.json and dist/ for type resolution
+  # Link the built mcp-common and commons-types packages to satisfy file:../mcp-common and file:../shared/types references
+  # npm needs these directories to exist with package.json and dist/ for type resolution
   preBuild = ''
-    mkdir -p ../mcp-common
+    mkdir -p ../mcp-common ../shared/types
     ln -s ${mcp-common}/lib/node_modules/@commons/mcp-common/* ../mcp-common/
+    ln -s ${commons-types}/lib/node_modules/@commons/types/* ../shared/types/
   '';
 
-  # Fix broken symlink created by npm during installation
-  # Replace the symlink with actual mcp-common files from the Nix store
+  # Fix broken symlinks created by npm during installation
+  # Replace the symlinks with actual mcp-common and commons-types files from the Nix store
   postInstall = ''
     rm -rf $out/lib/node_modules/test-mcp-server/node_modules/@commons/mcp-common
+    rm -rf $out/lib/node_modules/test-mcp-server/node_modules/@commons/types
     mkdir -p $out/lib/node_modules/test-mcp-server/node_modules/@commons
     cp -r ${mcp-common}/lib/node_modules/@commons/mcp-common $out/lib/node_modules/test-mcp-server/node_modules/@commons/
+    cp -r ${commons-types}/lib/node_modules/@commons/types $out/lib/node_modules/test-mcp-server/node_modules/@commons/
   '';
 
   meta = with lib; {
