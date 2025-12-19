@@ -66,7 +66,7 @@ const state = {
 
 // Reset state for fresh initialization
 function resetState() {
-  isSaving = false;  // Reset submission lock
+  isSaving = false; // Reset submission lock
   state.cards = [];
   state.filteredCards = [];
   state.selectedNode = null;
@@ -152,14 +152,10 @@ function createCombobox(config) {
     const availableOptions = getOptions();
 
     // Filter options based on input
-    currentOptions = availableOptions.filter((option) =>
-      option.toLowerCase().includes(inputValue)
-    );
+    currentOptions = availableOptions.filter((option) => option.toLowerCase().includes(inputValue));
 
     // Add "Add new" option if input doesn't match any option exactly
-    const exactMatch = availableOptions.some(
-      (option) => option.toLowerCase() === inputValue
-    );
+    const exactMatch = availableOptions.some((option) => option.toLowerCase() === inputValue);
     const showAddNew = inputValue && !exactMatch;
 
     // Clear listbox
@@ -290,8 +286,13 @@ function createCombobox(config) {
 
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
-    input.focus();
-    toggleListbox();
+    // Check state before focusing to avoid race condition
+    // where focus() shows dropdown then toggleListbox() hides it
+    if (combobox.classList.contains('open')) {
+      hide();
+    } else {
+      input.focus(); // This will trigger show() via focus event
+    }
   });
 
   // Close on outside click
@@ -535,7 +536,7 @@ async function loadCards() {
     console.error('[Cards] Error loading cards:', {
       message: error.message,
       code: error.code,
-      name: error.name
+      name: error.name,
     });
     state.error = error.message;
 
@@ -575,7 +576,9 @@ function setupEventListeners() {
       let addCardDebounce = null;
       addCardBtn.addEventListener('click', () => {
         if (addCardDebounce) return;
-        addCardDebounce = setTimeout(() => { addCardDebounce = null; }, 300);
+        addCardDebounce = setTimeout(() => {
+          addCardDebounce = null;
+        }, 300);
         openCardEditor();
       });
     }
@@ -737,13 +740,23 @@ function setupAuthStateListener() {
     // TODO: Investigate if auth instance sharing can eliminate this check.
     setTimeout(() => {
       const auth = getAuthInstance();
-      if (auth?.currentUser && !document.body.classList.contains('authenticated')) {
-        console.log('[Cards] Backup auth check - current user detected:', auth.currentUser.uid);
+      const currentUser = auth?.currentUser;
+      if (currentUser && !document.body.classList.contains('authenticated')) {
+        console.log('[Cards] Backup auth check - current user detected:', currentUser.uid);
         document.body.classList.add('authenticated');
       }
     }, 500);
   } catch (error) {
-    console.error('Error setting up auth state listener:', error);
+    // If auth not initialized yet, retry after a delay
+    const errorStr = String(error.message || error);
+    if (errorStr.includes('before auth initialized')) {
+      console.log('[Cards] Auth not ready yet, will retry auth state listener setup in 500ms');
+      setTimeout(() => {
+        setupAuthStateListener();
+      }, 500);
+    } else {
+      console.error('Error setting up auth state listener:', error);
+    }
   }
 }
 
@@ -936,7 +949,7 @@ function renderCards() {
         console.error('[Cards] Error rendering card (possible data corruption):', {
           cardId: card?.id,
           cardTitle: card?.title,
-          error: error.message
+          error: error.message,
         });
         failedCards++;
       }
@@ -958,7 +971,7 @@ function renderCards() {
       if (!cardItem) return;
 
       const cardId = cardItem.dataset.cardId;
-      const card = state.filteredCards.find(c => c.id === cardId);
+      const card = state.filteredCards.find((c) => c.id === cardId);
       if (!card) return;
 
       if (e.target.closest('[data-action="edit"]')) {
@@ -1104,8 +1117,6 @@ async function handleCardSave(e) {
       }
     } else {
       const newCardId = await createCardInDB(cardData);
-
-      // Add to local state
       state.cards.push({ id: newCardId, ...cardData });
     }
 
