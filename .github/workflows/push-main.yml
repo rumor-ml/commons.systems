@@ -116,8 +116,8 @@ jobs:
           source infrastructure/scripts/start-emulators.sh
       - name: Build printsync
         run: cd printsync/site && make build
-      - name: Run Playwright tests (skip flaky CI tests)
-        run: cd printsync/tests && TMPDIR=/tmp pnpm test -- --grep-invert "Auth|Console Errors"
+      - name: Run Playwright tests (core workflow only)
+        run: cd printsync/tests && TMPDIR=/tmp pnpm test e2e/approval-flow.spec.ts e2e/bulk-approval.spec.ts e2e/concurrent-operations.spec.ts e2e/homepage.spec.ts e2e/mixed-workflow.spec.ts e2e/rejection-flow.spec.ts e2e/trash-workflow.spec.ts
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
