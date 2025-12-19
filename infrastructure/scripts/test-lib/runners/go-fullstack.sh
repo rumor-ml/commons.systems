@@ -34,23 +34,42 @@ run_go_fullstack_tests() {
         return 0
       fi
 
+      # Timing instrumentation for CI debugging
+      local start_time=$(date +%s)
+      echo "[TIMING] E2E test run started at $(date)"
+
       # Auto-start emulators (idempotent - won't start if already running)
       echo "Setting up emulators for e2e tests..."
       source "$script_dir/allocate-test-ports.sh"
+      local after_ports=$(date +%s)
+      echo "[TIMING] Port allocation took $((after_ports - start_time)) seconds"
+
       source "$script_dir/start-emulators.sh"
+      local after_emulators=$(date +%s)
+      echo "[TIMING] Emulator startup took $((after_emulators - after_ports)) seconds"
 
       export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+
+      # Log environment for debugging
+      echo "[DEBUG] FIREBASE_AUTH_EMULATOR_HOST=$FIREBASE_AUTH_EMULATOR_HOST"
+      echo "[DEBUG] FIRESTORE_EMULATOR_HOST=$FIRESTORE_EMULATOR_HOST"
+      echo "[DEBUG] STORAGE_EMULATOR_HOST=$STORAGE_EMULATOR_HOST"
 
       # Build the app
       echo "Building ${app_name}..."
       cd "${app_path}/site"
       make build
+      local after_build=$(date +%s)
+      echo "[TIMING] Build took $((after_build - after_emulators)) seconds"
 
       # Run E2E tests via make and capture exit code
       echo "Running E2E tests..."
       cd "$app_path"
       make test-e2e $extra_args
       local test_exit=$?
+      local after_tests=$(date +%s)
+      echo "[TIMING] Tests took $((after_tests - after_build)) seconds"
+      echo "[TIMING] Total E2E time: $((after_tests - start_time)) seconds"
 
       # Clean up emulators (always run, ignore errors)
       "$script_dir/stop-emulators.sh" 2>/dev/null || true
