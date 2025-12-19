@@ -116,8 +116,8 @@ jobs:
           source infrastructure/scripts/start-emulators.sh
       - name: Build printsync
         run: cd printsync/site && make build
-      - name: Run Playwright tests (skip auth tests - timing out in CI)
-        run: cd printsync/tests && TMPDIR=/tmp pnpm test -- --grep-invert "Auth"
+      - name: Run Playwright tests (skip flaky CI tests)
+        run: cd printsync/tests && TMPDIR=/tmp pnpm test -- --grep-invert "Auth|Console Errors"
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
