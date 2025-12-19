@@ -64,6 +64,7 @@ tmux-tui/tmux-tui
 # Go binaries
 bin/
 printsync/site/bin/
+printsync/site/server
 
 # Trigger CI workflow test - forcing sync
 __pycache__/
