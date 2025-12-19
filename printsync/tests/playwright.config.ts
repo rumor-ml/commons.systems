@@ -63,6 +63,13 @@ const config = createPlaywrightConfig({
 config.fullyParallel = false;
 config.workers = 1;
 
+// Disable retries in CI for fast feedback - with 69 tests running serially,
+// retries add significant time (failing tests take 3x longer with 2 retries)
+// Better to see failures quickly than wait for retries
+if (process.env.CI) {
+  config.retries = 0;
+}
+
 // Add global setup to ensure emulators are running before tests
 config.globalSetup = resolve(__dirname, './global-setup.ts');
 config.globalTeardown = resolve(__dirname, './global-teardown.ts');

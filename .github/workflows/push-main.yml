@@ -92,7 +92,7 @@ jobs:
   test-go-fullstack-printsync:
     name: Test Go Fullstack - printsync
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -110,100 +110,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y make
       - name: Install templ
         run: go install github.com/a-h/templ/cmd/templ@latest
-      - name: Create debug test script
-        run: |
-          mkdir -p /tmp/claude
-          cat > /tmp/claude/run-printsync-tests.sh << 'SCRIPT_EOF'
-          #!/bin/bash
-          set -euo pipefail
-
-          LOG_FILE="/tmp/claude/printsync-test-debug.log"
-
-          log_debug() {
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE" >&2
-          }
-
-          log_debug "=== PRINTSYNC TEST DEBUG LOG ==="
-          log_debug "Starting printsync test run"
-
-          # Get paths - use current directory as root (script is run from workspace)
-          ROOT_DIR="$(pwd)"
-          APP_PATH="$ROOT_DIR/printsync"
-
-          log_debug "ROOT_DIR: $ROOT_DIR"
-          log_debug "APP_PATH: $APP_PATH"
-          log_debug "PWD: $(pwd)"
-
-          # Allocate ports
-          log_debug "Sourcing allocate-test-ports.sh..."
-          source "$ROOT_DIR/infrastructure/scripts/allocate-test-ports.sh"
-          log_debug "Port allocation complete: AUTH=$FIREBASE_AUTH_PORT FIRESTORE=$FIREBASE_FIRESTORE_PORT STORAGE=$FIREBASE_STORAGE_PORT APP=$TEST_PORT"
-
-          # Start emulators
-          log_debug "Starting Firebase emulators..."
-          source "$ROOT_DIR/infrastructure/scripts/start-emulators.sh"
-          log_debug "Emulators started"
-
-          # Export env vars
-          export GCP_PROJECT_ID="demo-test"
-          log_debug "Environment: GCP_PROJECT_ID=$GCP_PROJECT_ID"
-          log_debug "Environment: FIREBASE_AUTH_EMULATOR_HOST=$FIREBASE_AUTH_EMULATOR_HOST"
-          log_debug "Environment: FIRESTORE_EMULATOR_HOST=$FIRESTORE_EMULATOR_HOST"
-          log_debug "Environment: STORAGE_EMULATOR_HOST=$STORAGE_EMULATOR_HOST"
-
-          # Build the app
-          log_debug "Building app..."
-          cd "$APP_PATH/site"
-          if make build 2>&1 | tee -a "$LOG_FILE"; then
-            log_debug "Build complete"
-          else
-            log_debug "ERROR: Build failed"
-            exit 1
-          fi
-
-          # Check binary exists
-          if [ -f "bin/printsync" ]; then
-            log_debug "Binary exists: $(ls -lh bin/printsync)"
-          else
-            log_debug "ERROR: Binary not found at bin/printsync"
-            exit 1
-          fi
-
-          # Run tests - REDUCED SCOPE for debugging
-          log_debug "Running Playwright tests (homepage test only)..."
-          cd "$APP_PATH/tests"
-          log_debug "Current directory: $(pwd)"
-          log_debug "Test files available: $(ls e2e/*.spec.ts | wc -l) total"
-          log_debug "About to run: pnpm test e2e/homepage.spec.ts"
-
-          if TMPDIR=/tmp pnpm test e2e/homepage.spec.ts 2>&1 | tee -a "$LOG_FILE"; then
-            TEST_EXIT=0
-          else
-            TEST_EXIT=$?
-          fi
-
-          log_debug "Tests completed with exit code: $TEST_EXIT"
-
-          # Cleanup
-          log_debug "Stopping emulators..."
-          "$ROOT_DIR/infrastructure/scripts/stop-emulators.sh" 2>/dev/null || true
-
-          log_debug "=== TEST RUN COMPLETE ==="
-          exit $TEST_EXIT
-          SCRIPT_EOF
-          chmod +x /tmp/claude/run-printsync-tests.sh
-      - name: Run tests with debug logging
-        run: cd $GITHUB_WORKSPACE && /tmp/claude/run-printsync-tests.sh
-      - name: Upload debug log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: printsync-debug-log
-          path: /tmp/claude/printsync-test-debug.log
-          retention-days: 7
-          if-no-files-found: ignore
-      - name: Upload test results
-        if: always()
+      - name: Run tests
+        run: ./test --module=printsync --type=e2e --ci
+      - name: Upload test results on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-printsync
