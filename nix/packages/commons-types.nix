@@ -21,7 +21,10 @@ buildNpmPackage {
   version = "1.0.0";
 
   # Provide TypeScript as a build input since devDependencies won't be installed
-  nativeBuildInputs = [ nodejs typescript ];
+  nativeBuildInputs = [
+    nodejs
+    typescript
+  ];
 
   # Include all source files (no dist/ since it's not git-tracked)
   src = builtins.path {
