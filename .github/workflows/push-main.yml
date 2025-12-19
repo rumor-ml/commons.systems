@@ -110,8 +110,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y make
       - name: Install templ
         run: go install github.com/a-h/templ/cmd/templ@latest
-      - name: Run tests
-        run: ./test --module=printsync --type=e2e --ci
+      - name: Start Firebase emulators
+        run: |
+          source infrastructure/scripts/allocate-test-ports.sh
+          source infrastructure/scripts/start-emulators.sh
+      - name: Build printsync
+        run: cd printsync/site && make build
+      - name: Run Playwright tests
+        run: cd printsync/tests && TMPDIR=/tmp pnpm test
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
