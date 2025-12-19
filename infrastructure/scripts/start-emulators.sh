@@ -37,29 +37,41 @@ echo "Starting new emulator instance for this worktree..."
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Generate temporary firebase.json with worktree-specific ports using jq
-# NOTE: Keep paths relative - Firebase will resolve them from the repo root where we run the command
-TEMP_FIREBASE_JSON="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
-jq --arg auth_port "$AUTH_PORT" \
-   --arg firestore_port "$FIRESTORE_PORT" \
-   --arg storage_port "$STORAGE_PORT" \
-   --arg ui_port "$UI_PORT" \
-   '.emulators.auth.port = ($auth_port | tonumber) |
-    .emulators.firestore.port = ($firestore_port | tonumber) |
-    .emulators.storage.port = ($storage_port | tonumber) |
-    .emulators.ui.port = ($ui_port | tonumber)' \
-   firebase.json > "$TEMP_FIREBASE_JSON"
-
-# Start emulators using temporary config with unique ports
-# Run from repo root so relative paths in firebase.json work correctly
-# Use pnpm exec to run firebase-tools from workspace dependencies
+# In CI, use the default firebase.json with fixed ports
+# Locally, generate a temporary config with worktree-specific ports
 cd "${REPO_ROOT}"
+
+if [ -n "${CI:-}" ]; then
+  # CI: Use default firebase.json (has fixed ports 9099, 8081, 9199)
+  echo "[CI] Using default firebase.json with fixed ports"
+  FIREBASE_CONFIG="firebase.json"
+else
+  # Local: Generate temporary firebase.json with worktree-specific ports using jq
+  FIREBASE_CONFIG="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
+  echo "[LOCAL] Creating temp firebase config at: $FIREBASE_CONFIG"
+  echo "[LOCAL] Ports: AUTH=$AUTH_PORT, FIRESTORE=$FIRESTORE_PORT, STORAGE=$STORAGE_PORT, UI=$UI_PORT"
+
+  jq --arg auth_port "$AUTH_PORT" \
+     --arg firestore_port "$FIRESTORE_PORT" \
+     --arg storage_port "$STORAGE_PORT" \
+     --arg ui_port "$UI_PORT" \
+     '.emulators.auth.port = ($auth_port | tonumber) |
+      .emulators.firestore.port = ($firestore_port | tonumber) |
+      .emulators.storage.port = ($storage_port | tonumber) |
+      .emulators.ui.port = ($ui_port | tonumber)' \
+     firebase.json > "$FIREBASE_CONFIG"
+fi
+
+# Start emulators
+# Run from repo root so relative paths in firebase.json work correctly
+echo "[DEBUG] Starting emulators with config: $FIREBASE_CONFIG"
 pnpm exec firebase emulators:start \
-  --config "$TEMP_FIREBASE_JSON" \
+  --config "$FIREBASE_CONFIG" \
   --only auth,firestore,storage \
   --project="${PROJECT_ID}" \
   > "$LOG_FILE" 2>&1 &
 EMULATOR_PID=$!
+echo "[DEBUG] Emulator process started with PID: $EMULATOR_PID"
 
 # Save PID for cleanup (worktree-specific)
 echo "$EMULATOR_PID" > "$PID_FILE"

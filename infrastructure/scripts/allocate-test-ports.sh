@@ -5,34 +5,45 @@ set -eu
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 
-# Hash the current worktree root directory path (from git rev-parse --show-toplevel) for deterministic port allocation.
-# This ensures:
-# 1. The same worktree path always gets the same ports (path-based hash)
-# 2. Moving a worktree to a different location will get different ports (path changes)
-# 3. Different worktree paths get different ports (even with same branch name)
-# 4. Ports remain stable across emulator restarts within same worktree path
-# 5. Hash is computed from the absolute worktree path, not an external identifier
-# Use cksum for cross-platform compatibility (macOS and Linux)
-HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
-PORT_OFFSET=$(($HASH % 100))
+# In CI, use fixed ports (no worktree isolation needed)
+# Locally, use dynamic ports for worktree isolation
+if [ -n "${CI:-}" ]; then
+  # CI: Use fixed shared ports (same as main branch behavior)
+  HASH="ci"
+  PORT_OFFSET=0
+  AUTH_PORT=9099
+  FIRESTORE_PORT=8081
+  STORAGE_PORT=9199
+  UI_PORT=4000
+  APP_PORT=8080
+  export WORKTREE_TMP_DIR="/tmp/claude/ci"
+else
+  # Local: Hash worktree path for deterministic port allocation
+  # This ensures:
+  # 1. The same worktree path always gets the same ports (path-based hash)
+  # 2. Moving a worktree to a different location will get different ports (path changes)
+  # 3. Different worktree paths get different ports (even with same branch name)
+  # 4. Ports remain stable across emulator restarts within same worktree path
+  # 5. Hash is computed from the absolute worktree path, not an external identifier
+  # Use cksum for cross-platform compatibility (macOS and Linux)
+  HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
+  PORT_OFFSET=$(($HASH % 100))
 
-# Export hash and worktree-specific temp directory
+  # UNIQUE EMULATOR PORTS - Different per worktree
+  # Each worktree runs isolated emulators for concurrent testing
+  AUTH_PORT=$((10000 + ($PORT_OFFSET * 10)))
+  FIRESTORE_PORT=$((11000 + ($PORT_OFFSET * 10)))
+  STORAGE_PORT=$((12000 + ($PORT_OFFSET * 10)))
+  UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
+
+  # UNIQUE APP SERVER PORT - Different per worktree
+  # Prevents conflicts when running multiple app servers concurrently
+  APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
+  export WORKTREE_TMP_DIR="/tmp/claude/${HASH}"
+fi
+
+# Export hash
 export WORKTREE_HASH="$HASH"
-export WORKTREE_TMP_DIR="/tmp/claude/${WORKTREE_HASH}"
-
-# Create worktree-specific temp directory
-mkdir -p "$WORKTREE_TMP_DIR"
-
-# UNIQUE EMULATOR PORTS - Different per worktree
-# Each worktree runs isolated emulators for concurrent testing
-AUTH_PORT=$((10000 + ($PORT_OFFSET * 10)))
-FIRESTORE_PORT=$((11000 + ($PORT_OFFSET * 10)))
-STORAGE_PORT=$((12000 + ($PORT_OFFSET * 10)))
-UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
-
-# UNIQUE APP SERVER PORT - Different per worktree
-# Prevents conflicts when running multiple app servers concurrently
-APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
 
 # Export port variables for emulators (unique per worktree)
 export FIREBASE_AUTH_PORT="$AUTH_PORT"

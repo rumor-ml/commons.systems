@@ -19,16 +19,17 @@ const config = createPlaywrightConfig({
   },
   // Environment variables for Firebase emulators
   // Ports are worktree-specific and set by allocate-test-ports.sh
+  // Fallback to standard ports for CI compatibility
   env: {
     GO_ENV: 'development', // Enable dev mode auth bypass
-    FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || '',
-    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '',
-    STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || '',
-    FIREBASE_AUTH_PORT: process.env.FIREBASE_AUTH_PORT || '',
-    FIREBASE_FIRESTORE_PORT: process.env.FIREBASE_FIRESTORE_PORT || '',
-    FIREBASE_STORAGE_PORT: process.env.FIREBASE_STORAGE_PORT || '',
+    FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099',
+    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
+    STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || 'localhost:9199',
+    FIREBASE_AUTH_PORT: process.env.FIREBASE_AUTH_PORT || '9099',
+    FIREBASE_FIRESTORE_PORT: process.env.FIREBASE_FIRESTORE_PORT || '8081',
+    FIREBASE_STORAGE_PORT: process.env.FIREBASE_STORAGE_PORT || '9199',
     GCP_PROJECT_ID: 'demo-test', // Must match the project ID used in test fixtures (test-helpers.ts)
-    PORT: process.env.TEST_PORT || '', // Pass PORT to Go app
+    PORT: process.env.TEST_PORT || '8080', // Pass PORT to Go app
   },
   // Increase timeout for tests that interact with emulators
   timeout: 60000,
