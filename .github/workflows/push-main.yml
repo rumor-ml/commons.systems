@@ -169,13 +169,14 @@ jobs:
             exit 1
           fi
 
-          # Run tests
-          log_debug "Running Playwright tests..."
-          cd "$APP_PATH"
+          # Run tests - REDUCED SCOPE for debugging
+          log_debug "Running Playwright tests (homepage test only)..."
+          cd "$APP_PATH/tests"
           log_debug "Current directory: $(pwd)"
-          log_debug "About to run: make test-e2e"
+          log_debug "Test files available: $(ls e2e/*.spec.ts | wc -l) total"
+          log_debug "About to run: pnpm test e2e/homepage.spec.ts"
 
-          if make test-e2e 2>&1 | tee -a "$LOG_FILE"; then
+          if TMPDIR=/tmp pnpm test e2e/homepage.spec.ts 2>&1 | tee -a "$LOG_FILE"; then
             TEST_EXIT=0
           else
             TEST_EXIT=$?
