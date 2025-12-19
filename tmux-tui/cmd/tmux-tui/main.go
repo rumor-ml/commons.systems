@@ -275,10 +275,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Find which branch this pane is on
 			var currentBranch string
-			for _, branches := range m.tree {
-				for branch, panes := range branches {
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
+					panes, ok := m.tree.GetPanes(repo, branch)
+					if !ok {
+						continue
+					}
 					for _, pane := range panes {
-						if pane.ID == msg.msg.PaneID {
+						if pane.ID() == msg.msg.PaneID {
 							currentBranch = branch
 							break
 						}
@@ -317,8 +321,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Extract all unique branches from tree (excluding current branch)
 			branchSet := make(map[string]bool)
-			for _, branches := range m.tree {
-				for branch := range branches {
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
 					// A branch cannot block itself
 					if branch != currentBranch {
 						branchSet[branch] = true
@@ -423,9 +427,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Count total panes in tree
 			totalPanes := 0
-			for _, branches := range m.tree {
-				for _, panes := range branches {
-					totalPanes += len(panes)
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
+					panes, ok := m.tree.GetPanes(repo, branch)
+					if ok {
+						totalPanes += len(panes)
+					}
 				}
 			}
 
@@ -483,7 +490,7 @@ func (m model) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", criticalErr)
 	}
 
-	if m.tree == nil {
+	if len(m.tree.Repos()) == 0 {
 		return "Loading..."
 	}
 
@@ -569,10 +576,14 @@ func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
 	// Build set of valid pane IDs from tree
 	validPanes := make(map[string]bool)
-	for _, branches := range tree {
-		for _, panes := range branches {
+	for _, repo := range tree.Repos() {
+		for _, branch := range tree.Branches(repo) {
+			panes, ok := tree.GetPanes(repo, branch)
+			if !ok {
+				continue
+			}
 			for _, pane := range panes {
-				validPanes[pane.ID] = true
+				validPanes[pane.ID()] = true
 			}
 		}
 	}
@@ -597,18 +608,13 @@ func tickCmd() tea.Cmd {
 }
 
 // updateActivePane updates the WindowActive flag across all panes in the tree.
+// NOTE: With immutable Pane design, WindowActive is set during collection from tmux.
+// This function is currently a no-op as the WindowActive flag is read-only and comes
+// directly from tmux's window_active format string during tree refresh.
 func (m *model) updateActivePane(activePaneID string) {
-	if m.tree == nil {
-		return
-	}
-
-	for _, branches := range m.tree {
-		for _, panes := range branches {
-			for i := range panes {
-				panes[i].WindowActive = (panes[i].ID == activePaneID)
-			}
-		}
-	}
+	// No-op: Pane fields are now immutable and WindowActive is set during collection
+	// from tmux. The tree will be updated on the next refresh cycle.
+	return
 }
 
 func timeTickCmd() tea.Cmd {

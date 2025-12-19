@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -604,7 +605,10 @@ func TestGetHealthStatus(t *testing.T) {
 	daemon.lastWatcherError.Store("watcher error")
 	daemon.watcherErrors.Store(3)
 
-	status := daemon.GetHealthStatus()
+	status, err := daemon.GetHealthStatus()
+	if err != nil {
+		t.Fatalf("GetHealthStatus failed: %v", err)
+	}
 
 	if status.GetBroadcastFailures() != 5 {
 		t.Errorf("Expected 5 broadcast failures, got %d", status.GetBroadcastFailures())
@@ -633,6 +637,36 @@ func TestGetHealthStatus(t *testing.T) {
 	if status.GetConnectedClients() != 0 {
 		t.Errorf("Expected 0 connected clients, got %d", status.GetConnectedClients())
 	}
+}
+
+// TestGetHealthStatus_ValidationFailure tests error handling for corrupted state
+func TestGetHealthStatus_ValidationFailure(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          map[string]string{"pane1": "stop"},
+		blockedBranches: map[string]string{"feature": "main"},
+	}
+
+	// Corrupt internal state by setting negative error count
+	daemon.broadcastFailures.Store(-5)
+
+	// GetHealthStatus should return error, not zero-value fallback
+	status, err := daemon.GetHealthStatus()
+
+	if err == nil {
+		t.Fatal("Expected error from GetHealthStatus with corrupted state, got nil")
+	}
+
+	if !errors.Is(err, ErrHealthValidationFailed) {
+		t.Errorf("Expected ErrHealthValidationFailed, got: %v", err)
+	}
+
+	// Status should be zero-value when error is returned
+	if status.GetBroadcastFailures() != 0 {
+		t.Error("Expected zero-value status on validation error")
+	}
+
+	t.Logf("Validation failure correctly returned error: %v", err)
 }
 
 // TestProtocolMessage_Serialization tests message serialization
@@ -853,6 +887,79 @@ func TestBroadcastPartialFailure(t *testing.T) {
 
 	if !foundSyncWarning {
 		t.Error("Expected sync warning to be sent to successful clients")
+	}
+}
+
+// TestBroadcastPartialFailure_SyncWarningConstructionFails tests fallback when sync warning construction fails
+func TestBroadcastPartialFailure_SyncWarningConstructionFails(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create one successful client
+	successR, successW := io.Pipe()
+	defer successR.Close()
+	defer successW.Close()
+
+	daemon.clients["success-client"] = &clientConnection{
+		conn:    &mockConn{reader: successR, writer: successW},
+		encoder: json.NewEncoder(successW),
+	}
+
+	// Create one failing client (closed pipe)
+	failR, failW := io.Pipe()
+	failW.Close() // Force failure
+	defer failR.Close()
+
+	daemon.clients["fail-client"] = &clientConnection{
+		conn:    &mockConn{reader: failR, writer: failW},
+		encoder: json.NewEncoder(failW),
+	}
+
+	// Read messages from successful client in background
+	received := make(chan Message, 10)
+	go func() {
+		decoder := json.NewDecoder(successR)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				break
+			}
+			received <- msg
+		}
+		close(received)
+	}()
+
+	// Broadcast message with INVALID type (empty string) to trigger sync warning construction failure
+	invalidMsg := Message{
+		Type:   "", // Invalid - will cause NewSyncWarningMessage to fail
+		SeqNum: daemon.seqCounter.Add(1),
+		PaneID: "pane-1",
+	}
+	daemon.broadcast(invalidMsg)
+
+	// Verify we still get a fallback sync warning despite construction failure
+	timeout := time.After(2 * time.Second)
+	foundSyncWarning := false
+
+	for i := 0; i < 2 && !foundSyncWarning; i++ {
+		select {
+		case msg := <-received:
+			if msg.Type == MsgTypeSyncWarning {
+				foundSyncWarning = true
+				if !strings.Contains(msg.Error, "fallback") {
+					t.Errorf("Expected fallback sync warning message, got: %s", msg.Error)
+				}
+				t.Logf("Received fallback sync warning: %s", msg.Error)
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for fallback sync warning")
+		}
+	}
+
+	if !foundSyncWarning {
+		t.Error("Expected fallback sync warning to be sent despite construction failure")
 	}
 }
 
@@ -1095,6 +1202,117 @@ func TestSendFullState(t *testing.T) {
 	if msg.BlockedBranches["feature"] != "main" {
 		t.Errorf("Expected feature blocked by main")
 	}
+}
+
+// TestHandleClient_ResyncRequest tests that daemon sends full_state on resync request
+func TestHandleClient_ResyncRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon with test state
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts: map[string]string{
+			"pane-1": "stop",
+			"pane-2": "idle",
+		},
+		blockedBranches: map[string]string{
+			"feature-1": "main",
+		},
+		blockedPath: blockedPath,
+	}
+	daemon.lastBroadcastError.Store("")
+
+	// Create client connection
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+	defer serverReader.Close()
+	defer serverWriter.Close()
+
+	conn := &mockConn{
+		reader: serverReader,
+		writer: serverWriter,
+	}
+
+	// Start handleClient in background
+	go daemon.handleClient(conn)
+
+	// Send hello message
+	encoder := json.NewEncoder(clientWriter)
+	if err := encoder.Encode(Message{Type: MsgTypeHello, ClientID: "test-client"}); err != nil {
+		t.Fatalf("Failed to send hello: %v", err)
+	}
+
+	// Read initial full_state
+	decoder := json.NewDecoder(clientReader)
+	var fullState1 Message
+	if err := decoder.Decode(&fullState1); err != nil {
+		t.Fatalf("Failed to receive initial full_state: %v", err)
+	}
+
+	if fullState1.Type != MsgTypeFullState {
+		t.Errorf("Expected full_state, got %s", fullState1.Type)
+	}
+
+	initialSeq := fullState1.SeqNum
+	t.Logf("Initial full_state seq: %d", initialSeq)
+
+	// Send resync request
+	if err := encoder.Encode(Message{Type: MsgTypeResyncRequest}); err != nil {
+		t.Fatalf("Failed to send resync request: %v", err)
+	}
+
+	// Read resync full_state response
+	var fullState2 Message
+	timeout := time.After(2 * time.Second)
+	received := make(chan Message, 1)
+
+	go func() {
+		var msg Message
+		if err := decoder.Decode(&msg); err == nil {
+			received <- msg
+		}
+	}()
+
+	select {
+	case fullState2 = <-received:
+		// Success
+	case <-timeout:
+		t.Fatal("Timeout waiting for resync full_state")
+	}
+
+	// Verify resync response
+	if fullState2.Type != MsgTypeFullState {
+		t.Errorf("Expected full_state after resync, got %s", fullState2.Type)
+	}
+
+	if fullState2.SeqNum <= initialSeq {
+		t.Errorf("Expected resync seq (%d) > initial seq (%d)",
+			fullState2.SeqNum, initialSeq)
+	}
+
+	// Verify state contents
+	if len(fullState2.Alerts) != 2 {
+		t.Errorf("Expected 2 alerts in resync, got %d", len(fullState2.Alerts))
+	}
+
+	if fullState2.Alerts["pane-1"] != "stop" {
+		t.Error("Expected pane-1 alert in resync")
+	}
+
+	if len(fullState2.BlockedBranches) != 1 {
+		t.Errorf("Expected 1 blocked branch in resync, got %d",
+			len(fullState2.BlockedBranches))
+	}
+
+	if fullState2.BlockedBranches["feature-1"] != "main" {
+		t.Error("Expected feature-1 blocked by main in resync")
+	}
+
+	t.Logf("SUCCESS: Resync delivered full state (seq %d → %d)",
+		initialSeq, fullState2.SeqNum)
 }
 
 // TestProtocolMessage_SeqNum tests sequence number serialization
@@ -2370,7 +2588,7 @@ func TestConcurrentAlertChangeAndStateQuery(t *testing.T) {
 				case <-done:
 					return
 				default:
-					_ = daemon.GetHealthStatus()
+					_, _ = daemon.GetHealthStatus()
 					time.Sleep(1 * time.Millisecond)
 				}
 			}
@@ -2391,4 +2609,39 @@ func TestConcurrentAlertChangeAndStateQuery(t *testing.T) {
 		close(done)
 		t.Fatal("DEADLOCK: Test timed out after 2 seconds")
 	}
+}
+
+// TestConnectionCloseErrors_ThresholdMonitoring verifies threshold warning
+func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastBroadcastError.Store("")
+	daemon.connectionCloseErrors.Store(0)
+
+	// Create 12 clients (exceeds threshold of 10)
+	for i := 0; i < 12; i++ {
+		r, w := io.Pipe()
+		w.Close() // Force close error
+
+		daemon.clients[fmt.Sprintf("client-%d", i)] = &clientConnection{
+			conn:    &mockConn{reader: r, writer: w},
+			encoder: json.NewEncoder(w),
+		}
+	}
+
+	// Broadcast message - will fail for all clients and trigger close errors
+	testMsg, _ := NewAlertChangeMessage(daemon.seqCounter.Add(1), "pane1", "stop", true)
+	daemon.broadcast(testMsg.ToWireFormat())
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify close errors were tracked
+	closeErrors := daemon.connectionCloseErrors.Load()
+	if closeErrors < connectionCloseErrorThreshold {
+		t.Errorf("Expected >= %d close errors, got %d",
+			connectionCloseErrorThreshold, closeErrors)
+	}
+
+	t.Logf("Successfully triggered threshold monitoring (%d errors)", closeErrors)
 }

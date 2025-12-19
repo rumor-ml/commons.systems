@@ -8,18 +8,41 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
+// testPane is a helper to create Pane instances for testing
+// Panics on error since these are test fixtures with valid data
+func testPane(id, path, windowID string, windowIndex int, windowActive, windowBell bool, command, title string, isClaudePane bool) tmux.Pane {
+	pane, err := tmux.NewPane(id, path, windowID, windowIndex, windowActive, windowBell, command, title, isClaudePane)
+	if err != nil {
+		panic(err)
+	}
+	return pane
+}
+
+// testTree is a helper to create and populate a RepoTree for testing
+func testTree(repos map[string]map[string][]tmux.Pane) tmux.RepoTree {
+	tree := tmux.NewRepoTree()
+	for repo, branches := range repos {
+		for branch, panes := range branches {
+			if err := tree.SetPanes(repo, branch, panes); err != nil {
+				panic(err)
+			}
+		}
+	}
+	return tree
+}
+
 func TestTreeRenderer(t *testing.T) {
 	// Create a sample tree with flattened structure
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"commons.systems": {
-			"tmux-tui": []tmux.Pane{
-				{ID: "%129", Path: "/path/to/pane", WindowID: "@65", WindowIndex: 0, WindowActive: false, Command: "zsh"},
-				{ID: "%43", Path: "/path/to/pane", WindowID: "@29", WindowIndex: 1, WindowActive: false, Command: "nvim"},
-				{ID: "%118", Path: "/path/to/pane", WindowID: "@40", WindowIndex: 2, WindowActive: false, Command: "zsh"},
-				{ID: "%137", Path: "/path/to/pane", WindowID: "@40", WindowIndex: 3, WindowActive: true, Command: "tmux-tui"},
+			"tmux-tui": {
+				testPane("%129", "/path/to/pane", "@65", 0, false, false, "zsh", "", false),
+				testPane("%43", "/path/to/pane", "@29", 1, false, false, "nvim", "", false),
+				testPane("%118", "/path/to/pane", "@40", 2, false, false, "zsh", "", false),
+				testPane("%137", "/path/to/pane", "@40", 3, true, false, "tmux-tui", "", false),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
@@ -59,13 +82,13 @@ func TestTreeRendererEmpty(t *testing.T) {
 	blockedPanes := make(map[string]string)
 
 	// Test with nil tree
-	output := renderer.Render(nil, claudeAlerts, blockedPanes)
+	output := renderer.Render(tmux.RepoTree{}, claudeAlerts, blockedPanes)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for nil tree")
 	}
 
 	// Test with empty tree
-	emptyTree := make(tmux.RepoTree)
+	emptyTree := tmux.NewRepoTree()
 	output = renderer.Render(emptyTree, claudeAlerts, blockedPanes)
 	if !strings.Contains(output, "No panes found") {
 		t.Error("Expected 'No panes found' message for empty tree")
@@ -99,16 +122,16 @@ func TestIconForAlertType(t *testing.T) {
 
 func TestIconForAlertTypeIntegration(t *testing.T) {
 	// Test that icons are correctly applied in the tree renderer
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"main": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
-				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim", IsClaudePane: true},
-				{ID: "%3", WindowID: "@3", WindowIndex: 2, WindowActive: false, Command: "vim", IsClaudePane: true},
-				{ID: "%4", WindowID: "@4", WindowIndex: 3, WindowActive: false, Command: "emacs", IsClaudePane: true},
+			"main": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", true),
+				testPane("%2", "", "@2", 1, false, false, "nvim", "", true),
+				testPane("%3", "", "@3", 2, false, false, "vim", "", true),
+				testPane("%4", "", "@4", 3, false, false, "emacs", "", true),
 			},
 		},
-	}
+	})
 
 	// Create alerts with different event types
 	claudeAlerts := map[string]string{
@@ -135,14 +158,14 @@ func TestIconForAlertTypeIntegration(t *testing.T) {
 
 func TestTreeRendererFullHeight(t *testing.T) {
 	// Create a small tree
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"commons.systems": {
-			"tmux-tui": []tmux.Pane{
-				{ID: "%129", Path: "/path/to/pane", WindowID: "@65", WindowIndex: 0, WindowActive: false, Command: "zsh"},
-				{ID: "%43", Path: "/path/to/pane", WindowID: "@29", WindowIndex: 1, WindowActive: false, Command: "nvim"},
+			"tmux-tui": {
+				testPane("%129", "/path/to/pane", "@65", 0, false, false, "zsh", "", false),
+				testPane("%43", "/path/to/pane", "@29", 1, false, false, "nvim", "", false),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	renderer.SetHeight(20)
@@ -198,13 +221,13 @@ func TestTreeRendererHeader(t *testing.T) {
 
 // TestTreeRenderer_BlockedBranch_ActivePane tests blocked + active pane styling
 func TestTreeRenderer_BlockedBranch_ActivePane(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: true, Command: "zsh"},
+			"feature-branch": {
+				testPane("%1", "", "@1", 0, true, false, "zsh", "", false),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
@@ -236,13 +259,13 @@ func TestTreeRenderer_BlockedBranch_ActivePane(t *testing.T) {
 
 // TestTreeRenderer_BlockedBranch_IdlePane tests blocked + idle pane styling
 func TestTreeRenderer_BlockedBranch_IdlePane(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh"},
+			"feature-branch": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", false),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
@@ -271,13 +294,13 @@ func TestTreeRenderer_BlockedBranch_IdlePane(t *testing.T) {
 
 // TestTreeRenderer_BlockedBranch_NoBell tests that bells are suppressed on blocked branches
 func TestTreeRenderer_BlockedBranch_NoBell(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			"feature-branch": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", true),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	// Alert exists but branch is blocked - should NOT show bell
@@ -299,13 +322,13 @@ func TestTreeRenderer_BlockedBranch_NoBell(t *testing.T) {
 
 // TestTreeRenderer_UnblockedBranch_ShowsBell tests that bells appear on unblocked branches
 func TestTreeRenderer_UnblockedBranch_ShowsBell(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			"feature-branch": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", true),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := map[string]string{
@@ -324,19 +347,19 @@ func TestTreeRenderer_UnblockedBranch_ShowsBell(t *testing.T) {
 
 // TestTreeRenderer_MultipleBlockedBranches tests rendering multiple blocked branches
 func TestTreeRenderer_MultipleBlockedBranches(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-1": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh"},
+			"feature-1": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", false),
 			},
-			"feature-2": []tmux.Pane{
-				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim"},
+			"feature-2": {
+				testPane("%2", "", "@2", 1, false, false, "nvim", "", false),
 			},
-			"main": []tmux.Pane{
-				{ID: "%3", WindowID: "@3", WindowIndex: 2, WindowActive: true, Command: "tmux-tui"},
+			"main": {
+				testPane("%3", "", "@3", 2, true, false, "tmux-tui", "", false),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	claudeAlerts := make(map[string]string)
@@ -369,13 +392,13 @@ func TestTreeRenderer_MultipleBlockedBranches(t *testing.T) {
 
 // TestTreeRenderer_BlockedBranch_IdleAlert tests idle alerts are hidden on blocked branches
 func TestTreeRenderer_BlockedBranch_IdleAlert(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"feature-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			"feature-branch": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", true),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	// Idle alert - should be suppressed when branch is blocked
@@ -396,16 +419,16 @@ func TestTreeRenderer_BlockedBranch_IdleAlert(t *testing.T) {
 
 // TestTreeRenderer_MixedBlockedUnblocked tests mix of blocked and unblocked branches
 func TestTreeRenderer_MixedBlockedUnblocked(t *testing.T) {
-	tree := tmux.RepoTree{
+	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"blocked-branch": []tmux.Pane{
-				{ID: "%1", WindowID: "@1", WindowIndex: 0, WindowActive: false, Command: "zsh", IsClaudePane: true},
+			"blocked-branch": {
+				testPane("%1", "", "@1", 0, false, false, "zsh", "", true),
 			},
-			"active-branch": []tmux.Pane{
-				{ID: "%2", WindowID: "@2", WindowIndex: 1, WindowActive: false, Command: "nvim", IsClaudePane: true},
+			"active-branch": {
+				testPane("%2", "", "@2", 1, false, false, "nvim", "", true),
 			},
 		},
-	}
+	})
 
 	renderer := NewTreeRenderer(80)
 	// Both panes have alerts

@@ -504,6 +504,104 @@ func TestToggleBlockedState_QueryError(t *testing.T) {
 	}
 }
 
+// TestQueryBlockedState_RetryExhaustion tests user experience when all retries fail
+func TestQueryBlockedState_RetryExhaustion(t *testing.T) {
+	attemptCount := 0
+	expectedRetries := 3
+
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (daemon.BlockedState, error) {
+			attemptCount++
+			// Always return timeout error (retryable)
+			return daemon.BlockedState{}, daemon.ErrQueryTimeout
+		},
+	}
+
+	start := time.Now()
+	state, err := queryBlockedStateWithRetry(mock, "feature-branch", expectedRetries)
+	elapsed := time.Since(start)
+
+	// Verify all retries were attempted
+	if attemptCount != expectedRetries {
+		t.Errorf("Expected %d retry attempts, got %d", expectedRetries, attemptCount)
+	}
+
+	// Verify error is returned
+	if err == nil {
+		t.Fatal("Expected error after retry exhaustion, got nil")
+	}
+
+	// Verify error message mentions retries
+	if !strings.Contains(err.Error(), "failed after") {
+		t.Errorf("Expected error message to mention retry attempts, got: %v", err)
+	}
+
+	// Verify error is wrapped ErrQueryTimeout
+	if !errors.Is(err, daemon.ErrQueryTimeout) {
+		t.Errorf("Expected wrapped ErrQueryTimeout, got: %v", err)
+	}
+
+	// Verify state is zero-value on error
+	if state.IsBlocked() {
+		t.Error("Expected zero-value BlockedState on retry exhaustion")
+	}
+
+	// Verify exponential backoff was applied (approximate timing)
+	// 100ms + 200ms + 400ms = 700ms minimum
+	expectedMinDuration := 700 * time.Millisecond
+	if elapsed < expectedMinDuration {
+		t.Errorf("Expected retries to take at least %v with backoff, got %v",
+			expectedMinDuration, elapsed)
+	}
+
+	t.Logf("Retry exhaustion test passed: %d attempts in %v", attemptCount, elapsed)
+}
+
+// TestQueryBlockedState_NonRetryableError tests fast-fail for non-retryable errors
+func TestQueryBlockedState_NonRetryableError(t *testing.T) {
+	attemptCount := 0
+
+	mock := &mockDaemonClient{
+		queryBlockedStateFunc: func(branch string) (daemon.BlockedState, error) {
+			attemptCount++
+			// Return non-retryable error (socket not found)
+			return daemon.BlockedState{}, daemon.ErrSocketNotFound
+		},
+	}
+
+	start := time.Now()
+	state, err := queryBlockedStateWithRetry(mock, "feature-branch", 3)
+	elapsed := time.Since(start)
+
+	// Verify only ONE attempt (no retries for non-retryable error)
+	if attemptCount != 1 {
+		t.Errorf("Expected 1 attempt (no retries), got %d", attemptCount)
+	}
+
+	// Verify error is returned
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	// Verify error is the original non-retryable error
+	if !errors.Is(err, daemon.ErrSocketNotFound) {
+		t.Errorf("Expected ErrSocketNotFound, got: %v", err)
+	}
+
+	// Verify state is zero-value on error
+	if state.IsBlocked() {
+		t.Error("Expected zero-value BlockedState on error")
+	}
+
+	// Verify fast-fail (no backoff delay)
+	expectedMaxDuration := 100 * time.Millisecond
+	if elapsed > expectedMaxDuration {
+		t.Errorf("Expected fast-fail within %v, took %v", expectedMaxDuration, elapsed)
+	}
+
+	t.Logf("Non-retryable error fast-fail test passed: 1 attempt in %v", elapsed)
+}
+
 // BenchmarkGetCurrentBranch benchmarks the getCurrentBranch function
 func BenchmarkGetCurrentBranch(b *testing.B) {
 	mockExec := &testutil.MockCommandExecutor{

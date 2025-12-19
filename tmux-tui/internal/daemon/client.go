@@ -203,32 +203,50 @@ func (c *DaemonClient) receive() {
 				gap := msg.SeqNum - lastSeq - 1
 				debug.Log("CLIENT_GAP_DETECTED id=%s expected=%d got=%d gap=%d",
 					c.clientID, lastSeq+1, msg.SeqNum, gap)
-				// Request full state resync
+				// Request full state resync with retry logic
 				go func() {
-					resyncMsg := Message{Type: MsgTypeResyncRequest}
-					if err := c.sendMessage(resyncMsg); err != nil {
-						c.resyncFailures.Add(1)
-						debug.Log("CLIENT_RESYNC_REQUEST_ERROR - disconnecting id=%s error=%v count=%d",
-							c.clientID, err, c.resyncFailures.Load())
+					const maxRetries = 3
+					backoff := 50 * time.Millisecond
+					savedGap := gap // Capture for logging
 
-						// CRITICAL: Cannot continue with known gaps - disconnect to trigger full reconnect
-						c.mu.Lock()
-						c.connected = false
-						if c.conn != nil {
-							c.conn.Close()
+					for attempt := 0; attempt < maxRetries; attempt++ {
+						if attempt > 0 {
+							time.Sleep(backoff)
+							backoff *= 2 // Exponential backoff: 50ms, 100ms, 200ms
 						}
-						c.mu.Unlock()
 
-						// Send disconnect event with timeout to prevent goroutine leak
-						select {
-						case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync: %v", err)}:
-						case <-time.After(100 * time.Millisecond):
-							debug.Log("CLIENT_RESYNC_DISCONNECT_EVENT_BLOCKED id=%s error=%v", c.clientID, err)
-						case <-c.done:
+						resyncMsg := Message{Type: MsgTypeResyncRequest}
+						if err := c.sendMessage(resyncMsg); err == nil {
+							debug.Log("CLIENT_RESYNC_REQUESTED id=%s attempt=%d gap=%d", c.clientID, attempt+1, savedGap)
+							return // Success
 						}
-						return
+
+						if attempt == maxRetries-1 {
+							// All retries exhausted - must disconnect
+							c.resyncFailures.Add(1)
+							debug.Log("CLIENT_RESYNC_REQUEST_EXHAUSTED - disconnecting id=%s attempts=%d gap=%d count=%d",
+								c.clientID, maxRetries, savedGap, c.resyncFailures.Load())
+
+							// CRITICAL: Cannot continue with known gaps - disconnect to trigger full reconnect
+							c.mu.Lock()
+							c.connected = false
+							if c.conn != nil {
+								c.conn.Close()
+							}
+							c.mu.Unlock()
+
+							// Send disconnect event with timeout to prevent goroutine leak
+							select {
+							case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync after %d attempts (gap=%d)", maxRetries, savedGap)}:
+							case <-time.After(100 * time.Millisecond):
+								// CRITICAL: Resync failed and disconnect notification blocked
+								fmt.Fprintf(os.Stderr, "CRITICAL: Resync disconnect blocked - eventCh congested (client=%s, gap=%d)\n",
+									c.clientID, savedGap)
+								debug.Log("CLIENT_RESYNC_DISCONNECT_EVENT_BLOCKED id=%s gap=%d", c.clientID, savedGap)
+							case <-c.done:
+							}
+						}
 					}
-					debug.Log("CLIENT_RESYNC_REQUESTED id=%s", c.clientID)
 				}()
 			}
 			c.lastSeq.Store(msg.SeqNum)
@@ -298,7 +316,9 @@ func (c *DaemonClient) receive() {
 								Error: errMsg,
 							}:
 							case <-time.After(100 * time.Millisecond):
-								// Fallback: eventCh blocked, log to debug since we can't notify via event channel
+								// CRITICAL: eventCh blocked - disconnect notification lost
+								fmt.Fprintf(os.Stderr, "CRITICAL: Client disconnect blocked - eventCh congested (client=%s, branch=%s, deadlocks=%d)\n",
+									c.clientID, msg.Branch, c.queryDeadlockRecoveries.Load())
 								debug.Log("CLIENT_DISCONNECT_EVENT_BLOCKED id=%s branch=%s - event channel full",
 									c.clientID, msg.Branch)
 							case <-c.done:
@@ -539,12 +559,15 @@ func (c *DaemonClient) QueryBlockedState(branch string) (BlockedState, error) {
 	c.queryMu.Unlock()
 
 	// Cleanup registration
+	// CRITICAL: Close channels INSIDE the lock to prevent race with receive() goroutine.
+	// If we close outside the lock, receive() could get the channel reference from the map,
+	// then we close it here, then receive() tries to send → panic on closed channel.
 	defer func() {
 		c.queryMu.Lock()
 		delete(c.queryResponses, branch)
-		c.queryMu.Unlock()
 		close(resp.dataCh)
 		close(resp.errCh)
+		c.queryMu.Unlock()
 	}()
 
 	// Send query message

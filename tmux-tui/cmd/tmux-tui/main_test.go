@@ -14,6 +14,29 @@ func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
+// testPane is a helper to create Pane instances for testing
+// Panics on error since these are test fixtures with valid data
+func testPane(id, windowID string, windowIndex int, windowActive bool) tmux.Pane {
+	pane, err := tmux.NewPane(id, "", windowID, windowIndex, windowActive, false, "", "", false)
+	if err != nil {
+		panic(err)
+	}
+	return pane
+}
+
+// testTree is a helper to create and populate a RepoTree for testing
+func testTree(repos map[string]map[string][]tmux.Pane) tmux.RepoTree {
+	tree := tmux.NewRepoTree()
+	for repo, branches := range repos {
+		for branch, panes := range branches {
+			if err := tree.SetPanes(repo, branch, panes); err != nil {
+				panic(err)
+			}
+		}
+	}
+	return tree
+}
+
 func TestModelErrorStateConcurrency(t *testing.T) {
 	m := initialModel()
 	var wg sync.WaitGroup
@@ -54,7 +77,7 @@ func TestTreeRefreshErrorHandling(t *testing.T) {
 	m.errorMu.Unlock()
 
 	msg := treeRefreshMsg{
-		tree: nil,
+		tree: tmux.RepoTree{},
 		err:  fmt.Errorf("mock tree refresh error"),
 	}
 
@@ -80,13 +103,13 @@ func TestTreeRefreshErrorClearing(t *testing.T) {
 
 	// Successful refresh should clear the error
 	msg := treeRefreshMsg{
-		tree: tmux.RepoTree{
+		tree: testTree(map[string]map[string][]tmux.Pane{
 			"test-repo": {
-				"main": []tmux.Pane{
-					{ID: "%1", WindowActive: true},
+				"main": {
+					testPane("%1", "@1", 0, true),
 				},
 			},
-		},
+		}),
 		err: nil,
 	}
 
@@ -105,13 +128,13 @@ func TestTreeRefreshErrorClearing(t *testing.T) {
 func TestViewErrorStateSnapshot(t *testing.T) {
 	m := initialModel()
 	// Ensure tree is initialized
-	m.tree = tmux.RepoTree{
+	m.tree = testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"main": []tmux.Pane{
-				{ID: "%1", WindowActive: true},
+			"main": {
+				testPane("%1", "@1", 0, true),
 			},
 		},
-	}
+	})
 
 	// Set various error states
 	m.errorMu.Lock()
@@ -159,13 +182,13 @@ func TestErrorBannerPriority(t *testing.T) {
 	m.errorMu.Unlock()
 
 	// Initialize tree so View() doesn't return "Loading..."
-	m.tree = tmux.RepoTree{
+	m.tree = testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
-			"main": []tmux.Pane{
-				{ID: "%1", WindowActive: true},
+			"main": {
+				testPane("%1", "@1", 0, true),
 			},
 		},
-	}
+	})
 
 	tests := []struct {
 		name             string

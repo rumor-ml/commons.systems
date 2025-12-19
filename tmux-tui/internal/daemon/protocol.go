@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,6 +23,11 @@ var (
 	ErrConnectionFailed  = errors.New("connection to daemon failed")
 	ErrSocketNotFound    = errors.New("socket not found")
 	ErrPermissionDenied  = errors.New("permission denied")
+)
+
+// Health status error types
+var (
+	ErrHealthValidationFailed = errors.New("health status validation failed: internal state corrupted")
 )
 
 // Message types for client-daemon communication
@@ -159,20 +165,22 @@ type Message struct {
 //
 // CURRENT MITIGATION: ValidateMessage() provides runtime validation for v1 messages
 
-// HealthStatus represents daemon health metrics for monitoring
+// HealthStatus represents daemon health metrics for monitoring.
+// All fields are private to enforce validation and immutability.
+// Use NewHealthStatus() to create and getters to access fields.
 type HealthStatus struct {
-	Timestamp              time.Time `json:"timestamp"`
-	BroadcastFailures      int64     `json:"broadcast_failures"`
-	LastBroadcastError     string    `json:"last_broadcast_error"`
-	WatcherErrors          int64     `json:"watcher_errors"`
-	LastWatcherError       string    `json:"last_watcher_error"`
-	ConnectionCloseErrors  int64     `json:"connection_close_errors"`
-	LastCloseError         string    `json:"last_close_error"`
-	AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
-	LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
-	ConnectedClients       int       `json:"connected_clients"`
-	ActiveAlerts           int       `json:"active_alerts"`
-	BlockedBranches        int       `json:"blocked_branches"`
+	timestamp              time.Time
+	broadcastFailures      int64
+	lastBroadcastError     string
+	watcherErrors          int64
+	lastWatcherError       string
+	connectionCloseErrors  int64
+	lastCloseError         string
+	audioBroadcastFailures int64
+	lastAudioBroadcastErr  string
+	connectedClients       int
+	activeAlerts           int
+	blockedBranches        int
 }
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
@@ -214,56 +222,147 @@ func NewHealthStatus(
 	}
 
 	return HealthStatus{
-		Timestamp:              time.Now(),
-		BroadcastFailures:      broadcastFailures,
-		LastBroadcastError:     strings.TrimSpace(lastBroadcastError),
-		WatcherErrors:          watcherErrors,
-		LastWatcherError:       strings.TrimSpace(lastWatcherError),
-		ConnectionCloseErrors:  connectionCloseErrors,
-		LastCloseError:         strings.TrimSpace(lastCloseError),
-		AudioBroadcastFailures: audioBroadcastFailures,
-		LastAudioBroadcastErr:  strings.TrimSpace(lastAudioBroadcastErr),
-		ConnectedClients:       connectedClients,
-		ActiveAlerts:           activeAlerts,
-		BlockedBranches:        blockedBranches,
+		timestamp:              time.Now(),
+		broadcastFailures:      broadcastFailures,
+		lastBroadcastError:     strings.TrimSpace(lastBroadcastError),
+		watcherErrors:          watcherErrors,
+		lastWatcherError:       strings.TrimSpace(lastWatcherError),
+		connectionCloseErrors:  connectionCloseErrors,
+		lastCloseError:         strings.TrimSpace(lastCloseError),
+		audioBroadcastFailures: audioBroadcastFailures,
+		lastAudioBroadcastErr:  strings.TrimSpace(lastAudioBroadcastErr),
+		connectedClients:       connectedClients,
+		activeAlerts:           activeAlerts,
+		blockedBranches:        blockedBranches,
 	}, nil
 }
 
 // GetTimestamp returns the timestamp when the health status was captured
-func (h HealthStatus) GetTimestamp() time.Time { return h.Timestamp }
+func (h HealthStatus) GetTimestamp() time.Time { return h.timestamp }
 
 // GetBroadcastFailures returns the total broadcast failures since daemon startup
-func (h HealthStatus) GetBroadcastFailures() int64 { return h.BroadcastFailures }
+func (h HealthStatus) GetBroadcastFailures() int64 { return h.broadcastFailures }
 
 // GetLastBroadcastError returns the most recent broadcast error message
-func (h HealthStatus) GetLastBroadcastError() string { return h.LastBroadcastError }
+func (h HealthStatus) GetLastBroadcastError() string { return h.lastBroadcastError }
 
 // GetWatcherErrors returns the total watcher errors since daemon startup
-func (h HealthStatus) GetWatcherErrors() int64 { return h.WatcherErrors }
+func (h HealthStatus) GetWatcherErrors() int64 { return h.watcherErrors }
 
 // GetLastWatcherError returns the most recent watcher error message
-func (h HealthStatus) GetLastWatcherError() string { return h.LastWatcherError }
+func (h HealthStatus) GetLastWatcherError() string { return h.lastWatcherError }
 
 // GetConnectionCloseErrors returns the total connection close errors since daemon startup
-func (h HealthStatus) GetConnectionCloseErrors() int64 { return h.ConnectionCloseErrors }
+func (h HealthStatus) GetConnectionCloseErrors() int64 { return h.connectionCloseErrors }
 
 // GetLastCloseError returns the most recent connection close error message
-func (h HealthStatus) GetLastCloseError() string { return h.LastCloseError }
+func (h HealthStatus) GetLastCloseError() string { return h.lastCloseError }
 
 // GetAudioBroadcastFailures returns the total audio broadcast failures since daemon startup
-func (h HealthStatus) GetAudioBroadcastFailures() int64 { return h.AudioBroadcastFailures }
+func (h HealthStatus) GetAudioBroadcastFailures() int64 { return h.audioBroadcastFailures }
 
 // GetLastAudioBroadcastErr returns the most recent audio broadcast error message
-func (h HealthStatus) GetLastAudioBroadcastErr() string { return h.LastAudioBroadcastErr }
+func (h HealthStatus) GetLastAudioBroadcastErr() string { return h.lastAudioBroadcastErr }
 
 // GetConnectedClients returns the current number of connected clients
-func (h HealthStatus) GetConnectedClients() int { return h.ConnectedClients }
+func (h HealthStatus) GetConnectedClients() int { return h.connectedClients }
 
 // GetActiveAlerts returns the current number of active alerts
-func (h HealthStatus) GetActiveAlerts() int { return h.ActiveAlerts }
+func (h HealthStatus) GetActiveAlerts() int { return h.activeAlerts }
 
 // GetBlockedBranches returns the current number of blocked branches
-func (h HealthStatus) GetBlockedBranches() int { return h.BlockedBranches }
+func (h HealthStatus) GetBlockedBranches() int { return h.blockedBranches }
+
+// MarshalJSON implements custom JSON marshaling to maintain wire protocol compatibility
+func (h HealthStatus) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Timestamp              time.Time `json:"timestamp"`
+		BroadcastFailures      int64     `json:"broadcast_failures"`
+		LastBroadcastError     string    `json:"last_broadcast_error"`
+		WatcherErrors          int64     `json:"watcher_errors"`
+		LastWatcherError       string    `json:"last_watcher_error"`
+		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
+		LastCloseError         string    `json:"last_close_error"`
+		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
+		ConnectedClients       int       `json:"connected_clients"`
+		ActiveAlerts           int       `json:"active_alerts"`
+		BlockedBranches        int       `json:"blocked_branches"`
+	}{
+		Timestamp:              h.timestamp,
+		BroadcastFailures:      h.broadcastFailures,
+		LastBroadcastError:     h.lastBroadcastError,
+		WatcherErrors:          h.watcherErrors,
+		LastWatcherError:       h.lastWatcherError,
+		ConnectionCloseErrors:  h.connectionCloseErrors,
+		LastCloseError:         h.lastCloseError,
+		AudioBroadcastFailures: h.audioBroadcastFailures,
+		LastAudioBroadcastErr:  h.lastAudioBroadcastErr,
+		ConnectedClients:       h.connectedClients,
+		ActiveAlerts:           h.activeAlerts,
+		BlockedBranches:        h.blockedBranches,
+	})
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling with validation
+func (h *HealthStatus) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		Timestamp              time.Time `json:"timestamp"`
+		BroadcastFailures      int64     `json:"broadcast_failures"`
+		LastBroadcastError     string    `json:"last_broadcast_error"`
+		WatcherErrors          int64     `json:"watcher_errors"`
+		LastWatcherError       string    `json:"last_watcher_error"`
+		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
+		LastCloseError         string    `json:"last_close_error"`
+		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
+		ConnectedClients       int       `json:"connected_clients"`
+		ActiveAlerts           int       `json:"active_alerts"`
+		BlockedBranches        int       `json:"blocked_branches"`
+	}{}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Validate all count fields are non-negative
+	if aux.BroadcastFailures < 0 {
+		return fmt.Errorf("invalid broadcast_failures: %d", aux.BroadcastFailures)
+	}
+	if aux.WatcherErrors < 0 {
+		return fmt.Errorf("invalid watcher_errors: %d", aux.WatcherErrors)
+	}
+	if aux.ConnectionCloseErrors < 0 {
+		return fmt.Errorf("invalid connection_close_errors: %d", aux.ConnectionCloseErrors)
+	}
+	if aux.AudioBroadcastFailures < 0 {
+		return fmt.Errorf("invalid audio_broadcast_failures: %d", aux.AudioBroadcastFailures)
+	}
+	if aux.ConnectedClients < 0 {
+		return fmt.Errorf("invalid connected_clients: %d", aux.ConnectedClients)
+	}
+	if aux.ActiveAlerts < 0 {
+		return fmt.Errorf("invalid active_alerts: %d", aux.ActiveAlerts)
+	}
+	if aux.BlockedBranches < 0 {
+		return fmt.Errorf("invalid blocked_branches: %d", aux.BlockedBranches)
+	}
+
+	h.timestamp = aux.Timestamp
+	h.broadcastFailures = aux.BroadcastFailures
+	h.lastBroadcastError = aux.LastBroadcastError
+	h.watcherErrors = aux.WatcherErrors
+	h.lastWatcherError = aux.LastWatcherError
+	h.connectionCloseErrors = aux.ConnectionCloseErrors
+	h.lastCloseError = aux.LastCloseError
+	h.audioBroadcastFailures = aux.AudioBroadcastFailures
+	h.lastAudioBroadcastErr = aux.LastAudioBroadcastErr
+	h.connectedClients = aux.ConnectedClients
+	h.activeAlerts = aux.ActiveAlerts
+	h.blockedBranches = aux.BlockedBranches
+
+	return nil
+}
 
 // BlockedState represents the result of checking if a branch is blocked
 type BlockedState struct {

@@ -130,31 +130,31 @@ func showHealth() error {
 
 // displayHealthStatus formats and prints health metrics
 func displayHealthStatus(status daemon.HealthStatus) {
-	fmt.Printf("Daemon Health Status (as of %s)\n", status.Timestamp.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Daemon Health Status (as of %s)\n", status.GetTimestamp().Format("2006-01-02 15:04:05"))
 	fmt.Println("============================================================")
 	fmt.Println()
 
 	// Connections
 	fmt.Println("Connections:")
-	fmt.Printf("  Connected Clients: %d\n", status.ConnectedClients)
-	fmt.Printf("  Broadcast Failures: %d\n", status.BroadcastFailures)
-	if status.LastBroadcastError != "" {
-		fmt.Printf("  Last Broadcast Error: %s\n", status.LastBroadcastError)
+	fmt.Printf("  Connected Clients: %d\n", status.GetConnectedClients())
+	fmt.Printf("  Broadcast Failures: %d\n", status.GetBroadcastFailures())
+	if status.GetLastBroadcastError() != "" {
+		fmt.Printf("  Last Broadcast Error: %s\n", status.GetLastBroadcastError())
 	}
 	fmt.Println()
 
 	// Watchers
 	fmt.Println("Watchers:")
-	fmt.Printf("  Watcher Errors: %d\n", status.WatcherErrors)
-	if status.LastWatcherError != "" {
-		fmt.Printf("  Last Watcher Error: %s\n", status.LastWatcherError)
+	fmt.Printf("  Watcher Errors: %d\n", status.GetWatcherErrors())
+	if status.GetLastWatcherError() != "" {
+		fmt.Printf("  Last Watcher Error: %s\n", status.GetLastWatcherError())
 	}
 	fmt.Println()
 
 	// State
 	fmt.Println("State:")
-	fmt.Printf("  Active Alerts: %d\n", status.ActiveAlerts)
-	fmt.Printf("  Blocked Branches: %d\n", status.BlockedBranches)
+	fmt.Printf("  Active Alerts: %d\n", status.GetActiveAlerts())
+	fmt.Printf("  Blocked Branches: %d\n", status.GetBlockedBranches())
 	fmt.Println()
 
 	// Health assessment
@@ -170,13 +170,13 @@ func displayHealthStatus(status daemon.HealthStatus) {
 func assessHealth(status daemon.HealthStatus) string {
 	warnings := []string{}
 
-	if status.BroadcastFailures > 10 {
+	if status.GetBroadcastFailures() > 10 {
 		warnings = append(warnings, "High broadcast failures")
 	}
-	if status.WatcherErrors > 5 {
+	if status.GetWatcherErrors() > 5 {
 		warnings = append(warnings, "High watcher errors")
 	}
-	if status.ConnectedClients == 0 {
+	if status.GetConnectedClients() == 0 {
 		warnings = append(warnings, "No connected clients")
 	}
 

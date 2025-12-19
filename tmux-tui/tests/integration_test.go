@@ -192,7 +192,7 @@ func (m realModel) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", m.err)
 	}
 
-	if m.tree == nil {
+	if len(m.tree.Repos()) == 0 {
 		return "Loading..."
 	}
 
@@ -245,10 +245,11 @@ func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
 
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
 	validPanes := make(map[string]bool)
-	for _, branches := range tree {
-		for _, panes := range branches {
+	for _, repo := range tree.Repos() {
+		for _, branch := range tree.Branches(repo) {
+			panes, _ := tree.GetPanes(repo, branch)
 			for _, pane := range panes {
-				validPanes[pane.ID] = true
+				validPanes[pane.ID()] = true
 			}
 		}
 	}
@@ -819,7 +820,7 @@ func TestIntegration_ReconcileAlertsWithEmptyTree(t *testing.T) {
 	}
 
 	// Create an empty tree (no repos, no branches, no panes)
-	emptyTree := make(tmux.RepoTree)
+	emptyTree := tmux.NewRepoTree()
 
 	// Call reconcileAlerts with empty tree
 	m.alertsMu.Lock()

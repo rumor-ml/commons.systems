@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -716,4 +717,104 @@ func TestBlockedBranchPersistence_CorruptedFileRecovery(t *testing.T) {
 	}
 
 	t.Log("Corrupted file recovery test passed!")
+}
+
+func TestConcurrentQuerySameBranch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Verify tmux is available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found")
+	}
+
+	socketName := uniqueSocketName()
+	sessionName := fmt.Sprintf("concurrent-query-%d", time.Now().Unix())
+
+	// Create test session
+	cmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName, "-x", "120", "-y", "40")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create tmux session: %v", err)
+	}
+	defer func() {
+		killCmd := tmuxCmd(socketName, "kill-session", "-t", sessionName)
+		killCmd.Run()
+	}()
+
+	// Wait for tmux socket
+	if err := waitForTmuxSocket(socketName, 15*time.Second); err != nil {
+		t.Fatalf("Tmux socket not ready: %v", err)
+	}
+
+	// Start daemon
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon()
+
+	// Give daemon time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Set up TMUX env for daemon client connection
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	tmuxEnv := fmt.Sprintf("%s,%d,0", tmuxSocketPath, os.Getpid())
+	os.Setenv("TMUX", tmuxEnv)
+	defer os.Unsetenv("TMUX")
+
+	// Block a branch using setup client
+	client1 := daemon.NewDaemonClient()
+	if err := client1.Connect(); err != nil {
+		t.Fatalf("Failed to connect setup client: %v", err)
+	}
+	defer client1.Close()
+
+	if err := client1.BlockBranch("feature", "main"); err != nil {
+		t.Fatalf("Failed to block branch: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// 10 concurrent queries for SAME branch
+	const numClients = 10
+	var wg sync.WaitGroup
+	errors := make(chan error, numClients)
+	results := make(chan daemon.BlockedState, numClients)
+
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			client := daemon.NewDaemonClient()
+			if err := client.Connect(); err != nil {
+				errors <- fmt.Errorf("client %d connect: %w", id, err)
+				return
+			}
+			defer client.Close()
+
+			state, err := client.QueryBlockedState("feature")
+			if err != nil {
+				errors <- fmt.Errorf("client %d query: %w", id, err)
+				return
+			}
+			results <- state
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+	close(results)
+
+	// Verify all succeeded
+	for err := range errors {
+		t.Errorf("Concurrent query error: %v", err)
+	}
+
+	// Verify all got correct state
+	for state := range results {
+		if !state.IsBlocked() || state.BlockedBy() != "main" {
+			t.Errorf("Got incorrect state: blocked=%v, by=%s", state.IsBlocked(), state.BlockedBy())
+		}
+	}
+
+	t.Log("Concurrent same-branch query test passed!")
 }

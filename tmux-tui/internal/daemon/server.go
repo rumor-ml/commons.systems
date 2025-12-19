@@ -15,6 +15,10 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
+const (
+	connectionCloseErrorThreshold = 10 // Warn after 10 close failures
+)
+
 var (
 	audioMutex    sync.Mutex
 	lastAudioPlay time.Time
@@ -649,6 +653,19 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			d.broadcast(pickerMsg.ToWireFormat())
 
 		case MsgTypeBlockBranch:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid block request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Block a branch with another branch
 			debug.Log("DAEMON_BLOCK_BRANCH branch=%s blockedBy=%s", msg.Branch, msg.BlockedBranch)
 
@@ -678,6 +695,19 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			d.broadcast(blockMsg.ToWireFormat())
 
 		case MsgTypeUnblockBranch:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid unblock request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Unblock a branch
 			debug.Log("DAEMON_UNBLOCK_BRANCH branch=%s", msg.Branch)
 
@@ -729,7 +759,17 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeHealthQuery:
 			// Return health status
 			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
-			status := d.GetHealthStatus()
+			status, healthErr := d.GetHealthStatus()
+			if healthErr != nil {
+				// Send error message to client instead of fabricated health status
+				errMsg := fmt.Sprintf("Health status validation failed: %v", healthErr)
+				errorResponse, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), errMsg)
+				if err == nil {
+					client.sendMessage(errorResponse.ToWireFormat())
+				}
+				debug.Log("DAEMON_HEALTH_VALIDATION_FAILED client=%s error=%v", clientID, healthErr)
+				continue
+			}
 			response, err := NewHealthResponseMessage(d.seqCounter.Add(1), status)
 			if err != nil {
 				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=health_response error=%v", err)
@@ -793,14 +833,22 @@ func (d *AlertDaemon) broadcast(msg Message) {
 				}
 
 				if closeErr := client.conn.Close(); closeErr != nil {
-					d.connectionCloseErrors.Add(1)
+					totalCloseErrors := d.connectionCloseErrors.Add(1)
 					d.lastCloseError.Store(closeErr.Error())
 
 					// ERROR VISIBILITY: Log to stderr
 					fmt.Fprintf(os.Stderr, "WARNING: Connection close error for client %s: %v (total: %d)\n",
-						clientID, closeErr, d.connectionCloseErrors.Load())
+						clientID, closeErr, totalCloseErrors)
 					debug.Log("DAEMON_CONNECTION_CLOSE_ERROR client=%s close_error=%v total=%d",
-						clientID, closeErr, d.connectionCloseErrors.Load())
+						clientID, closeErr, totalCloseErrors)
+
+					// THRESHOLD MONITORING: Warn if close errors exceed threshold
+					if totalCloseErrors >= connectionCloseErrorThreshold {
+						fmt.Fprintf(os.Stderr, "CRITICAL: Connection close errors (%d) exceeded threshold (%d). Potential file descriptor leak.\n",
+							totalCloseErrors, connectionCloseErrorThreshold)
+						debug.Log("DAEMON_CLOSE_ERROR_THRESHOLD_EXCEEDED total=%d threshold=%d",
+							totalCloseErrors, connectionCloseErrorThreshold)
+					}
 				}
 				delete(d.clients, clientID)
 				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)
@@ -827,12 +875,46 @@ func (d *AlertDaemon) broadcast(msg Message) {
 		)
 		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
 		if err != nil {
+			// CRITICAL: Cannot construct sync warning - use fallback raw message
+			fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning construction failed (type=%s, failed_clients=%d): %v\n",
+				msg.Type, len(failedClients), err)
 			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", err)
+
+			// FALLBACK: Send raw message to inform clients of sync issue
+			fallbackMsg := Message{
+				Type:            MsgTypeSyncWarning,
+				SeqNum:          d.seqCounter.Add(1),
+				Error:           fmt.Sprintf("Sync warning (fallback): %d clients failed to receive update", len(failedClients)),
+				OriginalMsgType: "unknown", // Safe fallback when original type is invalid
+			}
+
+			// Send fallback message to successful clients
+			syncFailures := 0
+			for _, sc := range successfulClients {
+				if err := sc.client.sendMessage(fallbackMsg); err != nil {
+					syncFailures++
+					debug.Log("DAEMON_SYNC_WARNING_FALLBACK_SEND_ERROR client=%s error=%v", sc.id, err)
+				}
+			}
+
+			if syncFailures > 0 {
+				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning fallback cascade failure (sync_failures=%d/%d)\n",
+					syncFailures, len(successfulClients))
+			}
 		} else {
+			// Normal path: Send properly constructed sync warning
+			syncFailures := 0
 			for _, sc := range successfulClients {
 				if err := sc.client.sendMessage(syncWarning.ToWireFormat()); err != nil {
+					syncFailures++
 					debug.Log("DAEMON_SYNC_WARNING_SEND_ERROR client=%s error=%v", sc.id, err)
 				}
+			}
+
+			if syncFailures > 0 {
+				// CRITICAL: Sync warning cascade failure - some clients unaware of peer disconnections
+				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning cascade failure (original=%s, sync_failures=%d/%d)\n",
+					msg.Type, syncFailures, len(successfulClients))
 			}
 		}
 	}
@@ -867,7 +949,7 @@ func (d *AlertDaemon) removeClient(clientID string) {
 }
 
 // GetHealthStatus returns daemon health metrics for monitoring
-func (d *AlertDaemon) GetHealthStatus() HealthStatus {
+func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	lastBroadcastErr, _ := d.lastBroadcastError.Load().(string)
 	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
 	lastCloseErr, _ := d.lastCloseError.Load().(string)
@@ -905,10 +987,10 @@ func (d *AlertDaemon) GetHealthStatus() HealthStatus {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
 		debug.Log("DAEMON_HEALTH_STATUS_ERROR error=%v", err)
 
-		// Return zero status as fallback (last resort to prevent panic)
-		status, _ = NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
+		// Return error to caller instead of zero-value fallback
+		return HealthStatus{}, fmt.Errorf("%w: %v", ErrHealthValidationFailed, err)
 	}
-	return status
+	return status, nil
 }
 
 // Stop stops the daemon server.
