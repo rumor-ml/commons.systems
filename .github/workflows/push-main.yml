@@ -92,7 +92,7 @@ jobs:
   test-go-fullstack-printsync:
     name: Test Go Fullstack - printsync
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
