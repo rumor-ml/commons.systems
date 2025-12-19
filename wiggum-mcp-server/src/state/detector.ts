@@ -8,12 +8,15 @@ import {
   hasRemoteTracking,
   isBranchPushed,
   getMainBranch,
+  extractIssueNumberFromBranch,
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
 import { getWiggumState } from './comments.js';
-import { STEP_ENSURE_PR } from '../constants.js';
+import { getWiggumStateFromIssue } from './issue-comments.js';
+import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
-import type { GitState, PRState, CurrentState } from './types.js';
+import type { GitState, PRState, CurrentState, IssueState } from './types.js';
+import type { WiggumPhase } from '../constants.js';
 
 /**
  * Detect current git state
@@ -120,6 +123,34 @@ export async function detectPRState(repo?: string): Promise<PRState> {
 }
 
 /**
+ * Detect issue state from branch name
+ *
+ * Attempts to extract an issue number from the current branch name.
+ * Branch names following the convention "123-feature-name" will have
+ * the issue number extracted.
+ *
+ * @param git - Git state containing the current branch name
+ * @returns IssueState with issue number if found, or { exists: false } if not
+ *
+ * @example
+ * ```typescript
+ * const git = await detectGitState();
+ * const issue = await detectIssueState(git);
+ * if (issue.exists) {
+ *   console.log(`Working on issue #${issue.number}`);
+ * }
+ * ```
+ */
+async function detectIssueState(git: GitState): Promise<IssueState> {
+  const issueNumber = extractIssueNumberFromBranch(git.currentBranch);
+
+  return {
+    exists: issueNumber !== null,
+    number: issueNumber ?? undefined,
+  };
+}
+
+/**
  * Detect complete current state
  *
  * Combines git state, PR state, and wiggum workflow state into a single
@@ -147,11 +178,17 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
+  const issue = await detectIssueState(git);
   const stateDetectionTime = Date.now() - startTime;
 
+  // Determine phase based on PR existence
+  const phase: WiggumPhase = pr.exists ? 'phase2' : 'phase1';
+
   let wiggum;
-  if (pr.exists && pr.number) {
+  if (phase === 'phase2' && pr.exists) {
+    // Phase 2: Read state from PR comments
     wiggum = await getWiggumState(pr.number, repo);
+    wiggum.phase = 'phase2';
 
     // If state detection took longer than 5 seconds, re-validate PR state exists
     // This helps detect race conditions where PR might have been closed/modified
@@ -173,17 +210,24 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
         return detectCurrentState(repo);
       }
     }
+  } else if (phase === 'phase1' && issue.exists && issue.number) {
+    // Phase 1: Read state from issue comments
+    wiggum = await getWiggumStateFromIssue(issue.number, repo);
+    wiggum.phase = 'phase1';
   } else {
+    // No issue or PR, return initial Phase 1 state
     wiggum = {
       iteration: 0,
-      step: STEP_ENSURE_PR,
+      step: STEP_PHASE1_MONITOR_WORKFLOW,
       completedSteps: [],
+      phase: 'phase1' as const,
     };
   }
 
   return {
     git,
     pr,
+    issue,
     wiggum,
   };
 }

@@ -1,8 +1,9 @@
 /**
- * PR comment state management for Wiggum flow
+ * GitHub issue comment state management for Wiggum flow
+ * Mirrors PR comment functionality but operates on GitHub issues
  */
 
-import { getPRComments, postPRComment } from '../utils/gh-cli.js';
+import { ghCli, ghCliJson, resolveRepo } from '../utils/gh-cli.js';
 import {
   WIGGUM_STATE_MARKER,
   WIGGUM_COMMENT_PREFIX,
@@ -99,11 +100,11 @@ function validateWiggumState(data: unknown): WiggumState {
     step = obj.step;
   } else {
     // STEP_PHASE1_MONITOR_WORKFLOW validity is guaranteed by module-level validation at import time
-    // Log at ERROR level since this indicates state corruption in PR comments
+    // Log at ERROR level since this indicates state corruption in issue comments
     // that may require investigation. The workflow recovers by restarting from
     // Phase 1 Step 1, but the corrupted comment should be investigated.
     logger.error(
-      'validateWiggumState: invalid step value in PR comment state - possible corruption',
+      'validateWiggumState: invalid step value in issue comment state - possible corruption',
       {
         invalidStep: obj.step,
         invalidStepType: typeof obj.step,
@@ -133,11 +134,83 @@ function validateWiggumState(data: unknown): WiggumState {
 }
 
 /**
- * Parse wiggum state from PR comments
+ * GitHub issue comment type
+ */
+export interface GitHubIssueComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  id: string;
+}
+
+/**
+ * Get all comments for a GitHub issue
+ *
+ * Fetches all comments on an issue using gh CLI.
+ * Returns simplified comment objects with author, body, timestamp, and ID.
+ *
+ * @param issueNumber - Issue number to fetch comments for
+ * @param repo - Optional repository in "owner/repo" format
+ * @returns Array of issue comments with author, body, createdAt, and id
+ * @throws {GitHubCliError} When issue doesn't exist or gh command fails
+ *
+ * @example
+ * ```typescript
+ * const comments = await getIssueComments(123, "owner/repo");
+ * for (const comment of comments) {
+ *   console.log(`${comment.author}: ${comment.body}`);
+ * }
+ * ```
+ */
+export async function getIssueComments(
+  issueNumber: number,
+  repo?: string
+): Promise<GitHubIssueComment[]> {
+  const resolvedRepo = await resolveRepo(repo);
+  return ghCliJson<GitHubIssueComment[]>(
+    [
+      'api',
+      `repos/${resolvedRepo}/issues/${issueNumber}/comments`,
+      '--jq',
+      'map({author: .user.login, body: .body, createdAt: .created_at, id: (.id | tostring)})',
+    ],
+    {}
+  );
+}
+
+/**
+ * Post a comment to a GitHub issue
+ *
+ * Posts a new comment on an issue using gh CLI.
+ *
+ * @param issueNumber - Issue number to comment on
+ * @param body - Comment body (markdown supported)
+ * @param repo - Optional repository in "owner/repo" format
+ * @throws {GitHubCliError} When issue doesn't exist or gh command fails
+ *
+ * @example
+ * ```typescript
+ * await postIssueComment(123, "Starting work on this issue", "owner/repo");
+ * ```
+ */
+export async function postIssueComment(
+  issueNumber: number,
+  body: string,
+  repo?: string
+): Promise<void> {
+  const resolvedRepo = await resolveRepo(repo);
+  await ghCli(['issue', 'comment', issueNumber.toString(), '--body', body], { repo: resolvedRepo });
+}
+
+/**
+ * Parse wiggum state from issue comments
  * Looks for comments with <!-- wiggum-state:{...} --> marker
  */
-export async function getWiggumState(prNumber: number, repo?: string): Promise<WiggumState> {
-  const comments = await getPRComments(prNumber, repo);
+export async function getWiggumStateFromIssue(
+  issueNumber: number,
+  repo?: string
+): Promise<WiggumState> {
+  const comments = await getIssueComments(issueNumber, repo);
 
   // Find most recent wiggum state comment
   for (let i = comments.length - 1; i >= 0; i--) {
@@ -154,7 +227,7 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
         const errorMsg = error instanceof Error ? error.message : String(error);
         // Log prototype pollution attempts at ERROR level for security monitoring
         const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
-        logger[logLevel]('getWiggumState: failed to parse state JSON from comment', {
+        logger[logLevel]('getWiggumStateFromIssue: failed to parse state JSON from comment', {
           commentId: comment.id,
           error: errorMsg,
           rawJson: match[1].substring(0, 200),
@@ -175,10 +248,10 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
 }
 
 /**
- * Post a new wiggum state comment to PR
+ * Post a new wiggum state comment to issue
  */
-export async function postWiggumStateComment(
-  prNumber: number,
+export async function postWiggumStateIssueComment(
+  issueNumber: number,
   state: WiggumState,
   title: string,
   body: string,
@@ -193,21 +266,21 @@ ${body}
 ---
 *Automated via Wiggum*`;
 
-  await postPRComment(prNumber, comment, repo);
+  await postIssueComment(issueNumber, comment, repo);
 }
 
 /**
- * Check if a specific review command was executed (evidence in PR comments)
+ * Check if a specific review command was executed (evidence in issue comments)
  */
-export async function hasReviewCommandEvidence(
-  prNumber: number,
+export async function hasIssueReviewCommandEvidence(
+  issueNumber: number,
   command: string,
   repo?: string
 ): Promise<boolean> {
-  const comments = await getPRComments(prNumber, repo);
+  const comments = await getIssueComments(issueNumber, repo);
 
-  logger.debug('hasReviewCommandEvidence: searching for command', {
-    prNumber,
+  logger.debug('hasIssueReviewCommandEvidence: searching for command', {
+    issueNumber,
     command,
     commentCount: comments.length,
   });
@@ -219,8 +292,8 @@ export async function hasReviewCommandEvidence(
     }
   }
 
-  logger.debug('hasReviewCommandEvidence: command not found', {
-    prNumber,
+  logger.debug('hasIssueReviewCommandEvidence: command not found', {
+    issueNumber,
     command,
     checkedCommentCount: comments.length,
   });

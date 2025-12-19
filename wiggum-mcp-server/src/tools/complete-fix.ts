@@ -83,6 +83,7 @@ ${input.fix_description}
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
+    phase: state.wiggum.phase,
   };
 
   logger.info('Posting wiggum state comment', {

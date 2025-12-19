@@ -323,3 +323,27 @@ export function sanitizeBranchNameForShell(branchName: string): {
     warning: `Branch name contained unsafe characters and was sanitized. Original: "${branchName}", Sanitized: "${sanitized}"`,
   };
 }
+
+/**
+ * Extract issue number from branch name
+ *
+ * Parses branch names in the format "123-feature-name" to extract
+ * the leading issue number. Returns null if the branch name doesn't
+ * follow this convention.
+ *
+ * @param branchName - Branch name to parse (e.g., "123-feature-name")
+ * @returns Issue number if found, null otherwise
+ *
+ * @example
+ * ```typescript
+ * extractIssueNumberFromBranch("123-feature-name"); // 123
+ * extractIssueNumberFromBranch("feature-branch"); // null
+ * extractIssueNumberFromBranch("456-fix-bug"); // 456
+ * ```
+ */
+export function extractIssueNumberFromBranch(branchName: string): number | null {
+  const parts = branchName.split('-');
+  if (parts.length === 0) return null;
+  const issueNum = parseInt(parts[0], 10);
+  return isNaN(issueNum) ? null : issueNum;
+}

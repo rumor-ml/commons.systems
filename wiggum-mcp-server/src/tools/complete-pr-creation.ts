@@ -39,7 +39,7 @@ import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
-import { STEP_ENSURE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
+import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
@@ -214,26 +214,27 @@ ${commits}`;
       );
     }
 
-    // Mark Step 0 complete
+    // Mark Phase 1 Step 4 complete and transition to Phase 2
     const newState = {
       iteration: state.wiggum.iteration,
-      step: STEP_ENSURE_PR,
-      completedSteps: [...state.wiggum.completedSteps, STEP_ENSURE_PR],
+      step: STEP_PHASE1_CREATE_PR,
+      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR],
+      phase: 'phase2' as const,
     };
 
     try {
       await postWiggumStateComment(
         prNumber,
         newState,
-        `${STEP_NAMES[STEP_ENSURE_PR]} - Complete`,
-        `PR created successfully!
+        `${STEP_NAMES[STEP_PHASE1_CREATE_PR]} - Complete`,
+        `PR created successfully! Phase 1 complete. Transitioning to Phase 2 (PR workflow).
 
 **PR:** #${prNumber}
 **Title:** ${pr.title}
 **Base:** ${pr.baseRefName}
 **Closes:** #${issueNum}
 
-**Next Action:** Proceeding to workflow monitoring.`
+**Next Action:** Beginning Phase 2 workflow monitoring.`
       );
     } catch (commentError) {
       // Classify GitHub API errors for better diagnostics
