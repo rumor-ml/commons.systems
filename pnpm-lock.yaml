@@ -120,6 +120,15 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  mcp-common:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.25
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
   print/site:
     dependencies:
       '@commons/design-system':

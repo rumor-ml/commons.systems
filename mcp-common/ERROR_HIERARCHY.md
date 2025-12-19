@@ -1,0 +1,574 @@
+# MCP Error Handling Guide
+
+This document explains the error handling system used across MCP (Model Context Protocol) servers in the commons.systems project.
+
+## Overview
+
+The mcp-common package provides:
+
+1. **Error Classes**: Typed error hierarchy for categorizing failures
+2. **Result Types**: Discriminated union types for tool results (ToolSuccess | ToolError)
+3. **Result Builders**: Factory functions for creating standardized tool results
+4. **Utility Functions**: Helper functions for error categorization and formatting
+
+## Error Class Hierarchy
+
+```
+Error (built-in)
+└── McpError (base class)
+    ├── ValidationError
+    ├── TimeoutError
+    ├── NetworkError
+    └── GitHubCliError
+```
+
+All MCP-specific errors extend the base `McpError` class.
+
+## Error Classes
+
+### McpError (Base Class)
+
+**Purpose**: Base class for all MCP server errors
+
+**Constructor**:
+
+```typescript
+new McpError(message: string, code?: ErrorCode)
+```
+
+**Properties**:
+
+- `message: string` - Human-readable error description (inherited from Error)
+- `name: string` - Always 'McpError'
+- `code?: ErrorCode` - Optional error code for categorization
+- `stack?: string` - Stack trace (inherited from Error)
+
+**Example**:
+
+```typescript
+import { McpError } from '@commons/mcp-common/errors';
+
+throw new McpError('Configuration error', 'PARSING_ERROR');
+```
+
+---
+
+### ValidationError
+
+**Purpose**: Input validation failures that require user correction
+
+**Constructor**:
+
+```typescript
+new ValidationError(message: string)
+```
+
+**Properties**:
+
+- `message: string` - Human-readable error description
+- `name: string` - Always 'ValidationError'
+- `code: 'VALIDATION_ERROR'` - Automatically set
+
+**When to use**:
+
+- Invalid function arguments (e.g., port out of range, malformed URL)
+- Missing required parameters
+- Type mismatches
+- Format violations (e.g., invalid JSON, malformed paths)
+
+**Retry behavior**: **Terminal** - `isTerminalError()` returns `true`. Do not retry, return error to user immediately.
+
+**Example**:
+
+```typescript
+import { ValidationError } from '@commons/mcp-common/errors';
+
+// Invalid port number
+if (port < 0 || port > 65535) {
+  throw new ValidationError('Port must be between 0 and 65535');
+}
+
+// Missing required parameter
+if (!moduleName) {
+  throw new ValidationError('Module name is required');
+}
+```
+
+---
+
+### TimeoutError
+
+**Purpose**: Operations that exceed time limits
+
+**Constructor**:
+
+```typescript
+new TimeoutError(message: string)
+```
+
+**Properties**:
+
+- `message: string` - Human-readable error description
+- `name: string` - Always 'TimeoutError'
+- `code: 'TIMEOUT'` - Automatically set
+
+**When to use**:
+
+- Network requests that don't complete in time
+- Long-running operations exceeding deadlines
+- Process startup timeouts
+- Service health check timeouts
+
+**Retry behavior**: **Retryable** - `isTerminalError()` returns `false`. May succeed with more time or under better conditions.
+
+**Example**:
+
+```typescript
+import { TimeoutError } from '@commons/mcp-common/errors';
+
+if (elapsed > maxWaitTime) {
+  throw new TimeoutError(`Operation timed out after ${elapsed}ms`);
+}
+```
+
+---
+
+### NetworkError
+
+**Purpose**: Network-related failures
+
+**Constructor**:
+
+```typescript
+new NetworkError(message: string)
+```
+
+**Properties**:
+
+- `message: string` - Human-readable error description
+- `name: string` - Always 'NetworkError'
+- `code: 'NETWORK_ERROR'` - Automatically set
+
+**When to use**:
+
+- HTTP request failures
+- Connection refused/reset errors
+- DNS resolution failures
+- Network timeouts
+
+**Retry behavior**: **Retryable** - `isTerminalError()` returns `false`. May succeed on retry if network conditions improve.
+
+**Example**:
+
+```typescript
+import { NetworkError } from '@commons/mcp-common/errors';
+
+try {
+  await fetch(url);
+} catch (error) {
+  throw new NetworkError(`Failed to fetch ${url}: ${error.message}`);
+}
+```
+
+---
+
+### GitHubCliError
+
+**Purpose**: GitHub CLI (gh) command failures
+
+**Constructor**:
+
+```typescript
+new GitHubCliError(
+  message: string,
+  exitCode: number,
+  stderr: string,
+  stdout?: string
+)
+```
+
+**Properties**:
+
+- `message: string` - Human-readable error description
+- `name: string` - Always 'GitHubCliError'
+- `code: 'GH_CLI_ERROR'` - Automatically set
+- `exitCode: number` - Process exit code (clamped to 0-255)
+- `stderr: string` - Standard error output
+- `stdout?: string` - Standard output (optional)
+
+**Special behavior**: Exit codes outside 0-255 are automatically clamped with a warning in the message. This ensures error construction never fails.
+
+**Example**:
+
+```typescript
+import { GitHubCliError } from '@commons/mcp-common/errors';
+
+throw new GitHubCliError('Failed to create PR', 1, 'Error: could not create pull request', '');
+```
+
+## Result Types
+
+### ToolResult (Discriminated Union)
+
+```typescript
+type ToolResult = ToolSuccess | ToolError;
+```
+
+### ToolSuccess
+
+Represents a successful tool operation.
+
+**Structure**:
+
+```typescript
+interface ToolSuccess {
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
+  readonly isError: false;
+  readonly _meta?: Readonly<{ [key: string]: unknown }>;
+  [key: string]: unknown; // MCP SDK compatibility
+}
+```
+
+### ToolError
+
+Represents a failed tool operation.
+
+**Structure**:
+
+```typescript
+interface ToolError {
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
+  readonly isError: true;
+  readonly _meta: Readonly<{
+    readonly errorType: string;
+    readonly errorCode?: string;
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown; // MCP SDK compatibility
+}
+```
+
+## Result Builder Functions
+
+### createToolSuccess
+
+Factory function for creating success results.
+
+**Signature**:
+
+```typescript
+function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess;
+```
+
+**Usage**:
+
+```typescript
+import { createToolSuccess } from '@commons/mcp-common/types';
+
+return createToolSuccess('Operation completed successfully');
+return createToolSuccess('User created', { userId: '123' });
+```
+
+### createToolError
+
+Factory function for creating error results.
+
+**Signature**:
+
+```typescript
+function createToolError(
+  text: string,
+  errorType: string,
+  errorCode?: string,
+  meta?: Record<string, unknown>
+): ToolError;
+```
+
+**Usage**:
+
+```typescript
+import { createToolError } from '@commons/mcp-common/types';
+
+return createToolError('File not found', 'NotFoundError', 'FILE_NOT_FOUND');
+return createToolError('Invalid input', 'ValidationError');
+```
+
+### createErrorResult
+
+Converts any error to a ToolError with automatic categorization.
+
+**Signature**:
+
+```typescript
+function createErrorResult(error: unknown): ToolError;
+```
+
+**Usage**:
+
+```typescript
+import { createErrorResult } from '@commons/mcp-common/result-builders';
+
+try {
+  // ... operation
+} catch (error) {
+  return createErrorResult(error);
+}
+```
+
+**Automatic categorization**:
+
+- TimeoutError → `errorType: 'TimeoutError', errorCode: 'TIMEOUT'`
+- ValidationError → `errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR'`
+- NetworkError → `errorType: 'NetworkError', errorCode: 'NETWORK_ERROR'`
+- GitHubCliError → `errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR'`
+- McpError → `errorType: 'McpError', errorCode: error.code`
+- Other errors → `errorType: 'UnknownError'`
+
+### createErrorResultFromError
+
+Specialized version that only handles McpError types.
+
+**Signature**:
+
+```typescript
+function createErrorResultFromError(error: unknown, fallbackToGeneric?: boolean): ToolError | null;
+```
+
+**Usage**:
+
+```typescript
+import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
+
+// With fallback (default)
+const result = createErrorResultFromError(error);
+// Always returns ToolError
+
+// Without fallback
+const result = createErrorResultFromError(error, false);
+if (result) {
+  return result;
+} else {
+  // Handle non-MCP error differently
+}
+```
+
+## Utility Functions
+
+### isTerminalError
+
+Determines if an error should terminate retry attempts.
+
+**Signature**:
+
+```typescript
+function isTerminalError(error: unknown): boolean;
+```
+
+**Retry Strategy**:
+
+- ValidationError: **Terminal** (returns `true`) - requires user input correction
+- TimeoutError: Retryable (returns `false`) - may succeed with more time
+- NetworkError: Retryable (returns `false`) - transient network issues
+- GitHubCliError: Retryable (returns `false`) - conservative default
+- Other errors: Retryable (returns `false`) - conservative approach
+
+**Usage**:
+
+```typescript
+import { isTerminalError } from '@commons/mcp-common/errors';
+
+if (isTerminalError(error)) {
+  // Don't retry, return error immediately
+  return createErrorResult(error);
+}
+
+// Retry logic for non-terminal errors
+await retry(operation, { maxRetries: 3 });
+```
+
+**Conservative default rationale**:
+
+- Many infrastructure failures are temporary (DB locks, rate limits, etc.)
+- Retrying maximizes system resilience without user intervention
+- Retry limits prevent infinite loops
+- Only ValidationError is definitively terminal
+
+### formatError
+
+Formats errors for display with optional context.
+
+**Signature**:
+
+```typescript
+function formatError(error: unknown, includeStack?: boolean): string;
+```
+
+**Usage**:
+
+```typescript
+import { formatError } from '@commons/mcp-common/errors';
+
+// Basic formatting
+console.error(formatError(error));
+// Output: [TimeoutError] (TIMEOUT) Operation timed out
+
+// With stack trace
+console.error(formatError(error, true));
+// Output: [TimeoutError] (TIMEOUT) Operation timed out
+//         Stack: Error: Operation timed out
+//             at ...
+```
+
+### isSystemError
+
+Checks if an error is a critical system error.
+
+**Signature**:
+
+```typescript
+function isSystemError(error: unknown): boolean;
+```
+
+**System error codes**:
+
+- `ENOMEM` - Out of memory
+- `ENOSPC` - No space left on device
+- `EMFILE` - Too many open files (process limit)
+- `ENFILE` - Too many open files (system limit)
+
+**Usage**:
+
+```typescript
+import { isSystemError } from '@commons/mcp-common/errors';
+
+try {
+  // ... operation
+} catch (error) {
+  if (isSystemError(error)) {
+    // Re-throw critical system errors without wrapping
+    throw error;
+  }
+  // Handle other errors normally
+  return createErrorResult(error);
+}
+```
+
+## Type Guards
+
+### isToolError
+
+Type guard to check if a result is an error.
+
+**Usage**:
+
+```typescript
+import { isToolError } from '@commons/mcp-common/types';
+
+if (isToolError(result)) {
+  // TypeScript knows result is ToolError
+  console.error(result._meta.errorType);
+}
+```
+
+### isToolSuccess
+
+Type guard to check if a result is successful.
+
+**Usage**:
+
+```typescript
+import { isToolSuccess } from '@commons/mcp-common/types';
+
+if (isToolSuccess(result)) {
+  // TypeScript knows result is ToolSuccess
+  console.log(result.content[0].text);
+}
+```
+
+## Complete Usage Example
+
+```typescript
+import {
+  ValidationError,
+  TimeoutError,
+  NetworkError,
+  isTerminalError,
+  formatError,
+} from '@commons/mcp-common/errors';
+import { createErrorResult, createSuccessResult } from '@commons/mcp-common/result-builders';
+import type { ToolResult } from '@commons/mcp-common/types';
+
+async function processRequest(params: { url: string; timeout: number }): Promise<ToolResult> {
+  // Validate input
+  if (!params.url) {
+    throw new ValidationError('URL is required');
+  }
+
+  if (params.timeout <= 0) {
+    throw new ValidationError('Timeout must be positive');
+  }
+
+  try {
+    const result = await fetchWithTimeout(params.url, params.timeout);
+    return createSuccessResult(`Fetched ${result.length} bytes`);
+  } catch (error) {
+    // Log the error with formatting
+    console.error('Request failed:', formatError(error));
+
+    // Check if we should retry
+    if (!isTerminalError(error)) {
+      // Implement retry logic here
+      console.log('Error is retryable, attempting retry...');
+    }
+
+    // Convert to tool error result
+    return createErrorResult(error);
+  }
+}
+
+async function fetchWithTimeout(url: string, timeout: number): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new NetworkError(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return await response.text();
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new TimeoutError(`Request timed out after ${timeout}ms`);
+    }
+    throw new NetworkError(`Network request failed: ${error.message}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+```
+
+## Best Practices
+
+1. **Use specific error classes**: Prefer `ValidationError`, `TimeoutError`, etc. over generic `McpError`
+2. **Provide clear messages**: Error messages should help users understand what went wrong and how to fix it
+3. **Use result builders**: Always use `createErrorResult()` or `createSuccessResult()` instead of manually constructing result objects
+4. **Respect retry strategy**: Check `isTerminalError()` before implementing retry logic
+5. **Handle system errors carefully**: Re-throw system errors (`isSystemError()`) without wrapping
+6. **Log with context**: Use `formatError(error, true)` to include stack traces in logs
+7. **Type-safe error handling**: Use discriminated unions and type guards for compile-time safety
+
+## Immutability Note
+
+Result objects use `Object.freeze()` for **shallow immutability**. Nested objects and arrays in metadata remain mutable. Do not rely on deep immutability:
+
+```typescript
+const result = createToolSuccess('test', { items: [1, 2] });
+
+// Top-level is frozen (this throws)
+result.isError = true; // Error
+
+// Nested objects are NOT frozen (this works)
+result._meta.items.push(3); // Modifies the array!
+```
+
+For deep immutability, clone objects before adding them to metadata or use immutable data structures.

@@ -138,6 +138,7 @@
 
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
+          mcp-common = pkgs.callPackage ./nix/packages/mcp-common.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
@@ -159,6 +160,7 @@
           devShell = pkgs.mkShell {
             buildInputs = commonPackages ++ [
               tmux-tui
+              mcp-common
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
@@ -206,6 +208,7 @@
           packages = {
             inherit
               tmux-tui
+              mcp-common
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
