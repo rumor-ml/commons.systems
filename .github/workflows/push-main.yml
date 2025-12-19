@@ -126,9 +126,8 @@ jobs:
           log_debug "=== PRINTSYNC TEST DEBUG LOG ==="
           log_debug "Starting printsync test run"
 
-          # Get paths
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-          ROOT_DIR="$SCRIPT_DIR"
+          # Get paths - use current directory as root (script is run from workspace)
+          ROOT_DIR="$(pwd)"
           APP_PATH="$ROOT_DIR/printsync"
 
           log_debug "ROOT_DIR: $ROOT_DIR"
