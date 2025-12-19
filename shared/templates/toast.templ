@@ -24,7 +24,7 @@ templ Toast(id, title, message string, toastType ToastType, duration int, action
 		id={ id }
 		class={ fmt.Sprintf("toast toast--%s", toastType) }
 		role="alert"
-		aria-live={ templ.SafeString(getAriaLive(toastType)) }
+		aria-live={ getAriaLive(toastType) }
 		if duration > 0 {
 			data-duration={ fmt.Sprintf("%d", duration) }
 		}
@@ -36,7 +36,7 @@ templ Toast(id, title, message string, toastType ToastType, duration int, action
 			<button
 				class="toast__close"
 				aria-label="Close notification"
-				onclick={ templ.SafeScript(fmt.Sprintf("dismissToast('%s')", id)) }
+				onclick={ templ.ComponentScript{Call: fmt.Sprintf("dismissToast('%s')", id)} }
 			>
 				<svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>

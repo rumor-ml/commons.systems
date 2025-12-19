@@ -6,9 +6,12 @@ toolchain go1.24.10
 
 replace github.com/commons-systems/filesync => ../../pkg/filesync
 
+replace commons.systems/shared/templates => ../../shared/templates
+
 require (
 	cloud.google.com/go/firestore v1.18.0
 	cloud.google.com/go/storage v1.53.0
+	commons.systems/shared/templates v0.0.0
 	firebase.google.com/go/v4 v4.18.0
 	github.com/a-h/templ v0.3.960
 	github.com/commons-systems/filesync v0.0.0

@@ -8,6 +8,8 @@ SCRIPT_DIR="$REPO_ROOT/infrastructure/scripts"
 CHANGED_ONLY=false
 FAILED_TESTS=()
 TESTED_APPS=()
+APPS_TO_TEST_CACHE=""
+APPS_TO_TEST_CACHED=false
 
 # Parse arguments
 if [ "$1" = "--changed-only" ]; then
@@ -20,6 +22,84 @@ get_changed_apps() {
   git diff --name-only HEAD origin/main 2>/dev/null | cut -d'/' -f1 | sort -u
 }
 
+# Get list of changed shared Go modules
+get_changed_shared_modules() {
+  # Get changed files in shared/ and pkg/ directories
+  git diff --name-only HEAD origin/main 2>/dev/null | grep -E '^(shared|pkg)/' | while read -r file; do
+    # Extract the module path (e.g., shared/templates, pkg/filesync)
+    echo "$file" | cut -d'/' -f1,2
+  done | sort -u
+}
+
+# Find apps that depend on a given Go module
+find_dependent_apps() {
+  local module_path="$1"
+  local module_name=""
+
+  # Determine the Go module name based on path
+  if [ -f "$REPO_ROOT/$module_path/go.mod" ]; then
+    module_name=$(grep '^module ' "$REPO_ROOT/$module_path/go.mod" | awk '{print $2}')
+  fi
+
+  if [ -z "$module_name" ]; then
+    return
+  fi
+
+  # Search for apps that depend on this module
+  for dir in "$REPO_ROOT"/*; do
+    if [ ! -d "$dir" ]; then continue; fi
+
+    local app_name=$(basename "$dir")
+
+    # Skip special directories
+    if [[ "$app_name" =~ ^\..*$ ]] || [ "$app_name" = "node_modules" ] || [ "$app_name" = "infrastructure" ]; then
+      continue
+    fi
+
+    # Check go.mod files in app directories
+    find "$dir" -name "go.mod" -type f 2>/dev/null | while read -r gomod; do
+      if grep -q "$module_name" "$gomod" 2>/dev/null; then
+        echo "$app_name"
+        break
+      fi
+    done
+  done | sort -u
+}
+
+# Get all apps that should be tested (including transitive dependencies)
+get_apps_to_test() {
+  # Return cached result if available
+  if [ "$APPS_TO_TEST_CACHED" = true ]; then
+    echo "$APPS_TO_TEST_CACHE"
+    return
+  fi
+
+  local changed_dirs=()
+
+  # Get directly changed directories
+  while IFS= read -r dir; do
+    [ -n "$dir" ] && changed_dirs+=("$dir")
+  done < <(get_changed_apps)
+
+  # Check for changed shared modules and add dependent apps
+  while IFS= read -r module_path; do
+    [ -z "$module_path" ] && continue
+
+    echo "Detected change in shared module: $module_path" >&2
+
+    # Find apps that depend on this module
+    while IFS= read -r app; do
+      [ -n "$app" ] && changed_dirs+=("$app")
+      echo "  Adding dependent app: $app" >&2
+    done < <(find_dependent_apps "$module_path")
+  done < <(get_changed_shared_modules)
+
+  # Cache and return unique list
+  APPS_TO_TEST_CACHE=$(printf '%s\n' "${changed_dirs[@]}" | sort -u)
+  APPS_TO_TEST_CACHED=true
+  echo "$APPS_TO_TEST_CACHE"
+}
+
 # Check if an app has changes
 app_has_changes() {
   local app_name="$1"
@@ -28,8 +108,8 @@ app_has_changes() {
     return 0  # Always test if not in changed-only mode
   fi
 
-  # Check if app is in the list of changed directories
-  if get_changed_apps | grep -q "^${app_name}$"; then
+  # Check if app is in the list of apps to test (includes transitive dependencies)
+  if get_apps_to_test | grep -q "^${app_name}$"; then
     return 0
   fi
 
