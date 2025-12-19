@@ -30,7 +30,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
 
   const baseURL = isDeployed
     ? process.env.DEPLOYED_URL || site.deployedUrl || `https://${site.siteName}.commons.systems`
-    : `http://localhost:${site.port}`;
+    : `http://127.0.0.1:${site.port}`;
 
   return defineConfig({
     testDir: site.testDir || './e2e',
@@ -66,7 +66,31 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
             // On macOS, use Firefox to avoid chrome-headless-shell Mach port issues
             {
               name: 'firefox',
-              use: { ...devices['Desktop Firefox'] },
+              use: {
+                ...devices['Desktop Firefox'],
+                launchOptions: {
+                  firefoxUserPrefs: {
+                    // Allow connections to localhost emulator ports
+                    'network.proxy.allow_hijacking_localhost': true,
+                    'network.websocket.allowInsecureFromHTTPS': true,
+                  },
+                },
+              },
+            },
+            // Also enable Chromium for testing emulator connectivity
+            {
+              name: 'chromium',
+              use: {
+                ...devices['Desktop Chrome'],
+                launchOptions: {
+                  args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                  ],
+                },
+              },
             },
           ]
         : [
@@ -86,19 +110,20 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
             },
           ],
 
-    webServer: isDeployed || !shouldStartServer
-      ? undefined
-      : {
-          command: process.env.CI
-            ? site.webServerCommand?.ci || `cd ../site && npm run preview`
-            : site.webServerCommand?.local || `cd ../site && npm run dev`,
-          url: `http://localhost:${site.port}`,
-          reuseExistingServer: true,
-          timeout: 120 * 1000,
-          env: {
-            ...process.env,
-            ...(site.env || {}),
+    webServer:
+      isDeployed || !shouldStartServer
+        ? undefined
+        : {
+            command: process.env.CI
+              ? site.webServerCommand?.ci || `cd ../site && npm run preview`
+              : site.webServerCommand?.local || `cd ../site && npm run dev`,
+            url: `http://localhost:${site.port}`,
+            reuseExistingServer: true,
+            timeout: 120 * 1000,
+            env: {
+              ...process.env,
+              ...(site.env || {}),
+            },
           },
-        },
   });
 }
