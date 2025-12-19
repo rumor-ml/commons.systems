@@ -2,82 +2,52 @@
 set -euo pipefail
 
 # Start Firebase emulators for Firestore and GCS Storage
-# Each worktree runs ISOLATED emulators with unique ports for concurrent testing
+# Emulators are SHARED across all worktrees for efficient resource usage
 
 # Source port allocation script to get shared ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
-# Emulators use worktree-specific ports (set by allocate-test-ports.sh)
+# Emulators use shared default ports (set by allocate-test-ports.sh)
 PROJECT_ID="demo-test"
-MAX_RETRIES=60  # Increased for initial jar downloads
+MAX_RETRIES=30
 RETRY_INTERVAL=1
+SHARED_PID_FILE="/tmp/claude/firebase-emulators.pid"  # Shared PID file
+SHARED_LOG_FILE="/tmp/claude/firebase-emulators.log"  # Shared log file
 
-# Worktree-specific PID and log files (use WORKTREE_TMP_DIR from allocate-test-ports.sh)
-PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
-LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
+# Ensure temp directory exists
+mkdir -p /tmp/claude
 
-echo "Firebase Emulators (Worktree-Specific Instance):"
+echo "Firebase Emulators (Shared Instance):"
 echo "  Auth: localhost:${AUTH_PORT}"
 echo "  Firestore: localhost:${FIRESTORE_PORT}"
 echo "  Storage: localhost:${STORAGE_PORT}"
 echo "  UI: http://localhost:${UI_PORT}"
 echo ""
 
-# Check if THIS worktree's emulators are already running
+# Check if emulators are already running (shared across worktrees)
 if nc -z localhost $AUTH_PORT 2>/dev/null; then
-  echo "Emulators already running for this worktree - reusing instance"
-  echo "  PID file: $PID_FILE"
+  echo "Emulators already running - reusing shared instance"
+  echo "  Multiple worktrees can connect to the same emulator"
+  echo "  Environment variables are already set"
   exit 0
 fi
 
-echo "Starting new emulator instance for this worktree..."
+echo "Starting new emulator instance..."
 
 # Change to repository root
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# In CI, use the default firebase.json with fixed ports
-# Locally, generate a temporary config with worktree-specific ports
-cd "${REPO_ROOT}"
-
-if [ -n "${CI:-}" ]; then
-  # CI: Use default firebase.json (has fixed ports 9099, 8081, 9199)
-  echo "[CI] Using default firebase.json with fixed ports"
-  FIREBASE_CONFIG="firebase.json"
-else
-  # Local: Generate temporary firebase.json with worktree-specific ports using jq
-  FIREBASE_CONFIG="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
-  echo "[LOCAL] Creating temp firebase config at: $FIREBASE_CONFIG"
-  echo "[LOCAL] Ports: AUTH=$AUTH_PORT, FIRESTORE=$FIRESTORE_PORT, STORAGE=$STORAGE_PORT, UI=$UI_PORT"
-
-  jq --arg auth_port "$AUTH_PORT" \
-     --arg firestore_port "$FIRESTORE_PORT" \
-     --arg storage_port "$STORAGE_PORT" \
-     --arg ui_port "$UI_PORT" \
-     '.emulators.auth.port = ($auth_port | tonumber) |
-      .emulators.firestore.port = ($firestore_port | tonumber) |
-      .emulators.storage.port = ($storage_port | tonumber) |
-      .emulators.ui.port = ($ui_port | tonumber)' \
-     firebase.json > "$FIREBASE_CONFIG"
-fi
-
-# Start emulators
-# Run from repo root so relative paths in firebase.json work correctly
-echo "[DEBUG] Starting emulators with config: $FIREBASE_CONFIG"
-pnpm exec firebase emulators:start \
-  --config "$FIREBASE_CONFIG" \
-  --only auth,firestore,storage \
-  --project="${PROJECT_ID}" \
-  > "$LOG_FILE" 2>&1 &
+# Start emulators in the background (using default ports from firebase.json)
+npx firebase-tools emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > "$SHARED_LOG_FILE" 2>&1 &
 EMULATOR_PID=$!
-echo "[DEBUG] Emulator process started with PID: $EMULATOR_PID"
 
-# Save PID for cleanup (worktree-specific)
-echo "$EMULATOR_PID" > "$PID_FILE"
+# Save PID for cleanup (shared across worktrees)
+echo "$EMULATOR_PID" > "$SHARED_PID_FILE"
 
 echo "Firebase emulators started with PID: ${EMULATOR_PID}"
-echo "Log file: $LOG_FILE"
+echo "Log file: $SHARED_LOG_FILE"
 
 # Health check for Auth
 echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
@@ -87,9 +57,9 @@ while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$LOG_FILE"
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -104,9 +74,9 @@ while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$LOG_FILE"
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -121,9 +91,9 @@ while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$LOG_FILE"
+    tail -n 20 "$SHARED_LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$PID_FILE"
+    rm -f "$SHARED_PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -133,13 +103,13 @@ echo "Storage emulator is ready on port ${STORAGE_PORT}"
 echo ""
 echo "Firebase emulators are ready!"
 echo ""
-echo "Worktree-specific instance running on:"
+echo "Shared instance accessible from all worktrees:"
 echo "  FIREBASE_AUTH_EMULATOR_HOST=localhost:${AUTH_PORT}"
 echo "  FIRESTORE_EMULATOR_HOST=localhost:${FIRESTORE_PORT}"
 echo "  STORAGE_EMULATOR_HOST=localhost:${STORAGE_PORT}"
 echo "  Emulator UI: http://localhost:${UI_PORT}"
 echo ""
-echo "NOTE: This worktree has isolated emulators."
-echo "   Other worktrees run their own emulator instances."
+echo "NOTE: Emulators are shared across worktrees."
+echo "   Stopping them will affect all active worktrees."
 echo ""
 echo "To stop: infrastructure/scripts/stop-emulators.sh"

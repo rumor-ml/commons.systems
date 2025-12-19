@@ -53,10 +53,39 @@ jobs:
             echo "CI image not found, will use fallback"
           fi
 
+  # ==================== Step 1: Discover Apps ====================
+  discover-apps:
+    name: Discover Apps
+    runs-on: ubuntu-latest
+    outputs:
+      firebase-apps: ${{ steps.discover.outputs.firebase }}
+      go-tui-apps: ${{ steps.discover.outputs.go-tui }}
+      go-fullstack-apps: ${{ steps.discover.outputs.go-fullstack }}
+      go-packages: ${{ steps.discover.outputs.go-package }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover apps
+        id: discover
+        run: |
+          source ./infrastructure/scripts/discover-apps.sh
+
+          # Output as JSON arrays for matrix
+          firebase=$(discover_apps . firebase | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_tui=$(discover_apps . go-tui | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_fullstack=$(discover_apps . go-fullstack | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          go_package=$(discover_apps . go-package | cut -d: -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "firebase=$firebase" >> $GITHUB_OUTPUT
+          echo "go-tui=$go_tui" >> $GITHUB_OUTPUT
+          echo "go-fullstack=$go_fullstack" >> $GITHUB_OUTPUT
+          echo "go-package=$go_package" >> $GITHUB_OUTPUT
+
   # ==================== Firebase App Tests ====================
   test-firebase-fellspiral:
     name: Test Firebase - fellspiral
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'fellspiral')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -65,51 +94,56 @@ jobs:
           install-playwright: 'true'
           install-firebase: 'true'
       - name: Run tests
-        run: ./test --module=fellspiral --type=e2e --ci
+        run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
   test-firebase-videobrowser:
     name: Test Firebase - videobrowser
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'videobrowser')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
-          install-firebase: 'true'
       - name: Run tests
-        run: ./test --module=videobrowser --type=e2e --ci
+        run: ./infrastructure/scripts/test-firebase-app.sh videobrowser
 
   test-firebase-audiobrowser:
     name: Test Firebase - audiobrowser
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'audiobrowser')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
-          install-firebase: 'true'
       - name: Run tests
-        run: ./test --module=audiobrowser --type=e2e --ci
+        run: ./infrastructure/scripts/test-firebase-app.sh audiobrowser
 
   test-firebase-print:
     name: Test Firebase - print
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'print')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-playwright: 'true'
-          install-firebase: 'true'
       - name: Run tests
-        run: ./test --module=print --type=e2e --ci
+        run: ./infrastructure/scripts/test-firebase-app.sh print
 
   # ==================== Go TUI App Tests ====================
   test-go-tui-tmux-tui:
     name: Test Go TUI - tmux-tui
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.go-tui-apps), 'tmux-tui')
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -117,12 +151,14 @@ jobs:
         with:
           go-version: '1.22'
       - name: Run tests
-        run: ./test --module=tmux-tui --type=e2e --ci
+        run: ./infrastructure/scripts/test-go-tui-app.sh tmux-tui
 
   # ==================== Go Fullstack App Tests ====================
   test-go-fullstack-printsync:
     name: Test Go Fullstack - printsync
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.go-fullstack-apps), 'printsync')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +184,7 @@ jobs:
         run: go install github.com/a-h/templ/cmd/templ@latest
 
       - name: Run tests
-        run: ./test --module=printsync --type=e2e --ci
+        run: ./infrastructure/scripts/test-go-fullstack-app.sh printsync
 
       - name: Upload emulator logs on failure
         if: failure()
@@ -174,6 +210,8 @@ jobs:
   test-go-packages-filesync:
     name: Test Go Pkg - filesync
     runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.go-packages), 'filesync')
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -181,7 +219,7 @@ jobs:
         with:
           go-version: '1.22'
       - name: Run tests
-        run: ./test --module=filesync --type=unit --ci
+        run: ./infrastructure/scripts/test-go-package.sh pkg/filesync
 
   # ==================== Deploy Firestore Rules ====================
   deploy-firestore-rules:
@@ -745,11 +783,12 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Test fellspiral
-        run: ./test --module=fellspiral --type=deployed-e2e --ci
+        run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          CI: true
 
   e2e-videobrowser:
     name: E2E Tests - videobrowser
@@ -770,9 +809,10 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Test videobrowser
-        run: ./test --module=videobrowser --type=deployed-e2e --ci
+        run: ./infrastructure/scripts/run-playwright-tests.sh videobrowser "${{ needs.deploy-videobrowser.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-videobrowser.outputs.url }}
+          CI: true
 
   e2e-audiobrowser:
     name: E2E Tests - audiobrowser
@@ -793,9 +833,10 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Test audiobrowser
-        run: ./test --module=audiobrowser --type=deployed-e2e --ci
+        run: ./infrastructure/scripts/run-playwright-tests.sh audiobrowser "${{ needs.deploy-audiobrowser.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-audiobrowser.outputs.url }}
+          CI: true
 
   e2e-print:
     name: E2E Tests - print
@@ -816,9 +857,10 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Test print
-        run: ./test --module=print --type=deployed-e2e --ci
+        run: ./infrastructure/scripts/run-playwright-tests.sh print "${{ needs.deploy-print.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-print.outputs.url }}
+          CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
   rollback-on-failure:

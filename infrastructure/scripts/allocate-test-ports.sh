@@ -5,47 +5,23 @@ set -eu
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 
-# In CI, use fixed ports (no worktree isolation needed)
-# Locally, use dynamic ports for worktree isolation
-if [ -n "${CI:-}" ]; then
-  # CI: Use fixed shared ports (same as main branch behavior)
-  HASH="ci"
-  PORT_OFFSET=0
-  AUTH_PORT=9099
-  FIRESTORE_PORT=8081
-  STORAGE_PORT=9199
-  UI_PORT=4000
-  APP_PORT=8080
-  export WORKTREE_TMP_DIR="/tmp/claude/ci"
-else
-  # Local: Hash worktree path for deterministic port allocation
-  # This ensures:
-  # 1. The same worktree path always gets the same ports (path-based hash)
-  # 2. Moving a worktree to a different location will get different ports (path changes)
-  # 3. Different worktree paths get different ports (even with same branch name)
-  # 4. Ports remain stable across emulator restarts within same worktree path
-  # 5. Hash is computed from the absolute worktree path, not an external identifier
-  # Use cksum for cross-platform compatibility (macOS and Linux)
-  HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
-  PORT_OFFSET=$(($HASH % 100))
+# Hash the worktree path (not just name) for deterministic port allocation
+# Use cksum for cross-platform compatibility
+HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
+PORT_OFFSET=$(($HASH % 100))
 
-  # UNIQUE EMULATOR PORTS - Different per worktree
-  # Each worktree runs isolated emulators for concurrent testing
-  AUTH_PORT=$((10000 + ($PORT_OFFSET * 10)))
-  FIRESTORE_PORT=$((11000 + ($PORT_OFFSET * 10)))
-  STORAGE_PORT=$((12000 + ($PORT_OFFSET * 10)))
-  UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
+# SHARED EMULATOR PORTS - Same across all worktrees
+# Multiple worktrees connect to the same emulator instance
+AUTH_PORT=9099
+FIRESTORE_PORT=8081
+STORAGE_PORT=9199
+UI_PORT=4000
 
-  # UNIQUE APP SERVER PORT - Different per worktree
-  # Prevents conflicts when running multiple app servers concurrently
-  APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
-  export WORKTREE_TMP_DIR="/tmp/claude/${HASH}"
-fi
+# UNIQUE APP SERVER PORT - Different per worktree
+# Prevents conflicts when running multiple app servers concurrently
+APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
 
-# Export hash
-export WORKTREE_HASH="$HASH"
-
-# Export port variables for emulators (unique per worktree)
+# Export port variables for emulators (shared)
 export FIREBASE_AUTH_PORT="$AUTH_PORT"
 export FIREBASE_FIRESTORE_PORT="$FIRESTORE_PORT"
 export FIREBASE_STORAGE_PORT="$STORAGE_PORT"
@@ -60,38 +36,12 @@ export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
 export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
 export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
-# Port availability check function
-# Returns 0 if port is available, 1 if in use
-check_port_available() {
-  local port=$1
-  if lsof -ti :${port} >/dev/null 2>&1; then
-    return 1  # Port in use
-  else
-    return 0  # Port available
-  fi
-}
-
-# Find next available port starting from base
-find_available_port() {
-  local base_port=$1
-  local port=$base_port
-  while ! check_port_available $port; do
-    port=$((port + 1))
-    if [ $port -gt $((base_port + 1000)) ]; then
-      echo "ERROR: Could not find available port near $base_port" >&2
-      exit 1
-    fi
-  done
-  echo $port
-}
-
 # Print allocated ports for debugging
-echo "Port allocation for worktree '${WORKTREE_NAME}' (offset: ${PORT_OFFSET}):"
-echo "  Temp directory: $WORKTREE_TMP_DIR"
-echo "  App server: $APP_PORT (unique)"
-echo "  Firebase Auth: $AUTH_PORT (unique)"
-echo "  Firestore: $FIRESTORE_PORT (unique)"
-echo "  Storage: $STORAGE_PORT (unique)"
-echo "  UI: $UI_PORT (unique)"
+echo "Port allocation for worktree '${WORKTREE_NAME}':"
+echo "  App server: $APP_PORT (unique per worktree)"
+echo "  Firebase Auth: $AUTH_PORT (shared)"
+echo "  Firestore: $FIRESTORE_PORT (shared)"
+echo "  Storage: $STORAGE_PORT (shared)"
+echo "  UI: $UI_PORT (shared)"
 echo ""
-echo "Each worktree runs isolated emulators for concurrent testing!"
+echo "Emulators are shared across worktrees - efficient resource usage!"
