@@ -14,12 +14,13 @@ export default createPlaywrightConfig({
     ci: 'npx http-server ../site/dist -p 3000 -s',
   },
   env: {
-    // Use 127.0.0.1 instead of localhost to avoid IPv6 ::1 which sandbox blocks
-    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
-    FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
-    // Vite-prefixed vars so the client can access them (browser uses localhost for connectAuthEmulator)
-    VITE_FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
-    VITE_FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099',
+    // Backend uses 127.0.0.1 to ensure IPv4 (Node.js admin SDK)
+    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980',
+    FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:10980',
+    // Browser uses 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
+    VITE_FIRESTORE_EMULATOR_HOST: process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980',
+    VITE_FIREBASE_AUTH_EMULATOR_HOST:
+      process.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:10980',
     VITE_USE_FIREBASE_EMULATOR: 'true',
   },
   globalSetup: join(__dirname, 'global-setup.ts'),

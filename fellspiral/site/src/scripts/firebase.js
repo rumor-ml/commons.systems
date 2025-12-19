@@ -92,8 +92,9 @@ async function initFirebase() {
       import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
       try {
-        const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-        const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+        // Use 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
+        const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+        const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:10980';
 
         const [firestoreHostname, firestorePort] = firestoreHost.split(':');
         connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
@@ -108,7 +109,7 @@ async function initFirebase() {
           console.warn('[Firebase] Emulator connection failed:', {
             message: error.message,
             firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
-            authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST
+            authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST,
           });
         }
       }
