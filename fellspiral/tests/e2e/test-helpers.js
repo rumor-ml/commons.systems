@@ -71,6 +71,43 @@ export async function waitForFirebaseInit(page, timeout = 3000) {
 }
 
 /**
+ * Select a combobox option by value using JavaScript evaluation
+ * This avoids Firefox's NS_ERROR_DOM_BAD_URI with CSS attribute selectors
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} listboxId - ID of the listbox element (e.g., 'typeListbox')
+ * @param {string} targetValue - Value to select from the combobox
+ * @returns {Promise<boolean>} True if option was found and clicked, false otherwise
+ */
+async function selectComboboxOption(page, listboxId, targetValue) {
+  const optionFound = await page.evaluate(
+    ({ listboxId, targetValue }) => {
+      const listbox = document.getElementById(listboxId);
+      if (!listbox) return false;
+
+      // Find option by matching dataset.value
+      const options = Array.from(listbox.querySelectorAll('.combobox-option'));
+      const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
+
+      if (matchingOption) {
+        // Dispatch mousedown event (combobox uses mousedown listeners)
+        const event = new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        });
+        matchingOption.dispatchEvent(event);
+        return true;
+      }
+
+      return false;
+    },
+    { listboxId, targetValue }
+  );
+
+  return optionFound;
+}
+
+/**
  * Create a card through the UI
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {Object} cardData - Card data to fill in the form
@@ -93,12 +130,14 @@ export async function createCardViaUI(page, cardData) {
   await page.locator('#cardType').fill(cardData.type);
   // Dispatch input event to trigger filtering
   await page.locator('#cardType').dispatchEvent('input');
-  // Try to click matching option if it exists, otherwise value is already in input
-  const typeOption = page.locator(`#typeListbox .combobox-option[data-value="${cardData.type}"]`);
-  if (await typeOption.count() > 0) {
-    await typeOption.click();
-  } else {
-    // Close dropdown by pressing Escape or clicking outside
+  // Small delay for dropdown to render options
+  await page.waitForTimeout(50);
+
+  // Try to select matching option using JavaScript evaluation (Firefox-safe)
+  const typeSelected = await selectComboboxOption(page, 'typeListbox', cardData.type);
+
+  if (!typeSelected) {
+    // No matching option found - close dropdown and accept custom value
     await page.locator('#cardType').press('Escape');
   }
 
@@ -109,12 +148,14 @@ export async function createCardViaUI(page, cardData) {
   await page.locator('#cardSubtype').fill(cardData.subtype);
   // Dispatch input event to trigger filtering
   await page.locator('#cardSubtype').dispatchEvent('input');
-  // Try to click matching option if it exists, otherwise value is already in input
-  const subtypeOption = page.locator(`#subtypeListbox .combobox-option[data-value="${cardData.subtype}"]`);
-  if (await subtypeOption.count() > 0) {
-    await subtypeOption.click();
-  } else {
-    // Close dropdown by pressing Escape
+  // Small delay for dropdown to render options
+  await page.waitForTimeout(50);
+
+  // Try to select matching option using JavaScript evaluation (Firefox-safe)
+  const subtypeSelected = await selectComboboxOption(page, 'subtypeListbox', cardData.subtype);
+
+  if (!subtypeSelected) {
+    // No matching option found - close dropdown and accept custom value
     await page.locator('#cardSubtype').press('Escape');
   }
 
@@ -189,7 +230,7 @@ async function getFirestoreAdmin() {
 
   // Connect to Firestore emulator (only call settings once)
   _firestoreDb = admin.firestore(_adminApp);
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
   const [host, port] = firestoreHost.split(':');
 
   _firestoreDb.settings({
@@ -202,31 +243,46 @@ async function getFirestoreAdmin() {
 
 /**
  * Query Firestore emulator directly to get a card by title
+ * Includes retry logic to handle emulator write propagation delays (especially in Firefox)
  * @param {string} cardTitle - Title of the card to find
- * @returns {Promise<Object|null>} Card document with id and data, or null if not found
+ * @param {number} maxRetries - Maximum number of retries (default: 5)
+ * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
+ * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
  */
-export async function getCardFromFirestore(cardTitle) {
+export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDelayMs = 500) {
   // Import collection name helper
   const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
 
   // Get or initialize Firestore Admin (reuses same instance)
   const { db } = await getFirestoreAdmin();
 
-  // Query cards collection by title
   const collectionName = getCardsCollectionName();
   const cardsCollection = db.collection(collectionName);
-  const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
 
-  if (snapshot.empty) {
-    return null;
+  // Retry with exponential backoff
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
+
+    if (!snapshot.empty) {
+      // Found the card!
+      const doc = snapshot.docs[0];
+      return {
+        id: doc.id,
+        ...doc.data(),
+      };
+    }
+
+    // If this was the last attempt, return null
+    if (attempt === maxRetries) {
+      return null;
+    }
+
+    // Wait before retrying (exponential backoff)
+    const delayMs = initialDelayMs * Math.pow(2, attempt);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // Return first matching card
-  const doc = snapshot.docs[0];
-  return {
-    id: doc.id,
-    ...doc.data(),
-  };
+  return null;
 }
 
 /**
