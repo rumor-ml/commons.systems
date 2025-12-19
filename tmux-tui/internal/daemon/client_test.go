@@ -25,6 +25,7 @@ type mockConn struct {
 	remoteAddr net.Addr
 	closed     bool
 	closeMu    sync.Mutex
+	closeErr   error // Optional error to return from Close()
 }
 
 func (m *mockConn) Read(b []byte) (n int, err error) {
@@ -39,6 +40,9 @@ func (m *mockConn) Close() error {
 	m.closeMu.Lock()
 	defer m.closeMu.Unlock()
 	m.closed = true
+	if m.closeErr != nil {
+		return m.closeErr
+	}
 	return nil
 }
 

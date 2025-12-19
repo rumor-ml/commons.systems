@@ -89,7 +89,7 @@ export class GoExtractor implements FrameworkExtractor {
     const detection = this.detect(logText);
 
     if (detection?.isJsonOutput) {
-      return this.parseGoTestJson(logText);
+      return this.parseGoTestJson(logText, maxErrors);
     } else if (detection) {
       return this.parseGoTestText(logText, maxErrors);
     }
@@ -101,7 +101,7 @@ export class GoExtractor implements FrameworkExtractor {
     };
   }
 
-  private parseGoTestJson(logText: string): ExtractionResult {
+  private parseGoTestJson(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n');
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
@@ -113,17 +113,17 @@ export class GoExtractor implements FrameworkExtractor {
 
     // ARCHITECTURAL PATTERN: Three-stage error handling with narrow catch scopes
     //
-    // STAGE 1 (Lines 134-177): JSON.parse() wrapped in minimal try-catch
+    // STAGE 1 (parseGoTestJson: JSON.parse loop): JSON.parse() wrapped in minimal try-catch
     //   - ONLY catches JSON syntax errors (malformed JSON)
     //   - Expected errors: build output, compilation messages, GitHub Actions logs
     //   - Action: Skip line and log diagnostics
     //
-    // STAGE 2 (Lines 179-213): Test event validation (NO catch - structural bugs propagate)
+    // STAGE 2 (parseGoTestJson: Test event validation): Test event validation (NO catch - structural bugs propagate)
     //   - Validates parsed JSON has required test event fields (Time, Action, Package)
     //   - No catch block: bugs in field access should crash for debugging
     //   - Action: Skip non-test-event JSON
     //
-    // STAGE 3 (Line 270, 369): Schema validation with fallback errors
+    // STAGE 3 (parseGoTestJson/parseGoTestText: safeValidateExtractedError calls): Schema validation with fallback errors
     //   - safeValidateExtractedError() catches Zod validation errors
     //   - Creates fallback ExtractedError with diagnostics
     //   - Ensures we NEVER silently drop test failures
@@ -254,6 +254,11 @@ export class GoExtractor implements FrameworkExtractor {
 
     // Extract failures with their output
     for (const [key, result] of testResults.entries()) {
+      // Stop if we've reached the maxErrors limit
+      if (failures.length >= maxErrors) {
+        break;
+      }
+
       if (result === 'fail') {
         const outputs = testOutputs.get(key) || [];
         const fullOutput = outputs.join('');

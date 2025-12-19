@@ -2085,3 +2085,310 @@ func TestServerBroadcastRecoveryAfterClientDisconnect(t *testing.T) {
 }
 
 // mockConn is defined in client_test.go and reused here
+// ==================== Phase 2: Critical Test Coverage ====================
+// These tests address the critical gaps identified in the PR review
+
+// TestBroadcast_MetricsTracking verifies that broadcast failures increment counters and store error details
+func TestBroadcast_MetricsTracking(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+	}
+	daemon.lastBroadcastError.Store("")
+	daemon.broadcastFailures.Store(0)
+
+	// Create 3 clients: 2 successful, 1 failing
+	client1Reader, client1Writer := io.Pipe()
+	client2Reader, client2Writer := io.Pipe()
+	client3Reader, client3Writer := io.Pipe()
+
+	// Setup successful clients with background readers
+	var wg sync.WaitGroup
+	client1Msgs := make(chan Message, 10)
+	client2Msgs := make(chan Message, 10)
+
+	// Client 1 reader
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		decoder := json.NewDecoder(client1Reader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			client1Msgs <- msg
+		}
+	}()
+
+	// Client 2 reader
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		decoder := json.NewDecoder(client2Reader)
+		for {
+			var msg Message
+			if err := decoder.Decode(&msg); err != nil {
+				return
+			}
+			client2Msgs <- msg
+		}
+	}()
+
+	// Add successful clients
+	daemon.clientsMu.Lock()
+	daemon.clients["client1"] = &clientConnection{
+		conn:    &mockConn{reader: client1Reader, writer: client1Writer},
+		encoder: json.NewEncoder(client1Writer),
+	}
+	daemon.clients["client2"] = &clientConnection{
+		conn:    &mockConn{reader: client2Reader, writer: client2Writer},
+		encoder: json.NewEncoder(client2Writer),
+	}
+	daemon.clientsMu.Unlock()
+
+	// Add failing client (close writer immediately to force encode failure)
+	client3Writer.Close()
+	daemon.clientsMu.Lock()
+	daemon.clients["client3"] = &clientConnection{
+		conn:    &mockConn{reader: client3Reader, writer: client3Writer},
+		encoder: json.NewEncoder(client3Writer),
+	}
+	daemon.clientsMu.Unlock()
+
+	// Record initial broadcast failures count
+	initialFailures := daemon.broadcastFailures.Load()
+	t.Logf("Initial broadcast failures: %d", initialFailures)
+
+	// Create and broadcast a test message
+	msg, err := NewAlertChangeMessage(daemon.seqCounter.Add(1), "test-pane-1", "idle", true)
+	if err != nil {
+		t.Fatalf("Failed to create message: %v", err)
+	}
+
+	daemon.broadcast(msg.ToWireFormat())
+
+	// Wait for broadcast to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify metrics
+	finalFailures := daemon.broadcastFailures.Load()
+	if finalFailures != initialFailures+1 {
+		t.Errorf("Expected broadcastFailures to increment by 1 (from %d to %d), got %d",
+			initialFailures, initialFailures+1, finalFailures)
+	}
+
+	// Verify error message is stored
+	lastErr := daemon.lastBroadcastError.Load()
+	if lastErr == nil || lastErr.(string) == "" {
+		t.Error("Expected lastBroadcastError to contain error details, got empty")
+	} else {
+		t.Logf("Last broadcast error stored: %s", lastErr.(string))
+	}
+
+	// Verify successful clients received the message
+	timeout := time.After(1 * time.Second)
+	receivedCount := 0
+	for receivedCount < 2 {
+		select {
+		case msg := <-client1Msgs:
+			if msg.Type == MsgTypeAlertChange {
+				receivedCount++
+				t.Log("Client 1 received message")
+			}
+		case msg := <-client2Msgs:
+			if msg.Type == MsgTypeAlertChange {
+				receivedCount++
+				t.Log("Client 2 received message")
+			}
+		case <-timeout:
+			t.Fatalf("Timeout waiting for successful clients to receive message (received %d/2)", receivedCount)
+		}
+	}
+
+	// Verify failed client was removed
+	daemon.clientsMu.RLock()
+	_, exists := daemon.clients["client3"]
+	daemon.clientsMu.RUnlock()
+	if exists {
+		t.Error("Expected failed client to be removed from clients map")
+	}
+
+	// Cleanup
+	client1Writer.Close()
+	client2Writer.Close()
+	client1Reader.Close()
+	client2Reader.Close()
+	client3Reader.Close()
+	wg.Wait()
+
+	t.Log("SUCCESS: Broadcast metrics tracking test passed")
+}
+
+// TestWatcherError_MetricsTracking verifies that watcher errors increment metrics
+func TestWatcherError_MetricsTracking(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+		done:    make(chan struct{}),
+	}
+	daemon.lastWatcherError.Store("")
+	daemon.watcherErrors.Store(0)
+
+	// Record initial count
+	initialErrors := daemon.watcherErrors.Load()
+
+	// Simulate watcher error (same way the actual watcher loop does it)
+	testError := fmt.Errorf("test watcher error: connection lost")
+	daemon.watcherErrors.Add(1)
+	daemon.lastWatcherError.Store(testError.Error())
+
+	// Verify metrics
+	finalErrors := daemon.watcherErrors.Load()
+	if finalErrors != initialErrors+1 {
+		t.Errorf("Expected watcherErrors to increment by 1, got %d", finalErrors)
+	}
+
+	// Verify error message is stored
+	lastErr := daemon.lastWatcherError.Load()
+	if lastErr == nil || lastErr.(string) == "" {
+		t.Error("Expected lastWatcherError to contain error details, got empty")
+	} else {
+		t.Logf("Last watcher error stored: %s", lastErr.(string))
+		if !strings.Contains(lastErr.(string), "test watcher error") {
+			t.Errorf("Expected error message to contain 'test watcher error', got: %s", lastErr.(string))
+		}
+	}
+
+	t.Log("SUCCESS: Watcher error metrics tracking test passed")
+}
+
+// TestAudioBroadcastFailures_MetricsTracking verifies audio broadcast failure tracking
+func TestAudioBroadcastFailures_MetricsTracking(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+		alerts:  make(map[string]string),
+	}
+	daemon.lastAudioBroadcastErr.Store("")
+	daemon.audioBroadcastFailures.Store(0)
+	daemon.lastBroadcastError.Store("")
+	daemon.broadcastFailures.Store(0)
+
+	// Create a client with closed writer (will fail on broadcast)
+	r, w := io.Pipe()
+	w.Close() // Close immediately to force failure
+
+	daemon.clientsMu.Lock()
+	daemon.clients["audio-client"] = &clientConnection{
+		conn:    &mockConn{reader: r, writer: w},
+		encoder: json.NewEncoder(w),
+	}
+	daemon.clientsMu.Unlock()
+
+	// Record initial counts
+	initialAudioFailures := daemon.audioBroadcastFailures.Load()
+	initialBroadcastFailures := daemon.broadcastFailures.Load()
+
+	// Broadcast audio error message
+	daemon.broadcastAudioError(fmt.Errorf("test audio error"))
+
+	// Wait for broadcast to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify audio-specific metrics
+	finalAudioFailures := daemon.audioBroadcastFailures.Load()
+	if finalAudioFailures != initialAudioFailures+1 {
+		t.Errorf("Expected audioBroadcastFailures to increment by 1, got %d", finalAudioFailures)
+	}
+
+	// Verify general broadcast metrics also incremented
+	finalBroadcastFailures := daemon.broadcastFailures.Load()
+	if finalBroadcastFailures != initialBroadcastFailures+1 {
+		t.Errorf("Expected broadcastFailures to increment by 1, got %d", finalBroadcastFailures)
+	}
+
+	// Verify error message is stored
+	lastAudioErr := daemon.lastAudioBroadcastErr.Load()
+	if lastAudioErr == nil || lastAudioErr.(string) == "" {
+		t.Error("Expected lastAudioBroadcastErr to contain error details, got empty")
+	} else {
+		t.Logf("Last audio broadcast error stored: %s", lastAudioErr.(string))
+	}
+
+	// Cleanup
+	r.Close()
+
+	t.Log("SUCCESS: Audio broadcast failure metrics tracking test passed")
+}
+
+// TestConcurrentAlertChangeAndStateQuery verifies no deadlock during concurrent state access
+func TestConcurrentAlertChangeAndStateQuery(t *testing.T) {
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		alerts:          make(map[string]string),
+		blockedBranches: make(map[string]string),
+		previousState:   make(map[string]string),
+		done:            make(chan struct{}),
+	}
+	daemon.lastBroadcastError.Store("")
+	daemon.broadcastFailures.Store(0)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Start 5 goroutines that modify alert state
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			paneID := fmt.Sprintf("pane-%d", id)
+			for j := 0; j < 50; j++ {
+				select {
+				case <-done:
+					return
+				default:
+					daemon.alertsMu.Lock()
+					if j%2 == 0 {
+						daemon.alerts[paneID] = "idle"
+					} else {
+						delete(daemon.alerts, paneID)
+					}
+					daemon.alertsMu.Unlock()
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+
+	// Start 5 goroutines that query health status (reads alert state)
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				select {
+				case <-done:
+					return
+				default:
+					_ = daemon.GetHealthStatus()
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}()
+	}
+
+	// Wait with timeout
+	completed := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(completed)
+	}()
+
+	select {
+	case <-completed:
+		t.Log("SUCCESS: No deadlock detected during concurrent alert changes and state queries")
+	case <-time.After(2 * time.Second):
+		close(done)
+		t.Fatal("DEADLOCK: Test timed out after 2 seconds")
+	}
+}

@@ -8,6 +8,7 @@ import { GoExtractor } from './go-extractor.js';
 import { PlaywrightExtractor } from './playwright-extractor.js';
 import { TapExtractor } from './tap-extractor.js';
 import { extractErrors, formatExtractionResult } from './index.js';
+import type { ExtractedError } from './types.js';
 
 describe('GoExtractor', () => {
   const extractor = new GoExtractor();
@@ -760,27 +761,24 @@ describe('Validation Infrastructure', async () => {
     // @ts-ignore - accessing private method for testing
     const parseTimeDiff = extractor.parseTimeDiff.bind(extractor);
 
-    test.skip('midnight rollover: 23:59:50 to 00:00:10 calculates incorrect duration (KNOWN BUG)', () => {
+    test('midnight rollover: 23:59:50 to 00:00:10 returns null with diagnostic', () => {
       const result = parseTimeDiff('23:59:50', '00:00:10');
-      // KNOWN BUG: Currently calculates wrap-around as 86380s (|10 - 86390|)
-      // instead of detecting midnight boundary and returning null.
-      //
-      // Expected: { seconds: null, diagnostic: "midnight rollover detected" }
-      // Actual: { seconds: 86380 } (appears as "1439 minute gap" instead of "20 second gap")
-      //
-      // IMPACT: timeGap calculations spanning midnight show inflated durations
-      // FIX: Add midnight detection: if (Math.abs(seconds2 - seconds1) > 43200) return null;
-      assert.notStrictEqual(result.seconds, null); // Documents current buggy behavior
-      assert.ok(result.seconds > 43200); // Confirms it's a wrap-around calculation
+      // Should detect midnight boundary crossing and return null
+      // The actual time gap is ~20 seconds, but since we can't tell if it's
+      // the same day or crossed midnight, we return null for safety
+      assert.strictEqual(result.seconds, null);
+      assert.ok(result.diagnostic?.includes('Midnight rollover detected'));
+      assert.ok(result.diagnostic?.includes('23:59:50'));
+      assert.ok(result.diagnostic?.includes('00:00:10'));
     });
 
-    test.skip('midnight rollover: 23:59:30 to 00:00:00 calculates incorrect duration (KNOWN BUG)', () => {
+    test('midnight rollover: 23:59:30 to 00:00:00 returns null with diagnostic', () => {
       const result = parseTimeDiff('23:59:30', '00:00:00');
-      // KNOWN BUG: Similar to above - calculates wrap-around instead of detecting midnight
-      // Expected: null for crossing midnight boundary
-      // Actual: Large positive number (86370s)
-      assert.notStrictEqual(result.seconds, null);
-      assert.ok(result.seconds > 43200);
+      // Should detect midnight boundary crossing and return null
+      assert.strictEqual(result.seconds, null);
+      assert.ok(result.diagnostic?.includes('Midnight rollover detected'));
+      assert.ok(result.diagnostic?.includes('23:59:30'));
+      assert.ok(result.diagnostic?.includes('00:00:00'));
     });
 
     test('valid same-day case: 10:00:00 to 10:00:05', () => {
@@ -912,7 +910,9 @@ describe('formatExtractionResult', () => {
     assert.ok(!formatted.some((line) => line.includes('--- FAIL:')));
   });
 
-  suite('DoS edge cases', () => {
+  describe('DoS edge cases', () => {
+    const extractor = new GoExtractor();
+
     test('handles extremely long error message (1MB)', () => {
       // Create a 1MB error message
       const longMsg = 'A'.repeat(1024 * 1024);
@@ -924,7 +924,7 @@ describe('formatExtractionResult', () => {
         Output: longMsg + '\n',
       });
 
-      const result = extract(logText);
+      const result = extractor.extract(logText);
 
       // Should extract the error without crashing
       assert.strictEqual(result.framework, 'go');
@@ -950,15 +950,15 @@ describe('formatExtractionResult', () => {
       }
       const logText = logLines.join('\n');
 
-      const result = extract(logText, 100); // maxErrors = 100
+      const result = extractor.extract(logText, 100); // maxErrors = 100
 
       // Should respect maxErrors limit
       assert.strictEqual(result.framework, 'go');
       assert.ok(result.errors.length <= 100);
 
       // Verify first few errors are present
-      assert.ok(result.errors.some((e) => e.testName === 'Test0'));
-      assert.ok(result.errors.some((e) => e.testName === 'Test1'));
+      assert.ok(result.errors.some((e: ExtractedError) => e.testName === 'Test0'));
+      assert.ok(result.errors.some((e: ExtractedError) => e.testName === 'Test1'));
     });
 
     test('handles extremely long test name', () => {
@@ -972,7 +972,7 @@ describe('formatExtractionResult', () => {
         Output: 'Failed\n',
       });
 
-      const result = extract(logText);
+      const result = extractor.extract(logText);
 
       // Should handle without crashing
       assert.strictEqual(result.framework, 'go');
@@ -996,7 +996,7 @@ describe('formatExtractionResult', () => {
         Output: deepStack + '\n',
       });
 
-      const result = extract(logText);
+      const result = extractor.extract(logText);
 
       // Should handle without crashing
       assert.strictEqual(result.framework, 'go');
@@ -1021,7 +1021,7 @@ describe('formatExtractionResult', () => {
       }
       const logText = logLines.join('\n');
 
-      const result = extract(logText, 50);
+      const result = extractor.extract(logText, 50);
 
       // Should extract valid tests and handle errors gracefully
       assert.strictEqual(result.framework, 'go');

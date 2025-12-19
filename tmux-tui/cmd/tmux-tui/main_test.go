@@ -151,6 +151,13 @@ func TestCriticalErrorTakesPrecedence(t *testing.T) {
 
 func TestErrorBannerPriority(t *testing.T) {
 	m := initialModel()
+
+	// Clear any initial errors from collector/tree initialization
+	// to isolate warning banner priority testing
+	m.errorMu.Lock()
+	m.err = nil
+	m.errorMu.Unlock()
+
 	// Initialize tree so View() doesn't return "Loading..."
 	m.tree = tmux.RepoTree{
 		"test-repo": {

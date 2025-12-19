@@ -353,7 +353,17 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       };
     }
 
-    return { seconds: Math.abs(seconds2 - seconds1) };
+    const diff = Math.abs(seconds2 - seconds1);
+
+    // Detect midnight rollover (gap > 12 hours = likely crossed midnight)
+    if (diff > 43200) {
+      return {
+        seconds: null,
+        diagnostic: `Midnight rollover detected: time1="${time1}" (${seconds1}s), time2="${time2}" (${seconds2}s), diff=${diff}s > 43200s (12h)`,
+      };
+    }
+
+    return { seconds: diff };
   }
 
   /**
