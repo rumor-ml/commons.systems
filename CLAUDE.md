@@ -16,7 +16,8 @@ Do not ask user to fetch test results, logs or monitor workflows when you can do
 
 ## TypeScript MCP Server Changes
 
-<!-- TODO(#288): Make this MCP server list more maintainable - see issue for options -->
+<!-- TODO(#302): Make this MCP server list more maintainable - see issue for options -->
+
 When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server, git-mcp-server), verify:
 
 1. **TypeScript compilation succeeds:** `npm run build` in the server directory
