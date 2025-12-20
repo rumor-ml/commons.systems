@@ -16,6 +16,7 @@ import type {
   DetectionResult,
   ExtractedError,
 } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 export class PrettierExtractor implements FrameworkExtractor {
   readonly name = 'unknown' as const; // Still 'unknown' since it's not a test framework
@@ -40,6 +41,7 @@ export class PrettierExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n').map((line) => this.stripTimestamp(line));
     const errors: ExtractedError[] = [];
+    const validationTracker = new ValidationErrorTracker();
 
     // Find files with formatting issues
     let currentFile: string | null = null;
@@ -54,11 +56,16 @@ export class PrettierExtractor implements FrameworkExtractor {
       if (fileMatch) {
         // Save previous file's diff if any
         if (currentFile && currentDiff.length > 0) {
-          errors.push({
-            fileName: currentFile,
-            message: `Formatting issues in ${currentFile}`,
-            rawOutput: currentDiff,
-          });
+          const validatedError = safeValidateExtractedError(
+            {
+              fileName: currentFile,
+              message: `Formatting issues in ${currentFile}`,
+              rawOutput: currentDiff,
+            },
+            currentFile,
+            validationTracker
+          );
+          errors.push(validatedError);
         }
 
         currentFile = fileMatch[1];
@@ -86,11 +93,16 @@ export class PrettierExtractor implements FrameworkExtractor {
       // Detect "Code style issues found" summary
       if (line.match(/Code style issues found|Forgot to run Prettier/i)) {
         if (currentFile && currentDiff.length > 0) {
-          errors.push({
-            fileName: currentFile,
-            message: `Formatting issues in ${currentFile}`,
-            rawOutput: currentDiff,
-          });
+          const validatedError = safeValidateExtractedError(
+            {
+              fileName: currentFile,
+              message: `Formatting issues in ${currentFile}`,
+              rawOutput: currentDiff,
+            },
+            currentFile,
+            validationTracker
+          );
+          errors.push(validatedError);
           currentFile = null;
           currentDiff = [];
         }
@@ -99,29 +111,42 @@ export class PrettierExtractor implements FrameworkExtractor {
 
     // Don't forget last file
     if (currentFile && currentDiff.length > 0) {
-      errors.push({
-        fileName: currentFile,
-        message: `Formatting issues in ${currentFile}`,
-        rawOutput: currentDiff,
-      });
+      const validatedError = safeValidateExtractedError(
+        {
+          fileName: currentFile,
+          message: `Formatting issues in ${currentFile}`,
+          rawOutput: currentDiff,
+        },
+        currentFile,
+        validationTracker
+      );
+      errors.push(validatedError);
     }
 
     // If no specific files found but we detected prettier, return the whole log
     if (errors.length === 0 && this.detect(logText)?.confidence === 'high') {
+      const validatedError = safeValidateExtractedError(
+        {
+          message: 'Prettier formatting check failed',
+          rawOutput: lines.slice(-100), // Last 100 lines as fallback
+        },
+        'fallback',
+        validationTracker
+      );
+
       return {
         framework: 'unknown',
-        errors: [
-          {
-            message: 'Prettier formatting check failed',
-            rawOutput: lines.slice(-100), // Last 100 lines as fallback
-          },
-        ],
+        errors: [validatedError],
+        parseWarnings: validationTracker.getSummaryWarning(),
       };
     }
+
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'unknown',
       errors: errors.slice(0, maxErrors),
+      parseWarnings,
     };
   }
 
