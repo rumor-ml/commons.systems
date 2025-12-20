@@ -73,7 +73,29 @@ ${body}
 ---
 *Automated via Wiggum*`;
 
-  await postPRComment(prNumber, comment, repo);
+  try {
+    await postPRComment(prNumber, comment, repo);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    logger.error('postWiggumStateComment failed - compliance gap created', {
+      prNumber,
+      stateStep: state.step,
+      iteration: state.iteration,
+      error: errorMsg,
+      complianceImpact: 'PR lacks audit trail for this workflow step',
+    });
+
+    throw new Error(
+      `Failed to post Wiggum state comment to PR #${prNumber}: ${errorMsg}\n\n` +
+        `Compliance Impact: This PR will lack an audit trail for step "${state.step}".\n` +
+        `Troubleshooting:\n` +
+        `  1. Check GitHub API rate limits: gh api rate_limit\n` +
+        `  2. Verify PR exists: gh pr view ${prNumber}\n` +
+        `  3. Check network connectivity: gh auth status\n` +
+        `  4. Review PR comment permissions`
+    );
+  }
 }
 
 /**

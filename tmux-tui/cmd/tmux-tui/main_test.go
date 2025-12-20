@@ -1,0 +1,250 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/commons-systems/tmux-tui/internal/tmux"
+)
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
+}
+
+// testPane is a helper to create Pane instances for testing
+// Panics on error since these are test fixtures with valid data
+func testPane(id, windowID string, windowIndex int, windowActive bool) tmux.Pane {
+	pane, err := tmux.NewPane(id, "", windowID, windowIndex, windowActive, false, "", "", false)
+	if err != nil {
+		panic(err)
+	}
+	return pane
+}
+
+// testTree is a helper to create and populate a RepoTree for testing
+func testTree(repos map[string]map[string][]tmux.Pane) tmux.RepoTree {
+	tree := tmux.NewRepoTree()
+	for repo, branches := range repos {
+		for branch, panes := range branches {
+			if err := tree.SetPanes(repo, branch, panes); err != nil {
+				panic(err)
+			}
+		}
+	}
+	return tree
+}
+
+func TestModelErrorStateConcurrency(t *testing.T) {
+	m := initialModel()
+	var wg sync.WaitGroup
+
+	// Concurrent writers
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.errorMu.Lock()
+			m.persistenceError = "test error"
+			m.alertsDisabled = true
+			m.errorMu.Unlock()
+		}()
+	}
+
+	// Concurrent readers
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.errorMu.RLock()
+			_ = m.persistenceError
+			_ = m.alertsDisabled
+			m.errorMu.RUnlock()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestTreeRefreshErrorHandling(t *testing.T) {
+	m := initialModel()
+
+	// Clear any initial errors from collector/tree initialization to isolate tree refresh error testing
+	m.errorMu.Lock()
+	m.err = nil
+	m.errorMu.Unlock()
+
+	msg := treeRefreshMsg{
+		tree: tmux.RepoTree{},
+		err:  fmt.Errorf("mock tree refresh error"),
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	m.errorMu.RLock()
+	refreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if refreshErr == nil {
+		t.Error("Expected treeRefreshError to be set")
+	}
+}
+
+func TestTreeRefreshErrorClearing(t *testing.T) {
+	m := initialModel()
+
+	// Set an error first
+	m.errorMu.Lock()
+	m.treeRefreshError = fmt.Errorf("previous error")
+	m.errorMu.Unlock()
+
+	// Successful refresh should clear the error
+	msg := treeRefreshMsg{
+		tree: testTree(map[string]map[string][]tmux.Pane{
+			"test-repo": {
+				"main": {
+					testPane("%1", "@1", 0, true),
+				},
+			},
+		}),
+		err: nil,
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	m.errorMu.RLock()
+	refreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if refreshErr != nil {
+		t.Errorf("Expected treeRefreshError to be cleared, got: %v", refreshErr)
+	}
+}
+
+func TestViewErrorStateSnapshot(t *testing.T) {
+	m := initialModel()
+	// Ensure tree is initialized
+	m.tree = testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+
+	// Set various error states
+	m.errorMu.Lock()
+	m.persistenceError = "test persistence error"
+	m.treeRefreshError = fmt.Errorf("test refresh error")
+	m.alertError = "test alert error"
+	m.alertsDisabled = true
+	m.errorMu.Unlock()
+
+	// View should snapshot the error state without racing
+	view := m.View()
+
+	// Verify that the view was generated (detailed assertion not needed,
+	// just verify it doesn't crash or race)
+	if view == "" {
+		t.Error("View() returned empty string")
+	}
+}
+
+func TestCriticalErrorTakesPrecedence(t *testing.T) {
+	m := initialModel()
+
+	// Set critical error
+	m.errorMu.Lock()
+	m.err = fmt.Errorf("critical error")
+	m.persistenceError = "persistence error"
+	m.treeRefreshError = fmt.Errorf("refresh error")
+	m.errorMu.Unlock()
+
+	view := m.View()
+
+	// Should show critical error, not the banners
+	if view != "Error: critical error\n\nPress Ctrl+C to quit" {
+		t.Errorf("Expected critical error view, got: %s", view)
+	}
+}
+
+func TestErrorBannerPriority(t *testing.T) {
+	m := initialModel()
+
+	// Clear any initial errors from collector/tree initialization
+	// to isolate warning banner priority testing
+	m.errorMu.Lock()
+	m.err = nil
+	m.errorMu.Unlock()
+
+	// Initialize tree so View() doesn't return "Loading..."
+	m.tree = testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+
+	tests := []struct {
+		name             string
+		persistenceErr   string
+		treeRefreshErr   error
+		alertsDisabled   bool
+		alertErr         string
+		expectedContains string
+	}{
+		{
+			name:             "persistence error takes priority",
+			persistenceErr:   "persist fail",
+			treeRefreshErr:   fmt.Errorf("refresh fail"),
+			alertsDisabled:   true,
+			alertErr:         "alert fail",
+			expectedContains: "PERSISTENCE ERROR",
+		},
+		{
+			name:             "tree refresh error is second priority",
+			persistenceErr:   "",
+			treeRefreshErr:   fmt.Errorf("refresh fail"),
+			alertsDisabled:   true,
+			alertErr:         "alert fail",
+			expectedContains: "TREE REFRESH FAILED",
+		},
+		{
+			name:             "alerts disabled is third priority",
+			persistenceErr:   "",
+			treeRefreshErr:   nil,
+			alertsDisabled:   true,
+			alertErr:         "alert fail",
+			expectedContains: "ALERT NOTIFICATIONS DISABLED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.errorMu.Lock()
+			m.persistenceError = tt.persistenceErr
+			m.treeRefreshError = tt.treeRefreshErr
+			m.alertsDisabled = tt.alertsDisabled
+			m.alertError = tt.alertErr
+			m.errorMu.Unlock()
+
+			view := m.View()
+			if view == "" {
+				t.Fatal("View() returned empty string")
+			}
+
+			// Check that expected error type appears in view
+			// Note: We can't do exact string matching because lipgloss adds styling
+			// But we can verify the key text is present using strings.Contains
+			if !contains(view, tt.expectedContains) {
+				t.Errorf("Expected view to contain %q, but it was not found.\nView content:\n%s",
+					tt.expectedContains, view)
+			}
+		})
+	}
+}

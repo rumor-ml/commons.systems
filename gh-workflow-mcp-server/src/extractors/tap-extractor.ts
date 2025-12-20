@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 export class TapExtractor implements FrameworkExtractor {
   readonly name = 'tap' as const;
@@ -57,6 +58,7 @@ export class TapExtractor implements FrameworkExtractor {
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n');
     const failures: ExtractedError[] = [];
+    const validationTracker = new ValidationErrorTracker();
 
     // TAP failure line format:
     // not ok N - test name
@@ -169,18 +171,24 @@ export class TapExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
+        const validatedError = safeValidateExtractedError(
+          {
+            testName,
+            fileName,
+            lineNumber,
+            columnNumber,
+            message: errorMessage,
+            stack,
+            duration,
+            failureType,
+            errorCode,
+            rawOutput,
+          },
           testName,
-          fileName,
-          lineNumber,
-          columnNumber,
-          message: errorMessage,
-          stack,
-          duration,
-          failureType,
-          errorCode,
-          rawOutput,
-        });
+          validationTracker
+        );
+
+        failures.push(validatedError);
 
         if (failures.length >= maxErrors) break;
       }
@@ -215,10 +223,13 @@ export class TapExtractor implements FrameworkExtractor {
       summary = `${failed} failed`;
     }
 
+    const parseWarnings = validationTracker.getSummaryWarning();
+
     return {
       framework: 'tap',
       errors: failures,
       summary,
+      parseWarnings,
     };
   }
 }

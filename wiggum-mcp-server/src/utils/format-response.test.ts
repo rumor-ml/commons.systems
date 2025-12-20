@@ -570,6 +570,67 @@ describe('formatWiggumResponse', () => {
     });
   });
 
+  describe('Warning Field', () => {
+    it('should display warning banner when warning is present', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Continue with workflow',
+        steps_completed_by_tool: [],
+        warning:
+          '⚠️ WARNING: Failed to post state comment to PR #123. Workflow continues but audit trail incomplete.',
+        context: {},
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Warning should appear at the very beginning
+      assert.match(result, /^⚠️ WARNING:/);
+      assert.match(result, /Failed to post state comment to PR #123/);
+      assert.match(result, /audit trail incomplete/);
+
+      // Warning should be followed by two newlines before the main content
+      assert.match(result, /⚠️ WARNING:.*\n\n## /s);
+    });
+
+    it('should not display warning section when warning is absent', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Normal workflow',
+        steps_completed_by_tool: [],
+        context: {},
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Should not contain warning text
+      assert.doesNotMatch(result, /⚠️ WARNING:/);
+
+      // Should start directly with step header
+      assert.match(result, /^## Test/);
+    });
+
+    it('should handle empty warning string', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: '1',
+        iteration_count: 1,
+        instructions: 'Normal workflow',
+        steps_completed_by_tool: [],
+        warning: '',
+        context: {},
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Empty warning should not display (falsy value)
+      assert.match(result, /^## Test/);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should handle zero iteration_count', () => {
       const input = {
