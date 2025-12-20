@@ -2,6 +2,8 @@
  * State detection for Wiggum flow
  */
 
+// TODO(#287): Implement tests for phase detection logic
+// Phase 1/2 routing and state detection currently have no test coverage.
 import {
   getCurrentBranch,
   hasUncommittedChanges,

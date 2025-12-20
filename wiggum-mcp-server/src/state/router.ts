@@ -128,6 +128,9 @@ function checkBranchPushed(
  * @param body - Comment body
  * @param step - Step identifier for logging context
  * @returns true if comment posted successfully, false otherwise
+ *
+ * TODO(#272): Improve error handling
+ * See issue for recommendations on state persistence failure handling.
  */
 async function safePostStateComment(
   prNumber: number,
@@ -423,7 +426,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
-  if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
+  if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
       prState: state.pr.exists ? state.pr.state : 'N/A',

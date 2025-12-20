@@ -3,6 +3,8 @@
  * Mirrors PR comment functionality but operates on GitHub issues
  */
 
+// TODO(#287): Implement comprehensive tests for Phase 1 workflow
+// Currently 43% of tests are placeholders. See issue for specific test requirements.
 import { ghCli, ghCliJson, resolveRepo } from '../utils/gh-cli.js';
 import {
   WIGGUM_STATE_MARKER,

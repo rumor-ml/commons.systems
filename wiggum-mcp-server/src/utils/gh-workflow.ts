@@ -52,6 +52,8 @@ export async function monitorRun(
   });
 
   // If failed, enrich with failure details
+  // TODO(#272): Improve error handling for enrichment failures
+  // Make enrichment failures more visible to users.
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { branch });
     try {

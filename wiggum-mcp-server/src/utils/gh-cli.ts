@@ -330,6 +330,8 @@ export async function getPRReviewComments(
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
 
+  // TODO(#272): Improve error handling for malformed comments
+  // Skip malformed comments instead of failing completely.
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
