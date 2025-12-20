@@ -1,5 +1,7 @@
 rules_version = '2';
 
+// TODO(#283): Add E2E tests validating these security rules
+
 service cloud.firestore {
   match /databases/{database}/documents {
 

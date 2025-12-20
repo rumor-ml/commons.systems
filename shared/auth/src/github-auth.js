@@ -3,6 +3,8 @@
  * Handles Firebase Authentication with GitHub provider
  */
 
+// TODO(#285): Improve error message in getAuthInstance()
+
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,

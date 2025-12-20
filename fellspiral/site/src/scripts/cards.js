@@ -2,6 +2,10 @@
  * Card Library - CRUD Operations and Tree Navigation
  */
 
+// TODO(#285): Improve error logging for library nav initialization
+// TODO(#285): Show warning banner when event listener setup fails
+// TODO(#286): Add JSDoc for getAllCards() explaining error handling
+
 // Import Firestore operations
 import {
   getAllCards,

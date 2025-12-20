@@ -2,6 +2,9 @@
  * Firebase and Firestore initialization
  */
 
+// TODO(#285): Add user-friendly error messages for CRUD operations
+// TODO(#285): Wrap Firebase errors with actionable guidance
+
 import { initializeApp, getApp } from 'firebase/app';
 import {
   getFirestore,
