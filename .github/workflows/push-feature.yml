@@ -256,10 +256,51 @@ jobs:
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [local-tests, build-verify]
+    needs: [check-pr-exists, detect-changes, local-tests, build-verify]
     if: always()
 
     steps:
+      - name: Determine workflow status
+        id: status
+        run: |
+          # If workflow skipped because PR exists, that's success
+          if [ "${{ needs.check-pr-exists.outputs.should-continue }}" == "false" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "reason=PR exists - feature workflow correctly deferred to PR workflow" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # If detect-changes was skipped, that means check-pr-exists triggered early exit
+          if [ "${{ needs.detect-changes.result }}" == "skipped" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "reason=Workflow correctly skipped" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check for actual failures (skipped is acceptable when no changes detected)
+          LOCAL_TESTS="${{ needs.local-tests.result }}"
+          BUILD_VERIFY="${{ needs.build-verify.result }}"
+
+          FAILED=false
+
+          if [ "$LOCAL_TESTS" == "failure" ] || [ "$LOCAL_TESTS" == "cancelled" ]; then
+            echo "::error::Local tests failed with result: $LOCAL_TESTS"
+            FAILED=true
+          fi
+
+          if [ "$BUILD_VERIFY" == "failure" ] || [ "$BUILD_VERIFY" == "cancelled" ]; then
+            echo "::error::Build verification failed with result: $BUILD_VERIFY"
+            FAILED=true
+          fi
+
+          if [ "$FAILED" == "true" ]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "reason=One or more jobs failed" >> $GITHUB_OUTPUT
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "reason=All checks passed (skipped jobs indicate no changes - acceptable)" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create summary
         run: |
           echo "# Feature Branch Pipeline Summary" >> $GITHUB_STEP_SUMMARY
@@ -267,10 +308,34 @@ jobs:
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Results" >> $GITHUB_STEP_SUMMARY
+
+          # Show early exit info if applicable
+          if [ "${{ needs.check-pr-exists.outputs.should-continue }}" == "false" ]; then
+            echo "## Status: Deferred to PR Workflow" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "An open PR exists for this branch. CI/CD is handled by the PR workflow." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Local Tests: ${{ needs.local-tests.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Build Verification: ${{ needs.build-verify.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Explain skipped status
+            if [ "${{ needs.local-tests.result }}" == "skipped" ] && [ "${{ needs.build-verify.result }}" == "skipped" ]; then
+              echo "> **Note:** Jobs were skipped because no relevant changes were detected." >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "Feature branch validated (tests + builds)" >> $GITHUB_STEP_SUMMARY
+            echo "Deployments and E2E tests run in PR workflow" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Local Tests: ${{ needs.local-tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Build Verification: ${{ needs.build-verify.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Feature branch validated (tests + builds)" >> $GITHUB_STEP_SUMMARY
-          echo "Deployments and E2E tests run in PR workflow" >> $GITHUB_STEP_SUMMARY
+          echo "**Final Status:** ${{ steps.status.outputs.reason }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail workflow if there were real failures
+        if: steps.status.outputs.status == 'failure'
+        run: |
+          echo "::error::Workflow failed: ${{ steps.status.outputs.reason }}"
+          exit 1
