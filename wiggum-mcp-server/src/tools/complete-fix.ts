@@ -16,6 +16,10 @@ import type { ToolResult } from '../types.js';
 
 export const CompleteFixInputSchema = z.object({
   fix_description: z.string().describe('Brief description of what was fixed'),
+  out_of_scope_issues: z
+    .array(z.number())
+    .optional()
+    .describe('List of issue numbers for out-of-scope recommendations (both new and existing)'),
 });
 
 export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
@@ -75,9 +79,13 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
   // Post PR comment documenting the fix
   const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;
+  const outOfScopeSection =
+    input.out_of_scope_issues && input.out_of_scope_issues.length > 0
+      ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
+      : '';
   const commentBody = `**Fix Description:**
 
-${input.fix_description}
+${input.fix_description}${outOfScopeSection}
 
 **Next Action:** Restarting workflow monitoring to verify fix.`;
 

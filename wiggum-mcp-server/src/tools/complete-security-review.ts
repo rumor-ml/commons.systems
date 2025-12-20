@@ -16,6 +16,7 @@ import {
   STEP_NAMES,
   SECURITY_REVIEW_COMMAND,
   type WiggumStep,
+  generateTriageInstructions,
 } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
@@ -162,13 +163,17 @@ All security checks passed with no vulnerabilities identified.
     };
   }
 
-  // If issues found, provide fix instructions
+  // If issues found, provide triage instructions
   if (totalIssues > 0) {
+    const issueNumber = state.issue.exists && state.issue.number ? state.issue.number : undefined;
+
     const output = {
       current_step: STEP_NAMES[securityReviewStep],
       step_number: securityReviewStep,
       iteration_count: newState.iteration,
-      instructions: `${totalIssues} security issue(s) found.
+      instructions: issueNumber
+        ? generateTriageInstructions(issueNumber, 'Security', totalIssues)
+        : `${totalIssues} security issue(s) found.
 
 1. Use Task tool with subagent_type="Plan" and model="opus" to create security fix plan for ALL issues
 2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement security fixes
@@ -181,7 +186,7 @@ All security checks passed with no vulnerabilities identified.
       ],
       context: {
         pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-        issue_number: phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
+        issue_number: issueNumber,
         total_issues: totalIssues,
       },
     };

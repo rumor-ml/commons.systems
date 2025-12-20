@@ -16,6 +16,7 @@ import {
   STEP_NAMES,
   PR_REVIEW_COMMAND,
   type WiggumStep,
+  generateTriageInstructions,
 } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
@@ -161,13 +162,17 @@ All automated review checks passed with no concerns identified.
     };
   }
 
-  // If issues found, provide fix instructions
+  // If issues found, provide triage instructions
   if (totalIssues > 0) {
+    const issueNumber = state.issue.exists && state.issue.number ? state.issue.number : undefined;
+
     const output = {
       current_step: STEP_NAMES[prReviewStep],
       step_number: prReviewStep,
       iteration_count: newState.iteration,
-      instructions: `${totalIssues} issue(s) found in PR review.
+      instructions: issueNumber
+        ? generateTriageInstructions(issueNumber, 'PR', totalIssues)
+        : `${totalIssues} issue(s) found in PR review.
 
 1. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan for ALL issues
 2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fixes
@@ -180,7 +185,7 @@ All automated review checks passed with no concerns identified.
       ],
       context: {
         pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-        issue_number: phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
+        issue_number: issueNumber,
         total_issues: totalIssues,
       },
     };

@@ -147,6 +147,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'string',
               description: 'Brief description of what was fixed',
             },
+            out_of_scope_issues: {
+              type: 'array',
+              items: { type: 'number' },
+              description: 'List of issue numbers for out-of-scope recommendations (both new and existing)',
+            },
           },
           required: ['fix_description'],
         },
