@@ -126,6 +126,8 @@ jobs:
       videobrowser-changed: ${{ steps.check-changes.outputs.videobrowser-changed }}
       audiobrowser-changed: ${{ steps.check-changes.outputs.audiobrowser-changed }}
       print-changed: ${{ steps.check-changes.outputs.print-changed }}
+      local-test-sites: ${{ steps.check-changes.outputs.local-test-sites }}
+      build-verify-sites: ${{ steps.check-changes.outputs.build-verify-sites }}
 
     steps:
       - name: Checkout code
@@ -138,10 +140,16 @@ jobs:
         run: |
           CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
 
+          # Initialize arrays for dynamic matrices
+          LOCAL_TEST_SITES=()
+          BUILD_VERIFY_SITES=()
+
           # Check fellspiral changes
           if echo "$CHANGED_FILES" | grep -qE "^(fellspiral/|shared/auth/)"; then
             echo "fellspiral-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Fellspiral changed"
+            LOCAL_TEST_SITES+=("fellspiral")
+            BUILD_VERIFY_SITES+=("fellspiral")
           else
             echo "fellspiral-changed=false" >> $GITHUB_OUTPUT
             echo "⏸️  Fellspiral unchanged"
@@ -151,6 +159,8 @@ jobs:
           if echo "$CHANGED_FILES" | grep -qE "^(videobrowser/|shared/auth/)"; then
             echo "videobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Videobrowser changed"
+            LOCAL_TEST_SITES+=("videobrowser")
+            BUILD_VERIFY_SITES+=("videobrowser")
           else
             echo "videobrowser-changed=false" >> $GITHUB_OUTPUT
             echo "⏸️  Videobrowser unchanged"
@@ -160,6 +170,8 @@ jobs:
           if echo "$CHANGED_FILES" | grep -qE "^(audiobrowser/|shared/auth/)"; then
             echo "audiobrowser-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Audiobrowser changed"
+            LOCAL_TEST_SITES+=("audiobrowser")
+            BUILD_VERIFY_SITES+=("audiobrowser")
           else
             echo "audiobrowser-changed=false" >> $GITHUB_OUTPUT
             echo "⏸️  Audiobrowser unchanged"
@@ -169,10 +181,21 @@ jobs:
           if echo "$CHANGED_FILES" | grep -q "^print/"; then
             echo "print-changed=true" >> $GITHUB_OUTPUT
             echo "✅ Print changed"
+            BUILD_VERIFY_SITES+=("print")
           else
             echo "print-changed=false" >> $GITHUB_OUTPUT
             echo "⏸️  Print unchanged"
           fi
+
+          # Convert arrays to JSON for matrix
+          LOCAL_TEST_JSON=$(printf '%s\n' "${LOCAL_TEST_SITES[@]}" | jq -R . | jq -s -c .)
+          BUILD_VERIFY_JSON=$(printf '%s\n' "${BUILD_VERIFY_SITES[@]}" | jq -R . | jq -s -c .)
+
+          echo "local-test-sites=$LOCAL_TEST_JSON" >> $GITHUB_OUTPUT
+          echo "build-verify-sites=$BUILD_VERIFY_JSON" >> $GITHUB_OUTPUT
+
+          echo "Local test sites: $LOCAL_TEST_JSON"
+          echo "Build verify sites: $BUILD_VERIFY_JSON"
 
   # ==================== Step 1: Local Tests (parallel per site) ====================
   local-tests:
@@ -180,16 +203,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: detect-changes
+    if: needs.detect-changes.outputs.local-test-sites != '[]'
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser]
+        site: ${{ fromJson(needs.detect-changes.outputs.local-test-sites) }}
       fail-fast: false
-    # Only test if the site changed
-    if: |
-      always() &&
-      (needs.detect-changes.outputs.fellspiral-changed == 'true' && matrix.site == 'fellspiral') ||
-      (needs.detect-changes.outputs.videobrowser-changed == 'true' && matrix.site == 'videobrowser') ||
-      (needs.detect-changes.outputs.audiobrowser-changed == 'true' && matrix.site == 'audiobrowser')
 
     steps:
       - name: Checkout code
@@ -218,17 +236,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: detect-changes
+    if: needs.detect-changes.outputs.build-verify-sites != '[]'
     strategy:
       matrix:
-        site: [fellspiral, videobrowser, audiobrowser, print]
+        site: ${{ fromJson(needs.detect-changes.outputs.build-verify-sites) }}
       fail-fast: false
-    # Only build if the site changed
-    if: |
-      always() &&
-      (needs.detect-changes.outputs.fellspiral-changed == 'true' && matrix.site == 'fellspiral') ||
-      (needs.detect-changes.outputs.videobrowser-changed == 'true' && matrix.site == 'videobrowser') ||
-      (needs.detect-changes.outputs.audiobrowser-changed == 'true' && matrix.site == 'audiobrowser') ||
-      (needs.detect-changes.outputs.print-changed == 'true' && matrix.site == 'print')
 
     steps:
       - name: Checkout code
