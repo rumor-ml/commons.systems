@@ -7,10 +7,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { _testExports } from './comments.js';
-import { STEP_ENSURE_PR, isValidStep } from '../constants.js';
-
-const { hasPrototypePollution, safeJsonParse, validateWiggumState } = _testExports;
+import { hasPrototypePollution, safeJsonParse, validateWiggumState } from './utils.js';
+import { STEP_PHASE1_MONITOR_WORKFLOW, isValidStep } from '../constants.js';
 
 describe('hasPrototypePollution', () => {
   describe('basic attack vectors', () => {
@@ -193,8 +191,10 @@ describe('safeJsonParse', () => {
       assert.deepStrictEqual(result, data);
     });
 
-    it('should throw SyntaxError for invalid JSON', () => {
-      assert.throws(() => safeJsonParse('not valid json'), SyntaxError);
+    it('should throw Error for invalid JSON', () => {
+      assert.throws(() => safeJsonParse('not valid json'), {
+        message: /JSON parse error:/,
+      });
     });
 
     it('should parse JSON with null values', () => {
@@ -214,19 +214,35 @@ describe('safeJsonParse', () => {
 describe('validateWiggumState', () => {
   describe('valid state objects', () => {
     it('should return complete valid state', () => {
-      const input = { iteration: 1, step: '0', completedSteps: ['0'] };
-      const result = validateWiggumState(input);
+      const input = {
+        iteration: 1,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+      };
+      const result = validateWiggumState(input, 'test');
       assert.strictEqual(result.iteration, 1);
-      assert.strictEqual(result.step, '0');
-      assert.deepStrictEqual(result.completedSteps, ['0']);
+      assert.strictEqual(result.step, STEP_PHASE1_MONITOR_WORKFLOW);
+      assert.deepStrictEqual(result.completedSteps, [STEP_PHASE1_MONITOR_WORKFLOW]);
     });
 
     it('should accept all valid step values', () => {
-      const validSteps = ['0', '1', '1b', '2', '3', '4', '4b', '5'];
+      const validSteps = [
+        'p1-1',
+        'p1-2',
+        'p1-3',
+        'p1-4',
+        'p2-1',
+        'p2-2',
+        'p2-3',
+        'p2-4',
+        'p2-5',
+        'approval',
+      ];
       for (const step of validSteps) {
         if (isValidStep(step)) {
-          const input = { iteration: 1, step, completedSteps: [] };
-          const result = validateWiggumState(input);
+          const input = { iteration: 1, step, completedSteps: [], phase: 'phase1' };
+          const result = validateWiggumState(input, 'test');
           assert.strictEqual(result.step, step);
         }
       }
@@ -234,22 +250,22 @@ describe('validateWiggumState', () => {
   });
 
   describe('invalid step handling', () => {
-    it('should default to STEP_ENSURE_PR for invalid step string', () => {
+    it('should default to STEP_PHASE1_MONITOR_WORKFLOW for invalid step string', () => {
       const input = { iteration: 1, step: 'invalid', completedSteps: [] };
-      const result = validateWiggumState(input);
-      assert.strictEqual(result.step, STEP_ENSURE_PR);
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.step, STEP_PHASE1_MONITOR_WORKFLOW);
     });
 
-    it('should default to STEP_ENSURE_PR for step number out of range', () => {
+    it('should default to STEP_PHASE1_MONITOR_WORKFLOW for step number out of range', () => {
       const input = { iteration: 1, step: '999', completedSteps: [] };
-      const result = validateWiggumState(input);
-      assert.strictEqual(result.step, STEP_ENSURE_PR);
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.step, STEP_PHASE1_MONITOR_WORKFLOW);
     });
 
-    it('should default to STEP_ENSURE_PR for non-string step', () => {
+    it('should default to STEP_PHASE1_MONITOR_WORKFLOW for non-string step', () => {
       const input = { iteration: 1, step: 123, completedSteps: [] };
-      const result = validateWiggumState(input);
-      assert.strictEqual(result.step, STEP_ENSURE_PR);
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.step, STEP_PHASE1_MONITOR_WORKFLOW);
     });
   });
 
@@ -261,14 +277,14 @@ describe('validateWiggumState', () => {
     });
 
     it('should default to 0 for missing iteration', () => {
-      const input = { step: '0', completedSteps: [] };
-      const result = validateWiggumState(input);
+      const input = { step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [] };
+      const result = validateWiggumState(input, 'test');
       assert.strictEqual(result.iteration, 0);
     });
 
     it('should accept valid iteration numbers', () => {
-      const input = { iteration: 5, step: '0', completedSteps: [] };
-      const result = validateWiggumState(input);
+      const input = { iteration: 5, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [] };
+      const result = validateWiggumState(input, 'test');
       assert.strictEqual(result.iteration, 5);
     });
   });
@@ -277,22 +293,26 @@ describe('validateWiggumState', () => {
     it('should filter out invalid steps from completedSteps', () => {
       const input = {
         iteration: 1,
-        step: '0',
-        completedSteps: ['0', 'invalid', '1', 'also-invalid'],
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: ['p1-1', 'invalid', 'p1-2', 'also-invalid'],
       };
-      const result = validateWiggumState(input);
-      assert.deepStrictEqual(result.completedSteps, ['0', '1']);
+      const result = validateWiggumState(input, 'test');
+      assert.deepStrictEqual(result.completedSteps, ['p1-1', 'p1-2']);
     });
 
     it('should default to empty array for non-array completedSteps', () => {
-      const input = { iteration: 1, step: '0', completedSteps: 'not an array' };
-      const result = validateWiggumState(input);
+      const input = {
+        iteration: 1,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: 'not an array',
+      };
+      const result = validateWiggumState(input, 'test');
       assert.deepStrictEqual(result.completedSteps, []);
     });
 
     it('should default to empty array for missing completedSteps', () => {
-      const input = { iteration: 1, step: '0' };
-      const result = validateWiggumState(input);
+      const input = { iteration: 1, step: STEP_PHASE1_MONITOR_WORKFLOW };
+      const result = validateWiggumState(input, 'test');
       assert.deepStrictEqual(result.completedSteps, []);
     });
   });
@@ -317,9 +337,9 @@ describe('validateWiggumState', () => {
       const input = ['not', 'a', 'state'];
       // If the implementation doesn't throw, it should at least return safe defaults
       try {
-        const result = validateWiggumState(input);
+        const result = validateWiggumState(input, 'test');
         assert.strictEqual(result.iteration, 0);
-        assert.strictEqual(result.step, STEP_ENSURE_PR);
+        assert.strictEqual(result.step, STEP_PHASE1_MONITOR_WORKFLOW);
       } catch (err) {
         // If it throws, that's also acceptable
         assert.ok(err instanceof Error);
