@@ -248,17 +248,36 @@ interface ToolError {
 }
 ```
 
+#### MCP SDK Compatibility
+
+Both `ToolSuccess` and `ToolError` include an index signature `[key: string]: unknown`
+to support MCP SDK extensions. This allows the MCP framework to add framework-specific
+properties without breaking type compatibility.
+
+**Important:** This reduces compile-time type safety. Always use the factory functions
+(`createToolSuccess`, `createToolError`) instead of manually constructing these objects
+to maintain proper typing and validation.
+
 ## Result Builder Functions
 
 ### createToolSuccess
 
-Factory function for creating success results.
+Factory function for creating success results with fail-fast validation.
 
 **Signature**:
 
 ```typescript
 function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess;
 ```
+
+**Parameters**:
+
+- `text`: Success message (required, empty strings allowed)
+- `meta`: Optional metadata object
+
+**Throws**:
+
+- `ValidationError`: If `text` is `null` or `undefined`
 
 **Usage**:
 
@@ -267,11 +286,16 @@ import { createToolSuccess } from '@commons/mcp-common/types';
 
 return createToolSuccess('Operation completed successfully');
 return createToolSuccess('User created', { userId: '123' });
+return createToolSuccess(''); // Empty string is valid
+
+// These will throw ValidationError:
+// createToolSuccess(null);       // Error: text is null
+// createToolSuccess(undefined);  // Error: text is undefined
 ```
 
 ### createToolError
 
-Factory function for creating error results.
+Factory function for creating error results with fail-fast validation.
 
 **Signature**:
 
@@ -284,6 +308,18 @@ function createToolError(
 ): ToolError;
 ```
 
+**Parameters**:
+
+- `text`: Error message (required, empty strings allowed)
+- `errorType`: Error type for categorization (required, must be non-empty after trimming)
+- `errorCode`: Optional error code
+- `meta`: Optional metadata object
+
+**Throws**:
+
+- `ValidationError`: If `text` is `null` or `undefined`
+- `ValidationError`: If `errorType` is `null`, `undefined`, or empty/whitespace-only
+
 **Usage**:
 
 ```typescript
@@ -291,6 +327,16 @@ import { createToolError } from '@commons/mcp-common/types';
 
 return createToolError('File not found', 'NotFoundError', 'FILE_NOT_FOUND');
 return createToolError('Invalid input', 'ValidationError');
+return createToolError('', 'SilentError'); // Empty text is valid
+
+// Whitespace trimmed automatically:
+createToolError('error', '  ValidationError  '); // OK, trimmed to 'ValidationError'
+
+// These will throw ValidationError:
+// createToolError(null, 'Error');      // Error: text is null
+// createToolError('msg', null);        // Error: errorType is null
+// createToolError('msg', '');          // Error: errorType is empty
+// createToolError('msg', '   ');       // Error: errorType is whitespace-only
 ```
 
 ### createErrorResult
@@ -551,24 +597,84 @@ async function fetchWithTimeout(url: string, timeout: number): Promise<string> {
 
 1. **Use specific error classes**: Prefer `ValidationError`, `TimeoutError`, etc. over generic `McpError`
 2. **Provide clear messages**: Error messages should help users understand what went wrong and how to fix it
-3. **Use result builders**: Always use `createErrorResult()` or `createSuccessResult()` instead of manually constructing result objects
-4. **Respect retry strategy**: Check `isTerminalError()` before implementing retry logic
-5. **Handle system errors carefully**: Re-throw system errors (`isSystemError()`) without wrapping
-6. **Log with context**: Use `formatError(error, true)` to include stack traces in logs
-7. **Type-safe error handling**: Use discriminated unions and type guards for compile-time safety
+3. **Fail-fast validation**: Factory functions throw `ValidationError` for null/undefined inputs - catch these during development/testing
+4. **Use result builders**: Always use `createErrorResult()` or `createSuccessResult()` instead of manually constructing result objects
+5. **Respect retry strategy**: Check `isTerminalError()` before implementing retry logic
+6. **Handle system errors carefully**: Re-throw system errors (`isSystemError()`) without wrapping
+7. **Log with context**: Use `formatError(error, true)` to include stack traces in logs
+8. **Type-safe error handling**: Use discriminated unions and type guards for compile-time safety
 
-## Immutability Note
+## Immutability Guarantees
 
-Result objects use `Object.freeze()` for **shallow immutability**. Nested objects and arrays in metadata remain mutable. Do not rely on deep immutability:
+Factory functions use `Object.freeze()` for **shallow immutability only**:
+
+**✅ Protected (Immutable):**
 
 ```typescript
-const result = createToolSuccess('test', { items: [1, 2] });
-
-// Top-level is frozen (this throws)
-result.isError = true; // Error
-
-// Nested objects are NOT frozen (this works)
-result._meta.items.push(3); // Modifies the array!
+const result = createToolSuccess('msg', { count: 5 });
+result.isError = true; // TypeError: Cannot assign to readonly property
+result._meta = {}; // TypeError: Cannot assign to readonly property
+result._meta.count = 10; // TypeError: Cannot assign to readonly property
 ```
 
-For deep immutability, clone objects before adding them to metadata or use immutable data structures.
+**❌ Not Protected (Mutable):**
+
+```typescript
+const result = createToolSuccess('msg', { items: [1, 2], config: { debug: true } });
+result._meta.items.push(3); // WORKS - array is mutable
+result._meta.config.debug = false; // WORKS - nested object is mutable
+```
+
+**Development Mode Warning:**
+In development mode (`NODE_ENV === 'development'`), factory functions warn when
+you pass nested objects or arrays that remain mutable despite `readonly` type
+annotations.
+
+**Best Practice:**
+Treat result objects as immutable even though nested structures technically can
+be modified. The type system provides compile-time guarantees; runtime enforcement
+is shallow by design for performance.
+
+## Migration Guide: Safe-Defaults to Fail-Fast
+
+**Version**: 0.2.0 (Breaking changes)
+
+### What Changed
+
+Factory functions now throw `ValidationError` for invalid inputs instead of using safe defaults.
+
+### Breaking Changes
+
+**Before (v0.1.x)**:
+
+```typescript
+createToolSuccess(null); // Returned: "[Warning: ...] [Error: missing...]"
+createToolError('msg', ''); // Returned: errorType = 'UnknownError'
+```
+
+**After (v0.2.x)**:
+
+```typescript
+createToolSuccess(null); // Throws ValidationError
+createToolError('msg', ''); // Throws ValidationError
+```
+
+### Migration Steps
+
+Ensure inputs are never null/undefined:
+
+```typescript
+// BEFORE (risky)
+const message = data?.message;
+return createToolSuccess(message);
+
+// AFTER (safe)
+const message = data?.message ?? 'Operation completed';
+return createToolSuccess(message);
+```
+
+### What Stayed the Same
+
+- Empty strings are still valid: `createToolSuccess('')` works
+- `createErrorResult()` still converts unknown errors gracefully
+- `GitHubCliError` still clamps invalid exit codes

@@ -7,11 +7,30 @@
  * @module types
  */
 
+import { ValidationError } from './errors.js';
+
 /**
- * Successful tool result
+ * Successful tool execution result with discriminated union type
  *
- * Contains response content with optional metadata. The isError field
- * must be false to distinguish from error results.
+ * The `isError: false` discriminant enables TypeScript type narrowing.
+ *
+ * @property content - Array of text content objects
+ * @property isError - Always false (discriminant for type narrowing)
+ * @property _meta - Optional metadata object
+ *
+ * **MCP SDK Compatibility:**
+ * Includes `[key: string]: unknown` index signature to support MCP SDK
+ * extensions. This allows the MCP framework to add SDK-specific properties
+ * without breaking type compatibility. Use factory functions
+ * (createToolSuccess) to maintain type safety.
+ *
+ * @example
+ * ```typescript
+ * const result: ToolSuccess = {
+ *   content: [{ type: 'text', text: 'Success' }],
+ *   isError: false,
+ * };
+ * ```
  */
 export interface ToolSuccess {
   readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
@@ -21,10 +40,29 @@ export interface ToolSuccess {
 }
 
 /**
- * Error tool result
+ * Error tool execution result with discriminated union type
  *
- * Contains error content with required error metadata. The isError field
- * must be true, and _meta must include errorType for error categorization.
+ * The `isError: true` discriminant enables TypeScript type narrowing.
+ * Must include errorType in _meta for error categorization.
+ *
+ * @property content - Array of text content objects
+ * @property isError - Always true (discriminant for type narrowing)
+ * @property _meta - Required metadata with errorType
+ *
+ * **MCP SDK Compatibility:**
+ * Includes `[key: string]: unknown` index signature to support MCP SDK
+ * extensions. This allows the MCP framework to add SDK-specific properties
+ * without breaking type compatibility. Use factory functions
+ * (createToolError) to maintain type safety.
+ *
+ * @example
+ * ```typescript
+ * const result: ToolError = {
+ *   content: [{ type: 'text', text: 'Error occurred' }],
+ *   isError: true,
+ *   _meta: { errorType: 'ValidationError' },
+ * };
+ * ```
  */
 export interface ToolError {
   readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
@@ -97,11 +135,17 @@ export type ErrorResult = ToolError;
  * @param text - Success message text (empty string allowed, null/undefined rejected)
  * @param meta - Optional metadata to include
  * @returns A properly typed ToolSuccess object
+ * @throws {ValidationError} If text is null or undefined
  *
  * @example
  * ```typescript
  * return createToolSuccess("Operation completed successfully");
  * return createToolSuccess("User created", { userId: "123" });
+ * return createToolSuccess(""); // Empty string is valid
+ *
+ * // These will throw ValidationError:
+ * // createToolSuccess(null);       // Error: text is null
+ * // createToolSuccess(undefined);  // Error: text is undefined
  * ```
  *
  * IMPORTANT: Uses Object.freeze for ONLY shallow immutability. Nested objects
@@ -112,14 +156,16 @@ export type ErrorResult = ToolError;
  * runtime enforcement. Do not rely on immutability for nested structures.
  */
 export function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess {
-  // Use safe defaults instead of throwing
-  const safeText = text ?? '[Error: missing success message]';
-
-  // Warn if we had to use defaults
-  const warnings: string[] = [];
-  if (!text && text !== '') {
-    warnings.push('[Warning: success message was missing]');
-    console.warn('[mcp-common] createToolSuccess called with invalid text:', text);
+  // Fail-fast validation: reject null/undefined (but allow empty strings)
+  if (text === null) {
+    throw new ValidationError(
+      'createToolSuccess: text parameter is required. Expected string, received null'
+    );
+  }
+  if (text === undefined) {
+    throw new ValidationError(
+      'createToolSuccess: text parameter is required. Expected string, received undefined'
+    );
   }
 
   // Warn about nested objects in development
@@ -133,10 +179,8 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
     }
   }
 
-  const finalText = warnings.length > 0 ? `${warnings.join(' ')} ${safeText}` : safeText;
-
   const result = {
-    content: [{ type: 'text' as const, text: finalText }],
+    content: [{ type: 'text' as const, text }],
     isError: false as const,
     ...(meta && { _meta: Object.freeze(meta) }),
   };
@@ -147,15 +191,26 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
  * Factory function to create an error tool result
  *
  * @param text - Error message text (empty string allowed, null/undefined rejected)
- * @param errorType - Error type for categorization (e.g., "ValidationError", "TimeoutError")
+ * @param errorType - Error type for categorization (required, must be non-empty after trimming)
  * @param errorCode - Optional error code for programmatic handling
  * @param meta - Optional additional metadata
  * @returns A properly typed ToolError object
+ * @throws {ValidationError} If text or errorType is null/undefined/empty
  *
  * @example
  * ```typescript
  * return createToolError("File not found", "NotFoundError", "FILE_NOT_FOUND");
  * return createToolError("Invalid input", "ValidationError");
+ * return createToolError("", "SilentError"); // Empty text is valid
+ *
+ * // Whitespace trimmed automatically:
+ * createToolError("error", "  ValidationError  "); // OK, trimmed to "ValidationError"
+ *
+ * // These will throw ValidationError:
+ * // createToolError(null, "Error");      // Error: text is null
+ * // createToolError("msg", null);        // Error: errorType is null
+ * // createToolError("msg", "");          // Error: errorType is empty
+ * // createToolError("msg", "   ");       // Error: errorType is whitespace-only
  * ```
  */
 export function createToolError(
@@ -164,19 +219,33 @@ export function createToolError(
   errorCode?: string,
   meta?: Record<string, unknown>
 ): ToolError {
-  // Use safe defaults instead of throwing
-  const safeText = text ?? '[Error: missing error message]';
-  const safeErrorType = errorType?.trim() || 'UnknownError';
-
-  // Collect warnings for invalid inputs
-  const warnings: string[] = [];
-  if (!errorType || errorType.trim().length === 0) {
-    warnings.push('[Warning: errorType was empty, using "UnknownError"]');
-    console.warn('[mcp-common] createToolError called with empty errorType');
+  // Fail-fast validation for text (allow empty strings)
+  if (text === null) {
+    throw new ValidationError(
+      'createToolError: text parameter is required. Expected string, received null'
+    );
   }
-  if (!text && text !== '') {
-    warnings.push('[Warning: error message was missing]');
-    console.warn('[mcp-common] createToolError called with invalid text:', text);
+  if (text === undefined) {
+    throw new ValidationError(
+      'createToolError: text parameter is required. Expected string, received undefined'
+    );
+  }
+
+  // Fail-fast validation for errorType (must be non-empty after trimming)
+  if (errorType === null) {
+    throw new ValidationError(
+      'createToolError: errorType parameter is required. Expected string, received null'
+    );
+  }
+  if (errorType === undefined) {
+    throw new ValidationError(
+      'createToolError: errorType parameter is required. Expected string, received undefined'
+    );
+  }
+  if (typeof errorType === 'string' && errorType.trim().length === 0) {
+    throw new ValidationError(
+      `createToolError: errorType parameter cannot be empty. Expected non-empty string, received '${errorType}'`
+    );
   }
 
   // Validate that meta doesn't contain reserved keys
@@ -186,13 +255,11 @@ export function createToolError(
     );
   }
 
-  const finalText = warnings.length > 0 ? `${warnings.join(' ')} ${safeText}` : safeText;
-
   const result = {
-    content: [{ type: 'text' as const, text: finalText }],
+    content: [{ type: 'text' as const, text }],
     isError: true as const,
     _meta: Object.freeze({
-      errorType: safeErrorType,
+      errorType: errorType.trim(),
       ...(errorCode && { errorCode }),
       ...meta,
     }),

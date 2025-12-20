@@ -122,6 +122,21 @@ describe('GitHubCliError', () => {
     assert.equal(error.stdout, undefined);
   });
 
+  it('accepts empty string for stderr', () => {
+    const error = new GitHubCliError('Command failed', 1, '', 'some output');
+    assert.equal(error.stderr, '');
+    assert.equal(error.stdout, 'some output');
+    assert.equal(error.exitCode, 1);
+    assert.equal(error.message, 'Command failed');
+  });
+
+  it('accepts empty string for both stderr and stdout', () => {
+    const error = new GitHubCliError('Command failed', 0, '');
+    assert.equal(error.stderr, '');
+    assert.equal(error.stdout, undefined);
+    assert.equal(error.exitCode, 0);
+  });
+
   it('clamps negative exit codes to 0', () => {
     const error = new GitHubCliError('Test', -5, 'stderr');
 
@@ -265,6 +280,30 @@ describe('isTerminalError', () => {
 
   it('returns false for non-Error objects', () => {
     assert.equal(isTerminalError({ message: 'not an error' }), false);
+  });
+
+  it('returns true for custom ValidationError subclass', () => {
+    class CustomValidationError extends ValidationError {
+      constructor(message: string) {
+        super(message);
+        this.name = 'CustomValidationError';
+      }
+    }
+
+    const error = new CustomValidationError('Invalid custom input');
+    assert.equal(isTerminalError(error), true);
+    // Verify inheritance chain is preserved
+    assert.ok(error instanceof ValidationError);
+    assert.ok(error instanceof CustomValidationError);
+  });
+
+  it('maintains correct behavior with nested subclasses', () => {
+    class Level1ValidationError extends ValidationError {}
+    class Level2ValidationError extends Level1ValidationError {}
+
+    const error = new Level2ValidationError('Deeply nested validation error');
+    assert.equal(isTerminalError(error), true);
+    assert.ok(error instanceof ValidationError);
   });
 });
 

@@ -170,14 +170,21 @@ describe('Edge cases', () => {
     assert.equal(result._meta.errorType, 'EmptyError');
   });
 
-  it('uses safe defaults when errorType is empty', () => {
-    const result1 = createToolError('error', '');
-    assert.ok(result1.content[0].text.includes('Warning: errorType was empty'));
-    assert.equal(result1._meta.errorType, 'UnknownError');
+  it('trims whitespace from errorType', () => {
+    const result = createToolError('error', '  ValidationError  ');
+    assert.equal(result._meta.errorType, 'ValidationError');
+  });
 
-    const result2 = createToolError('error', '  ');
-    assert.ok(result2.content[0].text.includes('Warning: errorType was empty'));
-    assert.equal(result2._meta.errorType, 'UnknownError');
+  it('throws ValidationError when errorType is empty', () => {
+    assert.throws(() => createToolError('error', ''), {
+      name: 'ValidationError',
+      message: /createToolError: errorType parameter cannot be empty/,
+    });
+
+    assert.throws(() => createToolError('error', '  '), {
+      name: 'ValidationError',
+      message: /createToolError: errorType parameter cannot be empty.*received '  '/,
+    });
   });
 
   it('handles empty metadata object', () => {
@@ -245,38 +252,47 @@ describe('isSystemError', () => {
 });
 
 describe('Factory function validation', () => {
-  it('createToolSuccess handles null text with safe defaults', () => {
-    const result = createToolSuccess(null as any);
-    assert.ok(result.content[0].text.includes('Warning: success message was missing'));
-    assert.ok(result.content[0].text.includes('[Error: missing success message]'));
+  it('createToolSuccess throws ValidationError for null text', () => {
+    assert.throws(() => createToolSuccess(null as any), {
+      name: 'ValidationError',
+      message: /createToolSuccess: text parameter is required.*Expected string, received null/,
+    });
   });
 
-  it('createToolSuccess handles undefined text with safe defaults', () => {
-    const result = createToolSuccess(undefined as any);
-    assert.ok(result.content[0].text.includes('Warning: success message was missing'));
+  it('createToolSuccess throws ValidationError for undefined text', () => {
+    assert.throws(() => createToolSuccess(undefined as any), {
+      name: 'ValidationError',
+      message: /createToolSuccess: text parameter is required.*Expected string, received undefined/,
+    });
   });
 
-  it('createToolError handles null text with safe defaults', () => {
-    const result = createToolError(null as any, 'TestError');
-    assert.ok(result.content[0].text.includes('Warning: error message was missing'));
-    assert.ok(result.content[0].text.includes('[Error: missing error message]'));
+  it('createToolError throws ValidationError for null text', () => {
+    assert.throws(() => createToolError(null as any, 'TestError'), {
+      name: 'ValidationError',
+      message: /createToolError: text parameter is required.*Expected string, received null/,
+    });
   });
 
-  it('createToolError handles undefined text with safe defaults', () => {
-    const result = createToolError(undefined as any, 'TestError');
-    assert.ok(result.content[0].text.includes('Warning: error message was missing'));
+  it('createToolError throws ValidationError for undefined text', () => {
+    assert.throws(() => createToolError(undefined as any, 'TestError'), {
+      name: 'ValidationError',
+      message: /createToolError: text parameter is required.*Expected string, received undefined/,
+    });
   });
 
-  it('createToolError handles missing errorType with safe defaults', () => {
-    const result = createToolError('Error message', null as any);
-    assert.ok(result.content[0].text.includes('Warning: errorType was empty'));
-    assert.equal(result._meta.errorType, 'UnknownError');
+  it('createToolError throws ValidationError for null errorType', () => {
+    assert.throws(() => createToolError('Error message', null as any), {
+      name: 'ValidationError',
+      message: /createToolError: errorType parameter is required.*Expected string, received null/,
+    });
   });
 
-  it('createToolError handles undefined errorType with safe defaults', () => {
-    const result = createToolError('Error message', undefined as any);
-    assert.ok(result.content[0].text.includes('Warning: errorType was empty'));
-    assert.equal(result._meta.errorType, 'UnknownError');
+  it('createToolError throws ValidationError for undefined errorType', () => {
+    assert.throws(() => createToolError('Error message', undefined as any), {
+      name: 'ValidationError',
+      message:
+        /createToolError: errorType parameter is required.*Expected string, received undefined/,
+    });
   });
 });
 

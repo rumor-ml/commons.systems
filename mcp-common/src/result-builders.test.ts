@@ -49,6 +49,33 @@ describe('createErrorResult', () => {
     assert.equal((result._meta as any).errorCode, 'GH_CLI_ERROR');
   });
 
+  it('preserves GitHubCliError metadata for debugging', () => {
+    const error = new GitHubCliError('gh pr create failed', 128, 'permission denied', 'partial output');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    if (result.isError) {
+      assert.equal(result._meta.errorType, 'GitHubCliError');
+      assert.equal(result._meta.errorCode, 'GH_CLI_ERROR');
+      // Verify debugging metadata is preserved
+      assert.equal((result._meta as any).exitCode, 128);
+      assert.equal((result._meta as any).stderr, 'permission denied');
+      assert.equal((result._meta as any).stdout, 'partial output');
+    }
+  });
+
+  it('preserves GitHubCliError metadata without stdout', () => {
+    const error = new GitHubCliError('gh failed', 1, 'error output');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    if (result.isError) {
+      assert.equal((result._meta as any).exitCode, 1);
+      assert.equal((result._meta as any).stderr, 'error output');
+      assert.ok(!('stdout' in result._meta)); // stdout should not be present
+    }
+  });
+
   it('creates error result for generic McpError', () => {
     const error = new McpError('Generic error', 'PARSING_ERROR');
     const result = createErrorResult(error);

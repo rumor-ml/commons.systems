@@ -18,26 +18,28 @@ import type { ToolResult, ToolError, ToolSuccess } from './types.js';
 import { createToolError, createToolSuccess } from './types.js';
 
 /**
- * Create a standardized error result for MCP tool responses
+ * Creates a ToolError from any error object with automatic type detection
  *
- * Categorizes errors by type to help consumers handle different error scenarios:
- * - TimeoutError: Operation exceeded time limit (may be retryable)
- * - ValidationError: Invalid input parameters (terminal, not retryable)
- * - NetworkError: Network-related failures (may be retryable)
- * - McpError: Generic MCP-related errors (base class for all custom errors)
- * - Generic errors: Unexpected failures (unknown error types)
+ * Preserves rich error context:
+ * - GitHubCliError: Includes exitCode, stderr, stdout in metadata
+ * - McpError subclasses: Includes error code if available
+ * - Unknown errors: Logs to console, returns as UnknownError
  *
- * This function acts as a protocol bridge, converting TypeScript Error objects
- * into MCP-compliant ToolError format with structured metadata for error
- * categorization and retry logic.
+ * @param error - Any error object to convert
+ * @returns ToolError with appropriate errorType and metadata
  *
- * @param error - The error to convert to a tool result
- * @returns Standardized ToolError with error information and type metadata
+ * @example
+ * ```typescript
+ * const ghError = new GitHubCliError('gh failed', 128, 'permission denied', 'output');
+ * const result = createErrorResult(ghError);
+ * // result._meta includes: { errorType, errorCode, exitCode, stderr, stdout }
+ * ```
  */
 export function createErrorResult(error: unknown): ToolError {
   const message = error instanceof Error ? error.message : String(error);
   let errorType = 'UnknownError';
   let errorCode: string | undefined;
+  let additionalMeta: Record<string, unknown> = {};
 
   // Categorize error types for better handling
   if (error instanceof TimeoutError) {
@@ -52,6 +54,12 @@ export function createErrorResult(error: unknown): ToolError {
   } else if (error instanceof GitHubCliError) {
     errorType = 'GitHubCliError';
     errorCode = 'GH_CLI_ERROR';
+    // Preserve debugging context from GitHubCliError
+    additionalMeta = {
+      exitCode: error.exitCode,
+      stderr: error.stderr,
+      ...(error.stdout && { stdout: error.stdout }),
+    };
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;
@@ -84,9 +92,10 @@ export function createErrorResult(error: unknown): ToolError {
     isError: true,
     _meta: {
       errorType,
-      errorCode,
+      ...(errorCode && { errorCode }),
+      ...additionalMeta,
     },
-  };
+  } as ToolError;
 }
 
 /**
