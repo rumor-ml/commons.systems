@@ -2,6 +2,9 @@
  * Shared constants for Wiggum MCP server
  */
 
+import { ValidationError } from './utils/errors.js';
+import { logger } from './utils/logger.js';
+
 // Maximum characters to return in tool responses to stay within token limits
 export const MAX_RESPONSE_LENGTH = 10000;
 export const WORKFLOW_LOG_MAX_CHARS = 50000; // For complete error logs in automated workflows
@@ -97,16 +100,49 @@ export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
 export const FAILURE_STATES = ['FAILURE', 'ERROR'] as const;
 
 /**
- * Generate triage instructions for review issues
- * @param issueNumber - The issue number being worked on
+ * Generate triage instructions for review issues.
+ *
+ * This function generates a comprehensive multi-step workflow prompt that guides
+ * the agent through the triage process for review recommendations. The workflow includes:
+ * 1. Entering plan mode
+ * 2. Fetching issue context from GitHub
+ * 3. Triaging each recommendation as in-scope or out-of-scope
+ * 4. Handling ambiguous scope with user clarification
+ * 5. Tracking out-of-scope items to existing/new issues
+ * 6. Writing a structured plan with in-scope fixes and out-of-scope tracking
+ * 7. Executing the plan with fix implementation and TODO comments
+ *
+ * @param issueNumber - The issue number being worked on (must be positive integer)
  * @param reviewType - Either 'PR' or 'Security'
- * @param totalIssues - Total number of issues found
+ * @param totalIssues - Total number of issues found (must be non-negative integer)
+ * @returns A multi-step triage workflow prompt with scope boundaries determined by issueNumber
+ * @throws {ValidationError} If issueNumber or totalIssues are invalid
  */
 export function generateTriageInstructions(
   issueNumber: number,
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
+  // Validate issueNumber
+  if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
+    throw new ValidationError(
+      `Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
+    );
+  }
+
+  // Validate totalIssues
+  if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
+    throw new ValidationError(
+      `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
+    );
+  }
+
+  logger.info('Generating triage instructions', {
+    issueNumber,
+    reviewType,
+    totalIssues,
+  });
+
   return `${totalIssues} ${reviewType.toLowerCase()} review issue(s) found. Proceeding to triage phase.
 
 ## Step 1: Enter Plan Mode

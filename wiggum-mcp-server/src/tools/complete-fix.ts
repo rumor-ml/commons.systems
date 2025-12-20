@@ -16,6 +16,11 @@ import type { ToolResult } from '../types.js';
 
 export const CompleteFixInputSchema = z.object({
   fix_description: z.string().describe('Brief description of what was fixed'),
+  has_in_scope_fixes: z
+    .boolean()
+    .describe(
+      'Whether any in-scope fixes were made. If false, skips state update and comment posting.'
+    ),
   out_of_scope_issues: z
     .array(z.number())
     .optional()
@@ -31,6 +36,26 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   if (!input.fix_description || input.fix_description.trim().length === 0) {
     logger.error('wiggum_complete_fix validation failed: empty fix_description');
     throw new ValidationError('fix_description is required and cannot be empty');
+  }
+
+  // Validate out_of_scope_issues array contents if provided
+  if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
+    const invalidNumbers = input.out_of_scope_issues.filter(
+      (num) => !Number.isFinite(num) || num <= 0 || !Number.isInteger(num)
+    );
+    if (invalidNumbers.length > 0) {
+      logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
+        invalidNumbers,
+      });
+      throw new ValidationError(
+        `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
+      );
+    }
+
+    logger.info('Tracking out-of-scope issues', {
+      outOfScopeIssues: input.out_of_scope_issues,
+      count: input.out_of_scope_issues.length,
+    });
   }
 
   const state = await detectCurrentState();
@@ -51,6 +76,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         'No issue found. Phase 1 fixes require issue number in branch name (format: 123-feature-name).'
       );
     }
+    // TODO: See issue #292 - Remove redundant type narrowing comments throughout codebase
     // After validation, we know state.issue.number exists
     targetNumber = state.issue.number as number;
   } else if (phase === 'phase2') {
@@ -75,10 +101,24 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     iteration: state.wiggum.iteration,
     currentStep: state.wiggum.step,
     fixDescription: input.fix_description,
+    hasInScopeFixes: input.has_in_scope_fixes,
   });
 
-  // Post PR comment documenting the fix
+  // If no in-scope fixes were made, skip state update and proceed to next step
+  if (!input.has_in_scope_fixes) {
+    logger.info('No in-scope fixes made - proceeding to next step without state update', {
+      phase,
+      targetNumber,
+      outOfScopeIssues: input.out_of_scope_issues,
+    });
+
+    const updatedState = await detectCurrentState();
+    return await getNextStepInstructions(updatedState);
+  }
+
+  // Post comment documenting the fix (to issue in Phase 1, to PR in Phase 2)
   const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;
+  // TODO: See issue #296 - Use optional chaining for cleaner code
   const outOfScopeSection =
     input.out_of_scope_issues && input.out_of_scope_issues.length > 0
       ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
@@ -90,7 +130,8 @@ ${input.fix_description}${outOfScopeSection}
 **Next Action:** Restarting workflow monitoring to verify fix.`;
 
   // Clear the current step and all subsequent steps from completedSteps
-  // This ensures we re-verify from the point where issues were found
+  // This ensures we re-verify from the point where issues were found, preventing
+  // the workflow from skipping validation steps after a fix is applied
   const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step);
 
   logger.info('Filtering completed steps', {

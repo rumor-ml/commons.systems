@@ -14,6 +14,7 @@ describe('complete-fix tool', () => {
     it('should validate required fix_description field', () => {
       const input = {
         fix_description: 'Fixed critical error handling in getMainBranch function',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -30,6 +31,7 @@ describe('complete-fix tool', () => {
     it('should accept empty fix_description at schema level (validated by tool)', () => {
       const input = {
         fix_description: '',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -40,6 +42,7 @@ describe('complete-fix tool', () => {
     it('should accept brief fix descriptions', () => {
       const input = {
         fix_description: 'Fixed bug',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -50,6 +53,7 @@ describe('complete-fix tool', () => {
       const input = {
         fix_description:
           'Fixed 38 issues across 5 categories: Error handling (empty catch blocks), Type safety (loose index signatures), Test coverage (added 4 new test files), Type design (discriminated unions), Documentation (README clarifications)',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -60,6 +64,7 @@ describe('complete-fix tool', () => {
       const input = {
         fix_description:
           'Fixed: Type safety improvements (getMainBranch, constants.ts); Added error context logging; Removed index signatures from types.ts',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -70,6 +75,7 @@ describe('complete-fix tool', () => {
       const input = {
         fix_description:
           'Fixed empty catch blocks in `getMainBranch()` and improved error logging in `src/utils/git.ts`',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -80,6 +86,7 @@ describe('complete-fix tool', () => {
       const input = {
         fix_description:
           'Updated src/types.ts (removed loose index signatures), src/constants.ts (added WiggumStep type), src/utils/git.ts (added error logging)',
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
@@ -106,6 +113,7 @@ describe('complete-fix tool', () => {
 
       const input = {
         fix_description: longDescription,
+        has_in_scope_fixes: true,
       };
 
       const result = CompleteFixInputSchema.safeParse(input);

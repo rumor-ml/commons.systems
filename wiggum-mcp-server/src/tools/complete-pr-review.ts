@@ -21,6 +21,7 @@ import {
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { logger } from '../utils/logger.js';
 
 export const CompletePRReviewInputSchema = z.object({
   command_executed: z
@@ -61,6 +62,7 @@ export async function completePRReview(input: CompletePRReviewInput): Promise<To
     throw new ValidationError('No PR found. Cannot complete PR review.');
   }
 
+  // TODO: See issue #293 - Add validation for negative/invalid issue counts
   const totalIssues =
     input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
 
@@ -123,6 +125,7 @@ All automated review checks passed with no concerns identified.
   // Post comment - to issue for Phase 1, to PR for Phase 2
   if (phase === 'phase1') {
     // Issue number is guaranteed to exist from validation above
+    // TODO: See issue #295 - Enhance error messages with full diagnostic context
     if (!state.issue.exists || !state.issue.number) {
       throw new ValidationError(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
@@ -131,6 +134,7 @@ All automated review checks passed with no concerns identified.
     await postWiggumStateIssueComment(state.issue.number, newState, commentTitle, commentBody);
   } else {
     // Phase 2 - PR number is guaranteed to exist from validation above
+    // TODO: See issue #295 - Enhance error messages with full diagnostic context
     if (!state.pr.exists || !state.pr.number) {
       throw new ValidationError(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
@@ -162,9 +166,29 @@ All automated review checks passed with no concerns identified.
     };
   }
 
-  // If issues found, provide triage instructions
+  // If issues found, provide triage instructions (when issue context is available)
+  // or fallback fix instructions (when no issue number exists)
   if (totalIssues > 0) {
+    // TODO: See issue #294 - Extract duplicated issue number resolution pattern
     const issueNumber = state.issue.exists && state.issue.number ? state.issue.number : undefined;
+
+    // Log triage instruction decision
+    if (issueNumber) {
+      logger.info('Providing triage instructions for PR review issues', {
+        phase,
+        issueNumber,
+        totalIssues,
+        iteration: newState.iteration,
+      });
+    } else {
+      logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
+        phase,
+        totalIssues,
+        iteration: newState.iteration,
+        issueExists: state.issue.exists,
+        branchName: state.git.currentBranch,
+      });
+    }
 
     const output = {
       current_step: STEP_NAMES[prReviewStep],
@@ -172,7 +196,8 @@ All automated review checks passed with no concerns identified.
       iteration_count: newState.iteration,
       instructions: issueNumber
         ? generateTriageInstructions(issueNumber, 'PR', totalIssues)
-        : `${totalIssues} issue(s) found in PR review.
+        : // TODO: See issue #297 - Extract to helper function to reduce duplication
+          `${totalIssues} issue(s) found in PR review.
 
 1. Use Task tool with subagent_type="Plan" and model="opus" to create fix plan for ALL issues
 2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fixes
