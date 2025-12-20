@@ -330,8 +330,8 @@ export async function getPRReviewComments(
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
 
-  // TODO(#272): Improve error handling for malformed comments
-  // Skip malformed comments instead of failing completely.
+  // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
+  // Current: throws on first malformed comment, blocking all remaining valid comments
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));

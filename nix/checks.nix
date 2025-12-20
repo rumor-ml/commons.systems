@@ -95,6 +95,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     # === Pre-Push Hooks ===
     # Validate all TypeScript/JavaScript/JSON/Markdown files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
+    # Note: Checks ALL tracked files (not just changed) to prevent CI failures from
+    # formatting drift in files outside the current changeset
     # --ignore-unknown prevents errors on unrecognized file types in the glob pattern
     prettier-check-all = {
       enable = true;
@@ -131,11 +133,28 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "mcp-nix-build" ''
         set -e
 
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
         # Get list of changed files between main and current branch
-        CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
 
         # Check if any MCP server directories were modified
-        # Note: Will include mcp-common/ when shared error handling package is created (see #265)
+        # Future: Add mcp-common/ to this pattern when issue #265 is implemented
         if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
           echo "MCP server files changed, running Nix build validation..."
           ./infrastructure/scripts/build-mcp-servers.sh
@@ -158,8 +177,25 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "pnpm-lockfile-check" ''
         set -e
 
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
         # Check if any pnpm-related files changed
-        CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
 
         if echo "$CHANGED_FILES" | grep -qE "(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)"; then
           echo "Package files changed, validating lockfile consistency..."

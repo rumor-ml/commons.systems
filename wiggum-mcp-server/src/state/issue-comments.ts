@@ -107,8 +107,11 @@ export async function getWiggumStateFromIssue(
         return validateWiggumState(raw, 'issue comment');
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
+        // TODO(#272): Add security alerting for prototype pollution detection
+        // Current: logs at ERROR but no notification/alert (see PR review #273)
         // Log prototype pollution attempts at ERROR level for security monitoring
         const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
+        // TODO(#299): Replace dynamic logger method selection with explicit if/else for clarity
         logger[logLevel]('getWiggumStateFromIssue: failed to parse state JSON from comment', {
           commentId: comment.id,
           error: errorMsg,

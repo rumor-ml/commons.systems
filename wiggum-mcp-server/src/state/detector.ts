@@ -121,6 +121,8 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       baseRefName: result.baseRefName,
     };
   } catch (error) {
+    // TODO(#272): Make catch block more specific - only catch expected "no PR" error
+    // Current: catches all errors and treats as "PR doesn't exist" (see PR review #273)
     // Expected: no PR exists for current branch (GitHubCliError)
     // Log unexpected errors with full context
     if (error instanceof Error) {
@@ -226,6 +228,8 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
+        // TODO(#272): Throw instead of returning stale state when recursion limit exceeded
+        // Current: returns potentially unreliable data (see PR review #273)
         if (depth >= MAX_RECURSION_DEPTH) {
           logger.error(
             'detectCurrentState: maximum recursion depth exceeded during PR revalidation',

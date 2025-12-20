@@ -52,8 +52,8 @@ export async function monitorRun(
   });
 
   // If failed, enrich with failure details
-  // TODO(#272): Improve error handling for enrichment failures
-  // Make enrichment failures more visible to users.
+  // TODO(#272): Surface enrichment errors to users in failure messages
+  // Current: enrichment failures only logged, not shown to users (see PR review #273)
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { branch });
     try {
@@ -113,6 +113,7 @@ export async function monitorPRChecks(
   });
 
   // If failed, enrich with failure details
+  // TODO(#299): Extract duplicated enrichment logic to helper function
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { prNumber });
     try {
