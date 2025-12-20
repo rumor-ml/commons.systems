@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
+import { postWiggumStateIssueComment } from '../state/issue-comments.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
@@ -30,19 +31,43 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
   const state = await detectCurrentState();
 
-  if (!state.pr.exists) {
-    logger.error('wiggum_complete_fix validation failed: no PR exists', {
-      prExists: state.pr.exists,
-      branch: state.git.currentBranch,
-    });
-    throw new ValidationError('No PR found. Cannot complete fix.');
+  const phase = state.wiggum.phase;
+
+  // Validate state and get target number based on current phase
+  let targetNumber: number;
+
+  if (phase === 'phase1') {
+    if (!state.issue.exists || !state.issue.number) {
+      logger.error('wiggum_complete_fix validation failed: no issue exists in Phase 1', {
+        phase,
+        issueExists: state.issue.exists,
+        branch: state.git.currentBranch,
+      });
+      throw new ValidationError(
+        'No issue found. Phase 1 fixes require issue number in branch name (format: 123-feature-name).'
+      );
+    }
+    // After validation, we know state.issue.number exists
+    targetNumber = state.issue.number as number;
+  } else if (phase === 'phase2') {
+    if (!state.pr.exists || !state.pr.number) {
+      logger.error('wiggum_complete_fix validation failed: no PR exists in Phase 2', {
+        phase,
+        prExists: state.pr.exists,
+        branch: state.git.currentBranch,
+      });
+      throw new ValidationError('No PR found. Cannot complete fix in Phase 2.');
+    }
+    // After validation, we know state.pr.number exists
+    targetNumber = state.pr.number as number;
+  } else {
+    throw new ValidationError(`Unknown phase: ${phase}`);
   }
 
-  // After type narrowing, we know state.pr has a number property
-  const prNumber = state.pr.number;
-
   logger.info('wiggum_complete_fix started', {
-    prNumber,
+    phase,
+    targetNumber,
+    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
     iteration: state.wiggum.iteration,
     currentStep: state.wiggum.step,
     fixDescription: input.fix_description,
@@ -58,7 +83,7 @@ ${input.fix_description}
 
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found
-  const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step as any);
+  const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step);
 
   logger.info('Filtering completed steps', {
     currentStep: state.wiggum.step,
@@ -67,7 +92,7 @@ ${input.fix_description}
   });
 
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
-    const stepIndex = STEP_ORDER.indexOf(step as any);
+    const stepIndex = STEP_ORDER.indexOf(step);
     return stepIndex < currentStepIndex;
   });
 
@@ -83,18 +108,27 @@ ${input.fix_description}
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
+    phase: state.wiggum.phase,
   };
 
   logger.info('Posting wiggum state comment', {
-    prNumber,
+    phase,
+    targetNumber,
+    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
     newState,
   });
 
-  // Post comment
-  await postWiggumStateComment(prNumber, newState, commentTitle, commentBody);
+  // Post comment to appropriate location based on phase
+  if (phase === 'phase1') {
+    await postWiggumStateIssueComment(targetNumber, newState, commentTitle, commentBody);
+  } else {
+    await postWiggumStateComment(targetNumber, newState, commentTitle, commentBody);
+  }
 
   logger.info('Wiggum state comment posted successfully', {
-    prNumber,
+    phase,
+    targetNumber,
+    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
   });
 
   // Get updated state and return next step instructions
@@ -111,7 +145,9 @@ ${input.fix_description}
   const nextStepResult = await getNextStepInstructions(updatedState);
 
   logger.info('wiggum_complete_fix completed successfully', {
-    prNumber,
+    phase,
+    targetNumber,
+    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
     nextStepResultLength: JSON.stringify(nextStepResult).length,
   });
 

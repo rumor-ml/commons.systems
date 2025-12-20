@@ -1,6 +1,6 @@
 ---
 description: Commit all changes, merge from main, and push to remote
-model: haiku
+model: sonnet
 ---
 
 **IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**

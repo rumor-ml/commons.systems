@@ -56,6 +56,40 @@ You are NOT responsible for:
 - Step sequencing (tools determine what's next)
 - Deciding when steps are complete (tools handle this)
 
+## Wiggum Two-Phase Workflow
+
+**CRITICAL: Wiggum operates in TWO distinct phases. Understand which phase you're in to avoid confusion.**
+
+### Phase 1: Pre-PR Validation (State tracked in Issue Comments)
+
+Execute BEFORE creating the PR to ensure code quality:
+
+1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
+2. **p1-2: Code Review (Pre-PR)** - Run `/pr-review-toolkit:review-pr` on local branch
+3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
+4. **p1-4: Create PR** - Only after all pre-PR checks pass
+
+**Key Point:** Steps p1-2 and p1-3 review LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.
+
+### Phase 2: Post-PR Validation (State tracked in PR Comments)
+
+Execute AFTER PR is created for final validation:
+
+1. **p2-1: Monitor Workflow** - PR workflow must pass (includes deployments + E2E tests)
+2. **p2-2: Monitor PR Checks** - All PR checks must pass
+3. **p2-3: Code Quality** - Address code quality bot comments
+4. **p2-4: PR Review (Post-PR)** - Run `/pr-review-toolkit:review-pr` on PR
+5. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
+6. **approval: Add "needs review" label** - Ready for human review
+
+**Key Point:** Steps p2-4 and p2-5 review the ACTUAL PR after it's created. These are final validation before human review.
+
+### Why Two Phases?
+
+- **Phase 1** catches issues early (before PR creation noise)
+- **Phase 2** validates the PR in its final state (after all CI/CD)
+- This structure prevents creating PRs with known issues
+
 ## Reading Tool Responses
 
 **CRITICAL: Completion tools do work automatically. DO NOT repeat their work.**
@@ -211,7 +245,14 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 ### wiggum_complete_pr_review
 
-Call after executing `/pr-review-toolkit:review-pr`. **Returns next step instructions.**
+Call after executing `/pr-review-toolkit:review-pr`.
+
+**Used in TWO contexts:**
+
+- **Phase 1 (p1-2):** Pre-PR code review on local branch
+- **Phase 2 (p2-4):** Post-PR review on actual PR
+
+**Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
@@ -234,7 +275,14 @@ IMPORTANT:
 
 ### wiggum_complete_security_review
 
-Call after executing `/security-review`. **Returns next step instructions.**
+Call after executing `/security-review`.
+
+**Used in TWO contexts:**
+
+- **Phase 1 (p1-3):** Pre-PR security review on local branch
+- **Phase 2 (p2-5):** Post-PR security review on actual PR
+
+**Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({

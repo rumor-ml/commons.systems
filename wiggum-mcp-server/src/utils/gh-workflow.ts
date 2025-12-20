@@ -18,6 +18,7 @@ export interface MonitorResult {
   success: boolean;
   errorSummary?: string;
   failureDetails?: string; // Formatted error details from gh_get_failure_details
+  enrichmentError?: string; // Error message if failure detail enrichment failed
 }
 
 /**
@@ -62,11 +63,14 @@ export async function monitorRun(
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors
+      const enrichmentErrorMsg =
+        enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError);
       logger.warn('Failed to enrich failure result with detailed information', {
         branch,
-        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+        error: enrichmentErrorMsg,
       });
-      // Leave result.failureDetails undefined; errorSummary is still available
+      // Surface enrichment error in result for debugging
+      result.enrichmentError = `Failed to fetch detailed failure information: ${enrichmentErrorMsg}`;
     }
   }
 
@@ -118,11 +122,14 @@ export async function monitorPRChecks(
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors
+      const enrichmentErrorMsg =
+        enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError);
       logger.warn('Failed to enrich failure result with detailed information', {
         prNumber,
-        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+        error: enrichmentErrorMsg,
       });
-      // Leave result.failureDetails undefined; errorSummary is still available
+      // Surface enrichment error in result for debugging
+      result.enrichmentError = `Failed to fetch detailed failure information: ${enrichmentErrorMsg}`;
     }
   }
 
