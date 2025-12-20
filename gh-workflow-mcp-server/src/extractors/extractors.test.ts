@@ -910,6 +910,7 @@ describe('formatExtractionResult', () => {
     assert.ok(!formatted.some((line) => line.includes('--- FAIL:')));
   });
 
+  // TODO(#289): Add test timeouts for DoS edge cases
   describe('DoS edge cases', () => {
     const extractor = new GoExtractor();
 

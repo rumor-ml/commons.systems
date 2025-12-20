@@ -310,6 +310,7 @@ func (c *DaemonClient) receive() {
 							c.mu.Unlock()
 
 							// Send disconnect event with timeout to prevent goroutine leak
+							// TODO(#281): Make disconnect notification always visible
 							select {
 							case c.eventCh <- Message{
 								Type:  "disconnect",

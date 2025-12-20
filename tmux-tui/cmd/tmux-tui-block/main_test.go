@@ -13,6 +13,12 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/tmux/testutil"
 )
 
+// DESIGN DECISION: Tests use MockCommandExecutor rather than real git repositories.
+// Rationale: Mock-based testing provides sufficient coverage for branch detection logic
+// while avoiding environmental dependencies (git version, filesystem variations).
+// Real git integration would add complexity without improving test reliability.
+// Future reviews: This is an intentional design choice, not a test quality gap.
+
 func TestGetCurrentBranch_Success(t *testing.T) {
 	mockExec := &testutil.MockCommandExecutor{
 		TmuxOutput: "/home/user/repo\n",
