@@ -4,6 +4,7 @@
  * Comprehensive test coverage for type-safe constants and validations.
  * Tests cover step validation, discriminated unions, and constant integrity.
  */
+// TODO: See issue #313 - Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -20,8 +21,10 @@ import {
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   isValidStep,
+  generateTriageInstructions,
   type WiggumStep,
 } from './constants.js';
+import { ValidationError } from './utils/errors.js';
 
 describe('Step Constants', () => {
   it('should define all Phase 1 step constants with correct values', () => {
@@ -162,5 +165,165 @@ describe('Step Order and Progression', () => {
 
     const uniqueSteps = new Set(steps);
     assert.strictEqual(uniqueSteps.size, steps.length);
+  });
+});
+
+describe('generateTriageInstructions', () => {
+  describe('issueNumber validation', () => {
+    it('should reject non-finite issueNumber', () => {
+      assert.throws(
+        () => generateTriageInstructions(Infinity, 'PR', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid issueNumber'));
+          assert(err.message.includes('Must be a positive integer'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject zero issueNumber', () => {
+      assert.throws(
+        () => generateTriageInstructions(0, 'PR', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid issueNumber: 0'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject negative issueNumber', () => {
+      assert.throws(
+        () => generateTriageInstructions(-1, 'Security', 3),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid issueNumber: -1'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject non-integer issueNumber', () => {
+      assert.throws(
+        () => generateTriageInstructions(42.5, 'PR', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid issueNumber: 42.5'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject NaN issueNumber', () => {
+      assert.throws(
+        () => generateTriageInstructions(NaN, 'PR', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid issueNumber'));
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('totalIssues validation', () => {
+    it('should reject negative totalIssues', () => {
+      assert.throws(
+        () => generateTriageInstructions(123, 'PR', -1),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid totalIssues: -1'));
+          assert(err.message.includes('Must be a non-negative integer'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject non-integer totalIssues', () => {
+      assert.throws(
+        () => generateTriageInstructions(123, 'PR', 5.5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid totalIssues: 5.5'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject non-finite totalIssues', () => {
+      assert.throws(
+        () => generateTriageInstructions(123, 'PR', Infinity),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid totalIssues'));
+          return true;
+        }
+      );
+    });
+
+    it('should accept zero totalIssues', () => {
+      const result = generateTriageInstructions(123, 'PR', 0);
+      assert(result.includes('0 pr review issue(s) found'));
+    });
+  });
+
+  describe('output format', () => {
+    it('should include issue number in output', () => {
+      const result = generateTriageInstructions(456, 'PR', 10);
+      assert(result.includes('**Working on Issue:** #456'));
+      assert(result.includes('for issue #456'));
+    });
+
+    it('should include total issues count in output', () => {
+      const result = generateTriageInstructions(123, 'PR', 15);
+      assert(result.includes('15 pr review issue(s) found'));
+    });
+
+    it('should format PR review type correctly', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('5 pr review issue(s) found'));
+      assert(!result.includes('5 PR review issue(s)'));
+    });
+
+    it('should format Security review type correctly', () => {
+      const result = generateTriageInstructions(123, 'Security', 3);
+      assert(result.includes('3 security review issue(s) found'));
+      assert(!result.includes('3 Security review issue(s)'));
+    });
+
+    it('should contain all required workflow steps', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      // Verify all major sections are present
+      assert(result.includes('## Step 1: Enter Plan Mode'));
+      assert(result.includes('## Step 2: In Plan Mode - Triage Recommendations'));
+      assert(result.includes('### 2a. Fetch Issue Context'));
+      assert(result.includes('### 2b. Triage Each Recommendation'));
+      assert(result.includes('### 2c. Handle Ambiguous Scope'));
+      assert(result.includes('### 2d. Check Existing Issues for Out-of-Scope Items'));
+      assert(result.includes('### 2e. Write Plan with These Sections'));
+      assert(result.includes('### 2f. Exit Plan Mode'));
+      assert(result.includes('## Step 3: Execute Plan (After Exiting Plan Mode)'));
+    });
+
+    it('should contain scope criteria', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      assert(result.includes('**IN SCOPE criteria (must meet at least one):**'));
+      assert(result.includes('**OUT OF SCOPE criteria:**'));
+    });
+
+    it('should include mcp__gh-issue__gh_get_issue_context reference', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('mcp__gh-issue__gh_get_issue_context'));
+    });
+
+    it('should include wiggum_complete_fix call instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('wiggum_complete_fix'));
+      assert(result.includes('fix_description'));
+      assert(result.includes('out_of_scope_issues'));
+    });
   });
 });

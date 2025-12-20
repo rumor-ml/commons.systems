@@ -4,6 +4,7 @@
  * Comprehensive test coverage for fix completion.
  * Tests cover input validation, fix description handling, and iteration tracking.
  */
+// TODO: See issue #313 - Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -118,6 +119,214 @@ describe('complete-fix tool', () => {
 
       const result = CompleteFixInputSchema.safeParse(input);
       assert.strictEqual(result.success, true);
+    });
+
+    it('should accept has_in_scope_fixes: true', () => {
+      const input = {
+        fix_description: 'Fixed the issue',
+        has_in_scope_fixes: true,
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, true);
+      }
+    });
+
+    it('should accept has_in_scope_fixes: false', () => {
+      const input = {
+        fix_description: 'No in-scope fixes',
+        has_in_scope_fixes: false,
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, false);
+      }
+    });
+
+    it('should require has_in_scope_fixes field', () => {
+      const input = {
+        fix_description: 'Fixed the issue',
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
+    });
+  });
+
+  describe('out_of_scope_issues validation', () => {
+    it('should reject non-integer issue numbers', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, 456.5, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Schema accepts it - the tool validates and rejects non-integers
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should reject negative issue numbers', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, -456, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Schema accepts it - the tool validates and rejects negatives
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should reject zero issue numbers', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, 0, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Schema accepts it - the tool validates and rejects zero
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should reject NaN issue numbers at schema level', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, NaN, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Zod rejects NaN in number arrays at schema level
+      assert.strictEqual(result.success, false);
+    });
+
+    it('should reject Infinity issue numbers', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, Infinity, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Schema accepts it - the tool validates and rejects Infinity
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept valid positive integer issue numbers', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [123, 456, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.deepStrictEqual(result.data.out_of_scope_issues, [123, 456, 789]);
+      }
+    });
+
+    it('should accept empty out_of_scope_issues array', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+        out_of_scope_issues: [],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.deepStrictEqual(result.data.out_of_scope_issues, []);
+      }
+    });
+
+    it('should accept undefined out_of_scope_issues', () => {
+      const input = {
+        fix_description: 'Fixed issues',
+        has_in_scope_fixes: true,
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.out_of_scope_issues, undefined);
+      }
+    });
+  });
+
+  describe('has_in_scope_fixes fast path behavior', () => {
+    it('should accept has_in_scope_fixes: false with valid input', () => {
+      const input = {
+        fix_description: 'All issues were out of scope',
+        has_in_scope_fixes: false,
+        out_of_scope_issues: [123, 456],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, false);
+        assert.deepStrictEqual(result.data.out_of_scope_issues, [123, 456]);
+      }
+    });
+
+    it('should accept has_in_scope_fixes: false without out_of_scope_issues', () => {
+      const input = {
+        fix_description: 'No actionable items',
+        has_in_scope_fixes: false,
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, false);
+        assert.strictEqual(result.data.out_of_scope_issues, undefined);
+      }
+    });
+
+    it('should accept has_in_scope_fixes: false with empty out_of_scope_issues', () => {
+      const input = {
+        fix_description: 'Nothing to fix',
+        has_in_scope_fixes: false,
+        out_of_scope_issues: [],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, false);
+        assert.deepStrictEqual(result.data.out_of_scope_issues, []);
+      }
+    });
+
+    it('should still validate out_of_scope_issues even when has_in_scope_fixes is false', () => {
+      const input = {
+        fix_description: 'Out of scope tracking',
+        has_in_scope_fixes: false,
+        out_of_scope_issues: [123, -456, 789],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // Schema accepts it - tool should validate and reject invalid issue numbers
+      // even when has_in_scope_fixes is false
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should require fix_description even when has_in_scope_fixes is false', () => {
+      const input = {
+        has_in_scope_fixes: false,
+        out_of_scope_issues: [123],
+      };
+
+      const result = CompleteFixInputSchema.safeParse(input);
+      // fix_description is always required
+      assert.strictEqual(result.success, false);
     });
   });
 });

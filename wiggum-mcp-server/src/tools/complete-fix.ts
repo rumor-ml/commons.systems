@@ -35,6 +35,7 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
   if (!input.fix_description || input.fix_description.trim().length === 0) {
     logger.error('wiggum_complete_fix validation failed: empty fix_description');
+    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError('fix_description is required and cannot be empty');
   }
 
@@ -47,6 +48,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
         invalidNumbers,
       });
+      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
       );
@@ -72,6 +74,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         issueExists: state.issue.exists,
         branch: state.git.currentBranch,
       });
+      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         'No issue found. Phase 1 fixes require issue number in branch name (format: 123-feature-name).'
       );
@@ -86,11 +89,13 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         prExists: state.pr.exists,
         branch: state.git.currentBranch,
       });
+      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError('No PR found. Cannot complete fix in Phase 2.');
     }
     // After validation, we know state.pr.number exists
     targetNumber = state.pr.number as number;
   } else {
+    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(`Unknown phase: ${phase}`);
   }
 
