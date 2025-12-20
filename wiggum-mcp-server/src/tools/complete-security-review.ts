@@ -128,12 +128,7 @@ All security checks passed with no vulnerabilities identified.
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
     }
-    await postWiggumStateIssueComment(
-      state.issue.number,
-      newState,
-      commentTitle,
-      commentBody
-    );
+    await postWiggumStateIssueComment(state.issue.number, newState, commentTitle, commentBody);
   } else {
     // Phase 2 - PR number is guaranteed to exist from validation above
     if (!state.pr.exists || !state.pr.number) {

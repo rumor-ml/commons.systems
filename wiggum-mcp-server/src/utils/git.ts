@@ -268,7 +268,8 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       return 'master';
     } catch (masterError) {
       // Log the error for both branches
-      const masterErrorMsg = masterError instanceof Error ? masterError.message : String(masterError);
+      const masterErrorMsg =
+        masterError instanceof Error ? masterError.message : String(masterError);
       logger.error('getMainBranch: neither main nor master branch found', {
         mainError: errorMsg,
         masterError: masterErrorMsg,

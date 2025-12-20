@@ -114,14 +114,17 @@ export function validateWiggumState(data: unknown, source = 'unknown'): WiggumSt
     // Log at ERROR level since this indicates state corruption in comments
     // that may require investigation. The workflow recovers by restarting from
     // Phase 1 Step 1, but the corrupted comment should be investigated.
-    logger.error(`validateWiggumState: invalid step value in ${source} state - possible corruption`, {
-      source,
-      invalidStep: obj.step,
-      invalidStepType: typeof obj.step,
-      defaultingTo: STEP_PHASE1_MONITOR_WORKFLOW,
-      fullStateObject: JSON.stringify(obj).substring(0, 500),
-      recoveryAction: 'Workflow will restart from Phase 1 Step 1 (Monitor Workflow)',
-    });
+    logger.error(
+      `validateWiggumState: invalid step value in ${source} state - possible corruption`,
+      {
+        source,
+        invalidStep: obj.step,
+        invalidStepType: typeof obj.step,
+        defaultingTo: STEP_PHASE1_MONITOR_WORKFLOW,
+        fullStateObject: JSON.stringify(obj).substring(0, 500),
+        recoveryAction: 'Workflow will restart from Phase 1 Step 1 (Monitor Workflow)',
+      }
+    );
     step = STEP_PHASE1_MONITOR_WORKFLOW;
   }
   const completedSteps = Array.isArray(obj.completedSteps)

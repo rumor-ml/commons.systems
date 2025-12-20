@@ -245,15 +245,12 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
           };
         }
 
-        logger.warn(
-          'detectCurrentState: PR state changed during detection, revalidating',
-          {
-            depth,
-            previousPrNumber: pr.number,
-            newPrNumber: revalidatedPr.number,
-            stateDetectionTime,
-          }
-        );
+        logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
+          depth,
+          previousPrNumber: pr.number,
+          newPrNumber: revalidatedPr.number,
+          stateDetectionTime,
+        });
         // Retry with incremented depth counter to track recursion
         return detectCurrentState(repo, depth + 1);
       }

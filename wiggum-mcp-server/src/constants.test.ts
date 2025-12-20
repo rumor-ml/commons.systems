@@ -43,7 +43,10 @@ describe('Step Constants', () => {
   it('should have all steps defined in STEP_NAMES', () => {
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW], 'Phase 1: Monitor Workflow');
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_PR_REVIEW], 'Phase 1: Code Review (Pre-PR)');
-    assert.strictEqual(STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW], 'Phase 1: Security Review (Pre-PR)');
+    assert.strictEqual(
+      STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
+      'Phase 1: Security Review (Pre-PR)'
+    );
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_CREATE_PR], 'Phase 1: Create PR');
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW], 'Phase 2: Monitor Workflow');
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS], 'Phase 2: Monitor PR Checks');
@@ -52,7 +55,10 @@ describe('Step Constants', () => {
       'Phase 2: Address Code Quality Comments'
     );
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_PR_REVIEW], 'Phase 2: PR Review (Post-PR)');
-    assert.strictEqual(STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW], 'Phase 2: Security Review (Post-PR)');
+    assert.strictEqual(
+      STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW],
+      'Phase 2: Security Review (Post-PR)'
+    );
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_APPROVAL], 'Approval');
   });
 
