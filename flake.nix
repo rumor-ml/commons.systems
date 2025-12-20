@@ -142,6 +142,7 @@
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
+          commons-types = pkgs.callPackage ./nix/packages/commons-types.nix { };
 
           # Hooks
           pnpmHook = pkgs.callPackage ./nix/hooks/pnpm.nix { };
@@ -210,6 +211,7 @@
               gh-issue-mcp-server
               wiggum-mcp-server
               iac
+              commons-types
               ;
             default = tmux-tui;
           };

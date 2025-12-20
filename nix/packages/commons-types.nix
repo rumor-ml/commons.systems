@@ -44,10 +44,8 @@ buildNpmPackage {
       && !(lib.hasSuffix "~" baseName);
   };
 
-  # Empty cache - package has only devDependencies (not needed for build)
-  # pnpm workspace links don't have resolved URLs, so we use forceEmptyCache
-  npmDepsHash = "sha256-k3+Cwq/nZI+TZvAfVFntxmNXpwkdhHuSOnMFKw1lom8=";
-  forceEmptyCache = true;
+  # npmDepsHash for Zod dependency
+  npmDepsHash = "sha256-gYu7ZqrzqAzSbCzl0m1Jbx1LJRAvbLg8SOK4SyOxvlQ=";
 
   # Simple build - just TypeScript compilation
   # buildNpmPackage handles: npm ci && npm run build
