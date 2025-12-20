@@ -128,168 +128,172 @@
 
         <!-- Card Editor Modal - Inside main-content for HTMX navigation -->
         <div id="cardEditorModal" class="modal">
-      <div class="modal-backdrop"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="modalTitle">Add Card</h2>
-          <button class="modal-close" id="closeModalBtn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <form id="cardForm">
-            <input type="hidden" id="cardId" />
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardTitle">Title *</label>
-                <input type="text" id="cardTitle" name="title" required class="form-control" />
-              </div>
+          <div class="modal-backdrop"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2 id="modalTitle">Add Card</h2>
+              <button class="modal-close" id="closeModalBtn">&times;</button>
             </div>
+            <div class="modal-body">
+              <form id="cardForm">
+                <input type="hidden" id="cardId" />
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardType">Type *</label>
-                <div class="combobox" id="typeCombobox">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardTitle">Title *</label>
+                    <input type="text" id="cardTitle" name="title" required class="form-control" />
+                    <div class="error-message"></div>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardType">Type *</label>
+                    <div class="combobox" id="typeCombobox">
+                      <input
+                        type="text"
+                        id="cardType"
+                        name="type"
+                        required
+                        class="form-control combobox-input"
+                        placeholder="Type or select type..."
+                        autocomplete="off"
+                        role="combobox"
+                        aria-expanded="false"
+                        aria-controls="typeListbox"
+                        aria-autocomplete="list"
+                      />
+                      <button
+                        type="button"
+                        class="combobox-toggle"
+                        aria-label="Show options"
+                        tabindex="-1"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                          <path
+                            d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                          />
+                        </svg>
+                      </button>
+                      <ul id="typeListbox" class="combobox-listbox" role="listbox"></ul>
+                    </div>
+                    <div class="error-message"></div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardSubtype">Subtype *</label>
+                    <div class="combobox" id="subtypeCombobox">
+                      <input
+                        type="text"
+                        id="cardSubtype"
+                        name="subtype"
+                        required
+                        class="form-control combobox-input"
+                        placeholder="Type or select subtype..."
+                        autocomplete="off"
+                        role="combobox"
+                        aria-expanded="false"
+                        aria-controls="subtypeListbox"
+                        aria-autocomplete="list"
+                      />
+                      <button
+                        type="button"
+                        class="combobox-toggle"
+                        aria-label="Show options"
+                        tabindex="-1"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                          <path
+                            d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                          />
+                        </svg>
+                      </button>
+                      <ul id="subtypeListbox" class="combobox-listbox" role="listbox"></ul>
+                    </div>
+                    <div class="error-message"></div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="cardTags">Tags (comma separated)</label>
                   <input
                     type="text"
-                    id="cardType"
-                    name="type"
-                    required
-                    class="form-control combobox-input"
-                    placeholder="Type or select type..."
-                    autocomplete="off"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-controls="typeListbox"
-                    aria-autocomplete="list"
+                    id="cardTags"
+                    name="tags"
+                    class="form-control"
+                    placeholder="2h, swept, precise"
                   />
-                  <button
-                    type="button"
-                    class="combobox-toggle"
-                    aria-label="Show options"
-                    tabindex="-1"
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
-                      />
-                    </svg>
-                  </button>
-                  <ul id="typeListbox" class="combobox-listbox" role="listbox"></ul>
+                  <small class="form-help">Separate tags with commas</small>
                 </div>
-              </div>
 
-              <div class="form-group">
-                <label for="cardSubtype">Subtype *</label>
-                <div class="combobox" id="subtypeCombobox">
-                  <input
-                    type="text"
-                    id="cardSubtype"
-                    name="subtype"
-                    required
-                    class="form-control combobox-input"
-                    placeholder="Type or select subtype..."
-                    autocomplete="off"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-controls="subtypeListbox"
-                    aria-autocomplete="list"
-                  />
-                  <button
-                    type="button"
-                    class="combobox-toggle"
-                    aria-label="Show options"
-                    tabindex="-1"
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
-                      />
-                    </svg>
-                  </button>
-                  <ul id="subtypeListbox" class="combobox-listbox" role="listbox"></ul>
+                <div class="form-group">
+                  <label for="cardDescription">Description</label>
+                  <textarea
+                    id="cardDescription"
+                    name="description"
+                    rows="3"
+                    class="form-control"
+                  ></textarea>
+                  <div class="error-message"></div>
                 </div>
-              </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardStat1">Stat 1</label>
+                    <input
+                      type="text"
+                      id="cardStat1"
+                      name="stat1"
+                      class="form-control"
+                      placeholder="e.g., d8, 6 AC"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardStat2">Stat 2</label>
+                    <input
+                      type="text"
+                      id="cardStat2"
+                      name="stat2"
+                      class="form-control"
+                      placeholder="e.g., 2 slot"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardCost">Cost</label>
+                    <input
+                      type="text"
+                      id="cardCost"
+                      name="cost"
+                      class="form-control"
+                      placeholder="e.g., 5 pt"
+                    />
+                  </div>
+                </div>
+              </form>
             </div>
-
-            <div class="form-group">
-              <label for="cardTags">Tags (comma separated)</label>
-              <input
-                type="text"
-                id="cardTags"
-                name="tags"
-                class="form-control"
-                placeholder="2h, swept, precise"
-              />
-              <small class="form-help">Separate tags with commas</small>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-danger auth-controls"
+                id="deleteCardBtn"
+                style="display: none"
+              >
+                Delete
+              </button>
+              <button
+                type="submit"
+                form="cardForm"
+                class="btn btn-primary auth-controls"
+                id="saveCardBtn"
+              >
+                Save Card
+              </button>
             </div>
-
-            <div class="form-group">
-              <label for="cardDescription">Description</label>
-              <textarea
-                id="cardDescription"
-                name="description"
-                rows="3"
-                class="form-control"
-              ></textarea>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardStat1">Stat 1</label>
-                <input
-                  type="text"
-                  id="cardStat1"
-                  name="stat1"
-                  class="form-control"
-                  placeholder="e.g., d8, 6 AC"
-                />
-              </div>
-
-              <div class="form-group">
-                <label for="cardStat2">Stat 2</label>
-                <input
-                  type="text"
-                  id="cardStat2"
-                  name="stat2"
-                  class="form-control"
-                  placeholder="e.g., 2 slot"
-                />
-              </div>
-
-              <div class="form-group">
-                <label for="cardCost">Cost</label>
-                <input
-                  type="text"
-                  id="cardCost"
-                  name="cost"
-                  class="form-control"
-                  placeholder="e.g., 5 pt"
-                />
-              </div>
-            </div>
-          </form>
+          </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-          <button
-            type="button"
-            class="btn btn-danger auth-controls"
-            id="deleteCardBtn"
-            style="display: none"
-          >
-            Delete
-          </button>
-          <button
-            type="submit"
-            form="cardForm"
-            class="btn btn-primary auth-controls"
-            id="saveCardBtn"
-          >
-            Save Card
-          </button>
-        </div>
-      </div>
-    </div>
       </main>
     </div>
 

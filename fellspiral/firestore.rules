@@ -23,7 +23,8 @@ service cloud.firestore {
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
       // NOTE: We don't validate createdAt == request.time because serverTimestamp()
-      // doesn't match request.time in rules. Security enforced via createdBy check.
+      // values are only resolved after rule evaluation, making comparison impossible.
+      // User attribution security is enforced via createdBy == request.auth.uid check.
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()

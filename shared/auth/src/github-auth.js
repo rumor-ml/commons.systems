@@ -45,19 +45,37 @@ export function initAuth(firebaseConfig, options = {}) {
 
     if (useEmulator) {
       try {
-        const emulatorHost = options.emulatorHost ||
-          (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_EMULATOR_HOST) ||
+        const emulatorHost =
+          options.emulatorHost ||
+          (typeof import.meta !== 'undefined' &&
+            import.meta.env?.VITE_FIREBASE_AUTH_EMULATOR_HOST) ||
           'localhost:9099';
         connectAuthEmulator(auth, `http://${emulatorHost}`, { disableWarnings: true });
       } catch (error) {
-        const isAlreadyConnected = error.message?.includes('already');
-        if (isAlreadyConnected) {
-          console.debug('[GitHub Auth] Emulator already connected (expected on re-init)');
+        const msg = error.message || '';
+
+        // Expected: already connected
+        if (msg.includes('already')) {
+          console.debug('[GitHub Auth] Emulator already connected');
         } else {
-          console.warn('[GitHub Auth] Emulator connection failed:', {
-            message: error.message,
-            emulatorHost: options.emulatorHost || 'localhost:9099'
+          // Unexpected: CRITICAL ERROR - emulator connection failed
+          console.error('[GitHub Auth] CRITICAL: Emulator connection failed', {
+            message: msg,
+            emulatorHost: options.emulatorHost || 'localhost:9099',
           });
+
+          // Show user warning banner
+          if (typeof window !== 'undefined') {
+            const warning = document.createElement('div');
+            warning.className = 'warning-banner';
+            warning.style.cssText =
+              'background: var(--color-error); color: white; padding: 1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000;';
+            warning.textContent =
+              '⚠️ Failed to connect to auth emulator. You may be using production authentication.';
+            document.body.insertBefore(warning, document.body.firstChild);
+          }
+
+          throw error; // Never silently fail on unexpected errors
         }
       }
     }
@@ -136,7 +154,11 @@ export async function signOutUser() {
  */
 export function onAuthStateChange(callback) {
   if (!auth) {
-    const error = new Error('onAuthStateChange called before auth initialized. Call initAuth() first.');
+    const error = new Error(
+      'onAuthStateChange called before auth initialized. ' +
+        'Call initAuth() first and wait for auth instance to be ready. ' +
+        'This usually means auth initialization is happening asynchronously and has not completed yet.'
+    );
     console.error('[Auth]', error.message);
     throw error;
   }

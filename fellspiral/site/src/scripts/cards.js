@@ -62,6 +62,10 @@ const state = {
   initialized: false, // Track if we've set up global listeners
   initializing: false, // Track if init is in progress to prevent race conditions
   authUnsubscribe: null, // Store auth state listener unsubscribe function
+  listenersAttached: false, // Track if event listeners are attached to prevent duplicates
+  authTimeoutId: null, // Timeout ID for backup auth check cleanup
+  authListenerRetries: 0, // Counter for auth listener setup retry attempts
+  authListenerMaxRetries: 10, // Max retry attempts before giving up (10 retries = 5 seconds)
 };
 
 // Reset state for fresh initialization
@@ -74,7 +78,16 @@ function resetState() {
   state.filters = { type: '', subtype: '', search: '' };
   state.loading = false;
   state.error = null;
-  // Clean up auth state listener
+  state.listenersAttached = false; // Reset listeners flag
+  // Clean up pending auth timeout
+  if (state.authTimeoutId) {
+    clearTimeout(state.authTimeoutId);
+    state.authTimeoutId = null;
+  }
+  // Clean up auth state listener to prevent memory leaks
+  // IMPORTANT: Always unsubscribe before creating new listener to avoid:
+  //   1. Multiple concurrent listeners (memory leak)
+  //   2. Duplicate auth state change handlers (buggy UI updates)
   if (state.authUnsubscribe) {
     state.authUnsubscribe();
     state.authUnsubscribe = null;
@@ -88,25 +101,15 @@ function resetState() {
 
 // Get unique types from cards
 function getTypesFromCards() {
-  const types = new Set();
-  state.cards.forEach((card) => {
-    if (card.type) {
-      types.add(card.type);
-    }
-  });
-  return Array.from(types).sort();
+  return [...new Set(state.cards.filter((c) => c.type).map((c) => c.type))].sort();
 }
 
 // Get unique subtypes for a given type
 function getSubtypesForType(type) {
   if (!type) return [];
-  const subtypes = new Set();
-  state.cards.forEach((card) => {
-    if (card.type === type && card.subtype) {
-      subtypes.add(card.subtype);
-    }
-  });
-  return Array.from(subtypes).sort();
+  return [
+    ...new Set(state.cards.filter((c) => c.type === type && c.subtype).map((c) => c.subtype)),
+  ].sort();
 }
 
 // Generic combobox controller
@@ -146,66 +149,70 @@ function createCombobox(config) {
     }
   }
 
+  // Create an option element for the listbox
+  function createOption(value, label, extraClass = '') {
+    const li = document.createElement('li');
+    li.className = `combobox-option${extraClass ? ` ${extraClass}` : ''}`;
+    li.textContent = label;
+    li.setAttribute('role', 'option');
+    li.dataset.value = value;
+    if (value === input.value) li.classList.add('selected');
+    li.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectOption(value);
+    });
+    return li;
+  }
+
   // Refresh options based on input value
   function refresh() {
-    const inputValue = input.value.trim().toLowerCase();
-    const availableOptions = getOptions();
+    try {
+      const inputValue = input.value.trim().toLowerCase();
+      const availableOptions = getOptions();
 
-    // Filter options based on input
-    currentOptions = availableOptions.filter((option) => option.toLowerCase().includes(inputValue));
+      // Clear any previous error state
+      listbox.classList.remove('combobox-error');
 
-    // Add "Add new" option if input doesn't match any option exactly
-    const exactMatch = availableOptions.some((option) => option.toLowerCase() === inputValue);
-    const showAddNew = inputValue && !exactMatch;
+      // Filter options based on input
+      currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
 
-    // Clear listbox
-    while (listbox.firstChild) {
-      listbox.removeChild(listbox.firstChild);
-    }
+      // Check if input exactly matches an existing option
+      const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
+      const showAddNew = inputValue && !exactMatch;
 
-    if (currentOptions.length === 0 && !showAddNew) {
-      const li = document.createElement('li');
-      li.className = 'combobox-option';
-      li.textContent = 'No options available';
-      li.style.fontStyle = 'italic';
-      li.style.color = 'var(--color-text-tertiary)';
-      listbox.appendChild(li);
-      return;
-    }
+      // Clear listbox
+      listbox.replaceChildren();
 
-    currentOptions.forEach((option) => {
-      const li = document.createElement('li');
-      li.className = 'combobox-option';
-      li.textContent = option;
-      li.setAttribute('role', 'option');
-      li.dataset.value = option;
-
-      if (option === input.value) {
-        li.classList.add('selected');
+      // Show "no options" message if nothing to display
+      if (currentOptions.length === 0 && !showAddNew) {
+        const li = document.createElement('li');
+        li.className = 'combobox-option';
+        li.textContent = 'No options available';
+        li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
+        listbox.appendChild(li);
+        return;
       }
 
-      li.addEventListener('mousedown', (e) => {
-        e.preventDefault(); // Prevent blur event
-        selectOption(option);
-      });
+      // Add matching options
+      currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
 
-      listbox.appendChild(li);
-    });
+      // Add "Add new" option for custom values
+      if (showAddNew) {
+        listbox.appendChild(
+          createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+        );
+      }
+    } catch (error) {
+      console.error('[Cards] Error refreshing combobox options:', error);
 
-    // Add "Add new" option
-    if (showAddNew) {
-      const li = document.createElement('li');
-      li.className = 'combobox-option combobox-option--new';
-      li.textContent = `Add "${input.value}"`;
-      li.setAttribute('role', 'option');
-      li.dataset.value = input.value;
+      // Show error state in UI
+      listbox.replaceChildren();
+      listbox.classList.add('combobox-error');
 
-      li.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        selectOption(input.value);
-      });
-
-      listbox.appendChild(li);
+      const errorLi = document.createElement('li');
+      errorLi.className = 'combobox-option combobox-error-message';
+      errorLi.textContent = 'Error loading options. Please try again.';
+      listbox.appendChild(errorLi);
     }
   }
 
@@ -224,11 +231,9 @@ function createCombobox(config) {
     if (index < 0 || index >= options.length) return;
 
     options.forEach((opt, i) => {
+      opt.classList.toggle('highlighted', i === index);
       if (i === index) {
-        opt.classList.add('highlighted');
         opt.scrollIntoView({ block: 'nearest' });
-      } else {
-        opt.classList.remove('highlighted');
       }
     });
 
@@ -246,8 +251,10 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
-    // 200ms delay allows mousedown events on options to fire before hiding.
-    // Without this: blur fires → listbox hides → click never registers.
+    // CRITICAL: 200ms delay prevents race condition in dropdown click handling
+    // Event sequence: mousedown → blur → mouseup → click
+    // Without delay: blur hides dropdown → click event targets destroyed element
+    // With delay: mousedown registers → selection completes → then hide
     setTimeout(() => {
       hide();
     }, 200);
@@ -286,8 +293,10 @@ function createCombobox(config) {
 
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
-    // Check state before focusing to avoid race condition
-    // where focus() shows dropdown then toggleListbox() hides it
+    // RACE CONDITION FIX: Check dropdown state BEFORE calling input.focus()
+    // Problem: Click toggle while closed → focus() → focus event shows dropdown
+    //          → toggleListbox() sees 'open' → hides → dropdown flashes
+    // Solution: Only call focus() when currently closed (prevents flash)
     if (combobox.classList.contains('open')) {
       hide();
     } else {
@@ -296,13 +305,20 @@ function createCombobox(config) {
   });
 
   // Close on outside click
-  document.addEventListener('click', (e) => {
+  const outsideClickHandler = (e) => {
     if (!combobox.contains(e.target)) {
       hide();
     }
-  });
+  };
+  document.addEventListener('click', outsideClickHandler);
 
-  return { show, hide, toggle: toggleListbox, refresh };
+  return {
+    show,
+    hide,
+    toggle: toggleListbox,
+    refresh,
+    destroy: () => document.removeEventListener('click', outsideClickHandler),
+  };
 }
 
 // Initialize type combobox
@@ -397,6 +413,34 @@ function showWarningBanner(message) {
   container.insertBefore(warningDiv, container.firstChild);
 }
 
+// Show demo data indicator - persistent visual indicator for fallback mode
+function showDemoDataIndicator(message) {
+  const container = document.querySelector('.card-container');
+  if (!container) return;
+
+  // Remove any existing demo data indicator
+  document.querySelector('.demo-data-indicator')?.remove();
+
+  const indicator = document.createElement('div');
+  indicator.className = 'demo-data-indicator warning-banner';
+
+  const content = document.createElement('div');
+  content.className = 'warning-content';
+
+  const icon = document.createElement('span');
+  icon.textContent = '⚠️';
+  icon.style.cssText = 'font-size: 1.25rem; flex-shrink: 0;';
+
+  const text = document.createElement('p');
+  text.textContent = message;
+
+  content.appendChild(icon);
+  content.appendChild(text);
+  indicator.appendChild(content);
+
+  container.insertBefore(indicator, container.firstChild);
+}
+
 // Initialize the app
 async function init() {
   // Guard against concurrent initialization
@@ -407,13 +451,7 @@ async function init() {
   // Guard against double initialization
   if (state.initialized) {
     // CRITICAL: Clear hardcoded loading spinner from HTMX-swapped HTML
-    const cardList = document.getElementById('cardList');
-    if (cardList) {
-      const hardcodedSpinner = cardList.querySelector('.loading-state');
-      if (hardcodedSpinner) {
-        hardcodedSpinner.remove();
-      }
-    }
+    removeLoadingSpinner();
 
     // Re-attach event listeners (they may be stale after HTMX swap)
     setupEventListeners();
@@ -439,13 +477,7 @@ async function init() {
     state.initializing = true;
 
     // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
-    const cardList = document.getElementById('cardList');
-    if (cardList) {
-      const hardcodedSpinner = cardList.querySelector('.loading-state');
-      if (hardcodedSpinner) {
-        hardcodedSpinner.remove();
-      }
-    }
+    removeLoadingSpinner();
 
     // Note: Authentication is initialized globally in main.js DOMContentLoaded
     // Don't call initializeAuth() here to avoid duplicates
@@ -492,10 +524,11 @@ async function init() {
     // Log initialization errors for debugging
     console.error('Card Library init error:', error);
 
-    // Show user-friendly error UI
-    showErrorUI('Failed to initialize Card Library. Please try again.', () => {
+    // Show user-friendly error UI with retry capability
+    showErrorUI('Failed to initialize Card Library. Some features may not work correctly.', () => {
       document.querySelector('.error-banner')?.remove();
       state.initialized = false; // Reset so retry can work
+      state.listenersAttached = false; // Reset listeners flag for retry
       init();
     });
   } finally {
@@ -510,6 +543,9 @@ async function loadCards() {
   try {
     state.loading = true;
     state.error = null;
+
+    // Remove any existing demo data indicator on successful load attempt
+    document.querySelector('.demo-data-indicator')?.remove();
 
     // Try to load from Firestore (now has built-in 5s timeout)
     const cards = await getAllCards();
@@ -540,19 +576,36 @@ async function loadCards() {
     });
     state.error = error.message;
 
+    // Categorize error and determine fallback behavior
     const isAuthError = error.code === 'permission-denied' || error.code === 'unauthenticated';
+    const isNetworkError =
+      error.message?.includes('timeout') ||
+      error.message?.includes('network') ||
+      error.message?.includes('failed to fetch');
 
+    // Auth errors: don't fall back to demo data, prompt login
     if (isAuthError) {
-      // Don't fall back to static data for auth errors - show login prompt
       state.cards = [];
       state.filteredCards = [];
       showWarningBanner('Please log in to view your cards.');
+      console.warn('[Cards] Fallback: auth required');
+      return;
+    }
+
+    // All other errors: fall back to demo data with clear visual indicator
+    state.cards = cardsData || [];
+    state.filteredCards = [...state.cards];
+
+    if (isNetworkError) {
+      showDemoDataIndicator(
+        'Unable to connect to server. Showing demo data only. Changes will not be saved.'
+      );
+      console.warn('[Cards] Fallback: network error, using demo data');
     } else {
-      // Fall back to static data only for connectivity errors
-      console.warn('[Cards] Falling back to demo data due to connectivity issue');
-      state.cards = cardsData || [];
-      state.filteredCards = [...state.cards];
-      showWarningBanner('Unable to connect to server. Showing demo data.');
+      showDemoDataIndicator(
+        'Unable to load your cards. Showing demo data only. Changes will not be saved.'
+      );
+      console.warn('[Cards] Fallback: error loading cards, using demo data');
     }
   } finally {
     // ALWAYS clear loading state
@@ -562,6 +615,9 @@ async function loadCards() {
 
 // Setup event listeners
 function setupEventListeners() {
+  // Guard against duplicate listener attachment
+  if (state.listenersAttached) return;
+
   try {
     const missingElements = [];
 
@@ -639,84 +695,90 @@ function setupEventListeners() {
       missingElements.push('modalBackdrop');
     }
 
-    // Initialize comboboxes
+    // Clean up existing comboboxes to prevent memory leaks
+    typeCombobox?.destroy?.();
+    subtypeCombobox?.destroy?.();
+
+    // Initialize comboboxes and report failures
     const typeOk = initTypeCombobox();
     const subtypeOk = initSubtypeCombobox();
+
     if (!typeOk || !subtypeOk) {
-      showWarningBanner('Card type selection may not work correctly. Please refresh the page.');
+      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
+      showWarningBanner(`Card ${failed} selection unavailable. Refresh page.`);
+      console.error('[Cards] Combobox init failed:', { typeOk, subtypeOk });
     }
 
     if (missingElements.length > 0) {
       console.warn('[Cards] Missing UI elements:', missingElements);
     }
+
+    // Mark listeners as attached
+    state.listenersAttached = true;
   } catch (error) {
-    console.error('Error setting up event listeners:', error);
+    console.error('[Cards] CRITICAL: Event listener setup failed:', {
+      message: error.message,
+      stack: error.stack,
+      listenersAttached: state.listenersAttached,
+    });
+
+    // Re-throw critical errors so caller (init) can handle them
+    throw new Error(`Event listener setup failed: ${error.message}`);
   }
 }
 
 // Setup mobile menu toggle functionality
 function setupMobileMenu() {
-  try {
-    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-    const sidebar = document.getElementById('sidebar');
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  const sidebar = document.getElementById('sidebar');
 
-    if (!mobileMenuToggle) {
-      console.warn('Mobile menu toggle button not found');
-      return;
-    }
-
-    if (!sidebar) {
-      console.warn('Sidebar element not found');
-      return;
-    }
-
-    mobileMenuToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('active');
+  if (!mobileMenuToggle || !sidebar) {
+    console.warn('[Cards] Mobile menu elements not found:', {
+      toggle: !!mobileMenuToggle,
+      sidebar: !!sidebar,
     });
+    return;
+  }
 
-    // Nav section toggle handlers (for library section expand/collapse)
-    const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
-    navSectionToggles.forEach((toggle) => {
-      toggle.addEventListener('click', () => {
-        toggle.classList.toggle('expanded');
-        const content = toggle.parentElement.querySelector('.nav-section-content');
-        if (content) {
-          content.classList.toggle('expanded');
-        }
-      });
+  // Mobile menu toggle
+  mobileMenuToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sidebar.classList.toggle('active');
+  });
+
+  // Nav section expand/collapse toggles
+  document.querySelectorAll('.nav-section-toggle').forEach((toggle) => {
+    toggle.addEventListener('click', () => {
+      toggle.classList.toggle('expanded');
+      toggle.parentElement?.querySelector('.nav-section-content')?.classList.toggle('expanded');
     });
+  });
 
-    // Close sidebar when clicking a nav link on mobile
-    const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
-          sidebar.classList.remove('active');
-        }
-      });
-    });
-
-    // Close sidebar when clicking outside on mobile
-    document.addEventListener('click', (e) => {
-      if (
-        window.innerWidth <= 768 &&
-        document.body.contains(mobileMenuToggle) &&
-        !sidebar.contains(e.target) &&
-        !mobileMenuToggle?.contains(e.target) &&
-        sidebar.classList.contains('active')
-      ) {
+  // Close sidebar on nav link click (mobile)
+  sidebar.querySelectorAll('.nav-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
         sidebar.classList.remove('active');
       }
     });
-  } catch (error) {
-    console.error('Error setting up mobile menu:', error);
-  }
+  });
+
+  // Close sidebar on outside click (mobile)
+  document.addEventListener('click', (e) => {
+    const isMobile = window.innerWidth <= 768;
+    const isOutsideClick = !sidebar.contains(e.target) && !mobileMenuToggle.contains(e.target);
+    if (isMobile && isOutsideClick && sidebar.classList.contains('active')) {
+      sidebar.classList.remove('active');
+    }
+  });
 }
 
 // Setup auth state listener to show/hide auth-controls
 function setupAuthStateListener() {
   try {
+    // Reset retry counter on successful setup
+    state.authListenerRetries = 0;
+
     // Register listener for auth state changes
     // NOTE: onAuthStateChanged calls the callback immediately with current state
     // (either the signed-in user or null), then again on each subsequent auth change.
@@ -725,51 +787,67 @@ function setupAuthStateListener() {
     }
     state.authUnsubscribe = onAuthStateChanged((user) => {
       console.log('[Cards] Auth state changed:', user ? `User ${user.uid}` : 'No user');
-      if (user) {
-        // User is logged in - show auth controls
-        document.body.classList.add('authenticated');
-      } else {
-        // User is logged out - hide auth controls
-        document.body.classList.remove('authenticated');
+
+      // Test instrumentation: Track auth state change count
+      if (typeof window !== 'undefined') {
+        window.__authStateChangeCount = (window.__authStateChangeCount || 0) + 1;
       }
+
+      // Toggle authenticated class based on user presence
+      document.body.classList.toggle('authenticated', !!user);
     });
 
-    // Redundant auth check for edge cases where onAuthStateChanged callback
-    // doesn't fire due to module scope isolation (e.g., E2E tests with separate
-    // auth instances). This is a workaround, not a Firebase SDK limitation.
-    // TODO: Investigate if auth instance sharing can eliminate this check.
-    setTimeout(() => {
-      const auth = getAuthInstance();
-      const currentUser = auth?.currentUser;
+    // Backup auth check for edge cases where onAuthStateChanged doesn't fire
+    // due to module scope isolation (e.g., E2E tests with separate auth instances).
+    if (state.authTimeoutId) clearTimeout(state.authTimeoutId);
+    state.authTimeoutId = setTimeout(() => {
+      const currentUser = getAuthInstance()?.currentUser;
       if (currentUser && !document.body.classList.contains('authenticated')) {
-        console.log('[Cards] Backup auth check - current user detected:', currentUser.uid);
+        console.log('[Cards] Backup auth check - user detected:', currentUser.uid);
         document.body.classList.add('authenticated');
       }
     }, 500);
   } catch (error) {
-    // If auth not initialized yet, retry after a delay
     const errorStr = String(error.message || error);
+
+    // Expected: auth not initialized yet - retry with limit
     if (errorStr.includes('before auth initialized')) {
-      console.log('[Cards] Auth not ready yet, will retry auth state listener setup in 500ms');
+      state.authListenerRetries++;
+
+      if (state.authListenerRetries >= state.authListenerMaxRetries) {
+        console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
+          retries: state.authListenerRetries,
+          maxRetries: state.authListenerMaxRetries,
+        });
+        showWarningBanner('Authentication system failed to initialize. Please refresh the page.');
+        return;
+      }
+
+      console.log(
+        `[Cards] Auth not ready yet, retry ${state.authListenerRetries}/${state.authListenerMaxRetries} in 500ms`
+      );
       setTimeout(() => {
         setupAuthStateListener();
       }, 500);
-    } else {
-      console.error('Error setting up auth state listener:', error);
+      return;
     }
+
+    // Unexpected error - log with context and warn user
+    console.error('[Cards] Failed to setup auth state listener:', {
+      message: error.message,
+      type: error.name,
+      retries: state.authListenerRetries,
+    });
+    showWarningBanner(
+      'Authentication status may not update automatically. Please refresh if needed.'
+    );
   }
 }
 
 // Expose for E2E testing - allows tests to manually trigger auth UI updates
 // when auth state callbacks don't fire due to module isolation
 if (typeof window !== 'undefined') {
-  window.__updateAuthUI = (user) => {
-    if (user) {
-      document.body.classList.add('authenticated');
-    } else {
-      document.body.classList.remove('authenticated');
-    }
-  };
+  window.__updateAuthUI = (user) => document.body.classList.toggle('authenticated', !!user);
 }
 
 // Setup hash routing (only once per page load)
@@ -887,6 +965,15 @@ function updateSearchPlaceholder() {
   }
 }
 
+// Helper to remove loading spinner from card list
+function removeLoadingSpinner() {
+  const cardList = document.getElementById('cardList');
+  const spinner = cardList?.querySelector('.loading-state');
+  if (spinner) {
+    spinner.remove();
+  }
+}
+
 // Render cards
 function renderCards() {
   try {
@@ -924,10 +1011,7 @@ function renderCards() {
     }
 
     // Not loading - remove loading spinner if present
-    const loadingState = cardList.querySelector('.loading-state');
-    if (loadingState) {
-      loadingState.remove();
-    }
+    removeLoadingSpinner();
 
     if (state.filteredCards.length === 0) {
       cardList.style.display = 'none';
@@ -1030,8 +1114,11 @@ function openCardEditor(card = null) {
 
   // Guard against missing modal elements (can happen during HTMX navigation)
   if (!modal || !form) {
-    console.error('[Cards] Card editor modal not found. Please refresh the page.');
-    alert('Card editor is not available. Please refresh the page to continue.');
+    console.error('[Cards] Card editor modal not found:', {
+      modalExists: !!modal,
+      formExists: !!form,
+    });
+    showWarningBanner('Card editor is not available. Please refresh the page to continue.');
     return;
   }
 
@@ -1074,9 +1161,131 @@ function closeCardEditor() {
   modal.classList.remove('active');
 }
 
+// Validate card form before submission
+function validateCardForm() {
+  const errors = [];
+
+  // Clear all existing error states
+  document.querySelectorAll('.form-group').forEach((group) => {
+    group.classList.remove('has-error');
+    const errorMsg = group.querySelector('.error-message');
+    if (errorMsg) errorMsg.textContent = '';
+  });
+
+  // Title validation
+  const title = document.getElementById('cardTitle').value.trim();
+  if (!title) {
+    errors.push({ field: 'cardTitle', message: 'Title is required' });
+  } else if (title.length > 100) {
+    errors.push({ field: 'cardTitle', message: 'Title must be 100 characters or less' });
+  }
+
+  // Type validation
+  const type = document.getElementById('cardType').value.trim();
+  if (!type) {
+    errors.push({ field: 'cardType', message: 'Type is required' });
+  }
+
+  // Subtype validation
+  const subtype = document.getElementById('cardSubtype').value.trim();
+  if (!subtype) {
+    errors.push({ field: 'cardSubtype', message: 'Subtype is required' });
+  }
+
+  // Optional field length validations
+  const description = document.getElementById('cardDescription').value.trim();
+  if (description.length > 500) {
+    errors.push({
+      field: 'cardDescription',
+      message: 'Description must be 500 characters or less',
+    });
+  }
+
+  return errors;
+}
+
+// Show validation errors inline
+function showValidationErrors(errors) {
+  errors.forEach((error) => {
+    const input = document.getElementById(error.field);
+    if (!input) return;
+
+    const formGroup = input.closest('.form-group');
+    if (!formGroup) return;
+
+    formGroup.classList.add('has-error');
+
+    // Find or create error message element
+    let errorMsg = formGroup.querySelector('.error-message');
+    if (!errorMsg) {
+      errorMsg = document.createElement('div');
+      errorMsg.className = 'error-message';
+      // Insert after the input/combobox
+      const insertAfter = input.closest('.combobox') || input;
+      insertAfter.parentElement.appendChild(errorMsg);
+    }
+
+    errorMsg.textContent = error.message;
+
+    // Add error class to input
+    input.classList.add('error');
+
+    // Remove error class on input to allow re-validation
+    input.addEventListener(
+      'input',
+      function clearError() {
+        input.classList.remove('error');
+        formGroup.classList.remove('has-error');
+        if (errorMsg) errorMsg.textContent = '';
+        input.removeEventListener('input', clearError);
+      },
+      { once: true }
+    );
+  });
+
+  // Focus first error field
+  if (errors.length > 0) {
+    const firstErrorField = document.getElementById(errors[0].field);
+    if (firstErrorField) firstErrorField.focus();
+  }
+}
+
+// Show form-level error in modal
+function showFormError(message) {
+  const modalBody = document.querySelector('.modal-body');
+  if (!modalBody) return;
+
+  // Remove existing error
+  modalBody.querySelector('.form-error-banner')?.remove();
+
+  const errorBanner = document.createElement('div');
+  errorBanner.className = 'form-error-banner error-banner';
+
+  const errorContent = document.createElement('div');
+  errorContent.className = 'error-content';
+
+  const errorText = document.createElement('p');
+  errorText.textContent = message;
+
+  errorContent.appendChild(errorText);
+  errorBanner.appendChild(errorContent);
+
+  modalBody.insertBefore(errorBanner, modalBody.firstChild);
+
+  // Scroll to top of modal to show error
+  modalBody.scrollTop = 0;
+}
+
 // Handle card save
 async function handleCardSave(e) {
   e.preventDefault();
+
+  // Client-side validation BEFORE submission lock
+  const validationErrors = validateCardForm();
+  if (validationErrors.length > 0) {
+    showValidationErrors(validationErrors);
+    return; // Don't proceed with save
+  }
 
   // Prevent double-submit
   if (isSaving) {
@@ -1093,8 +1302,8 @@ async function handleCardSave(e) {
   const id = document.getElementById('cardId').value;
   const cardData = {
     title: document.getElementById('cardTitle').value.trim(),
-    type: document.getElementById('cardType').value,
-    subtype: document.getElementById('cardSubtype').value,
+    type: document.getElementById('cardType').value.trim(),
+    subtype: document.getElementById('cardSubtype').value.trim(),
     tags: document
       .getElementById('cardTags')
       .value.split(',')
@@ -1124,7 +1333,23 @@ async function handleCardSave(e) {
     applyFilters();
   } catch (error) {
     console.error('[Cards] Error saving card:', error);
-    alert(`Error saving card: ${error.message}`);
+
+    // Categorize errors for user-friendly messages
+    let userMessage = 'Failed to save card. ';
+    if (error.code === 'permission-denied' || error.message?.includes('authenticated')) {
+      userMessage += 'You must be logged in to save cards.';
+    } else if (error.message?.includes('timeout')) {
+      userMessage += 'The operation timed out. Please check your connection and try again.';
+    } else if (error.message?.includes('required')) {
+      userMessage += error.message;
+    } else if (error.code === 'unavailable') {
+      userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
+    } else {
+      userMessage += `Error: ${error.message}. If this persists, please refresh the page.`;
+    }
+
+    // Show inline error instead of blocking alert
+    showFormError(userMessage);
     // Modal stays open - user can retry or fix issues
   } finally {
     // Re-enable Save button and reset submission lock
@@ -1140,6 +1365,15 @@ async function deleteCard() {
   const id = document.getElementById('cardId').value;
   if (!id) return;
 
+  // Verify card exists locally before attempting delete
+  const cardExists = state.cards.some((c) => c.id === id);
+  if (!cardExists) {
+    console.warn('[Cards] Card not found in local state:', id);
+    alert('Card not found. It may have already been deleted. Closing editor.');
+    closeCardEditor();
+    return;
+  }
+
   if (confirm('Are you sure you want to delete this card?')) {
     try {
       // Delete from Firestore
@@ -1151,8 +1385,18 @@ async function deleteCard() {
       closeCardEditor();
       applyFilters();
     } catch (error) {
-      console.error('Error deleting card:', error);
-      alert(`Error deleting card: ${error.message}`);
+      console.error('[Cards] Error deleting card:', { id, error: error.message });
+
+      // Handle not-found errors specifically
+      if (error.message?.includes('not found') || error.code === 'not-found') {
+        alert('Card was already deleted. Refreshing list.');
+        // Remove from local state anyway
+        state.cards = state.cards.filter((c) => c.id !== id);
+        closeCardEditor();
+        applyFilters();
+      } else {
+        alert(`Error deleting card: ${error.message}`);
+      }
     }
   }
 }

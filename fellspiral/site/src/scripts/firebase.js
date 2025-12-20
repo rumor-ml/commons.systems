@@ -50,7 +50,12 @@ async function getFirebaseConfig() {
         return config;
       }
     } catch (error) {
-      console.warn('Failed to fetch Firebase Hosting config, using local config:', error);
+      const isTimeout = error.message?.includes('timeout');
+      console.warn('[Firebase] Failed to fetch Firebase Hosting config, using local config:', {
+        message: error.message,
+        isTimeout,
+        hostname: window.location.hostname,
+      });
     }
   }
 
@@ -101,17 +106,33 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // This can happen if emulators are already connected (multiple calls)
-        const isAlreadyConnected = error.message?.includes('already');
-        if (isAlreadyConnected) {
-          console.debug('[Firebase] Emulators already connected (expected on re-init)');
-        } else {
-          console.warn('[Firebase] Emulator connection failed:', {
-            message: error.message,
-            firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
-            authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST,
-          });
+        const msg = error.message || '';
+
+        // Expected: already connected
+        if (msg.includes('already')) {
+          console.debug('[Firebase] Emulators already connected');
+          return { app, db, auth, cardsCollection };
         }
+
+        // Unexpected: CRITICAL ERROR - emulator connection failed
+        console.error('[Firebase] CRITICAL: Emulator connection failed', {
+          message: msg,
+          firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
+          authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST,
+        });
+
+        // Show user warning banner
+        if (typeof window !== 'undefined') {
+          const warning = document.createElement('div');
+          warning.className = 'warning-banner';
+          warning.style.cssText =
+            'background: var(--color-error); color: white; padding: 1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000;';
+          warning.textContent =
+            '⚠️ Failed to connect to emulator. You may be using production data.';
+          document.body.insertBefore(warning, document.body.firstChild);
+        }
+
+        throw error; // Never silently fail on unexpected errors
       }
     }
 
@@ -166,9 +187,11 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
-    // Error will be handled by caller - no need to log here
-    // This reduces console noise during normal operation
-    throw error;
+    // Enrich error with context before re-throwing
+    const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
+    enrichedError.originalError = error;
+    enrichedError.code = error.code;
+    throw enrichedError;
   }
 }
 
@@ -187,7 +210,11 @@ export async function getCard(cardId) {
       throw new Error('Card not found');
     }
   } catch (error) {
-    console.error('Error getting card:', error);
+    console.error('[Firebase] Error getting card:', {
+      cardId,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -195,6 +222,18 @@ export async function getCard(cardId) {
 // Create a new card
 export async function createCard(cardData) {
   await initFirebase();
+
+  // Validate required fields before making Firestore call
+  if (!cardData.title?.trim()) {
+    throw new Error('Card title is required');
+  }
+  if (!cardData.type?.trim()) {
+    throw new Error('Card type is required');
+  }
+  if (!cardData.subtype?.trim()) {
+    throw new Error('Card subtype is required');
+  }
+
   // Use getAuthInstance() to get the current auth instance
   // This ensures we get window.__testAuth if it exists (for tests)
   const authInstance = getAuthInstance();
@@ -214,7 +253,12 @@ export async function createCard(cardData) {
     });
     return docRef.id;
   } catch (error) {
-    console.error('Error creating card:', error);
+    console.error('[Firebase] Error creating card:', {
+      title: cardData.title,
+      type: cardData.type,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -222,6 +266,18 @@ export async function createCard(cardData) {
 // Update an existing card
 export async function updateCard(cardId, cardData) {
   await initFirebase();
+
+  // Validate required fields before making Firestore call
+  if (!cardData.title?.trim()) {
+    throw new Error('Card title is required');
+  }
+  if (!cardData.type?.trim()) {
+    throw new Error('Card type is required');
+  }
+  if (!cardData.subtype?.trim()) {
+    throw new Error('Card subtype is required');
+  }
+
   const authInstance = getAuthInstance();
   try {
     const user = authInstance.currentUser;
@@ -237,7 +293,13 @@ export async function updateCard(cardId, cardData) {
       lastModifiedAt: serverTimestamp(),
     });
   } catch (error) {
-    console.error('Error updating card:', error);
+    console.error('[Firebase] Error updating card:', {
+      cardId,
+      title: cardData.title,
+      type: cardData.type,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -268,6 +330,7 @@ export async function importCards(cards) {
       created: 0,
       updated: 0,
       errors: 0,
+      failedCards: [], // Track which cards failed
     };
 
     for (const card of cards) {
@@ -292,14 +355,18 @@ export async function importCards(cards) {
           results.created++;
         }
       } catch (error) {
-        console.error(`Error importing card "${card.title}":`, error);
+        console.error(`[Firebase] Error importing card "${card.title}":`, error);
         results.errors++;
+        results.failedCards.push({
+          title: card.title,
+          error: error.message,
+        });
       }
     }
 
     return results;
   } catch (error) {
-    console.error('Error importing cards:', error);
+    console.error('[Firebase] Error importing cards:', error);
     throw error;
   }
 }

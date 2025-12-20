@@ -14,10 +14,15 @@ export const test = base.extend<AuthFixtures>({
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
 
+    // Store console errors for test assertions
+    const consoleErrors: string[] = [];
+
     // Capture console errors for debugging
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
-        console.log(`[Browser Error] ${msg.text()}`);
+        const errorText = msg.text();
+        console.log(`[Browser Error] ${errorText}`);
+        consoleErrors.push(errorText);
       }
       // Also capture card-related logs
       if (msg.text().includes('[Cards]')) {
@@ -64,7 +69,7 @@ export const test = base.extend<AuthFixtures>({
       );
 
       if (!signInResult.success) {
-        throw new Error(`Firebase sign-in failed: ${signInResult.error}`);
+        throw new Error(`Firebase sign-in failed for ${email}: ${signInResult.error}`);
       }
 
       // Wait for auth state to propagate (SDK level)
@@ -89,10 +94,9 @@ export const test = base.extend<AuthFixtures>({
       });
 
       // Verify the class was added
-      await page.waitForFunction(
-        () => document.body.classList.contains('authenticated'),
-        { timeout: 5000 }
-      );
+      await page.waitForFunction(() => document.body.classList.contains('authenticated'), {
+        timeout: 5000,
+      });
     };
 
     const signOutTestUser = async () => {

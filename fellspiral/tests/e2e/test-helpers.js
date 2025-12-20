@@ -182,13 +182,23 @@ export async function createCardViaUI(page, cardData) {
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
   // window.__testAuth is set by authEmulator fixture and used by firebase.js's getAuthInstance()
   // IMPORTANT: Use != null (not !==) to check for both null AND undefined
-  await page.waitForFunction(
-    () => {
-      const auth = window.__testAuth;
-      return auth != null && auth.currentUser != null;
-    },
-    { timeout: 5000 }
-  );
+  await page
+    .waitForFunction(
+      () => {
+        const auth = window.__testAuth;
+        return auth != null && auth.currentUser != null;
+      },
+      { timeout: 5000 }
+    )
+    .catch(async (error) => {
+      // Enhanced error with auth state snapshot for debugging
+      const authState = await page.evaluate(() => ({
+        authExists: !!window.__testAuth,
+        currentUser: !!window.__testAuth?.currentUser,
+        currentUserUid: window.__testAuth?.currentUser?.uid,
+      }));
+      throw new Error(`Auth not ready after 5s: ${JSON.stringify(authState)}`);
+    });
 
   // Submit form
   await page.locator('#saveCardBtn').click();
@@ -230,13 +240,20 @@ async function getFirestoreAdmin() {
 
   // Connect to Firestore emulator (only call settings once)
   _firestoreDb = admin.firestore(_adminApp);
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
-  const [host, port] = firestoreHost.split(':');
 
-  _firestoreDb.settings({
-    host: `${host}:${port}`,
-    ssl: false,
-  });
+  // Only configure settings if not already configured
+  if (!_firestoreDb._settingsConfigured) {
+    const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+    const [host, port] = firestoreHost.split(':');
+
+    _firestoreDb.settings({
+      host: `${host}:${port}`,
+      ssl: false,
+    });
+
+    // Mark as configured to prevent duplicate calls
+    _firestoreDb._settingsConfigured = true;
+  }
 
   return { app: _adminApp, db: _firestoreDb };
 }
@@ -308,12 +325,9 @@ export async function deleteTestCards(titlePattern) {
     const data = doc.data();
     const title = data.title || '';
 
-    let matches = false;
-    if (titlePattern instanceof RegExp) {
-      matches = titlePattern.test(title);
-    } else if (typeof titlePattern === 'string') {
-      matches = title.startsWith(titlePattern);
-    }
+    // Use ternary for cleaner pattern matching
+    const matches =
+      titlePattern instanceof RegExp ? titlePattern.test(title) : title.startsWith(titlePattern);
 
     if (matches) {
       docsToDelete.push(doc.ref);
