@@ -12,44 +12,54 @@ export const MAX_ITERATIONS = 10;
 export const NEEDS_REVIEW_LABEL = 'needs review';
 export const CODE_QUALITY_BOT_USERNAME = 'github-code-quality[bot]';
 
-// Step identifiers
-// Using const assertions to ensure these are exact literal types
-export const STEP_ENSURE_PR = '0' as const;
-export const STEP_MONITOR_WORKFLOW = '1' as const;
-export const STEP_MONITOR_PR_CHECKS = '1b' as const;
-export const STEP_CODE_QUALITY = '2' as const;
-export const STEP_PR_REVIEW = '3' as const;
-export const STEP_SECURITY_REVIEW = '4' as const;
-export const STEP_VERIFY_REVIEWS = '4b' as const;
-export const STEP_APPROVAL = 'approval' as const;
+// Two-phase workflow constants
+export type WiggumPhase = 'phase1' | 'phase2';
+
+// Phase 1 step identifiers (pre-PR)
+export const STEP_PHASE1_MONITOR_WORKFLOW = 'p1-1' as const;
+export const STEP_PHASE1_PR_REVIEW = 'p1-2' as const;
+export const STEP_PHASE1_SECURITY_REVIEW = 'p1-3' as const;
+export const STEP_PHASE1_CREATE_PR = 'p1-4' as const;
+
+// Phase 2 step identifiers (post-PR)
+export const STEP_PHASE2_MONITOR_WORKFLOW = 'p2-1' as const;
+export const STEP_PHASE2_MONITOR_CHECKS = 'p2-2' as const;
+export const STEP_PHASE2_CODE_QUALITY = 'p2-3' as const;
+export const STEP_PHASE2_PR_REVIEW = 'p2-4' as const;
+export const STEP_PHASE2_SECURITY_REVIEW = 'p2-5' as const;
+export const STEP_PHASE2_APPROVAL = 'approval' as const;
 
 /**
  * Valid step identifiers in the Wiggum workflow
  * Using a discriminated union to enforce type safety and prevent invalid steps
  */
 export type WiggumStep =
-  | typeof STEP_ENSURE_PR
-  | typeof STEP_MONITOR_WORKFLOW
-  | typeof STEP_MONITOR_PR_CHECKS
-  | typeof STEP_CODE_QUALITY
-  | typeof STEP_PR_REVIEW
-  | typeof STEP_SECURITY_REVIEW
-  | typeof STEP_VERIFY_REVIEWS
-  | typeof STEP_APPROVAL;
+  | typeof STEP_PHASE1_MONITOR_WORKFLOW
+  | typeof STEP_PHASE1_PR_REVIEW
+  | typeof STEP_PHASE1_SECURITY_REVIEW
+  | typeof STEP_PHASE1_CREATE_PR
+  | typeof STEP_PHASE2_MONITOR_WORKFLOW
+  | typeof STEP_PHASE2_MONITOR_CHECKS
+  | typeof STEP_PHASE2_CODE_QUALITY
+  | typeof STEP_PHASE2_PR_REVIEW
+  | typeof STEP_PHASE2_SECURITY_REVIEW
+  | typeof STEP_PHASE2_APPROVAL;
 
 /**
  * Ordered list of steps in the Wiggum workflow
  * Used for step index calculations and filtering
  */
 export const STEP_ORDER: readonly WiggumStep[] = [
-  STEP_ENSURE_PR,
-  STEP_MONITOR_WORKFLOW,
-  STEP_MONITOR_PR_CHECKS,
-  STEP_CODE_QUALITY,
-  STEP_PR_REVIEW,
-  STEP_SECURITY_REVIEW,
-  STEP_VERIFY_REVIEWS,
-  STEP_APPROVAL,
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE1_SECURITY_REVIEW,
+  STEP_PHASE1_CREATE_PR,
+  STEP_PHASE2_MONITOR_WORKFLOW,
+  STEP_PHASE2_MONITOR_CHECKS,
+  STEP_PHASE2_CODE_QUALITY,
+  STEP_PHASE2_PR_REVIEW,
+  STEP_PHASE2_SECURITY_REVIEW,
+  STEP_PHASE2_APPROVAL,
 ] as const;
 
 /**
@@ -58,28 +68,21 @@ export const STEP_ORDER: readonly WiggumStep[] = [
  * @returns true if the step is valid
  */
 export function isValidStep(step: unknown): step is WiggumStep {
-  return (
-    step === STEP_ENSURE_PR ||
-    step === STEP_MONITOR_WORKFLOW ||
-    step === STEP_MONITOR_PR_CHECKS ||
-    step === STEP_CODE_QUALITY ||
-    step === STEP_PR_REVIEW ||
-    step === STEP_SECURITY_REVIEW ||
-    step === STEP_VERIFY_REVIEWS ||
-    step === STEP_APPROVAL
-  );
+  return STEP_ORDER.includes(step as WiggumStep);
 }
 
 // Step names (human-readable)
 export const STEP_NAMES: Record<WiggumStep, string> = {
-  [STEP_ENSURE_PR]: 'Ensure PR Exists',
-  [STEP_MONITOR_WORKFLOW]: 'Monitor Workflow',
-  [STEP_MONITOR_PR_CHECKS]: 'Monitor PR Checks',
-  [STEP_CODE_QUALITY]: 'Address Code Quality Comments',
-  [STEP_PR_REVIEW]: 'PR Review',
-  [STEP_SECURITY_REVIEW]: 'Security Review',
-  [STEP_VERIFY_REVIEWS]: 'Verify Reviews',
-  [STEP_APPROVAL]: 'Approval',
+  [STEP_PHASE1_MONITOR_WORKFLOW]: 'Phase 1: Monitor Workflow',
+  [STEP_PHASE1_PR_REVIEW]: 'Phase 1: Code Review (Pre-PR)',
+  [STEP_PHASE1_SECURITY_REVIEW]: 'Phase 1: Security Review (Pre-PR)',
+  [STEP_PHASE1_CREATE_PR]: 'Phase 1: Create PR',
+  [STEP_PHASE2_MONITOR_WORKFLOW]: 'Phase 2: Monitor Workflow',
+  [STEP_PHASE2_MONITOR_CHECKS]: 'Phase 2: Monitor PR Checks',
+  [STEP_PHASE2_CODE_QUALITY]: 'Phase 2: Address Code Quality Comments',
+  [STEP_PHASE2_PR_REVIEW]: 'Phase 2: PR Review (Post-PR)',
+  [STEP_PHASE2_SECURITY_REVIEW]: 'Phase 2: Security Review (Post-PR)',
+  [STEP_PHASE2_APPROVAL]: 'Approval',
 };
 
 // Comment markers for state tracking

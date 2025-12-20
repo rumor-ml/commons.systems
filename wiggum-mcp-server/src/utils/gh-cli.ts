@@ -5,6 +5,7 @@
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { getGitRoot } from './git.js';
+import { logger } from './logger.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -434,17 +435,23 @@ export async function ghCliWithRetry(
 
       if (attempt === maxRetries) {
         // Final attempt failed
-        console.warn(
-          `ghCliWithRetry: all ${maxRetries} attempts failed for command: gh ${args.join(' ')}`
-        );
+        logger.warn('ghCliWithRetry: all attempts failed', {
+          maxRetries,
+          command: `gh ${args.join(' ')}`,
+          errorMessage: lastError.message,
+        });
         throw lastError;
       }
 
       // Exponential backoff: 2s, 4s, 8s
       const delayMs = Math.pow(2, attempt) * 1000;
-      console.warn(
-        `ghCliWithRetry: attempt ${attempt}/${maxRetries} failed for command: gh ${args.join(' ')}. Retrying in ${delayMs}ms. Error: ${lastError.message}`
-      );
+      logger.warn('ghCliWithRetry: attempt failed, retrying', {
+        attempt,
+        maxRetries,
+        command: `gh ${args.join(' ')}`,
+        retryDelayMs: delayMs,
+        errorMessage: lastError.message,
+      });
       await sleep(delayMs);
     }
   }

@@ -6,120 +6,11 @@ import { getPRComments, postPRComment } from '../utils/gh-cli.js';
 import {
   WIGGUM_STATE_MARKER,
   WIGGUM_COMMENT_PREFIX,
-  isValidStep,
-  STEP_ENSURE_PR,
+  STEP_PHASE1_MONITOR_WORKFLOW,
 } from '../constants.js';
 import { logger } from '../utils/logger.js';
+import { safeJsonParse, validateWiggumState } from './utils.js';
 import type { WiggumState } from './types.js';
-import type { WiggumStep } from '../constants.js';
-
-// Module-level validation: Ensure STEP_ENSURE_PR is a valid step at import time
-// This acts as a compile-time guard to catch inconsistencies in constants.ts
-// If STEP_ENSURE_PR is used as the default step in validateWiggumState, it must be valid
-// Throwing at module initialization ensures the error is caught immediately on server start
-// rather than during runtime when invalid state is encountered
-if (!isValidStep(STEP_ENSURE_PR)) {
-  throw new Error(
-    `CRITICAL: STEP_ENSURE_PR constant "${STEP_ENSURE_PR}" is not a valid step. ` +
-      `This indicates the step enum was changed without updating STEP_ENSURE_PR. ` +
-      `Check constants.ts for consistency.`
-  );
-}
-
-/**
- * Check for prototype pollution in parsed JSON object
- *
- * Recursively checks for dangerous property names that can be used for
- * prototype pollution attacks: __proto__, constructor, prototype.
- *
- * @param obj - Object to check for prototype pollution
- * @param depth - Current recursion depth (max 10 levels)
- * @returns true if pollution detected, false otherwise
- */
-function hasPrototypePollution(obj: unknown, depth: number = 0): boolean {
-  // Limit recursion depth to prevent stack overflow
-  if (depth > 10) return false;
-
-  if (typeof obj !== 'object' || obj === null) {
-    return false;
-  }
-
-  const keys = Object.keys(obj);
-  const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
-
-  // Check for dangerous keys at this level
-  for (const key of keys) {
-    if (dangerousKeys.includes(key)) {
-      return true;
-    }
-
-    // Recursively check nested objects
-    const value = (obj as Record<string, unknown>)[key];
-    if (hasPrototypePollution(value, depth + 1)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Safely parse JSON with prototype pollution detection
- *
- * Wraps JSON.parse with validation to detect and reject objects
- * containing dangerous properties that could lead to prototype pollution.
- *
- * @param json - JSON string to parse
- * @returns Parsed object if safe
- * @throws Error if JSON is invalid or contains prototype pollution
- */
-function safeJsonParse(json: string): unknown {
-  const parsed = JSON.parse(json);
-
-  if (hasPrototypePollution(parsed)) {
-    throw new Error('Prototype pollution detected in JSON');
-  }
-
-  return parsed;
-}
-
-/**
- * Validate and sanitize wiggum state from untrusted JSON
- */
-function validateWiggumState(data: unknown): WiggumState {
-  if (typeof data !== 'object' || data === null) {
-    throw new Error('Invalid state: not an object');
-  }
-
-  const obj = data as Record<string, unknown>;
-
-  const iteration = typeof obj.iteration === 'number' ? obj.iteration : 0;
-  let step: WiggumStep;
-  if (isValidStep(obj.step)) {
-    step = obj.step;
-  } else {
-    // STEP_ENSURE_PR validity is guaranteed by module-level validation at import time
-    // Log at ERROR level since this indicates state corruption in PR comments
-    // that may require investigation. The workflow recovers by restarting from
-    // Step 0, but the corrupted comment should be investigated.
-    logger.error(
-      'validateWiggumState: invalid step value in PR comment state - possible corruption',
-      {
-        invalidStep: obj.step,
-        invalidStepType: typeof obj.step,
-        defaultingTo: STEP_ENSURE_PR,
-        fullStateObject: JSON.stringify(obj).substring(0, 500),
-        recoveryAction: 'Workflow will restart from Step 0 (Ensure PR)',
-      }
-    );
-    step = STEP_ENSURE_PR;
-  }
-  const completedSteps = Array.isArray(obj.completedSteps)
-    ? obj.completedSteps.filter(isValidStep)
-    : [];
-
-  return { iteration, step, completedSteps };
-}
 
 /**
  * Parse wiggum state from PR comments
@@ -138,7 +29,7 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
     if (match) {
       try {
         const raw = safeJsonParse(match[1]);
-        return validateWiggumState(raw);
+        return validateWiggumState(raw, 'PR comment');
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         // Log prototype pollution attempts at ERROR level for security monitoring
@@ -154,11 +45,12 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
     }
   }
 
-  // No state found, return initial state
+  // No state found, return initial state (Phase 1, Step 1)
   return {
     iteration: 0,
-    step: '0',
+    step: STEP_PHASE1_MONITOR_WORKFLOW,
     completedSteps: [],
+    phase: 'phase1',
   };
 }
 
