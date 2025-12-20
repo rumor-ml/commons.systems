@@ -36,6 +36,7 @@ let isSaving = false;
 // HTML escape utility to prevent XSS attacks
 // Uses browser's built-in escaping via textContent property.
 // Use for ALL user-generated content (titles, descriptions, types, etc.)
+// TODO(#286): Add concrete XSS attack examples (e.g., <script>alert('xss')</script> in titles)
 // NOTE: Only escapes HTML context - do NOT use for JS strings or URLs
 function escapeHtml(text) {
   if (text == null) return '';
@@ -232,7 +233,18 @@ function createCombobox(config) {
     input.value = value;
     hide();
     if (onSelect) {
-      onSelect(value);
+      try {
+        onSelect(value);
+      } catch (error) {
+        console.error('[Cards] Combobox onSelect callback failed:', {
+          comboboxId: comboboxId,
+          selectedValue: value,
+          message: error.message,
+          stack: error.stack,
+          errorType: error.constructor.name,
+        });
+        console.warn('[Cards] Selection completed but dependent fields may not have updated');
+      }
     }
   }
 
@@ -263,11 +275,13 @@ function createCombobox(config) {
 
   input.addEventListener('blur', () => {
     // CRITICAL: 200ms delay prevents race condition in dropdown click handling
-    // Event sequence: mousedown → blur → mouseup → click
-    // Without delay: blur hides dropdown → click event targets destroyed element
-    // With 200ms delay: mousedown registers → selection completes → then hide
-    // 200ms chosen to exceed browser event processing time (typically <100ms) with
-    // safety margin for slower devices/browsers. Shorter delays risk race condition.
+    // Event sequence on option click: mousedown → blur → mouseup → click
+    // The mousedown handler calls e.preventDefault() to suppress blur, but this
+    // only works for some browsers/scenarios. The delay ensures that even if blur
+    // fires immediately, the mousedown handler has time to execute selectOption()
+    // before the dropdown is hidden. 200ms provides margin for slower event loops.
+    // Alternative approaches considered: mousedown-only handling (accessibility issues),
+    // relatedTarget checking (unreliable cross-browser).
     setTimeout(() => {
       hide();
     }, 200);
@@ -275,32 +289,36 @@ function createCombobox(config) {
 
   input.addEventListener('keydown', (e) => {
     const options = listbox.querySelectorAll('.combobox-option');
+    const isOpen = combobox.classList.contains('open');
 
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (!combobox.classList.contains('open')) {
-        show();
-      } else {
-        highlightOption(Math.min(highlightedIndex + 1, options.length - 1));
-      }
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (combobox.classList.contains('open')) {
-        highlightOption(Math.max(highlightedIndex - 1, 0));
-      }
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (combobox.classList.contains('open') && highlightedIndex >= 0) {
-        const highlightedOption = options[highlightedIndex];
-        if (highlightedOption) {
-          selectOption(highlightedOption.dataset.value);
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!isOpen) {
+          show();
+        } else {
+          highlightOption(Math.min(highlightedIndex + 1, options.length - 1));
         }
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      hide();
-    } else if (e.key === 'Tab') {
-      hide();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (isOpen) {
+          highlightOption(Math.max(highlightedIndex - 1, 0));
+        }
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (isOpen && highlightedIndex >= 0 && options[highlightedIndex]) {
+          selectOption(options[highlightedIndex].dataset.value);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        hide();
+        break;
+      case 'Tab':
+        hide();
+        break;
     }
   });
 
@@ -407,23 +425,36 @@ function showErrorUI(message, onRetry) {
   container.insertBefore(errorDiv, container.firstChild);
 }
 
+// Create a banner element with optional icon
+function createBanner(message, options = {}) {
+  const { className = 'warning-banner', icon = null, extraClass = null } = options;
+
+  const banner = document.createElement('div');
+  banner.className = extraClass ? `${extraClass} ${className}` : className;
+
+  const content = document.createElement('div');
+  content.className = 'warning-content';
+
+  if (icon) {
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = icon;
+    iconSpan.style.cssText = 'font-size: 1.25rem; flex-shrink: 0;';
+    content.appendChild(iconSpan);
+  }
+
+  const text = document.createElement('p');
+  text.textContent = message;
+  content.appendChild(text);
+
+  banner.appendChild(content);
+  return banner;
+}
+
 // Show warning banner
 function showWarningBanner(message) {
   const container = document.querySelector('.card-container');
   if (!container) return;
-
-  const warningDiv = document.createElement('div');
-  warningDiv.className = 'warning-banner';
-
-  const warningContent = document.createElement('div');
-  warningContent.className = 'warning-content';
-
-  const warningText = document.createElement('p');
-  warningText.textContent = message;
-  warningContent.appendChild(warningText);
-
-  warningDiv.appendChild(warningContent);
-  container.insertBefore(warningDiv, container.firstChild);
+  container.insertBefore(createBanner(message), container.firstChild);
 }
 
 // Show demo data indicator - persistent visual indicator for fallback mode
@@ -434,23 +465,10 @@ function showDemoDataIndicator(message) {
   // Remove any existing demo data indicator
   document.querySelector('.demo-data-indicator')?.remove();
 
-  const indicator = document.createElement('div');
-  indicator.className = 'demo-data-indicator warning-banner';
-
-  const content = document.createElement('div');
-  content.className = 'warning-content';
-
-  const icon = document.createElement('span');
-  icon.textContent = '⚠️';
-  icon.style.cssText = 'font-size: 1.25rem; flex-shrink: 0;';
-
-  const text = document.createElement('p');
-  text.textContent = message;
-
-  content.appendChild(icon);
-  content.appendChild(text);
-  indicator.appendChild(content);
-
+  const indicator = createBanner(message, {
+    extraClass: 'demo-data-indicator',
+    icon: '\u26A0\uFE0F', // Warning emoji
+  });
   container.insertBefore(indicator, container.firstChild);
 }
 
@@ -611,21 +629,33 @@ async function loadCards() {
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
 
-    if (isNetworkError) {
-      showDemoDataIndicator(
-        'Unable to connect to server. Showing demo data only. Changes will not be saved.'
-      );
-      console.warn('[Cards] Fallback: network error, using demo data');
-    } else {
-      showDemoDataIndicator(
-        'Unable to load your cards. Showing demo data only. Changes will not be saved.'
-      );
-      console.warn('[Cards] Fallback: error loading cards, using demo data');
-    }
+    const errorReason = isNetworkError ? 'connect to server' : 'load your cards';
+    showDemoDataIndicator(
+      `Unable to ${errorReason}. Showing demo data only. Changes will not be saved.`
+    );
+    console.warn(
+      `[Cards] Fallback: ${isNetworkError ? 'network error' : 'error loading cards'}, using demo data`
+    );
   } finally {
     // ALWAYS clear loading state
     state.loading = false;
   }
+}
+
+// Helper to bind element listener with missing element tracking
+function bindListener(elementOrSelector, event, handler, missingElements) {
+  const el =
+    typeof elementOrSelector === 'string'
+      ? document.getElementById(elementOrSelector) || document.querySelector(elementOrSelector)
+      : elementOrSelector;
+  if (el) {
+    el.addEventListener(event, handler);
+    return true;
+  }
+  if (typeof elementOrSelector === 'string') {
+    missingElements.push(elementOrSelector);
+  }
+  return false;
 }
 
 // Setup event listeners
@@ -636,97 +666,69 @@ function setupEventListeners() {
   try {
     const missingElements = [];
 
-    // Toolbar buttons
-    const addCardBtn = document.getElementById('addCardBtn');
-    const exportCardsBtn = document.getElementById('exportCardsBtn');
-
-    if (!addCardBtn) {
-      missingElements.push('addCardBtn');
-    } else {
-      // Add debounce to Add Card button to prevent rapid clicks
-      let addCardDebounce = null;
-      addCardBtn.addEventListener('click', () => {
+    // Add Card button with debounce to prevent rapid clicks
+    let addCardDebounce = null;
+    bindListener(
+      'addCardBtn',
+      'click',
+      () => {
         if (addCardDebounce) return;
         addCardDebounce = setTimeout(() => {
           addCardDebounce = null;
         }, 300);
         openCardEditor();
-      });
-    }
+      },
+      missingElements
+    );
 
-    if (!exportCardsBtn) {
-      missingElements.push('exportCardsBtn');
-    } else {
-      exportCardsBtn.addEventListener('click', exportCards);
-    }
+    // Export button
+    bindListener('exportCardsBtn', 'click', exportCards, missingElements);
 
-    // View mode
+    // View mode buttons
     document.querySelectorAll('.view-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
-    // Filters
-    const searchCards = document.getElementById('searchCards');
-    if (searchCards) {
-      searchCards.addEventListener('input', handleFilterChange);
-    } else {
-      missingElements.push('searchCards');
-    }
+    // Search filter
+    bindListener('searchCards', 'input', handleFilterChange, missingElements);
 
-    // Modal
-    const closeModalBtn = document.getElementById('closeModalBtn');
-    const cancelModalBtn = document.getElementById('cancelModalBtn');
-    const deleteCardBtn = document.getElementById('deleteCardBtn');
-    const cardForm = document.getElementById('cardForm');
-    const modalBackdrop = document.querySelector('.modal-backdrop');
-
-    if (closeModalBtn) {
-      closeModalBtn.addEventListener('click', closeCardEditor);
-    } else {
-      missingElements.push('closeModalBtn');
-    }
-
-    if (cancelModalBtn) {
-      cancelModalBtn.addEventListener('click', closeCardEditor);
-    } else {
-      missingElements.push('cancelModalBtn');
-    }
-
-    if (deleteCardBtn) {
-      deleteCardBtn.addEventListener('click', deleteCard);
-    } else {
-      missingElements.push('deleteCardBtn');
-    }
-
-    if (cardForm) {
-      cardForm.addEventListener('submit', handleCardSave);
-    } else {
-      missingElements.push('cardForm');
-    }
-
-    if (modalBackdrop) {
-      modalBackdrop.addEventListener('click', closeCardEditor);
-    } else {
-      missingElements.push('modalBackdrop');
-    }
+    // Modal close buttons
+    bindListener('closeModalBtn', 'click', closeCardEditor, missingElements);
+    bindListener('cancelModalBtn', 'click', closeCardEditor, missingElements);
+    bindListener('deleteCardBtn', 'click', deleteCard, missingElements);
+    bindListener('cardForm', 'submit', handleCardSave, missingElements);
+    bindListener('.modal-backdrop', 'click', closeCardEditor, missingElements);
 
     // Clean up existing comboboxes to prevent memory leaks
-    typeCombobox?.destroy?.();
-    subtypeCombobox?.destroy?.();
+    if (typeCombobox) {
+      try {
+        typeCombobox.destroy();
+      } catch (error) {
+        console.error('[Cards] Failed to destroy type combobox:', {
+          message: error.message,
+          stack: error.stack,
+          errorType: error.constructor.name,
+        });
+      }
+    }
+    if (subtypeCombobox) {
+      try {
+        subtypeCombobox.destroy();
+      } catch (error) {
+        console.error('[Cards] Failed to destroy subtype combobox:', {
+          message: error.message,
+          stack: error.stack,
+          errorType: error.constructor.name,
+        });
+      }
+    }
 
     // Initialize comboboxes and report failures
     const typeOk = initTypeCombobox();
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      let failed;
-      if (!typeOk && !subtypeOk) {
-        failed = 'type and subtype';
-      } else if (!typeOk) {
-        failed = 'type';
-      } else {
-        failed = 'subtype';
-      }
+      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
       showWarningBanner(`Card ${failed} selection unavailable. Refresh page.`);
       console.error('[Cards] Combobox init failed:', { typeOk, subtypeOk });
     }
@@ -803,11 +805,12 @@ function setupAuthStateListener() {
     state.authListenerRetries = 0;
 
     // Register listener for auth state changes
-    // NOTE: onAuthStateChanged calls the callback immediately with current state,
-    // BUT only if auth is already initialized. If auth.currentUser hasn't been
-    // populated yet, the callback won't fire immediately. The retry logic below
-    // handles this initialization race condition by retrying every 500ms until
-    // auth is ready (up to 10 retries = 5 seconds total).
+    // NOTE: onAuthStateChanged is provided by auth-init.js module. If this code runs
+    // before auth-init.js is fully loaded, onAuthStateChanged will be undefined,
+    // causing "before auth initialized" errors. The retry logic below handles this
+    // module initialization race by retrying every 500ms until auth-init exports
+    // are available (up to 10 retries = 5 seconds). Once available, Firebase SDK
+    // guarantees immediate callback invocation with current auth state.
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }
@@ -859,6 +862,7 @@ function setupAuthStateListener() {
       return;
     }
 
+    // TODO(#285): Add error handling for non-retry auth errors (re-throw or show blocking error)
     // Unexpected error - log with context and warn user
     console.error('[Cards] Failed to setup auth state listener:', {
       message: error.message,
@@ -1068,6 +1072,7 @@ function renderCards() {
 
     cardList.innerHTML = renderedCards.join('');
 
+    // TODO(#285): Lower render failure threshold to 1 card and show which cards failed
     // Warn if significant failures
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
@@ -1235,9 +1240,7 @@ function validateCardForm() {
 function showValidationErrors(errors) {
   errors.forEach((error) => {
     const input = document.getElementById(error.field);
-    if (!input) return;
-
-    const formGroup = input.closest('.form-group');
+    const formGroup = input?.closest('.form-group');
     if (!formGroup) return;
 
     formGroup.classList.add('has-error');
@@ -1253,18 +1256,15 @@ function showValidationErrors(errors) {
     }
 
     errorMsg.textContent = error.message;
-
-    // Add error class to input
     input.classList.add('error');
 
-    // Remove error class on input to allow re-validation
+    // Clear error state on next input (once: true auto-removes listener)
     input.addEventListener(
       'input',
-      function clearError() {
+      () => {
         input.classList.remove('error');
         formGroup.classList.remove('has-error');
-        if (errorMsg) errorMsg.textContent = '';
-        input.removeEventListener('input', clearError);
+        errorMsg.textContent = '';
       },
       { once: true }
     );
@@ -1272,8 +1272,7 @@ function showValidationErrors(errors) {
 
   // Focus first error field
   if (errors.length > 0) {
-    const firstErrorField = document.getElementById(errors[0].field);
-    if (firstErrorField) firstErrorField.focus();
+    document.getElementById(errors[0].field)?.focus();
   }
 }
 

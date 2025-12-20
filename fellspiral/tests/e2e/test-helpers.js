@@ -112,6 +112,36 @@ async function selectComboboxOption(page, listboxId, targetValue) {
 }
 
 /**
+ * Fill a combobox field and try to select matching option
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} inputId - ID of the combobox input element
+ * @param {string} listboxId - ID of the listbox element
+ * @param {string} value - Value to fill and select
+ */
+async function fillCombobox(page, inputId, listboxId, value) {
+  await page.locator(`#${inputId}`).fill(value);
+  await page.locator(`#${inputId}`).dispatchEvent('input');
+  await page.waitForTimeout(50);
+
+  const selected = await selectComboboxOption(page, listboxId, value);
+  if (!selected) {
+    await page.locator(`#${inputId}`).press('Escape');
+  }
+}
+
+/**
+ * Fill an optional form field if value is provided
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} id - Element ID
+ * @param {string} value - Value to fill (skipped if falsy)
+ */
+async function fillOptionalField(page, id, value) {
+  if (value) {
+    await page.locator(`#${id}`).fill(value);
+  }
+}
+
+/**
  * Create a card through the UI
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {Object} cardData - Card data to fill in the form
@@ -127,61 +157,24 @@ export async function createCardViaUI(page, cardData) {
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
   await page.waitForTimeout(100); // Small delay to ensure form initialization completes
 
-  // Fill form fields
+  // Fill required fields
   await page.locator('#cardTitle').fill(cardData.title);
 
-  // Set type using combobox (fill input and select from dropdown or accept custom value)
-  await page.locator('#cardType').fill(cardData.type);
-  // Dispatch input event to trigger filtering
-  await page.locator('#cardType').dispatchEvent('input');
-  // Small delay for dropdown to render options
-  await page.waitForTimeout(50);
-
-  // Try to select matching option using JavaScript evaluation (Firefox-safe)
-  const typeSelected = await selectComboboxOption(page, 'typeListbox', cardData.type);
-
-  if (!typeSelected) {
-    // No matching option found - close dropdown and accept custom value
-    await page.locator('#cardType').press('Escape');
-  }
+  // Fill type combobox
+  await fillCombobox(page, 'cardType', 'typeListbox', cardData.type);
 
   // Wait for subtype combobox to be ready after type change
   await page.waitForTimeout(100);
 
-  // Set subtype using combobox (fill input and select from dropdown or accept custom value)
-  await page.locator('#cardSubtype').fill(cardData.subtype);
-  // Dispatch input event to trigger filtering
-  await page.locator('#cardSubtype').dispatchEvent('input');
-  // Small delay for dropdown to render options
-  await page.waitForTimeout(50);
+  // Fill subtype combobox
+  await fillCombobox(page, 'cardSubtype', 'subtypeListbox', cardData.subtype);
 
-  // Try to select matching option using JavaScript evaluation (Firefox-safe)
-  const subtypeSelected = await selectComboboxOption(page, 'subtypeListbox', cardData.subtype);
-
-  if (!subtypeSelected) {
-    // No matching option found - close dropdown and accept custom value
-    await page.locator('#cardSubtype').press('Escape');
-  }
-
-  if (cardData.tags) {
-    await page.locator('#cardTags').fill(cardData.tags);
-  }
-
-  if (cardData.description) {
-    await page.locator('#cardDescription').fill(cardData.description);
-  }
-
-  if (cardData.stat1) {
-    await page.locator('#cardStat1').fill(cardData.stat1);
-  }
-
-  if (cardData.stat2) {
-    await page.locator('#cardStat2').fill(cardData.stat2);
-  }
-
-  if (cardData.cost) {
-    await page.locator('#cardCost').fill(cardData.cost);
-  }
+  // Fill optional fields
+  await fillOptionalField(page, 'cardTags', cardData.tags);
+  await fillOptionalField(page, 'cardDescription', cardData.description);
+  await fillOptionalField(page, 'cardStat1', cardData.stat1);
+  await fillOptionalField(page, 'cardStat2', cardData.stat2);
+  await fillOptionalField(page, 'cardCost', cardData.cost);
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
   // window.__testAuth is set by authEmulator fixture and used by firebase.js's getAuthInstance()

@@ -1,6 +1,8 @@
 /**
  * Add Card E2E Tests
  * Tests the complete Add Card workflow including UI, validation, and persistence
+ *
+ * TODO(#241): Replace fixed timeouts with condition-based waiting for better test reliability
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
@@ -2671,5 +2673,390 @@ test.describe('Add Card - Timeout Error Recovery', () => {
 
     // Clean up
     await page.unroute('**/*firestore.googleapis.com/**');
+  });
+});
+
+test.describe('Add Card - Field Length Validation Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should reject title exceeding 100 characters', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `length-test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with title exceeding 100 characters
+    const longTitle = 'A'.repeat(101);
+    await page.locator('#cardTitle').fill(longTitle);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Try to save
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const titleGroup = page.locator('#cardTitle').locator('..');
+    await expect(titleGroup.locator('.error-message')).toBeVisible({ timeout: 2000 });
+    const errorText = await titleGroup.locator('.error-message').textContent();
+    expect(errorText).toContain('100 characters');
+  });
+
+  test('should reject description exceeding 500 characters', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `desc-length-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with description exceeding 500 characters
+    const longDescription = 'B'.repeat(501);
+    await page.locator('#cardTitle').fill(`Test Card ${Date.now()}`);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+    await page.locator('#cardDescription').fill(longDescription);
+
+    // Try to save
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const descGroup = page.locator('#cardDescription').locator('..');
+    await expect(descGroup.locator('.error-message')).toBeVisible({ timeout: 2000 });
+    const errorText = await descGroup.locator('.error-message').textContent();
+    expect(errorText).toContain('500 characters');
+  });
+
+  test('should accept title with exactly 100 characters', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `boundary-title-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with exactly 100 character title
+    const exactTitle = `Test-${Date.now()}-${'X'.repeat(100 - `Test-${Date.now()}-`.length)}`;
+    expect(exactTitle.length).toBe(100);
+
+    await page.locator('#cardTitle').fill(exactTitle);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Submit form
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should close (validation succeeded)
+    await expect(page.locator('#cardEditorModal')).not.toHaveClass(/active/, { timeout: 10000 });
+
+    // Verify card appears in list
+    await page.waitForTimeout(2000);
+    const cardTitle = page.locator('.card-item-title').filter({ hasText: exactTitle });
+    await expect(cardTitle).toBeVisible({ timeout: 10000 });
+  });
+
+  test('should accept description with exactly 500 characters', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `boundary-desc-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with exactly 500 character description
+    const exactDescription = 'D'.repeat(500);
+    expect(exactDescription.length).toBe(500);
+
+    const testTitle = `Boundary Desc ${Date.now()}`;
+    await page.locator('#cardTitle').fill(testTitle);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+    await page.locator('#cardDescription').fill(exactDescription);
+
+    // Submit form
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should close (validation succeeded)
+    await expect(page.locator('#cardEditorModal')).not.toHaveClass(/active/, { timeout: 10000 });
+
+    // Verify card appears in list
+    await page.waitForTimeout(2000);
+    const cardTitle = page.locator('.card-item-title').filter({ hasText: testTitle });
+    await expect(cardTitle).toBeVisible({ timeout: 10000 });
+  });
+});
+
+test.describe('Add Card - Whitespace-Only Field Validation Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should reject whitespace-only title', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `whitespace-title-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with whitespace-only title
+    await page.locator('#cardTitle').fill('   ');
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Try to save
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const titleGroup = page.locator('#cardTitle').locator('..');
+    await expect(titleGroup.locator('.error-message')).toBeVisible({ timeout: 2000 });
+    const errorText = await titleGroup.locator('.error-message').textContent();
+    expect(errorText).toContain('required');
+  });
+
+  test('should reject whitespace-only type', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `whitespace-type-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with whitespace-only type (whitespace will be trimmed to empty string)
+    const testTitle = `Test Card ${Date.now()}`;
+    await page.locator('#cardTitle').fill(testTitle);
+    await page.locator('#cardType').fill('   ');
+    await page.locator('#cardType').press('Escape');
+
+    // Try to save
+    await page.locator('#saveCardBtn').click();
+    await page.waitForTimeout(1500);
+
+    // Modal should still be open (validation failed - whitespace is trimmed to empty string which triggers required validation)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify the card was NOT created (validation prevented save)
+    const cardInList = page.locator('.card-item-title').filter({ hasText: testTitle });
+    await expect(cardInList).not.toBeVisible();
+  });
+});
+
+test.describe('Add Card - Combobox Error Recovery Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should show error UI when combobox options fail to load and recover', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `combobox-error-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Mock getTypesFromCards to throw error
+    await page.evaluate(() => {
+      const originalGetTypesFromCards = window.__getTypesFromCards;
+      window.__forceComboboxError = true;
+
+      // Inject error into getOptions function
+      const typeComboboxElement = document.getElementById('typeCombobox');
+      if (typeComboboxElement) {
+        const typeInput = document.getElementById('cardType');
+        if (typeInput) {
+          // Trigger refresh which will call getOptions and hit our mocked error
+          typeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    });
+
+    // Inject error by making getTypesFromCards throw
+    await page.evaluate(() => {
+      // Override the state.cards to cause getTypesFromCards to throw
+      const cardsModule = document.querySelector('script[src*="cards.js"]');
+      if (window.__cardsState) {
+        // Save original cards
+        window.__originalCards = window.__cardsState.cards;
+        // Make cards.filter throw
+        window.__cardsState.cards = {
+          filter: () => { throw new Error('Simulated combobox error'); }
+        };
+      }
+    });
+
+    // Focus type input to trigger refresh
+    await page.locator('#cardType').focus();
+    await page.waitForTimeout(500);
+
+    // Verify error UI appears in combobox
+    const typeListbox = page.locator('#typeListbox');
+    await expect(typeListbox).toHaveClass(/combobox-error/, { timeout: 2000 });
+
+    const errorMessage = page.locator('#typeListbox .combobox-error-message');
+    await expect(errorMessage).toBeVisible();
+    const errorText = await errorMessage.textContent();
+    expect(errorText).toContain('Error loading options');
+
+    // Fix error condition - restore cards
+    await page.evaluate(() => {
+      if (window.__cardsState && window.__originalCards) {
+        window.__cardsState.cards = window.__originalCards;
+      }
+    });
+
+    // Trigger refresh again to verify recovery
+    await page.locator('#cardType').fill('E');
+    await page.waitForTimeout(500);
+
+    // Verify error UI is gone and options appear
+    await expect(typeListbox).not.toHaveClass(/combobox-error/);
+    const options = page.locator('#typeListbox .combobox-option');
+    await expect(options.first()).toBeVisible({ timeout: 2000 });
+  });
+});
+
+test.describe('Add Card - Form Pre-Population on Failed Save Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should preserve all form values after save failure', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `prepop-test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form with specific values
+    const testData = {
+      title: `PrePop Test ${Date.now()}`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+      description: 'This is a test description that should be preserved',
+      tags: 'tag1, tag2, tag3',
+      stat1: '10',
+      stat2: '2',
+      cost: '5',
+    };
+
+    await page.locator('#cardTitle').fill(testData.title);
+    await page.locator('#cardType').fill(testData.type);
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill(testData.subtype);
+    await page.locator('#cardSubtype').press('Escape');
+    await page.locator('#cardDescription').fill(testData.description);
+    await page.locator('#cardTags').fill(testData.tags);
+    await page.locator('#cardStat1').fill(testData.stat1);
+    await page.locator('#cardStat2').fill(testData.stat2);
+    await page.locator('#cardCost').fill(testData.cost);
+
+    // Sign out to trigger save failure
+    await authEmulator.signOut();
+    await page.waitForTimeout(1000);
+
+    // Try to save
+    await page.locator('#saveCardBtn').click();
+    await page.waitForTimeout(2000);
+
+    // Modal should still be open with error
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const formError = page.locator('.modal-body .form-error-banner');
+    await expect(formError).toBeVisible({ timeout: 3000 });
+
+    // Verify all form fields still contain original values
+    await expect(page.locator('#cardTitle')).toHaveValue(testData.title);
+    await expect(page.locator('#cardType')).toHaveValue(testData.type);
+    await expect(page.locator('#cardSubtype')).toHaveValue(testData.subtype);
+    await expect(page.locator('#cardDescription')).toHaveValue(testData.description);
+    await expect(page.locator('#cardTags')).toHaveValue(testData.tags);
+    await expect(page.locator('#cardStat1')).toHaveValue(testData.stat1);
+    await expect(page.locator('#cardStat2')).toHaveValue(testData.stat2);
+    await expect(page.locator('#cardCost')).toHaveValue(testData.cost);
+
+    // Verify save button is enabled for retry
+    await expect(page.locator('#saveCardBtn')).not.toBeDisabled();
+
+    // Sign back in and verify retry works
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Retry save
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should close (save succeeded)
+    await expect(page.locator('#cardEditorModal')).not.toHaveClass(/active/, { timeout: 10000 });
+
+    // Verify card appears in list
+    await page.waitForTimeout(2000);
+    const cardTitle = page.locator('.card-item-title').filter({ hasText: testData.title });
+    await expect(cardTitle).toBeVisible({ timeout: 10000 });
   });
 });
