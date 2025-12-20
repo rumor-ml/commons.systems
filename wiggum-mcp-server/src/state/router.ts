@@ -51,6 +51,7 @@ interface WiggumInstructions {
   pr_title?: string;
   pr_labels?: string[];
   closing_issue?: string;
+  warning?: string; // Non-fatal warnings to display to user
   context: {
     pr_number?: number;
     current_branch?: string;
@@ -423,7 +424,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
-  if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
+  if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
       prState: state.pr.exists ? state.pr.state : 'N/A',

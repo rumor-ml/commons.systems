@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/debug"
+	"github.com/commons-systems/tmux-tui/internal/namespace"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
 )
@@ -29,37 +31,75 @@ type treeRefreshMsg struct {
 }
 
 type model struct {
-	collector       *tmux.Collector
-	renderer        *ui.TreeRenderer
-	daemonClient    *daemon.DaemonClient
-	tree            tmux.RepoTree
-	alerts          map[string]string // Alert state received from daemon: paneID -> eventType
-	alertsMu        *sync.RWMutex     // Protects alerts map from race conditions
-	blockedBranches map[string]string // Blocked branch state: branch -> blockedByBranch
-	blockedMu       *sync.RWMutex     // Protects blocked panes map
-	width           int
-	height          int
-	err             error
-	alertsDisabled  bool   // true if daemon connection failed
-	alertError      string // daemon connection error
+	collector    *tmux.Collector
+	renderer     *ui.TreeRenderer
+	daemonClient *daemon.DaemonClient
+	tree         tmux.RepoTree
+
+	// Alert state with concurrency protection
+	alerts   map[string]string
+	alertsMu *sync.RWMutex
+
+	// Blocked branch state with concurrency protection
+	blockedBranches map[string]string
+	blockedMu       *sync.RWMutex
+
+	// Error state with concurrency protection
+	// Six distinct error paths determine application behavior:
+	// 1. err != nil: Fatal error - displays message and exits immediately
+	// 2. alertsDisabled == true: Non-fatal - continues running but disables alerts
+	// 3. alertError != "": Alert system error - displays warning banner but continues
+	// 4. persistenceError != "": Daemon persistence failure - displays warning banner
+	// 5. audioError != "": Audio playback failure - displays warning banner
+	// 6. treeRefreshError != nil: Tmux tree refresh failure - displays warning banner
+	err              error
+	alertsDisabled   bool
+	alertError       string
+	persistenceError string
+	audioError       string
+	treeRefreshError error         // NEW: tree refresh failure tracking
+	errorMu          *sync.RWMutex // NEW: protects all error fields
+
+	// UI state
+	width  int
+	height int
+
 	// Branch picker state
-	pickingBranch    bool             // true when showing branch picker
-	pickingForBranch string           // branch being blocked
-	branchPicker     *ui.BranchPicker // the picker UI
+	pickingBranch    bool
+	pickingForBranch string
+	branchPicker     *ui.BranchPicker
 }
 
 func initialModel() model {
-	collector, collectorErr := tmux.NewCollector()
-	if collectorErr != nil {
-		return model{
-			err: fmt.Errorf("failed to initialize collector: %w", collectorErr),
-		}
+	// Initialize model with mutexes first to ensure safe concurrent access
+	m := model{
+		alerts:          make(map[string]string),
+		alertsMu:        &sync.RWMutex{},
+		blockedBranches: make(map[string]string),
+		blockedMu:       &sync.RWMutex{},
+		errorMu:         &sync.RWMutex{},
+		width:           80,
+		height:          24,
+		pickingBranch:   false,
+		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
 	}
 
+	collector, collectorErr := tmux.NewCollector()
+	if collectorErr != nil {
+		// Set error under lock
+		m.errorMu.Lock()
+		m.err = fmt.Errorf("failed to initialize collector: %w", collectorErr)
+		m.errorMu.Unlock()
+		return m
+	}
+	m.collector = collector
+
 	renderer := ui.NewTreeRenderer(80) // Default width
+	m.renderer = renderer
 
 	// Initial tree load
 	tree, err := collector.GetTree()
+	m.tree = tree
 
 	// Initialize daemon client
 	var alertsDisabled bool
@@ -72,30 +112,37 @@ func initialModel() model {
 	defer cancel()
 
 	if err := daemonClient.ConnectWithRetry(ctx, 5); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon: %v\n", err)
+		socketPath := namespace.DaemonSocket()
+
+		_, statErr := os.Stat(socketPath)
+		var guidance string
+		if os.IsNotExist(statErr) {
+			guidance = "Daemon not running. Start with: tmux-tui-daemon"
+		} else if os.IsPermission(statErr) {
+			guidance = fmt.Sprintf("Permission denied accessing socket: %s", socketPath)
+		} else {
+			guidance = "Daemon may be unresponsive or socket corrupted"
+		}
+
+		enhancedError := fmt.Sprintf("%v\nSocket: %s\n%s", err, socketPath, guidance)
+
+		fmt.Fprintf(os.Stderr, "Warning: Failed to connect to daemon:\n%s\n", enhancedError)
 		fmt.Fprintf(os.Stderr, "Alert notifications will be disabled.\n")
+
 		daemonClient = nil
 		alertsDisabled = true
-		alertError = err.Error()
+		alertError = enhancedError
 	}
+	m.daemonClient = daemonClient
 
-	return model{
-		collector:       collector,
-		renderer:        renderer,
-		daemonClient:    daemonClient,
-		tree:            tree,
-		alerts:          make(map[string]string),
-		alertsMu:        &sync.RWMutex{},
-		blockedBranches: make(map[string]string),
-		blockedMu:       &sync.RWMutex{},
-		width:           80,
-		height:          24,
-		err:             err,
-		alertsDisabled:  alertsDisabled,
-		alertError:      alertError,
-		pickingBranch:   false,
-		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
-	}
+	// Set error fields under lock to prevent races with concurrent access
+	m.errorMu.Lock()
+	m.err = err
+	m.alertsDisabled = alertsDisabled
+	m.alertError = alertError
+	m.errorMu.Unlock()
+
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -228,10 +275,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Find which branch this pane is on
 			var currentBranch string
-			for _, branches := range m.tree {
-				for branch, panes := range branches {
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
+					panes, ok := m.tree.GetPanes(repo, branch)
+					if !ok {
+						continue
+					}
 					for _, pane := range panes {
-						if pane.ID == msg.msg.PaneID {
+						if pane.ID() == msg.msg.PaneID {
 							currentBranch = branch
 							break
 						}
@@ -270,8 +321,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Extract all unique branches from tree (excluding current branch)
 			branchSet := make(map[string]bool)
-			for _, branches := range m.tree {
-				for branch := range branches {
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
 					// A branch cannot block itself
 					if branch != currentBranch {
 						branchSet[branch] = true
@@ -283,16 +334,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				branches = append(branches, branch)
 			}
 			// Sort branches alphabetically for consistent display
-			sortBranches := func(branches []string) {
-				for i := 0; i < len(branches); i++ {
-					for j := i + 1; j < len(branches); j++ {
-						if branches[i] > branches[j] {
-							branches[i], branches[j] = branches[j], branches[i]
-						}
-					}
-				}
-			}
-			sortBranches(branches)
+			sort.Strings(branches)
 
 			m.branchPicker.SetBranches(branches)
 			m.pickingBranch = true
@@ -328,12 +370,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case daemon.MsgTypePersistenceError:
+			// Persistence error from daemon
+			debug.Log("TUI_PERSISTENCE_ERROR error=%s", msg.msg.Error)
+			m.errorMu.Lock()
+			m.persistenceError = msg.msg.Error
+			m.errorMu.Unlock()
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
+		case daemon.MsgTypeAudioError:
+			// Audio playback error from daemon
+			debug.Log("TUI_AUDIO_ERROR error=%s", msg.msg.Error)
+			m.errorMu.Lock()
+			m.audioError = msg.msg.Error
+			m.errorMu.Unlock()
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
 		case "disconnect":
 			// Daemon disconnected
 			debug.Log("TUI_DAEMON_DISCONNECT")
 			fmt.Fprintf(os.Stderr, "Disconnected from daemon\n")
+			m.errorMu.Lock()
 			m.alertsDisabled = true
 			m.alertError = "Disconnected from daemon"
+			m.errorMu.Unlock()
 			m.daemonClient = nil
 			return m, nil
 		}
@@ -357,19 +427,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Count total panes in tree
 			totalPanes := 0
-			for _, branches := range m.tree {
-				for _, panes := range branches {
-					totalPanes += len(panes)
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
+					panes, ok := m.tree.GetPanes(repo, branch)
+					if ok {
+						totalPanes += len(panes)
+					}
 				}
 			}
 
 			// Log reconciliation results
 			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
 			m.alertsMu.Unlock()
+			m.errorMu.Lock()
 			m.err = nil
+			m.treeRefreshError = nil
+			m.errorMu.Unlock()
 		} else {
 			fmt.Fprintf(os.Stderr, "Tree refresh failed: %v\n", msg.err)
-			m.err = msg.err
+			m.errorMu.Lock()
+			m.treeRefreshError = msg.err // Always update with latest error
+			m.errorMu.Unlock()
 		}
 		return m, nil
 
@@ -388,24 +466,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// warningStyle creates a lipgloss style for warning banners with the specified background color
+func warningStyle(bgColor string) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color(bgColor)).
+		Bold(true).
+		Padding(0, 1)
+}
+
 func (m model) View() string {
-	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", m.err)
+	// Snapshot error state with read lock
+	m.errorMu.RLock()
+	criticalErr := m.err
+	persistenceErr := m.persistenceError
+	audioErr := m.audioError
+	alertsDisabled := m.alertsDisabled
+	alertErr := m.alertError
+	treeRefreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if criticalErr != nil {
+		return fmt.Sprintf("Error: %v\n\nPress Ctrl+C to quit", criticalErr)
 	}
 
-	if m.tree == nil {
+	if len(m.tree.Repos()) == 0 {
 		return "Loading..."
 	}
 
-	// Display alert error banner at TOP of screen if alerts are disabled
+	// Build warning banners (priority: persistence > audio > tree refresh > alerts)
 	var warningBanner string
-	if m.alertsDisabled {
-		warningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("3")).
-			Bold(true).
-			Padding(0, 1)
-		warningBanner = warningStyle.Render("⚠ ALERT NOTIFICATIONS DISABLED: "+m.alertError) + "\n\n"
+
+	if persistenceErr != "" {
+		warningBanner = warningStyle("1").Render("⚠ PERSISTENCE ERROR: "+persistenceErr+" (changes won't survive restart)") + "\n\n"
+	} else if audioErr != "" {
+		warningBanner = warningStyle("3").Render("⚠ AUDIO ERROR: "+audioErr+" (notifications may not work)") + "\n\n"
+	} else if treeRefreshErr != nil {
+		warningBanner = warningStyle("3").Render(fmt.Sprintf("⚠ TREE REFRESH FAILED: %v (showing stale data, will retry)", treeRefreshErr)) + "\n\n"
+	} else if alertsDisabled {
+		warningBanner = warningStyle("3").Render("⚠ ALERT NOTIFICATIONS DISABLED: "+alertErr) + "\n\n"
 	}
 
 	// Render header
@@ -477,10 +576,14 @@ func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
 	// Build set of valid pane IDs from tree
 	validPanes := make(map[string]bool)
-	for _, branches := range tree {
-		for _, panes := range branches {
+	for _, repo := range tree.Repos() {
+		for _, branch := range tree.Branches(repo) {
+			panes, ok := tree.GetPanes(repo, branch)
+			if !ok {
+				continue
+			}
 			for _, pane := range panes {
-				validPanes[pane.ID] = true
+				validPanes[pane.ID()] = true
 			}
 		}
 	}
@@ -505,18 +608,13 @@ func tickCmd() tea.Cmd {
 }
 
 // updateActivePane updates the WindowActive flag across all panes in the tree.
+// NOTE: With immutable Pane design, WindowActive is set during collection from tmux.
+// This function is currently a no-op as the WindowActive flag is read-only and comes
+// directly from tmux's window_active format string during tree refresh.
 func (m *model) updateActivePane(activePaneID string) {
-	if m.tree == nil {
-		return
-	}
-
-	for _, branches := range m.tree {
-		for _, panes := range branches {
-			for i := range panes {
-				panes[i].WindowActive = (panes[i].ID == activePaneID)
-			}
-		}
-	}
+	// No-op: Pane fields are now immutable and WindowActive is set during collection
+	// from tmux. The tree will be updated on the next refresh cycle.
+	return
 }
 
 func timeTickCmd() tea.Cmd {

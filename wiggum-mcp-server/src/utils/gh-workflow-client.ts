@@ -7,6 +7,8 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { logger } from './logger.js';
 import { ParsingError } from './errors.js';
 import type { MonitorResult } from './gh-workflow.js';
@@ -77,8 +79,15 @@ async function callToolWithRetry(
     const elapsed = Date.now() - startTime;
 
     if (elapsed >= maxDurationMs) {
-      const errorMsg = `Operation exceeded maximum duration of ${maxDurationMs}ms after ${elapsed}ms`;
-      logger.error(`callToolWithRetry failed: ${errorMsg}`, { toolName, args });
+      const errorMsg = [
+        `Operation exceeded maximum duration of ${maxDurationMs}ms`,
+        'Possible causes:',
+        '  1. GitHub workflow still running (check: gh run list)',
+        '  2. Network connectivity issues (check: gh auth status)',
+        '  3. GitHub API rate limiting (check: gh api rate_limit)',
+        `Tool: ${toolName}, Timeout: ${maxDurationMs / 1000}s`,
+      ].join('\n');
+      logger.error(`callToolWithRetry failed: timeout`, { toolName, args, elapsed, maxDurationMs });
       throw new Error(errorMsg);
     }
 
@@ -140,20 +149,74 @@ export async function getGhWorkflowClient(): Promise<Client> {
 
   logger.info('Initializing gh-workflow-mcp-server client');
 
+  // Check if server is built
+  const serverPath = resolve('gh-workflow-mcp-server/dist/index.js');
+  if (!existsSync(serverPath)) {
+    const guidance = [
+      `MCP server not found: ${serverPath}`,
+      '',
+      'To fix: cd gh-workflow-mcp-server && npm run build',
+      `Current directory: ${process.cwd()}`,
+    ].join('\n');
+    logger.error('MCP server file not found', { serverPath, cwd: process.cwd() });
+    throw new Error(guidance);
+  }
+
   const transport = new StdioClientTransport({
     command: 'node',
-    args: ['gh-workflow-mcp-server/dist/index.js'],
+    args: [serverPath],
   });
 
-  ghWorkflowClient = new Client(
+  const client = new Client(
     { name: 'wiggum-orchestrator', version: '1.0.0' },
     { capabilities: {} }
   );
 
-  await ghWorkflowClient.connect(transport);
-  logger.info('Connected to gh-workflow-mcp-server');
+  try {
+    await client.connect(transport);
+    logger.info('Connected to gh-workflow-mcp-server');
+    ghWorkflowClient = client; // Only set singleton on success
+    return ghWorkflowClient;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to connect to gh-workflow-mcp-server', { error: errorMsg });
 
-  return ghWorkflowClient;
+    // Clean up transport to prevent resource leaks
+    try {
+      await transport.close();
+      logger.debug('Cleaned up transport after connection failure');
+    } catch (closeError) {
+      const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
+
+      const diagnosticLines = [
+        '⚠️  CRITICAL: MCP TRANSPORT CLEANUP FAILED',
+        '',
+        `Connection Error: ${errorMsg}`,
+        `Cleanup Error: ${closeMsg}`,
+        '',
+        'RESOURCE LEAK DETECTED:',
+        '  - Socket/process may remain open',
+        `  - Server path: ${serverPath}`,
+        '',
+        'IMMEDIATE ACTIONS:',
+        '  1. Kill stuck: pkill -f gh-workflow-mcp-server',
+        '  2. Check zombies: ps aux | grep gh-workflow-mcp-server',
+        '  3. Verify limits: ulimit -a',
+        '',
+        'DIAGNOSIS:',
+        `  - Verify server: ls -la ${serverPath}`,
+        '  - Check Node: node --version',
+        '',
+        'If persists, rebuild: cd gh-workflow-mcp-server && npm run build',
+      ].join('\n');
+
+      logger.error('MCP transport cleanup failed', { closeError: closeMsg, serverPath });
+      throw new Error(diagnosticLines);
+    }
+
+    // Re-throw the original connection error after successful cleanup
+    throw new Error(`Failed to connect to gh-workflow-mcp-server: ${errorMsg}`);
+  }
 }
 
 /**
@@ -183,18 +246,24 @@ export async function getFailureDetails(params: {
 
   logger.info('Calling gh_get_failure_details', { params });
 
-  const result = await client.callTool({
-    name: 'gh_get_failure_details',
-    arguments: params,
-  });
+  const result = await callToolWithRetry(
+    client,
+    'gh_get_failure_details',
+    params,
+    120000 // 2 minutes should be sufficient
+  );
 
-  const context = params.run_id
-    ? `run ${params.run_id}`
-    : params.pr_number
-      ? `PR #${params.pr_number}`
-      : params.branch
-        ? `branch ${params.branch}`
-        : 'unknown';
+  // Build context string for error messages
+  let context: string;
+  if (params.run_id) {
+    context = `run ${params.run_id}`;
+  } else if (params.pr_number) {
+    context = `PR #${params.pr_number}`;
+  } else if (params.branch) {
+    context = `branch ${params.branch}`;
+  } else {
+    context = 'unknown';
+  }
 
   const text = extractTextFromMCPResult(result, 'gh_get_failure_details', context);
 
@@ -458,3 +527,9 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     };
   }
 }
+
+// Export internal functions for testing
+export const _testExports = {
+  callToolWithRetry,
+  extractTextFromMCPResult,
+};
