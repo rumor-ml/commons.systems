@@ -11,14 +11,14 @@ import { _testExports } from './router.js';
 import type { CurrentState, PRExists, PRDoesNotExist, PRStateValue } from './types.js';
 import type { WiggumStep } from '../constants.js';
 import {
-  STEP_ENSURE_PR,
-  STEP_MONITOR_WORKFLOW,
-  STEP_MONITOR_PR_CHECKS,
-  STEP_CODE_QUALITY,
-  STEP_PR_REVIEW,
-  STEP_SECURITY_REVIEW,
-  STEP_VERIFY_REVIEWS,
-  STEP_APPROVAL,
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_CREATE_PR,
+  STEP_PHASE2_MONITOR_WORKFLOW,
+  STEP_PHASE2_MONITOR_CHECKS,
+  STEP_PHASE2_CODE_QUALITY,
+  STEP_PHASE2_PR_REVIEW,
+  STEP_PHASE2_SECURITY_REVIEW,
+  STEP_PHASE2_APPROVAL,
 } from '../constants.js';
 
 const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInstructions } =
@@ -30,7 +30,7 @@ const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInst
 function createMockState(overrides: {
   pr?: { exists: boolean; state?: PRStateValue; number?: number };
   git?: { isMainBranch?: boolean; hasUncommittedChanges?: boolean; isPushed?: boolean };
-  wiggum?: { iteration?: number; completedSteps?: WiggumStep[] };
+  wiggum?: { iteration?: number; completedSteps?: WiggumStep[]; phase?: 'phase1' | 'phase2' };
 }): CurrentState {
   const defaultPR: PRDoesNotExist = { exists: false };
   const pr = overrides.pr?.exists
@@ -55,10 +55,14 @@ function createMockState(overrides: {
       currentBranch: 'feature-branch',
       isRemoteTracking: true,
     },
+    issue: {
+      exists: false,
+    },
     wiggum: {
       iteration: overrides.wiggum?.iteration ?? 0,
-      step: STEP_ENSURE_PR,
+      step: STEP_PHASE1_CREATE_PR,
       completedSteps: overrides.wiggum?.completedSteps ?? [],
+      phase: overrides.wiggum?.phase ?? 'phase1',
     },
   };
 }
@@ -77,9 +81,9 @@ describe('hasExistingPR type guard', () => {
   it('should narrow type to CurrentStateWithPR', () => {
     const state = createMockState({ pr: { exists: true, state: 'OPEN', number: 42 } });
     if (hasExistingPR(state)) {
-      // TypeScript should allow accessing pr.number here
-      assert.strictEqual(state.pr.number, 42);
-      assert.strictEqual(state.pr.state, 'OPEN');
+      // TypeScript should allow accessing pr properties here after type narrowing
+      assert.strictEqual((state.pr as PRExists).number, 42);
+      assert.strictEqual((state.pr as PRExists).state, 'OPEN');
     }
   });
 });
@@ -211,19 +215,19 @@ describe('Step Sequencing Logic', () => {
   describe('completedSteps filtering', () => {
     it('should recognize valid step values in completedSteps', () => {
       const validSteps: WiggumStep[] = [
-        STEP_ENSURE_PR,
-        STEP_MONITOR_WORKFLOW,
-        STEP_MONITOR_PR_CHECKS,
-        STEP_CODE_QUALITY,
-        STEP_PR_REVIEW,
-        STEP_SECURITY_REVIEW,
-        STEP_VERIFY_REVIEWS,
-        STEP_APPROVAL,
+        STEP_PHASE1_MONITOR_WORKFLOW,
+        STEP_PHASE1_CREATE_PR,
+        STEP_PHASE2_MONITOR_WORKFLOW,
+        STEP_PHASE2_MONITOR_CHECKS,
+        STEP_PHASE2_CODE_QUALITY,
+        STEP_PHASE2_PR_REVIEW,
+        STEP_PHASE2_SECURITY_REVIEW,
+        STEP_PHASE2_APPROVAL,
       ];
       for (const step of validSteps) {
         const state = createMockState({
           pr: { exists: true, state: 'OPEN' },
-          wiggum: { completedSteps: [step] },
+          wiggum: { completedSteps: [step], phase: 'phase2' },
         });
         assert.ok(
           state.wiggum.completedSteps.includes(step),
@@ -262,10 +266,10 @@ describe('Step Sequencing Logic', () => {
 describe('State Machine Invariants', () => {
   it('should not have duplicate steps in completedSteps', () => {
     const completedSteps: WiggumStep[] = [
-      STEP_ENSURE_PR,
-      STEP_MONITOR_WORKFLOW,
-      STEP_MONITOR_PR_CHECKS,
-      STEP_CODE_QUALITY,
+      STEP_PHASE1_CREATE_PR,
+      STEP_PHASE2_MONITOR_WORKFLOW,
+      STEP_PHASE2_MONITOR_CHECKS,
+      STEP_PHASE2_CODE_QUALITY,
     ];
     const uniqueSteps = [...new Set(completedSteps)];
     assert.strictEqual(completedSteps.length, uniqueSteps.length);
@@ -273,25 +277,25 @@ describe('State Machine Invariants', () => {
 
   it('should maintain iteration count across state', () => {
     const state = createMockState({
-      wiggum: { iteration: 5, completedSteps: [STEP_ENSURE_PR, STEP_MONITOR_WORKFLOW] },
+      wiggum: { iteration: 5, completedSteps: [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW] },
     });
     assert.strictEqual(state.wiggum.iteration, 5);
   });
 
   it('should preserve step completion order', () => {
     const completedSteps: WiggumStep[] = [
-      STEP_ENSURE_PR,
-      STEP_MONITOR_WORKFLOW,
-      STEP_MONITOR_PR_CHECKS,
+      STEP_PHASE1_CREATE_PR,
+      STEP_PHASE2_MONITOR_WORKFLOW,
+      STEP_PHASE2_MONITOR_CHECKS,
     ];
     const state = createMockState({
-      wiggum: { completedSteps },
+      wiggum: { completedSteps, phase: 'phase2' },
     });
     // Verify order is preserved
     assert.deepStrictEqual(state.wiggum.completedSteps, [
-      STEP_ENSURE_PR,
-      STEP_MONITOR_WORKFLOW,
-      STEP_MONITOR_PR_CHECKS,
+      STEP_PHASE1_CREATE_PR,
+      STEP_PHASE2_MONITOR_WORKFLOW,
+      STEP_PHASE2_MONITOR_CHECKS,
     ]);
   });
 });
