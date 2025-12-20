@@ -277,7 +277,10 @@ describe('State Machine Invariants', () => {
 
   it('should maintain iteration count across state', () => {
     const state = createMockState({
-      wiggum: { iteration: 5, completedSteps: [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW] },
+      wiggum: {
+        iteration: 5,
+        completedSteps: [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW],
+      },
     });
     assert.strictEqual(state.wiggum.iteration, 5);
   });
