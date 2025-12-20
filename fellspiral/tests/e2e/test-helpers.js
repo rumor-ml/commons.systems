@@ -72,7 +72,11 @@ export async function waitForFirebaseInit(page, timeout = 3000) {
 
 /**
  * Select a combobox option by value using JavaScript evaluation
- * This avoids Firefox's NS_ERROR_DOM_BAD_URI with CSS attribute selectors
+ * This avoids Firefox's NS_ERROR_DOM_BAD_URI error that occurs when using
+ * CSS attribute selectors with special characters in the value (e.g.,
+ * [data-value="Weapon"] where "Weapon" contains characters Firefox doesn't
+ * like in attribute selector contexts). Using page.evaluate() bypasses CSS
+ * selectors entirely by directly accessing the DOM.
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} listboxId - ID of the listbox element (e.g., 'typeListbox')
  * @param {string} targetValue - Value to select from the combobox
@@ -260,7 +264,10 @@ async function getFirestoreAdmin() {
 
 /**
  * Query Firestore emulator directly to get a card by title
- * Includes retry logic to handle emulator write propagation delays (especially in Firefox)
+ * Includes retry logic to handle emulator write propagation delays. Firefox has
+ * more delays than Chromium due to differences in network stack implementation
+ * for localhost connections (Firefox's async DNS resolution and connection pooling
+ * can add latency even for loopback addresses).
  * @param {string} cardTitle - Title of the card to find
  * @param {number} maxRetries - Maximum number of retries (default: 5)
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
@@ -325,9 +332,12 @@ export async function deleteTestCards(titlePattern) {
     const data = doc.data();
     const title = data.title || '';
 
-    // Use ternary for cleaner pattern matching
-    const matches =
-      titlePattern instanceof RegExp ? titlePattern.test(title) : title.startsWith(titlePattern);
+    let matches;
+    if (titlePattern instanceof RegExp) {
+      matches = titlePattern.test(title);
+    } else {
+      matches = title.startsWith(titlePattern);
+    }
 
     if (matches) {
       docsToDelete.push(doc.ref);

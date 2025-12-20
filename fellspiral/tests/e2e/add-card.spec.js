@@ -1040,6 +1040,143 @@ test.describe('Combobox Interaction Tests', () => {
   });
 });
 
+test.describe('Combobox - Error State Recovery', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should show error message when getOptions() throws', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Inject error into getOptions function
+    await page.evaluate(() => {
+      // Override getTypesFromCards to throw error
+      const originalGetTypes = window.getTypesFromCards;
+      window.__originalGetTypes = originalGetTypes;
+      window.getTypesFromCards = () => {
+        throw new Error('Test error: getOptions failed');
+      };
+    });
+
+    // Try to open combobox (should trigger error)
+    await page.locator('#cardType').focus();
+    await page.waitForTimeout(200);
+
+    // Verify error message is shown
+    const errorMessage = page.locator('#typeListbox .combobox-error-message');
+    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toHaveText('Error loading options. Please try again.');
+
+    // Verify error class is added to listbox
+    const listbox = page.locator('#typeListbox');
+    await expect(listbox).toHaveClass(/combobox-error/);
+  });
+
+  test('should allow custom values when combobox has error', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Inject error into getOptions function
+    await page.evaluate(() => {
+      window.getTypesFromCards = () => {
+        throw new Error('Test error: getOptions failed');
+      };
+    });
+
+    // User should still be able to type custom value
+    const customType = 'CustomType';
+    await page.locator('#cardType').fill(customType);
+
+    // Close the dropdown to accept custom value
+    await page.locator('#cardType').press('Escape');
+
+    // Verify value was set
+    await expect(page.locator('#cardType')).toHaveValue(customType);
+
+    // Restore function
+    await page.evaluate(() => {
+      if (window.__originalGetTypes) {
+        window.getTypesFromCards = window.__originalGetTypes;
+      }
+    });
+  });
+
+  test('should clear error state on successful refresh', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Inject error into getOptions function
+    let shouldThrow = true;
+    await page.evaluate(() => {
+      window.__shouldThrowError = true;
+      window.__originalGetTypes = window.getTypesFromCards;
+      window.getTypesFromCards = () => {
+        if (window.__shouldThrowError) {
+          throw new Error('Test error: getOptions failed');
+        }
+        return window.__originalGetTypes ? window.__originalGetTypes() : [];
+      };
+    });
+
+    // Trigger error by focusing
+    await page.locator('#cardType').focus();
+    await page.waitForTimeout(200);
+
+    // Verify error is shown
+    await expect(page.locator('#typeListbox .combobox-error-message')).toBeVisible();
+
+    // Fix the error (restore normal behavior)
+    await page.evaluate(() => {
+      window.__shouldThrowError = false;
+    });
+
+    // Trigger refresh by typing
+    await page.locator('#cardType').fill('E');
+    await page.waitForTimeout(200);
+
+    // Error should be cleared
+    await expect(page.locator('#typeListbox .combobox-error-message')).not.toBeVisible();
+    await expect(page.locator('#typeListbox')).not.toHaveClass(/combobox-error/);
+
+    // Normal options should be shown
+    const options = page.locator('#typeListbox .combobox-option');
+    await expect(options.first()).toBeVisible();
+
+    // Restore original function
+    await page.evaluate(() => {
+      if (window.__originalGetTypes) {
+        window.getTypesFromCards = window.__originalGetTypes;
+      }
+    });
+  });
+});
+
 test.describe('Add Card - Error Handling on Save Failure', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
@@ -2222,6 +2359,129 @@ test.describe('Auth Listener - Cleanup and Memory Leak Prevention', () => {
       document.body.classList.contains('authenticated')
     );
     expect(hasAuthClass).toBe(false);
+  });
+
+  test('should show warning banner after auth listener retry exhaustion', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Mock onAuthStateChanged to always throw "before auth initialized" error
+    await page.evaluate(() => {
+      // Save original onAuthStateChanged
+      const authInitModule = window.__authInitModule || {};
+      window.__originalOnAuthStateChanged = authInitModule.onAuthStateChanged;
+
+      // Override to always throw
+      if (authInitModule) {
+        authInitModule.onAuthStateChanged = () => {
+          throw new Error('Cannot call onAuthStateChanged before auth initialized');
+        };
+      }
+    });
+
+    // Trigger cards page initialization which will try to setup auth listener
+    await page.evaluate(() => {
+      if (window.initCardsPage) {
+        window.initCardsPage();
+      }
+    });
+
+    // Wait for retry exhaustion (10 retries * 500ms = 5 seconds + buffer)
+    await page.waitForTimeout(6000);
+
+    // Verify warning banner appears
+    const warningBanner = page.locator('.warning-banner');
+    await expect(warningBanner).toBeVisible();
+
+    // Verify banner message is actionable
+    const bannerText = await warningBanner.textContent();
+    expect(bannerText).toContain('Authentication system failed to initialize');
+    expect(bannerText).toContain('refresh the page');
+
+    // Restore original function
+    await page.evaluate(() => {
+      if (window.__originalOnAuthStateChanged && window.__authInitModule) {
+        window.__authInitModule.onAuthStateChanged = window.__originalOnAuthStateChanged;
+      }
+    });
+  });
+
+  test('should retry auth listener setup with exponential backoff', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Track retry attempts
+    const retryLog = [];
+
+    // Mock onAuthStateChanged to fail first 3 times, then succeed
+    await page.evaluate(() => {
+      window.__retryAttempts = 0;
+      window.__retryLog = [];
+
+      const authInitModule = window.__authInitModule || {};
+      window.__originalOnAuthStateChanged = authInitModule.onAuthStateChanged;
+
+      if (authInitModule) {
+        authInitModule.onAuthStateChanged = (callback) => {
+          window.__retryAttempts++;
+          window.__retryLog.push({
+            attempt: window.__retryAttempts,
+            timestamp: Date.now(),
+          });
+
+          if (window.__retryAttempts < 4) {
+            throw new Error('Cannot call onAuthStateChanged before auth initialized');
+          }
+
+          // On 4th attempt, succeed and call original
+          return window.__originalOnAuthStateChanged(callback);
+        };
+      }
+    });
+
+    // Trigger cards page initialization
+    await page.evaluate(() => {
+      if (window.initCardsPage) {
+        window.initCardsPage();
+      }
+    });
+
+    // Wait for retries to complete (4 attempts * 500ms avg delay = 2s + buffer)
+    await page.waitForTimeout(3000);
+
+    // Get retry log
+    const retryAttempts = await page.evaluate(() => window.__retryAttempts);
+    const retryTimestamps = await page.evaluate(() => window.__retryLog);
+
+    // Verify 4 attempts were made (3 failures + 1 success)
+    expect(retryAttempts).toBe(4);
+
+    // Verify delays increased between retries (exponential backoff)
+    if (retryTimestamps.length >= 2) {
+      const delay1 = retryTimestamps[1].timestamp - retryTimestamps[0].timestamp;
+      const delay2 = retryTimestamps[2].timestamp - retryTimestamps[1].timestamp;
+
+      // Second delay should be approximately double the first (exponential backoff)
+      // Using generous bounds due to timing variability in tests
+      expect(delay2).toBeGreaterThan(delay1 * 1.5);
+    }
+
+    // Verify auth listener eventually succeeded (no warning banner)
+    const warningBanner = page.locator('.warning-banner');
+    await expect(warningBanner).not.toBeVisible();
+
+    // Restore original function
+    await page.evaluate(() => {
+      if (window.__originalOnAuthStateChanged && window.__authInitModule) {
+        window.__authInitModule.onAuthStateChanged = window.__originalOnAuthStateChanged;
+      }
+    });
   });
 });
 

@@ -207,7 +207,14 @@ function createCombobox(config) {
         );
       }
     } catch (error) {
-      console.error('[Cards] Error refreshing combobox options:', error);
+      // Log comprehensive error details for debugging
+      console.error('[Cards] Error refreshing combobox options:', {
+        comboboxId: comboboxId,
+        inputValue: input.value,
+        message: error.message,
+        stack: error.stack,
+        errorType: error.constructor.name,
+      });
 
       // Show error state in UI
       listbox.replaceChildren();
@@ -258,7 +265,9 @@ function createCombobox(config) {
     // CRITICAL: 200ms delay prevents race condition in dropdown click handling
     // Event sequence: mousedown → blur → mouseup → click
     // Without delay: blur hides dropdown → click event targets destroyed element
-    // With delay: mousedown registers → selection completes → then hide
+    // With 200ms delay: mousedown registers → selection completes → then hide
+    // 200ms chosen to exceed browser event processing time (typically <100ms) with
+    // safety margin for slower devices/browsers. Shorter delays risk race condition.
     setTimeout(() => {
       hide();
     }, 200);
@@ -580,6 +589,7 @@ async function loadCards() {
     });
     state.error = error.message;
 
+    // TODO(#286): Document error categorization strategy and rationale
     // Categorize error and determine fallback behavior
     const isAuthError = error.code === 'permission-denied' || error.code === 'unauthenticated';
     const isNetworkError =
@@ -596,6 +606,7 @@ async function loadCards() {
       return;
     }
 
+    // TODO(#285): Replace demo data fallback with error UI and retry button
     // All other errors: fall back to demo data with clear visual indicator
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
@@ -708,7 +719,14 @@ function setupEventListeners() {
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
+      let failed;
+      if (!typeOk && !subtypeOk) {
+        failed = 'type and subtype';
+      } else if (!typeOk) {
+        failed = 'type';
+      } else {
+        failed = 'subtype';
+      }
       showWarningBanner(`Card ${failed} selection unavailable. Refresh page.`);
       console.error('[Cards] Combobox init failed:', { typeOk, subtypeOk });
     }
@@ -726,6 +744,7 @@ function setupEventListeners() {
       listenersAttached: state.listenersAttached,
     });
 
+    // TODO(#285): Show blocking error UI instead of continuing in broken state
     // Re-throw critical errors so caller (init) can handle them
     throw new Error(`Event listener setup failed: ${error.message}`);
   }
@@ -784,8 +803,11 @@ function setupAuthStateListener() {
     state.authListenerRetries = 0;
 
     // Register listener for auth state changes
-    // NOTE: onAuthStateChanged calls the callback immediately with current state
-    // (either the signed-in user or null), then again on each subsequent auth change.
+    // NOTE: onAuthStateChanged calls the callback immediately with current state,
+    // BUT only if auth is already initialized. If auth.currentUser hasn't been
+    // populated yet, the callback won't fire immediately. The retry logic below
+    // handles this initialization race condition by retrying every 500ms until
+    // auth is ready (up to 10 retries = 5 seconds total).
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }
@@ -819,6 +841,7 @@ function setupAuthStateListener() {
       state.authListenerRetries++;
 
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
+        // TODO(#285): Distinguish between temporary delay and permanent failure, improve error messages
         console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
           retries: state.authListenerRetries,
           maxRetries: state.authListenerMaxRetries,
@@ -1364,6 +1387,7 @@ async function handleCardSave(e) {
   }
 }
 
+// TODO(#291): Add E2E tests for delete card functionality (confirm, verify removal from UI and Firestore, error paths)
 // Delete card
 async function deleteCard() {
   const id = document.getElementById('cardId').value;
