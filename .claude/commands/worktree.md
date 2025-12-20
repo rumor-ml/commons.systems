@@ -35,7 +35,8 @@ model: haiku
    repository's hooks directory. This ensures pre-commit hooks (formatting, linting) and
    pre-push hooks (tests) execute consistently across all worktrees. The command uses
    `git rev-parse --git-common-dir` which reliably returns the main repository's .git
-   directory path in both worktrees and the main repo.
+   directory path (e.g., /path/to/repo/.git) in both worktrees and the main repo, ensuring
+   all worktrees share the same hooks.
 
 8. Run `direnv allow` in the new worktree directory to enable the environment.
 9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):

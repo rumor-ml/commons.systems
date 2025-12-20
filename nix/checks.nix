@@ -1,9 +1,10 @@
 # nix/checks.nix
-# Pre-commit hooks configuration
+# Git hooks configuration (pre-commit and pre-push)
 #
 # This module defines code quality checks that run:
 # 1. Automatically on git commit (via pre-commit hooks)
-# 2. Via `nix flake check` in CI
+# 2. Automatically on git push (via pre-push hooks)
+# 3. Via `nix flake check` in CI
 #
 # Hooks are organized by language and purpose.
 {
@@ -30,6 +31,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Disabled: govet requires go.mod dependencies which aren't available in Nix sandbox
+    # This is a structural limitation - consider running govet in CI instead
     # govet = {
     #   enable = true;
     #   name = "govet";
@@ -58,14 +60,12 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       enable = true;
       name = "trailing-whitespace";
       description = "Remove trailing whitespace";
-      excludes = [ "^scaffolding/" ];
     };
 
     end-of-file-fixer = {
       enable = true;
       name = "end-of-file-fixer";
       description = "Ensure files end with newline";
-      excludes = [ "^scaffolding/" ];
     };
 
     check-yaml = {
@@ -88,7 +88,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # === Pre-Push Hooks ===
-    # Validate ALL files are formatted before push
+    # Validate all TypeScript/JavaScript/JSON/Markdown files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
     prettier-check-all = {
       enable = true;
@@ -114,8 +114,10 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Build MCP servers when their files change
-    # This validates npm dependency hashes and catches TypeScript compilation errors
-    # before they reach CI. Only runs when MCP server files are modified.
+    # Runs infrastructure/scripts/build-mcp-servers.sh which validates:
+    # - npm build succeeds (TypeScript compilation)
+    # - Nix build succeeds (dependency hashes and git-tracked files)
+    # Only runs when MCP server files are modified.
     mcp-nix-build = {
       enable = true;
       name = "mcp-nix-build";
@@ -127,6 +129,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
 
         # Check if any MCP server directories were modified
+        # Note: mcp-common/ will be added in issue #265 (shared error handling package)
         if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server|mcp-common)/"; then
           echo "MCP server files changed, running Nix build validation..."
           ./infrastructure/scripts/build-mcp-servers.sh
@@ -141,7 +144,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Validate pnpm lockfile consistency
-    # Prevents CI failures from lockfile mismatches
+    # Prevents CI failures from lockfile mismatches (CI runs pnpm install --frozen-lockfile which fails if out of sync)
     pnpm-lockfile-check = {
       enable = true;
       name = "pnpm-lockfile-check";
