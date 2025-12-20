@@ -35,9 +35,11 @@ model: haiku
    hooks as the main repository (pre-commit formatting, pre-push tests), we explicitly
    configure core.hooksPath to point to the main repository's hooks directory.
 
-   The command `git rev-parse --git-common-dir` reliably returns the shared .git
-   directory path (e.g., /path/to/repo/.git) whether run from the main repo or any
-   worktree, ensuring consistent hook execution across all worktrees.
+   The command `git rev-parse --git-common-dir` returns the shared .git directory path.
+   When run from a worktree, it returns an absolute path (e.g., /path/to/repo/.git).
+   When run from the main repository, it returns a relative path (.git). We use this
+   command inside the worktree directory (after cd) to find the main repo's hooks,
+   ensuring consistent hook execution across all worktrees.
 
 8. Run `direnv allow` in the new worktree directory to enable the environment.
 9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
