@@ -110,6 +110,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
         invalidNumbers,
       });
+      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
       );
