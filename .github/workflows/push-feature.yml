@@ -188,8 +188,8 @@ jobs:
           fi
 
           # Convert arrays to JSON for matrix
-          LOCAL_TEST_JSON=$(printf '%s\n' "${LOCAL_TEST_SITES[@]}" | jq -R . | jq -s -c .)
-          BUILD_VERIFY_JSON=$(printf '%s\n' "${BUILD_VERIFY_SITES[@]}" | jq -R . | jq -s -c .)
+          LOCAL_TEST_JSON=$(printf '%s\n' "${LOCAL_TEST_SITES[@]}" | jq -R 'select(length > 0)' | jq -s -c .)
+          BUILD_VERIFY_JSON=$(printf '%s\n' "${BUILD_VERIFY_SITES[@]}" | jq -R 'select(length > 0)' | jq -s -c .)
 
           echo "local-test-sites=$LOCAL_TEST_JSON" >> $GITHUB_OUTPUT
           echo "build-verify-sites=$BUILD_VERIFY_JSON" >> $GITHUB_OUTPUT
