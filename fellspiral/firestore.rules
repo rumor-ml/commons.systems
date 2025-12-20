@@ -58,3 +58,6 @@ service cloud.firestore {
     }
   }
 }
+
+// Related work: Add card feature implementation in #244
+// Tests for these rules in this issue (#283)
