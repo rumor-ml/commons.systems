@@ -66,6 +66,7 @@
       "Bash(npx tsc:*)",
       "Bash(npx playwright test:*)",
       "Bash(npm test:*)",
+      "Bash(npm run build:*)",
       "Bash(pnpm test:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",

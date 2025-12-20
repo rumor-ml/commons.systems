@@ -51,6 +51,7 @@ interface WiggumInstructions {
   pr_title?: string;
   pr_labels?: string[];
   closing_issue?: string;
+  warning?: string; // Non-fatal warnings to display to user
   context: {
     pr_number?: number;
     current_branch?: string;

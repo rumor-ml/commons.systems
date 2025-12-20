@@ -108,9 +108,15 @@ Every tool response includes a `steps_completed_by_tool` field listing everythin
 
 The `completedSteps` array records which steps have finished successfully:
 
-- Step completed → step number added to `completedSteps` array
-- Fix needed → `completedSteps` filtered to remove current step and all subsequent steps (in complete-fix.ts)
-- Re-verification → router checks if step already in `completedSteps`, skips re-execution if present
+- Step completed → The tool returns instructions to proceed to the next step
+- Fix needed → The tool returns instructions to fix the issue and call `wiggum_complete_fix`
+- After fix → Call `wiggum_complete_fix` with your fix description. It will return instructions to restart verification
+
+**CRITICAL: Always follow the instructions returned by each wiggum tool exactly.**
+
+- Each tool returns the next action to take
+- Do NOT manually decide what to call next
+- Do NOT call `wiggum_init` manually after completing a step - the completion tool returns the next action
 
 **Example state progression:**
 
