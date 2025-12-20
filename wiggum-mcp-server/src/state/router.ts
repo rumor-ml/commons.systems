@@ -243,7 +243,7 @@ The feature branch workflow must complete successfully before proceeding to revi
 2. If the workflow succeeds:
    - Post completion comment to issue #${issueNumber}
    - Mark step p1-1 complete
-   - Proceed to Step p1-2 (PR Review)
+   - Proceed to Step p1-2 (Code Review - Pre-PR)
 
 3. If the workflow fails:
    - Get failure details using \`gh_get_failure_details\`
@@ -298,7 +298,7 @@ Execute comprehensive PR review on the current branch before creating the pull r
    - After fixes, workflow restarts from Step p1-1
 
 5. If no issues:
-   - Proceed to Step p1-3 (Security Review)`,
+   - Proceed to Step p1-3 (Security Review - Pre-PR)`,
     steps_completed_by_tool: [],
     context: {},
   };
@@ -341,7 +341,7 @@ Execute security review on the current branch before creating the pull request.
    - After fixes, workflow restarts from Step p1-1
 
 5. If no issues:
-   - Proceed to Step p1-4 (Create PR)`,
+   - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
     steps_completed_by_tool: [],
     context: {},
   };

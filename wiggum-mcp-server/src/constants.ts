@@ -85,14 +85,14 @@ export function isValidStep(step: unknown): step is WiggumStep {
 // Step names (human-readable)
 export const STEP_NAMES: Record<WiggumStep, string> = {
   [STEP_PHASE1_MONITOR_WORKFLOW]: 'Phase 1: Monitor Workflow',
-  [STEP_PHASE1_PR_REVIEW]: 'Phase 1: PR Review',
-  [STEP_PHASE1_SECURITY_REVIEW]: 'Phase 1: Security Review',
+  [STEP_PHASE1_PR_REVIEW]: 'Phase 1: Code Review (Pre-PR)',
+  [STEP_PHASE1_SECURITY_REVIEW]: 'Phase 1: Security Review (Pre-PR)',
   [STEP_PHASE1_CREATE_PR]: 'Phase 1: Create PR',
   [STEP_PHASE2_MONITOR_WORKFLOW]: 'Phase 2: Monitor Workflow',
   [STEP_PHASE2_MONITOR_CHECKS]: 'Phase 2: Monitor PR Checks',
   [STEP_PHASE2_CODE_QUALITY]: 'Phase 2: Address Code Quality Comments',
-  [STEP_PHASE2_PR_REVIEW]: 'Phase 2: PR Review',
-  [STEP_PHASE2_SECURITY_REVIEW]: 'Phase 2: Security Review',
+  [STEP_PHASE2_PR_REVIEW]: 'Phase 2: PR Review (Post-PR)',
+  [STEP_PHASE2_SECURITY_REVIEW]: 'Phase 2: Security Review (Post-PR)',
   [STEP_PHASE2_APPROVAL]: 'Approval',
 };
 
