@@ -7,21 +7,23 @@
  */
 
 import { getPRReviewComments } from '../utils/gh-cli.js';
-import { hasReviewCommandEvidence, postWiggumStateComment } from './comments.js';
+import { postWiggumStateComment } from './comments.js';
 import { detectCurrentState } from './detector.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
-import { sanitizeBranchNameForShell } from '../utils/git.js';
+import type { WiggumState } from './types.js';
 import {
-  STEP_ENSURE_PR,
-  STEP_MONITOR_WORKFLOW,
-  STEP_MONITOR_PR_CHECKS,
-  STEP_CODE_QUALITY,
-  STEP_PR_REVIEW,
-  STEP_SECURITY_REVIEW,
-  STEP_VERIFY_REVIEWS,
-  STEP_APPROVAL,
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE1_SECURITY_REVIEW,
+  STEP_PHASE1_CREATE_PR,
+  STEP_PHASE2_MONITOR_WORKFLOW,
+  STEP_PHASE2_MONITOR_CHECKS,
+  STEP_PHASE2_CODE_QUALITY,
+  STEP_PHASE2_PR_REVIEW,
+  STEP_PHASE2_SECURITY_REVIEW,
+  STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
   PR_REVIEW_COMMAND,
@@ -39,20 +41,6 @@ import type { CurrentState, PRExists } from './types.js';
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
-
-/**
- * Type guard to verify state has an existing PR
- *
- * Validates that state.pr.exists is true, enabling TypeScript to narrow
- * the type to CurrentStateWithPR. This is safer than type assertions
- * because it performs runtime validation.
- *
- * @param state - Current state to check
- * @returns true if state has an existing PR (narrowing to CurrentStateWithPR)
- */
-function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
-  return state.pr.exists === true;
-}
 
 interface WiggumInstructions {
   current_step: string;
@@ -128,6 +116,44 @@ function checkBranchPushed(
 }
 
 /**
+ * Safely post wiggum state comment with error handling
+ *
+ * Wraps postWiggumStateComment with consistent error handling and logging.
+ * Failures to post state comments are logged but don't crash the workflow,
+ * as state comments are for tracking and not critical to the workflow itself.
+ *
+ * @param prNumber - PR number to comment on
+ * @param state - New wiggum state to save
+ * @param title - Comment title
+ * @param body - Comment body
+ * @param step - Step identifier for logging context
+ * @returns true if comment posted successfully, false otherwise
+ */
+async function safePostStateComment(
+  prNumber: number,
+  state: WiggumState,
+  title: string,
+  body: string,
+  step: string
+): Promise<boolean> {
+  try {
+    await postWiggumStateComment(prNumber, state, title, body);
+    return true;
+  } catch (commentError) {
+    // Log but continue - state comment is for tracking, not critical path
+    const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+    logger.warn('Failed to post state comment', {
+      prNumber,
+      step,
+      title,
+      error: errorMsg,
+      recoveryNote: 'Workflow continues - missing state comment is recoverable',
+    });
+    return false;
+  }
+}
+
+/**
  * Format fix instructions for workflow/check failures
  *
  * Generates standardized fix instructions for any workflow or check failure,
@@ -163,6 +189,7 @@ ${failureDetails || defaultMessage}`;
  */
 export async function getNextStepInstructions(state: CurrentState): Promise<ToolResult> {
   logger.debug('getNextStepInstructions', {
+    phase: state.wiggum.phase,
     prExists: state.pr.exists,
     prState: state.pr.exists ? state.pr.state : 'N/A',
     currentBranch: state.git.currentBranch,
@@ -170,80 +197,295 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
     completedSteps: state.wiggum.completedSteps,
   });
 
-  // Step 0: Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
+  // Route based on phase
+  if (state.wiggum.phase === 'phase1') {
+    return await getPhase1NextStep(state);
+  } else {
+    return await getPhase2NextStep(state);
+  }
+}
+
+/**
+ * Phase 1 routing: Pre-PR workflow
+ * State is stored in issue comments
+ */
+async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
+  // Validate issue exists
+  if (!state.issue.exists || !state.issue.number) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'ERROR: Cannot run Phase 1 workflow: No issue number found in branch name. Expected format: "123-feature-name"',
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const issueNumber = state.issue.number;
+
+  // Step p1-1: Monitor feature branch workflow
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE1_MONITOR_WORKFLOW)) {
+    return await handlePhase1MonitorWorkflow(state, issueNumber);
+  }
+
+  // Step p1-2: PR Review
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE1_PR_REVIEW)) {
+    return handlePhase1PRReview(state, issueNumber);
+  }
+
+  // Step p1-3: Security Review
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE1_SECURITY_REVIEW)) {
+    return handlePhase1SecurityReview(state, issueNumber);
+  }
+
+  // Step p1-4: Create PR (all Phase 1 reviews passed!)
+  return handlePhase1CreatePR(state, issueNumber);
+}
+
+/**
+ * Phase 1 Step 1: Monitor Feature Branch Workflow
+ */
+async function handlePhase1MonitorWorkflow(
+  state: CurrentState,
+  issueNumber: number
+): Promise<ToolResult> {
+  const output: WiggumInstructions = {
+    current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
+    step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+    iteration_count: state.wiggum.iteration,
+    instructions: `## Step 1: Monitor Feature Branch Workflow
+
+The feature branch workflow must complete successfully before proceeding to reviews.
+
+**Instructions:**
+
+1. Use the \`gh_monitor_run\` MCP tool to monitor the feature branch workflow:
+   - Branch: ${state.git.currentBranch}
+   - Timeout: 10 minutes
+
+2. If the workflow succeeds:
+   - Post completion comment to issue #${issueNumber}
+   - Mark step p1-1 complete
+   - Proceed to Step p1-2 (Code Review - Pre-PR)
+
+3. If the workflow fails:
+   - Get failure details using \`gh_get_failure_details\`
+   - Post failure summary to issue #${issueNumber}
+   - Use Task tool with subagent_type='Plan' to create fix plan
+   - Use Task tool with subagent_type='accept-edits' to implement fixes
+   - Execute /commit-merge-push
+   - Call wiggum_complete_fix tool with fix description
+
+The feature branch workflow runs tests and builds for changed modules only (no deployments).`,
+    steps_completed_by_tool: [],
+    context: {
+      current_branch: state.git.currentBranch,
+    },
+  };
+
+  return {
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
+  };
+}
+
+/**
+ * Phase 1 Step 2: PR Review
+ */
+function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolResult {
+  const output: WiggumInstructions = {
+    current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
+    step_number: STEP_PHASE1_PR_REVIEW,
+    iteration_count: state.wiggum.iteration,
+    instructions: `## Step 2: PR Review (Before PR Creation)
+
+Execute comprehensive PR review on the current branch before creating the pull request.
+
+**Instructions:**
+
+1. Execute the PR review command:
+   \`\`\`
+   ${PR_REVIEW_COMMAND}
+   \`\`\`
+
+2. After the review completes, call the \`wiggum_complete_pr_review\` tool with:
+   - command_executed: true
+   - verbatim_response: (full review output)
+   - high_priority_issues: (count)
+   - medium_priority_issues: (count)
+   - low_priority_issues: (count)
+
+3. Results will be posted to issue #${issueNumber}
+
+4. If issues are found:
+   - You will be instructed to fix them (Plan + Fix cycle)
+   - After fixes, workflow restarts from Step p1-1
+
+5. If no issues:
+   - Proceed to Step p1-3 (Security Review - Pre-PR)`,
+    steps_completed_by_tool: [],
+    context: {},
+  };
+
+  return {
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
+  };
+}
+
+/**
+ * Phase 1 Step 3: Security Review
+ */
+function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
+  const output: WiggumInstructions = {
+    current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
+    step_number: STEP_PHASE1_SECURITY_REVIEW,
+    iteration_count: state.wiggum.iteration,
+    instructions: `## Step 3: Security Review (Before PR Creation)
+
+Execute security review on the current branch before creating the pull request.
+
+**Instructions:**
+
+1. Execute the security review command:
+   \`\`\`
+   ${SECURITY_REVIEW_COMMAND}
+   \`\`\`
+
+2. After the review completes, call the \`wiggum_complete_security_review\` tool with:
+   - command_executed: true
+   - verbatim_response: (full review output)
+   - high_priority_issues: (count)
+   - medium_priority_issues: (count)
+   - low_priority_issues: (count)
+
+3. Results will be posted to issue #${issueNumber}
+
+4. If issues are found:
+   - You will be instructed to fix them (Plan + Fix cycle)
+   - After fixes, workflow restarts from Step p1-1
+
+5. If no issues:
+   - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
+    steps_completed_by_tool: [],
+    context: {},
+  };
+
+  return {
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
+  };
+}
+
+/**
+ * Phase 1 Step 4: Create PR
+ */
+function handlePhase1CreatePR(state: CurrentState, issueNumber: number): ToolResult {
+  const output: WiggumInstructions = {
+    current_step: STEP_NAMES[STEP_PHASE1_CREATE_PR],
+    step_number: STEP_PHASE1_CREATE_PR,
+    iteration_count: state.wiggum.iteration,
+    instructions: `## Step 4: Create Pull Request
+
+Phase 1 complete! All reviews passed. Ready to create the pull request.
+
+**Instructions:**
+
+1. Provide a comprehensive PR description covering ALL commits on the branch:
+   - Run: \`git log main..HEAD\` to see all commits
+   - Summarize what was implemented/fixed
+
+2. Call the \`wiggum_complete_pr_creation\` tool with:
+   - pr_description: (comprehensive description of all changes)
+
+3. The tool will:
+   - Create the PR
+   - Transition to Phase 2
+   - Post initial Phase 2 state to the new PR
+   - Begin Phase 2 workflow (PR workflow monitoring)
+
+Phase 1 reviews passed - creating PR will begin Phase 2.`,
+    steps_completed_by_tool: [],
+    closing_issue: `#${issueNumber}`,
+    context: {
+      current_branch: state.git.currentBranch,
+    },
+  };
+
+  return {
+    content: [{ type: 'text', text: formatWiggumResponse(output) }],
+  };
+}
+
+/**
+ * Phase 2 routing: Post-PR workflow
+ * State is stored in PR comments
+ */
+async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
+  // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
   if (!state.pr.exists || (state.pr.exists && state.pr.state !== 'OPEN')) {
-    logger.info('Routing to Step 0: Ensure PR', {
+    logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
       prState: state.pr.exists ? state.pr.state : 'N/A',
     });
-    return handleStepEnsurePR(state);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'ERROR: Phase 2 workflow requires an open PR. PR does not exist or is not in OPEN state.',
+        },
+      ],
+      isError: true,
+    };
   }
 
   // After this point, PR is guaranteed to exist (type-safe via type guard)
-  if (!hasExistingPR(state)) {
-    // This should never happen due to the check above, but satisfies TypeScript
-    logger.error('Unexpected state: PR check passed but type guard failed', {
-      prExists: state.pr.exists,
-      prState: state.pr.exists ? state.pr.state : 'N/A',
-    });
-    return handleStepEnsurePR(state);
-  }
   // TypeScript now knows state is CurrentStateWithPR
-  const stateWithPR = state;
+  const stateWithPR = state as CurrentStateWithPR;
 
-  // Step 1: Monitor Workflow (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_MONITOR_WORKFLOW)) {
-    logger.info('Routing to Step 1: Monitor Workflow', {
+  // Step p2-1: Monitor Workflow (if not completed)
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_MONITOR_WORKFLOW)) {
+    logger.info('Routing to Phase 2 Step 1: Monitor Workflow', {
       prNumber: stateWithPR.pr.number,
       iteration: state.wiggum.iteration,
     });
-    return await handleStepMonitorWorkflow(stateWithPR);
+    return await handlePhase2MonitorWorkflow(stateWithPR);
   }
 
-  // Step 1b: Monitor PR Checks (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_MONITOR_PR_CHECKS)) {
-    logger.info('Routing to Step 1b: Monitor PR Checks', {
+  // Step p2-2: Monitor PR Checks (if not completed)
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_MONITOR_CHECKS)) {
+    logger.info('Routing to Phase 2 Step 2: Monitor PR Checks', {
       prNumber: stateWithPR.pr.number,
       iteration: state.wiggum.iteration,
     });
-    return await handleStepMonitorPRChecks(stateWithPR);
+    return await handlePhase2MonitorPRChecks(stateWithPR);
   }
 
-  // Step 2: Code Quality Comments (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_CODE_QUALITY)) {
-    logger.info('Routing to Step 2: Code Quality', {
+  // Step p2-3: Code Quality Comments (if not completed)
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_CODE_QUALITY)) {
+    logger.info('Routing to Phase 2 Step 3: Code Quality', {
       prNumber: stateWithPR.pr.number,
       iteration: state.wiggum.iteration,
     });
-    return await handleStepCodeQuality(stateWithPR);
+    return await handlePhase2CodeQuality(stateWithPR);
   }
 
-  // Step 3: PR Review (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_PR_REVIEW)) {
-    logger.info('Routing to Step 3: PR Review', {
+  // Step p2-4: PR Review (if not completed)
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_PR_REVIEW)) {
+    logger.info('Routing to Phase 2 Step 4: PR Review', {
       prNumber: stateWithPR.pr.number,
       iteration: state.wiggum.iteration,
     });
-    return handleStepPRReview(stateWithPR);
+    return handlePhase2PRReview(stateWithPR);
   }
 
-  // Step 4: Security Review (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_SECURITY_REVIEW)) {
-    logger.info('Routing to Step 4: Security Review', {
+  // Step p2-5: Security Review (if not completed)
+  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_SECURITY_REVIEW)) {
+    logger.info('Routing to Phase 2 Step 5: Security Review', {
       prNumber: stateWithPR.pr.number,
       iteration: state.wiggum.iteration,
     });
-    return handleStepSecurityReview(stateWithPR);
-  }
-
-  // Step 4b: Verify Reviews (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_VERIFY_REVIEWS)) {
-    logger.info('Routing to Step 4b: Verify Reviews', {
-      prNumber: stateWithPR.pr.number,
-      iteration: state.wiggum.iteration,
-    });
-    return await handleStepVerifyReviews(stateWithPR);
+    return handlePhase2SecurityReview(stateWithPR);
   }
 
   // All steps complete - proceed to approval
@@ -255,112 +497,25 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
 }
 
 /**
- * Step 0: Ensure PR exists
+ * Phase 2 Step 1: Monitor Workflow (also completes Step 2 when successful)
  *
- * Only called when PR doesn't exist. Validates pre-conditions and provides
- * instructions for creating the PR.
- */
-function handleStepEnsurePR(state: CurrentState): ToolResult {
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_ENSURE_PR],
-    step_number: STEP_ENSURE_PR,
-    iteration_count: state.wiggum.iteration,
-    instructions: '',
-    steps_completed_by_tool: [],
-    context: {
-      current_branch: state.git.currentBranch,
-    },
-  };
-
-  // Check if on main branch
-  if (state.git.isMainBranch) {
-    output.instructions =
-      'ERROR: Cannot create PR from main branch. Please switch to a feature branch first.';
-    output.steps_completed_by_tool = ['Checked branch name'];
-    return {
-      content: [{ type: 'text', text: formatWiggumResponse(output) }],
-      isError: true,
-    };
-  }
-
-  // Check for uncommitted changes
-  if (state.git.hasUncommittedChanges) {
-    output.instructions =
-      'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_complete_pr_creation to create the PR.';
-    output.steps_completed_by_tool = ['Checked for uncommitted changes'];
-    return {
-      content: [{ type: 'text', text: formatWiggumResponse(output) }],
-    };
-  }
-
-  // Check if branch is pushed
-  if (!state.git.isPushed) {
-    const sanitized = sanitizeBranchNameForShell(state.git.currentBranch);
-    let instructions = `Branch not pushed to remote. Execute: git push -u origin ${sanitized.name}`;
-    if (sanitized.wasSanitized && sanitized.warning) {
-      instructions += `\n\nWarning: ${sanitized.warning}`;
-    }
-    output.instructions = instructions;
-    output.steps_completed_by_tool = ['Checked push status'];
-    return {
-      content: [{ type: 'text', text: formatWiggumResponse(output) }],
-    };
-  }
-
-  // PR doesn't exist - need to create it
-  if (!state.pr.exists) {
-    output.instructions = `**CRITICAL: Call wiggum_complete_pr_creation tool directly. DO NOT use gh pr create command.**
-
-Before calling the tool, review ALL commits on this branch:
-- Run: git log main..HEAD --oneline
-
-Provide a pr_description that summarizes ALL changes in the branch, not just recent commits.
-
-Call wiggum_complete_pr_creation with pr_description parameter describing the changes in this PR.
-
-The tool will:
-- Extract issue number from branch name (format: 123-feature-name)
-- Create PR with "closes #<issue>" line + your description
-- Mark step complete
-- Return next step instructions
-
-**Do not create the PR manually. Do not call gh pr create. The tool does everything.**
-
-Continue by calling wiggum_complete_pr_creation.
-
-**Call the tool ONCE. It will return instructions for the next step. Do not call it again.**`;
-
-    output.steps_completed_by_tool = ['Validated branch name format', 'Checked for existing PR'];
-    return {
-      content: [{ type: 'text', text: formatWiggumResponse(output) }],
-    };
-  }
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
- * Step 1: Monitor Workflow (also completes Step 1b when successful)
- *
- * This handler completes BOTH Step 1 (workflow monitoring) AND Step 1b (PR checks)
+ * This handler completes BOTH Step p2-1 (workflow monitoring) AND Step p2-2 (PR checks)
  * in a single function call when successful:
  *
- * 1. Monitors workflow run (lines 328-343) - marks Step 1 complete on success
- * 2. If Step 1 passes, continues inline to monitor PR checks (lines 361-403)
- * 3. If Step 1b passes, marks Step 1b complete and continues to Step 2
+ * 1. Monitors workflow run - marks Step p2-1 complete on success
+ * 2. If Step p2-1 passes, continues inline to monitor PR checks
+ * 3. If Step p2-2 passes, marks Step p2-2 complete and continues to Step p2-3
  *
  * This combined execution is an optimization to avoid returning to the agent
- * between Step 1 and Step 1b when both are expected to pass together.
+ * between Step p2-1 and Step p2-2 when both are expected to pass together.
  *
- * When called standalone after fixes (via handleStepMonitorPRChecks), only
- * Step 1b is executed since Step 1 is already in completedSteps.
+ * When called standalone after fixes (via handlePhase2MonitorPRChecks), only
+ * Step p2-2 is executed since Step p2-1 is already in completedSteps.
  */
-async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<ToolResult> {
+async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<ToolResult> {
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_MONITOR_WORKFLOW],
-    step_number: STEP_MONITOR_WORKFLOW,
+    current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
+    step_number: STEP_PHASE2_MONITOR_WORKFLOW,
     iteration_count: state.wiggum.iteration,
     instructions: '',
     steps_completed_by_tool: [],
@@ -374,39 +529,30 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
   const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark Step 1 complete
+    // Mark Step p2-1 complete
     const newState = {
       iteration: state.wiggum.iteration,
-      step: STEP_MONITOR_WORKFLOW,
-      completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_WORKFLOW],
+      step: STEP_PHASE2_MONITOR_WORKFLOW,
+      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_WORKFLOW],
+      phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_MONITOR_WORKFLOW]} - Complete`,
-        'Workflow run completed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 1 completion', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_WORKFLOW,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW]} - Complete`,
+      'Workflow run completed successfully.',
+      STEP_PHASE2_MONITOR_WORKFLOW
+    );
 
     const stepsCompleted = [
       'Monitored workflow run until completion',
-      'Marked Step 1 complete',
+      'Marked Step p2-1 complete',
       'Posted state comment to PR',
     ];
 
-    // CONTINUE to Step 1b: Monitor PR checks (within same function call)
-    // stepsCompletedSoFar starts with Step 1 completion entries
+    // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
+    // stepsCompletedSoFar starts with Step p2-1 completion entries
     // Check for uncommitted changes before proceeding
     const updatedState = await detectCurrentState();
 
@@ -438,45 +584,36 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
       };
     }
 
-    // PR checks succeeded - mark Step 1b complete
-    const newState1b = {
+    // PR checks succeeded - mark Step p2-2 complete
+    const newState2 = {
       iteration: updatedState.wiggum.iteration,
-      step: STEP_MONITOR_PR_CHECKS,
-      completedSteps: [...updatedState.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
+      step: STEP_PHASE2_MONITOR_CHECKS,
+      completedSteps: [...updatedState.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS],
+      phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState1b,
-        `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 1b completion', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_PR_CHECKS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState2,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.',
+      STEP_PHASE2_MONITOR_CHECKS
+    );
 
     stepsCompleted.push(
       'Checked for uncommitted changes',
       'Checked push status',
       'Monitored all PR checks until completion',
-      'Marked Step 1b complete',
+      'Marked Step p2-2 complete',
       'Posted state comment to PR'
     );
 
-    // CONTINUE to Step 2: Code Quality
-    // This path is reached when Step 1 + Step 1b complete together in one function call.
-    // stepsCompletedSoFar contains entries for BOTH Step 1 and Step 1b completion.
+    // CONTINUE to Step p2-3: Code Quality
+    // This path is reached when Step p2-1 + Step p2-2 complete together in one function call.
+    // stepsCompletedSoFar contains entries for BOTH Step p2-1 and Step p2-2 completion.
     // Fetch code quality bot comments and determine next action
     const finalState = await detectCurrentState();
-    return processCodeQualityAndReturnNextInstructions(
+    return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
       stepsCompleted
     );
@@ -499,12 +636,12 @@ async function handleStepMonitorWorkflow(state: CurrentStateWithPR): Promise<Too
 }
 
 /**
- * Step 1b: Monitor PR Checks
+ * Phase 2 Step 2: Monitor PR Checks
  */
-async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<ToolResult> {
+async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<ToolResult> {
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_MONITOR_PR_CHECKS],
-    step_number: STEP_MONITOR_PR_CHECKS,
+    current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
+    step_number: STEP_PHASE2_MONITOR_CHECKS,
     iteration_count: state.wiggum.iteration,
     instructions: '',
     steps_completed_by_tool: [],
@@ -524,45 +661,36 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
   const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark Step 1b complete
+    // Mark Step p2-2 complete
     const newState = {
       iteration: state.wiggum.iteration,
-      step: STEP_MONITOR_PR_CHECKS,
-      completedSteps: [...state.wiggum.completedSteps, STEP_MONITOR_PR_CHECKS],
+      step: STEP_PHASE2_MONITOR_CHECKS,
+      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS],
+      phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_MONITOR_PR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 1b completion', {
-        prNumber: state.pr.number,
-        step: STEP_MONITOR_PR_CHECKS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.',
+      STEP_PHASE2_MONITOR_CHECKS
+    );
 
     const stepsCompleted = [
       'Checked for uncommitted changes',
       'Checked push status',
       'Monitored all PR checks until completion',
-      'Marked Step 1b complete',
+      'Marked Step p2-2 complete',
       'Posted state comment to PR',
     ];
 
-    // CONTINUE to Step 2: Code Quality (Step 1b standalone path)
-    // This path is reached when Step 1 was already complete (e.g., after re-verification).
-    // stepsCompletedSoFar contains ONLY Step 1b completion entries (not Step 1).
+    // CONTINUE to Step p2-3: Code Quality (Step p2-2 standalone path)
+    // This path is reached when Step p2-1 was already complete (e.g., after re-verification).
+    // stepsCompletedSoFar contains ONLY Step p2-2 completion entries (not Step p2-1).
     // Used after fixes when workflow monitoring already passed in a prior iteration.
     const updatedState = await detectCurrentState();
-    return processCodeQualityAndReturnNextInstructions(
+    return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
       stepsCompleted
     );
@@ -587,14 +715,14 @@ async function handleStepMonitorPRChecks(state: CurrentStateWithPR): Promise<Too
 }
 
 /**
- * Helper: Process Step 2 (Code Quality) and return appropriate next instructions
+ * Helper: Process Phase 2 Step 3 (Code Quality) and return appropriate next instructions
  *
  * This is called by:
- * - handleStepMonitorWorkflow() after Step 1+1b complete successfully
- * - handleStepMonitorPRChecks() after Step 1b completes successfully
- * - Direct routing to handleStepCodeQuality() (e.g., after fixes)
+ * - handlePhase2MonitorWorkflow() after Step p2-1+p2-2 complete successfully
+ * - handlePhase2MonitorPRChecks() after Step p2-2 completes successfully
+ * - Direct routing to handlePhase2CodeQuality() (e.g., after fixes)
  */
-async function processCodeQualityAndReturnNextInstructions(
+async function processPhase2CodeQualityAndReturnNextInstructions(
   state: CurrentStateWithPR,
   stepsCompletedSoFar: string[]
 ): Promise<ToolResult> {
@@ -602,8 +730,8 @@ async function processCodeQualityAndReturnNextInstructions(
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_CODE_QUALITY],
-    step_number: STEP_CODE_QUALITY,
+    current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
+    step_number: STEP_PHASE2_CODE_QUALITY,
     iteration_count: state.wiggum.iteration,
     instructions: '',
     steps_completed_by_tool: [...stepsCompletedSoFar],
@@ -614,39 +742,30 @@ async function processCodeQualityAndReturnNextInstructions(
   };
 
   if (comments.length === 0) {
-    // No comments - mark Step 2 complete and return Step 3 (PR Review) instructions
+    // No comments - mark Step p2-3 complete and return Step p2-4 (PR Review) instructions
     const newState = {
       iteration: state.wiggum.iteration,
-      step: STEP_CODE_QUALITY,
-      completedSteps: [...state.wiggum.completedSteps, STEP_CODE_QUALITY],
+      step: STEP_PHASE2_CODE_QUALITY,
+      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY],
+      phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_CODE_QUALITY]} - Complete`,
-        'No code quality comments found. Step complete.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 2 completion', {
-        prNumber: state.pr.number,
-        step: STEP_CODE_QUALITY,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_CODE_QUALITY]} - Complete`,
+      'No code quality comments found. Step complete.',
+      STEP_PHASE2_CODE_QUALITY
+    );
 
     output.steps_completed_by_tool.push(
       'Fetched code quality comments - none found',
-      'Marked Step 2 complete'
+      'Marked Step p2-3 complete'
     );
 
-    // Return Step 3 (PR Review) instructions
-    output.current_step = STEP_NAMES[STEP_PR_REVIEW];
-    output.step_number = STEP_PR_REVIEW;
+    // Return Step p2-4 (PR Review) instructions
+    output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
+    output.step_number = STEP_PHASE2_PR_REVIEW;
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
@@ -687,21 +806,21 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 }
 
 /**
- * Step 2: Code Quality Comments
+ * Phase 2 Step 3: Code Quality Comments
  *
  * Delegates to helper function to ensure consistent behavior
  */
-async function handleStepCodeQuality(state: CurrentStateWithPR): Promise<ToolResult> {
-  return processCodeQualityAndReturnNextInstructions(state, []);
+async function handlePhase2CodeQuality(state: CurrentStateWithPR): Promise<ToolResult> {
+  return processPhase2CodeQualityAndReturnNextInstructions(state, []);
 }
 
 /**
- * Step 3: PR Review
+ * Phase 2 Step 4: PR Review
  */
-function handleStepPRReview(state: CurrentStateWithPR): ToolResult {
+function handlePhase2PRReview(state: CurrentStateWithPR): ToolResult {
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_PR_REVIEW],
-    step_number: STEP_PR_REVIEW,
+    current_step: STEP_NAMES[STEP_PHASE2_PR_REVIEW],
+    step_number: STEP_PHASE2_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
@@ -730,12 +849,12 @@ After all review agents complete:
 }
 
 /**
- * Step 4: Security Review
+ * Phase 2 Step 5: Security Review
  */
-function handleStepSecurityReview(state: CurrentStateWithPR): ToolResult {
+function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_SECURITY_REVIEW],
-    step_number: STEP_SECURITY_REVIEW,
+    current_step: STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW],
+    step_number: STEP_PHASE2_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
@@ -768,94 +887,12 @@ This tool posts results and returns next step instructions.`,
 }
 
 /**
- * Step 4b: Verify Reviews
- */
-async function handleStepVerifyReviews(state: CurrentStateWithPR): Promise<ToolResult> {
-  const hasPRReview = await hasReviewCommandEvidence(state.pr.number, PR_REVIEW_COMMAND);
-  const hasSecurityReview = await hasReviewCommandEvidence(
-    state.pr.number,
-    SECURITY_REVIEW_COMMAND
-  );
-
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_VERIFY_REVIEWS],
-    step_number: STEP_VERIFY_REVIEWS,
-    iteration_count: state.wiggum.iteration,
-    instructions: '',
-    steps_completed_by_tool: [
-      'Checked for PR review command evidence in comments',
-      'Checked for security review command evidence in comments',
-    ],
-    context: {
-      pr_number: state.pr.number,
-      current_branch: state.git.currentBranch,
-    },
-  };
-
-  if (!hasPRReview) {
-    output.instructions = `Missing evidence of ${PR_REVIEW_COMMAND} execution in PR comments.
-
-**Possible causes:**
-- The review command was not executed yet
-- The review results were not posted as a PR comment
-- The command output did not include "${PR_REVIEW_COMMAND}" text
-
-**Action required:** Return to Step 3: execute ${PR_REVIEW_COMMAND} and call wiggum_complete_pr_review.`;
-  } else if (!hasSecurityReview) {
-    output.instructions = `Missing evidence of ${SECURITY_REVIEW_COMMAND} execution in PR comments.
-
-**Possible causes:**
-- The security review command was not executed yet
-- The review results were not posted as a PR comment
-- The command output did not include "${SECURITY_REVIEW_COMMAND}" text
-
-**Action required:** Return to Step 4: execute ${SECURITY_REVIEW_COMMAND} and call wiggum_complete_security_review.`;
-  } else {
-    // Both reviews verified - mark step complete and proceed to approval
-    const newState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_VERIFY_REVIEWS,
-      completedSteps: [...state.wiggum.completedSteps, STEP_VERIFY_REVIEWS],
-    };
-
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_VERIFY_REVIEWS]} - Complete`,
-        `Both review commands have been verified in PR comments:
-- ✅ ${PR_REVIEW_COMMAND}
-- ✅ ${SECURITY_REVIEW_COMMAND}
-
-**Next Action:** Proceeding to approval.`
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step 4b completion', {
-        prNumber: state.pr.number,
-        step: STEP_VERIFY_REVIEWS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
-
-    // Return explicit approval instructions instead of vague "proceeding to approval"
-    return handleApproval(state);
-  }
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
- * Approval
+ * Approval (Phase 2 final step)
  */
 function handleApproval(state: CurrentStateWithPR): ToolResult {
   const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_APPROVAL],
-    step_number: STEP_APPROVAL,
+    current_step: STEP_NAMES[STEP_PHASE2_APPROVAL],
+    step_number: STEP_PHASE2_APPROVAL,
     iteration_count: state.wiggum.iteration,
     instructions: `All review steps complete with no issues!
 
