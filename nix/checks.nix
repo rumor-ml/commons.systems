@@ -30,10 +30,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Format Go code";
     };
 
-    # Disabled: govet requires go.mod dependencies to be available during execution.
-    # Nix's pure sandbox doesn't include these runtime dependencies for pre-commit hooks.
-    # This is a fundamental limitation of running Go static analysis in Nix's pure evaluation.
-    # Alternative: Run govet in CI where the full Go toolchain and dependencies are available.
+    # Disabled: govet requires access to Go module dependencies at runtime.
+    # Nix pre-commit hooks run in a pure sandbox without access to downloaded dependencies.
+    # While technically solvable by including dependencies in the Nix derivation, this would
+    # significantly slow down every commit (requires building/fetching all Go deps).
+    #
+    # Current approach: govet runs in CI where dependencies are already available.
+    # For local validation before push: cd <go-project> && go vet ./...
     # govet = {
     #   enable = true;
     #   name = "govet";
@@ -132,8 +135,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
 
         # Check if any MCP server directories were modified
-        # TODO(#265): Add mcp-common/ pattern when shared error handling package is created
-        if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server|mcp-common)/"; then
+        # Note: Will include mcp-common/ when shared error handling package is created (see #265)
+        if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
           echo "MCP server files changed, running Nix build validation..."
           ./infrastructure/scripts/build-mcp-servers.sh
         else
