@@ -235,6 +235,7 @@ func (c *DaemonClient) receive() {
 							}
 							c.mu.Unlock()
 
+							// TODO(#281): Fix channel blocking on disconnect notifications - see PR review for #273
 							// Send disconnect event with timeout to prevent goroutine leak
 							select {
 							case c.eventCh <- Message{Type: "disconnect", Error: fmt.Sprintf("Failed to request resync after %d attempts (gap=%d)", maxRetries, savedGap)}:

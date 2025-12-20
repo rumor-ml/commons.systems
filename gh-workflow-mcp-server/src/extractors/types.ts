@@ -2,6 +2,8 @@
  * Shared types for framework-specific test failure extractors
  */
 
+// TODO(#304): Add readonly modifiers to type definitions
+
 import { z } from 'zod';
 
 export type TestFramework = 'go' | 'playwright' | 'tap' | 'unknown';
@@ -97,6 +99,7 @@ export function formatValidationError(error: z.ZodError): string {
  * @returns ExtractedError guaranteed to pass validation
  */
 // TODO(#285): Validate fallback error before returning
+// TODO(#305): Add context explaining why validation is needed
 export function createFallbackError(
   context: string,
   originalData: unknown,

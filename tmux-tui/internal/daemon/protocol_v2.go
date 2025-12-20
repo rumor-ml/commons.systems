@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
 // Protocol v2: Type-safe message structs with internal encapsulation
 //
 // DESIGN RATIONALE:

@@ -41,6 +41,8 @@ model: haiku
    command inside the worktree directory (after cd) to find the main repo's hooks,
    ensuring consistent hook execution across all worktrees.
 
+   Note: Behavior tested with git 2.39+. Earlier versions may behave differently.
+
 8. Run `direnv allow` in the new worktree directory to enable the environment.
 9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
    `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`

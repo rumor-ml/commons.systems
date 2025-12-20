@@ -138,7 +138,7 @@ func (d *AlertDaemon) playAlertSound() {
 }
 
 // broadcastAudioError broadcasts an audio playback error with tracking
-// TODO(#251): Apply same failure handling as regular broadcasts
+// TODO(#251): Add timeout to audio error broadcasting to prevent goroutine leaks when eventCh is congested - see PR review for #273
 func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
 		"Troubleshooting:\n"+
@@ -877,7 +877,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
 		if err != nil {
 			// CRITICAL: Cannot construct sync warning - use fallback raw message
-			// TODO(#281): Add visibility for cascade failures
+			// TODO(#281): Escalate broadcast cascade failures to health metrics - see PR review for #273
 			fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning construction failed (type=%s, failed_clients=%d): %v\n",
 				msg.Type, len(failedClients), err)
 			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", err)
@@ -969,7 +969,7 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	blockedCount := len(d.blockedBranches)
 	d.blockedMu.RUnlock()
 
-	// TODO(#281): Add sentinel error for health validation failures
+	// TODO(#281): Include validation errors in health status response - see PR review for #273
 	status, err := NewHealthStatus(
 		d.broadcastFailures.Load(),
 		lastBroadcastErr,
