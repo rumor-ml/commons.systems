@@ -37,6 +37,7 @@ MCP_SERVERS=(
   "wiggum-mcp-server"
   "gh-workflow-mcp-server"
   "gh-issue-mcp-server"
+  "git-mcp-server"
 )
 
 BUILD_FAILED=0

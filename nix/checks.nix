@@ -87,21 +87,6 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Format Nix files";
     };
 
-    # === TypeScript Build Checks ===
-    # Verify TypeScript MCP servers build successfully
-    # Note: Can be enabled for stricter pre-commit checking, but may slow down commits
-    # For now, run manually with: ./infrastructure/scripts/build-mcp-servers.sh
-    # Or enable by setting enable = true below
-    typescript-build = {
-      enable = false;
-      name = "typescript-build";
-      description = "Build TypeScript MCP servers to catch compilation errors";
-      entry = "./infrastructure/scripts/build-mcp-servers.sh";
-      language = "system";
-      files = "\\.(ts|json)$";
-      pass_filenames = false;
-    };
-
     # === Pre-Push Hooks ===
     # Validate ALL files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
@@ -142,7 +127,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
 
         # Check if any MCP server directories were modified
-        if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|test-mcp-server|mcp-common)/"; then
+        if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server|mcp-common)/"; then
           echo "MCP server files changed, running Nix build validation..."
           ./infrastructure/scripts/build-mcp-servers.sh
         else
@@ -165,7 +150,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         set -e
 
         # Check if any pnpm-related files changed
-        CHANGED_FILES=$(git diff --name-only --cached 2>/dev/null || git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
 
         if echo "$CHANGED_FILES" | grep -qE "(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)"; then
           echo "Package files changed, validating lockfile consistency..."
@@ -174,7 +159,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
           # Use --prefer-offline to avoid network calls and use local cache for speed
           if ! ${pkgs.pnpm}/bin/pnpm install --frozen-lockfile --prefer-offline > /dev/null 2>&1; then
             echo ""
-            echo "❌ ERROR: pnpm lockfile is out of sync with package.json files"
+            echo "ERROR: pnpm lockfile is out of sync with package.json files"
             echo ""
             echo "This means pnpm-lock.yaml doesn't match the dependencies declared in package.json."
             echo "This check prevents CI failures from lockfile mismatches."
@@ -188,7 +173,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
             exit 1
           fi
 
-          echo "✓ Lockfile is consistent with package.json files"
+          echo "Lockfile is consistent with package.json files"
         else
           echo "No package files changed, skipping lockfile validation."
         fi
