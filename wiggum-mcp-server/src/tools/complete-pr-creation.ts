@@ -134,7 +134,7 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
 
     // Sanitize error message for PR body using security utility
     // Full error is already logged above for debugging
-    const sanitizedError = sanitizeErrorMessage(errorMsg, 200);
+    const sanitizedError = sanitizeErrorMessage(errorMsg, 500);
 
     commits = `⚠️ **Unable to fetch commits from GitHub API**
 
@@ -241,13 +241,19 @@ ${commits}`;
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
       const isPermissionError = /permission|forbidden|401|403/i.test(errorMsg);
       const isRateLimitError = /rate limit|429/i.test(errorMsg);
-      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|network|fetch/i.test(errorMsg);
+      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      const isTimeoutError = /timeout|timed out|ETIMEDOUT/i.test(errorMsg);
+      const isNotFoundError = /not found|404/i.test(errorMsg);
 
       let errorClassification = 'Unknown error';
       if (isPermissionError) {
         errorClassification = 'Permission denied (check gh auth token scopes)';
       } else if (isRateLimitError) {
         errorClassification = 'GitHub API rate limit exceeded';
+      } else if (isTimeoutError) {
+        errorClassification = 'Request timeout (GitHub API not responding)';
+      } else if (isNotFoundError) {
+        errorClassification = 'Resource not found (PR or repository may not exist)';
       } else if (isNetworkError) {
         errorClassification = 'Network connectivity issue';
       }
@@ -258,6 +264,8 @@ ${commits}`;
         errorClassification,
         isPermissionError,
         isRateLimitError,
+        isTimeoutError,
+        isNotFoundError,
         isNetworkError,
       });
       throw new ValidationError(

@@ -68,18 +68,7 @@ export const STEP_ORDER: readonly WiggumStep[] = [
  * @returns true if the step is valid
  */
 export function isValidStep(step: unknown): step is WiggumStep {
-  return (
-    step === STEP_PHASE1_MONITOR_WORKFLOW ||
-    step === STEP_PHASE1_PR_REVIEW ||
-    step === STEP_PHASE1_SECURITY_REVIEW ||
-    step === STEP_PHASE1_CREATE_PR ||
-    step === STEP_PHASE2_MONITOR_WORKFLOW ||
-    step === STEP_PHASE2_MONITOR_CHECKS ||
-    step === STEP_PHASE2_CODE_QUALITY ||
-    step === STEP_PHASE2_PR_REVIEW ||
-    step === STEP_PHASE2_SECURITY_REVIEW ||
-    step === STEP_PHASE2_APPROVAL
-  );
+  return STEP_ORDER.includes(step as WiggumStep);
 }
 
 // Step names (human-readable)

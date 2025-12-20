@@ -83,7 +83,7 @@ ${input.fix_description}
 
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found
-  const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step as any);
+  const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step);
 
   logger.info('Filtering completed steps', {
     currentStep: state.wiggum.step,
@@ -92,7 +92,7 @@ ${input.fix_description}
   });
 
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
-    const stepIndex = STEP_ORDER.indexOf(step as any);
+    const stepIndex = STEP_ORDER.indexOf(step);
     return stepIndex < currentStepIndex;
   });
 

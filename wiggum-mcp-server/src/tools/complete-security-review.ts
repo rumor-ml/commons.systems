@@ -122,16 +122,26 @@ All security checks passed with no vulnerabilities identified.
 
   // Post comment - to issue for Phase 1, to PR for Phase 2
   if (phase === 'phase1') {
+    // Issue number is guaranteed to exist from validation above
+    if (!state.issue.exists || !state.issue.number) {
+      throw new ValidationError(
+        'Internal error: Phase 1 requires issue number, but validation passed with no issue'
+      );
+    }
     await postWiggumStateIssueComment(
-      state.issue.number as number,
+      state.issue.number,
       newState,
       commentTitle,
       commentBody
     );
   } else {
     // Phase 2 - PR number is guaranteed to exist from validation above
-    const prNumber = state.pr.exists ? state.pr.number : 0; // Should never be 0 due to validation
-    await postWiggumStateComment(prNumber, newState, commentTitle, commentBody);
+    if (!state.pr.exists || !state.pr.number) {
+      throw new ValidationError(
+        'Internal error: Phase 2 requires PR number, but validation passed with no PR'
+      );
+    }
+    await postWiggumStateComment(state.pr.number, newState, commentTitle, commentBody);
   }
 
   // Check iteration limit

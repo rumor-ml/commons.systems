@@ -71,9 +71,25 @@ export async function detectGitState(): Promise<GitState> {
  * ```
  */
 export async function detectPRState(repo?: string): Promise<PRState> {
-  try {
-    const resolvedRepo = repo || (await getCurrentRepo());
+  let resolvedRepo: string;
 
+  try {
+    resolvedRepo = repo || (await getCurrentRepo());
+  } catch (repoError) {
+    // Failed to determine repository - log and return no PR exists
+    const errorMsg = repoError instanceof Error ? repoError.message : String(repoError);
+    const errorType = repoError instanceof Error ? repoError.constructor.name : typeof repoError;
+    logger.warn('detectPRState: failed to determine repository', {
+      providedRepo: repo,
+      errorMessage: errorMsg,
+      errorType,
+    });
+    return {
+      exists: false,
+    };
+  }
+
+  try {
     // Try to get PR for current branch
     // gh pr view will fail if no PR exists
     const result: GitHubPR = await getPR(undefined, resolvedRepo); // undefined gets PR for current branch
@@ -82,6 +98,11 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     // Closed/Merged PRs should be treated as non-existent to avoid state pollution
     // This prevents carrying over workflow state from closed PRs to new PRs on the same branch
     if (result.state !== 'OPEN') {
+      logger.debug('detectPRState: found non-open PR, treating as non-existent', {
+        prNumber: result.number,
+        prState: result.state,
+        repo: resolvedRepo,
+      });
       return {
         exists: false,
       };
@@ -105,15 +126,19 @@ export async function detectPRState(repo?: string): Promise<PRState> {
 
       if (!isExpectedError) {
         // Unexpected error - provide full diagnostic information
-        console.warn(`detectPRState: unexpected error while checking for PR: ${error.message}`, {
-          repo,
+        logger.warn('detectPRState: unexpected error while checking for PR', {
+          repo: resolvedRepo,
+          errorMessage: error.message,
           errorType: error.constructor.name,
           stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
         });
       }
     } else {
       // Non-Error thrown - log it
-      console.warn(`detectPRState: unexpected non-Error thrown: ${String(error)}`);
+      logger.warn('detectPRState: unexpected non-Error thrown', {
+        repo: resolvedRepo,
+        error: String(error),
+      });
     }
 
     return {
@@ -159,8 +184,10 @@ async function detectIssueState(git: GitState): Promise<IssueState> {
  *
  * Includes timestamp-based validation to detect race conditions where PR state
  * changes between reads. If inconsistencies are detected, state is re-fetched.
+ * Recursion is limited to 3 attempts to prevent infinite loops.
  *
  * @param repo - Optional repository in "owner/repo" format
+ * @param depth - Recursion depth counter (internal, defaults to 0)
  * @returns CurrentState with git, PR, and wiggum workflow state
  * @throws {GitError | GitHubCliError} When state detection fails
  *
@@ -174,7 +201,9 @@ async function detectIssueState(git: GitState): Promise<IssueState> {
  * console.log(`Iteration: ${state.wiggum.iteration}`);
  * ```
  */
-export async function detectCurrentState(repo?: string): Promise<CurrentState> {
+export async function detectCurrentState(repo?: string, depth = 0): Promise<CurrentState> {
+  const MAX_RECURSION_DEPTH = 3;
+
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
@@ -195,19 +224,38 @@ export async function detectCurrentState(repo?: string): Promise<CurrentState> {
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
+        if (depth >= MAX_RECURSION_DEPTH) {
+          logger.error(
+            'detectCurrentState: maximum recursion depth exceeded during PR revalidation',
+            {
+              depth,
+              maxDepth: MAX_RECURSION_DEPTH,
+              previousPrNumber: pr.number,
+              newPrNumber: revalidatedPr.number,
+              stateDetectionTime,
+            }
+          );
+          // Return current state rather than failing - caller can handle unstable state
+          // This prevents infinite recursion in pathological cases where PR keeps changing
+          return {
+            git,
+            pr,
+            issue,
+            wiggum,
+          };
+        }
+
         logger.warn(
-          'detectCurrentState: PR state changed during detection, using revalidated state',
+          'detectCurrentState: PR state changed during detection, revalidating',
           {
+            depth,
             previousPrNumber: pr.number,
             newPrNumber: revalidatedPr.number,
             stateDetectionTime,
           }
         );
-        // Note: Recursive call with no depth limit is acceptable here because:
-        // 1. Race condition requires stateDetectionTime > 5000ms (unusual)
-        // 2. PR number change between reads is rare (external actor closing PR)
-        // 3. Worst case: PR keeps changing (very unlikely), eventually timeout at caller
-        return detectCurrentState(repo);
+        // Retry with incremented depth counter to track recursion
+        return detectCurrentState(repo, depth + 1);
       }
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {

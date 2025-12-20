@@ -12,6 +12,7 @@ import { detectCurrentState } from './detector.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import type { WiggumState } from './types.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
@@ -40,20 +41,6 @@ import type { CurrentState, PRExists } from './types.js';
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
-
-/**
- * Type guard to verify state has an existing PR
- *
- * Validates that state.pr.exists is true, enabling TypeScript to narrow
- * the type to CurrentStateWithPR. This is safer than type assertions
- * because it performs runtime validation.
- *
- * @param state - Current state to check
- * @returns true if state has an existing PR (narrowing to CurrentStateWithPR)
- */
-function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
-  return state.pr.exists === true;
-}
 
 interface WiggumInstructions {
   current_step: string;
@@ -126,6 +113,44 @@ function checkBranchPushed(
     };
   }
   return null;
+}
+
+/**
+ * Safely post wiggum state comment with error handling
+ *
+ * Wraps postWiggumStateComment with consistent error handling and logging.
+ * Failures to post state comments are logged but don't crash the workflow,
+ * as state comments are for tracking and not critical to the workflow itself.
+ *
+ * @param prNumber - PR number to comment on
+ * @param state - New wiggum state to save
+ * @param title - Comment title
+ * @param body - Comment body
+ * @param step - Step identifier for logging context
+ * @returns true if comment posted successfully, false otherwise
+ */
+async function safePostStateComment(
+  prNumber: number,
+  state: WiggumState,
+  title: string,
+  body: string,
+  step: string
+): Promise<boolean> {
+  try {
+    await postWiggumStateComment(prNumber, state, title, body);
+    return true;
+  } catch (commentError) {
+    // Log but continue - state comment is for tracking, not critical path
+    const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+    logger.warn('Failed to post state comment', {
+      prNumber,
+      step,
+      title,
+      error: errorMsg,
+      recoveryNote: 'Workflow continues - missing state comment is recoverable',
+    });
+    return false;
+  }
 }
 
 /**
@@ -415,24 +440,8 @@ async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   }
 
   // After this point, PR is guaranteed to exist (type-safe via type guard)
-  if (!hasExistingPR(state)) {
-    // This should never happen due to the check above, but satisfies TypeScript
-    logger.error('Unexpected state: PR check passed but type guard failed', {
-      prExists: state.pr.exists,
-      prState: state.pr.exists ? state.pr.state : 'N/A',
-    });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'ERROR: Phase 2 workflow requires an open PR. PR does not exist or is not in OPEN state.',
-        },
-      ],
-      isError: true,
-    };
-  }
   // TypeScript now knows state is CurrentStateWithPR
-  const stateWithPR = state;
+  const stateWithPR = state as CurrentStateWithPR;
 
   // Step p2-1: Monitor Workflow (if not completed)
   if (!state.wiggum.completedSteps.includes(STEP_PHASE2_MONITOR_WORKFLOW)) {
@@ -528,23 +537,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW]} - Complete`,
-        'Workflow run completed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step p2-1 completion', {
-        prNumber: state.pr.number,
-        step: STEP_PHASE2_MONITOR_WORKFLOW,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW]} - Complete`,
+      'Workflow run completed successfully.',
+      STEP_PHASE2_MONITOR_WORKFLOW
+    );
 
     const stepsCompleted = [
       'Monitored workflow run until completion',
@@ -593,23 +592,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState2,
-        `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step p2-2 completion', {
-        prNumber: state.pr.number,
-        step: STEP_PHASE2_MONITOR_CHECKS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState2,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.',
+      STEP_PHASE2_MONITOR_CHECKS
+    );
 
     stepsCompleted.push(
       'Checked for uncommitted changes',
@@ -680,23 +669,13 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
-        'All PR checks passed successfully.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step p2-2 completion', {
-        prNumber: state.pr.number,
-        step: STEP_PHASE2_MONITOR_CHECKS,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
+      'All PR checks passed successfully.',
+      STEP_PHASE2_MONITOR_CHECKS
+    );
 
     const stepsCompleted = [
       'Checked for uncommitted changes',
@@ -771,23 +750,13 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       phase: 'phase2' as const,
     };
 
-    try {
-      await postWiggumStateComment(
-        state.pr.number,
-        newState,
-        `${STEP_NAMES[STEP_PHASE2_CODE_QUALITY]} - Complete`,
-        'No code quality comments found. Step complete.'
-      );
-    } catch (commentError) {
-      // Log but continue - state comment is for tracking, not critical path
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      logger.warn('Failed to post state comment for Step p2-3 completion', {
-        prNumber: state.pr.number,
-        step: STEP_PHASE2_CODE_QUALITY,
-        error: errorMsg,
-      });
-      // Workflow continues - missing state comment is recoverable
-    }
+    await safePostStateComment(
+      state.pr.number,
+      newState,
+      `${STEP_NAMES[STEP_PHASE2_CODE_QUALITY]} - Complete`,
+      'No code quality comments found. Step complete.',
+      STEP_PHASE2_CODE_QUALITY
+    );
 
     output.steps_completed_by_tool.push(
       'Fetched code quality comments - none found',
