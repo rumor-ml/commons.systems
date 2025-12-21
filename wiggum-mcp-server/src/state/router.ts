@@ -921,3 +921,22 @@ Final actions:
     content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
+
+/**
+ * Type guard to check if state has an existing PR
+ * Narrows CurrentState to CurrentStateWithPR
+ */
+function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
+  return state.pr.exists && state.pr.state === 'OPEN';
+}
+
+/**
+ * Export internal functions for testing
+ * @internal
+ */
+export const _testExports = {
+  hasExistingPR,
+  checkUncommittedChanges,
+  checkBranchPushed,
+  formatFixInstructions,
+};
