@@ -52,21 +52,21 @@ async function globalSetup() {
 
     console.log(`   ✓ Loaded ${cardsData.length} cards from file`);
 
-    // Import Firestore Admin SDK
-    console.log(`   Connecting to Firestore Admin SDK...`);
-    const adminModule = await import('firebase-admin');
-    const admin = adminModule.default;
-
-    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
+    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS BEFORE importing firebase-admin
     // In CI, this env var points to a service account key file. Firebase Admin SDK
-    // tries to load it BEFORE checking if we're connecting to an emulator, causing
-    // invalid custom tokens. The emulator doesn't need credentials.
-    // Deleting it in THIS process ensures admin.initializeApp() won't try to load it.
+    // loads credentials during module initialization, so we must delete the env var
+    // BEFORE the import statement. Otherwise the default app gets initialized with
+    // production credentials and all subsequent custom tokens will be invalid.
     const isCI = !!process.env.CI;
     if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       console.log('   ⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS for emulator use in CI');
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     }
+
+    // Import Firestore Admin SDK (AFTER deleting credentials)
+    console.log(`   Connecting to Firestore Admin SDK...`);
+    const adminModule = await import('firebase-admin');
+    const admin = adminModule.default;
 
     // Initialize Firebase Admin with emulator
     if (!admin.apps.length) {
