@@ -31,14 +31,16 @@ describe('review-completion-helper', () => {
       // PR review config includes:
       // - phase1Step: STEP_PHASE1_PR_REVIEW ('p1-2')
       // - phase2Step: STEP_PHASE2_PR_REVIEW ('p2-4')
-      // - commandName: '/pr-review-toolkit:review-pr'
+      // - phase1Command: '/all-hands-review' (or '/pr-review-toolkit:review-pr')
+      // - phase2Command: '/review' (or '/pr-review-toolkit:review-pr')
       // - reviewTypeLabel: 'PR'
       // - issueTypeLabel: 'issue(s)'
       // - successMessage: 'No PR review issues found...'
       const config: ReviewConfig = {
         phase1Step: STEP_PHASE1_PR_REVIEW,
         phase2Step: STEP_PHASE2_PR_REVIEW,
-        commandName: '/pr-review-toolkit:review-pr',
+        phase1Command: '/pr-review-toolkit:review-pr',
+        phase2Command: '/pr-review-toolkit:review-pr',
         reviewTypeLabel: 'PR',
         issueTypeLabel: 'issue(s)',
         successMessage: 'No PR review issues found',
@@ -51,14 +53,16 @@ describe('review-completion-helper', () => {
       // Security review config includes:
       // - phase1Step: STEP_PHASE1_SECURITY_REVIEW ('p1-3')
       // - phase2Step: STEP_PHASE2_SECURITY_REVIEW ('p2-5')
-      // - commandName: '/security-review'
+      // - phase1Command: '/security-review'
+      // - phase2Command: '/security-review'
       // - reviewTypeLabel: 'Security'
       // - issueTypeLabel: 'security issue(s)'
       // - successMessage: 'No security issues found...'
       const config: ReviewConfig = {
         phase1Step: STEP_PHASE1_SECURITY_REVIEW,
         phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-        commandName: '/security-review',
+        phase1Command: '/security-review',
+        phase2Command: '/security-review',
         reviewTypeLabel: 'Security',
         issueTypeLabel: 'security issue(s)',
         successMessage: 'No security issues found',
