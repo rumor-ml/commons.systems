@@ -57,6 +57,15 @@ async function globalSetup() {
     const adminModule = await import('firebase-admin');
     const admin = adminModule.default;
 
+    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
+    // In CI, this env var points to a service account key file. Firebase Admin SDK
+    // tries to load it BEFORE checking if we're connecting to an emulator, causing
+    // invalid custom tokens. The emulator doesn't need credentials.
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      console.log('   ⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS to use emulator');
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
+
     // Initialize Firebase Admin with emulator
     if (!admin.apps.length) {
       admin.initializeApp({
