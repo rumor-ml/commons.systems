@@ -86,14 +86,14 @@ function getReviewStep(phase: WiggumPhase, config: ReviewConfig): WiggumStep {
  */
 function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): void {
   if (state.wiggum.phase === 'phase1' && (!state.issue.exists || !state.issue.number)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No issue found. Phase 1 ${config.reviewTypeLabel.toLowerCase()} review requires an issue number in the branch name.`
     );
   }
 
   if (state.wiggum.phase === 'phase2' && (!state.pr.exists || !state.pr.number)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No PR found. Cannot complete ${config.reviewTypeLabel.toLowerCase()} review.`
     );
@@ -102,7 +102,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
 
 /**
  * Build comment content based on review results
- * TODO: See issue #334 - Add tests for comment content formatting
+ * TODO(#334): Add tests for comment content formatting
  */
 function buildCommentContent(
   input: ReviewCompletionInput,
@@ -184,7 +184,7 @@ async function postStateComment(
 ): Promise<void> {
   if (state.wiggum.phase === 'phase1') {
     if (!state.issue.exists || !state.issue.number) {
-      // TODO: See issue #312 - Add Sentry error ID for tracking
+      // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
@@ -192,7 +192,7 @@ async function postStateComment(
     await postWiggumStateIssueComment(state.issue.number, newState, title, body);
   } else {
     if (!state.pr.exists || !state.pr.number) {
-      // TODO: See issue #312 - Add Sentry error ID for tracking
+      // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
@@ -245,7 +245,7 @@ function buildIssuesFoundResponse(
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
   if (!issueNumber) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `Issue number required for triage workflow but was undefined. This indicates a state detection issue. Branch: ${state.git.currentBranch}, Phase: ${state.wiggum.phase}`
     );
@@ -306,7 +306,7 @@ export async function completeReview(
   config: ReviewConfig
 ): Promise<ToolResult> {
   if (!input.command_executed) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `command_executed must be true. Do not shortcut the ${config.reviewTypeLabel.toLowerCase()} review process.`
     );

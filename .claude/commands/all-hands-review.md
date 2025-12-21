@@ -12,22 +12,28 @@ You are an **orchestrator** for comprehensive code review. You validate git stat
 Check that we're in a valid state for review:
 
 1. Verify we're on a feature branch (not `main` or `master`):
+
    ```bash
    git rev-parse --abbrev-ref HEAD
    ```
+
    - If on `main` or `master`, return error: "Cannot run review on main/master branch. Switch to a feature branch first."
 
 2. Verify `origin/main` exists:
+
    ```bash
    git rev-parse --verify origin/main
    ```
+
    - If it doesn't exist, try `origin/master` as fallback
    - If neither exists, return error: "Cannot find origin/main or origin/master. Run 'git fetch origin' first."
 
 3. Check for changes from base branch:
+
    ```bash
    git diff origin/main...HEAD --stat
    ```
+
    - If no changes, return: "No changes to review. Branch is up to date with origin/main."
 
 ## Step 2: Launch Parallel Review Agents
@@ -72,6 +78,8 @@ After all agents complete:
    - Low priority issues
 
 ## Step 4: Format Output
+
+**CRITICAL:** The complete formatted output below will be passed as `verbatim_response` to wiggum completion tools. Do NOT summarize - include ALL agent outputs verbatim for the audit trail.
 
 Present results in this format:
 

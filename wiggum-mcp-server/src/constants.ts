@@ -92,8 +92,7 @@ export const STEP_NAMES: Record<WiggumStep, string> = {
 export const WIGGUM_STATE_MARKER = 'wiggum-state';
 export const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
 
-// PR Review and Security Review commands
-export const PR_REVIEW_COMMAND = '/pr-review-toolkit:review-pr' as const;
+// Phase-specific review commands
 export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
 
 // Phase-specific PR review commands
@@ -230,7 +229,7 @@ Call ExitPlanMode when plan is complete.
 
 2. For out-of-scope items (can run in parallel with subagent_type="general-purpose"):
    - Create new issues OR add comments to existing issues
-   - Add TODO comments: \`// TODO: See issue #XXX - [brief description]\`
+   - Add TODO comments: \`// TODO(#NNN): [brief description]\`
 
 3. Execute /commit-merge-push slash command
 
@@ -238,3 +237,163 @@ Call ExitPlanMode when plan is complete.
    - fix_description: Description of in-scope fixes
    - out_of_scope_issues: Array of issue numbers (both new and existing)`;
 }
+
+/**
+ * Generate comprehensive triage instructions for workflow failures
+ *
+ * Produces a structured multi-step workflow that guides the agent through triaging
+ * workflow/check failures, separating in-scope fixes from out-of-scope tracking.
+ *
+ * **Workflow Phases:**
+ *
+ * 1. **Plan Mode Entry** - Uses EnterPlanMode tool to begin structured planning
+ *
+ * 2. **Triage Process:**
+ *    - Fetches issue context via mcp__gh-issue__gh_get_issue_context
+ *    - Evaluates each failure against in-scope criteria
+ *    - IN SCOPE: Tests for code changed in this PR, build failures in modified modules, linting/type errors in changed files
+ *    - OUT OF SCOPE: Flaky tests, unrelated failures, infrastructure issues, pre-existing failures
+ *    - Handles ambiguous cases with AskUserQuestion and gh issue edit
+ *    - Searches existing issues for out-of-scope tracking (gh issue list)
+ *
+ * 3. **Plan Structure:**
+ *    - Section A: In-scope fixes (all failures that must be fixed)
+ *    - Section B: Out-of-scope with skip mechanism (how to skip + which issue)
+ *
+ * 4. **Execution:**
+ *    - Exit plan mode
+ *    - Implement in-scope fixes with accept-edits subagent
+ *    - Skip out-of-scope tests/steps with appropriate mechanism
+ *    - Create/update out-of-scope issues in parallel
+ *    - Add TODO comments linking to issues
+ *    - Commit via /commit-merge-push
+ *    - Report completion via wiggum_complete_fix
+ *
+ * **Validation:** Throws ValidationError if failureType not 'Workflow'/'PR checks', or issueNumber
+ * not a positive integer.
+ *
+ * @param issueNumber - GitHub issue number defining scope boundary (positive integer)
+ * @param failureType - Failure category: 'Workflow' or 'PR checks'
+ * @param failureDetails - Detailed failure information from gh_get_failure_details
+ * @returns Formatted multi-step triage workflow instructions
+ * @throws {ValidationError} Invalid failureType or issueNumber
+ */
+export function generateWorkflowTriageInstructions(
+  issueNumber: number,
+  failureType: 'Workflow' | 'PR checks',
+  failureDetails: string
+): string {
+  // Validate failureType: Must be exactly 'Workflow' or 'PR checks' (case-sensitive)
+  // TypeScript type system should prevent this at compile time, but runtime check ensures safety
+  if (failureType !== 'Workflow' && failureType !== 'PR checks') {
+    throw new ValidationError(
+      `Invalid failureType: ${JSON.stringify(failureType)}. Must be either 'Workflow' or 'PR checks'.`
+    );
+  }
+
+  // Validate issueNumber: Must be finite, positive, and integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
+  // GitHub issue numbers are always positive integers starting from 1
+  if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
+    throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
+  }
+
+  logger.info('Generating workflow triage instructions', {
+    issueNumber,
+    failureType,
+    failureDetailsLength: failureDetails.length,
+  });
+
+  return `${failureType} failed. Proceeding to triage phase.
+
+## Step 1: Enter Plan Mode
+
+Call the EnterPlanMode tool to enter planning mode for the triage process.
+
+## Step 2: In Plan Mode - Triage Failures
+
+**Working on Issue:** #${issueNumber}
+
+### 2a. Fetch Issue Context
+Use \`mcp__gh-issue__gh_get_issue_context\` for issue #${issueNumber}.
+
+### 2b. Triage Each Failure
+
+For EACH failure in the details below, determine if **IN SCOPE** or **OUT OF SCOPE**:
+
+**IN SCOPE criteria (must meet at least one):**
+- Tests validating code changed in this PR/implementation
+- Build failures in modified modules (TypeScript/Go compilation errors)
+- Linting/formatting errors in changed files
+- Type checking errors in implementation
+
+**OUT OF SCOPE criteria:**
+- Flaky tests with intermittent failures (check for patterns in recent runs)
+- Tests in unrelated modules (not modified by implementation)
+- Pre-existing failing tests (compare with main branch: \`gh run list --branch main\`)
+- Infrastructure issues (network, Docker, GitHub Actions runners)
+- Deployment failures when implementation is pre-deployment
+
+### 2c. Handle Ambiguous Scope
+If scope unclear for any failure:
+1. Use AskUserQuestion to clarify scope
+2. Update issue body with scope clarifications using \`gh issue edit\`
+
+### 2d. Check Existing Issues for Out-of-Scope Items
+For each OUT OF SCOPE failure:
+1. Search existing issues: \`gh issue list -S "flaky test name" --json number,title,body\`
+2. Search for infrastructure issues: \`gh issue list -S "infrastructure failure type" --json number,title,body\`
+3. Note existing issue # OR plan to create new issue
+
+### 2e. Write Plan with These Sections
+
+**A. In-Scope Fixes** - All failures that must be fixed to validate implementation
+
+**B. Out-of-Scope with Skip Mechanism** - For each out-of-scope failure:
+- Summary of failure
+- Existing issue # OR "Create new issue with title: [title]"
+- Skip mechanism to use:
+  ${SKIP_MECHANISM_GUIDANCE}
+- File/line to add TODO comment: \`// TODO(#NNN): [brief description]\`
+
+### 2f. Exit Plan Mode
+Call ExitPlanMode when plan is complete.
+
+## Step 3: Execute Plan (After Exiting Plan Mode)
+
+1. Use Task tool with subagent_type="accept-edits" to implement ALL in-scope fixes
+
+2. For out-of-scope items:
+   a. Skip tests/steps using planned mechanism:
+      - Test framework: Add skip annotations (it.skip, t.Skip, @pytest.mark.skip)
+      - CI step: Add conditional (if: false or label-based)
+   b. Add TODO comment at skip location: \`// TODO(#NNN): [brief description]\`
+   c. Create new issues OR add comments to existing issues (can run in parallel with subagent_type="general-purpose")
+
+3. Execute /commit-merge-push slash command
+
+4. Call wiggum_complete_fix with:
+   - fix_description: Description of in-scope fixes
+   - has_in_scope_fixes: true if any in-scope fixes made, false if all out-of-scope
+   - out_of_scope_issues: Array of issue numbers (both new and existing)
+
+**Failure Details:**
+${failureDetails}`;
+}
+
+/**
+ * Skip mechanism guidance for workflow failures
+ * Provides framework-specific and CI-specific skip patterns
+ */
+export const SKIP_MECHANISM_GUIDANCE = `
+**Test Framework Skipping:**
+- Jest/Vitest: \`it.skip('test name', () => {...})\` or \`describe.skip('suite', ...)\`
+- Go: \`t.Skip("reason")\` at start of test function
+- Python pytest: \`@pytest.mark.skip(reason="...")\` decorator
+
+**CI Step Skipping:**
+- Unconditional: \`if: false\` in workflow step
+- Label-based: \`if: contains(github.event.pull_request.labels.*.name, 'enable-flaky-tests')\`
+- Branch-based: \`if: github.ref == 'refs/heads/main'\`
+
+**Always add TODO comment at skip location:** \`// TODO(#NNN): [brief reason]\`
+`.trim();

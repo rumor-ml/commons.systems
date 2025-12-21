@@ -6,7 +6,7 @@
  *
  * Current coverage: Workflow documentation and requirement specification.
  *
- * TODO: See issue #313 - Add integration tests with mocked GitHub/git for:
+ * TODO(#313): Add integration tests with mocked GitHub/git for:
  * - Full triage workflow cycle (review finds issues → agent triages → fix applied → re-verify)
  * - Fast-path execution (has_in_scope_fixes: false skips state update)
  * - State filtering (completedSteps removal after fix)
@@ -242,7 +242,7 @@ describe('Triage Workflow Integration', () => {
       // // TODO: See issue #XXX - [brief description]
       //
       // Example:
-      // // TODO: See issue #316 - Validate fallback errors before returning
+      // // TODO(#316): Validate fallback errors before returning
       //
       // Provides:
       // - Clear issue reference
@@ -386,6 +386,156 @@ describe('Triage Workflow Integration', () => {
       // - State is read back via comment parsing
       // - Most recent comment with wiggum-state marker is current state
       assert.strictEqual(true, true, 'Test documents state persistence');
+    });
+  });
+
+  describe('Workflow Failure Triage', () => {
+    it('should document workflow failure triage flow', () => {
+      // Workflow failure triage workflow:
+      // 1. Workflow monitoring detects failure (gh_monitor_run or gh_monitor_pr_checks)
+      // 2. formatFixInstructions() called with issueNumber parameter
+      // 3. generateWorkflowTriageInstructions() generates triage instructions
+      // 4. Agent enters plan mode to triage failures
+      // 5. Agent determines in-scope vs out-of-scope for each failure
+      // 6. Agent creates plan with fix and skip mechanisms
+      // 7. Agent implements in-scope fixes
+      // 8. Agent skips out-of-scope tests/steps with appropriate mechanism
+      // 9. Agent calls wiggum_complete_fix with fix_description and out_of_scope_issues
+      // 10. Workflow restarts from Step 1 to re-verify
+      assert.strictEqual(true, true, 'Test documents workflow failure triage');
+    });
+
+    it('should document skip mechanism selection by context', () => {
+      // Skip mechanisms depend on failure type:
+      //
+      // Test Framework Skipping:
+      // - Jest/Vitest: it.skip('test name', () => {...})
+      // - Go: t.Skip("reason") at start of test function
+      // - Python pytest: @pytest.mark.skip(reason="...") decorator
+      //
+      // CI Step Skipping:
+      // - Unconditional: if: false in workflow step
+      // - Label-based: if: contains(github.event.pull_request.labels.*.name, 'enable-flaky-tests')
+      // - Branch-based: if: github.ref == 'refs/heads/main'
+      //
+      // All mechanisms require TODO comment: // TODO(#NNN): [brief reason]
+      assert.strictEqual(true, true, 'Test documents skip mechanisms');
+    });
+
+    it('should document workflow-specific scope criteria', () => {
+      // IN SCOPE for workflow failures (must meet at least one):
+      // - Tests validating code changed in this PR/implementation
+      // - Build failures in modified modules (TypeScript/Go compilation errors)
+      // - Linting/formatting errors in changed files
+      // - Type checking errors in implementation
+      //
+      // OUT OF SCOPE for workflow failures:
+      // - Flaky tests with intermittent failures (check for patterns in recent runs)
+      // - Tests in unrelated modules (not modified by implementation)
+      // - Pre-existing failing tests (compare with main branch: gh run list --branch main)
+      // - Infrastructure issues (network, Docker, GitHub Actions runners)
+      // - Deployment failures when implementation is pre-deployment
+      assert.strictEqual(true, true, 'Test documents workflow scope criteria');
+    });
+
+    it('should document workflow triage in Phase 1', () => {
+      // Phase 1 workflow triage (pre-PR):
+      // 1. handlePhase1MonitorWorkflow() calls monitorRun()
+      // 2. On failure, calls formatFixInstructions() with state.issue.number
+      // 3. generateWorkflowTriageInstructions() returns triage instructions
+      // 4. Agent triages failures against issue scope
+      // 5. Agent fixes in-scope, skips out-of-scope with TODO(#NNN) comments
+      // 6. Agent calls wiggum_complete_fix
+      // 7. State posted to issue comment
+      // 8. Workflow restarts from p1-1 (Monitor Workflow)
+      assert.strictEqual(true, true, 'Test documents Phase 1 workflow triage');
+    });
+
+    it('should document workflow triage in Phase 2', () => {
+      // Phase 2 workflow triage (post-PR):
+      // 1. handlePhase2MonitorWorkflow() calls monitorRun()
+      // 2. On failure, calls formatFixInstructions() with state.issue.number
+      // 3. generateWorkflowTriageInstructions() returns triage instructions
+      // 4. Agent triages failures against issue scope
+      // 5. Agent fixes in-scope, skips out-of-scope with TODO(#NNN) comments
+      // 6. Agent calls wiggum_complete_fix
+      // 7. State posted to PR comment
+      // 8. Workflow restarts from p2-1 (Monitor Workflow)
+      assert.strictEqual(true, true, 'Test documents Phase 2 workflow triage');
+    });
+
+    it('should document PR checks triage in Phase 2', () => {
+      // Phase 2 PR checks triage:
+      // 1. handlePhase2MonitorWorkflow() or handlePhase2MonitorPRChecks() calls monitorPRChecks()
+      // 2. On failure, calls formatFixInstructions() with state.issue.number
+      // 3. generateWorkflowTriageInstructions() returns triage instructions
+      // 4. Agent triages failures (failureType: 'PR checks')
+      // 5. Agent fixes in-scope, skips out-of-scope with TODO(#NNN) comments
+      // 6. Agent calls wiggum_complete_fix
+      // 7. State posted to PR comment
+      // 8. Workflow restarts from p2-2 (Monitor PR Checks)
+      assert.strictEqual(true, true, 'Test documents PR checks triage');
+    });
+
+    it('should document fallback to direct fix when no issue number', () => {
+      // Fallback workflow (no triage):
+      // - When issueNumber is undefined (shouldn't happen in normal flow)
+      // - formatFixInstructions() returns direct fix instructions
+      // - Instructions: Plan → Implement → Commit → Complete
+      // - No triage step
+      // - No scope determination
+      // - All failures treated as in-scope by default
+      assert.strictEqual(true, true, 'Test documents fallback behavior');
+    });
+
+    it('should document skip mechanism with TODO comment format', () => {
+      // TODO comment format for skipped tests/steps:
+      // - Format: // TODO(#NNN): [brief description]
+      // - Location: At skip site (test function, workflow step)
+      // - Example: // TODO(#456): Skip flaky network test - tracked separately
+      // - Brief: 1-2 sentences explaining why skipped
+      // - Issue reference: Must reference tracking issue number
+      assert.strictEqual(true, true, 'Test documents TODO comment format for skips');
+    });
+
+    it('should document existing issue search for workflow failures', () => {
+      // Searching for existing issues:
+      // - Search for flaky tests: gh issue list -S "flaky test name"
+      // - Search for infrastructure: gh issue list -S "infrastructure failure type"
+      // - Check main branch runs: gh run list --branch main
+      // - Compare failure patterns across runs
+      // - Reuse existing issues when possible
+      // - Create new issues only when none exist
+      assert.strictEqual(true, true, 'Test documents existing issue search');
+    });
+
+    it('should document all out-of-scope workflow failure handling', () => {
+      // When all workflow failures are out-of-scope:
+      // 1. Agent triages all failures as OUT OF SCOPE
+      // 2. Agent skips all failing tests/steps with appropriate mechanisms
+      // 3. Agent adds TODO(#NNN) comments at all skip sites
+      // 4. Agent creates/updates issues for all failures
+      // 5. Agent calls wiggum_complete_fix with:
+      //    - fix_description: "All workflow failures were out of scope - skipped X tests/steps"
+      //    - has_in_scope_fixes: false (fast-path)
+      //    - out_of_scope_issues: [123, 456, 789]
+      // 6. Workflow proceeds to next step without re-verification
+      assert.strictEqual(true, true, 'Test documents all out-of-scope handling');
+    });
+
+    it('should document mixed in-scope and out-of-scope workflow failures', () => {
+      // When workflow has both in-scope and out-of-scope failures:
+      // 1. Agent triages each failure individually
+      // 2. Agent fixes in-scope failures (code changes)
+      // 3. Agent skips out-of-scope failures (test framework or CI config)
+      // 4. Agent adds TODO(#NNN) comments for all skipped items
+      // 5. Agent creates/updates issues for out-of-scope items
+      // 6. Agent calls wiggum_complete_fix with:
+      //    - fix_description: "Fixed N in-scope issues, skipped M out-of-scope"
+      //    - has_in_scope_fixes: true (normal path)
+      //    - out_of_scope_issues: [123, 456]
+      // 7. Workflow restarts from monitoring step to re-verify fixes
+      assert.strictEqual(true, true, 'Test documents mixed scope handling');
     });
   });
 });

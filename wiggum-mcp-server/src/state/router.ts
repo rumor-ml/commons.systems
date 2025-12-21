@@ -31,6 +31,7 @@ import {
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
+  generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import type { CurrentState, PRExists } from './types.js';
@@ -158,19 +159,32 @@ async function safePostStateComment(
 /**
  * Format fix instructions for workflow/check failures
  *
- * Generates standardized fix instructions for any workflow or check failure,
- * including the complete Plan -> Fix -> Commit -> Complete cycle.
+ * Generates standardized fix instructions for any workflow or check failure.
+ * If issueNumber is provided, uses triage workflow to separate in-scope from out-of-scope failures.
+ * Otherwise, provides direct fix instructions for the complete Plan -> Fix -> Commit -> Complete cycle.
  *
  * @param failureType - Type of failure (e.g., "Workflow", "PR checks")
  * @param failureDetails - Detailed error information from gh_get_failure_details
  * @param defaultMessage - Fallback message if no failure details available
+ * @param issueNumber - Optional issue number to enable triage mode
  * @returns Formatted markdown instructions for fixing the failure
  */
 function formatFixInstructions(
   failureType: string,
   failureDetails: string | undefined,
-  defaultMessage: string
+  defaultMessage: string,
+  issueNumber?: number
 ): string {
+  // If issueNumber provided, use triage workflow
+  if (issueNumber !== undefined) {
+    return generateWorkflowTriageInstructions(
+      issueNumber,
+      failureType as 'Workflow' | 'PR checks',
+      failureDetails || defaultMessage
+    );
+  }
+
+  // Fall back to direct fix instructions if no issueNumber
   return `${failureType} failed. Follow these steps to fix:
 
 1. Analyze the error details below (includes test failures, stack traces, file locations)
@@ -257,35 +271,38 @@ async function handlePhase1MonitorWorkflow(
     current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
     step_number: STEP_PHASE1_MONITOR_WORKFLOW,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 1: Monitor Feature Branch Workflow
-
-The feature branch workflow must complete successfully before proceeding to reviews.
-
-**Instructions:**
-
-1. Use the \`gh_monitor_run\` MCP tool to monitor the feature branch workflow:
-   - Branch: ${state.git.currentBranch}
-   - Timeout: 10 minutes
-
-2. If the workflow succeeds:
-   - Post completion comment to issue #${issueNumber}
-   - Mark step p1-1 complete
-   - Proceed to Step p1-2 (Code Review - Pre-PR)
-
-3. If the workflow fails:
-   - Get failure details using \`gh_get_failure_details\`
-   - Post failure summary to issue #${issueNumber}
-   - Use Task tool with subagent_type='Plan' to create fix plan
-   - Use Task tool with subagent_type='accept-edits' to implement fixes
-   - Execute /commit-merge-push
-   - Call wiggum_complete_fix tool with fix description
-
-The feature branch workflow runs tests and builds for changed modules only (no deployments).`,
+    instructions: '',
     steps_completed_by_tool: [],
     context: {
       current_branch: state.git.currentBranch,
     },
   };
+
+  // Call monitoring tool directly
+  const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
+
+  if (result.success) {
+    // Workflow succeeded - mark step complete and continue to p1-2
+    output.instructions = `Feature branch workflow completed successfully.
+
+Proceed to Step p1-2: PR Review (Pre-PR).`;
+    output.steps_completed_by_tool = [
+      'Monitored workflow run until completion',
+      'Workflow passed - ready for PR review',
+    ];
+  } else {
+    // Workflow failed - return triage instructions with issue number
+    output.instructions = formatFixInstructions(
+      'Workflow',
+      result.failureDetails || result.errorSummary,
+      'See workflow logs for details',
+      issueNumber
+    );
+    output.steps_completed_by_tool = [
+      'Monitored workflow run until first failure',
+      'Retrieved complete failure details via gh_get_failure_details tool',
+    ];
+  }
 
   return {
     content: [{ type: 'text', text: formatWiggumResponse(output) }],
@@ -425,7 +442,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
-  // TODO: See issue #378 - Use hasExistingPR type guard instead of inline check
+  // TODO(#378): Use hasExistingPR type guard instead of inline check
   if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
@@ -569,11 +586,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
     if (!prChecksResult.success) {
-      // PR checks failed - return fix instructions
+      // PR checks failed - return fix instructions with triage
       output.instructions = formatFixInstructions(
         'PR checks',
         prChecksResult.failureDetails || prChecksResult.errorSummary,
-        'See PR checks for details'
+        'See PR checks for details',
+        updatedState.issue.number
       );
       output.steps_completed_by_tool = [
         ...stepsCompleted,
@@ -621,11 +639,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       stepsCompleted
     );
   } else {
-    // Return fix instructions
+    // Return fix instructions with triage
     output.instructions = formatFixInstructions(
       'Workflow',
       result.failureDetails || result.errorSummary,
-      'See workflow logs for details'
+      'See workflow logs for details',
+      state.issue.number
     );
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
@@ -698,11 +717,12 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       stepsCompleted
     );
   } else {
-    // Return fix instructions
+    // Return fix instructions with triage
     output.instructions = formatFixInstructions(
       'PR checks',
       result.failureDetails || result.errorSummary,
-      'See PR checks for details'
+      'See PR checks for details',
+      state.issue.number
     );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',

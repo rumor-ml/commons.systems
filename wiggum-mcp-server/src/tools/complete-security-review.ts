@@ -11,11 +11,7 @@ import {
   SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import {
-  completeReview,
-  type ReviewCompletionInput,
-  type ReviewConfig,
-} from './review-completion-helper.js';
+import { completeReview, type ReviewConfig } from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
@@ -47,18 +43,10 @@ const SECURITY_REVIEW_CONFIG: ReviewConfig = {
 /**
  * Complete security review and update state
  *
- * TODO: See issue #314 - Replace silent fallback with ValidationError when issueNumber undefined
+ * TODO(#314): Replace silent fallback with ValidationError when issueNumber undefined
  */
 export async function completeSecurityReview(
   input: CompleteSecurityReviewInput
 ): Promise<ToolResult> {
-  const reviewInput: ReviewCompletionInput = {
-    command_executed: input.command_executed,
-    verbatim_response: input.verbatim_response,
-    high_priority_issues: input.high_priority_issues,
-    medium_priority_issues: input.medium_priority_issues,
-    low_priority_issues: input.low_priority_issues,
-  };
-
-  return completeReview(reviewInput, SECURITY_REVIEW_CONFIG);
+  return completeReview(input, SECURITY_REVIEW_CONFIG);
 }

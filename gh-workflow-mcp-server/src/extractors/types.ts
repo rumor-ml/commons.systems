@@ -276,7 +276,7 @@ export class ValidationErrorTracker {
  * @returns Always returns an ExtractedError (validated or fallback)
  * @throws Non-Zod errors (bugs in extraction code)
  */
-// TODO: See issue #332 - Ensure all fallback paths in extractors use this validation tracker consistently
+// TODO(#332): Ensure all fallback paths in extractors use this validation tracker consistently
 export function safeValidateExtractedError(
   data: unknown,
   context: string,
