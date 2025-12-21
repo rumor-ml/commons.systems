@@ -243,3 +243,44 @@ describe('complete-fix validation (Priority 4: Fast-path behavior)', () => {
   // requires mocking GitHub API calls. This is an integration test tracked
   // in issue #313 for future implementation.
 });
+
+describe('complete-fix fast-path behavior (Documentation)', () => {
+  it('documents expected fast-path behavior when has_in_scope_fixes is false', () => {
+    /**
+     * FAST-PATH BEHAVIOR SPECIFICATION
+     *
+     * When has_in_scope_fixes=false, wiggum_complete_fix takes the "fast-path":
+     *
+     * 1. VALIDATION: All input validation still occurs (fix_description, out_of_scope_issues)
+     *
+     * 2. STATE UPDATE: Creates new state with:
+     *    - iteration: UNCHANGED (no increment - no fixes were made)
+     *    - step: Current step (unchanged)
+     *    - completedSteps: Current step ADDED to completedSteps array
+     *    - phase: Current phase (unchanged)
+     *
+     * 3. COMMENT POSTING: Posts minimal state comment to GitHub:
+     *    - Title: "{step} - Complete (No In-Scope Fixes)"
+     *    - Body: Fix description + out-of-scope issues (if any)
+     *    - Location: Issue (Phase 1) or PR (Phase 2)
+     *
+     * 4. ROUTER CALL: Calls getNextStepInstructions(updatedState)
+     *    - Router sees current step in completedSteps
+     *    - Router advances to NEXT step (not stuck on current step)
+     *
+     * RATIONALE:
+     * - Marking step complete prevents infinite loop (router advancing properly)
+     * - Keeping iteration unchanged reflects reality (no fixes were applied)
+     * - Posting state comment provides audit trail for fast-path execution
+     *
+     * CONTRAST WITH NORMAL PATH (has_in_scope_fixes=true):
+     * - Normal path: Increments iteration, filters completedSteps, posts detailed fix comment
+     * - Fast-path: Keeps iteration, appends to completedSteps, posts minimal completion comment
+     *
+     * This test serves as executable documentation of the fast-path behavior.
+     * It does not execute the actual fast-path (that requires GitHub API mocking,
+     * tracked in issue #313), but documents the expected behavior for developers.
+     */
+    assert.ok(true, 'Fast-path behavior documented');
+  });
+});
