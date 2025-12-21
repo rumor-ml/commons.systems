@@ -17,6 +17,14 @@ export const test = base.extend<AuthFixtures>({
 
     // Initialize Firebase Admin SDK for creating custom tokens
     if (!admin.apps.length) {
+      // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
+      // In CI, this env var points to a service account key file. Firebase Admin SDK
+      // tries to load it BEFORE checking if we're connecting to an emulator, causing
+      // invalid custom tokens. The emulator doesn't need credentials.
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      }
+
       admin.initializeApp({
         projectId: 'demo-test',
       });
