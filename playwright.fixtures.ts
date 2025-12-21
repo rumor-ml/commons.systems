@@ -15,19 +15,28 @@ export const test = base.extend<AuthFixtures>({
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
 
-    // Initialize Firebase Admin SDK for creating custom tokens
-    if (!admin.apps.length) {
-      // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
-      // In CI, this env var points to a service account key file. Firebase Admin SDK
-      // tries to load it BEFORE checking if we're connecting to an emulator, causing
-      // invalid custom tokens. The emulator doesn't need credentials.
-      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
-      }
+    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
+    // In CI, this env var points to a service account key file. Firebase Admin SDK
+    // tries to load it BEFORE checking if we're connecting to an emulator, causing
+    // invalid custom tokens. The emulator doesn't need credentials, so we explicitly
+    // remove the env var before initialization.
+    const savedCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (savedCredentials) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
 
-      admin.initializeApp({
+    // Initialize Firebase Admin SDK for creating custom tokens
+    // Use default app if available, otherwise create it
+    let app;
+    let adminAuth;
+    if (admin.apps.length > 0) {
+      app = admin.app();
+      adminAuth = admin.auth(app);
+    } else {
+      app = admin.initializeApp({
         projectId: 'demo-test',
       });
+      adminAuth = admin.auth(app);
     }
 
     // Store console errors for test assertions
@@ -66,7 +75,7 @@ export const test = base.extend<AuthFixtures>({
       // Get user UID (need this to create custom token)
       let uid: string;
       try {
-        const userRecord = await admin.auth().getUserByEmail(email);
+        const userRecord = await adminAuth.getUserByEmail(email);
         uid = userRecord.uid;
       } catch (error) {
         // User doesn't exist, create it first
@@ -74,7 +83,7 @@ export const test = base.extend<AuthFixtures>({
       }
 
       // Create custom token using Admin SDK (works with emulator, no provider config needed)
-      const customToken = await admin.auth().createCustomToken(uid);
+      const customToken = await adminAuth.createCustomToken(uid);
 
       // Wait for Firebase SDK to be initialized in the page
       await page.waitForFunction(
@@ -131,6 +140,11 @@ export const test = base.extend<AuthFixtures>({
     };
 
     await use({ createTestUser, signInTestUser, signOutTestUser });
+
+    // Restore GOOGLE_APPLICATION_CREDENTIALS if it was set
+    if (savedCredentials) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = savedCredentials;
+    }
   },
 });
 
