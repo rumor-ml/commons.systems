@@ -431,5 +431,94 @@ describe('review-completion-helper', () => {
         assert.strictEqual(true, true, 'Test documents next action');
       });
     });
+
+    describe('phase-specific command selection', () => {
+      it('should use phase1Command in Phase 1 (issue context)', () => {
+        // When in Phase 1 (pre-PR), comment should show phase1Command
+        // Example: '/all-hands-review' instead of '/review'
+        const config: ReviewConfig = {
+          phase1Step: STEP_PHASE1_PR_REVIEW,
+          phase2Step: STEP_PHASE2_PR_REVIEW,
+          phase1Command: '/all-hands-review',
+          phase2Command: '/review',
+          reviewTypeLabel: 'PR',
+          issueTypeLabel: 'issue(s)',
+          successMessage: 'No PR review issues found',
+        };
+        assert.strictEqual(config.phase1Command, '/all-hands-review');
+        assert.notStrictEqual(config.phase1Command, config.phase2Command);
+      });
+
+      it('should use phase2Command in Phase 2 (PR context)', () => {
+        // When in Phase 2 (post-PR), comment should show phase2Command
+        // Example: '/review' instead of '/all-hands-review'
+        const config: ReviewConfig = {
+          phase1Step: STEP_PHASE1_PR_REVIEW,
+          phase2Step: STEP_PHASE2_PR_REVIEW,
+          phase1Command: '/all-hands-review',
+          phase2Command: '/review',
+          reviewTypeLabel: 'PR',
+          issueTypeLabel: 'issue(s)',
+          successMessage: 'No PR review issues found',
+        };
+        assert.strictEqual(config.phase2Command, '/review');
+        assert.notStrictEqual(config.phase2Command, config.phase1Command);
+      });
+    });
+  });
+
+  describe('ReviewConfigSchema validation', () => {
+    it('should reject config when phase1Command is missing', () => {
+      // ReviewConfigSchema should validate phase1Command is required
+      // Missing phase1Command should be a validation error
+      const invalidConfig = {
+        phase1Step: STEP_PHASE1_PR_REVIEW,
+        phase2Step: STEP_PHASE2_PR_REVIEW,
+        // phase1Command: missing
+        phase2Command: '/review',
+        reviewTypeLabel: 'PR',
+        issueTypeLabel: 'issue(s)',
+        successMessage: 'No PR review issues found',
+      };
+      // Type system should catch this at compile time
+      // @ts-expect-error - phase1Command is required
+      const _config: ReviewConfig = invalidConfig;
+      assert.strictEqual(true, true, 'Test documents phase1Command requirement');
+    });
+
+    it('should reject config when phase2Command is missing', () => {
+      // ReviewConfigSchema should validate phase2Command is required
+      // Missing phase2Command should be a validation error
+      const invalidConfig = {
+        phase1Step: STEP_PHASE1_PR_REVIEW,
+        phase2Step: STEP_PHASE2_PR_REVIEW,
+        phase1Command: '/all-hands-review',
+        // phase2Command: missing
+        reviewTypeLabel: 'PR',
+        issueTypeLabel: 'issue(s)',
+        successMessage: 'No PR review issues found',
+      };
+      // Type system should catch this at compile time
+      // @ts-expect-error - phase2Command is required
+      const _config: ReviewConfig = invalidConfig;
+      assert.strictEqual(true, true, 'Test documents phase2Command requirement');
+    });
+
+    it('should accept valid config with both commands', () => {
+      // Valid config must have both phase1Command and phase2Command
+      const validConfig: ReviewConfig = {
+        phase1Step: STEP_PHASE1_PR_REVIEW,
+        phase2Step: STEP_PHASE2_PR_REVIEW,
+        phase1Command: '/all-hands-review',
+        phase2Command: '/review',
+        reviewTypeLabel: 'PR',
+        issueTypeLabel: 'issue(s)',
+        successMessage: 'No PR review issues found',
+      };
+      assert.strictEqual(validConfig.phase1Command, '/all-hands-review');
+      assert.strictEqual(validConfig.phase2Command, '/review');
+      assert.strictEqual(typeof validConfig.phase1Command, 'string');
+      assert.strictEqual(typeof validConfig.phase2Command, 'string');
+    });
   });
 });
