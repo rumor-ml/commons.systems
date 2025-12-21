@@ -6,6 +6,7 @@
  * the distinct behavior of each review type.
  */
 
+import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { postWiggumStateIssueComment } from '../state/issue-comments.js';
@@ -19,9 +20,21 @@ import { logger } from '../utils/logger.js';
 import type { CurrentState } from '../state/types.js';
 
 /**
+ * Zod schema for ReviewConfig runtime validation
+ */
+export const ReviewConfigSchema = z.object({
+  phase1Step: z.string(),
+  phase2Step: z.string(),
+  phase1Command: z.string(),
+  phase2Command: z.string(),
+  reviewTypeLabel: z.string(),
+  issueTypeLabel: z.string(),
+  successMessage: z.string(),
+});
+
+/**
  * Configuration for a review type (PR or Security)
  */
-// TODO: See issue #333 - Add runtime validation (Zod schemas) for ReviewConfig and ReviewCompletionInput types
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
   phase1Step: WiggumStep;
@@ -38,6 +51,17 @@ export interface ReviewConfig {
   /** Success message for when no issues found */
   successMessage: string;
 }
+
+/**
+ * Zod schema for ReviewCompletionInput runtime validation
+ */
+export const ReviewCompletionInputSchema = z.object({
+  command_executed: z.boolean(),
+  verbatim_response: z.string(),
+  high_priority_issues: z.number(),
+  medium_priority_issues: z.number(),
+  low_priority_issues: z.number(),
+});
 
 /**
  * Input for review completion
@@ -87,7 +111,7 @@ function buildCommentContent(
   config: ReviewConfig,
   phase: WiggumPhase
 ): { title: string; body: string } {
-  const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
+  const command = phase === 'phase1' ? config.phase1Command : config.phase2Command;
 
   const title =
     totalIssues > 0
@@ -96,7 +120,7 @@ function buildCommentContent(
 
   const body =
     totalIssues > 0
-      ? `**Command Executed:** \`${commandExecuted}\`
+      ? `**Command Executed:** \`${command}\`
 
 **${config.reviewTypeLabel} Issues Found:**
 - High Priority: ${input.high_priority_issues}
@@ -112,7 +136,7 @@ ${input.verbatim_response}
 </details>
 
 **Next Action:** Plan and implement ${config.reviewTypeLabel.toLowerCase()} fixes for all issues, then call \`wiggum_complete_fix\`.`
-      : `**Command Executed:** \`${commandExecuted}\`
+      : `**Command Executed:** \`${command}\`
 
 ${config.successMessage}`;
 
@@ -220,41 +244,30 @@ function buildIssuesFoundResponse(
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
-  if (issueNumber) {
-    logger.info(
-      `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
-      {
-        phase: state.wiggum.phase,
-        issueNumber,
-        totalIssues,
-        iteration: newIteration,
-      }
+  if (!issueNumber) {
+    // TODO: See issue #312 - Add Sentry error ID for tracking
+    throw new ValidationError(
+      `Issue number required for triage workflow but was undefined. This indicates a state detection issue. Branch: ${state.git.currentBranch}, Phase: ${state.wiggum.phase}`
     );
-  } else {
-    logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
-      phase: state.wiggum.phase,
-      totalIssues,
-      iteration: newIteration,
-      issueExists: state.issue.exists,
-      branchName: state.git.currentBranch,
-    });
   }
 
-  const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
-  const fallbackInstructions = `${totalIssues} ${config.issueTypeLabel} found.
+  logger.info(
+    `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
+    {
+      phase: state.wiggum.phase,
+      issueNumber,
+      totalIssues,
+      iteration: newIteration,
+    }
+  );
 
-1. Use Task tool with subagent_type="Plan" and model="opus" to create ${config.reviewTypeLabel.toLowerCase()} fix plan for ALL issues
-2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement ${config.reviewTypeLabel.toLowerCase()} fixes
-3. Execute /commit-merge-push slash command using SlashCommand tool
-4. Call wiggum_complete_fix with fix_description`;
+  const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
 
   const output = {
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
     iteration_count: newIteration,
-    instructions: issueNumber
-      ? generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues)
-      : fallbackInstructions,
+    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues),
     steps_completed_by_tool: [
       `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',

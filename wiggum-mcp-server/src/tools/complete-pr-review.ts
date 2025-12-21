@@ -50,8 +50,7 @@ const PR_REVIEW_CONFIG: ReviewConfig = {
 
 /**
  * Complete PR review and update state
- */
-/**
+ *
  * TODO: See issue #314 - Replace silent fallback with ValidationError when issueNumber undefined
  */
 export async function completePRReview(input: CompletePRReviewInput): Promise<ToolResult> {

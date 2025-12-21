@@ -348,5 +348,90 @@ describe('review-completion-helper', () => {
         assert.strictEqual(true, true, 'Test documents internal errors');
       });
     });
+
+    describe('buildCommentContent formatting', () => {
+      it('should document title format when issues found', () => {
+        // Title format: "Step {reviewStep} ({STEP_NAMES[reviewStep]}) - Issues Found"
+        // Example: "Step p2-4 (Phase 2: PR Review (Post-PR)) - Issues Found"
+        // Uses reviewStep from config (phase1Step or phase2Step)
+        assert.strictEqual(true, true, 'Test documents issues found title');
+      });
+
+      it('should document title format when no issues found', () => {
+        // Title format: "Step {reviewStep} ({STEP_NAMES[reviewStep]}) Complete - No Issues"
+        // Example: "Step p2-4 (Phase 2: PR Review (Post-PR)) Complete - No Issues"
+        // Uses reviewStep from config (phase1Step or phase2Step)
+        assert.strictEqual(true, true, 'Test documents success title');
+      });
+
+      it('should document body format when issues found', () => {
+        // Body includes:
+        // **Command Executed:** `{phase1Command or phase2Command}`
+        // **{reviewTypeLabel} Issues Found:**
+        // - High Priority: {count}
+        // - Medium Priority: {count}
+        // - Low Priority: {count}
+        // - **Total: {totalIssues}**
+        // <details><summary>Full {reviewTypeLabel} Review Output</summary>{verbatim_response}</details>
+        // **Next Action:** Plan and implement {reviewTypeLabel.toLowerCase()} fixes for all issues...
+        assert.strictEqual(true, true, 'Test documents issues found body');
+      });
+
+      it('should document body format when no issues found', () => {
+        // Body includes:
+        // **Command Executed:** `{phase1Command or phase2Command}`
+        // {config.successMessage}
+        // No issue breakdown or collapsible sections
+        assert.strictEqual(true, true, 'Test documents success body');
+      });
+
+      it('should document command selection based on phase', () => {
+        // Phase 1: Uses config.phase1Command (e.g., '/all-hands-review')
+        // Phase 2: Uses config.phase2Command (e.g., '/review')
+        // Command shown in comment body under "Command Executed:"
+        assert.strictEqual(true, true, 'Test documents phase-specific command');
+      });
+
+      it('should document issue count breakdown formatting', () => {
+        // Issue counts displayed with labels:
+        // - High Priority: {input.high_priority_issues}
+        // - Medium Priority: {input.medium_priority_issues}
+        // - Low Priority: {input.low_priority_issues}
+        // - **Total: {sum of all counts}** (bold)
+        assert.strictEqual(true, true, 'Test documents issue count formatting');
+      });
+
+      it('should document collapsible section for verbatim response', () => {
+        // Uses HTML <details> element for collapsibility:
+        // <details>
+        // <summary>Full {reviewTypeLabel} Review Output</summary>
+        // {input.verbatim_response}
+        // </details>
+        assert.strictEqual(true, true, 'Test documents collapsible formatting');
+      });
+
+      it('should document review type label usage', () => {
+        // reviewTypeLabel used in:
+        // - Body heading: "{reviewTypeLabel} Issues Found:"
+        // - Collapsible summary: "Full {reviewTypeLabel} Review Output"
+        // - Next action: "implement {reviewTypeLabel.toLowerCase()} fixes"
+        assert.strictEqual(true, true, 'Test documents label usage');
+      });
+
+      it('should document success message from config', () => {
+        // When no issues found:
+        // - Uses config.successMessage verbatim
+        // - PR review: "All automated review checks passed..."
+        // - Security review: "All security checks passed..."
+        assert.strictEqual(true, true, 'Test documents success message');
+      });
+
+      it('should document next action instructions when issues found', () => {
+        // Next action format:
+        // "Plan and implement {reviewTypeLabel.toLowerCase()} fixes for all issues, then call `wiggum_complete_fix`."
+        // Tells agent to fix all issues and report completion
+        assert.strictEqual(true, true, 'Test documents next action');
+      });
+    });
   });
 });

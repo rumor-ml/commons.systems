@@ -46,8 +46,7 @@ const SECURITY_REVIEW_CONFIG: ReviewConfig = {
 
 /**
  * Complete security review and update state
- */
-/**
+ *
  * TODO: See issue #314 - Replace silent fallback with ValidationError when issueNumber undefined
  */
 export async function completeSecurityReview(

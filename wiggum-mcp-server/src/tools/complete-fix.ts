@@ -179,7 +179,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     // Get updated state and return next step instructions
     // The router will now advance to the next step since current step is in completedSteps
-    // TODO: See issue #323 - Potential race condition: detectCurrentState() may read stale GitHub data
+    // TODO: See issue #376 - Potential race condition: detectCurrentState() may read stale GitHub data
     const updatedState = await detectCurrentState();
     return await getNextStepInstructions(updatedState);
   }
@@ -207,7 +207,7 @@ ${input.fix_description}${outOfScopeSection}
     completedStepsBefore: state.wiggum.completedSteps,
   });
 
-  // TODO: See issue #334 - Add validation for unknown steps in filter
+  // TODO: See issue #377 - Add validation for unknown steps in filter
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
     const stepIndex = STEP_ORDER.indexOf(step);
     return stepIndex < currentStepIndex;
