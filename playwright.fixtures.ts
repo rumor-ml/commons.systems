@@ -10,20 +10,18 @@ type AuthFixtures = {
   };
 };
 
+// CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS at module load time
+// This must happen BEFORE any Firebase Admin SDK is imported or initialized.
+// In CI, this env var points to production credentials which cause invalid custom tokens.
+const isCI = !!process.env.CI;
+if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+}
+
 export const test = base.extend<AuthFixtures>({
   authEmulator: async ({ page }, use) => {
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
-
-    // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
-    // In CI, this env var points to a service account key file. Firebase Admin SDK
-    // tries to load it BEFORE checking if we're connecting to an emulator, causing
-    // invalid custom tokens. The emulator doesn't need credentials.
-    // Deleting it in THIS process ensures admin.initializeApp() won't try to load it.
-    const isCI = !!process.env.CI;
-    if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    }
 
     // Initialize Firebase Admin SDK for creating custom tokens
     // Use default app if available, otherwise create it
