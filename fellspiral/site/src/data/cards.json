@@ -431,9 +431,7 @@
     "title": "Pin",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If opponent has pinned condition: on success, opponent remains pinned for 1 round."
-    ],
+    "tags": ["If opponent has pinned condition: on success, opponent remains pinned for 1 round."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -543,9 +541,7 @@
     "title": "Grit",
     "type": "Skill",
     "subtype": "Tenacity",
-    "tags": [
-      "On success, 1 slot damage is directed to this skill, but maintain the initiative."
-    ],
+    "tags": ["On success, 1 slot damage is directed to this skill, but maintain the initiative."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -705,10 +701,7 @@
     "title": "Ghoul",
     "type": "Origin",
     "subtype": "Vampire",
-    "tags": [
-      "Claw x2: d6, 2 slot, on crit also pin",
-      "Bite: evade or bleed until resist"
-    ],
+    "tags": ["Claw x2: d6, 2 slot, on crit also pin", "Bite: evade or bleed until resist"],
     "description": "6 AC",
     "stat1": "24 pt",
     "stat2": "",
