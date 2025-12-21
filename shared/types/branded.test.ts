@@ -6,26 +6,26 @@ import { describe, it, expect } from 'vitest';
 import { ZodError } from 'zod';
 import {
   createPort,
-  createURL,
+  createURLString,
   createTimestamp,
   createSessionID,
   createUserID,
   createFileID,
   createPortZod,
-  createURLZod,
+  createURLStringZod,
   createTimestampZod,
   createSessionIDZod,
   createUserIDZod,
   createFileIDZod,
   PortSchema,
-  URLSchema,
+  URLStringSchema,
   TimestampSchema,
   SessionIDSchema,
   UserIDSchema,
   FileIDSchema,
   unwrap,
   type Port,
-  type URL,
+  type URLString,
   type Timestamp,
   type SessionID,
   type UserID,
@@ -58,24 +58,57 @@ describe('createPort', () => {
     const port: Port = createPort(3000);
     expect(port).toBe(3000);
   });
+
+  it('rejects objects with valueOf that could coerce to valid ports', () => {
+    const obj = {
+      valueOf() { return 3000; }
+    };
+    // TypeScript would catch this, but test runtime behavior
+    expect(() => createPort(obj as any)).toThrow('Port must be an integer');
+  });
 });
 
-describe('createURL', () => {
+describe('createURLString', () => {
   it('creates valid URLs', () => {
-    expect(createURL('https://example.com')).toBe('https://example.com');
-    expect(createURL('http://localhost:3000')).toBe('http://localhost:3000');
-    expect(createURL('https://example.com/path?query=1')).toBe('https://example.com/path?query=1');
+    expect(createURLString('https://example.com')).toBe('https://example.com');
+    expect(createURLString('http://localhost:3000')).toBe('http://localhost:3000');
+    expect(createURLString('https://example.com/path?query=1')).toBe('https://example.com/path?query=1');
   });
 
   it('rejects malformed URLs', () => {
-    expect(() => createURL('not a url')).toThrow('Invalid URL');
-    expect(() => createURL('')).toThrow('Invalid URL');
-    expect(() => createURL('//example.com')).toThrow('Invalid URL');
+    expect(() => createURLString('not a url')).toThrow('Invalid URL');
+    expect(() => createURLString('')).toThrow('Invalid URL');
+    expect(() => createURLString('//example.com')).toThrow('Invalid URL');
   });
 
-  it('returns branded URL type', () => {
-    const url: URL = createURL('https://example.com');
+  it('returns branded URLString type', () => {
+    const url: URLString = createURLString('https://example.com');
     expect(url).toBe('https://example.com');
+  });
+
+  it('accepts non-HTTP URL schemes', () => {
+    // file:// URLs
+    expect(createURLString('file:///path/to/file.txt')).toBe('file:///path/to/file.txt');
+
+    // ftp:// URLs
+    expect(createURLString('ftp://ftp.example.com/file.zip')).toBe('ftp://ftp.example.com/file.zip');
+
+    // ws:// and wss:// WebSocket URLs
+    expect(createURLString('ws://localhost:8080')).toBe('ws://localhost:8080');
+    expect(createURLString('wss://example.com/socket')).toBe('wss://example.com/socket');
+
+    // data: URLs
+    expect(createURLString('data:text/plain;base64,SGVsbG8=')).toBe('data:text/plain;base64,SGVsbG8=');
+  });
+
+  it('accepts javascript: URLs (caller must validate scheme for security)', () => {
+    // javascript: URLs are technically valid per URL spec
+    // Applications should implement additional scheme validation if needed for security
+    const jsUrl = createURLString('javascript:alert(1)');
+    expect(jsUrl).toBe('javascript:alert(1)');
+
+    // Note: If your application needs to reject certain schemes for security,
+    // add additional validation in your application layer
   });
 });
 
@@ -99,6 +132,18 @@ describe('createTimestamp', () => {
     const ms = 1704067200000; // 2024-01-01T00:00:00Z
     const timestamp = createTimestamp(ms);
     expect(timestamp).toBe(ms);
+  });
+
+  it('accepts Unix epoch (timestamp 0)', () => {
+    // Unix epoch (January 1, 1970 00:00:00 UTC) is intentionally valid
+    const epoch = createTimestamp(0);
+    expect(epoch).toBe(0);
+  });
+
+  it('accepts decimal milliseconds', () => {
+    // Timestamps with fractional milliseconds should be accepted
+    const withDecimals = createTimestamp(1704067200000.123);
+    expect(withDecimals).toBe(1704067200000.123);
   });
 
   it('rejects negative timestamps', () => {
@@ -155,6 +200,25 @@ describe('createSessionID', () => {
     const sessionId: SessionID = createSessionID('session123');
     expect(sessionId).toBe('session123');
   });
+
+  it('accepts session IDs with special characters', () => {
+    expect(createSessionID('session-with-dashes')).toBe('session-with-dashes');
+    expect(createSessionID('session_with_underscores')).toBe('session_with_underscores');
+    expect(createSessionID('session.with.dots')).toBe('session.with.dots');
+    expect(createSessionID('session:with:colons')).toBe('session:with:colons');
+  });
+
+  it('accepts session IDs with Unicode and emojis', () => {
+    expect(createSessionID('session-café')).toBe('session-café');
+    expect(createSessionID('session-🎉')).toBe('session-🎉');
+  });
+
+  it('accepts session IDs with whitespace (not trimmed)', () => {
+    // Whitespace is not trimmed - IDs are used exactly as provided
+    expect(createSessionID(' leading')).toBe(' leading');
+    expect(createSessionID('trailing ')).toBe('trailing ');
+    expect(createSessionID('  ')).toBe('  '); // Whitespace-only is technically valid
+  });
 });
 
 describe('createUserID', () => {
@@ -179,6 +243,23 @@ describe('createUserID', () => {
   it('returns branded UserID type', () => {
     const userId: UserID = createUserID('user123');
     expect(userId).toBe('user123');
+  });
+
+  it('accepts user IDs with special characters', () => {
+    expect(createUserID('user-with-dashes')).toBe('user-with-dashes');
+    expect(createUserID('user_with_underscores')).toBe('user_with_underscores');
+    expect(createUserID('user.with.dots')).toBe('user.with.dots');
+    expect(createUserID('user@example.com')).toBe('user@example.com');
+  });
+
+  it('accepts user IDs with Unicode and emojis', () => {
+    expect(createUserID('user-名前')).toBe('user-名前');
+    expect(createUserID('user-🚀')).toBe('user-🚀');
+  });
+
+  it('accepts user IDs with whitespace (not trimmed)', () => {
+    expect(createUserID(' user ')).toBe(' user ');
+    expect(createUserID('   ')).toBe('   '); // Whitespace-only is technically valid
   });
 });
 
@@ -205,6 +286,27 @@ describe('createFileID', () => {
     const fileId: FileID = createFileID('hash123');
     expect(fileId).toBe('hash123');
   });
+
+  it('accepts file IDs with various formats', () => {
+    // SHA-256 hash
+    expect(createFileID('a'.repeat(64))).toBe('a'.repeat(64));
+
+    // UUID
+    expect(createFileID('550e8400-e29b-41d4-a716-446655440000')).toBe('550e8400-e29b-41d4-a716-446655440000');
+
+    // Special characters
+    expect(createFileID('file_id-123.v2')).toBe('file_id-123.v2');
+  });
+
+  it('accepts file IDs with Unicode and emojis', () => {
+    expect(createFileID('file-文件')).toBe('file-文件');
+    expect(createFileID('file-📁')).toBe('file-📁');
+  });
+
+  it('accepts file IDs with whitespace (not trimmed)', () => {
+    expect(createFileID(' file ')).toBe(' file ');
+    expect(createFileID('    ')).toBe('    '); // Whitespace-only is technically valid
+  });
 });
 
 describe('unwrap', () => {
@@ -214,8 +316,8 @@ describe('unwrap', () => {
     expect(num).toBe(3000);
   });
 
-  it('unwraps URL to string', () => {
-    const url = createURL('https://example.com');
+  it('unwraps URLString to string', () => {
+    const url = createURLString('https://example.com');
     const str: string = unwrap(url);
     expect(str).toBe('https://example.com');
   });
@@ -315,12 +417,12 @@ describe('Real-world usage patterns', () => {
   it('API endpoint URLs', () => {
     interface ApiEndpoint {
       name: string;
-      url: URL;
+      url: URLString;
     }
 
     const endpoint: ApiEndpoint = {
       name: 'users',
-      url: createURL('https://api.example.com/users'),
+      url: createURLString('https://api.example.com/users'),
     };
 
     expect(endpoint.url).toBe('https://api.example.com/users');
@@ -367,31 +469,31 @@ describe('createPortZod', () => {
   });
 });
 
-describe('URLSchema', () => {
+describe('URLStringSchema', () => {
   it('validates valid URLs', () => {
-    expect(URLSchema.parse('https://example.com')).toBe('https://example.com');
-    expect(URLSchema.parse('http://localhost:3000')).toBe('http://localhost:3000');
+    expect(URLStringSchema.parse('https://example.com')).toBe('https://example.com');
+    expect(URLStringSchema.parse('http://localhost:3000')).toBe('http://localhost:3000');
   });
 
   it('rejects invalid URLs', () => {
-    expect(() => URLSchema.parse('not a url')).toThrow(ZodError);
-    expect(() => URLSchema.parse('')).toThrow(ZodError);
+    expect(() => URLStringSchema.parse('not a url')).toThrow(ZodError);
+    expect(() => URLStringSchema.parse('')).toThrow(ZodError);
   });
 });
 
-describe('createURLZod', () => {
+describe('createURLStringZod', () => {
   it('creates valid URLs', () => {
-    expect(createURLZod('https://example.com')).toBe('https://example.com');
-    expect(createURLZod('http://localhost:3000')).toBe('http://localhost:3000');
+    expect(createURLStringZod('https://example.com')).toBe('https://example.com');
+    expect(createURLStringZod('http://localhost:3000')).toBe('http://localhost:3000');
   });
 
   it('rejects malformed URLs', () => {
-    expect(() => createURLZod('not a url')).toThrow(ZodError);
-    expect(() => createURLZod('')).toThrow(ZodError);
+    expect(() => createURLStringZod('not a url')).toThrow(ZodError);
+    expect(() => createURLStringZod('')).toThrow(ZodError);
   });
 
-  it('returns branded URL type', () => {
-    const url: URL = createURLZod('https://example.com');
+  it('returns branded URLString type', () => {
+    const url: URLString = createURLStringZod('https://example.com');
     expect(url).toBe('https://example.com');
   });
 });
@@ -525,11 +627,11 @@ describe('Zod and TypeScript validation compatibility', () => {
     expect(ports).toHaveLength(2);
   });
 
-  it('both validators produce compatible URL types', () => {
-    const urlZod = createURLZod('https://example.com');
-    const urlTs = createURL('https://example.com');
+  it('both validators produce compatible URLString types', () => {
+    const urlZod = createURLStringZod('https://example.com');
+    const urlTs = createURLString('https://example.com');
 
-    const urls: URL[] = [urlZod, urlTs];
+    const urls: URLString[] = [urlZod, urlTs];
     expect(urls).toHaveLength(2);
   });
 
@@ -540,5 +642,122 @@ describe('Zod and TypeScript validation compatibility', () => {
 
     const timestamps: Timestamp[] = [timestampZod, timestampTs];
     expect(timestamps).toHaveLength(2);
+  });
+});
+
+describe('Zod safeParse pattern for non-throwing validation', () => {
+  it('demonstrates safeParse success for Port', () => {
+    const result = PortSchema.safeParse(3000);
+
+    if (result.success) {
+      const port: Port = result.data as unknown as Port;
+      expect(port).toBe(3000);
+    } else {
+      // Should not reach here
+      expect.fail('Expected successful parse');
+    }
+  });
+
+  it('demonstrates safeParse failure for Port', () => {
+    const result = PortSchema.safeParse(70000);
+
+    if (!result.success) {
+      expect(result.error).toBeInstanceOf(ZodError);
+      expect(result.error.issues.length).toBeGreaterThan(0);
+    } else {
+      // Should not reach here
+      expect.fail('Expected failed parse');
+    }
+  });
+
+  it('demonstrates safeParse success for URLString', () => {
+    const result = URLStringSchema.safeParse('https://example.com');
+
+    if (result.success) {
+      const url: URLString = result.data as unknown as URLString;
+      expect(url).toBe('https://example.com');
+    } else {
+      expect.fail('Expected successful parse');
+    }
+  });
+
+  it('demonstrates safeParse failure for URLString', () => {
+    const result = URLStringSchema.safeParse('not a url');
+
+    if (!result.success) {
+      expect(result.error).toBeInstanceOf(ZodError);
+      expect(result.error.issues[0].code).toBe('invalid_string');
+    } else {
+      expect.fail('Expected failed parse');
+    }
+  });
+
+  it('demonstrates safeParse success for Timestamp', () => {
+    const result = TimestampSchema.safeParse(Date.now());
+
+    if (result.success) {
+      const timestamp: Timestamp = result.data as unknown as Timestamp;
+      expect(timestamp).toBeGreaterThan(0);
+    } else {
+      expect.fail('Expected successful parse');
+    }
+  });
+
+  it('demonstrates safeParse failure for Timestamp', () => {
+    const result = TimestampSchema.safeParse(-1);
+
+    if (!result.success) {
+      expect(result.error).toBeInstanceOf(ZodError);
+      expect(result.error.issues[0].code).toBe('too_small');
+    } else {
+      expect.fail('Expected failed parse');
+    }
+  });
+
+  it('demonstrates safeParse success for SessionID', () => {
+    const result = SessionIDSchema.safeParse('session123');
+
+    if (result.success) {
+      const sessionId: SessionID = result.data as unknown as SessionID;
+      expect(sessionId).toBe('session123');
+    } else {
+      expect.fail('Expected successful parse');
+    }
+  });
+
+  it('demonstrates safeParse failure for SessionID', () => {
+    const result = SessionIDSchema.safeParse('');
+
+    if (!result.success) {
+      expect(result.error).toBeInstanceOf(ZodError);
+      expect(result.error.issues[0].code).toBe('too_small');
+    } else {
+      expect.fail('Expected failed parse');
+    }
+  });
+
+  it('demonstrates practical safeParse usage pattern', () => {
+    // Common pattern: validate user input without throwing
+    function processPort(input: unknown): { success: true; port: Port } | { success: false; error: string } {
+      const result = PortSchema.safeParse(input);
+
+      if (result.success) {
+        return { success: true, port: result.data as unknown as Port };
+      } else {
+        return { success: false, error: result.error.message };
+      }
+    }
+
+    const validResult = processPort(3000);
+    expect(validResult.success).toBe(true);
+    if (validResult.success) {
+      expect(validResult.port).toBe(3000);
+    }
+
+    const invalidResult = processPort(70000);
+    expect(invalidResult.success).toBe(false);
+    if (!invalidResult.success) {
+      expect(invalidResult.error).toBeTruthy();
+    }
   });
 });

@@ -5,6 +5,24 @@
  * This prevents accidentally passing a regular number where a Port is expected,
  * or mixing up different string-based IDs.
  *
+ * ## Two Validation Approaches
+ *
+ * This module provides two ways to create and validate branded types:
+ *
+ * 1. **TypeScript validators** (e.g., `createPort()`, `createURLString()`):
+ *    - Throw simple Error objects with clear messages
+ *    - Best for internal application code
+ *    - Lighter weight and simpler error handling
+ *
+ * 2. **Zod validators** (e.g., `createPortZod()`, `createURLStringZod()`):
+ *    - Throw ZodError objects with detailed validation information
+ *    - Best for API boundaries and external data validation
+ *    - Support `.safeParse()` for non-throwing validation
+ *    - Can be composed with other Zod schemas
+ *
+ * Both approaches produce identical branded types that are fully compatible.
+ * Choose based on your error handling needs and architectural boundaries.
+ *
  * @module branded
  */
 
@@ -14,14 +32,25 @@ import { z } from 'zod';
  * Brand utility type
  *
  * Creates a branded type by intersecting the base type with a unique brand.
- * The __brand property is never actually present at runtime - it's a phantom type.
+ * The `__brand` property is a "phantom type" - it exists only at compile-time
+ * for type checking and is completely erased at runtime. This means:
+ *
+ * - Zero runtime overhead: branded values are identical to their base types
+ * - No memory cost: the __brand property never actually exists
+ * - Full compatibility: can be serialized, logged, and stored like base types
+ * - Type safety: TypeScript prevents mixing different branded types at compile-time
  *
  * @example
  * ```typescript
  * type UserId = Brand<string, 'UserId'>;
  * type OrderId = Brand<string, 'OrderId'>;
  *
- * const userId: UserId = 'user123' as UserId; // Type error!
+ * // Type error! Cannot assign plain string to branded type:
+ * // const userId: UserId = 'user123';
+ *
+ * // Type error! Cannot mix different branded types:
+ * // const userId: UserId = orderId;
+ *
  * const userId: UserId = createUserId('user123'); // OK with factory
  * ```
  */
@@ -39,7 +68,7 @@ export type Port = Brand<number, 'Port'>;
  *
  * Represents a validated URL. Prevents accidentally using non-URL strings.
  */
-export type URL = Brand<string, 'URL'>;
+export type URLString = Brand<string, 'URLString'>;
 
 /**
  * Unix timestamp in milliseconds
@@ -63,14 +92,19 @@ export type SessionID = Brand<string, 'SessionID'>;
 export type UserID = Brand<string, 'UserID'>;
 
 /**
- * File ID string (typically a hash)
+ * File ID string
  *
  * Prevents mixing up file IDs with other string identifiers.
+ * Can be any non-empty string up to 256 characters (e.g., content hashes, UUIDs, database IDs).
  */
 export type FileID = Brand<string, 'FileID'>;
 
 /**
  * Create a Port with validation
+ *
+ * Validates that the port number is within the valid TCP/UDP range (0-65535).
+ * This is the standard range for network ports, defined by the 16-bit unsigned
+ * integer limit used in TCP and UDP protocols.
  *
  * @param n - Port number
  * @returns Branded Port type
@@ -93,24 +127,24 @@ export function createPort(n: number): Port {
 }
 
 /**
- * Create a URL with validation
+ * Create a URLString with validation
  *
  * @param s - URL string
- * @returns Branded URL type
+ * @returns Branded URLString type
  * @throws Error if URL is malformed
  *
  * @example
  * ```typescript
- * const url = createURL('https://example.com'); // OK
- * const invalid = createURL('not a url'); // throws Error
+ * const url = createURLString('https://example.com'); // OK
+ * const invalid = createURLString('not a url'); // throws Error
  * ```
  */
-export function createURL(s: string): URL {
+export function createURLString(s: string): URLString {
   try {
-    new globalThis.URL(s); // Validate using URL constructor
-    return s as URL;
+    new URL(s); // Validate using URL constructor
+    return s as URLString;
   } catch (error) {
-    throw new Error(`Invalid URL: ${s}`);
+    throw new Error(`Invalid URL: ${s}`, { cause: error });
   }
 }
 
@@ -153,17 +187,40 @@ export function createTimestamp(input?: number | Date): Timestamp {
     return ms as Timestamp;
   }
 
-  if (typeof input === 'number') {
-    if (!Number.isFinite(input)) {
-      throw new Error(`Timestamp must be finite, got ${input}`);
-    }
-    if (input < 0) {
-      throw new Error(`Timestamp cannot be negative, got ${input}`);
-    }
-    return input as Timestamp;
+  // input is number (TypeScript narrows the type)
+  if (!Number.isFinite(input)) {
+    throw new Error(`Timestamp must be finite, got ${input}`);
   }
+  if (input < 0) {
+    throw new Error(`Timestamp cannot be negative, got ${input}`);
+  }
+  return input as Timestamp;
+}
 
-  throw new Error(`Invalid timestamp input: ${input}`);
+/**
+ * Validates a string ID value
+ *
+ * String IDs are limited to 256 characters by default because:
+ * - Accommodates common ID formats (UUIDs: 36 chars, SHA-256: 64 chars, base64: ~44 chars)
+ * - Prevents accidental use of large text content as IDs
+ * - Safe for database VARCHAR columns and JSON serialization
+ * - Reasonable limit for network transmission and logging
+ *
+ * @param value - String value to validate
+ * @param typeName - Name of the type for error messages
+ * @param maxLength - Maximum allowed length (default 256)
+ * @throws Error if validation fails
+ */
+function validateStringID(value: string, typeName: string, maxLength: number = 256): void {
+  if (typeof value !== 'string') {
+    throw new Error(`${typeName} must be a string, got ${typeof value}`);
+  }
+  if (value.length === 0) {
+    throw new Error(`${typeName} cannot be empty`);
+  }
+  if (value.length > maxLength) {
+    throw new Error(`${typeName} too long (max ${maxLength} chars), got ${value.length}`);
+  }
 }
 
 /**
@@ -180,15 +237,7 @@ export function createTimestamp(input?: number | Date): Timestamp {
  * ```
  */
 export function createSessionID(s: string): SessionID {
-  if (typeof s !== 'string') {
-    throw new Error(`SessionID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('SessionID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`SessionID too long (max 256 chars), got ${s.length}`);
-  }
+  validateStringID(s, 'SessionID');
   return s as SessionID;
 }
 
@@ -206,43 +255,29 @@ export function createSessionID(s: string): SessionID {
  * ```
  */
 export function createUserID(s: string): UserID {
-  if (typeof s !== 'string') {
-    throw new Error(`UserID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('UserID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`UserID too long (max 256 chars), got ${s.length}`);
-  }
+  validateStringID(s, 'UserID');
   return s as UserID;
 }
 
 /**
  * Create a FileID with validation
  *
- * File IDs are typically SHA-256 hashes (64 hex characters).
+ * File IDs can be any non-empty string up to 256 characters.
+ * Common use cases include content hashes (e.g., SHA-256), UUIDs, or database IDs.
  *
- * @param s - File ID string (hash)
+ * @param s - File ID string
  * @returns Branded FileID
- * @throws Error if file ID is empty or invalid format
+ * @throws Error if file ID is empty or exceeds 256 characters
  *
  * @example
  * ```typescript
  * const fileId = createFileID('abc123...'); // OK for hash
+ * const uuidId = createFileID('550e8400-e29b-41d4-a716-446655440000'); // OK for UUID
  * const invalid = createFileID(''); // throws Error
  * ```
  */
 export function createFileID(s: string): FileID {
-  if (typeof s !== 'string') {
-    throw new Error(`FileID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('FileID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`FileID too long (max 256 chars), got ${s.length}`);
-  }
+  validateStringID(s, 'FileID');
   return s as FileID;
 }
 
@@ -254,15 +289,16 @@ export function createFileID(s: string): FileID {
  * Zod schema for Port validation
  *
  * Validates that a number is an integer between 0 and 65535.
+ * This range represents the valid TCP/UDP port range (16-bit unsigned integer).
  */
 export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
 
 /**
- * Zod schema for URL validation
+ * Zod schema for URLString validation
  *
  * Validates that a string is a valid URL.
  */
-export const URLSchema = z.string().url().brand<'URL'>();
+export const URLStringSchema = z.string().url().brand<'URLString'>();
 
 /**
  * Zod schema for Timestamp validation
@@ -275,6 +311,8 @@ export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestam
  * Zod schema for SessionID validation
  *
  * Validates that a string is non-empty and at most 256 characters.
+ * The 256 character limit accommodates common ID formats while preventing
+ * accidental use of large text content as IDs.
  */
 export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
 
@@ -282,6 +320,8 @@ export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
  * Zod schema for UserID validation
  *
  * Validates that a string is non-empty and at most 256 characters.
+ * The 256 character limit accommodates common ID formats while preventing
+ * accidental use of large text content as IDs.
  */
 export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
 
@@ -289,6 +329,8 @@ export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
  * Zod schema for FileID validation
  *
  * Validates that a string is non-empty and at most 256 characters.
+ * The 256 character limit accommodates common ID formats while preventing
+ * accidental use of large text content as IDs.
  */
 export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
 
@@ -310,20 +352,20 @@ export function createPortZod(n: number): Port {
 }
 
 /**
- * Create a URL with Zod validation
+ * Create a URLString with Zod validation
  *
  * @param s - URL string
- * @returns Branded URL type
+ * @returns Branded URLString type
  * @throws ZodError if validation fails
  *
  * @example
  * ```typescript
- * const url = createURLZod('https://example.com'); // OK
- * const invalid = createURLZod('not a url'); // throws ZodError
+ * const url = createURLStringZod('https://example.com'); // OK
+ * const invalid = createURLStringZod('not a url'); // throws ZodError
  * ```
  */
-export function createURLZod(s: string): URL {
-  return URLSchema.parse(s) as unknown as URL;
+export function createURLStringZod(s: string): URLString {
+  return URLStringSchema.parse(s) as unknown as URLString;
 }
 
 /**
