@@ -2622,10 +2622,14 @@ func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
 	// Create 12 clients (exceeds threshold of 10)
 	for i := 0; i < 12; i++ {
 		r, w := io.Pipe()
-		w.Close() // Force close error
+		w.Close() // Force write error for broadcast
 
 		daemon.clients[fmt.Sprintf("client-%d", i)] = &clientConnection{
-			conn:    &mockConn{reader: r, writer: w},
+			conn: &mockConn{
+				reader:   r,
+				writer:   w,
+				closeErr: errors.New("simulated close error"), // Force close error
+			},
 			encoder: json.NewEncoder(w),
 		}
 	}
