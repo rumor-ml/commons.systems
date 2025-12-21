@@ -56,6 +56,13 @@ export class TimeoutError extends McpError {
  *
  * Indicates malformed or invalid input data. These errors are terminal
  * (not retryable) as they require user correction of input parameters.
+ *
+ * TODO: See issue #312 - Add Sentry error tracking integration
+ * All ValidationError instances across the codebase should include Sentry error IDs
+ * for better error tracking and debugging in production. This affects:
+ * - complete-fix.ts (5 instances)
+ * - constants.ts (3 instances)
+ * - review-completion-helper.ts (4 instances)
  */
 export class ValidationError extends McpError {
   constructor(message: string) {

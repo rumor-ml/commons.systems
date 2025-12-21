@@ -76,6 +76,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
 
 /**
  * Build comment content based on review results
+ * TODO: See issue #334 - Add tests for comment content formatting
  */
 function buildCommentContent(
   input: ReviewCompletionInput,

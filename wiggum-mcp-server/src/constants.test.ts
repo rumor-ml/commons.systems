@@ -1,10 +1,10 @@
 /**
  * Tests for constants and type definitions
  *
- * Comprehensive test coverage for type-safe constants and validations.
+ * Current coverage focuses on schema validation and type safety.
  * Tests cover step validation, discriminated unions, and constant integrity.
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests
+// TODO: See issue #313 - Add behavioral/integration tests for actual tool workflows
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

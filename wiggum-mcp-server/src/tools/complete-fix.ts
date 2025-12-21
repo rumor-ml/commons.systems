@@ -39,7 +39,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       valueType: typeof input.fix_description,
       valueLength: input.fix_description?.length ?? 0,
     });
-    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(
       `fix_description is required and cannot be empty. Received: ${JSON.stringify(input.fix_description)} (type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0}). Please provide a meaningful description of what was fixed.`
     );
@@ -54,7 +53,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
         invalidNumbers,
       });
-      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
       );
@@ -80,7 +78,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         issueExists: state.issue.exists,
         branch: state.git.currentBranch,
       });
-      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `No issue found. Phase 1 fixes require an issue number in the branch name.\n\n` +
           `Current branch: ${state.git.currentBranch}\n` +
@@ -101,7 +98,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         prExists: state.pr.exists,
         branch: state.git.currentBranch,
       });
-      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `No PR found. Cannot complete fix in Phase 2.\n\n` +
           `Current branch: ${state.git.currentBranch}\n` +
@@ -115,7 +111,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     // After validation, we know state.pr.number exists
     targetNumber = state.pr.number as number;
   } else {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(
       `Unknown phase: ${phase}. Expected 'phase1' or 'phase2'. This indicates a workflow state corruption - please report this error.`
     );
@@ -160,6 +155,7 @@ ${input.fix_description}${outOfScopeSection}
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found, preventing
   // the workflow from skipping validation steps after a fix is applied
+  // TODO: See issue #334 - Add integration tests for completedSteps filtering
   const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step);
 
   logger.info('Filtering completed steps', {
@@ -168,6 +164,7 @@ ${input.fix_description}${outOfScopeSection}
     completedStepsBefore: state.wiggum.completedSteps,
   });
 
+  // TODO: See issue #334 - Add validation for unknown steps in filter
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
     const stepIndex = STEP_ORDER.indexOf(step);
     return stepIndex < currentStepIndex;
