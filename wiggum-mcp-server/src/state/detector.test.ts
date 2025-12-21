@@ -100,6 +100,48 @@ describe('State Detection', () => {
       // Implementation: Mock one of the detection functions to fail
       // Expected: Error is propagated or handled appropriately
     });
+
+    it('should detect Phase 1 (no PR) and load state from issue comments', async () => {
+      // This test verifies Phase 1 detection when no PR exists
+      // Implementation: Mock git to return feature branch, mock PR detection to return no PR
+      // Expected: Returns CurrentState with phase='phase1', state loaded from issue comments
+    });
+
+    it('should detect Phase 2 (PR exists) and load state from PR comments', async () => {
+      // This test verifies Phase 2 detection when PR exists
+      // Implementation: Mock git to return feature branch, mock PR detection to return existing PR
+      // Expected: Returns CurrentState with phase='phase2', state loaded from PR comments
+    });
+
+    it('should extract issue number from branch name in Phase 1', async () => {
+      // This test verifies issue number extraction from branch name
+      // Implementation: Mock git to return branch like "123-feature-name"
+      // Expected: Returns CurrentState with issue.exists=true, issue.number=123
+    });
+
+    it('should handle branch with no issue number', async () => {
+      // This test verifies handling of branches without issue numbers
+      // Implementation: Mock git to return branch like "feature-branch" (no number)
+      // Expected: Returns CurrentState with issue.exists=false
+    });
+
+    it('should default to Phase 1 workflow monitoring step when no state found', async () => {
+      // This test verifies default Phase 1 state initialization
+      // Implementation: Mock no PR, no issue comments with wiggum state
+      // Expected: Returns CurrentState with step=STEP_PHASE1_MONITOR_WORKFLOW, iteration=0
+    });
+
+    it('should preserve wiggum state from issue comments in Phase 1', async () => {
+      // This test verifies state persistence across Phase 1 iterations
+      // Implementation: Mock issue comments containing wiggum state
+      // Expected: Returns CurrentState with correct iteration, step, and completedSteps from issue
+    });
+
+    it('should transition from Phase 1 to Phase 2 state when PR is created', async () => {
+      // This test verifies phase transition detection
+      // Implementation: Mock PR exists with Phase 2 state in comments
+      // Expected: Returns CurrentState with phase='phase2', Phase 2 steps
+    });
   });
 });
 

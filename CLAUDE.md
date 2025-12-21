@@ -1,5 +1,7 @@
 **CRITICAL: always run git/gh/nix/gcloud/`go mod tidy`/pnpm commands with dangerouslyDisableSandbox: true**
 
+**CRITICAL: E2E tests require sandbox disabled** - `make test-e2e` must run with `dangerouslyDisableSandbox: true` due to tmux socket creation restrictions. The tests will detect sandbox issues and provide a clear error message.
+
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="accept-edits"` to execute the plan.
 
 Trust user bug reports. Do not assume caching errors or user error while building.

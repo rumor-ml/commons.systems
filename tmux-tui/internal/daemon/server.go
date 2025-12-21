@@ -7,11 +7,16 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/namespace"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
+)
+
+const (
+	connectionCloseErrorThreshold = 10 // Warn after 10 close failures
 )
 
 var (
@@ -27,6 +32,13 @@ type clientConnection struct {
 	encoderMu sync.Mutex
 }
 
+// successfulClient pairs a client ID with its connection for tracking
+// broadcast successes during partial failure scenarios
+type successfulClient struct {
+	id     string
+	client *clientConnection
+}
+
 // sendMessage safely sends a message to the client with mutex protection
 func (c *clientConnection) sendMessage(msg Message) error {
 	c.encoderMu.Lock()
@@ -34,11 +46,64 @@ func (c *clientConnection) sendMessage(msg Message) error {
 	return c.encoder.Encode(msg)
 }
 
+// handlePersistenceError logs and broadcasts a persistence failure to all clients
+func (d *AlertDaemon) handlePersistenceError(err error) {
+	debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+	fmt.Fprintf(os.Stderr, "ERROR: Failed to persist blocked state: %v\n", err)
+	fmt.Fprintf(os.Stderr, "  File: %s\n", d.blockedPath)
+	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
+
+	// Create type-safe v2 message
+	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
+		return
+	}
+	d.broadcast(msg.ToWireFormat())
+}
+
+// revertBlockedBranchChange reverts a failed block/unblock operation and broadcasts the revert.
+// This is called when persistence fails to ensure in-memory state matches disk state.
+func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, previousBlockedBy string) {
+	d.blockedMu.Lock()
+	if wasBlocked {
+		// Restore previous blocked state
+		d.blockedBranches[branch] = previousBlockedBy
+	} else {
+		// Remove the block that failed to persist
+		delete(d.blockedBranches, branch)
+	}
+	d.blockedMu.Unlock()
+
+	// Broadcast revert so all clients show correct state
+	msg, err := NewBlockChangeMessage(d.seqCounter.Add(1), branch, previousBlockedBy, wasBlocked)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
+		return
+	}
+	d.broadcast(msg.ToWireFormat())
+
+	debug.Log("DAEMON_REVERTED_BLOCK_CHANGE branch=%s wasBlocked=%v previousBlockedBy=%s",
+		branch, wasBlocked, previousBlockedBy)
+}
+
 // playAlertSound plays the system alert sound in the background.
-// It skips playback during E2E tests (CLAUDE_E2E_TEST env var).
-// The sound only plays once when transitioning to an alert state.
-// Rate limiting prevents audio daemon overload.
-func playAlertSound() {
+//
+// Playback Conditions:
+//   - Skipped during E2E tests (CLAUDE_E2E_TEST env var set)
+//   - Rate limited: Maximum 1 sound per 500ms to prevent audio daemon overload
+//   - Only plays when transitioning TO an alert state (handleAlertEvent determines this)
+//
+// Error Handling:
+//   - Logs to stderr for immediate visibility
+//   - Broadcasts MsgTypeAudioError to all connected clients
+//   - Audio failures don't block other daemon operations
+//
+// Implementation Notes:
+//   - Runs asynchronously in goroutine to avoid blocking daemon
+//   - Rate limiting uses global audioMutex and lastAudioPlay timestamp
+//   - afplay command targets macOS system sounds
+func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
 	if os.Getenv("CLAUDE_E2E_TEST") != "" {
 		return
@@ -56,14 +121,99 @@ func playAlertSound() {
 	}
 	lastAudioPlay = now
 
-	// Play sound and WAIT for completion to prevent process accumulation
+	// Play sound asynchronously to avoid blocking daemon operations.
+	// Rate limiting (500ms above) reduces but does not eliminate goroutine accumulation
+	// during rapid alert bursts. Each goroutine blocks until afplay completes (~200ms typical).
+	// Accumulation is mitigated by rate limiting but not prevented entirely.
+	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
 	go func() {
 		debug.Log("AUDIO_PLAYING")
-		cmd.Run() // Run (not Start) waits for completion, prevents zombies
+		if err := cmd.Run(); err != nil {
+			debug.Log("AUDIO_ERROR error=%v", err)
+			d.broadcastAudioError(err)
+		}
 		debug.Log("AUDIO_COMPLETED")
 	}()
 }
+
+// broadcastAudioError broadcasts an audio playback error with tracking
+// TODO(#251): Apply same failure handling as regular broadcasts
+func (d *AlertDaemon) broadcastAudioError(audioErr error) {
+	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
+		"Troubleshooting:\n"+
+		"  1. Verify: afplay /System/Library/Sounds/Ping.aiff\n"+
+		"  2. Check audio device connected and unmuted\n"+
+		"  Note: Audio failures don't affect functionality", audioErr)
+
+	fmt.Fprintf(os.Stderr, "ERROR: %s\n", errorMsg)
+
+	// Create type-safe v2 message
+	msg, err := NewAudioErrorMessage(d.seqCounter.Add(1), errorMsg)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=audio_error error=%v", err)
+		return
+	}
+
+	preBroadcastFailures := d.broadcastFailures.Load()
+	d.broadcast(msg.ToWireFormat())
+	postBroadcastFailures := d.broadcastFailures.Load()
+
+	if postBroadcastFailures > preBroadcastFailures {
+		newFailures := postBroadcastFailures - preBroadcastFailures
+		d.audioBroadcastFailures.Add(int64(newFailures))
+		errMsg := fmt.Sprintf("Failed to broadcast audio error to %d clients (total audio broadcast failures: %d)",
+			newFailures, d.audioBroadcastFailures.Load())
+		d.lastAudioBroadcastErr.Store(errMsg)
+
+		// ERROR VISIBILITY: Make visible to users
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+		debug.Log("AUDIO_ERROR_BROADCAST_FAILED failures=%d total=%d",
+			newFailures, d.audioBroadcastFailures.Load())
+	}
+}
+
+// Lock Ordering Rules
+//
+// CRITICAL: Complete lock hierarchy to prevent deadlock:
+//   1. server.alertsMu / server.blockedMu (state locks)
+//   2. server.clientsMu (client registry)
+//   3. client.encoderMu (per-client write lock)
+//
+// RATIONALE:
+//   State update paths (handleAlertChange, handleBlockBranch, etc.) follow this pattern:
+//   1. Acquire alertsMu/blockedMu (RLock or Lock depending on operation)
+//   2. Update state (if Lock acquired)
+//   3. Call broadcast() which acquires clientsMu.RLock → encoderMu
+//   4. Release alertsMu/blockedMu
+//
+//   This ordering prevents deadlock because locks are acquired top-to-bottom
+//   and never held during blocking operations.
+//
+// SAFE PATTERNS:
+//   - alertsMu → clientsMu (via broadcast after state update)
+//   - blockedMu → clientsMu (via broadcast after state update)
+//   - alertsMu → blockedMu (query blocked state for alert change)
+//   - clientsMu → encoderMu (broadcast iterates clients and sends messages)
+//
+// DEADLOCK PREVENTION:
+//   - NEVER acquire alertsMu/blockedMu while holding clientsMu
+//   - NEVER acquire clientsMu while holding encoderMu
+//   - NEVER hold alertsMu/blockedMu across blocking operations
+//   - ALWAYS release state locks before I/O operations
+//
+// INDEPENDENT: alertsMu and blockedMu
+//   Can be acquired in either order (alertsMu → blockedMu or blockedMu → alertsMu).
+//   Use RLock when only reading to allow concurrent access.
+//   These locks are held only during map copying, never during I/O.
+//
+// EXAMPLES:
+//   ✓ handleAlertChange(): alertsMu.Lock → broadcast() → clientsMu.RLock → encoderMu
+//   ✓ handleBlockBranch(): blockedMu.Lock → broadcast() → clientsMu.RLock → encoderMu
+//   ✓ GetHealthStatus(): alertsMu.RLock → blockedMu.RLock (both read-only, no ordering needed)
+//   ✓ saveBlockedBranches(): blockedMu.RLock (no other locks, no I/O conflicts)
+//   ✗ NEVER: encoderMu → clientsMu (DEADLOCK with broadcast)
+//   ✗ NEVER: clientsMu → alertsMu (DEADLOCK with state update paths)
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
@@ -80,6 +230,41 @@ type AlertDaemon struct {
 	done             chan struct{}
 	socketPath       string
 	blockedPath      string // Path to persist blocked state JSON
+
+	// Health monitoring (accessed atomically)
+	broadcastFailures      atomic.Int64  // Total broadcast failures since startup
+	lastBroadcastError     atomic.Value  // Most recent broadcast error (string)
+	watcherErrors          atomic.Int64  // Total watcher errors since startup
+	lastWatcherError       atomic.Value  // Most recent watcher error (string)
+	connectionCloseErrors  atomic.Int64  // Total connection close errors since startup
+	lastCloseError         atomic.Value  // Most recent connection close error (string)
+	audioBroadcastFailures atomic.Int64  // Total audio broadcast failures since startup
+	lastAudioBroadcastErr  atomic.Value  // Most recent audio broadcast error (string)
+	seqCounter             atomic.Uint64 // Global sequence number for message ordering
+}
+
+// copyAlerts returns a copy of the alerts map with read lock protection
+func (d *AlertDaemon) copyAlerts() map[string]string {
+	d.alertsMu.RLock()
+	defer d.alertsMu.RUnlock()
+
+	copy := make(map[string]string, len(d.alerts))
+	for k, v := range d.alerts {
+		copy[k] = v
+	}
+	return copy
+}
+
+// copyBlockedBranches returns a copy of the blockedBranches map with read lock protection
+func (d *AlertDaemon) copyBlockedBranches() map[string]string {
+	d.blockedMu.RLock()
+	defer d.blockedMu.RUnlock()
+
+	copy := make(map[string]string, len(d.blockedBranches))
+	for k, v := range d.blockedBranches {
+		copy[k] = v
+	}
+	return copy
 }
 
 // loadBlockedBranches loads the blocked branches state from JSON file
@@ -103,12 +288,7 @@ func loadBlockedBranches(path string) (map[string]string, error) {
 
 // saveBlockedBranches saves the blocked branches state to JSON file
 func (d *AlertDaemon) saveBlockedBranches() error {
-	d.blockedMu.RLock()
-	blockedCopy := make(map[string]string)
-	for k, v := range d.blockedBranches {
-		blockedCopy[k] = v
-	}
-	d.blockedMu.RUnlock()
+	blockedCopy := d.copyBlockedBranches()
 
 	data, err := json.MarshalIndent(blockedCopy, "", "  ")
 	if err != nil {
@@ -187,18 +367,19 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		return nil, fmt.Errorf("failed to recover alert state: %w", err)
 	}
 
-	// Load blocked branches state
+	// Load blocked branches state (handles missing file gracefully)
 	blockedPath := namespace.BlockedBranchesFile()
 	blockedBranches, err := loadBlockedBranches(blockedPath)
 	if err != nil {
 		alertWatcher.Close()
+		paneFocusWatcher.Close()
 		return nil, fmt.Errorf("failed to load blocked branches: %w", err)
 	}
 
 	debug.Log("DAEMON_INIT alert_dir=%s socket=%s existing_alerts=%d blocked_branches=%d",
 		alertDir, socketPath, len(existingAlerts), len(blockedBranches))
 
-	return &AlertDaemon{
+	daemon := &AlertDaemon{
 		alertWatcher:     alertWatcher,
 		paneFocusWatcher: paneFocusWatcher,
 		alerts:           existingAlerts,
@@ -208,7 +389,15 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
-	}, nil
+	}
+
+	// Initialize atomic.Value fields
+	daemon.lastBroadcastError.Store("")
+	daemon.lastWatcherError.Store("")
+	daemon.lastCloseError.Store("")
+	daemon.lastAudioBroadcastErr.Store("")
+
+	return daemon, nil
 }
 
 // Start starts the daemon server.
@@ -254,7 +443,9 @@ func (d *AlertDaemon) watchAlerts() {
 			}
 
 			if event.Error != nil {
-				debug.Log("DAEMON_WATCHER_ERROR error=%v", event.Error)
+				d.watcherErrors.Add(1)
+				d.lastWatcherError.Store(event.Error.Error())
+				debug.Log("DAEMON_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
 				continue
 			}
 
@@ -278,7 +469,9 @@ func (d *AlertDaemon) watchPaneFocus() {
 			}
 
 			if event.Error != nil {
-				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v", event.Error)
+				d.watcherErrors.Add(1)
+				d.lastWatcherError.Store(event.Error.Error())
+				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
 				continue
 			}
 
@@ -291,12 +484,13 @@ func (d *AlertDaemon) watchPaneFocus() {
 func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	debug.Log("DAEMON_PANE_FOCUS_EVENT paneID=%s", event.PaneID)
 
-	// Broadcast to all clients
-	msg := Message{
-		Type:         MsgTypePaneFocus,
-		ActivePaneID: event.PaneID,
+	// Create type-safe v2 message
+	msg, err := NewPaneFocusMessage(d.seqCounter.Add(1), event.PaneID)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=pane_focus error=%v", err)
+		return
 	}
-	d.broadcast(msg)
+	d.broadcast(msg.ToWireFormat())
 }
 
 // handleAlertEvent processes an alert event and broadcasts to clients.
@@ -326,7 +520,7 @@ func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
 
 			// Play sound only when transitioning to alert state
 			if isNewAlert {
-				playAlertSound()
+				d.playAlertSound()
 			}
 		}
 	} else {
@@ -338,14 +532,13 @@ func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
 
 	d.alertsMu.Unlock()
 
-	// Broadcast to all clients
-	msg := Message{
-		Type:      MsgTypeAlertChange,
-		PaneID:    event.PaneID,
-		EventType: event.EventType,
-		Created:   event.Created,
+	// Create type-safe v2 message
+	msg, err := NewAlertChangeMessage(d.seqCounter.Add(1), event.PaneID, event.EventType, event.Created)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=alert_change error=%v", err)
+		return
 	}
-	d.broadcast(msg)
+	d.broadcast(msg.ToWireFormat())
 }
 
 // acceptClients accepts incoming client connections.
@@ -402,26 +595,19 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	d.clientsMu.Unlock()
 
 	// Send full state (alerts + blocked branches)
-	d.alertsMu.RLock()
-	alertsCopy := make(map[string]string)
-	for k, v := range d.alerts {
-		alertsCopy[k] = v
-	}
-	d.alertsMu.RUnlock()
+	alertsCopy := d.copyAlerts()
+	blockedCopy := d.copyBlockedBranches()
 
-	d.blockedMu.RLock()
-	blockedCopy := make(map[string]string)
-	for k, v := range d.blockedBranches {
-		blockedCopy[k] = v
+	// Create type-safe v2 message
+	fullStateMsg, err := NewFullStateMessage(d.seqCounter.Add(1), alertsCopy, blockedCopy)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=full_state error=%v", err)
+		d.removeClient(clientID)
+		conn.Close()
+		return
 	}
-	d.blockedMu.RUnlock()
 
-	fullStateMsg := Message{
-		Type:            MsgTypeFullState,
-		Alerts:          alertsCopy,
-		BlockedBranches: blockedCopy,
-	}
-	if err := client.sendMessage(fullStateMsg); err != nil {
+	if err := client.sendMessage(fullStateMsg.ToWireFormat()); err != nil {
 		debug.Log("DAEMON_SEND_STATE_ERROR client=%s error=%v", clientID, err)
 		d.removeClient(clientID)
 		conn.Close()
@@ -442,8 +628,13 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 
 		switch msg.Type {
 		case MsgTypePing:
-			pongMsg := Message{Type: MsgTypePong}
-			if err := client.sendMessage(pongMsg); err != nil {
+			// Create type-safe v2 pong message
+			pongMsg, err := NewPongMessage(d.seqCounter.Add(1))
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=pong error=%v", err)
+				continue
+			}
+			if err := client.sendMessage(pongMsg.ToWireFormat()); err != nil {
 				debug.Log("DAEMON_PONG_ERROR client=%s error=%v", clientID, err)
 				d.removeClient(clientID)
 				conn.Close()
@@ -453,64 +644,302 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeShowBlockPicker:
 			// Broadcast to all clients to show picker for this pane
 			debug.Log("DAEMON_SHOW_PICKER paneID=%s", msg.PaneID)
-			d.broadcast(Message{
-				Type:   MsgTypeShowBlockPicker,
-				PaneID: msg.PaneID,
-			})
+
+			// Create type-safe v2 message
+			pickerMsg, err := NewShowBlockPickerMessage(d.seqCounter.Add(1), msg.PaneID)
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=show_block_picker error=%v", err)
+				continue
+			}
+			d.broadcast(pickerMsg.ToWireFormat())
 
 		case MsgTypeBlockBranch:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid block request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Block a branch with another branch
 			debug.Log("DAEMON_BLOCK_BRANCH branch=%s blockedBy=%s", msg.Branch, msg.BlockedBranch)
+
+			// Capture previous state before making changes
+			d.blockedMu.RLock()
+			previousBlockedBy, wasBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Update in-memory state
 			d.blockedMu.Lock()
 			d.blockedBranches[msg.Branch] = msg.BlockedBranch
 			d.blockedMu.Unlock()
 
-			// Save to disk
+			// Save to disk - revert if persistence fails
 			if err := d.saveBlockedBranches(); err != nil {
-				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				d.handlePersistenceError(err)
+				d.revertBlockedBranchChange(msg.Branch, wasBlocked, previousBlockedBy)
+				continue // Skip success broadcast
 			}
 
-			// Broadcast change to all clients (this will close pickers in all TUI windows)
-			d.broadcast(Message{
-				Type:          MsgTypeBlockChange,
-				Branch:        msg.Branch,
-				BlockedBranch: msg.BlockedBranch,
-				Blocked:       true,
-			})
+			// Only broadcast success if persistence succeeded
+			blockMsg, err := NewBlockChangeMessage(d.seqCounter.Add(1), msg.Branch, msg.BlockedBranch, true)
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
+				continue
+			}
+			d.broadcast(blockMsg.ToWireFormat())
 
 		case MsgTypeUnblockBranch:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid unblock request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Unblock a branch
 			debug.Log("DAEMON_UNBLOCK_BRANCH branch=%s", msg.Branch)
+
+			// Capture previous state before making changes
+			d.blockedMu.RLock()
+			previousBlockedBy, wasBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Update in-memory state
 			d.blockedMu.Lock()
 			delete(d.blockedBranches, msg.Branch)
 			d.blockedMu.Unlock()
 
-			// Save to disk
+			// Save to disk - revert if persistence fails
 			if err := d.saveBlockedBranches(); err != nil {
-				debug.Log("DAEMON_SAVE_BLOCKED_ERROR error=%v", err)
+				d.handlePersistenceError(err)
+				d.revertBlockedBranchChange(msg.Branch, wasBlocked, previousBlockedBy)
+				continue // Skip success broadcast
 			}
 
-			// Broadcast change to all clients
-			d.broadcast(Message{
-				Type:    MsgTypeBlockChange,
-				Branch:  msg.Branch,
-				Blocked: false,
-			})
+			// Only broadcast success if persistence succeeded
+			unblockMsg, err := NewBlockChangeMessage(d.seqCounter.Add(1), msg.Branch, "", false)
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
+				continue
+			}
+			d.broadcast(unblockMsg.ToWireFormat())
+
+		case MsgTypeQueryBlockedState:
+			// Query blocked state for a branch
+			debug.Log("DAEMON_QUERY_BLOCKED_STATE branch=%s", msg.Branch)
+			d.blockedMu.RLock()
+			blockedBy, isBlocked := d.blockedBranches[msg.Branch]
+			d.blockedMu.RUnlock()
+
+			// Send response back to requesting client
+			response, err := NewBlockedStateResponseMessage(d.seqCounter.Add(1), msg.Branch, isBlocked, blockedBy)
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=blocked_state_response error=%v", err)
+				continue
+			}
+			if err := client.sendMessage(response.ToWireFormat()); err != nil {
+				debug.Log("DAEMON_QUERY_RESPONSE_ERROR client=%s error=%v", clientID, err)
+			} else {
+				debug.Log("DAEMON_QUERY_RESPONSE branch=%s isBlocked=%v blockedBy=%s",
+					msg.Branch, isBlocked, blockedBy)
+			}
+
+		case MsgTypeHealthQuery:
+			// Return health status
+			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
+			status, healthErr := d.GetHealthStatus()
+			if healthErr != nil {
+				// Send error message to client instead of fabricated health status
+				errMsg := fmt.Sprintf("Health status validation failed: %v", healthErr)
+				errorResponse, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), errMsg)
+				if err == nil {
+					client.sendMessage(errorResponse.ToWireFormat())
+				}
+				debug.Log("DAEMON_HEALTH_VALIDATION_FAILED client=%s error=%v", clientID, healthErr)
+				continue
+			}
+			response, err := NewHealthResponseMessage(d.seqCounter.Add(1), status)
+			if err != nil {
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=health_response error=%v", err)
+				continue
+			}
+			if err := client.sendMessage(response.ToWireFormat()); err != nil {
+				debug.Log("DAEMON_HEALTH_RESPONSE_ERROR client=%s error=%v", clientID, err)
+			} else {
+				debug.Log("DAEMON_HEALTH_RESPONSE client=%s", clientID)
+			}
+
+		case MsgTypeResyncRequest:
+			// Client detected a gap in sequence numbers, send full state
+			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
+			if err := d.sendFullState(client, clientID); err != nil {
+				debug.Log("DAEMON_RESYNC_FAILED client=%s error=%v", clientID, err)
+			}
 		}
 	}
 }
 
 // broadcast sends a message to all connected clients.
+// Message must already have a sequence number assigned (from v2 constructor).
+// If some clients fail to receive the message, they are removed from the clients map
+// and a sync warning is sent to successful clients.
 func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
-	defer d.clientsMu.RUnlock()
+	totalClients := len(d.clients)
+
+	var failedClients []string
+	var successfulClients []successfulClient
 
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
+			failedClients = append(failedClients, clientID)
 			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
-			// Don't remove client here - let handleClient detect disconnect
+			d.lastBroadcastError.Store(err.Error())
+		} else {
+			successfulClients = append(successfulClients, successfulClient{
+				id:     clientID,
+				client: client,
+			})
 		}
 	}
+	d.clientsMu.RUnlock()
+
+	// Clean up failed clients - must be done after RUnlock to avoid deadlock
+	// This forces reconnection with full state resync
+	if len(failedClients) > 0 {
+		d.clientsMu.Lock()
+		for _, clientID := range failedClients {
+			if client, exists := d.clients[clientID]; exists {
+				// Send disconnect notification BEFORE closing
+				// Note: disconnect is not in the v2 protocol, using raw Message for now
+				disconnectMsg := Message{
+					Type:  "disconnect",
+					Error: "Broadcast send failed - forcing reconnect for state resync",
+				}
+				if err := client.sendMessage(disconnectMsg); err != nil {
+					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
+				}
+
+				if closeErr := client.conn.Close(); closeErr != nil {
+					totalCloseErrors := d.connectionCloseErrors.Add(1)
+					d.lastCloseError.Store(closeErr.Error())
+
+					// ERROR VISIBILITY: Log to stderr
+					fmt.Fprintf(os.Stderr, "WARNING: Connection close error for client %s: %v (total: %d)\n",
+						clientID, closeErr, totalCloseErrors)
+					debug.Log("DAEMON_CONNECTION_CLOSE_ERROR client=%s close_error=%v total=%d",
+						clientID, closeErr, totalCloseErrors)
+
+					// THRESHOLD MONITORING: Warn if close errors exceed threshold
+					if totalCloseErrors >= connectionCloseErrorThreshold {
+						fmt.Fprintf(os.Stderr, "CRITICAL: Connection close errors (%d) exceeded threshold (%d). Potential file descriptor leak.\n",
+							totalCloseErrors, connectionCloseErrorThreshold)
+						debug.Log("DAEMON_CLOSE_ERROR_THRESHOLD_EXCEEDED total=%d threshold=%d",
+							totalCloseErrors, connectionCloseErrorThreshold)
+					}
+				}
+				delete(d.clients, clientID)
+				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)
+			}
+		}
+		d.clientsMu.Unlock()
+
+		d.broadcastFailures.Add(int64(len(failedClients)))
+
+		// ERROR VISIBILITY: Log to stderr for user visibility
+		errMsg := fmt.Sprintf("Broadcast partial failure: %d of %d clients failed to receive %s (seq %d). Affected clients disconnected.",
+			len(failedClients), totalClients, msg.Type, msg.SeqNum)
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", errMsg)
+
+		debug.Log("DAEMON_BROADCAST_FAILURES count=%d total=%d total_failures=%d",
+			len(failedClients), totalClients, d.broadcastFailures.Load())
+
+		// Notify successful clients that some peers missed the update
+		// This is informational - clients can decide how to handle it
+		errorMsg := fmt.Sprintf(
+			"%d of %d clients failed to receive %s update (seq %d). "+
+				"Affected clients disconnected and will resync on reconnect.",
+			len(failedClients), totalClients, msg.Type, msg.SeqNum,
+		)
+		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
+		if err != nil {
+			// CRITICAL: Cannot construct sync warning - use fallback raw message
+			// TODO(#281): Add visibility for cascade failures
+			fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning construction failed (type=%s, failed_clients=%d): %v\n",
+				msg.Type, len(failedClients), err)
+			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", err)
+
+			// FALLBACK: Send raw message to inform clients of sync issue
+			fallbackMsg := Message{
+				Type:            MsgTypeSyncWarning,
+				SeqNum:          d.seqCounter.Add(1),
+				Error:           fmt.Sprintf("Sync warning (fallback): %d clients failed to receive update", len(failedClients)),
+				OriginalMsgType: "unknown", // Safe fallback when original type is invalid
+			}
+
+			// Send fallback message to successful clients
+			syncFailures := 0
+			for _, sc := range successfulClients {
+				if err := sc.client.sendMessage(fallbackMsg); err != nil {
+					syncFailures++
+					debug.Log("DAEMON_SYNC_WARNING_FALLBACK_SEND_ERROR client=%s error=%v", sc.id, err)
+				}
+			}
+
+			if syncFailures > 0 {
+				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning fallback cascade failure (sync_failures=%d/%d)\n",
+					syncFailures, len(successfulClients))
+			}
+		} else {
+			// Normal path: Send properly constructed sync warning
+			syncFailures := 0
+			for _, sc := range successfulClients {
+				if err := sc.client.sendMessage(syncWarning.ToWireFormat()); err != nil {
+					syncFailures++
+					debug.Log("DAEMON_SYNC_WARNING_SEND_ERROR client=%s error=%v", sc.id, err)
+				}
+			}
+
+			if syncFailures > 0 {
+				// CRITICAL: Sync warning cascade failure - some clients unaware of peer disconnections
+				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning cascade failure (original=%s, sync_failures=%d/%d)\n",
+					msg.Type, syncFailures, len(successfulClients))
+			}
+		}
+	}
+}
+
+// sendFullState sends the complete current state to a client
+func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
+	alertsCopy := d.copyAlerts()
+	blockedCopy := d.copyBlockedBranches()
+
+	// Create type-safe v2 message
+	fullStateMsg, err := NewFullStateMessage(d.seqCounter.Add(1), alertsCopy, blockedCopy)
+	if err != nil {
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=full_state error=%v", err)
+		return fmt.Errorf("failed to construct full state message: %w", err)
+	}
+
+	if err := client.sendMessage(fullStateMsg.ToWireFormat()); err != nil {
+		debug.Log("DAEMON_RESYNC_ERROR client=%s error=%v", clientID, err)
+		return fmt.Errorf("resync failed: %w", err)
+	}
+	debug.Log("DAEMON_RESYNC_SENT client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
+	return nil
 }
 
 // removeClient removes a client from the clients map.
@@ -519,6 +948,52 @@ func (d *AlertDaemon) removeClient(clientID string) {
 	defer d.clientsMu.Unlock()
 	delete(d.clients, clientID)
 	debug.Log("DAEMON_CLIENT_REMOVED id=%s remaining=%d", clientID, len(d.clients))
+}
+
+// GetHealthStatus returns daemon health metrics for monitoring
+func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
+	lastBroadcastErr, _ := d.lastBroadcastError.Load().(string)
+	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
+	lastCloseErr, _ := d.lastCloseError.Load().(string)
+	lastAudioBroadcastErr, _ := d.lastAudioBroadcastErr.Load().(string)
+
+	d.clientsMu.RLock()
+	clientCount := len(d.clients)
+	d.clientsMu.RUnlock()
+
+	d.alertsMu.RLock()
+	alertCount := len(d.alerts)
+	d.alertsMu.RUnlock()
+
+	d.blockedMu.RLock()
+	blockedCount := len(d.blockedBranches)
+	d.blockedMu.RUnlock()
+
+	// TODO(#281): Add sentinel error for health validation failures
+	status, err := NewHealthStatus(
+		d.broadcastFailures.Load(),
+		lastBroadcastErr,
+		d.watcherErrors.Load(),
+		lastWatcherErr,
+		d.connectionCloseErrors.Load(),
+		lastCloseErr,
+		d.audioBroadcastFailures.Load(),
+		lastAudioBroadcastErr,
+		clientCount,
+		alertCount,
+		blockedCount,
+	)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create health status: %v", err)
+
+		// CRITICAL: Make validation failures visible
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+		debug.Log("DAEMON_HEALTH_STATUS_ERROR error=%v", err)
+
+		// Return error to caller instead of zero-value fallback
+		return HealthStatus{}, fmt.Errorf("%w: %v", ErrHealthValidationFailed, err)
+	}
+	return status, nil
 }
 
 // Stop stops the daemon server.

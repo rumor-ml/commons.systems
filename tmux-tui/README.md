@@ -231,6 +231,65 @@ tmux list-keys | grep "bind-key.*t"
 
 **Fix:** Re-source config: `tmux source-file tmux-tui/tmux-tui.conf`
 
+## Health Monitoring
+
+The daemon exposes health metrics to help diagnose connectivity and performance issues.
+
+### Check Daemon Health
+
+```bash
+tmux-tui-daemon health
+```
+
+### Example Output
+
+```
+Daemon Health Status (as of 2024-12-16 15:04:05)
+============================================================
+
+Connections:
+  Connected Clients: 3
+  Broadcast Failures: 2
+  Last Broadcast Error: client disconnected during send
+
+Watchers:
+  Watcher Errors: 0
+
+State:
+  Active Alerts: 5
+  Blocked Branches: 2
+
+Status: ✓ Healthy
+```
+
+### Health Thresholds
+
+The daemon automatically assesses health based on these thresholds:
+
+- **Broadcast Failures** > 10: Warning - multiple clients having connection issues
+- **Watcher Errors** > 5: Warning - file system monitoring problems
+- **Connected Clients** = 0: Warning - no TUI instances connected
+
+### Common Health Issues
+
+**High broadcast failures:**
+
+- Multiple clients disconnecting/reconnecting frequently
+- Network latency or Unix socket issues
+- Check with: `tmux list-panes -a | grep tmux-tui`
+
+**Watcher errors:**
+
+- File system monitoring issues
+- May indicate disk I/O problems
+- Check debug log: `/tmp/claude/tui-debug.log`
+
+**No connected clients:**
+
+- All TUI instances closed or crashed
+- Daemon running but no active sessions
+- Restart TUI panes: `./scripts/restart-tui.sh`
+
 ## Project Structure
 
 ```

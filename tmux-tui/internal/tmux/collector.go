@@ -47,17 +47,19 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	// Get the current session from TMUX environment variable
 	tmuxEnv := os.Getenv("TMUX")
 	if tmuxEnv == "" {
-		return nil, fmt.Errorf("not running inside tmux")
+		return RepoTree{}, fmt.Errorf("not running inside tmux")
 	}
 
 	// Query all panes in the current session
 	// Format: pane_id|window_id|window_index|window_name|window_active|window_bell_flag|pane_current_path|pane_current_command|pane_title|pane_pid
 	output, err := c.executor.ExecCommandOutput("tmux", "list-panes", "-s", "-F", "#{pane_id}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_bell_flag}|#{pane_current_path}|#{pane_current_command}|#{pane_title}|#{pane_pid}")
 	if err != nil {
-		return nil, fmt.Errorf("failed to list panes: %w", err)
+		return RepoTree{}, fmt.Errorf("failed to list panes: %w", err)
 	}
 
-	tree := make(RepoTree)
+	tree := NewRepoTree()
+	// Temporary map to collect panes before using SetPanes
+	tempMap := make(map[string]map[string][]Pane)
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 
 	// Track valid pane PIDs for cache cleanup
@@ -111,23 +113,18 @@ func (c *Collector) GetTree() (RepoTree, error) {
 		}
 
 		// Initialize nested maps if needed
-		if tree[repo] == nil {
-			tree[repo] = make(map[string][]Pane)
+		if tempMap[repo] == nil {
+			tempMap[repo] = make(map[string][]Pane)
 		}
 
-		// Add pane to the tree (flattened - no window grouping)
-		pane := Pane{
-			ID:           paneID,
-			Path:         panePath,
-			WindowID:     windowID,
-			WindowIndex:  windowIndex,
-			WindowActive: windowActive,
-			WindowBell:   windowBell,
-			Command:      command,
-			Title:        paneTitle,
-			IsClaudePane: c.isClaudePane(panePID),
+		// Add pane to the temporary map (flattened - no window grouping)
+		pane, err := NewPane(paneID, panePath, windowID, windowIndex, windowActive, windowBell, command, paneTitle, c.isClaudePane(panePID))
+		if err != nil {
+			// Log validation error but continue processing other panes
+			debug.Log("COLLECTOR_PANE_VALIDATION_ERROR paneID=%s error=%v", paneID, err)
+			continue
 		}
-		tree[repo][branch] = append(tree[repo][branch], pane)
+		tempMap[repo][branch] = append(tempMap[repo][branch], pane)
 	}
 
 	// Clean up cache entries for panes that no longer exist.
@@ -136,11 +133,25 @@ func (c *Collector) GetTree() (RepoTree, error) {
 	// CleanupExcept() removes both invalid PIDs and expired entries.
 	c.claudeCache.CleanupExcept(validPIDs)
 
-	// Debug: Log all panes found in the tree
-	for repo, branches := range tree {
+	// Populate tree from tempMap using SetPanes for encapsulation
+	for repo, branches := range tempMap {
 		for branch, panes := range branches {
+			if err := tree.SetPanes(repo, branch, panes); err != nil {
+				// This shouldn't happen since we validate repo/branch names above
+				debug.Log("COLLECTOR_SETPANES_ERROR repo=%s branch=%s error=%v", repo, branch, err)
+			}
+		}
+	}
+
+	// Debug: Log all panes found in the tree
+	for _, repo := range tree.Repos() {
+		for _, branch := range tree.Branches(repo) {
+			panes, ok := tree.GetPanes(repo, branch)
+			if !ok {
+				continue
+			}
 			for _, pane := range panes {
-				debug.Log("COLLECTOR_PANE repo=%s branch=%s paneID=%s command=%s isClaudePane=%v", repo, branch, pane.ID, pane.Command, pane.IsClaudePane)
+				debug.Log("COLLECTOR_PANE repo=%s branch=%s paneID=%s command=%s isClaudePane=%v", repo, branch, pane.ID(), pane.Command(), pane.IsClaudePane())
 			}
 		}
 	}
