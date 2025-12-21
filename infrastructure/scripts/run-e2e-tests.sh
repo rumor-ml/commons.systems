@@ -81,17 +81,27 @@ case "$APP_TYPE" in
     # Clean dist to ensure fresh build with current env vars
     rm -rf "${APP_PATH_ABS}/site/dist"
 
-    export VITE_USE_FIREBASE_EMULATOR=true
-    export VITE_FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}"
-    export VITE_FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}"
-    export VITE_STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}"
+    # Debug: Log emulator hosts
+    echo "FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST}"
+    echo "FIREBASE_AUTH_EMULATOR_HOST=${FIREBASE_AUTH_EMULATOR_HOST}"
 
-    # Debug: Log env vars to verify they're set
-    echo "VITE_USE_FIREBASE_EMULATOR=${VITE_USE_FIREBASE_EMULATOR}"
-    echo "VITE_FIRESTORE_EMULATOR_HOST=${VITE_FIRESTORE_EMULATOR_HOST}"
+    # Create .env.local file with emulator configuration for Vite to read
+    # This ensures the environment variables are embedded in the build
+    cat > "${APP_PATH_ABS}/site/.env.local" <<EOF
+VITE_USE_FIREBASE_EMULATOR=true
+VITE_FIREBASE_AUTH_EMULATOR_HOST=${FIREBASE_AUTH_EMULATOR_HOST}
+VITE_FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST}
+VITE_STORAGE_EMULATOR_HOST=${STORAGE_EMULATOR_HOST}
+EOF
 
-    # Change to site directory to ensure env vars are inherited by pnpm/vite
-    (cd "${APP_PATH_ABS}/site" && pnpm build)
+    # Debug: Show .env.local contents
+    echo "Created .env.local:"
+    cat "${APP_PATH_ABS}/site/.env.local"
+
+    pnpm --dir "${APP_PATH_ABS}/site" build
+
+    # Clean up .env.local after build
+    rm -f "${APP_PATH_ABS}/site/.env.local"
     ;;
 
   go-fullstack)
