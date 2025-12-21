@@ -84,6 +84,9 @@ importers:
 
   gh-issue-mcp-server:
     dependencies:
+      '@commons/mcp-common':
+        specifier: file:../mcp-common
+        version: link:../mcp-common
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.23.0(zod@3.25.76)
@@ -103,6 +106,9 @@ importers:
 
   gh-workflow-mcp-server:
     dependencies:
+      '@commons/mcp-common':
+        specifier: file:../mcp-common
+        version: link:../mcp-common
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.23.0(zod@3.25.76)
@@ -247,6 +253,9 @@ importers:
 
   wiggum-mcp-server:
     dependencies:
+      '@commons/mcp-common':
+        specifier: file:../mcp-common
+        version: link:../mcp-common
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.23.0(zod@3.25.76)

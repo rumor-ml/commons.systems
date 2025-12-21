@@ -139,9 +139,9 @@
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
           mcp-common = pkgs.callPackage ./nix/packages/mcp-common.nix { };
-          gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
-          gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
-          wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
+          gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { inherit mcp-common; };
+          gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { inherit mcp-common; };
+          wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { inherit mcp-common; };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Hooks
