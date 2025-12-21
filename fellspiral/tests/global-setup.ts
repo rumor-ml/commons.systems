@@ -123,7 +123,6 @@ async function globalSetup() {
 
     // Seed QA test user in Auth emulator
     console.log('📦 Seeding Auth emulator with QA test user...');
-    const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
 
     try {
       // Use Firebase Admin SDK to create test user in Auth emulator

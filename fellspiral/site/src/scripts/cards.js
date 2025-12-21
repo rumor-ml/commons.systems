@@ -455,21 +455,6 @@ function showWarningBanner(message) {
   container.insertBefore(createBanner(message), container.firstChild);
 }
 
-// Show demo data indicator - persistent visual indicator for fallback mode
-function showDemoDataIndicator(message) {
-  const container = document.querySelector('.card-container');
-  if (!container) return;
-
-  // Remove any existing demo data indicator
-  document.querySelector('.demo-data-indicator')?.remove();
-
-  const indicator = createBanner(message, {
-    extraClass: 'demo-data-indicator',
-    icon: '\u26A0\uFE0F', // Warning emoji
-  });
-  container.insertBefore(indicator, container.firstChild);
-}
-
 // Initialize the app
 async function init() {
   // Guard against concurrent initialization
@@ -572,9 +557,6 @@ async function loadCards() {
   try {
     state.loading = true;
     state.error = null;
-
-    // Remove any existing demo data indicator on successful load attempt
-    document.querySelector('.demo-data-indicator')?.remove();
 
     // Try to load from Firestore (now has built-in 5s timeout)
     const cards = await getAllCards();
@@ -887,8 +869,7 @@ function setupAuthStateListener() {
         });
         showErrorUI(
           'Authentication monitoring failed. Please refresh the page.',
-          () => window.location.reload(),
-          { blocking: true }
+          () => window.location.reload()
         );
         throw error; // Don't continue in broken state
       }
@@ -908,8 +889,7 @@ function setupAuthStateListener() {
 
     showErrorUI(
       'Authentication monitoring failed. Please refresh the page.',
-      () => window.location.reload(),
-      { blocking: true }
+      () => window.location.reload()
     );
 
     throw error; // Don't continue in broken state
