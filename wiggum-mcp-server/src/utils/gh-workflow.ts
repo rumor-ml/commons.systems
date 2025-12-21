@@ -63,7 +63,7 @@ export async function monitorRun(
         max_chars: WORKFLOW_LOG_MAX_CHARS,
       });
       result.failureDetails = failureDetails;
-    // TODO(#375): Surface enrichment errors in errorSummary for user visibility
+      // TODO(#375): Surface enrichment errors in errorSummary for user visibility
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors

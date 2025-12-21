@@ -23,10 +23,10 @@ Before analyzing changes, update any TODO comments that reference closed issues:
         See PR review #273 for details -->
    - Search entire repository
    - Output mode: "content" to see the actual TODO text
-   <!-- TODO(#365): Add context filtering to prevent matching TODOs in strings/URLs -->
-   <!-- TODO(#305,#350): Add guidance to skip TODOs in non-comment contexts
-        Why: Prevents false positives when TODO appears in strings/URLs
-        See PR review #273 -->
+     <!-- TODO(#365): Add context filtering to prevent matching TODOs in strings/URLs -->
+     <!-- TODO(#305,#350): Add guidance to skip TODOs in non-comment contexts
+          Why: Prevents false positives when TODO appears in strings/URLs
+          See PR review #273 -->
 
 2. **For each referenced issue found**:
    - Extract issue number from `TODO(#NNN)` pattern
