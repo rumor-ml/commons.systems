@@ -1,5 +1,6 @@
 // playwright.fixtures.ts
 import { test as base, expect } from '@playwright/test';
+import admin from 'firebase-admin';
 
 type AuthFixtures = {
   authEmulator: {
@@ -13,6 +14,13 @@ export const test = base.extend<AuthFixtures>({
   authEmulator: async ({ page }, use) => {
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
+
+    // Initialize Firebase Admin SDK for creating custom tokens
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: 'demo-test',
+      });
+    }
 
     // Store console errors for test assertions
     const consoleErrors: string[] = [];
@@ -47,32 +55,44 @@ export const test = base.extend<AuthFixtures>({
     };
 
     const signInTestUser = async (email: string, password: string = 'testpassword123') => {
-      // Wait for Firebase auth to be initialized and connected to emulator
-      // The __signInWithEmailAndPassword function is exposed by github-auth.js
-      await page.waitForFunction(
-        () => typeof (window as any).__signInWithEmailAndPassword === 'function',
-        { timeout: 15000 }
-      );
+      // Get user UID (need this to create custom token)
+      let uid: string;
+      try {
+        const userRecord = await admin.auth().getUserByEmail(email);
+        uid = userRecord.uid;
+      } catch (error) {
+        // User doesn't exist, create it first
+        uid = await createTestUser(email, password);
+      }
 
-      // Sign in using Firebase SDK via the exposed helper
-      // This properly updates auth.currentUser which the app depends on
-      const signInResult = await page.evaluate(
-        async ({ email, password }) => {
-          try {
-            const result = await (window as any).__signInWithEmailAndPassword(email, password);
-            return { success: true, uid: result?.user?.uid };
-          } catch (error: any) {
-            return { success: false, error: error?.message || String(error) };
-          }
-        },
-        { email, password }
-      );
+      // Create custom token using Admin SDK (works with emulator, no provider config needed)
+      const customToken = await admin.auth().createCustomToken(uid);
+
+      // Wait for Firebase SDK to be initialized in the page
+      await page.waitForFunction(() => typeof (window as any).__testAuth !== 'undefined', {
+        timeout: 15000,
+      });
+
+      // Sign in using custom token via Firebase SDK
+      // This properly sets auth.currentUser for Firestore security rules
+      const signInResult = await page.evaluate(async (token) => {
+        try {
+          const { signInWithCustomToken } = await import(
+            'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
+          );
+          const auth = (window as any).__testAuth;
+          const result = await signInWithCustomToken(auth, token);
+          return { success: true, uid: result.user.uid };
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      }, customToken);
 
       if (!signInResult.success) {
         throw new Error(`Firebase sign-in failed for ${email}: ${signInResult.error}`);
       }
 
-      // Wait for auth state to propagate (SDK level)
+      // Wait for auth state to propagate
       await page.waitForFunction(
         () => {
           const auth = (window as any).__testAuth;
@@ -81,19 +101,7 @@ export const test = base.extend<AuthFixtures>({
         { timeout: 10000 }
       );
 
-      // Manually trigger the UI update since the listener might not have fired
-      // This works around potential timing issues with auth state listeners
-      await page.evaluate(() => {
-        if (typeof (window as any).__updateAuthUI === 'function') {
-          const auth = (window as any).__testAuth;
-          (window as any).__updateAuthUI(auth?.currentUser);
-        } else {
-          // Fallback: add class directly
-          document.body.classList.add('authenticated');
-        }
-      });
-
-      // Verify the class was added
+      // Verify the authenticated class was added by auth state listener
       await page.waitForFunction(() => document.body.classList.contains('authenticated'), {
         timeout: 5000,
       });
