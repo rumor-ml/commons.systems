@@ -149,12 +149,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             has_in_scope_fixes: {
               type: 'boolean',
-              description: 'Whether any in-scope fixes were made. If false, skips state update and comment posting.',
+              description:
+                'Whether any in-scope fixes were made. If false, skips state update and comment posting.',
             },
             out_of_scope_issues: {
               type: 'array',
               items: { type: 'number' },
-              description: 'List of issue numbers for out-of-scope recommendations (both new and existing)',
+              description:
+                'List of issue numbers for out-of-scope recommendations (both new and existing)',
             },
           },
           required: ['fix_description', 'has_in_scope_fixes'],

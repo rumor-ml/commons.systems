@@ -30,10 +30,7 @@ describe('complete-fix validation (Priority 2: out_of_scope_issues)', () => {
         assert(err instanceof ValidationError, 'Should be ValidationError');
         assert(err.message.includes('Invalid issue numbers'), 'Should mention invalid numbers');
         assert(err.message.includes('-456'), 'Should include the invalid number');
-        assert(
-          err.message.includes('positive integers'),
-          'Should explain valid format'
-        );
+        assert(err.message.includes('positive integers'), 'Should explain valid format');
         return true;
       }
     );

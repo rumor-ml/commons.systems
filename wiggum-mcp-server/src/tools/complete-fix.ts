@@ -152,10 +152,9 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     // Post minimal state comment documenting fast-path completion
     const commentTitle = `${state.wiggum.step} - Complete (No In-Scope Fixes)`;
-    const outOfScopeSection =
-      input.out_of_scope_issues?.length
-        ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
-        : '';
+    const outOfScopeSection = input.out_of_scope_issues?.length
+      ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
+      : '';
     const commentBody = `**Fix Description:** ${input.fix_description}${outOfScopeSection}`;
 
     logger.info('Posting wiggum state comment (fast-path)', {
@@ -187,10 +186,9 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
   // Post comment documenting the fix (to issue in Phase 1, to PR in Phase 2)
   const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;
-  const outOfScopeSection =
-    input.out_of_scope_issues?.length
-      ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
-      : '';
+  const outOfScopeSection = input.out_of_scope_issues?.length
+    ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
+    : '';
   const commentBody = `**Fix Description:**
 
 ${input.fix_description}${outOfScopeSection}
