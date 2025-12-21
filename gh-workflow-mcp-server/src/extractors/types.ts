@@ -14,6 +14,7 @@ export interface DetectionResult {
 }
 // TODO(#357): Improve type safety - add readonly modifiers, use enums, enforce immutability
 
+// TODO(#357, #363): Make readonly and use factory validation
 export interface ExtractedError {
   testName?: string;
   fileName?: string;

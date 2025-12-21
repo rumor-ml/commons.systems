@@ -26,6 +26,7 @@ export const CompletePRReviewInputSchema = z.object({
 
 export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
 
+// TODO(#334): Add validation tests for phase-specific fields
 const PR_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_PR_REVIEW,
   phase2Step: STEP_PHASE2_PR_REVIEW,

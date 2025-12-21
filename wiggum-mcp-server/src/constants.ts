@@ -148,21 +148,23 @@ export function generateTriageInstructions(
 ): string {
   // Validate reviewType: Must be exactly 'PR' or 'Security' (case-sensitive)
   // TypeScript type system should prevent this at compile time, but runtime check ensures safety
+  // TODO(#367): Clarify when runtime validation catches issues
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
       `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
     );
   }
 
-  // Validate issueNumber: Must be finite, positive, and integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // GitHub issue numbers are always positive integers starting from 1
-  if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
+  // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
+  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN
+  // TODO(#367): Explain why edge case validation for Infinity/NaN
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
   }
 
-  // Validate totalIssues: Must be finite, non-negative, and integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Zero is valid (indicates triage called with no issues, though unusual)
-  if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
+  // Validate totalIssues: Must be non-negative integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
+  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN
+  if (!Number.isInteger(totalIssues) || totalIssues < 0) {
     throw new ValidationError(
       `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
@@ -278,6 +280,7 @@ Call ExitPlanMode when plan is complete.
  * @returns Formatted multi-step triage workflow instructions
  * @throws {ValidationError} Invalid failureType or issueNumber
  */
+// TODO(#334): Add error boundary tests
 export function generateWorkflowTriageInstructions(
   issueNumber: number,
   failureType: 'Workflow' | 'PR checks',
@@ -291,9 +294,9 @@ export function generateWorkflowTriageInstructions(
     );
   }
 
-  // Validate issueNumber: Must be finite, positive, and integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // GitHub issue numbers are always positive integers starting from 1
-  if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
+  // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
+  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
   }
 
@@ -384,6 +387,7 @@ ${failureDetails}`;
  * Skip mechanism guidance for workflow failures
  * Provides framework-specific and CI-specific skip patterns
  */
+// TODO(#334): Validate syntax correctness of skip examples
 export const SKIP_MECHANISM_GUIDANCE = `
 **Test Framework Skipping:**
 - Jest/Vitest: \`it.skip('test name', () => {...})\` or \`describe.skip('suite', ...)\`

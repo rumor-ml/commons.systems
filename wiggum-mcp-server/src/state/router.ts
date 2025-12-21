@@ -144,6 +144,7 @@ async function safePostStateComment(
     return true;
   } catch (commentError) {
     // Log but continue - state comment is for tracking, not critical path
+    // TODO(#320): Surface state comment failures to users instead of silent warning
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     logger.warn('Failed to post state comment', {
       prNumber,
@@ -169,6 +170,7 @@ async function safePostStateComment(
  * @param issueNumber - Optional issue number to enable triage mode
  * @returns Formatted markdown instructions for fixing the failure
  */
+// TODO(#334): Add integration test for triage branching logic
 function formatFixInstructions(
   failureType: string,
   failureDetails: string | undefined,
@@ -214,11 +216,9 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
   });
 
   // Route based on phase
-  if (state.wiggum.phase === 'phase1') {
-    return await getPhase1NextStep(state);
-  } else {
-    return await getPhase2NextStep(state);
-  }
+  return state.wiggum.phase === 'phase1'
+    ? await getPhase1NextStep(state)
+    : await getPhase2NextStep(state);
 }
 
 /**
@@ -263,6 +263,7 @@ async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
 /**
  * Phase 1 Step 1: Monitor Feature Branch Workflow
  */
+// TODO(#334): Add integration test for failure path with triage
 async function handlePhase1MonitorWorkflow(
   state: CurrentState,
   issueNumber: number

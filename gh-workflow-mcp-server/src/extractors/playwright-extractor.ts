@@ -212,7 +212,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += 'Global setup completed successfully but no test results were produced. ';
     }
 
-    if (timeGap !== null && timeGap !== undefined && timeGap > 60) {
+    if (typeof timeGap === 'number' && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
     } else if (timeGap === null && timeDiagnostic) {

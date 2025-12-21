@@ -34,6 +34,7 @@ export const ReviewConfigSchema = z.object({
 
 /**
  * Configuration for a review type (PR or Security)
+ * TODO(#333, #363): Add readonly modifiers and runtime validation
  */
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
@@ -65,6 +66,7 @@ export const ReviewCompletionInputSchema = z.object({
 
 /**
  * Input for review completion
+ * TODO(#333, #363): Add readonly modifiers and integer validation
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
@@ -102,7 +104,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
 
 /**
  * Build comment content based on review results
- * TODO(#334): Add tests for comment content formatting
+ * TODO(#334): Add test for phase-specific command selection
  */
 function buildCommentContent(
   input: ReviewCompletionInput,

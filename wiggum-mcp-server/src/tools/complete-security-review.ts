@@ -23,6 +23,7 @@ export const CompleteSecurityReviewInputSchema = z.object({
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
+// TODO(#334): Add validation tests for phase-specific fields
 const SECURITY_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_SECURITY_REVIEW,
   phase2Step: STEP_PHASE2_SECURITY_REVIEW,
