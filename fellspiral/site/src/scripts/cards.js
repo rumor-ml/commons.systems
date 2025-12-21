@@ -265,13 +265,13 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
-    // CRITICAL: 200ms delay prevents race condition in dropdown click handling
-    // Event sequence on option click: mousedown → blur → mouseup → click
-    // The mousedown handler calls e.preventDefault() to suppress blur, but this
+    // CRITICAL: 200ms delay handles browser event sequencing for dropdown clicks
+    // Event sequence: mousedown → blur → mouseup → click
+    // The mousedown handler calls e.preventDefault() to cancel blur, but browser
+    // implementation varies - some fire blur before preventDefault executes.
+    // The 200ms buffer ensures mousedown handler completes before blur fires.
+    // This is an event-ordering workaround, not a race condition (no async timing).
     // TODO(#286): Specify which browsers/scenarios need this or test comprehensively
-    // only works for some browsers/scenarios. The delay ensures that even if blur
-    // fires immediately, the mousedown handler has time to execute selectOption()
-    // before the dropdown is hidden. 200ms provides margin for slower event loops.
     // Alternative approaches considered: mousedown-only handling (accessibility issues),
     // relatedTarget checking (unreliable cross-browser).
     setTimeout(() => {
