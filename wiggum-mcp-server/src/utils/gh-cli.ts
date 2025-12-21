@@ -425,6 +425,8 @@ export async function ghCliWithRetry(
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // TODO(#320): Log initial failure before retry logic
+    // Current: Only logs retry attempts, not what initially failed
     try {
       return await ghCli(args, options);
     } catch (error) {

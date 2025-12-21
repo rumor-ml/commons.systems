@@ -256,6 +256,8 @@ func (c *DaemonClient) receive() {
 		// Route query responses to dedicated channels to ensure QueryBlockedState() receives them.
 		// Without this routing, responses would be delivered to the general event channel,
 		// requiring the caller to poll Events() instead of receiving a direct return value.
+		// TODO(#281): Use narrow catch blocks for query channel errors
+		// Current: Broad catch block masks channel overflow vs deadlock
 		if msg.Type == MsgTypeBlockedStateResponse {
 			c.queryMu.Lock()
 			if resp, exists := c.queryResponses[msg.Branch]; exists {

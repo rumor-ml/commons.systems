@@ -133,6 +133,8 @@ function checkBranchPushed(
  * TODO(#272): Improve error handling
  * See issue for recommendations on state persistence failure handling.
  */
+// TODO(#320): Make state persistence failures visible to users
+// Current: Only logs at WARN level, users have no visibility
 async function safePostStateComment(
   prNumber: number,
   state: WiggumState,

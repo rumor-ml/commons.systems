@@ -56,6 +56,8 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	// Create type-safe v2 message
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
+		// TODO(#281): Log message construction failures to stderr
+		// Current: Only debug logging, operations continue with no message sent
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
 		return
 	}
@@ -762,6 +764,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeHealthQuery:
 			// Return health status
 			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
+			// TODO(#281): Include field-level details in health validation errors
+			// Current: Generic message without specific field/value context
 			status, healthErr := d.GetHealthStatus()
 			if healthErr != nil {
 				// Send error message to client instead of fabricated health status
@@ -877,6 +881,8 @@ func (d *AlertDaemon) broadcast(msg Message) {
 				"Affected clients disconnected and will resync on reconnect.",
 			len(failedClients), totalClients, msg.Type, msg.SeqNum,
 		)
+		// TODO(#281): Improve sync warning error context
+		// Current: Fallback can cascade into another failure without clear user messaging
 		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
 		if err != nil {
 			// CRITICAL: Cannot construct sync warning - use fallback raw message

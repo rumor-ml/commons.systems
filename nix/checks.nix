@@ -32,8 +32,12 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
     # Disabled: govet requires access to Go module dependencies at runtime.
     # Nix pre-commit hooks run in a pure sandbox without access to downloaded dependencies.
-    # While technically solvable by including dependencies in the Nix derivation, this would
-    # significantly slow down every commit (requires building/fetching all Go deps).
+    #
+    # Technical challenges with sandbox execution:
+    # - Would require packaging all transitive Go dependencies in Nix derivation
+    # - Dependency resolution must handle replace directives, local paths, and vendoring
+    # - Significantly slows every commit (must rebuild/fetch all Go deps)
+    # - Breaks incremental development workflow expectations
     #
     # Current approach: govet runs in CI where dependencies are already available.
     # For local validation before push: cd <go-project> && go vet ./...

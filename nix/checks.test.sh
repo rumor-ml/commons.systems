@@ -609,6 +609,67 @@ EOF
   git worktree remove -f "$worktree_dir" 2>/dev/null || true
 }
 
+# Test 11: Worktree hook execution
+test_worktree_hook_execution() {
+  print_test_header "test_worktree_hook_execution"
+
+  # Create test repo with pre-push hook
+  local tempdir=$(mktemp -d)
+  trap "rm -rf '$tempdir'" EXIT
+
+  cd "$tempdir"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+
+  # Create simple pre-push hook that writes to a marker file
+  mkdir -p .git/hooks
+  cat > .git/hooks/pre-push <<'HOOKEOF'
+#!/bin/bash
+echo "Hook executed from $(pwd)" > /tmp/hook-execution-marker
+exit 0
+HOOKEOF
+  chmod +x .git/hooks/pre-push
+
+  # Create initial commit on main
+  echo "content" > file.txt
+  git add file.txt
+  git commit -m "Initial commit"
+  git branch -M main
+
+  # Create worktree with hook configuration (simulate /worktree command)
+  local worktree_path="$tempdir/worktrees/test-branch"
+  git worktree add "$worktree_path" -b test-branch main
+
+  # Configure hooks path in worktree (critical step from /worktree command)
+  cd "$worktree_path"
+  MAIN_GIT_DIR=$(git rev-parse --git-common-dir)
+  git config core.hooksPath "$MAIN_GIT_DIR/hooks"
+
+  # Make a change in worktree
+  echo "change" > file.txt
+  git add file.txt
+  git commit -m "Test change"
+
+  # Attempt push (will fail due to no remote, but hook should execute)
+  rm -f /tmp/hook-execution-marker
+  git push -u origin test-branch 2>&1 || true
+
+  # Verify hook executed
+  if [ -f /tmp/hook-execution-marker ]; then
+    assert_succeeds "Worktree pre-push hook executed" "grep -q 'Hook executed' /tmp/hook-execution-marker"
+  else
+    echo -e "${RED}✗ FAIL: Pre-push hook did not execute in worktree${NC}"
+    echo "Hook marker file not created at /tmp/hook-execution-marker"
+    echo "This indicates core.hooksPath configuration is not working"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  rm -f /tmp/hook-execution-marker
+  cd "$REPO_ROOT"
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -633,6 +694,9 @@ main() {
       echo "  test_pnpm_lockfile_success"
       echo "  test_pre_push_end_to_end"
       echo "  test_worktree_compatibility"
+      echo "  test_worktree_hook_execution"
+      echo "  test_mcp_build_validates_changes"
+      echo "  test_prettier_check_all_files_not_just_changes"
       exit 1
     fi
   else
@@ -647,6 +711,9 @@ main() {
     test_pnpm_lockfile_success
     test_pre_push_end_to_end
     test_worktree_compatibility
+    test_worktree_hook_execution
+    test_mcp_build_validates_changes
+    test_prettier_check_all_files_not_just_changes
   fi
 
   # Print summary
