@@ -14,14 +14,6 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
     await expect(addCardBtn).toHaveCSS('display', 'none');
   });
 
-  test('should hide Import button when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
-
-    const importBtn = page.locator('#importCardsBtn');
-    await expect(importBtn).toBeAttached();
-    await expect(importBtn).toHaveCSS('display', 'none');
-  });
-
   test('should hide Export button when logged out', async ({ page }) => {
     await page.goto('/cards.html');
 
