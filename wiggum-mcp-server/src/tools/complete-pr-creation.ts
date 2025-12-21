@@ -45,6 +45,7 @@ import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
+import type { CurrentState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -277,7 +278,11 @@ ${commits}`;
     }
 
     // Get updated state with PR now existing
-    const updatedState = await detectCurrentState();
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+    };
 
     // Get next step instructions from router
     const nextStepResult = await getNextStepInstructions(updatedState);

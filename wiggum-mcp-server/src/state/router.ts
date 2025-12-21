@@ -8,7 +8,6 @@
 
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { postWiggumStateComment } from './comments.js';
-import { detectCurrentState } from './detector.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
@@ -555,7 +554,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
     // stepsCompletedSoFar starts with Step p2-1 completion entries
     // Check for uncommitted changes before proceeding
-    const updatedState = await detectCurrentState();
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+    };
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
     if (uncommittedCheck) return uncommittedCheck;
@@ -613,7 +616,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     // This path is reached when Step p2-1 + Step p2-2 complete together in one function call.
     // stepsCompletedSoFar contains entries for BOTH Step p2-1 and Step p2-2 completion.
     // Fetch code quality bot comments and determine next action
-    const finalState = await detectCurrentState();
+    // Reuse newState2 to avoid race condition with GitHub API (issue #388)
+    const finalState: CurrentState = {
+      ...updatedState,
+      wiggum: newState2,
+    };
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
       stepsCompleted
@@ -690,7 +697,11 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     // This path is reached when Step p2-1 was already complete (e.g., after re-verification).
     // stepsCompletedSoFar contains ONLY Step p2-2 completion entries (not Step p2-1).
     // Used after fixes when workflow monitoring already passed in a prior iteration.
-    const updatedState = await detectCurrentState();
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+    };
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
       stepsCompleted
