@@ -12,6 +12,7 @@
       "Skill(sonnet)",
       "Skill(frontend-design:frontend-design)",
       "SlashCommand(/pr-review-toolkit:review-pr)",
+      "SlashCommand(/all-hands-review)",
       "SlashCommand(/commit-merge-push)",
       "mcp__gh-workflow__gh_monitor_run",
       "mcp__gh-workflow__gh_get_deployment_urls",

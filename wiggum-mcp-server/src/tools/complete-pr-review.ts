@@ -5,7 +5,12 @@
  */
 
 import { z } from 'zod';
-import { STEP_PHASE1_PR_REVIEW, STEP_PHASE2_PR_REVIEW, PR_REVIEW_COMMAND } from '../constants.js';
+import {
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE2_PR_REVIEW,
+  PHASE1_PR_REVIEW_COMMAND,
+  PHASE2_PR_REVIEW_COMMAND,
+} from '../constants.js';
 import type { ToolResult } from '../types.js';
 import {
   completeReview,
@@ -28,7 +33,8 @@ export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
 const PR_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_PR_REVIEW,
   phase2Step: STEP_PHASE2_PR_REVIEW,
-  commandName: PR_REVIEW_COMMAND,
+  phase1Command: PHASE1_PR_REVIEW_COMMAND,
+  phase2Command: PHASE2_PR_REVIEW_COMMAND,
   reviewTypeLabel: 'PR',
   issueTypeLabel: 'issue(s) found in PR review',
   successMessage: `All automated review checks passed with no concerns identified.

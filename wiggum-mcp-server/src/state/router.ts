@@ -27,7 +27,8 @@ import {
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
-  PR_REVIEW_COMMAND,
+  PHASE1_PR_REVIEW_COMMAND,
+  PHASE2_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
@@ -647,7 +648,7 @@ Execute comprehensive PR review on the current branch before creating the pull r
 
 1. Execute the PR review command:
    \`\`\`
-   ${PR_REVIEW_COMMAND}
+   ${PHASE1_PR_REVIEW_COMMAND}
    \`\`\`
 
 2. After the review completes, call the \`wiggum_complete_pr_review\` tool with:
@@ -1251,7 +1252,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response
@@ -1307,7 +1308,7 @@ function handlePhase2PRReview(state: CurrentStateWithPR): ToolResult {
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response

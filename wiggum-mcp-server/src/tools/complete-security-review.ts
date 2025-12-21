@@ -30,7 +30,8 @@ export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewI
 const SECURITY_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_SECURITY_REVIEW,
   phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-  commandName: SECURITY_REVIEW_COMMAND,
+  phase1Command: SECURITY_REVIEW_COMMAND,
+  phase2Command: SECURITY_REVIEW_COMMAND,
   reviewTypeLabel: 'Security',
   issueTypeLabel: 'security issue(s) found',
   successMessage: `All security checks passed with no vulnerabilities identified.
