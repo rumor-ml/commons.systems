@@ -104,42 +104,65 @@ export const PHASE2_PR_REVIEW_COMMAND = '/review' as const;
 export const FAILURE_STATES = ['FAILURE', 'ERROR'] as const;
 
 /**
- * Generate triage instructions for review issues.
+ * Generate comprehensive triage instructions for review issues
  *
- * This function generates a comprehensive multi-step workflow prompt that guides
- * the agent through the triage process for review recommendations. The workflow includes:
- * 1. Entering plan mode
- * 2. Fetching issue context from GitHub
- * 3. Triaging each recommendation as in-scope or out-of-scope
- * 4. Handling ambiguous scope with user clarification
- * 5. Tracking out-of-scope items to existing/new issues
- * 6. Writing a structured plan with in-scope fixes and out-of-scope tracking
- * 7. Executing the plan with fix implementation and TODO comments
+ * Produces a structured multi-step workflow that guides the agent through triaging
+ * review recommendations, separating in-scope fixes from out-of-scope tracking.
  *
- * @param issueNumber - The issue number being worked on (must be positive integer)
- * @param reviewType - Either 'PR' or 'Security'
- * @param totalIssues - Total number of issues found (must be non-negative integer)
- * @returns A multi-step triage workflow prompt with scope boundaries determined by issueNumber
- * @throws {ValidationError} If issueNumber or totalIssues are invalid
+ * **Workflow Phases:**
+ *
+ * 1. **Plan Mode Entry** - Uses EnterPlanMode tool to begin structured planning
+ *
+ * 2. **Triage Process:**
+ *    - Fetches issue context via mcp__gh-issue__gh_get_issue_context
+ *    - Evaluates each recommendation against in-scope criteria
+ *    - IN SCOPE: Required for validating issue implementation, improves new work, covers new tests
+ *    - OUT OF SCOPE: Different issue, general improvements, unchanged code
+ *    - Handles ambiguous cases with AskUserQuestion and gh issue edit
+ *    - Searches existing issues for out-of-scope tracking (gh issue list)
+ *
+ * 3. **Plan Structure:**
+ *    - Section A: In-scope fixes (all severity levels)
+ *    - Section B: Out-of-scope tracking with issue numbers and TODO locations
+ *
+ * 4. **Execution:**
+ *    - Exit plan mode
+ *    - Implement in-scope fixes with accept-edits subagent
+ *    - Create/update out-of-scope issues in parallel
+ *    - Add TODO comments linking to issues
+ *    - Commit via /commit-merge-push
+ *    - Report completion via wiggum_complete_fix
+ *
+ * **Validation:** Throws ValidationError if reviewType not 'PR'/'Security', issueNumber
+ * not a positive integer, or totalIssues not a non-negative integer.
+ *
+ * @param issueNumber - GitHub issue number defining scope boundary (positive integer)
+ * @param reviewType - Review category: 'PR' or 'Security'
+ * @param totalIssues - Count of recommendations to triage (non-negative integer)
+ * @returns Formatted multi-step triage workflow instructions
+ * @throws {ValidationError} Invalid reviewType, issueNumber, or totalIssues
  */
 export function generateTriageInstructions(
   issueNumber: number,
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
-  // Validate reviewType
+  // Validate reviewType: Must be exactly 'PR' or 'Security' (case-sensitive)
+  // TypeScript type system should prevent this at compile time, but runtime check ensures safety
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
       `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
     );
   }
 
-  // Validate issueNumber
+  // Validate issueNumber: Must be finite, positive, and integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
+  // GitHub issue numbers are always positive integers starting from 1
   if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
     throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
   }
 
-  // Validate totalIssues
+  // Validate totalIssues: Must be finite, non-negative, and integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
+  // Zero is valid (indicates triage called with no issues, though unusual)
   if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
     throw new ValidationError(
       `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`

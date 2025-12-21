@@ -765,6 +765,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
+  // TODO: See issue #378 - Use hasExistingPR type guard instead of inline check
   if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
