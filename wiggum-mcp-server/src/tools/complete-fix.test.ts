@@ -1,10 +1,16 @@
 /**
  * Tests for complete-fix tool
  *
- * Comprehensive test coverage for fix completion.
- * Tests cover input validation, fix description handling, and iteration tracking.
+ * Schema validation and type safety coverage for fix completion inputs.
+ * Tests cover Zod schema validation for fix_description and out_of_scope_issues parameters.
+ *
+ * NOTE: Runtime validation tests (error messages, validation logic execution) are in
+ * __tests__/complete-fix.validation.test.ts which actually executes completeFix()
+ * with invalid inputs to verify ValidationErrors are thrown correctly.
+ *
+ * TODO: See issue #313 - Add integration tests with mocked GitHub/git for state updates,
+ * comment posting, completedSteps filtering, and phase-specific behavior.
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

@@ -1,12 +1,19 @@
 /**
  * Integration tests for triage workflow end-to-end behavior
  *
- * Full cycle tests: review → triage → fix → verify
- * Tests cover fast-path when has_in_scope_fixes: false
- * Tests cover completedSteps filtering after fix
- * Tests cover out-of-scope issue tracking across iterations
+ * Documentation of triage workflow requirements covering full cycle: review → triage → fix → verify.
+ * Documents fast-path behavior, completedSteps filtering, and out-of-scope tracking.
+ *
+ * Current coverage: Workflow documentation and requirement specification.
+ *
+ * TODO: See issue #313 - Add integration tests with mocked GitHub/git for:
+ * - Full triage workflow cycle (review finds issues → agent triages → fix applied → re-verify)
+ * - Fast-path execution (has_in_scope_fixes: false skips state update)
+ * - State filtering (completedSteps removal after fix)
+ * - Out-of-scope tracking across multiple iterations
+ * - Phase transitions and comment routing
+ * - Iteration limit handling in workflow context
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests with actual state mocking
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

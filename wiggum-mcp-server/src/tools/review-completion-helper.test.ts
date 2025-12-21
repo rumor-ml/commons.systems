@@ -1,10 +1,19 @@
 /**
  * Tests for review-completion-helper
  *
- * Comprehensive integration tests for completeReview() shared helper function.
- * Tests cover all code paths: phase1/phase2, issues found/no issues, iteration limits.
+ * Documentation of behavioral requirements for completeReview() shared helper function.
+ * Tests document all code paths: phase1/phase2, issues found/no issues, iteration limits.
+ *
+ * Current coverage: Type safety and interface structure validation.
+ *
+ * TODO: See issue #313 - Add integration tests with mocked GitHub/git for:
+ * - State detection and validation (issue in phase1, PR in phase2)
+ * - Comment posting to correct locations (issue vs PR)
+ * - Iteration increment vs step completion logic
+ * - Triage instruction generation
+ * - Iteration limit behavior
+ * - Router integration for next step determination
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests with actual state mocking
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
