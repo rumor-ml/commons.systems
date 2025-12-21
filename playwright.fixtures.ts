@@ -18,10 +18,10 @@ export const test = base.extend<AuthFixtures>({
     // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
     // In CI, this env var points to a service account key file. Firebase Admin SDK
     // tries to load it BEFORE checking if we're connecting to an emulator, causing
-    // invalid custom tokens. The emulator doesn't need credentials, so we explicitly
-    // remove the env var before initialization.
-    const savedCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (savedCredentials) {
+    // invalid custom tokens. The emulator doesn't need credentials.
+    // Deleting it in THIS process ensures admin.initializeApp() won't try to load it.
+    const isCI = !!process.env.CI;
+    if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     }
 
@@ -140,11 +140,6 @@ export const test = base.extend<AuthFixtures>({
     };
 
     await use({ createTestUser, signInTestUser, signOutTestUser });
-
-    // Restore GOOGLE_APPLICATION_CREDENTIALS if it was set
-    if (savedCredentials) {
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = savedCredentials;
-    }
   },
 });
 

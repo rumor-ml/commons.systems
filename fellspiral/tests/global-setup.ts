@@ -61,8 +61,10 @@ async function globalSetup() {
     // In CI, this env var points to a service account key file. Firebase Admin SDK
     // tries to load it BEFORE checking if we're connecting to an emulator, causing
     // invalid custom tokens. The emulator doesn't need credentials.
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      console.log('   ⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS to use emulator');
+    // Deleting it in THIS process ensures admin.initializeApp() won't try to load it.
+    const isCI = !!process.env.CI;
+    if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      console.log('   ⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS for emulator use in CI');
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     }
 
