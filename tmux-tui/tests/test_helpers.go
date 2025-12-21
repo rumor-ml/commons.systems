@@ -402,6 +402,35 @@ func logEnvironmentState(t *testing.T, socketName, session, paneID, context stri
 // This is useful for ensuring a clean state before tests.
 func CleanupAlertFiles(socketName string) error {
 	alertDir := getTestAlertDir(socketName)
+
+	// List contents before removal for diagnostics
+	entries, readErr := os.ReadDir(alertDir)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("failed to read alert directory %s before cleanup: %w", alertDir, readErr)
+	}
+
+	if len(entries) > 0 {
+		fmt.Printf("Cleaning up %d entries from %s\n", len(entries), alertDir)
+		for _, entry := range entries {
+			entryPath := filepath.Join(alertDir, entry.Name())
+			if entry.IsDir() {
+				fmt.Printf("  [dir]  %s\n", entry.Name())
+			} else {
+				info, _ := entry.Info()
+				if info != nil {
+					fmt.Printf("  [file] %s (%d bytes)\n", entry.Name(), info.Size())
+				} else {
+					fmt.Printf("  [file] %s\n", entry.Name())
+				}
+			}
+
+			// Attempt individual cleanup with error logging
+			if err := os.RemoveAll(entryPath); err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: Failed to remove %s: %v\n", entryPath, err)
+			}
+		}
+	}
+
 	// Remove entire namespace directory
 	if err := os.RemoveAll(alertDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove alert directory %s: %w", alertDir, err)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
@@ -13,6 +15,27 @@ import (
 type LockFile struct {
 	path string
 	file *os.File
+}
+
+// readPIDFromLockFile reads the PID from an existing lock file.
+// Returns the PID and any error encountered. Returns 0 if PID cannot be read.
+func readPIDFromLockFile(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read lock file: %w", err)
+	}
+
+	pidStr := strings.TrimSpace(string(data))
+	if pidStr == "" {
+		return 0, fmt.Errorf("lock file is empty")
+	}
+
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid PID in lock file: %w", err)
+	}
+
+	return pid, nil
 }
 
 // AcquireLockFile attempts to acquire an exclusive lock on the daemon lock file.
@@ -29,7 +52,11 @@ func AcquireLockFile(path string) (*LockFile, error) {
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		file.Close()
 		if err == syscall.EWOULDBLOCK {
-			return nil, fmt.Errorf("daemon already running (lock held)")
+			// Lock is held - try to read the PID for better error message
+			if existingPID, readErr := readPIDFromLockFile(path); readErr == nil {
+				return nil, fmt.Errorf("daemon already running (lock held by PID %d at %s)", existingPID, path)
+			}
+			return nil, fmt.Errorf("daemon already running (lock held at %s)", path)
 		}
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}

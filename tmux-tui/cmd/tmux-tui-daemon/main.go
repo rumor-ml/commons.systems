@@ -29,6 +29,7 @@ func main() {
 	defer func() {
 		if err := lockFile.Release(); err != nil {
 			debug.Log("DAEMON_MAIN_LOCKFILE_RELEASE_ERROR error=%v", err)
+			fmt.Fprintf(os.Stderr, "WARNING: Failed to release lock file: %v\n", err)
 		}
 	}()
 

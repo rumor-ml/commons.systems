@@ -703,6 +703,20 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			}
 
 		case MsgTypeShowBlockPicker:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				fmt.Fprintf(os.Stderr, "ERROR: Invalid show_block_picker message: %v\n", err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid show_block_picker request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Broadcast to all clients to show picker for this pane
 			debug.Log("DAEMON_SHOW_PICKER paneID=%s", msg.PaneID)
 
@@ -848,6 +862,18 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
 			if err := d.sendFullState(client, clientID); err != nil {
 				debug.Log("DAEMON_RESYNC_FAILED client=%s error=%v", clientID, err)
+			}
+
+		default:
+			// Unknown message type
+			debug.Log("DAEMON_UNKNOWN_MESSAGE_TYPE client=%s type=%s", clientID, msg.Type)
+			fmt.Fprintf(os.Stderr, "ERROR: Unknown message type from client %s: %s\n", clientID, msg.Type)
+			errorMsg, constructErr := NewPersistenceErrorMessage(
+				d.seqCounter.Add(1),
+				fmt.Sprintf("Unknown message type: %s", msg.Type),
+			)
+			if constructErr == nil {
+				client.sendMessage(errorMsg.ToWireFormat())
 			}
 		}
 	}
