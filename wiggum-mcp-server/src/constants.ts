@@ -146,25 +146,28 @@ export function generateTriageInstructions(
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
-  // Validate reviewType: Must be exactly 'PR' or 'Security' (case-sensitive)
-  // TypeScript type system should prevent this at compile time, but runtime check ensures safety
+  // Error IDs for triage instruction validation
+  const ERROR_INVALID_REVIEW_TYPE = 'TRIAGE_INVALID_REVIEW_TYPE';
+  const ERROR_INVALID_ISSUE_NUMBER = 'TRIAGE_INVALID_ISSUE_NUMBER';
+  const ERROR_INVALID_TOTAL_ISSUES = 'TRIAGE_INVALID_TOTAL_ISSUES';
+
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
-      `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
+      `[${ERROR_INVALID_REVIEW_TYPE}] Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
     );
   }
 
-  // Validate issueNumber: Must be finite, positive, and integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // GitHub issue numbers are always positive integers starting from 1
+  // Validates that issueNumber is a positive integer (GitHub issue numbers are always positive)
   if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
-    throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
+    throw new ValidationError(
+      `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
+    );
   }
 
-  // Validate totalIssues: Must be finite, non-negative, and integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Zero is valid (indicates triage called with no issues, though unusual)
+  // Validates that totalIssues is a non-negative integer (zero means no issues to triage, which is valid)
   if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
     throw new ValidationError(
-      `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
+      `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
   }
 
