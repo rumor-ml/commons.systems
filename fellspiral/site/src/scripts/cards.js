@@ -867,9 +867,8 @@ function setupAuthStateListener() {
           retries: state.authListenerRetries,
           maxRetries: state.authListenerMaxRetries,
         });
-        showErrorUI(
-          'Authentication monitoring failed. Please refresh the page.',
-          () => window.location.reload()
+        showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
+          window.location.reload()
         );
         throw error; // Don't continue in broken state
       }
@@ -887,9 +886,8 @@ function setupAuthStateListener() {
       stack: error.stack,
     });
 
-    showErrorUI(
-      'Authentication monitoring failed. Please refresh the page.',
-      () => window.location.reload()
+    showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
+      window.location.reload()
     );
 
     throw error; // Don't continue in broken state
