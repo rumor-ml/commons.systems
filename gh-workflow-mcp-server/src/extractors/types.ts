@@ -125,38 +125,40 @@ export function createFallbackError(
   }
 
   // Construct rawOutput - ensure at least one element
-  let rawOutput: string[];
-  if (Array.isArray(partial.rawOutput) && partial.rawOutput.length > 0) {
-    rawOutput = partial.rawOutput;
-  } else if (typeof partial.message === 'string' && partial.message.length > 0) {
-    rawOutput = [partial.message];
-  } else {
-    rawOutput = [`Test output failed validation: ${context}`];
-  }
-
-  function isPositiveInt(value: unknown): value is number {
-    return typeof value === 'number' && value > 0;
-  }
-
-  function isNonNegative(value: unknown): value is number {
-    return typeof value === 'number' && value >= 0;
-  }
+  const rawOutput = getRawOutput(partial, context);
 
   // Return valid-by-construction error
   return {
-    message, // Always non-empty
-    rawOutput, // Always has at least 1 element
-    // Include valid metadata if present
+    message,
+    rawOutput,
     testName: partial.testName,
     fileName: partial.fileName,
-    lineNumber: isPositiveInt(partial.lineNumber) ? partial.lineNumber : undefined,
-    columnNumber: isPositiveInt(partial.columnNumber) ? partial.columnNumber : undefined,
-    duration: isNonNegative(partial.duration) ? partial.duration : undefined,
+    lineNumber: isPositiveInteger(partial.lineNumber) ? partial.lineNumber : undefined,
+    columnNumber: isPositiveInteger(partial.columnNumber) ? partial.columnNumber : undefined,
+    duration: isNonNegativeNumber(partial.duration) ? partial.duration : undefined,
     failureType: partial.failureType,
     errorCode: partial.errorCode,
     stack: partial.stack,
     codeSnippet: partial.codeSnippet,
   };
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0;
+}
+
+function getRawOutput(partial: Partial<ExtractedError>, context: string): string[] {
+  if (Array.isArray(partial.rawOutput) && partial.rawOutput.length > 0) {
+    return partial.rawOutput;
+  }
+  if (typeof partial.message === 'string' && partial.message.length > 0) {
+    return [partial.message];
+  }
+  return [`Test output failed validation: ${context}`];
 }
 
 /**
@@ -277,6 +279,7 @@ export class ValidationErrorTracker {
  * @returns Always returns an ExtractedError (validated or fallback)
  * @throws Non-Zod errors (bugs in extraction code)
  */
+// TODO: See issue #332 - Ensure all fallback paths in extractors use this validation tracker consistently
 export function safeValidateExtractedError(
   data: unknown,
   context: string,
