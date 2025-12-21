@@ -747,9 +747,8 @@ function setupEventListeners() {
         addCardBtn.title = 'Add Card is unavailable. Please refresh the page.';
       }
 
-      showErrorUI(
-        `Card ${failed} selection failed to initialize. Please refresh the page.`,
-        () => window.location.reload()
+      showErrorUI(`Card ${failed} selection failed to initialize. Please refresh the page.`, () =>
+        window.location.reload()
       );
     }
 
