@@ -284,6 +284,18 @@ ${commits}`;
       wiggum: newState,
     };
 
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState.phase,
+      step: newState.step,
+      iteration: newState.iteration,
+      completedSteps: newState.completedSteps,
+      prNumber: prNumber,
+      previousIteration: state.wiggum.iteration,
+      previousStep: state.wiggum.step,
+      stateTransition: `${state.wiggum.step} → ${newState.step}`,
+    });
+
     // Get next step instructions from router
     const nextStepResult = await getNextStepInstructions(updatedState);
 

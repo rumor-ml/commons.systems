@@ -180,10 +180,24 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     // Get updated state and return next step instructions
     // The router will now advance to the next step since current step is in completedSteps
     // Fix for issue #388: Reuse newState to avoid race condition with GitHub API
+    // TODO: See issue #391 - Add staleness validation for reused state (same issue as state validation)
     const updatedState: CurrentState = {
       ...state,
       wiggum: newState,
     };
+
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState.phase,
+      step: newState.step,
+      iteration: newState.iteration,
+      completedSteps: newState.completedSteps,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      previousIteration: state.wiggum.iteration,
+      previousStep: state.wiggum.step,
+      stateTransition: `${state.wiggum.step} → ${newState.step}`,
+    });
+
     return await getNextStepInstructions(updatedState);
   }
 
@@ -259,6 +273,18 @@ ${input.fix_description}${outOfScopeSection}
     ...state,
     wiggum: newState,
   };
+
+  logger.info('Reusing state to avoid GitHub API race condition', {
+    issueRef: '#388',
+    phase: newState.phase,
+    step: newState.step,
+    iteration: newState.iteration,
+    completedSteps: newState.completedSteps,
+    prNumber: state.pr.exists ? state.pr.number : undefined,
+    previousIteration: state.wiggum.iteration,
+    previousStep: state.wiggum.step,
+    stateTransition: `${state.wiggum.step} → ${newState.step}`,
+  });
 
   logger.info('Updated state detected', {
     iteration: updatedState.wiggum.iteration,

@@ -141,6 +141,7 @@ async function safePostStateComment(
     return true;
   } catch (commentError) {
     // Log but continue - state comment is for tracking, not critical path
+    // TODO: See issue #320 - Add error classification to distinguish auth/rate limit/network errors
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     logger.warn('Failed to post state comment', {
       prNumber,
@@ -555,10 +556,23 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     // stepsCompletedSoFar starts with Step p2-1 completion entries
     // Check for uncommitted changes before proceeding
     // Reuse newState to avoid race condition with GitHub API (issue #388)
+    // TODO: See issue #391 - Add validation before state reuse to detect PR/git/issue state changes
     const updatedState: CurrentState = {
       ...state,
       wiggum: newState,
     };
+
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState.phase,
+      step: newState.step,
+      iteration: newState.iteration,
+      completedSteps: newState.completedSteps,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      previousIteration: state.wiggum.iteration,
+      previousStep: state.wiggum.step,
+      stateTransition: `${state.wiggum.step} → ${newState.step}`,
+    });
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
     if (uncommittedCheck) return uncommittedCheck;
@@ -621,6 +635,18 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       ...updatedState,
       wiggum: newState2,
     };
+
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState2.phase,
+      step: newState2.step,
+      iteration: newState2.iteration,
+      completedSteps: newState2.completedSteps,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      previousIteration: updatedState.wiggum.iteration,
+      previousStep: updatedState.wiggum.step,
+      stateTransition: `${updatedState.wiggum.step} → ${newState2.step}`,
+    });
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
       stepsCompleted
@@ -702,6 +728,18 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       ...state,
       wiggum: newState,
     };
+
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState.phase,
+      step: newState.step,
+      iteration: newState.iteration,
+      completedSteps: newState.completedSteps,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      previousIteration: state.wiggum.iteration,
+      previousStep: state.wiggum.step,
+      stateTransition: `${state.wiggum.step} → ${newState.step}`,
+    });
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
       stepsCompleted

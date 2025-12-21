@@ -226,6 +226,7 @@ function buildIssuesFoundResponse(
       }
     );
   } else {
+    // TODO: See issue #314 - Add actionable error context when issueNumber is undefined
     logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
       phase: state.wiggum.phase,
       totalIssues,
@@ -322,5 +323,18 @@ export async function completeReview(
     ...state,
     wiggum: newState,
   };
+
+  logger.info('Reusing state to avoid GitHub API race condition', {
+    issueRef: '#388',
+    phase: newState.phase,
+    step: newState.step,
+    iteration: newState.iteration,
+    completedSteps: newState.completedSteps,
+    prNumber: state.pr.exists ? state.pr.number : undefined,
+    previousIteration: state.wiggum.iteration,
+    previousStep: state.wiggum.step,
+    stateTransition: `${state.wiggum.step} → ${newState.step}`,
+  });
+
   return await getNextStepInstructions(updatedState);
 }
