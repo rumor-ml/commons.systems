@@ -148,6 +148,9 @@ async function safePostStateComment(
     await postWiggumStateComment(prNumber, state, title, body);
     return true;
   } catch (commentError) {
+    // TODO(#305): Clarify error recovery behavior
+    // Current: "not critical path" is vague - doesn't explain state persistence/recovery
+    // See PR review #273 for suggested improvement
     // Log but continue - state comment is for tracking, not critical path
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     logger.warn('Failed to post state comment', {

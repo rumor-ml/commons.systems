@@ -330,9 +330,9 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
  */
 export async function getPR(prNumber: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
-    // TODO(#349): Improve JSON parsing resilience - see PR #273 review
-    // Current: Throws on first malformed JSON, blocking all subsequent comments
-    // Recommended: Skip malformed lines with logging instead of throwing
+  // TODO(#349): Improve JSON parsing resilience - see PR #273 review
+  // Current: Throws on first malformed JSON, blocking all subsequent comments
+  // Recommended: Skip malformed lines with logging instead of throwing
   return ghCliJson(
     [
       'pr',

@@ -775,6 +775,132 @@ EOF
     "ERROR: Code style issues found in file3.js"
 }
 
+# Test 12: Worktree hooks block invalid changes
+test_worktree_hook_blocks_invalid_changes() {
+  print_test_header "test_worktree_hook_blocks_invalid_changes"
+
+  # Create test repo with validation pre-push hook
+  local tempdir=$(mktemp -d)
+  trap "rm -rf '$tempdir'" EXIT
+
+  cd "$tempdir"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+
+  # Create pre-push hook that rejects files with "INVALID" content
+  mkdir -p .git/hooks
+  cat > .git/hooks/pre-push <<'HOOKEOF'
+#!/bin/bash
+# Hook that validates file contents - rejects INVALID marker
+if git diff --name-only origin/main...HEAD 2>/dev/null | xargs -I {} git show HEAD:{} 2>/dev/null | grep -q "INVALID"; then
+  echo "ERROR: Invalid content detected in changes"
+  echo "Pre-push hook blocked the push"
+  exit 1
+fi
+exit 0
+HOOKEOF
+  chmod +x .git/hooks/pre-push
+
+  # Create initial commit on main with remote
+  echo "valid content" > file.txt
+  git add file.txt
+  git commit -m "Initial commit"
+  git branch -M main
+
+  # Setup fake remote
+  git remote add origin /tmp/fake-remote.git 2>/dev/null || true
+
+  # Create worktree with hook configuration
+  local worktree_path="$tempdir/worktrees/test-branch"
+  git worktree add "$worktree_path" -b test-branch main
+
+  # Configure hooks path in worktree (critical from /worktree command)
+  cd "$worktree_path"
+  MAIN_GIT_DIR=$(git rev-parse --git-common-dir)
+  git config core.hooksPath "$MAIN_GIT_DIR/hooks"
+
+  # Make invalid change in worktree
+  echo "INVALID content" > file.txt
+  git add file.txt
+  git commit -m "Invalid change"
+
+  # Verify hook blocks push in worktree
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if git push -u origin test-branch 2>&1 | grep -q "Pre-push hook blocked"; then
+    echo -e "${GREEN}✓ PASS: Pre-push hook correctly blocked invalid changes in worktree${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pre-push hook should have blocked invalid changes in worktree${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  cd "$REPO_ROOT"
+}
+
+# Test 13: MCP build script detects untracked source files
+test_mcp_build_detects_untracked_files() {
+  print_test_header "test_mcp_build_detects_untracked_files"
+
+  # Create temporary fake MCP server
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create minimal package.json
+  cat > package.json <<'EOF'
+{
+  "name": "test-mcp-server",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "echo 'Building...'"
+  }
+}
+EOF
+
+  # Create src directory with tracked file
+  mkdir -p src
+  echo "export const tracked = true;" > src/index.ts
+  git add package.json src/index.ts
+  git commit -q -m "Initial commit"
+
+  # Create untracked source file (simulates developer forgot git add)
+  echo "export const untracked = true;" > src/new-feature.ts
+
+  # npm build should succeed (doesn't know about git)
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if npm run build >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ PASS: npm build succeeds with untracked files${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: npm build should succeed${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  # Verify git status shows untracked file
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if git status --porcelain | grep -q "?? src/new-feature.ts"; then
+    echo -e "${GREEN}✓ PASS: git status detects untracked source file${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: git status should show untracked file${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  # Test build-mcp-servers.sh detection would happen during Nix build
+  # (This is tested indirectly - Nix build will fail if files untracked)
+  # The actual detection message comes from Nix's Cannot find module error
+
+  echo -e "${YELLOW}Note: Actual untracked file detection happens during Nix build${NC}"
+  echo -e "${YELLOW}Nix error: 'Cannot find module' → suggests running git status${NC}"
+
+  cd "$REPO_ROOT"
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -802,6 +928,8 @@ main() {
       echo "  test_worktree_hook_execution"
       echo "  test_mcp_build_validates_changes"
       echo "  test_prettier_check_all_files_not_just_changes"
+      echo "  test_worktree_hook_blocks_invalid_changes"
+      echo "  test_mcp_build_detects_untracked_files"
       exit 1
     fi
   else
@@ -819,6 +947,8 @@ main() {
     test_worktree_hook_execution
     test_mcp_build_validates_changes
     test_prettier_check_all_files_not_just_changes
+    test_worktree_hook_blocks_invalid_changes
+    test_mcp_build_detects_untracked_files
   fi
 
   # Print summary

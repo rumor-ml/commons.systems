@@ -357,6 +357,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const diff = Math.abs(seconds2 - seconds1);
 
     // TODO(#289): Add stderr logging for midnight rollover detection
+    // TODO(#305): Document rationale for 12-hour threshold
+    // Why: Valid test runs never exceed 12h; larger gaps indicate date boundary crossed
+    // See PR review #273 comment improvement recommendations
     // Detect midnight rollover (gap > 12 hours = likely crossed midnight)
     if (diff > 43200) {
       return {

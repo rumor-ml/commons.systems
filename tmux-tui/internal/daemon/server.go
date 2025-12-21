@@ -54,6 +54,8 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 
 	// Create type-safe v2 message
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewPersistenceErrorMessage fails (see PR review #273)
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
 		// TODO(#356): Add fallback notification for message construction failures
@@ -80,6 +82,8 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 	d.blockedMu.Unlock()
 
 	// Broadcast revert so all clients show correct state
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewBlockChangeMessage fails (see PR review #273)
 	msg, err := NewBlockChangeMessage(d.seqCounter.Add(1), branch, previousBlockedBy, wasBlocked)
 	if err != nil {
 		// TODO(#356): Add fallback notification for message construction failures
