@@ -7,9 +7,12 @@
  */
 
 import { detectCurrentState } from '../state/detector.js';
-import { postWiggumStateComment } from '../state/comments.js';
-import { postWiggumStateIssueComment } from '../state/issue-comments.js';
-import { getNextStepInstructions } from '../state/router.js';
+import {
+  getNextStepInstructions,
+  safePostStateComment,
+  safePostIssueStateComment,
+  type StateCommentResult,
+} from '../state/router.js';
 import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
 import { MAX_ITERATIONS, STEP_NAMES, generateTriageInstructions } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
@@ -153,7 +156,7 @@ async function postStateComment(
   },
   title: string,
   body: string
-): Promise<void> {
+): Promise<StateCommentResult> {
   if (state.wiggum.phase === 'phase1') {
     if (!state.issue.exists || !state.issue.number) {
       // TODO: See issue #312 - Add Sentry error ID for tracking
@@ -161,7 +164,13 @@ async function postStateComment(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
     }
-    await postWiggumStateIssueComment(state.issue.number, newState, title, body);
+    return await safePostIssueStateComment(
+      state.issue.number,
+      newState,
+      title,
+      body,
+      newState.step
+    );
   } else {
     if (!state.pr.exists || !state.pr.number) {
       // TODO: See issue #312 - Add Sentry error ID for tracking
@@ -169,7 +178,13 @@ async function postStateComment(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
     }
-    await postWiggumStateComment(state.pr.number, newState, title, body);
+    return await safePostStateComment(
+      state.pr.number,
+      newState,
+      title,
+      body,
+      newState.step
+    );
   }
 }
 
@@ -308,7 +323,36 @@ export async function completeReview(
   const hasIssues = totalIssues > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
-  await postStateComment(state, newState, title, body);
+  const result = await postStateComment(state, newState, title, body);
+
+  if (!result.success) {
+    logger.error('Review state comment failed - halting workflow', {
+      reviewStep,
+      reason: result.reason,
+      isTransient: result.isTransient,
+      phase: state.wiggum.phase,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      issueNumber: state.issue.exists ? state.issue.number : undefined,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: formatWiggumResponse({
+          current_step: STEP_NAMES[reviewStep],
+          step_number: reviewStep,
+          iteration_count: newState.iteration,
+          instructions: `ERROR: Failed to post review state comment due to ${result.reason}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists\n\nThe workflow will resume from this step once the issue is resolved.`,
+          steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+          context: {
+            pr_number: state.pr.exists ? state.pr.number : undefined,
+            issue_number: state.issue.exists ? state.issue.number : undefined,
+          },
+        })
+      }],
+      isError: true,
+    };
+  }
 
   if (newState.iteration >= MAX_ITERATIONS) {
     return buildIterationLimitResponse(state, reviewStep, totalIssues, newState.iteration);

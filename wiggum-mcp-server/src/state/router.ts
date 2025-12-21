@@ -43,6 +43,20 @@ type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
 
+/**
+ * Result type for state comment posting operations
+ *
+ * Provides expressive error handling with clear failure reasons:
+ * - success: true - Comment posted successfully
+ * - success: false - Comment failed due to transient error (rate limit or network)
+ *
+ * Transient errors are logged but allow workflow to continue or halt gracefully.
+ * Critical errors (404, auth) are thrown immediately.
+ */
+type StateCommentResult =
+  | { success: true }
+  | { success: false; reason: 'rate_limit' | 'network'; isTransient: true };
+
 interface WiggumInstructions {
   current_step: string;
   step_number: string;
@@ -120,19 +134,19 @@ function checkBranchPushed(
 /**
  * Safely post wiggum state comment with error handling
  *
- * Wraps postWiggumStateComment with consistent error handling and logging.
- * Failures to post state comments are logged but don't crash the workflow,
- * as state comments are for tracking and not critical to the workflow itself.
- *
- * Note: This function has simpler error handling than safePostIssueStateComment
- * because PR comments are less critical (PR already exists, state is recoverable).
+ * Wraps postWiggumStateComment with error classification and logging.
+ * Error handling strategy:
+ * - Critical errors (404, 401/403): Throw - require immediate intervention
+ * - Transient errors (429, network): Return failure Result - may self-resolve
+ * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
  * @param prNumber - PR number to comment on
  * @param state - New wiggum state to save
  * @param title - Comment title
  * @param body - Comment body
  * @param step - Step identifier for logging context
- * @returns true if comment posted successfully, false otherwise
+ * @returns Result indicating success or transient failure with reason
+ * @throws Critical errors (404, 401/403) and unexpected errors
  */
 async function safePostStateComment(
   prNumber: number,
@@ -140,21 +154,95 @@ async function safePostStateComment(
   title: string,
   body: string,
   step: string
-): Promise<boolean> {
+): Promise<StateCommentResult> {
   try {
     await postWiggumStateComment(prNumber, state, title, body);
-    return true;
+    return { success: true };
   } catch (commentError) {
-    // Log but continue - state comment is for tracking, not critical path
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-    logger.warn('Failed to post state comment', {
+    const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
+    const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
+    const stateJson = JSON.stringify(state);
+
+    // Classify error type based on error message patterns
+    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+    const isAuth = /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+                   exitCode === 401 || exitCode === 403;
+    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+    // Build comprehensive error context
+    const errorContext = {
       prNumber,
       step,
       title,
+      iteration: state.iteration,
+      phase: state.phase,
+      completedSteps: state.completedSteps,
+      stateJson,
       error: errorMsg,
-      recoveryNote: 'Workflow continues - missing state comment is recoverable',
+      errorType: commentError instanceof GitHubCliError ? 'GitHubCliError' : typeof commentError,
+      exitCode,
+      stderr,
+    };
+
+    // Critical errors: PR not found or authentication failures
+    if (is404) {
+      logger.error('Critical: PR not found - cannot post state comment', {
+        ...errorContext,
+        impact: 'Workflow state persistence failed - audit trail incomplete',
+        recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
+        nextSteps: 'Workflow cannot continue without valid PR',
+        isTransient: false,
+      });
+      throw commentError;
+    }
+
+    if (isAuth) {
+      logger.error('Critical: Authentication failed - cannot post state comment', {
+        ...errorContext,
+        impact: 'Workflow state persistence failed - insufficient permissions',
+        recommendation: 'Check gh auth status and token scopes: gh auth status',
+        nextSteps: 'Re-authenticate or update token permissions',
+        isTransient: false,
+      });
+      throw commentError;
+    }
+
+    // Transient errors: Rate limits or network issues
+    if (isRateLimit) {
+      logger.warn('Transient: Rate limit exceeded - state comment not posted', {
+        ...errorContext,
+        impact: 'State comment skipped - will retry on next state update',
+        recommendation: 'Check rate limit status: gh api rate_limit',
+        nextSteps: 'Workflow continues - rate limit may resolve',
+        isTransient: true,
+        recoveryNote: 'Missing state comment is recoverable on next update',
+      });
+      return { success: false, reason: 'rate_limit', isTransient: true };
+    }
+
+    if (isNetwork) {
+      logger.warn('Transient: Network error - state comment not posted', {
+        ...errorContext,
+        impact: 'State comment skipped - network connectivity issue',
+        recommendation: 'Check network connection and GitHub API status',
+        nextSteps: 'Workflow continues - network may recover',
+        isTransient: true,
+        recoveryNote: 'Missing state comment is recoverable on next update',
+      });
+      return { success: false, reason: 'network', isTransient: true };
+    }
+
+    // Unexpected errors: Programming errors or unknown failures
+    logger.error('Unexpected error posting state comment to PR - re-throwing', {
+      ...errorContext,
+      impact: 'Unknown failure type - may indicate programming error',
+      recommendation: 'Review error message and stack trace',
+      nextSteps: 'Workflow halted - manual investigation required',
+      isTransient: false,
     });
-    return false;
+    throw commentError;
   }
 }
 
@@ -164,7 +252,7 @@ async function safePostStateComment(
  * Wraps postWiggumStateIssueComment with error classification and logging.
  * Error handling strategy:
  * - Critical errors (404, 401/403): Throw - require immediate intervention
- * - Transient errors (429, network): Warn and continue - may self-resolve
+ * - Transient errors (429, network): Return failure Result - may self-resolve
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
  * @param issueNumber - Issue number to comment on
@@ -172,7 +260,7 @@ async function safePostStateComment(
  * @param title - Comment title
  * @param body - Comment body
  * @param step - Step identifier for logging context
- * @returns true if comment posted successfully, false otherwise
+ * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
 async function safePostIssueStateComment(
@@ -181,10 +269,10 @@ async function safePostIssueStateComment(
   title: string,
   body: string,
   step: string
-): Promise<boolean> {
+): Promise<StateCommentResult> {
   try {
     await postWiggumStateIssueComment(issueNumber, state, title, body);
-    return true;
+    return { success: true };
   } catch (commentError) {
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
@@ -246,7 +334,7 @@ async function safePostIssueStateComment(
         isTransient: true,
         recoveryNote: 'Missing state comment is recoverable on next update',
       });
-      return false;
+      return { success: false, reason: 'rate_limit', isTransient: true };
     }
 
     if (isNetwork) {
@@ -258,7 +346,7 @@ async function safePostIssueStateComment(
         isTransient: true,
         recoveryNote: 'Missing state comment is recoverable on next update',
       });
-      return false;
+      return { success: false, reason: 'network', isTransient: true };
     }
 
     // Unexpected errors: Programming errors or unknown failures
@@ -395,9 +483,9 @@ async function handlePhase1MonitorWorkflow(
   if (pushCheck) return pushCheck;
 
   // Call monitoring tool directly
-  const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
+  const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
-  if (result.success) {
+  if (monitorResult.success) {
     // Mark Step p1-1 complete (with deduplication)
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
@@ -406,7 +494,7 @@ async function handlePhase1MonitorWorkflow(
       phase: 'phase1',
     };
 
-    const statePosted = await safePostIssueStateComment(
+    const stateResult = await safePostIssueStateComment(
       issueNumber,
       newState,
       `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Complete`,
@@ -414,14 +502,31 @@ async function handlePhase1MonitorWorkflow(
       STEP_PHASE1_MONITOR_WORKFLOW
     );
 
-    if (!statePosted) {
-      logger.error('State comment failed to post - workflow state may be lost', {
+    if (!stateResult.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
         issueNumber,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration: newState.iteration,
         phase: newState.phase,
-        riskNote: 'Race condition fix may not be effective without state persistence',
+        reason: stateResult.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
+            step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to post state comment to issue #${issueNumber}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: {},
+          })
+        }],
+        isError: true,
+      };
     }
 
     // Reuse newState to avoid race condition with GitHub API (issue #388)
@@ -442,7 +547,7 @@ async function handlePhase1MonitorWorkflow(
       phase: 'phase1' as const,
     };
 
-    const statePosted = await safePostIssueStateComment(
+    const stateResult = await safePostIssueStateComment(
       issueNumber,
       newState,
       `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Failed`,
@@ -450,20 +555,37 @@ async function handlePhase1MonitorWorkflow(
       STEP_PHASE1_MONITOR_WORKFLOW
     );
 
-    if (!statePosted) {
-      logger.error('State comment failed to post - workflow state may be lost', {
+    if (!stateResult.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
         issueNumber,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration: newState.iteration,
         phase: newState.phase,
-        riskNote: 'Race condition fix may not be effective without state persistence',
+        reason: stateResult.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
+            step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to post state comment to issue #${issueNumber}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: {},
+          })
+        }],
+        isError: true,
+      };
     }
 
     output.iteration_count = newState.iteration;
     output.instructions = formatFixInstructions(
       'Workflow',
-      result.failureDetails || result.errorSummary,
+      monitorResult.failureDetails || monitorResult.errorSummary,
       'See workflow logs for details'
     );
     output.steps_completed_by_tool = [
@@ -717,9 +839,9 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
   };
 
   // Call monitoring tool directly
-  const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
+  const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
-  if (result.success) {
+  if (monitorResult.success) {
     // Mark Step p2-1 complete (with deduplication)
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
@@ -728,13 +850,40 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       phase: 'phase2',
     };
 
-    await safePostStateComment(
+    const stateResult = await safePostStateComment(
       state.pr.number,
       newState,
       `${STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW]} - Complete`,
       'Workflow run completed successfully.',
       STEP_PHASE2_MONITOR_WORKFLOW
     );
+
+    if (!stateResult.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
+        prNumber: state.pr.number,
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        iteration: newState.iteration,
+        phase: newState.phase,
+        reason: stateResult.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
+            step_number: STEP_PHASE2_MONITOR_WORKFLOW,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: { pr_number: state.pr.number },
+          })
+        }],
+        isError: true,
+      };
+    }
 
     const stepsCompleted = [
       'Monitored workflow run until completion',
@@ -786,13 +935,40 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       phase: 'phase2',
     };
 
-    await safePostStateComment(
+    const stateResult2 = await safePostStateComment(
       state.pr.number,
       newState2,
       `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
       'All PR checks passed successfully.',
       STEP_PHASE2_MONITOR_CHECKS
     );
+
+    if (!stateResult2.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
+        prNumber: state.pr.number,
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        iteration: newState2.iteration,
+        phase: newState2.phase,
+        reason: stateResult2.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
+            step_number: STEP_PHASE2_MONITOR_CHECKS,
+            iteration_count: newState2.iteration,
+            instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: { pr_number: state.pr.number },
+          })
+        }],
+        isError: true,
+      };
+    }
 
     stepsCompleted.push(
       'Checked for uncommitted changes',
@@ -817,7 +993,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     // Return fix instructions
     output.instructions = formatFixInstructions(
       'Workflow',
-      result.failureDetails || result.errorSummary,
+      monitorResult.failureDetails || monitorResult.errorSummary,
       'See workflow logs for details'
     );
     output.steps_completed_by_tool = [
@@ -854,9 +1030,9 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
   if (pushCheck) return pushCheck;
 
   // Call monitoring tool directly
-  const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
+  const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
-  if (result.success) {
+  if (prChecksResult.success) {
     // Mark Step p2-2 complete (with deduplication)
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
@@ -865,13 +1041,40 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       phase: 'phase2',
     };
 
-    await safePostStateComment(
+    const stateResult = await safePostStateComment(
       state.pr.number,
       newState,
       `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
       'All PR checks passed successfully.',
       STEP_PHASE2_MONITOR_CHECKS
     );
+
+    if (!stateResult.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
+        prNumber: state.pr.number,
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        iteration: newState.iteration,
+        phase: newState.phase,
+        reason: stateResult.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
+            step_number: STEP_PHASE2_MONITOR_CHECKS,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: { pr_number: state.pr.number },
+          })
+        }],
+        isError: true,
+      };
+    }
 
     const stepsCompleted = [
       'Checked for uncommitted changes',
@@ -896,7 +1099,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     // Return fix instructions
     output.instructions = formatFixInstructions(
       'PR checks',
-      result.failureDetails || result.errorSummary,
+      prChecksResult.failureDetails || prChecksResult.errorSummary,
       'See PR checks for details'
     );
     output.steps_completed_by_tool = [
@@ -948,13 +1151,40 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       phase: 'phase2',
     };
 
-    await safePostStateComment(
+    const stateResult = await safePostStateComment(
       state.pr.number,
       newState,
       `${STEP_NAMES[STEP_PHASE2_CODE_QUALITY]} - Complete`,
       'No code quality comments found. Step complete.',
       STEP_PHASE2_CODE_QUALITY
     );
+
+    if (!stateResult.success) {
+      logger.error('Critical: State comment failed to post - halting workflow', {
+        prNumber: state.pr.number,
+        step: STEP_PHASE2_CODE_QUALITY,
+        iteration: newState.iteration,
+        phase: newState.phase,
+        reason: stateResult.reason,
+        impact: 'Race condition fix requires state persistence',
+        recommendation: 'Retry after resolving rate limit/network issues',
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
+            step_number: STEP_PHASE2_CODE_QUALITY,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+            context: { pr_number: state.pr.number },
+          })
+        }],
+        isError: true,
+      };
+    }
 
     output.steps_completed_by_tool.push(
       'Fetched code quality comments - none found',
@@ -1119,6 +1349,13 @@ Final actions:
 function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
   return state.pr.exists && state.pr.state === 'OPEN';
 }
+
+/**
+ * Export safe wrappers for use by other modules
+ * These are exported so that review-completion-helper.ts can use them
+ */
+export { safePostStateComment, safePostIssueStateComment };
+export type { StateCommentResult };
 
 /**
  * Export internal functions for testing
