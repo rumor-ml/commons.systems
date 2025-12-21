@@ -11,7 +11,6 @@
  * TODO: See issue #313 - Add integration tests with mocked GitHub/git for state updates,
  * comment posting, completedSteps filtering, and phase-specific behavior.
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
