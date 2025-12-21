@@ -18,17 +18,24 @@ service cloud.firestore {
     // Cards collection (for fellspiral) - includes PR-specific collections like cards_pr_123
     // and branch preview collections like cards_preview_my-branch
     match /{cardsCollection}/{cardId} {
-      // Match any collection that starts with "cards" (cards, cards_pr_123, cards_preview_branch-name)
-      allow read: if cardsCollection.matches('cards(_pr_[0-9]+)?')
-                  || cardsCollection.matches('cards_preview_[a-z0-9-]+');
+      // Allow reading if:
+      // 1. Card matches collection pattern, AND
+      // 2. User is authenticated, AND
+      // 3. Either: user owns the card OR card is public
+      allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
+                      || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                  && request.auth != null
+                  && (resource.data.createdBy == request.auth.uid
+                      || resource.data.isPublic == true);
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // NOTE: We don't validate createdAt == request.time because serverTimestamp()
-      // is a sentinel value during rule evaluation (not an actual timestamp yet).
-      // The server resolves it to the actual timestamp AFTER rules pass.
-      // User attribution security is enforced via createdBy == request.auth.uid check.
-      // TODO(#305): Document security trade-offs of allowing arbitrary timestamps
+      // SECURITY TRADE-OFF: We cannot validate createdAt == request.time because
+      // serverTimestamp() is a sentinel value during rule evaluation (not yet resolved).
+      // This means clients CAN provide arbitrary/missing createdAt values - this is
+      // a known data integrity risk we accept in favor of simplicity.
+      // User authentication is enforced via createdBy == request.auth.uid check.
+      // Card visibility is enforced via isPublic field (read access control).
       // TODO(#283): Add tests confirming server timestamps are used, not client-provided
       // See: https://firebase.google.com/docs/reference/rules/rules.firestore.FieldValue#servertimestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')

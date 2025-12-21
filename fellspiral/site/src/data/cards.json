@@ -3,339 +3,459 @@
     "title": "Bayonet",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["Can be equipped at same time as firearm."],
+    "tags": [
+      "Can be equipped at same time as firearm."
+    ],
     "description": "d4",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "bayonet",
     "createdAt": "2025-11-28T05:51:35.767Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Crossbow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["1-2 ranged", "-1c", "2h", "precise"],
+    "tags": [
+      "1-2 ranged",
+      "-1c",
+      "2h",
+      "precise"
+    ],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "crossbow",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Dagger",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["0-1 thrown", "precise"],
+    "tags": [
+      "0-1 thrown",
+      "precise"
+    ],
     "description": "d4",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "dagger",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Flintlock Pistol",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["0-1 ranged", "d8r", "noisy"],
+    "tags": [
+      "0-1 ranged",
+      "d8r",
+      "noisy"
+    ],
     "description": "d4",
     "stat1": "4 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "flintlock-pistol",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Great Axe",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["2 adjacent", "2h", "swept", "brutish", "d4r"],
+    "tags": [
+      "2 adjacent",
+      "2h",
+      "swept",
+      "brutish",
+      "d4r"
+    ],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "great-axe",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Great Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["swept", "brutish", "2h", "d4r"],
+    "tags": [
+      "swept",
+      "brutish",
+      "2h",
+      "d4r"
+    ],
     "description": "d8",
     "stat1": "4 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "great-sword",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Halberd",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["reach", "2h"],
+    "tags": [
+      "reach",
+      "2h"
+    ],
     "description": "Defender cannot move adjacent for 1 round.",
     "stat1": "d10",
     "stat2": "2 slot",
     "cost": "5 pt",
     "id": "halberd",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Long Bow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["1x", "1-4 ranged", "-1z2-3", "-2z4", "2h", "precise"],
+    "tags": [
+      "1x",
+      "1-4 ranged",
+      "-1z2-3",
+      "-2z4",
+      "2h",
+      "precise"
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "long-bow",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Long Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["2h", "-1c", "swept", "precise"],
+    "tags": [
+      "2h",
+      "-1c",
+      "swept",
+      "precise"
+    ],
     "description": "Can use with 1 hand, but cannot equip a second weapon, weapon die is d8 and ignore <chip>-1c</chip>.",
     "stat1": "d10",
     "stat2": "2 slot",
     "cost": "5 pt",
     "id": "long-sword",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Musket",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["2x", "1-4 ranged", "-2z2-3", "-3z4", "d8r", "noisy", "2h"],
+    "tags": [
+      "2x",
+      "1-4 ranged",
+      "-2z2-3",
+      "-3z4",
+      "d8r",
+      "noisy",
+      "2h"
+    ],
     "description": "d6",
     "stat1": "4 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "musket",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Pick Hammer",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["Reduce AC by 1 per strike."],
+    "tags": [
+      "Reduce AC by 1 per strike."
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "pick-hammer",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Scimitar",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["swept", "precise", "1 adjacent"],
+    "tags": [
+      "swept",
+      "precise",
+      "1 adjacent"
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "scimitar",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Short Bow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["0-2 ranged", "-4z1", "2h", "precise"],
+    "tags": [
+      "0-2 ranged",
+      "-4z1",
+      "2h",
+      "precise"
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "short-bow",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Short Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["precise"],
+    "tags": [
+      "precise"
+    ],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "short-sword",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Spear",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["0-1 thrown", "-4z1", "reach", "precise"],
+    "tags": [
+      "0-1 thrown",
+      "-4z1",
+      "reach",
+      "precise"
+    ],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "spear",
     "createdAt": "2025-11-28T05:51:35.770Z",
-    "updatedAt": "2025-11-28T05:51:35.770Z"
+    "updatedAt": "2025-11-28T05:51:35.770Z",
+    "isPublic": true
   },
   {
     "title": "Studded Mace",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["On crit, stun for 3 phases."],
+    "tags": [
+      "On crit, stun for 3 phases."
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "studded-mace",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Tomahawk",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["1x", "0-1 thrown"],
+    "tags": [
+      "1x",
+      "0-1 thrown"
+    ],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
     "cost": "",
     "id": "tomahawk",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Walking Staff",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["2h", "swept"],
+    "tags": [
+      "2h",
+      "swept"
+    ],
     "description": "On crit, also pin for 1 round. Handy for adventuring.",
     "stat1": "d6",
     "stat2": "1 slot",
     "cost": "5 pt",
     "id": "walking-staff",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "War Hammer",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": ["-2c", "2h", "brutish", "swept", "d4r"],
+    "tags": [
+      "-2c",
+      "2h",
+      "brutish",
+      "swept",
+      "d4r"
+    ],
     "description": "On crit, stun for 1 round.",
     "stat1": "d8",
     "stat2": "2 slot",
     "cost": "5 pt",
     "id": "war-hammer",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Balanced",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["Add +1 to weapon roll."],
+    "tags": [
+      "Add +1 to weapon roll."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "balanced",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Deadly",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["On strike with this weapon deal 1 additional slot of damage."],
+    "tags": [
+      "On strike with this weapon deal 1 additional slot of damage."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "deadly",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Knuckle Guard",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["Foe with initiative cannot disarm you of this weapon."],
+    "tags": [
+      "Foe with initiative cannot disarm you of this weapon."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "knuckle-guard",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Lucky",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["<chip>-1c</chip>"],
+    "tags": [
+      "<chip>-1c</chip>"
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "lucky",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Master-Craft",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["On crit, inflict burn on primary defender."],
+    "tags": [
+      "On crit, inflict burn on primary defender."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "master-craft",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Serrated",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["On crit, inflict bleed on primary defender."],
+    "tags": [
+      "On crit, inflict bleed on primary defender."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "serrated",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Sword Breaker",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": ["On crit, inflict corrosion on primary defender."],
+    "tags": [
+      "On crit, inflict corrosion on primary defender."
+    ],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "sword-breaker",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "All In",
@@ -350,7 +470,8 @@
     "cost": "",
     "id": "all-in",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Dual Wielding",
@@ -365,7 +486,8 @@
     "cost": "",
     "id": "dual-wielding",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Feint",
@@ -380,7 +502,8 @@
     "cost": "",
     "id": "feint",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Melee",
@@ -395,20 +518,24 @@
     "cost": "",
     "id": "melee",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Pin",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If opponent has pinned condition: on success, opponent remains pinned for 1 round."],
+    "tags": [
+      "If opponent has pinned condition: on success, opponent remains pinned for 1 round."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "pin",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Surgical",
@@ -423,7 +550,8 @@
     "cost": "",
     "id": "surgical",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Take Aim",
@@ -438,7 +566,8 @@
     "cost": "",
     "id": "take-aim",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Brace",
@@ -453,7 +582,8 @@
     "cost": "",
     "id": "brace",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Counter Strike",
@@ -468,7 +598,8 @@
     "cost": "",
     "id": "counter-strike",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Moving Target",
@@ -483,7 +614,8 @@
     "cost": "",
     "id": "moving-target",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Flesh Wound",
@@ -498,20 +630,24 @@
     "cost": "",
     "id": "flesh-wound",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Grit",
     "type": "Skill",
     "subtype": "Tenacity",
-    "tags": ["On success, 1 slot damage is directed to this skill, but maintain the initiative."],
+    "tags": [
+      "On success, 1 slot damage is directed to this skill, but maintain the initiative."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "grit",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Krovnaya Striga",
@@ -528,7 +664,8 @@
     "cost": "",
     "id": "krovnaya-striga",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Veteran Commander",
@@ -543,136 +680,168 @@
     "cost": "",
     "id": "veteran-commander",
     "createdAt": "2025-11-28T05:51:35.771Z",
-    "updatedAt": "2025-11-28T05:51:35.771Z"
+    "updatedAt": "2025-11-28T05:51:35.771Z",
+    "isPublic": true
   },
   {
     "title": "Scale Vest",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["durable"],
+    "tags": [
+      "durable"
+    ],
     "description": "Rare, requires expert blacksmith.",
     "stat1": "3 AC",
     "stat2": "5 pt",
     "cost": "",
     "id": "scale-vest",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Greaves",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["Can protect against some attempts to immobilize."],
+    "tags": [
+      "Can protect against some attempts to immobilize."
+    ],
     "description": "1 AC",
     "stat1": "2 pt",
     "stat2": "",
     "cost": "",
     "id": "greaves",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Cloak",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["+3 Stealth"],
+    "tags": [
+      "+3 Stealth"
+    ],
     "description": "1 AC",
     "stat1": "1 pt",
     "stat2": "",
     "cost": "",
     "id": "cloak",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Skeleton",
     "type": "Origin",
     "subtype": "Undead",
-    "tags": ["6 AC"],
+    "tags": [
+      "6 AC"
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "skeleton",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Chain Mail",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["Noisy."],
+    "tags": [
+      "Noisy."
+    ],
     "description": "3 AC",
     "stat1": "3 pt",
     "stat2": "",
     "cost": "",
     "id": "chain-mail",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Skeleton Commander",
     "type": "Origin",
     "subtype": "Undead",
-    "tags": ["6 AC"],
+    "tags": [
+      "6 AC"
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "skeleton-commander",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Wood Shield",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["durable"],
+    "tags": [
+      "durable"
+    ],
     "description": "1 AC",
     "stat1": "3 pt",
     "stat2": "",
     "cost": "",
     "id": "wood-shield",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Helm",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": ["Draws enemy attention."],
+    "tags": [
+      "Draws enemy attention."
+    ],
     "description": "1 pt",
     "stat1": "1 pt",
     "stat2": "",
     "cost": "",
     "id": "helm",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Ghoul",
     "type": "Origin",
     "subtype": "Vampire",
-    "tags": ["Claw x2: d6, 2 slot, on crit also pin", "Bite: evade or bleed until resist"],
+    "tags": [
+      "Claw x2: d6, 2 slot, on crit also pin",
+      "Bite: evade or bleed until resist"
+    ],
     "description": "6 AC",
     "stat1": "24 pt",
     "stat2": "",
     "cost": "",
     "id": "ghoul",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   },
   {
     "title": "Caleb",
     "type": "Origin",
     "subtype": "Human",
-    "tags": ["AC 6"],
+    "tags": [
+      "AC 6"
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
     "cost": "",
     "id": "caleb",
     "createdAt": "2025-11-28T05:51:35.775Z",
-    "updatedAt": "2025-11-28T05:51:35.775Z"
+    "updatedAt": "2025-11-28T05:51:35.775Z",
+    "isPublic": true
   }
 ]

@@ -248,6 +248,7 @@ export async function createCard(cardData) {
 
     const docRef = await addDoc(cardsCollection, {
       ...cardData,
+      isPublic: cardData.isPublic ?? true, // Default to public for backward compatibility
       createdBy: user.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
