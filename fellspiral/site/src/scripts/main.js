@@ -1182,9 +1182,43 @@ document.body.addEventListener('htmx:afterSwap', async (event) => {
 
   // Check if we're navigating to the cards page using URL
   if (hasMainContent && isCardsPageByURL) {
-    // Dynamically import and initialize the cards page
-    const { initCardsPage } = await import('./cards.js');
-    await initCardsPage(); // Await initialization to complete before continuing
+    try {
+      // Dynamically import and initialize the cards page
+      const cardsModule = await import('./cards.js');
+      if (cardsModule.initCardsPage) {
+        await cardsModule.initCardsPage();
+      } else {
+        console.error('cardsModule.initCardsPage is not defined');
+        throw new Error('initCardsPage function not exported from cards module');
+      }
+    } catch (e) {
+      console.error('Failed to load/init cards module:', e);
+      // Handle initialization failure - hide loading spinner and show error state
+      const cardList = document.getElementById('cardList');
+      const emptyState = document.getElementById('emptyState');
+      if (cardList) {
+        // Use safe DOM methods to avoid XSS
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-state';
+        errorDiv.style.cssText =
+          'padding: 2rem; text-align: center; color: var(--text-secondary);';
+
+        const errorMsg = document.createElement('p');
+        errorMsg.textContent = 'Failed to load card manager. Please refresh the page.';
+        errorDiv.appendChild(errorMsg);
+
+        const errorDetail = document.createElement('p');
+        errorDetail.style.cssText = 'font-size: 0.875rem; margin-top: 0.5rem;';
+        errorDetail.textContent = 'Error: ' + (e.message || 'Unknown error');
+        errorDiv.appendChild(errorDetail);
+
+        cardList.replaceChildren(errorDiv);
+        cardList.style.display = 'block';
+      }
+      if (emptyState) {
+        emptyState.style.display = 'none';
+      }
+    }
   }
 
   // Re-initialize sidebar navigation on any page swap
