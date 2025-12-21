@@ -4,6 +4,9 @@ description: 'Push current branch to remote. This agent must always be invoked w
 model: haiku
 ---
 
+<!-- TODO(#355): Add tests for Push agent sandbox and pre-push hook integration -->
+<!-- See issue for details from PR #273 review -->
+
 You are a push specialist. Always use this agent to push to remote.
 
 ## CRITICAL REQUIREMENTS

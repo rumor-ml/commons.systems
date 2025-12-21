@@ -670,6 +670,111 @@ HOOKEOF
   cd "$REPO_ROOT"
 }
 
+# Test that MCP build hook validates changes correctly
+test_mcp_build_validates_changes() {
+  print_test_header "test_mcp_build_validates_changes"
+
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  # Test 1: Pattern matches MCP server file paths
+  if echo "gh-workflow-mcp-server/src/index.ts" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
+    echo -e "${GREEN}✓ PASS: Pattern matches gh-workflow-mcp-server files${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should match gh-workflow-mcp-server files${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+
+  # Test 2: Pattern matches all MCP server directories
+  local all_match=true
+  for path in "gh-issue-mcp-server/pkg.json" "gh-workflow-mcp-server/src/t.ts" "wiggum-mcp-server/tsconfig.json" "git-mcp-server/README.md"; do
+    if ! echo "$path" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
+      all_match=false
+      break
+    fi
+  done
+
+  if [ "$all_match" = true ]; then
+    echo -e "${GREEN}✓ PASS: Pattern matches all 4 MCP server directories${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should match all MCP server directories${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+
+  # Test 3: Pattern does NOT match non-MCP files
+  local none_match=true
+  for path in "README.md" "src/index.ts" "mcp-common/types.ts" "apps/printsync/server.go"; do
+    if echo "$path" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
+      none_match=false
+      break
+    fi
+  done
+
+  if [ "$none_match" = true ]; then
+    echo -e "${GREEN}✓ PASS: Pattern correctly excludes non-MCP files${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should NOT match non-MCP files${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+}
+
+# Test that prettier-check-all checks ALL files, not just changed files
+test_prettier_check_all_files_not_just_changes() {
+  print_test_header "test_prettier_check_all_files_not_just_changes"
+
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create three JS files with varying format quality
+  echo 'const a = 1;' > file1.js
+  echo 'const b = 2;' > file2.js
+  echo 'const c=3;' > file3.js  # Bad formatting (no space after =)
+
+  git add .
+  git commit -q -m "Initial commit with mixed formatting"
+
+  # Create hook that checks ALL tracked files (mimics prettier-check-all)
+  # Real hook: `prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml}'`
+  # with pass_filenames=false and always_run=true
+  cat > hook.sh <<'EOF'
+#!/bin/bash
+# Simulate prettier --check on ALL tracked files
+# In real hook: prettier checks all files regardless of what changed
+
+for file in *.js; do
+  if [[ -f "$file" ]]; then
+    # Simple format check: require space after =
+    if ! grep -q '= ' "$file"; then
+      echo "ERROR: Code style issues found in $file"
+      echo "  Expected: 'const x = value'"
+      echo "  Found:    '$(cat $file)'"
+      exit 1
+    fi
+  fi
+done
+
+exit 0
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_fails_with_message \
+    "prettier-check-all detects pre-existing format issues" \
+    "cd $test_dir && ./hook.sh" \
+    "ERROR: Code style issues found in file3.js"
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

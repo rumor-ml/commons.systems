@@ -56,6 +56,8 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	// Create type-safe v2 message
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
+		// TODO(#356): Add fallback notification for message construction failures
+		// See issue for details from PR #273 review
 		// TODO(#281): Log message construction failures to stderr
 		// Current: Only debug logging, operations continue with no message sent
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
@@ -80,6 +82,8 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 	// Broadcast revert so all clients show correct state
 	msg, err := NewBlockChangeMessage(d.seqCounter.Add(1), branch, previousBlockedBy, wasBlocked)
 	if err != nil {
+		// TODO(#356): Add fallback notification for message construction failures
+		// See issue for details from PR #273 review
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
 		return
 	}
