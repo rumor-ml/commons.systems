@@ -316,11 +316,6 @@ export async function completeReview(
     return buildIssuesFoundResponse(state, reviewStep, totalIssues, newState.iteration, config);
   }
 
-  // Reuse the newState we just posted to avoid race condition with GitHub API
-  // See issue #323 for details on this race condition
-  const updatedState: CurrentState = {
-    ...state,
-    wiggum: newState,
-  };
+  const updatedState = await detectCurrentState();
   return await getNextStepInstructions(updatedState);
 }
