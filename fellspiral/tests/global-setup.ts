@@ -57,6 +57,16 @@ async function globalSetup() {
     // loads credentials during module initialization, so we must delete the env var
     // BEFORE the import statement. Otherwise the default app gets initialized with
     // production credentials and all subsequent custom tokens will be invalid.
+    console.log('   🔍 DEBUG: CI env var:', process.env.CI);
+    console.log(
+      '   🔍 DEBUG: GOOGLE_APPLICATION_CREDENTIALS set:',
+      !!process.env.GOOGLE_APPLICATION_CREDENTIALS
+    );
+    console.log(
+      '   🔍 DEBUG: GOOGLE_APPLICATION_CREDENTIALS value:',
+      process.env.GOOGLE_APPLICATION_CREDENTIALS
+    );
+
     const isCI = !!process.env.CI;
     if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       console.log('   ⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS for emulator use in CI');
