@@ -208,6 +208,7 @@ function createCombobox(config) {
         );
       }
     } catch (error) {
+      // TODO(#285): Categorize errors and provide specific user guidance (DOM vs data vs unexpected)
       // Log comprehensive error details for debugging
       console.error('[Cards] Error refreshing combobox options:', {
         comboboxId: comboboxId,
@@ -280,6 +281,7 @@ function createCombobox(config) {
     // CRITICAL: 200ms delay prevents race condition in dropdown click handling
     // Event sequence on option click: mousedown → blur → mouseup → click
     // The mousedown handler calls e.preventDefault() to suppress blur, but this
+    // TODO(#286): Specify which browsers/scenarios need this or test comprehensively
     // only works for some browsers/scenarios. The delay ensures that even if blur
     // fires immediately, the mousedown handler has time to execute selectOption()
     // before the dropdown is hidden. 200ms provides margin for slower event loops.
@@ -327,10 +329,16 @@ function createCombobox(config) {
 
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
-    // RACE CONDITION FIX: Check dropdown state BEFORE calling input.focus()
-    // Problem: Click toggle while closed → focus() → focus event shows dropdown
-    //          → toggleListbox() sees 'open' → hides → dropdown flashes
-    // Solution: Only call focus() when currently closed (prevents flash)
+    // EVENT SEQUENCE FIX: Check dropdown state BEFORE calling input.focus()
+    // Problem: When toggle is clicked while dropdown is closed:
+    //   1. Click handler calls input.focus()
+    //   2. Focus event listener immediately shows dropdown (adds 'open' class)
+    //   3. If we then check state and call show(), dropdown is already open
+    //   4. Calling show() again when already open causes visual flash/flicker
+    // Solution: Check if dropdown is already open before calling focus()
+    //   - If closed: call focus() which triggers show() via focus event
+    //   - If open: call hide() directly to close it
+    // This is an event ordering issue, not a race condition (no async/timing involved)
     if (combobox.classList.contains('open')) {
       hide();
     } else {
@@ -628,6 +636,7 @@ async function loadCards() {
     }
 
     // TODO(#305): Replace demo data fallback with error UI and retry button
+    // TODO(#285): Demo data fallback silently hides real errors (Firestore quota, corruption, etc.)
     // All other errors: fall back to demo data with clear visual indicator
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
@@ -814,6 +823,7 @@ function setupAuthStateListener() {
     // module initialization race by retrying every 500ms until auth-init exports
     // are available (up to 10 retries = 5 seconds). Once available, Firebase SDK
     // guarantees immediate callback invocation with current auth state.
+    // TODO(#286): Clarify why ES6 static imports don't prevent this race (dynamic init?)
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }
@@ -1076,6 +1086,7 @@ function renderCards() {
     cardList.innerHTML = renderedCards.join('');
 
     // TODO(#305): Lower render failure threshold to 1 card and show which cards failed
+    // TODO(#331): Current threshold >10% means users don't see missing cards
     // Warn if significant failures
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
