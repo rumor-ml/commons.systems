@@ -10,14 +10,6 @@ type AuthFixtures = {
   };
 };
 
-// CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS at module load time
-// This must happen BEFORE any Firebase Admin SDK is imported or initialized.
-// In CI, this env var points to production credentials which cause invalid custom tokens.
-const isCI = !!process.env.CI;
-if (isCI && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
-}
-
 export const test = base.extend<AuthFixtures>({
   authEmulator: async ({ page }, use) => {
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';

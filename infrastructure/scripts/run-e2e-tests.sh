@@ -78,7 +78,7 @@ case "$APP_TYPE" in
     trap cleanup EXIT
 
     echo "Building..."
-    pnpm --dir "${APP_PATH_ABS}/site" build
+    VITE_USE_FIREBASE_EMULATOR=true pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
 
   go-fullstack)
