@@ -12,7 +12,8 @@ import { postWiggumStateIssueComment } from './issue-comments.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
-import type { WiggumState } from './types.js';
+import type { WiggumState, CurrentState, PRExists } from './types.js';
+import { addToCompletedSteps, applyWiggumState } from './state-utils.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
@@ -32,7 +33,7 @@ import {
   WORKFLOW_MONITOR_TIMEOUT_MS,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import type { CurrentState, PRExists } from './types.js';
+import { GitHubCliError } from '../utils/errors.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
@@ -123,6 +124,9 @@ function checkBranchPushed(
  * Failures to post state comments are logged but don't crash the workflow,
  * as state comments are for tracking and not critical to the workflow itself.
  *
+ * Note: This function has simpler error handling than safePostIssueStateComment
+ * because PR comments are less critical (PR already exists, state is recoverable).
+ *
  * @param prNumber - PR number to comment on
  * @param state - New wiggum state to save
  * @param title - Comment title
@@ -142,7 +146,6 @@ async function safePostStateComment(
     return true;
   } catch (commentError) {
     // Log but continue - state comment is for tracking, not critical path
-    // TODO: See issue #320 - Add error classification to distinguish auth/rate limit/network errors
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     logger.warn('Failed to post state comment', {
       prNumber,
@@ -158,9 +161,11 @@ async function safePostStateComment(
 /**
  * Safely post wiggum state comment to issue with error handling
  *
- * Wraps postWiggumStateIssueComment with consistent error handling and logging.
- * Failures to post state comments are logged but don't crash the workflow,
- * as state comments are for tracking and not critical to the workflow itself.
+ * Wraps postWiggumStateIssueComment with error classification and logging.
+ * Error handling strategy:
+ * - Critical errors (404, 401/403): Throw - require immediate intervention
+ * - Transient errors (429, network): Warn and continue - may self-resolve
+ * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
  * @param issueNumber - Issue number to comment on
  * @param state - New wiggum state to save
@@ -168,6 +173,7 @@ async function safePostStateComment(
  * @param body - Comment body
  * @param step - Step identifier for logging context
  * @returns true if comment posted successfully, false otherwise
+ * @throws Critical errors (404, 401/403) and unexpected errors
  */
 async function safePostIssueStateComment(
   issueNumber: number,
@@ -180,17 +186,90 @@ async function safePostIssueStateComment(
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return true;
   } catch (commentError) {
-    // Log but continue - state comment is for tracking, not critical path
-    // TODO: See issue #320 - Add error classification to distinguish auth/rate limit/network errors
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-    logger.warn('Failed to post state comment to issue', {
+    const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
+    const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
+    const stateJson = JSON.stringify(state);
+
+    // Classify error type based on error message patterns
+    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+    const isAuth = /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+                   exitCode === 401 || exitCode === 403;
+    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+    // Build comprehensive error context
+    const errorContext = {
       issueNumber,
       step,
       title,
+      iteration: state.iteration,
+      phase: state.phase,
+      completedSteps: state.completedSteps,
+      stateJson,
       error: errorMsg,
-      recoveryNote: 'Workflow continues - missing state comment is recoverable',
+      errorType: commentError instanceof GitHubCliError ? 'GitHubCliError' : typeof commentError,
+      exitCode,
+      stderr,
+    };
+
+    // Critical errors: Issue not found or authentication failures
+    if (is404) {
+      logger.error('Critical: Issue not found - cannot post state comment', {
+        ...errorContext,
+        impact: 'Workflow state persistence failed - audit trail incomplete',
+        recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
+        nextSteps: 'Workflow cannot continue without valid issue',
+        isTransient: false,
+      });
+      throw commentError;
+    }
+
+    if (isAuth) {
+      logger.error('Critical: Authentication failed - cannot post state comment', {
+        ...errorContext,
+        impact: 'Workflow state persistence failed - insufficient permissions',
+        recommendation: 'Check gh auth status and token scopes: gh auth status',
+        nextSteps: 'Re-authenticate or update token permissions',
+        isTransient: false,
+      });
+      throw commentError;
+    }
+
+    // Transient errors: Rate limits or network issues
+    if (isRateLimit) {
+      logger.warn('Transient: Rate limit exceeded - state comment not posted', {
+        ...errorContext,
+        impact: 'State comment skipped - will retry on next state update',
+        recommendation: 'Check rate limit status: gh api rate_limit',
+        nextSteps: 'Workflow continues - rate limit may resolve',
+        isTransient: true,
+        recoveryNote: 'Missing state comment is recoverable on next update',
+      });
+      return false;
+    }
+
+    if (isNetwork) {
+      logger.warn('Transient: Network error - state comment not posted', {
+        ...errorContext,
+        impact: 'State comment skipped - network connectivity issue',
+        recommendation: 'Check network connection and GitHub API status',
+        nextSteps: 'Workflow continues - network may recover',
+        isTransient: true,
+        recoveryNote: 'Missing state comment is recoverable on next update',
+      });
+      return false;
+    }
+
+    // Unexpected errors: Programming errors or unknown failures
+    logger.error('Unexpected error posting state comment - re-throwing', {
+      ...errorContext,
+      impact: 'Unknown failure type - may indicate programming error',
+      recommendation: 'Review error message and stack trace',
+      nextSteps: 'Workflow halted - manual investigation required',
+      isTransient: false,
     });
-    return false;
+    throw commentError;
   }
 }
 
@@ -320,16 +399,14 @@ async function handlePhase1MonitorWorkflow(
 
   if (result.success) {
     // Mark Step p1-1 complete (with deduplication)
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_MONITOR_WORKFLOW,
-      completedSteps: Array.from(
-        new Set([...state.wiggum.completedSteps, STEP_PHASE1_MONITOR_WORKFLOW])
-      ),
-      phase: 'phase1' as const,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_MONITOR_WORKFLOW),
+      phase: 'phase1',
     };
 
-    await safePostIssueStateComment(
+    const statePosted = await safePostIssueStateComment(
       issueNumber,
       newState,
       `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Complete`,
@@ -337,23 +414,22 @@ async function handlePhase1MonitorWorkflow(
       STEP_PHASE1_MONITOR_WORKFLOW
     );
 
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    const updatedState: CurrentState = {
-      ...state,
-      wiggum: newState,
-    };
+    if (!statePosted) {
+      logger.error('State comment failed to post - workflow state may be lost', {
+        issueNumber,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        iteration: newState.iteration,
+        phase: newState.phase,
+        riskNote: 'Race condition fix may not be effective without state persistence',
+      });
+    }
 
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState.phase,
-      step: newState.step,
-      iteration: newState.iteration,
-      completedSteps: newState.completedSteps,
-      issueNumber: state.issue.exists ? state.issue.number : undefined,
-      previousIteration: state.wiggum.iteration,
-      previousStep: state.wiggum.step,
-      stateTransition: `${state.wiggum.step} → ${newState.step}`,
-    });
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const updatedState = applyWiggumState(state, newState);
 
     // Continue to Step p1-2 (PR Review)
     return await getNextStepInstructions(updatedState);
@@ -366,13 +442,23 @@ async function handlePhase1MonitorWorkflow(
       phase: 'phase1' as const,
     };
 
-    await safePostIssueStateComment(
+    const statePosted = await safePostIssueStateComment(
       issueNumber,
       newState,
       `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Failed`,
       'Feature branch workflow failed. See instructions for fix process.',
       STEP_PHASE1_MONITOR_WORKFLOW
     );
+
+    if (!statePosted) {
+      logger.error('State comment failed to post - workflow state may be lost', {
+        issueNumber,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        iteration: newState.iteration,
+        phase: newState.phase,
+        riskNote: 'Race condition fix may not be effective without state persistence',
+      });
+    }
 
     output.iteration_count = newState.iteration;
     output.instructions = formatFixInstructions(
@@ -635,13 +721,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
 
   if (result.success) {
     // Mark Step p2-1 complete (with deduplication)
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_WORKFLOW,
-      completedSteps: Array.from(
-        new Set([...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_WORKFLOW])
-      ),
-      phase: 'phase2' as const,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_MONITOR_WORKFLOW),
+      phase: 'phase2',
     };
 
     await safePostStateComment(
@@ -659,26 +743,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
-    // stepsCompletedSoFar starts with Step p2-1 completion entries
-    // Check for uncommitted changes before proceeding
     // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TODO: See issue #391 - Add validation before state reuse to detect PR/git/issue state changes
-    const updatedState: CurrentState = {
-      ...state,
-      wiggum: newState,
-    };
-
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState.phase,
-      step: newState.step,
-      iteration: newState.iteration,
-      completedSteps: newState.completedSteps,
-      prNumber: state.pr.exists ? state.pr.number : undefined,
-      previousIteration: state.wiggum.iteration,
-      previousStep: state.wiggum.step,
-      stateTransition: `${state.wiggum.step} → ${newState.step}`,
-    });
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const updatedState = applyWiggumState(state, newState);
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
     if (uncommittedCheck) return uncommittedCheck;
@@ -709,13 +779,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     }
 
     // PR checks succeeded - mark Step p2-2 complete (with deduplication)
-    const newState2 = {
+    const newState2: WiggumState = {
       iteration: updatedState.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: Array.from(
-        new Set([...updatedState.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS])
-      ),
-      phase: 'phase2' as const,
+      completedSteps: addToCompletedSteps(updatedState.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS),
+      phase: 'phase2',
     };
 
     await safePostStateComment(
@@ -735,26 +803,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     );
 
     // CONTINUE to Step p2-3: Code Quality
-    // This path is reached when Step p2-1 + Step p2-2 complete together in one function call.
-    // stepsCompletedSoFar contains entries for BOTH Step p2-1 and Step p2-2 completion.
-    // Fetch code quality bot comments and determine next action
     // Reuse newState2 to avoid race condition with GitHub API (issue #388)
-    const finalState: CurrentState = {
-      ...updatedState,
-      wiggum: newState2,
-    };
-
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState2.phase,
-      step: newState2.step,
-      iteration: newState2.iteration,
-      completedSteps: newState2.completedSteps,
-      prNumber: state.pr.exists ? state.pr.number : undefined,
-      previousIteration: updatedState.wiggum.iteration,
-      previousStep: updatedState.wiggum.step,
-      stateTransition: `${updatedState.wiggum.step} → ${newState2.step}`,
-    });
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const finalState = applyWiggumState(updatedState, newState2);
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
       stepsCompleted
@@ -804,13 +858,11 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
 
   if (result.success) {
     // Mark Step p2-2 complete (with deduplication)
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: Array.from(
-        new Set([...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS])
-      ),
-      phase: 'phase2' as const,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS),
+      phase: 'phase2',
     };
 
     await safePostStateComment(
@@ -830,26 +882,12 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-3: Code Quality (Step p2-2 standalone path)
-    // This path is reached when Step p2-1 was already complete (e.g., after re-verification).
-    // stepsCompletedSoFar contains ONLY Step p2-2 completion entries (not Step p2-1).
-    // Used after fixes when workflow monitoring already passed in a prior iteration.
     // Reuse newState to avoid race condition with GitHub API (issue #388)
-    const updatedState: CurrentState = {
-      ...state,
-      wiggum: newState,
-    };
-
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState.phase,
-      step: newState.step,
-      iteration: newState.iteration,
-      completedSteps: newState.completedSteps,
-      prNumber: state.pr.exists ? state.pr.number : undefined,
-      previousIteration: state.wiggum.iteration,
-      previousStep: state.wiggum.step,
-      stateTransition: `${state.wiggum.step} → ${newState.step}`,
-    });
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const updatedState = applyWiggumState(state, newState);
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
       stepsCompleted
@@ -903,13 +941,11 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
 
   if (comments.length === 0) {
     // No comments - mark Step p2-3 complete and return Step p2-4 (PR Review) instructions
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_CODE_QUALITY,
-      completedSteps: Array.from(
-        new Set([...state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY])
-      ),
-      phase: 'phase2' as const,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY),
+      phase: 'phase2',
     };
 
     await safePostStateComment(

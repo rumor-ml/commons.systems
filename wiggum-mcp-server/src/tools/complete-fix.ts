@@ -9,12 +9,13 @@ import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { postWiggumStateIssueComment } from '../state/issue-comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { applyWiggumState } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
 import { STEP_ORDER } from '../constants.js';
 import type { WiggumPhase } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import type { CurrentState } from '../state/types.js';
+import type { CurrentState, WiggumState } from '../state/types.js';
 
 /**
  * Get target number (issue or PR) based on current phase
@@ -177,27 +178,12 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
     });
 
-    // Get updated state and return next step instructions
-    // The router will now advance to the next step since current step is in completedSteps
-    // Fix for issue #388: Reuse newState to avoid race condition with GitHub API
-    // TODO: See issue #391 - Add staleness validation for reused state (same issue as state validation)
-    const updatedState: CurrentState = {
-      ...state,
-      wiggum: newState,
-    };
-
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState.phase,
-      step: newState.step,
-      iteration: newState.iteration,
-      completedSteps: newState.completedSteps,
-      prNumber: state.pr.exists ? state.pr.number : undefined,
-      previousIteration: state.wiggum.iteration,
-      previousStep: state.wiggum.step,
-      stateTransition: `${state.wiggum.step} → ${newState.step}`,
-    });
-
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const updatedState = applyWiggumState(state, newState);
     return await getNextStepInstructions(updatedState);
   }
 
@@ -238,7 +224,7 @@ ${input.fix_description}${outOfScopeSection}
   });
 
   // State remains at same step but with filtered completedSteps
-  const newState = {
+  const newState: WiggumState = {
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
@@ -265,33 +251,12 @@ ${input.fix_description}${outOfScopeSection}
     location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
   });
 
-  // Get updated state and return next step instructions
-  // The router will re-verify from the current step since we cleared completedSteps
-  logger.info('Detecting updated state and getting next step instructions');
   // Reuse newState to avoid race condition with GitHub API (issue #388)
-  const updatedState: CurrentState = {
-    ...state,
-    wiggum: newState,
-  };
-
-  logger.info('Reusing state to avoid GitHub API race condition', {
-    issueRef: '#388',
-    phase: newState.phase,
-    step: newState.step,
-    iteration: newState.iteration,
-    completedSteps: newState.completedSteps,
-    prNumber: state.pr.exists ? state.pr.number : undefined,
-    previousIteration: state.wiggum.iteration,
-    previousStep: state.wiggum.step,
-    stateTransition: `${state.wiggum.step} → ${newState.step}`,
-  });
-
-  logger.info('Updated state detected', {
-    iteration: updatedState.wiggum.iteration,
-    step: updatedState.wiggum.step,
-    completedSteps: updatedState.wiggum.completedSteps,
-  });
-
+  // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+  // state changes have occurred (PR closed, commits added, issue modified). This is safe
+  // during inline step transitions within the same tool call. For state staleness validation,
+  // see issue #391.
+  const updatedState = applyWiggumState(state, newState);
   const nextStepResult = await getNextStepInstructions(updatedState);
 
   logger.info('wiggum_complete_fix completed successfully', {

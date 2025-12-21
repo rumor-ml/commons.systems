@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { applyWiggumState } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -45,7 +46,7 @@ import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
-import type { CurrentState } from '../state/types.js';
+import type { WiggumState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -216,11 +217,11 @@ ${commits}`;
     }
 
     // Mark Phase 1 Step 4 complete and transition to Phase 2
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
       completedSteps: [...state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR],
-      phase: 'phase2' as const,
+      phase: 'phase2',
     };
 
     try {
@@ -277,29 +278,13 @@ ${commits}`;
       );
     }
 
-    // Get updated state with PR now existing
     // Reuse newState to avoid race condition with GitHub API (issue #388)
-    const updatedState: CurrentState = {
-      ...state,
-      wiggum: newState,
-    };
-
-    logger.info('Reusing state to avoid GitHub API race condition', {
-      issueRef: '#388',
-      phase: newState.phase,
-      step: newState.step,
-      iteration: newState.iteration,
-      completedSteps: newState.completedSteps,
-      prNumber: prNumber,
-      previousIteration: state.wiggum.iteration,
-      previousStep: state.wiggum.step,
-      stateTransition: `${state.wiggum.step} → ${newState.step}`,
-    });
-
-    // Get next step instructions from router
-    const nextStepResult = await getNextStepInstructions(updatedState);
-
-    return nextStepResult;
+    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+    // state changes have occurred (PR closed, commits added, issue modified). This is safe
+    // during inline step transitions within the same tool call. For state staleness validation,
+    // see issue #391.
+    const updatedState = applyWiggumState(state, newState);
+    return await getNextStepInstructions(updatedState);
   } catch (error) {
     // Check if error indicates PR already exists
     const errorMsg = error instanceof Error ? error.message : String(error);

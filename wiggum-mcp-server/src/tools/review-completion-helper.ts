@@ -10,13 +10,14 @@ import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { postWiggumStateIssueComment } from '../state/issue-comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
 import { MAX_ITERATIONS, STEP_NAMES, generateTriageInstructions } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
-import type { CurrentState } from '../state/types.js';
+import type { CurrentState, WiggumState } from '../state/types.js';
 
 /**
  * Configuration for a review type (PR or Security)
@@ -121,7 +122,7 @@ function buildNewState(
   currentState: CurrentState,
   reviewStep: WiggumStep,
   hasIssues: boolean
-): { iteration: number; step: WiggumStep; completedSteps: WiggumStep[]; phase: WiggumPhase } {
+): WiggumState {
   if (hasIssues) {
     return {
       iteration: currentState.wiggum.iteration + 1,
@@ -134,7 +135,7 @@ function buildNewState(
   return {
     iteration: currentState.wiggum.iteration,
     step: reviewStep,
-    completedSteps: Array.from(new Set([...currentState.wiggum.completedSteps, reviewStep])),
+    completedSteps: addToCompletedSteps(currentState.wiggum.completedSteps, reviewStep),
     phase: currentState.wiggum.phase,
   };
 }
@@ -317,24 +318,11 @@ export async function completeReview(
     return buildIssuesFoundResponse(state, reviewStep, totalIssues, newState.iteration, config);
   }
 
-  // Reuse the newState we just posted to avoid race condition with GitHub API
-  // See issue #388 for details on this race condition
-  const updatedState: CurrentState = {
-    ...state,
-    wiggum: newState,
-  };
-
-  logger.info('Reusing state to avoid GitHub API race condition', {
-    issueRef: '#388',
-    phase: newState.phase,
-    step: newState.step,
-    iteration: newState.iteration,
-    completedSteps: newState.completedSteps,
-    prNumber: state.pr.exists ? state.pr.number : undefined,
-    previousIteration: state.wiggum.iteration,
-    previousStep: state.wiggum.step,
-    stateTransition: `${state.wiggum.step} → ${newState.step}`,
-  });
-
+  // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
+  // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+  // state changes have occurred (PR closed, commits added, issue modified). This is safe
+  // during inline step transitions within the same tool call. For state staleness validation,
+  // see issue #391.
+  const updatedState = applyWiggumState(state, newState);
   return await getNextStepInstructions(updatedState);
 }
