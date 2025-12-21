@@ -12,6 +12,7 @@ export interface DetectionResult {
   isJsonOutput: boolean;
   isTimeout?: boolean;
 }
+// TODO(#357): Improve type safety - add readonly modifiers, use enums, enforce immutability
 
 export interface ExtractedError {
   testName?: string;
@@ -96,7 +97,7 @@ export function formatValidationError(error: z.ZodError): string {
  * @param validationError - The Zod error describing what was invalid
  * @returns ExtractedError guaranteed to pass validation
  */
-// TODO(#316): Validate fallback error before returning
+// TODO(#305): Validate fallback error before returning [was #285: Improve error logging context and messages]
 export function createFallbackError(
   context: string,
   originalData: unknown,
