@@ -8,6 +8,7 @@
 
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { postWiggumStateComment } from './comments.js';
+import { postWiggumStateIssueComment } from './issue-comments.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
@@ -155,6 +156,45 @@ async function safePostStateComment(
 }
 
 /**
+ * Safely post wiggum state comment to issue with error handling
+ *
+ * Wraps postWiggumStateIssueComment with consistent error handling and logging.
+ * Failures to post state comments are logged but don't crash the workflow,
+ * as state comments are for tracking and not critical to the workflow itself.
+ *
+ * @param issueNumber - Issue number to comment on
+ * @param state - New wiggum state to save
+ * @param title - Comment title
+ * @param body - Comment body
+ * @param step - Step identifier for logging context
+ * @returns true if comment posted successfully, false otherwise
+ */
+async function safePostIssueStateComment(
+  issueNumber: number,
+  state: WiggumState,
+  title: string,
+  body: string,
+  step: string
+): Promise<boolean> {
+  try {
+    await postWiggumStateIssueComment(issueNumber, state, title, body);
+    return true;
+  } catch (commentError) {
+    // Log but continue - state comment is for tracking, not critical path
+    // TODO: See issue #320 - Add error classification to distinguish auth/rate limit/network errors
+    const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+    logger.warn('Failed to post state comment to issue', {
+      issueNumber,
+      step,
+      title,
+      error: errorMsg,
+      recoveryNote: 'Workflow continues - missing state comment is recoverable',
+    });
+    return false;
+  }
+}
+
+/**
  * Format fix instructions for workflow/check failures
  *
  * Generates standardized fix instructions for any workflow or check failure,
@@ -247,6 +287,10 @@ async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
 
 /**
  * Phase 1 Step 1: Monitor Feature Branch Workflow
+ *
+ * This handler performs inline monitoring of the feature branch workflow.
+ * On success, it marks Step p1-1 complete and proceeds to Step p1-2.
+ * On failure, it returns fix instructions with failure details.
  */
 async function handlePhase1MonitorWorkflow(
   state: CurrentState,
@@ -256,35 +300,95 @@ async function handlePhase1MonitorWorkflow(
     current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
     step_number: STEP_PHASE1_MONITOR_WORKFLOW,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 1: Monitor Feature Branch Workflow
-
-The feature branch workflow must complete successfully before proceeding to reviews.
-
-**Instructions:**
-
-1. Use the \`gh_monitor_run\` MCP tool to monitor the feature branch workflow:
-   - Branch: ${state.git.currentBranch}
-   - Timeout: 10 minutes
-
-2. If the workflow succeeds:
-   - Post completion comment to issue #${issueNumber}
-   - Mark step p1-1 complete
-   - Proceed to Step p1-2 (Code Review - Pre-PR)
-
-3. If the workflow fails:
-   - Get failure details using \`gh_get_failure_details\`
-   - Post failure summary to issue #${issueNumber}
-   - Use Task tool with subagent_type='Plan' to create fix plan
-   - Use Task tool with subagent_type='accept-edits' to implement fixes
-   - Execute /commit-merge-push
-   - Call wiggum_complete_fix tool with fix description
-
-The feature branch workflow runs tests and builds for changed modules only (no deployments).`,
+    instructions: '',
     steps_completed_by_tool: [],
     context: {
       current_branch: state.git.currentBranch,
     },
   };
+
+  // Check for uncommitted changes before monitoring
+  const uncommittedCheck = checkUncommittedChanges(state, output, []);
+  if (uncommittedCheck) return uncommittedCheck;
+
+  // Check if branch is pushed to remote
+  const pushCheck = checkBranchPushed(state, output, []);
+  if (pushCheck) return pushCheck;
+
+  // Call monitoring tool directly
+  const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
+
+  if (result.success) {
+    // Mark Step p1-1 complete (with deduplication)
+    const newState = {
+      iteration: state.wiggum.iteration,
+      step: STEP_PHASE1_MONITOR_WORKFLOW,
+      completedSteps: Array.from(
+        new Set([...state.wiggum.completedSteps, STEP_PHASE1_MONITOR_WORKFLOW])
+      ),
+      phase: 'phase1' as const,
+    };
+
+    await safePostIssueStateComment(
+      issueNumber,
+      newState,
+      `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Complete`,
+      'Feature branch workflow completed successfully.',
+      STEP_PHASE1_MONITOR_WORKFLOW
+    );
+
+    // Reuse newState to avoid race condition with GitHub API (issue #388)
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+    };
+
+    logger.info('Reusing state to avoid GitHub API race condition', {
+      issueRef: '#388',
+      phase: newState.phase,
+      step: newState.step,
+      iteration: newState.iteration,
+      completedSteps: newState.completedSteps,
+      issueNumber: state.issue.exists ? state.issue.number : undefined,
+      previousIteration: state.wiggum.iteration,
+      previousStep: state.wiggum.step,
+      stateTransition: `${state.wiggum.step} → ${newState.step}`,
+    });
+
+    // Continue to Step p1-2 (PR Review)
+    return await getNextStepInstructions(updatedState);
+  } else {
+    // Workflow failed - increment iteration and return fix instructions
+    const newState = {
+      iteration: state.wiggum.iteration + 1,
+      step: STEP_PHASE1_MONITOR_WORKFLOW,
+      completedSteps: state.wiggum.completedSteps,
+      phase: 'phase1' as const,
+    };
+
+    await safePostIssueStateComment(
+      issueNumber,
+      newState,
+      `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Failed`,
+      'Feature branch workflow failed. See instructions for fix process.',
+      STEP_PHASE1_MONITOR_WORKFLOW
+    );
+
+    output.iteration_count = newState.iteration;
+    output.instructions = formatFixInstructions(
+      'Workflow',
+      result.failureDetails || result.errorSummary,
+      'See workflow logs for details'
+    );
+    output.steps_completed_by_tool = [
+      'Checked for uncommitted changes',
+      'Checked push status',
+      'Monitored workflow run until first failure',
+      'Retrieved complete failure details via gh_get_failure_details tool',
+      'Posted state to issue',
+      'Incremented iteration',
+    ];
+  }
 
   return {
     content: [{ type: 'text', text: formatWiggumResponse(output) }],
@@ -530,11 +634,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
   const result = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark Step p2-1 complete
+    // Mark Step p2-1 complete (with deduplication)
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_WORKFLOW,
-      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_WORKFLOW],
+      completedSteps: Array.from(
+        new Set([...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_WORKFLOW])
+      ),
       phase: 'phase2' as const,
     };
 
@@ -602,11 +708,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       };
     }
 
-    // PR checks succeeded - mark Step p2-2 complete
+    // PR checks succeeded - mark Step p2-2 complete (with deduplication)
     const newState2 = {
       iteration: updatedState.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: [...updatedState.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS],
+      completedSteps: Array.from(
+        new Set([...updatedState.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS])
+      ),
       phase: 'phase2' as const,
     };
 
@@ -695,11 +803,13 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
   const result = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (result.success) {
-    // Mark Step p2-2 complete
+    // Mark Step p2-2 complete (with deduplication)
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS],
+      completedSteps: Array.from(
+        new Set([...state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS])
+      ),
       phase: 'phase2' as const,
     };
 
@@ -796,7 +906,9 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     const newState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE2_CODE_QUALITY,
-      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY],
+      completedSteps: Array.from(
+        new Set([...state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY])
+      ),
       phase: 'phase2' as const,
     };
 

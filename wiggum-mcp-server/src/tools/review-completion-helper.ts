@@ -134,7 +134,7 @@ function buildNewState(
   return {
     iteration: currentState.wiggum.iteration,
     step: reviewStep,
-    completedSteps: [...currentState.wiggum.completedSteps, reviewStep],
+    completedSteps: Array.from(new Set([...currentState.wiggum.completedSteps, reviewStep])),
     phase: currentState.wiggum.phase,
   };
 }
