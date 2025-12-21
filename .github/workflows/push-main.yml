@@ -109,6 +109,8 @@ jobs:
           install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh videobrowser
+        env:
+          START_SERVER: 'true'
 
   test-firebase-audiobrowser:
     name: Test Firebase - audiobrowser
@@ -123,6 +125,8 @@ jobs:
           install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh audiobrowser
+        env:
+          START_SERVER: 'true'
 
   test-firebase-print:
     name: Test Firebase - print
@@ -137,6 +141,8 @@ jobs:
           install-playwright: 'true'
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh print
+        env:
+          START_SERVER: 'true'
 
   # ==================== Go TUI App Tests ====================
   test-go-tui-tmux-tui:
