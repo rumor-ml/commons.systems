@@ -439,7 +439,9 @@
     "title": "All In",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If weapon is <chip>brutish</chip> and defender is adjacent: you have -5 AC for 1 round. On strike and successful skill roll, deal 2 additional slots of damage to primary defender."],
+    "tags": [
+      "If weapon is <chip>brutish</chip> and defender is adjacent: you have -5 AC for 1 round. On strike and successful skill roll, deal 2 additional slots of damage to primary defender."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -453,7 +455,9 @@
     "title": "Dual Wielding",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If 2 weapons are equipped: on success, resolve an attack with the other weapon as a second action, but use no attack skills."],
+    "tags": [
+      "If 2 weapons are equipped: on success, resolve an attack with the other weapon as a second action, but use no attack skills."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -467,7 +471,9 @@
     "title": "Feint",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["You may palm the die for this skill roll until after the defense roll. Ignore your weapon roll - defense roll always succeeds. On success, any defensive skill fails, player is stunned for 1 round, your next attack has initiative."],
+    "tags": [
+      "You may palm the die for this skill roll until after the defense roll. Ignore your weapon roll - defense roll always succeeds. On success, any defensive skill fails, player is stunned for 1 round, your next attack has initiative."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -481,7 +487,9 @@
     "title": "Melee",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If weapon is swept: On strike and successful skill roll add <chip>1 adjacent</chip>."],
+    "tags": [
+      "If weapon is swept: On strike and successful skill roll add <chip>1 adjacent</chip>."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -495,7 +503,9 @@
     "title": "Pin",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If opponent has pinned condition: on success, opponent remains pinned for 1 round."],
+    "tags": [
+      "If opponent has pinned condition: on success, opponent remains pinned for 1 round."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -509,7 +519,9 @@
     "title": "Surgical",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If weapon is <chip>precise</chip> and defender is adjacent: on success, +1 weapon die and add +1 to weapon roll."],
+    "tags": [
+      "If weapon is <chip>precise</chip> and defender is adjacent: on success, +1 weapon die and add +1 to weapon roll."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -523,7 +535,9 @@
     "title": "Take Aim",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": ["If attack has range > 0 and weapon is <chip>precise</chip>: attack resolves in 1d6 phases. If attack is no longer valid it fails. On successful skill roll, +1 weapon die and add +3."],
+    "tags": [
+      "If attack has range > 0 and weapon is <chip>precise</chip>: attack resolves in 1d6 phases. If attack is no longer valid it fails. On successful skill roll, +1 weapon die and add +3."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -537,7 +551,9 @@
     "title": "Brace",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": ["You skip your next action. On success, subtract the result from your defense roll and you defend with initiative no matter what."],
+    "tags": [
+      "You skip your next action. On success, subtract the result from your defense roll and you defend with initiative no matter what."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -551,7 +567,9 @@
     "title": "Counter Strike",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": ["If attacker is adjacent, on successful defense and skill roll, you take no damage and your next attack has initiative."],
+    "tags": [
+      "If attacker is adjacent, on successful defense and skill roll, you take no damage and your next attack has initiative."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -565,7 +583,9 @@
     "title": "Moving Target",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": ["If you have no conditions, on success, subtract the result from your defense roll - min 0."],
+    "tags": [
+      "If you have no conditions, on success, subtract the result from your defense roll - min 0."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -595,7 +615,9 @@
     "title": "Grit",
     "type": "Skill",
     "subtype": "Tenacity",
-    "tags": ["On success, 1 slot damage is directed to this skill, but maintain the initiative."],
+    "tags": [
+      "On success, 1 slot damage is directed to this skill, but maintain the initiative."
+    ],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -627,7 +649,9 @@
     "title": "Veteran Commander",
     "type": "Skill",
     "subtype": "Core",
-    "tags": ["At the beginning of combat inspire one ally to fight. Their first attack is always a strike. They cannot be harmed in the first round."],
+    "tags": [
+      "At the beginning of combat inspire one ally to fight. Their first attack is always a strike. They cannot be harmed in the first round."
+    ],
     "description": "15 pt",
     "stat1": "",
     "stat2": "",
