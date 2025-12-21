@@ -50,19 +50,24 @@ interface PlaywrightTestResult {
 export class PlaywrightExtractor implements FrameworkExtractor {
   readonly name = 'playwright' as const;
 
+  /**
+   * Detect Playwright test framework from log output
+   *
+   * Searches for Playwright JSON report structure in logs. Handles embedded
+   * JSON within GitHub Actions logs by extracting and parsing JSON content.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level, or null if not Playwright
+   */
   detect(logText: string): DetectionResult | null {
     // Check for JSON format (may be embedded in logs)
     // Look for Playwright JSON structure markers
-    const hasConfig = logText.includes('"config":');
     const hasSuites = logText.includes('"suites":');
-    console.error(`[DEBUG] Playwright detect: hasConfig=${hasConfig}, hasSuites=${hasSuites}`);
 
     if (hasSuites) {
       try {
         const jsonText = this.extractJsonFromLogs(logText);
-        console.error(`[DEBUG] Extracted JSON length: ${jsonText.length}`);
         const parsed = JSON.parse(jsonText);
-        console.error(`[DEBUG] JSON parsed successfully, has suites: ${!!parsed.suites}`);
         if (parsed.suites && Array.isArray(parsed.suites)) {
           return {
             framework: 'playwright',
@@ -71,10 +76,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // Not valid JSON or extraction failed
-        console.error(
-          `[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`
-        );
+        // Not valid JSON or extraction failed - this is expected, not an error
       }
     }
 
@@ -132,6 +134,17 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return null;
   }
 
+  /**
+   * Extract test failures and errors from Playwright logs
+   *
+   * Handles both JSON and text output formats. For JSON, parses structured
+   * test results. For text, uses pattern matching. Provides detailed error
+   * context including file locations, error messages, and stack traces.
+   *
+   * @param logText - Raw log text containing Playwright output
+   * @param maxErrors - Maximum number of errors to extract (default: 10)
+   * @returns Extraction result with framework name, errors, and optional summary
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
@@ -423,7 +436,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         `[ERROR] parsePlaywrightJson: JSON.parse failed after successful extraction: ` +
           `${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
       );
-      console.error(`[DEBUG] First 200 chars of extracted JSON: ${jsonText.substring(0, 200)}`);
       const validatedError = safeValidateExtractedError(
         {
           message: `Failed to parse Playwright JSON report: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
@@ -439,8 +451,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     // Phase 3: Traverse suites (NO catch - bugs should propagate)
-    console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
-
     const extractFromSuite = (suite: PlaywrightSuite) => {
       for (const spec of suite.specs || []) {
         if (!spec.ok) {
@@ -676,21 +686,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         const parsed = JSON.parse(candidate);
         // Successfully parsed and has the expected structure
         if (parsed.suites || parsed.config) {
-          if (parseAttempts > 0) {
-            console.error(
-              `[DEBUG] Playwright JSON extraction: Success after ${parseAttempts} parse attempts (jsonStart=${jsonStart}, jsonEnd=${jsonEnd}, total lines=${jsonEnd - jsonStart + 1})`
-            );
-          }
           return candidate;
         }
       } catch (parseErr) {
         // Keep trying with more lines
-        // Log first few parse errors for diagnostics
-        if (parseAttempts < 3) {
-          console.error(
-            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1} failed at jsonEnd=${jsonEnd}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
-          );
-        }
         parseAttempts++;
       }
     }

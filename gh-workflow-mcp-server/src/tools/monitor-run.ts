@@ -70,6 +70,35 @@ interface JobData {
   completedAt?: string;
 }
 
+/**
+ * Monitor a GitHub Actions workflow run until completion or failure
+ *
+ * Supports monitoring by run_id, pr_number, or branch name. Can monitor multiple
+ * concurrent runs when using branch-based monitoring. Provides fail-fast detection
+ * to exit early on first job failure.
+ *
+ * @param input - Monitor configuration
+ * @param input.run_id - Specific workflow run ID to monitor
+ * @param input.pr_number - PR number (monitors most recent run)
+ * @param input.branch - Branch name (monitors all runs for HEAD commit)
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.poll_interval_seconds - Polling frequency (default: 10s)
+ * @param input.timeout_seconds - Maximum wait time (default: 600s)
+ * @param input.fail_fast - Exit on first failure (default: true)
+ *
+ * @returns Structured summary with run status, duration, and job details
+ *
+ * @throws {ValidationError} If no identifier provided or run not found
+ * @throws {TimeoutError} If run doesn't complete within timeout
+ *
+ * @example
+ * // Monitor specific run with fail-fast
+ * await monitorRun({ run_id: 123456, fail_fast: true });
+ *
+ * @example
+ * // Monitor all runs for branch (waits for all to complete)
+ * await monitorRun({ branch: "feature-123", fail_fast: false });
+ */
 export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch

@@ -304,6 +304,37 @@ async function getFailureDetailsFromLogFailed(
   };
 }
 
+/**
+ * Get token-efficient summary of workflow failures
+ *
+ * Extracts relevant error messages and context from failed jobs using framework-
+ * specific extractors (Playwright, Go, generic). Provides concise failure summaries
+ * optimized for LLM token budgets. Automatically falls back through multiple
+ * extraction strategies for robustness.
+ *
+ * Strategy:
+ * 1. Completed failed runs: Use `gh run view --log-failed` (cleanest output)
+ * 2. In-progress/API fallback: Use GitHub API jobs endpoint (raw logs)
+ *
+ * @param input - Extraction configuration
+ * @param input.run_id - Specific workflow run ID
+ * @param input.pr_number - PR number (uses first failed run)
+ * @param input.branch - Branch name (uses most recent run)
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.max_chars - Maximum response length (default: 10000)
+ *
+ * @returns Failure summary with error extraction and test results
+ *
+ * @throws {ValidationError} If no identifier provided or run not found
+ *
+ * @example
+ * // Get failure details for PR's first failed run
+ * await getFailureDetails({ pr_number: 42 });
+ *
+ * @example
+ * // Get failure details with custom length limit
+ * await getFailureDetails({ run_id: 123456, max_chars: 5000 });
+ */
 export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch

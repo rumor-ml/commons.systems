@@ -32,6 +32,16 @@ export class GoExtractor implements FrameworkExtractor {
     return match ? line.slice(match[0].length) : line;
   }
 
+  /**
+   * Detect Go test framework from log output
+   *
+   * Searches for Go test JSON format (-json flag) or text format markers.
+   * Handles GitHub Actions timestamp prefixes. Samples first 500 lines due
+   * to Actions preamble.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level and format type, or null if not Go
+   */
   detect(logText: string): DetectionResult | null {
     const lines = logText.split('\n');
     let jsonLineCount = 0;
@@ -85,6 +95,17 @@ export class GoExtractor implements FrameworkExtractor {
     return null;
   }
 
+  /**
+   * Extract test failures and errors from Go test logs
+   *
+   * Handles both JSON (-json flag) and text output formats. For JSON, parses
+   * structured test events. For text, extracts failure messages using pattern
+   * matching. Includes test summary statistics when available.
+   *
+   * @param logText - Raw log text containing Go test output
+   * @param maxErrors - Maximum number of errors to extract (default: 10)
+   * @returns Extraction result with framework name, errors, and summary statistics
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
@@ -179,14 +200,6 @@ export class GoExtractor implements FrameworkExtractor {
         } else {
           // Malformed JSON that doesn't look like a test event
           // This could be build output, dependency downloads, etc.
-          if (skippedNonJsonLines < 3) {
-            const lineSnippet = line.length > 100 ? line.substring(0, 100) + '...' : line;
-            console.error(
-              `[DEBUG] Go extractor: skipped malformed JSON (not a test event)\n` +
-                `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
-                `  Line content: ${lineSnippet}`
-            );
-          }
           skippedNonJsonLines++;
         }
         continue; // Skip this line
@@ -195,12 +208,6 @@ export class GoExtractor implements FrameworkExtractor {
       // SECTION 2: Validate test event structure (NO catch - bugs should propagate)
       if (!('Time' in event && 'Action' in event && 'Package' in event)) {
         // Valid JSON but not a test event - likely build output JSON
-        if (skippedNonJsonLines < 3) {
-          console.error(
-            `[DEBUG] Go extractor: skipped valid JSON that is not a test event. ` +
-              `Fields present: ${Object.keys(event).join(', ')}`
-          );
-        }
         skippedNonJsonLines++;
         continue;
       }
