@@ -3,9 +3,7 @@
     "title": "Bayonet",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "Can be equipped at same time as firearm."
-    ],
+    "tags": ["Can be equipped at same time as firearm."],
     "description": "d4",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -191,9 +189,7 @@
     "title": "Pick Hammer",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "Reduce AC by 1 per strike."
-    ],
+    "tags": ["Reduce AC by 1 per strike."],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -244,9 +240,7 @@
     "title": "Short Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "precise"
-    ],
+    "tags": ["precise"],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -279,9 +273,7 @@
     "title": "Studded Mace",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "On crit, stun for 3 phases."
-    ],
+    "tags": ["On crit, stun for 3 phases."],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -349,9 +341,7 @@
     "title": "Balanced",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "Add +1 to weapon roll."
-    ],
+    "tags": ["Add +1 to weapon roll."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -365,9 +355,7 @@
     "title": "Deadly",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "On strike with this weapon deal 1 additional slot of damage."
-    ],
+    "tags": ["On strike with this weapon deal 1 additional slot of damage."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -381,9 +369,7 @@
     "title": "Knuckle Guard",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "Foe with initiative cannot disarm you of this weapon."
-    ],
+    "tags": ["Foe with initiative cannot disarm you of this weapon."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -397,9 +383,7 @@
     "title": "Lucky",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "<chip>-1c</chip>"
-    ],
+    "tags": ["<chip>-1c</chip>"],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -413,9 +397,7 @@
     "title": "Master-Craft",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "On crit, inflict burn on primary defender."
-    ],
+    "tags": ["On crit, inflict burn on primary defender."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -429,9 +411,7 @@
     "title": "Serrated",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "On crit, inflict bleed on primary defender."
-    ],
+    "tags": ["On crit, inflict bleed on primary defender."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -445,9 +425,7 @@
     "title": "Sword Breaker",
     "type": "Upgrade",
     "subtype": "Weapon",
-    "tags": [
-      "On crit, inflict corrosion on primary defender."
-    ],
+    "tags": ["On crit, inflict corrosion on primary defender."],
     "description": "3 pt",
     "stat1": "",
     "stat2": "",
@@ -461,9 +439,7 @@
     "title": "All In",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If weapon is <chip>brutish</chip> and defender is adjacent: you have -5 AC for 1 round. On strike and successful skill roll, deal 2 additional slots of damage to primary defender."
-    ],
+    "tags": ["If weapon is <chip>brutish</chip> and defender is adjacent: you have -5 AC for 1 round. On strike and successful skill roll, deal 2 additional slots of damage to primary defender."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -477,9 +453,7 @@
     "title": "Dual Wielding",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If 2 weapons are equipped: on success, resolve an attack with the other weapon as a second action, but use no attack skills."
-    ],
+    "tags": ["If 2 weapons are equipped: on success, resolve an attack with the other weapon as a second action, but use no attack skills."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -493,9 +467,7 @@
     "title": "Feint",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "You may palm the die for this skill roll until after the defense roll. Ignore your weapon roll - defense roll always succeeds. On success, any defensive skill fails, player is stunned for 1 round, your next attack has initiative."
-    ],
+    "tags": ["You may palm the die for this skill roll until after the defense roll. Ignore your weapon roll - defense roll always succeeds. On success, any defensive skill fails, player is stunned for 1 round, your next attack has initiative."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -509,9 +481,7 @@
     "title": "Melee",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If weapon is swept: On strike and successful skill roll add <chip>1 adjacent</chip>."
-    ],
+    "tags": ["If weapon is swept: On strike and successful skill roll add <chip>1 adjacent</chip>."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -525,9 +495,7 @@
     "title": "Pin",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If opponent has pinned condition: on success, opponent remains pinned for 1 round."
-    ],
+    "tags": ["If opponent has pinned condition: on success, opponent remains pinned for 1 round."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -541,9 +509,7 @@
     "title": "Surgical",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If weapon is <chip>precise</chip> and defender is adjacent: on success, +1 weapon die and add +1 to weapon roll."
-    ],
+    "tags": ["If weapon is <chip>precise</chip> and defender is adjacent: on success, +1 weapon die and add +1 to weapon roll."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -557,9 +523,7 @@
     "title": "Take Aim",
     "type": "Skill",
     "subtype": "Attack",
-    "tags": [
-      "If attack has range > 0 and weapon is <chip>precise</chip>: attack resolves in 1d6 phases. If attack is no longer valid it fails. On successful skill roll, +1 weapon die and add +3."
-    ],
+    "tags": ["If attack has range > 0 and weapon is <chip>precise</chip>: attack resolves in 1d6 phases. If attack is no longer valid it fails. On successful skill roll, +1 weapon die and add +3."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -573,9 +537,7 @@
     "title": "Brace",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": [
-      "You skip your next action. On success, subtract the result from your defense roll and you defend with initiative no matter what."
-    ],
+    "tags": ["You skip your next action. On success, subtract the result from your defense roll and you defend with initiative no matter what."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -589,9 +551,7 @@
     "title": "Counter Strike",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": [
-      "If attacker is adjacent, on successful defense and skill roll, you take no damage and your next attack has initiative."
-    ],
+    "tags": ["If attacker is adjacent, on successful defense and skill roll, you take no damage and your next attack has initiative."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -605,9 +565,7 @@
     "title": "Moving Target",
     "type": "Skill",
     "subtype": "Defense",
-    "tags": [
-      "If you have no conditions, on success, subtract the result from your defense roll - min 0."
-    ],
+    "tags": ["If you have no conditions, on success, subtract the result from your defense roll - min 0."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -637,9 +595,7 @@
     "title": "Grit",
     "type": "Skill",
     "subtype": "Tenacity",
-    "tags": [
-      "On success, 1 slot damage is directed to this skill, but maintain the initiative."
-    ],
+    "tags": ["On success, 1 slot damage is directed to this skill, but maintain the initiative."],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -671,9 +627,7 @@
     "title": "Veteran Commander",
     "type": "Skill",
     "subtype": "Core",
-    "tags": [
-      "At the beginning of combat inspire one ally to fight. Their first attack is always a strike. They cannot be harmed in the first round."
-    ],
+    "tags": ["At the beginning of combat inspire one ally to fight. Their first attack is always a strike. They cannot be harmed in the first round."],
     "description": "15 pt",
     "stat1": "",
     "stat2": "",
@@ -687,9 +641,7 @@
     "title": "Scale Vest",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "durable"
-    ],
+    "tags": ["durable"],
     "description": "Rare, requires expert blacksmith.",
     "stat1": "3 AC",
     "stat2": "5 pt",
@@ -703,9 +655,7 @@
     "title": "Greaves",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "Can protect against some attempts to immobilize."
-    ],
+    "tags": ["Can protect against some attempts to immobilize."],
     "description": "1 AC",
     "stat1": "2 pt",
     "stat2": "",
@@ -719,9 +669,7 @@
     "title": "Cloak",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "+3 Stealth"
-    ],
+    "tags": ["+3 Stealth"],
     "description": "1 AC",
     "stat1": "1 pt",
     "stat2": "",
@@ -735,9 +683,7 @@
     "title": "Skeleton",
     "type": "Origin",
     "subtype": "Undead",
-    "tags": [
-      "6 AC"
-    ],
+    "tags": ["6 AC"],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -751,9 +697,7 @@
     "title": "Chain Mail",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "Noisy."
-    ],
+    "tags": ["Noisy."],
     "description": "3 AC",
     "stat1": "3 pt",
     "stat2": "",
@@ -767,9 +711,7 @@
     "title": "Skeleton Commander",
     "type": "Origin",
     "subtype": "Undead",
-    "tags": [
-      "6 AC"
-    ],
+    "tags": ["6 AC"],
     "description": "",
     "stat1": "",
     "stat2": "",
@@ -783,9 +725,7 @@
     "title": "Wood Shield",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "durable"
-    ],
+    "tags": ["durable"],
     "description": "1 AC",
     "stat1": "3 pt",
     "stat2": "",
@@ -799,9 +739,7 @@
     "title": "Helm",
     "type": "Equipment",
     "subtype": "Armor",
-    "tags": [
-      "Draws enemy attention."
-    ],
+    "tags": ["Draws enemy attention."],
     "description": "1 pt",
     "stat1": "1 pt",
     "stat2": "",
@@ -815,7 +753,10 @@
     "title": "Ghoul",
     "type": "Origin",
     "subtype": "Vampire",
-    "tags": ["Claw x2: d6, 2 slot, on crit also pin", "Bite: evade or bleed until resist"],
+    "tags": [
+      "Claw x2: d6, 2 slot, on crit also pin",
+      "Bite: evade or bleed until resist"
+    ],
     "description": "6 AC",
     "stat1": "24 pt",
     "stat2": "",
