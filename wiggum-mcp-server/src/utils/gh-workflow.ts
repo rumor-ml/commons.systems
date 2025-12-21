@@ -63,6 +63,7 @@ export async function monitorRun(
         max_chars: WORKFLOW_LOG_MAX_CHARS,
       });
       result.failureDetails = failureDetails;
+    // TODO(#375): Surface enrichment errors in errorSummary for user visibility
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors
@@ -114,7 +115,7 @@ export async function monitorPRChecks(
   });
 
   // If failed, enrich with failure details
-  // TODO(#299): Extract duplicated enrichment logic to helper function
+  // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated enrichment logic to helper function
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { prNumber });
     try {

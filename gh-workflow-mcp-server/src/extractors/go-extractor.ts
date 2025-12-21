@@ -117,7 +117,8 @@ export class GoExtractor implements FrameworkExtractor {
     // TODO(#302): Add motivation context to three-stage error handling
     // Current: Excellent architecture comment but missing "why this complexity exists"
     // WHY: Go test output intermingles valid events with build messages, compilation errors, and GitHub Actions logs
-    // ARCHITECTURAL PATTERN: Three-stage error handling with narrow catch scopes
+    // TODO(#302): Fix misleading "three-stage error handling" comment
+    // Actual: Two stages with error handling + one validation stage without
     //
     // STAGE 1 (parseGoTestJson: JSON.parse loop): JSON.parse() wrapped in minimal try-catch
     //   - ONLY catches JSON syntax errors (malformed JSON)

@@ -4,6 +4,8 @@
 # Intercepts git push commands and runs the full test suite before allowing the push.
 # Dependencies: jq (JSON processor)
 
+TEST_TIMEOUT_SECONDS=600  # 10 minutes
+
 LOG_FILE="/tmp/claude/pre-push-hook.log"
 if ! mkdir -p /tmp/claude 2>/dev/null; then
   echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "ERROR: Cannot create log directory /tmp/claude. Check permissions and disk space."}}'
@@ -87,7 +89,7 @@ test_output_file="/tmp/claude/pre-push-test-output-$$.txt"
 if ! touch "$test_output_file" 2>/dev/null; then
   deny "Cannot create test output file at $test_output_file. Check /tmp/claude permissions and disk space."
 fi
-timeout 600 "$test_script" --changed-only --ci > "$test_output_file" 2>&1
+timeout "$TEST_TIMEOUT_SECONDS" "$test_script" --changed-only --ci > "$test_output_file" 2>&1
 test_exit_code=$?
 log "Test exit code: $test_exit_code"
 

@@ -335,6 +335,8 @@ export async function getPRReviewComments(
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
+    // TODO(#319): Skip malformed comments instead of throwing
+    // Current: Single malformed comment blocks all subsequent valid comments
     } catch (error) {
       throw new GitHubCliError(
         `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`

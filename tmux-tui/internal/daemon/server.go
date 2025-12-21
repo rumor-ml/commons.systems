@@ -58,8 +58,8 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	// Current: Silent no-op when NewPersistenceErrorMessage fails (see PR review #273)
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
-		// TODO(#356): Add fallback notification for message construction failures
-		// See issue for details from PR #273 review
+		// TODO(#356): Add fallback notification when message construction fails
+		// Current: Returns early with only debug logging, no user visibility
 		// TODO(#281): Log message construction failures to stderr
 		// Current: Only debug logging, operations continue with no message sent
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)

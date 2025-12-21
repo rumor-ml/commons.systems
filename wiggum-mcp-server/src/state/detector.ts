@@ -121,6 +121,8 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       headRefName: result.headRefName,
       baseRefName: result.baseRefName,
     };
+  // TODO(#319): Narrow catch to only "no pull requests found" error
+  // Current: Masks rate limiting, auth failures, network issues, API outages
   } catch (error) {
     // TODO(#319,#320): Make catch block more specific - only catch expected "no PR" error
     // TODO(#328): Consider extracting error extraction pattern into helper function

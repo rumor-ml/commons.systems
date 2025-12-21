@@ -667,6 +667,8 @@ HOOKEOF
   fi
 
   rm -f /tmp/hook-execution-marker
+
+  git worktree remove "$worktree_path" --force || true
   cd "$REPO_ROOT"
 }
 
