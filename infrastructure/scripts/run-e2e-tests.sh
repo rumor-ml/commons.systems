@@ -78,10 +78,18 @@ case "$APP_TYPE" in
     trap cleanup EXIT
 
     echo "Building..."
+    # Clean dist to ensure fresh build with current env vars
+    rm -rf "${APP_PATH_ABS}/site/dist"
+
     export VITE_USE_FIREBASE_EMULATOR=true
     export VITE_FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}"
     export VITE_FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}"
     export VITE_STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}"
+
+    # Debug: Log env vars to verify they're set
+    echo "VITE_USE_FIREBASE_EMULATOR=${VITE_USE_FIREBASE_EMULATOR}"
+    echo "VITE_FIRESTORE_EMULATOR_HOST=${VITE_FIRESTORE_EMULATOR_HOST}"
+
     pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
 
