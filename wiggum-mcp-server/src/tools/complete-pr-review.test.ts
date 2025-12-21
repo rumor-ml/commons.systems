@@ -4,6 +4,7 @@
  * Comprehensive test coverage for PR review completion.
  * Tests cover input validation, error handling, and state management.
  */
+// TODO: See issue #313 - Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
