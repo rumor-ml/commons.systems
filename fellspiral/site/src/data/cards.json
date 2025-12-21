@@ -815,10 +815,7 @@
     "title": "Ghoul",
     "type": "Origin",
     "subtype": "Vampire",
-    "tags": [
-      "Claw x2: d6, 2 slot, on crit also pin",
-      "Bite: evade or bleed until resist"
-    ],
+    "tags": ["Claw x2: d6, 2 slot, on crit also pin", "Bite: evade or bleed until resist"],
     "description": "6 AC",
     "stat1": "24 pt",
     "stat2": "",
@@ -832,9 +829,7 @@
     "title": "Caleb",
     "type": "Origin",
     "subtype": "Human",
-    "tags": [
-      "AC 6"
-    ],
+    "tags": ["AC 6"],
     "description": "",
     "stat1": "",
     "stat2": "",
