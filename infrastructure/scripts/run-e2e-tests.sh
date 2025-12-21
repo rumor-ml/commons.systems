@@ -90,7 +90,8 @@ case "$APP_TYPE" in
     echo "VITE_USE_FIREBASE_EMULATOR=${VITE_USE_FIREBASE_EMULATOR}"
     echo "VITE_FIRESTORE_EMULATOR_HOST=${VITE_FIRESTORE_EMULATOR_HOST}"
 
-    pnpm --dir "${APP_PATH_ABS}/site" build
+    # Change to site directory to ensure env vars are inherited by pnpm/vite
+    (cd "${APP_PATH_ABS}/site" && pnpm build)
     ;;
 
   go-fullstack)
