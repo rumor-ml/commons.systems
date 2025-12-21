@@ -92,8 +92,7 @@ export const STEP_NAMES: Record<WiggumStep, string> = {
 export const WIGGUM_STATE_MARKER = 'wiggum-state';
 export const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
 
-// PR Review and Security Review commands
-export const PR_REVIEW_COMMAND = '/pr-review-toolkit:review-pr' as const;
+// Phase-specific review commands
 export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
 
 // Phase-specific PR review commands

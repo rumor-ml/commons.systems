@@ -246,6 +246,7 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 ### wiggum_complete_pr_review
 
 Call after executing the phase-appropriate review command:
+
 - **Phase 1:** After `/all-hands-review`
 - **Phase 2:** After `/review`
 
@@ -269,7 +270,10 @@ mcp__wiggum__wiggum_complete_pr_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
+- `verbatim_response` must contain the COMPLETE formatted output from the review command
+  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
+  - For `/review` or `/security-review`: Include the complete review output
+  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
@@ -299,7 +303,10 @@ mcp__wiggum__wiggum_complete_security_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
+- `verbatim_response` must contain the COMPLETE formatted output from the review command
+  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
+  - For `/review` or `/security-review`: Include the complete review output
+  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
