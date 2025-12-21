@@ -34,9 +34,15 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
  */
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
   if (!input.fix_description || input.fix_description.trim().length === 0) {
-    logger.error('wiggum_complete_fix validation failed: empty fix_description');
+    logger.error('wiggum_complete_fix validation failed: empty fix_description', {
+      receivedValue: input.fix_description,
+      valueType: typeof input.fix_description,
+      valueLength: input.fix_description?.length ?? 0,
+    });
     // TODO: See issue #312 - Add Sentry error ID for tracking
-    throw new ValidationError('fix_description is required and cannot be empty');
+    throw new ValidationError(
+      `fix_description is required and cannot be empty. Received: ${JSON.stringify(input.fix_description)} (type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0}). Please provide a meaningful description of what was fixed.`
+    );
   }
 
   // Validate out_of_scope_issues array contents if provided
@@ -76,10 +82,16 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       });
       // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
-        'No issue found. Phase 1 fixes require issue number in branch name (format: 123-feature-name).'
+        `No issue found. Phase 1 fixes require an issue number in the branch name.\n\n` +
+          `Current branch: ${state.git.currentBranch}\n` +
+          `Expected format: 123-feature-name (where 123 is the issue number)\n\n` +
+          `To fix this:\n` +
+          `1. Ensure you're working on an issue-based branch\n` +
+          `2. Branch name must start with the issue number followed by a hyphen\n` +
+          `3. Example: git checkout -b 282-my-feature`
       );
     }
-    // TODO: See issue #292 - Remove redundant type narrowing comments throughout codebase
+    // TODO: See issue #304 - Remove redundant type narrowing comments throughout codebase
     // After validation, we know state.issue.number exists
     targetNumber = state.issue.number as number;
   } else if (phase === 'phase2') {
@@ -90,13 +102,23 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         branch: state.git.currentBranch,
       });
       // TODO: See issue #312 - Add Sentry error ID for tracking
-      throw new ValidationError('No PR found. Cannot complete fix in Phase 2.');
+      throw new ValidationError(
+        `No PR found. Cannot complete fix in Phase 2.\n\n` +
+          `Current branch: ${state.git.currentBranch}\n` +
+          `Phase 2 requires an open pull request.\n\n` +
+          `To fix this:\n` +
+          `1. Create a PR for your branch using: gh pr create\n` +
+          `2. Or use the wiggum_complete_pr_creation tool if you've just finished Phase 1\n` +
+          `3. Verify PR exists with: gh pr view`
+      );
     }
     // After validation, we know state.pr.number exists
     targetNumber = state.pr.number as number;
   } else {
     // TODO: See issue #312 - Add Sentry error ID for tracking
-    throw new ValidationError(`Unknown phase: ${phase}`);
+    throw new ValidationError(
+      `Unknown phase: ${phase}. Expected 'phase1' or 'phase2'. This indicates a workflow state corruption - please report this error.`
+    );
   }
 
   logger.info('wiggum_complete_fix started', {
@@ -117,13 +139,14 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       outOfScopeIssues: input.out_of_scope_issues,
     });
 
+    // TODO: See issue #323 - Potential race condition: detectCurrentState() may read stale GitHub data
     const updatedState = await detectCurrentState();
     return await getNextStepInstructions(updatedState);
   }
 
   // Post comment documenting the fix (to issue in Phase 1, to PR in Phase 2)
   const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;
-  // TODO: See issue #296 - Use optional chaining for cleaner code
+  // TODO: See issue #304 - Use optional chaining for cleaner code
   const outOfScopeSection =
     input.out_of_scope_issues && input.out_of_scope_issues.length > 0
       ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`

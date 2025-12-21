@@ -21,6 +21,7 @@ import type { CurrentState } from '../state/types.js';
 /**
  * Configuration for a review type (PR or Security)
  */
+// TODO: See issue #333 - Add runtime validation (Zod schemas) for ReviewConfig and ReviewCompletionInput types
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
   phase1Step: WiggumStep;
@@ -57,10 +58,7 @@ function getReviewStep(phase: WiggumPhase, config: ReviewConfig): WiggumStep {
 /**
  * Validate phase requirements (issue for phase1, PR for phase2)
  */
-function validatePhaseRequirements(
-  state: CurrentState,
-  config: ReviewConfig
-): void {
+function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): void {
   if (state.wiggum.phase === 'phase1' && (!state.issue.exists || !state.issue.number)) {
     // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(
@@ -145,7 +143,12 @@ function buildNewState(
  */
 async function postStateComment(
   state: CurrentState,
-  newState: { iteration: number; step: WiggumStep; completedSteps: WiggumStep[]; phase: WiggumPhase },
+  newState: {
+    iteration: number;
+    step: WiggumStep;
+    completedSteps: WiggumStep[];
+    phase: WiggumPhase;
+  },
   title: string,
   body: string
 ): Promise<void> {
@@ -212,12 +215,15 @@ function buildIssuesFoundResponse(
   const issueNumber = state.issue.exists && state.issue.number ? state.issue.number : undefined;
 
   if (issueNumber) {
-    logger.info(`Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`, {
-      phase: state.wiggum.phase,
-      issueNumber,
-      totalIssues,
-      iteration: newIteration,
-    });
+    logger.info(
+      `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
+      {
+        phase: state.wiggum.phase,
+        issueNumber,
+        totalIssues,
+        iteration: newIteration,
+      }
+    );
   } else {
     logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
       phase: state.wiggum.phase,

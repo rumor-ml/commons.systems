@@ -96,7 +96,7 @@ export function formatValidationError(error: z.ZodError): string {
  * @param validationError - The Zod error describing what was invalid
  * @returns ExtractedError guaranteed to pass validation
  */
-// TODO(#285): Validate fallback error before returning
+// TODO(#265): Validate fallback error before returning
 export function createFallbackError(
   context: string,
   originalData: unknown,
@@ -273,6 +273,7 @@ export class ValidationErrorTracker {
  * @returns Always returns an ExtractedError (validated or fallback)
  * @throws Non-Zod errors (bugs in extraction code)
  */
+// TODO: See issue #332 - Ensure all fallback paths in extractors use this validation tracker consistently
 export function safeValidateExtractedError(
   data: unknown,
   context: string,
