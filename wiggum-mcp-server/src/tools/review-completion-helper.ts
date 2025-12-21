@@ -213,7 +213,7 @@ function buildIssuesFoundResponse(
   newIteration: number,
   config: ReviewConfig
 ): ToolResult {
-  const issueNumber = state.issue.exists && state.issue.number ? state.issue.number : undefined;
+  const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
   if (issueNumber) {
     logger.info(

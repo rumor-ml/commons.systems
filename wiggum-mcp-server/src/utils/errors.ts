@@ -170,35 +170,7 @@ export class FormattingError extends McpError {
  */
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
-  let errorType = 'UnknownError';
-  let errorCode: string | undefined;
-
-  // Categorize error types for better handling
-  if (error instanceof TimeoutError) {
-    errorType = 'TimeoutError';
-    errorCode = 'TIMEOUT';
-  } else if (error instanceof ValidationError) {
-    errorType = 'ValidationError';
-    errorCode = 'VALIDATION_ERROR';
-  } else if (error instanceof NetworkError) {
-    errorType = 'NetworkError';
-    errorCode = 'NETWORK_ERROR';
-  } else if (error instanceof GitHubCliError) {
-    errorType = 'GitHubCliError';
-    errorCode = 'GH_CLI_ERROR';
-  } else if (error instanceof GitError) {
-    errorType = 'GitError';
-    errorCode = 'GIT_ERROR';
-  } else if (error instanceof ParsingError) {
-    errorType = 'ParsingError';
-    errorCode = 'PARSING_ERROR';
-  } else if (error instanceof FormattingError) {
-    errorType = 'FormattingError';
-    errorCode = 'FORMATTING_ERROR';
-  } else if (error instanceof McpError) {
-    errorType = 'McpError';
-    errorCode = error.code;
-  }
+  const { errorType, errorCode } = categorizeError(error);
 
   return {
     content: [
@@ -213,6 +185,40 @@ export function createErrorResult(error: unknown): ErrorResult {
       errorCode,
     },
   };
+}
+
+/**
+ * Categorize an error by type and code
+ *
+ * Maps error instances to their type name and error code for structured
+ * error handling in MCP responses.
+ */
+function categorizeError(error: unknown): { errorType: string; errorCode: string | undefined } {
+  if (error instanceof TimeoutError) {
+    return { errorType: 'TimeoutError', errorCode: 'TIMEOUT' };
+  }
+  if (error instanceof ValidationError) {
+    return { errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR' };
+  }
+  if (error instanceof NetworkError) {
+    return { errorType: 'NetworkError', errorCode: 'NETWORK_ERROR' };
+  }
+  if (error instanceof GitHubCliError) {
+    return { errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR' };
+  }
+  if (error instanceof GitError) {
+    return { errorType: 'GitError', errorCode: 'GIT_ERROR' };
+  }
+  if (error instanceof ParsingError) {
+    return { errorType: 'ParsingError', errorCode: 'PARSING_ERROR' };
+  }
+  if (error instanceof FormattingError) {
+    return { errorType: 'FormattingError', errorCode: 'FORMATTING_ERROR' };
+  }
+  if (error instanceof McpError) {
+    return { errorType: 'McpError', errorCode: error.code };
+  }
+  return { errorType: 'UnknownError', errorCode: undefined };
 }
 
 export function formatError(error: unknown): string {
