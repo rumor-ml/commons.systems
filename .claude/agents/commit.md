@@ -17,12 +17,15 @@ Before analyzing changes, update any TODO comments that reference closed issues:
 
 1. **Scan for TODO references**: Use Grep tool to find all TODO comments with issue references:
    - Pattern: `TODO\(#\d+\)`
+   - File types: `.go`, `.ts`, `.tsx`, `.md` files
    - Search entire repository
    - Output mode: "content" to see the actual TODO text
+   <!-- TODO(#350): Add guidance to skip TODOs in non-comment contexts (strings, examples) -->
 
 2. **For each referenced issue found**:
    - Extract issue number from `TODO(#NNN)` pattern
    - Check issue status: `gh issue view <number> --json state,body,title`
+   - **If command fails**: Log warning "Unable to check status for issue #NNN: <error>. Skipping this issue." and continue to next issue
    - If issue is OPEN: skip (no action needed)
    - If issue is CLOSED: proceed to step 3
 
@@ -36,13 +39,17 @@ Before analyzing changes, update any TODO comments that reference closed issues:
      - `Replaced by #NNN`
      - `Moved to #NNN`
    - Extract the new issue number
+   - **Validate the target**: Run `gh issue view <new-number> --json state`
+   - **If target doesn't exist**: Log warning "Issue #old references closed issue but merge target #new not found. Skipping update." and skip this issue
 
 4. **Update TODO references**:
    - If merge target found:
      - Use Grep tool to find all files containing the old TODO reference
      - For each file, use Edit tool to replace `TODO(#old)` with `TODO(#new)`
      - Add explanatory comment: `TODO(#new) [was #old: <old-title>]`
+     <!-- TODO(#351): Add concrete format examples and truncation rules -->
      - Stage updated files: `git add <files>`
+     <!-- TODO(#353): Document git staging behavior and selective staging implications -->
      - Report to user: "Updated TODO(#old) → TODO(#new) in <file-count> files"
    - If NO merge target found:
      - Warn user: "TODO(#old) references closed issue '<title>' but no merge target found. Manual review recommended."
@@ -52,6 +59,7 @@ Before analyzing changes, update any TODO comments that reference closed issues:
    - If `gh` command fails: warn and continue (don't block commit)
    - If Edit fails: warn and continue
    - All errors are non-blocking - the commit should proceed
+   <!-- TODO(#352): Improve Edit failure tracking with specific error messages and success/failure counts -->
 
 6. **Skip conditions**:
    - Skip this step if no TODO comments with issue references found
