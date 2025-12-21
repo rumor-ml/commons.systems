@@ -587,6 +587,10 @@ func startDaemon(t *testing.T, socketName, sessionName string) func() {
 		// Kill the daemon window
 		killCmd := tmuxCmd(socketName, "kill-window", "-t", daemonWindow)
 		killCmd.Run() // Ignore errors - window might already be gone
+
+		// Remove the daemon socket to prevent stale socket issues
+		// This is important for tests that expect the socket to not exist
+		os.Remove(daemonSocket) // Ignore errors - socket might not exist
 	}
 }
 
