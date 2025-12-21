@@ -633,13 +633,10 @@ async function loadCards() {
     // All other errors: show error without demo data fallback
     state.cards = [];
     state.filteredCards = [];
-    showErrorUI(
-      `Failed to load cards: ${error.message}. Please refresh to try again.`,
-      () => {
-        document.querySelector('.error-banner')?.remove();
-        loadCards();
-      }
-    );
+    showErrorUI(`Failed to load cards: ${error.message}. Please refresh to try again.`, () => {
+      document.querySelector('.error-banner')?.remove();
+      loadCards();
+    });
   } finally {
     // ALWAYS clear loading state
     state.loading = false;
