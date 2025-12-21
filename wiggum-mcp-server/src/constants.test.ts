@@ -1,10 +1,10 @@
 /**
  * Tests for constants and type definitions
  *
- * Comprehensive test coverage for type-safe constants and validations.
+ * Current coverage focuses on schema validation and type safety.
  * Tests cover step validation, discriminated unions, and constant integrity.
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests
+// TODO: See issue #313 - Add behavioral/integration tests for actual tool workflows
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -268,6 +268,57 @@ describe('generateTriageInstructions', () => {
     });
   });
 
+  describe('reviewType validation', () => {
+    it('should reject invalid reviewType', () => {
+      assert.throws(
+        // @ts-expect-error - Testing invalid reviewType
+        () => generateTriageInstructions(123, 'Invalid', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid reviewType'));
+          assert(err.message.includes('Must be either'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject empty string reviewType', () => {
+      assert.throws(
+        // @ts-expect-error - Testing invalid reviewType
+        () => generateTriageInstructions(123, '', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid reviewType'));
+          return true;
+        }
+      );
+    });
+
+    it('should reject lowercase reviewType', () => {
+      assert.throws(
+        // @ts-expect-error - Testing invalid reviewType
+        () => generateTriageInstructions(123, 'pr', 5),
+        (err: Error) => {
+          assert(err instanceof ValidationError);
+          assert(err.message.includes('Invalid reviewType'));
+          return true;
+        }
+      );
+    });
+
+    it('should accept valid PR reviewType', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
+
+    it('should accept valid Security reviewType', () => {
+      const result = generateTriageInstructions(123, 'Security', 5);
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
+  });
+
   describe('output format', () => {
     it('should include issue number in output', () => {
       const result = generateTriageInstructions(456, 'PR', 10);
@@ -324,6 +375,72 @@ describe('generateTriageInstructions', () => {
       assert(result.includes('wiggum_complete_fix'));
       assert(result.includes('fix_description'));
       assert(result.includes('out_of_scope_issues'));
+    });
+
+    it('should generate valid markdown structure', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      // Check for proper markdown headers (## for main steps, ### for substeps)
+      assert(result.match(/^## Step 1:/m), 'Missing Step 1 header');
+      assert(result.match(/^## Step 2:/m), 'Missing Step 2 header');
+      assert(result.match(/^## Step 3:/m), 'Missing Step 3 header');
+      assert(result.match(/^### 2a\./m), 'Missing substep 2a');
+      assert(result.match(/^### 2b\./m), 'Missing substep 2b');
+      assert(result.match(/^### 2c\./m), 'Missing substep 2c');
+      assert(result.match(/^### 2d\./m), 'Missing substep 2d');
+      assert(result.match(/^### 2e\./m), 'Missing substep 2e');
+      assert(result.match(/^### 2f\./m), 'Missing substep 2f');
+    });
+
+    it('should maintain correct step ordering', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      const step1Index = result.indexOf('## Step 1:');
+      const step2Index = result.indexOf('## Step 2:');
+      const step3Index = result.indexOf('## Step 3:');
+
+      assert(step1Index !== -1, 'Step 1 not found');
+      assert(step2Index !== -1, 'Step 2 not found');
+      assert(step3Index !== -1, 'Step 3 not found');
+      assert(step1Index < step2Index, 'Step 1 should come before Step 2');
+      assert(step2Index < step3Index, 'Step 2 should come before Step 3');
+    });
+
+    it('should format different review types with correct casing', () => {
+      const prResult = generateTriageInstructions(123, 'PR', 5);
+      const secResult = generateTriageInstructions(456, 'Security', 3);
+
+      // PR review should be lowercase in issue count
+      assert(prResult.includes('pr review issue(s)'), 'PR review not lowercase');
+
+      // Security review should be lowercase in issue count
+      assert(secResult.includes('security review issue(s)'), 'Security review not lowercase');
+    });
+
+    it('should include all required tool references', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      assert(result.includes('EnterPlanMode'), 'Missing EnterPlanMode tool');
+      assert(result.includes('ExitPlanMode'), 'Missing ExitPlanMode tool');
+      assert(result.includes('Task tool'), 'Missing Task tool');
+      assert(result.includes('AskUserQuestion'), 'Missing AskUserQuestion tool');
+      assert(result.includes('gh issue list'), 'Missing gh issue list command');
+      assert(result.includes('gh issue edit'), 'Missing gh issue edit command');
+    });
+
+    it('should include slash command reference', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('/commit-merge-push'), 'Missing /commit-merge-push command');
+    });
+
+    it('should specify required sections in plan', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+
+      assert(result.includes('**A. In-Scope Fixes**'), 'Missing In-Scope Fixes section');
+      assert(
+        result.includes('**B. Out-of-Scope Tracking**'),
+        'Missing Out-of-Scope Tracking section'
+      );
     });
   });
 });

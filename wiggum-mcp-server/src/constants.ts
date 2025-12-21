@@ -127,17 +127,20 @@ export function generateTriageInstructions(
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
+  // Validate reviewType
+  if (reviewType !== 'PR' && reviewType !== 'Security') {
+    throw new ValidationError(
+      `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
+    );
+  }
+
   // Validate issueNumber
   if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
-    throw new ValidationError(
-      `Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
-    );
+    throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
   }
 
   // Validate totalIssues
   if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(
       `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
