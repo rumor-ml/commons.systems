@@ -96,6 +96,10 @@ export const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
 export const PR_REVIEW_COMMAND = '/pr-review-toolkit:review-pr' as const;
 export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
 
+// Phase-specific PR review commands
+export const PHASE1_PR_REVIEW_COMMAND = '/all-hands-review' as const;
+export const PHASE2_PR_REVIEW_COMMAND = '/review' as const;
+
 // PR check failure states (used for fail-fast logic)
 export const FAILURE_STATES = ['FAILURE', 'ERROR'] as const;
 
