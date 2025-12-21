@@ -11,7 +11,11 @@ import {
   SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { completeReview, type ReviewCompletionInput, type ReviewConfig } from './review-completion-helper.js';
+import {
+  completeReview,
+  type ReviewCompletionInput,
+  type ReviewConfig,
+} from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm /security-review was actually executed'),

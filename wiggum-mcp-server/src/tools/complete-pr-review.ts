@@ -12,7 +12,11 @@ import {
   PHASE2_PR_REVIEW_COMMAND,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { completeReview, type ReviewCompletionInput, type ReviewConfig } from './review-completion-helper.js';
+import {
+  completeReview,
+  type ReviewCompletionInput,
+  type ReviewConfig,
+} from './review-completion-helper.js';
 
 export const CompletePRReviewInputSchema = z.object({
   command_executed: z
