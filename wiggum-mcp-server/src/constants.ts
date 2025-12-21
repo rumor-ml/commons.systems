@@ -141,7 +141,6 @@ export function generateTriageInstructions(
 
   // Validate totalIssues
   if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
     throw new ValidationError(
       `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
