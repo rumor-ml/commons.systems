@@ -144,7 +144,10 @@ async function globalSetup() {
         console.log('✅ SUCCESS: Seeded QA test user (qa@test.com) to Auth emulator');
       }
     } catch (authError) {
-      console.warn('⚠️  WARNING: Failed to seed QA test user:', authError instanceof Error ? authError.message : String(authError));
+      console.warn(
+        '⚠️  WARNING: Failed to seed QA test user:',
+        authError instanceof Error ? authError.message : String(authError)
+      );
     }
 
     console.log('✅ Global setup complete');

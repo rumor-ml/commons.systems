@@ -859,8 +859,6 @@ function setupAuthStateListener() {
       state.authUnsubscribe();
     }
     state.authUnsubscribe = onAuthStateChanged((user) => {
-      console.log('[Cards] Auth state changed:', user ? `User ${user.uid}` : 'No user');
-
       // Test instrumentation: Track auth state change count
       if (typeof window !== 'undefined') {
         window.__authStateChangeCount = (window.__authStateChangeCount || 0) + 1;
@@ -876,7 +874,6 @@ function setupAuthStateListener() {
     state.authTimeoutId = setTimeout(() => {
       const currentUser = getAuthInstance()?.currentUser;
       if (currentUser && !document.body.classList.contains('authenticated')) {
-        console.log('[Cards] Backup auth check - user detected:', currentUser.uid);
         document.body.classList.add('authenticated');
       }
     }, 500);
@@ -900,9 +897,6 @@ function setupAuthStateListener() {
         throw error; // Don't continue in broken state
       }
 
-      console.log(
-        `[Cards] Auth not ready yet, retry ${state.authListenerRetries}/${state.authListenerMaxRetries} in 500ms`
-      );
       setTimeout(() => {
         setupAuthStateListener();
       }, 500);
