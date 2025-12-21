@@ -17,12 +17,7 @@
     "title": "Crossbow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "1-2 ranged",
-      "-1c",
-      "2h",
-      "precise"
-    ],
+    "tags": ["1-2 ranged", "-1c", "2h", "precise"],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -36,10 +31,7 @@
     "title": "Dagger",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "0-1 thrown",
-      "precise"
-    ],
+    "tags": ["0-1 thrown", "precise"],
     "description": "d4",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -53,11 +45,7 @@
     "title": "Flintlock Pistol",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "0-1 ranged",
-      "d8r",
-      "noisy"
-    ],
+    "tags": ["0-1 ranged", "d8r", "noisy"],
     "description": "d4",
     "stat1": "4 slot",
     "stat2": "5 pt",
@@ -71,13 +59,7 @@
     "title": "Great Axe",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "2 adjacent",
-      "2h",
-      "swept",
-      "brutish",
-      "d4r"
-    ],
+    "tags": ["2 adjacent", "2h", "swept", "brutish", "d4r"],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -91,12 +73,7 @@
     "title": "Great Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "swept",
-      "brutish",
-      "2h",
-      "d4r"
-    ],
+    "tags": ["swept", "brutish", "2h", "d4r"],
     "description": "d8",
     "stat1": "4 slot",
     "stat2": "5 pt",
@@ -110,10 +87,7 @@
     "title": "Halberd",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "reach",
-      "2h"
-    ],
+    "tags": ["reach", "2h"],
     "description": "Defender cannot move adjacent for 1 round.",
     "stat1": "d10",
     "stat2": "2 slot",
@@ -127,14 +101,7 @@
     "title": "Long Bow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "1x",
-      "1-4 ranged",
-      "-1z2-3",
-      "-2z4",
-      "2h",
-      "precise"
-    ],
+    "tags": ["1x", "1-4 ranged", "-1z2-3", "-2z4", "2h", "precise"],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -148,12 +115,7 @@
     "title": "Long Sword",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "2h",
-      "-1c",
-      "swept",
-      "precise"
-    ],
+    "tags": ["2h", "-1c", "swept", "precise"],
     "description": "Can use with 1 hand, but cannot equip a second weapon, weapon die is d8 and ignore <chip>-1c</chip>.",
     "stat1": "d10",
     "stat2": "2 slot",
@@ -167,15 +129,7 @@
     "title": "Musket",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "2x",
-      "1-4 ranged",
-      "-2z2-3",
-      "-3z4",
-      "d8r",
-      "noisy",
-      "2h"
-    ],
+    "tags": ["2x", "1-4 ranged", "-2z2-3", "-3z4", "d8r", "noisy", "2h"],
     "description": "d6",
     "stat1": "4 slot",
     "stat2": "5 pt",
@@ -203,11 +157,7 @@
     "title": "Scimitar",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "swept",
-      "precise",
-      "1 adjacent"
-    ],
+    "tags": ["swept", "precise", "1 adjacent"],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -221,12 +171,7 @@
     "title": "Short Bow",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "0-2 ranged",
-      "-4z1",
-      "2h",
-      "precise"
-    ],
+    "tags": ["0-2 ranged", "-4z1", "2h", "precise"],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -254,12 +199,7 @@
     "title": "Spear",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "0-1 thrown",
-      "-4z1",
-      "reach",
-      "precise"
-    ],
+    "tags": ["0-1 thrown", "-4z1", "reach", "precise"],
     "description": "d8",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -287,10 +227,7 @@
     "title": "Tomahawk",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "1x",
-      "0-1 thrown"
-    ],
+    "tags": ["1x", "0-1 thrown"],
     "description": "d6",
     "stat1": "2 slot",
     "stat2": "5 pt",
@@ -304,10 +241,7 @@
     "title": "Walking Staff",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "2h",
-      "swept"
-    ],
+    "tags": ["2h", "swept"],
     "description": "On crit, also pin for 1 round. Handy for adventuring.",
     "stat1": "d6",
     "stat2": "1 slot",
@@ -321,13 +255,7 @@
     "title": "War Hammer",
     "type": "Equipment",
     "subtype": "Weapon",
-    "tags": [
-      "-2c",
-      "2h",
-      "brutish",
-      "swept",
-      "d4r"
-    ],
+    "tags": ["-2c", "2h", "brutish", "swept", "d4r"],
     "description": "On crit, stun for 1 round.",
     "stat1": "d8",
     "stat2": "2 slot",
