@@ -234,21 +234,8 @@ function createCombobox(config) {
     input.value = value;
     hide();
     if (onSelect) {
-      try {
-        onSelect(value);
-      } catch (error) {
-        console.error('[Cards] Combobox onSelect callback failed:', {
-          comboboxId: comboboxId,
-          selectedValue: value,
-          message: error.message,
-          stack: error.stack,
-          errorType: error.constructor.name,
-        });
-        showWarningBanner(
-          'Card type selection error. Please refresh the page if options appear incorrect.'
-        );
-        // Still complete the selection to maintain UI consistency
-      }
+      // Let callback errors propagate - caller is responsible for error handling
+      onSelect(value);
     }
   }
 
@@ -612,41 +599,46 @@ async function loadCards() {
     state.filteredCards = [...state.cards];
   } catch (error) {
     console.error('[Cards] Error loading cards:', {
+      errorId: 'CARDS_LOAD_FAILED',
       message: error.message,
       code: error.code,
-      name: error.name,
+      stack: error.stack,
     });
     state.error = error.message;
 
-    // TODO(#305): Document error categorization strategy and rationale
-    // Categorize error and determine fallback behavior
-    const isAuthError = error.code === 'permission-denied' || error.code === 'unauthenticated';
-    const isNetworkError =
-      error.message?.includes('timeout') ||
-      error.message?.includes('network') ||
-      error.message?.includes('failed to fetch');
-
-    // Auth errors: don't fall back to demo data, prompt login
-    if (isAuthError) {
+    // Auth errors: prompt login
+    if (error.code === 'permission-denied' || error.code === 'unauthenticated') {
       state.cards = [];
       state.filteredCards = [];
-      showWarningBanner('Please log in to view your cards.');
-      console.warn('[Cards] Fallback: auth required');
+      showErrorUI('Please log in to view your cards.', () => {
+        document.getElementById('loginBtn')?.click();
+      });
       return;
     }
 
-    // TODO(#305): Replace demo data fallback with error UI and retry button
-    // TODO(#285): Demo data fallback silently hides real errors (Firestore quota, corruption, etc.)
-    // All other errors: fall back to demo data with clear visual indicator
-    state.cards = cardsData || [];
-    state.filteredCards = [...state.cards];
+    // Transient network errors: offer retry
+    if (error.message?.includes('timeout') || error.code === 'unavailable') {
+      state.cards = [];
+      state.filteredCards = [];
+      showErrorUI(
+        'Unable to connect to server. Please check your connection and try again.',
+        () => {
+          document.querySelector('.error-banner')?.remove();
+          loadCards();
+        }
+      );
+      return;
+    }
 
-    const errorReason = isNetworkError ? 'connect to server' : 'load your cards';
-    showDemoDataIndicator(
-      `Unable to ${errorReason}. Showing demo data only. Changes will not be saved.`
-    );
-    console.warn(
-      `[Cards] Fallback: ${isNetworkError ? 'network error' : 'error loading cards'}, using demo data`
+    // All other errors: show error without demo data fallback
+    state.cards = [];
+    state.filteredCards = [];
+    showErrorUI(
+      `Failed to load cards: ${error.message}. Please refresh to try again.`,
+      () => {
+        document.querySelector('.error-banner')?.remove();
+        loadCards();
+      }
     );
   } finally {
     // ALWAYS clear loading state
@@ -740,16 +732,25 @@ function setupEventListeners() {
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      let failed;
-      if (!typeOk && !subtypeOk) {
-        failed = 'type and subtype';
-      } else if (!typeOk) {
-        failed = 'type';
-      } else {
-        failed = 'subtype';
+      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
+
+      console.error('[Cards] CRITICAL: Combobox init failed:', {
+        errorId: 'COMBOBOX_INIT_FAILED',
+        typeOk,
+        subtypeOk,
+      });
+
+      // Disable Add Card functionality
+      const addCardBtn = document.getElementById('addCardBtn');
+      if (addCardBtn) {
+        addCardBtn.disabled = true;
+        addCardBtn.title = 'Add Card is unavailable. Please refresh the page.';
       }
-      showWarningBanner(`Card ${failed} selection unavailable. Refresh page.`);
-      console.error('[Cards] Combobox init failed:', { typeOk, subtypeOk });
+
+      showErrorUI(
+        `Card ${failed} selection failed to initialize. Please refresh the page.`,
+        () => window.location.reload()
+      );
     }
 
     if (missingElements.length > 0) {
@@ -887,13 +888,16 @@ function setupAuthStateListener() {
       state.authListenerRetries++;
 
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
-        // TODO(#305): Distinguish between temporary delay and permanent failure, improve error messages
         console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
           retries: state.authListenerRetries,
           maxRetries: state.authListenerMaxRetries,
         });
-        showWarningBanner('Authentication system failed to initialize. Please refresh the page.');
-        return;
+        showErrorUI(
+          'Authentication monitoring failed. Please refresh the page.',
+          () => window.location.reload(),
+          { blocking: true }
+        );
+        throw error; // Don't continue in broken state
       }
 
       console.log(
@@ -905,16 +909,20 @@ function setupAuthStateListener() {
       return;
     }
 
-    // TODO(#305): Add error handling for non-retry auth errors (re-throw or show blocking error)
-    // Unexpected error - log with context and warn user
-    console.error('[Cards] Failed to setup auth state listener:', {
+    // Unexpected errors are critical - show blocking error
+    console.error('[Cards] CRITICAL: Auth state listener setup failed:', {
+      errorId: 'AUTH_LISTENER_FAILED',
       message: error.message,
-      type: error.name,
-      retries: state.authListenerRetries,
+      stack: error.stack,
     });
-    showWarningBanner(
-      'Authentication status may not update automatically. Please refresh if needed.'
+
+    showErrorUI(
+      'Authentication monitoring failed. Please refresh the page.',
+      () => window.location.reload(),
+      { blocking: true }
     );
+
+    throw error; // Don't continue in broken state
   }
 }
 
