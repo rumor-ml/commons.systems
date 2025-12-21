@@ -69,19 +69,16 @@ export const test = base.extend<AuthFixtures>({
       const customToken = await admin.auth().createCustomToken(uid);
 
       // Wait for Firebase SDK to be initialized in the page
-      await page.waitForFunction(() => typeof (window as any).__testAuth !== 'undefined', {
-        timeout: 15000,
-      });
+      await page.waitForFunction(
+        () => typeof (window as any).__signInWithCustomToken === 'function',
+        { timeout: 15000 }
+      );
 
-      // Sign in using custom token via Firebase SDK
+      // Sign in using custom token via exposed helper function
       // This properly sets auth.currentUser for Firestore security rules
       const signInResult = await page.evaluate(async (token) => {
         try {
-          const { signInWithCustomToken } = await import(
-            'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
-          );
-          const auth = (window as any).__testAuth;
-          const result = await signInWithCustomToken(auth, token);
+          const result = await (window as any).__signInWithCustomToken(token);
           return { success: true, uid: result.user.uid };
         } catch (error: any) {
           return { success: false, error: error?.message || String(error) };

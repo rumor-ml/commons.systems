@@ -13,6 +13,7 @@ import {
   signOut,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   connectAuthEmulator,
 } from 'firebase/auth';
 
@@ -88,6 +89,8 @@ export function initAuth(firebaseConfig, options = {}) {
       // Expose signInWithEmailAndPassword for E2E tests
       window.__signInWithEmailAndPassword = (email, password) =>
         signInWithEmailAndPassword(auth, email, password);
+      // Expose signInWithCustomToken for E2E tests
+      window.__signInWithCustomToken = (token) => signInWithCustomToken(auth, token);
       // Expose signOut for E2E tests
       window.__signOut = () => signOut(auth);
     }
