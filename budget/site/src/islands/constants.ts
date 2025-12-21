@@ -1,5 +1,20 @@
 import { Category } from './types';
 
+export const CATEGORIES: Category[] = [
+  'income',
+  'housing',
+  'utilities',
+  'groceries',
+  'dining',
+  'transportation',
+  'healthcare',
+  'entertainment',
+  'shopping',
+  'travel',
+  'investment',
+  'other',
+];
+
 export const CATEGORY_COLORS: Record<Category, string> = {
   income: '#10b981',
   housing: '#ef4444',

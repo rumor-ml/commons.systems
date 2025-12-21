@@ -14,6 +14,7 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
 const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
 
 export function hydrateIsland(element: HTMLElement, componentName: string) {
+  // TODO: See issue #384 - Add error handling for JSON.parse, createRoot, and React.createElement failures
   const props = JSON.parse(element.dataset.islandProps || '{}');
   const Component = COMPONENTS[componentName];
 

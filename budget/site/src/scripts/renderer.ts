@@ -1,36 +1,5 @@
-import { Transaction, Category } from '../islands/types';
+import { Transaction } from '../islands/types';
 import { BudgetState } from './state';
-
-// Category definitions (must match types.ts)
-const CATEGORIES: Category[] = [
-  'income',
-  'housing',
-  'utilities',
-  'groceries',
-  'dining',
-  'transportation',
-  'healthcare',
-  'entertainment',
-  'shopping',
-  'travel',
-  'investment',
-  'other',
-];
-
-const CATEGORY_LABELS: Record<Category, string> = {
-  income: 'Income',
-  housing: 'Housing',
-  utilities: 'Utilities',
-  groceries: 'Groceries',
-  dining: 'Dining',
-  transportation: 'Transportation',
-  healthcare: 'Healthcare',
-  entertainment: 'Entertainment',
-  shopping: 'Shopping',
-  travel: 'Travel',
-  investment: 'Investment',
-  other: 'Other',
-};
 
 interface SummaryStats {
   totalIncome: number;

@@ -1,42 +1,12 @@
 import React, { useMemo } from 'react';
 import { Category, Transaction } from './types';
-import { CATEGORY_COLORS } from './constants';
+import { CATEGORY_COLORS, CATEGORY_LABELS } from './constants';
 
 interface LegendProps {
   transactions: Transaction[];
   hiddenCategories: string[];
   showVacation: boolean;
 }
-
-const CATEGORIES: Category[] = [
-  'income',
-  'housing',
-  'utilities',
-  'groceries',
-  'dining',
-  'transportation',
-  'healthcare',
-  'entertainment',
-  'shopping',
-  'travel',
-  'investment',
-  'other',
-];
-
-const CATEGORY_LABELS: Record<Category, string> = {
-  income: 'Income',
-  housing: 'Housing',
-  utilities: 'Utilities',
-  groceries: 'Groceries',
-  dining: 'Dining',
-  transportation: 'Transportation',
-  healthcare: 'Healthcare',
-  entertainment: 'Entertainment',
-  shopping: 'Shopping',
-  travel: 'Travel',
-  investment: 'Investment',
-  other: 'Other',
-};
 
 interface CategorySummary {
   category: Category;
@@ -114,36 +84,34 @@ export function Legend({ transactions, hiddenCategories, showVacation }: LegendP
           Categories (click to toggle)
         </h4>
         {categorySummaries.length > 0 ? (
-          <>
-            {categorySummaries.map(({ category, total, count }) => {
-              const isHidden = hiddenCategories.includes(category);
-              return (
-                <div
-                  key={category}
-                  onClick={() => handleCategoryToggle(category)}
-                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
-                  style={{
-                    backgroundColor: CATEGORY_COLORS[category],
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-white font-medium">
-                      {CATEGORY_LABELS[category]}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm text-white font-semibold">
-                      ${Math.abs(total).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div className="text-xs text-white opacity-90">{count} txns</div>
-                  </div>
+          categorySummaries.map(({ category, total, count }) => {
+            const isHidden = hiddenCategories.includes(category);
+            return (
+              <div
+                key={category}
+                onClick={() => handleCategoryToggle(category)}
+                className={`flex items-center justify-between p-3 rounded-lg cursor-pointer legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
+                style={{
+                  backgroundColor: CATEGORY_COLORS[category],
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-white font-medium">
+                    {CATEGORY_LABELS[category]}
+                  </span>
                 </div>
-              );
-            })}
-          </>
+                <div className="text-right">
+                  <div className="text-sm text-white font-semibold">
+                    ${Math.abs(total).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </div>
+                  <div className="text-xs text-white opacity-90">{count} txns</div>
+                </div>
+              </div>
+            );
+          })
         ) : (
           <p className="text-sm text-text-tertiary">No transactions to display</p>
         )}

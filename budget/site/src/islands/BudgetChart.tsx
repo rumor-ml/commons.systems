@@ -32,6 +32,7 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
       return;
     }
 
+    // TODO: See issue #384 - Split this broad try-catch into separate blocks for transformation, rendering, and event listeners
     try {
       setLoading(true);
 
@@ -146,8 +147,6 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
         };
       });
 
-      // Use shared category colors
-      const categoryColors = CATEGORY_COLORS;
 
       // Clear container by removing child nodes
       while (containerRef.current.firstChild) {
@@ -177,8 +176,8 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
         },
         color: {
           type: 'categorical',
-          domain: Object.keys(categoryColors),
-          range: Object.values(categoryColors),
+          domain: Object.keys(CATEGORY_COLORS),
+          range: Object.values(CATEGORY_COLORS),
           legend: false,
         },
         marks: [
@@ -240,114 +239,75 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
 
+      // Helper function to attach event listeners to bar segments
+      const attachBarEventListeners = (
+        bars: NodeListOf<Element>,
+        data: MonthlyData[]
+      ) => {
+        bars.forEach((rect, index) => {
+          const barData = data[index];
+          if (!barData) return;
+
+          const element = rect as SVGRectElement;
+          element.style.cursor = 'pointer';
+
+          // Add data attributes for testing (only for expense bars)
+          if (!barData.isIncome) {
+            element.setAttribute('data-month', barData.month);
+            element.setAttribute('data-category', barData.category);
+            element.setAttribute('data-amount', barData.amount.toString());
+          }
+
+          // Mouse enter - show tooltip on hover
+          element.addEventListener('mouseenter', (e: MouseEvent) => {
+            if (pinnedSegmentRef.current) return;
+
+            const tooltipData: TooltipData = {
+              month: barData.month,
+              category: barData.category,
+              amount: barData.amount,
+              isIncome: barData.isIncome,
+              qualifiers: barData.qualifiers,
+              x: e.clientX + 10,
+              y: e.clientY + 10,
+            };
+
+            setHoveredSegment(tooltipData);
+          });
+
+          // Mouse leave - hide hover tooltip
+          element.addEventListener('mouseleave', () => {
+            setHoveredSegment(null);
+          });
+
+          // Click - pin tooltip
+          element.addEventListener('click', (e: MouseEvent) => {
+            e.stopPropagation();
+
+            const tooltipData: TooltipData = {
+              month: barData.month,
+              category: barData.category,
+              amount: barData.amount,
+              isIncome: barData.isIncome,
+              qualifiers: barData.qualifiers,
+              x: e.clientX + 10,
+              y: e.clientY + 10,
+            };
+
+            pinnedSegmentRef.current = tooltipData;
+            setPinnedSegment(tooltipData);
+            setHoveredSegment(null);
+          });
+        });
+      };
+
       // Match expense bars to expense data
       const expenseData = monthlyData.filter((d) => !d.isIncome);
-
-      expenseBars.forEach((rect, index) => {
-        const data = expenseData[index];
-        if (!data) return;
-
-        const element = rect as SVGRectElement;
-
-        // Add data attributes for testing
-        element.setAttribute('data-month', data.month);
-        element.setAttribute('data-category', data.category);
-        element.setAttribute('data-amount', data.amount.toString());
-
-        element.style.cursor = 'pointer';
-
-        // Mouse enter - show tooltip on hover
-        element.addEventListener('mouseenter', (e: MouseEvent) => {
-          if (pinnedSegmentRef.current) return;
-
-          const tooltipData: TooltipData = {
-            month: data.month,
-            category: data.category,
-            amount: data.amount,
-            isIncome: data.isIncome,
-            qualifiers: data.qualifiers,
-            x: e.clientX + 10,
-            y: e.clientY + 10,
-          };
-
-          setHoveredSegment(tooltipData);
-        });
-
-        // Mouse leave - hide hover tooltip
-        element.addEventListener('mouseleave', () => {
-          setHoveredSegment(null);
-        });
-
-        // Click - pin tooltip
-        element.addEventListener('click', (e: MouseEvent) => {
-          e.stopPropagation();
-
-          const tooltipData: TooltipData = {
-            month: data.month,
-            category: data.category,
-            amount: data.amount,
-            isIncome: data.isIncome,
-            qualifiers: data.qualifiers,
-            x: e.clientX + 10,
-            y: e.clientY + 10,
-          };
-
-          pinnedSegmentRef.current = tooltipData;
-          setPinnedSegment(tooltipData);
-          setHoveredSegment(null);
-        });
-      });
+      attachBarEventListeners(expenseBars, expenseData);
 
       // Match income bars to income data
       const incomeData = monthlyData.filter((d) => d.isIncome);
-      incomeBars.forEach((rect, index) => {
-        const data = incomeData[index];
-        if (!data) return;
-
-        const element = rect as SVGRectElement;
-        element.style.cursor = 'pointer';
-
-        // Mouse enter - show tooltip on hover
-        element.addEventListener('mouseenter', (e: MouseEvent) => {
-          if (pinnedSegmentRef.current) return;
-
-          const tooltipData: TooltipData = {
-            month: data.month,
-            category: data.category,
-            amount: data.amount,
-            isIncome: data.isIncome,
-            qualifiers: data.qualifiers,
-            x: e.clientX + 10,
-            y: e.clientY + 10,
-          };
-
-          setHoveredSegment(tooltipData);
-        });
-
-        // Mouse leave - hide hover tooltip
-        element.addEventListener('mouseleave', () => {
-          setHoveredSegment(null);
-        });
-
-        // Click - pin tooltip
-        element.addEventListener('click', (e: MouseEvent) => {
-          e.stopPropagation();
-
-          const tooltipData: TooltipData = {
-            month: data.month,
-            category: data.category,
-            amount: data.amount,
-            isIncome: data.isIncome,
-            qualifiers: data.qualifiers,
-            x: e.clientX + 10,
-            y: e.clientY + 10,
-          };
-
-          pinnedSegmentRef.current = tooltipData;
-          setPinnedSegment(tooltipData);
-          setHoveredSegment(null);
-        });
-      });
+      attachBarEventListeners(incomeBars, incomeData);
 
       setLoading(false);
     } catch (err) {

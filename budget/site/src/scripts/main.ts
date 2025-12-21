@@ -105,10 +105,6 @@ function init(): void {
         }
       });
     }
-
-    // Re-initialize event handlers
-    initCategoryToggle();
-    initVacationToggle();
   }) as EventListener);
 
   document.body.addEventListener('htmx:beforeRequest', () => {
