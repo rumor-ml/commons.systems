@@ -740,7 +740,14 @@ function setupEventListeners() {
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
+      let failed;
+      if (!typeOk && !subtypeOk) {
+        failed = 'type and subtype';
+      } else if (!typeOk) {
+        failed = 'type';
+      } else {
+        failed = 'subtype';
+      }
       showWarningBanner(`Card ${failed} selection unavailable. Refresh page.`);
       console.error('[Cards] Combobox init failed:', { typeOk, subtypeOk });
     }
@@ -748,6 +755,9 @@ function setupEventListeners() {
     if (missingElements.length > 0) {
       console.warn('[Cards] Missing UI elements:', missingElements);
     }
+
+    // Card list click delegation - handle card clicks and edit button clicks
+    bindListener('cardList', 'click', handleCardListClick, missingElements);
 
     // Mark listeners as attached
     state.listenersAttached = true;
@@ -761,6 +771,26 @@ function setupEventListeners() {
     // TODO(#305): Show blocking error UI instead of continuing in broken state
     // Re-throw critical errors so caller (init) can handle them
     throw new Error(`Event listener setup failed: ${error.message}`);
+  }
+}
+
+// Handle card list click events (edit button and card clicks)
+function handleCardListClick(e) {
+  const cardItem = e.target.closest('.card-item');
+  if (!cardItem) return;
+
+  const cardId = cardItem.dataset.cardId;
+  const card = state.filteredCards.find((c) => c.id === cardId);
+  if (!card) return;
+
+  if (e.target.closest('[data-action="edit"]')) {
+    e.stopPropagation();
+    openCardEditor(card);
+    return;
+  }
+
+  if (!e.target.closest('.card-item-actions')) {
+    openCardEditor(card);
   }
 }
 
@@ -1094,26 +1124,6 @@ function renderCards() {
         showWarningBanner('Some cards could not be displayed. Please refresh the page.');
       }
     }
-
-    // Attach event delegation for card clicks and edit button clicks
-    cardList.addEventListener('click', (e) => {
-      const cardItem = e.target.closest('.card-item');
-      if (!cardItem) return;
-
-      const cardId = cardItem.dataset.cardId;
-      const card = state.filteredCards.find((c) => c.id === cardId);
-      if (!card) return;
-
-      if (e.target.closest('[data-action="edit"]')) {
-        e.stopPropagation();
-        openCardEditor(card);
-        return;
-      }
-
-      if (!e.target.closest('.card-item-actions')) {
-        openCardEditor(card);
-      }
-    });
   } catch (error) {
     console.error('Error rendering cards:', error);
   }
