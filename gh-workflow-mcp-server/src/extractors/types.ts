@@ -12,6 +12,7 @@ export interface DetectionResult {
   isJsonOutput: boolean;
   isTimeout?: boolean;
 }
+// TODO(#357): Improve type safety - add readonly modifiers, use enums, enforce immutability
 
 export interface ExtractedError {
   testName?: string;
