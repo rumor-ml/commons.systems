@@ -18,6 +18,7 @@ Before analyzing changes, update any TODO comments that reference closed issues:
 1. **Scan for TODO references**: Use Grep tool to find all TODO comments with issue references:
    - Pattern: `TODO\(#\d+\)`
    - File types: `.go`, `.ts`, `.tsx`, `.md` files
+   <!-- TODO(#351): Add rationale for file type restriction (e.g., "common source and documentation files") -->
    - Search entire repository
    - Output mode: "content" to see the actual TODO text
    <!-- TODO(#350): Add guidance to skip TODOs in non-comment contexts (strings, examples) -->
