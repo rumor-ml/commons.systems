@@ -96,7 +96,7 @@ export function formatValidationError(error: z.ZodError): string {
  * @param validationError - The Zod error describing what was invalid
  * @returns ExtractedError guaranteed to pass validation
  */
-// TODO(#285): Validate fallback error before returning
+// TODO(#316): Validate fallback error before returning
 export function createFallbackError(
   context: string,
   originalData: unknown,

@@ -2,9 +2,9 @@
  * Card Library - CRUD Operations and Tree Navigation
  */
 
-// TODO(#285): Improve error logging for library nav initialization
-// TODO(#285): Show warning banner when event listener setup fails
-// TODO(#286): Add JSDoc for getAllCards() explaining error handling
+// TODO(#305): Improve error logging for library nav initialization
+// TODO(#305): Show warning banner when event listener setup fails
+// TODO(#305): Add JSDoc for getAllCards() explaining error handling
 
 // Import Firestore operations
 import {
@@ -36,7 +36,7 @@ let isSaving = false;
 // HTML escape utility to prevent XSS attacks
 // Uses browser's built-in escaping via textContent property.
 // Use for ALL user-generated content (titles, descriptions, types, etc.)
-// TODO(#286): Add concrete XSS attack examples (e.g., <script>alert('xss')</script> in titles)
+// TODO(#305): Add concrete XSS attack examples (e.g., <script>alert('xss')</script> in titles)
 // NOTE: Only escapes HTML context - do NOT use for JS strings or URLs
 function escapeHtml(text) {
   if (text == null) return '';
@@ -243,7 +243,10 @@ function createCombobox(config) {
           stack: error.stack,
           errorType: error.constructor.name,
         });
-        console.warn('[Cards] Selection completed but dependent fields may not have updated');
+        showWarningBanner(
+          'Card type selection error. Please refresh the page if options appear incorrect.'
+        );
+        // Still complete the selection to maintain UI consistency
       }
     }
   }
@@ -607,7 +610,7 @@ async function loadCards() {
     });
     state.error = error.message;
 
-    // TODO(#286): Document error categorization strategy and rationale
+    // TODO(#305): Document error categorization strategy and rationale
     // Categorize error and determine fallback behavior
     const isAuthError = error.code === 'permission-denied' || error.code === 'unauthenticated';
     const isNetworkError =
@@ -624,7 +627,7 @@ async function loadCards() {
       return;
     }
 
-    // TODO(#285): Replace demo data fallback with error UI and retry button
+    // TODO(#305): Replace demo data fallback with error UI and retry button
     // All other errors: fall back to demo data with clear visual indicator
     state.cards = cardsData || [];
     state.filteredCards = [...state.cards];
@@ -746,7 +749,7 @@ function setupEventListeners() {
       listenersAttached: state.listenersAttached,
     });
 
-    // TODO(#285): Show blocking error UI instead of continuing in broken state
+    // TODO(#305): Show blocking error UI instead of continuing in broken state
     // Re-throw critical errors so caller (init) can handle them
     throw new Error(`Event listener setup failed: ${error.message}`);
   }
@@ -844,7 +847,7 @@ function setupAuthStateListener() {
       state.authListenerRetries++;
 
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
-        // TODO(#285): Distinguish between temporary delay and permanent failure, improve error messages
+        // TODO(#305): Distinguish between temporary delay and permanent failure, improve error messages
         console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
           retries: state.authListenerRetries,
           maxRetries: state.authListenerMaxRetries,
@@ -862,7 +865,7 @@ function setupAuthStateListener() {
       return;
     }
 
-    // TODO(#285): Add error handling for non-retry auth errors (re-throw or show blocking error)
+    // TODO(#305): Add error handling for non-retry auth errors (re-throw or show blocking error)
     // Unexpected error - log with context and warn user
     console.error('[Cards] Failed to setup auth state listener:', {
       message: error.message,
@@ -1072,7 +1075,7 @@ function renderCards() {
 
     cardList.innerHTML = renderedCards.join('');
 
-    // TODO(#285): Lower render failure threshold to 1 card and show which cards failed
+    // TODO(#305): Lower render failure threshold to 1 card and show which cards failed
     // Warn if significant failures
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);

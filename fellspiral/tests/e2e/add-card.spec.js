@@ -2,7 +2,7 @@
  * Add Card E2E Tests
  * Tests the complete Add Card workflow including UI, validation, and persistence
  *
- * TODO(#241): Replace fixed timeouts with condition-based waiting for better test reliability
+ * TODO(#311): Replace fixed timeouts with condition-based waiting for better test reliability
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
@@ -2940,7 +2940,9 @@ test.describe('Add Card - Combobox Error Recovery Tests', () => {
         window.__originalCards = window.__cardsState.cards;
         // Make cards.filter throw
         window.__cardsState.cards = {
-          filter: () => { throw new Error('Simulated combobox error'); }
+          filter: () => {
+            throw new Error('Simulated combobox error');
+          },
         };
       }
     });
@@ -3058,5 +3060,212 @@ test.describe('Add Card - Form Pre-Population on Failed Save Tests', () => {
     await page.waitForTimeout(2000);
     const cardTitle = page.locator('.card-item-title').filter({ hasText: testData.title });
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
+  });
+});
+
+test.describe('Form Validation - Field Length Limits', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
+
+  test('should show error when title exceeds 100 characters', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Create a title longer than 100 characters
+    const longTitle = 'A'.repeat(101);
+    await page.locator('#cardTitle').fill(longTitle);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const errorMessage = page.locator('#cardTitle').locator('..').locator('.error-message');
+    await expect(errorMessage).toBeVisible({ timeout: 3000 });
+    await expect(errorMessage).toHaveText('Title must be 100 characters or less');
+
+    // Verify field has error class
+    await expect(page.locator('#cardTitle')).toHaveClass(/error/);
+  });
+
+  test('should show error when description exceeds 500 characters', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill required fields
+    await page.locator('#cardTitle').fill(`Test Card ${Date.now()}`);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Create a description longer than 500 characters
+    const longDescription = 'B'.repeat(501);
+    await page.locator('#cardDescription').fill(longDescription);
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify error message is shown
+    const errorMessage = page.locator('#cardDescription').locator('..').locator('.error-message');
+    await expect(errorMessage).toBeVisible({ timeout: 3000 });
+    await expect(errorMessage).toHaveText('Description must be 500 characters or less');
+
+    // Verify field has error class
+    await expect(page.locator('#cardDescription')).toHaveClass(/error/);
+  });
+
+  test('should display multiple validation errors simultaneously', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill required type/subtype fields
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Create both title and description that exceed limits
+    const longTitle = 'A'.repeat(101);
+    const longDescription = 'B'.repeat(501);
+    await page.locator('#cardTitle').fill(longTitle);
+    await page.locator('#cardDescription').fill(longDescription);
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Verify both error messages are shown
+    const titleErrorMessage = page.locator('#cardTitle').locator('..').locator('.error-message');
+    await expect(titleErrorMessage).toBeVisible({ timeout: 3000 });
+    await expect(titleErrorMessage).toHaveText('Title must be 100 characters or less');
+
+    const descErrorMessage = page
+      .locator('#cardDescription')
+      .locator('..')
+      .locator('.error-message');
+    await expect(descErrorMessage).toBeVisible({ timeout: 3000 });
+    await expect(descErrorMessage).toHaveText('Description must be 500 characters or less');
+
+    // Verify both fields have error class
+    await expect(page.locator('#cardTitle')).toHaveClass(/error/);
+    await expect(page.locator('#cardDescription')).toHaveClass(/error/);
+  });
+
+  test('should clear error message on next input', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Create a title longer than 100 characters
+    const longTitle = 'A'.repeat(101);
+    await page.locator('#cardTitle').fill(longTitle);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for error to appear
+    const errorMessage = page.locator('#cardTitle').locator('..').locator('.error-message');
+    await expect(errorMessage).toBeVisible({ timeout: 3000 });
+
+    // Type in the field to clear error
+    await page.locator('#cardTitle').fill('Valid Title');
+
+    // Error message should disappear
+    await expect(errorMessage).toHaveText('');
+
+    // Error class should be removed
+    await expect(page.locator('#cardTitle')).not.toHaveClass(/error/);
+  });
+
+  test('should focus first invalid field on submit attempt', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill required type/subtype fields
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape');
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#cardSubtype').press('Escape');
+
+    // Create a title that exceeds limit
+    const longTitle = 'A'.repeat(101);
+    await page.locator('#cardTitle').fill(longTitle);
+
+    // Focus another field first to ensure we're not already focused on title
+    await page.locator('#cardDescription').focus();
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for validation
+    await page.waitForTimeout(500);
+
+    // Title field should have focus
+    await expect(page.locator('#cardTitle')).toBeFocused();
   });
 });

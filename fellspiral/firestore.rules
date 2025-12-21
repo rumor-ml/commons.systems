@@ -28,7 +28,7 @@ service cloud.firestore {
       // is a sentinel value during rule evaluation (not an actual timestamp yet).
       // The server resolves it to the actual timestamp AFTER rules pass.
       // User attribution security is enforced via createdBy == request.auth.uid check.
-      // TODO(#286): Document security trade-offs of allowing arbitrary timestamps
+      // TODO(#305): Document security trade-offs of allowing arbitrary timestamps
       // See: https://firebase.google.com/docs/reference/rules/rules.firestore.FieldValue#servertimestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))

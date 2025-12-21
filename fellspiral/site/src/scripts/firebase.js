@@ -2,8 +2,8 @@
  * Firebase and Firestore initialization
  */
 
-// TODO(#285): Add user-friendly error messages for CRUD operations
-// TODO(#285): Wrap Firebase errors with actionable guidance
+// TODO(#305): Add user-friendly error messages for CRUD operations
+// TODO(#305): Wrap Firebase errors with actionable guidance
 
 import { initializeApp, getApp } from 'firebase/app';
 import {
@@ -320,7 +320,11 @@ export async function deleteCard(cardId) {
     const cardRef = doc(db, getCardsCollectionName(), cardId);
     await deleteDoc(cardRef);
   } catch (error) {
-    console.error('Error deleting card:', error);
+    console.error('[Firebase] Error deleting card:', {
+      cardId,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
