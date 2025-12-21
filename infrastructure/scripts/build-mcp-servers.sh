@@ -42,6 +42,7 @@ MCP_SERVERS=(
 
 BUILD_FAILED=0
 FAILED_SERVERS=()
+# TODO(#328): Consider extracting BUILD_FAILED flag pattern into reusable test runner
 
 for server in "${MCP_SERVERS[@]}"; do
   if [[ ! -d "$server" ]]; then

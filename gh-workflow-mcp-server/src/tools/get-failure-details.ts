@@ -153,6 +153,7 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
+  // TODO(#328): Consider extracting budget calculation pattern into helper function
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {

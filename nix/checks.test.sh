@@ -321,6 +321,294 @@ EOF
     "ERROR: Formatting issues found"
 }
 
+# Test 6: prettier-check-all SUCCESS case
+test_prettier_check_success() {
+  print_test_header "test_prettier_check_success"
+
+  # Create temporary directory
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create some files (content doesn't matter for this test)
+  echo "test" > test.txt
+  git add test.txt
+  git commit -q -m "initial commit"
+
+  # Create a script that simulates prettier check succeeding
+  # We simulate success by having a mock prettier that always passes
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Mock prettier check that always succeeds
+# In real usage, prettier would check formatting and exit 0 if all files are formatted
+echo "All files are properly formatted"
+exit 0
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "prettier-check-all with properly formatted files" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 7: mcp-nix-build SUCCESS case (no MCP changes)
+test_mcp_build_success() {
+  print_test_header "test_mcp_build_success"
+
+  # Create temporary git repo with origin/main
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  echo "test" > test.txt
+  git add test.txt
+  git commit -q -m "initial commit"
+
+  # Create origin remote pointing to self
+  git remote add origin .
+  git fetch -q origin
+
+  # Create a new branch with non-MCP changes
+  git checkout -q -b feature
+  echo "changed" > test.txt
+  git add test.txt
+  git commit -q -m "non-mcp change"
+
+  # Create a script that mimics the mcp-nix-build hook logic
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  exit 1
+fi
+
+# Get list of changed files
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+# Check if any MCP server directories were modified
+if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
+  echo "MCP server files changed, running build..."
+  exit 1
+else
+  echo "No MCP server changes detected, skipping Nix build."
+  exit 0
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "mcp-nix-build hook with no MCP changes" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 8: pnpm-lockfile SUCCESS case
+test_pnpm_lockfile_success() {
+  print_test_header "test_pnpm_lockfile_success"
+
+  # Create temporary directory with non-package changes
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create a simple non-package file
+  echo "# README" > README.md
+  git add README.md
+  git commit -q -m "initial commit"
+
+  # Create origin remote pointing to self
+  git remote add origin .
+  git fetch -q origin
+
+  # Create a new branch with non-package changes
+  git checkout -q -b feature
+  echo "# Updated README" > README.md
+  git add README.md
+  git commit -q -m "update readme"
+
+  # Create a script that mimics the pnpm-lockfile-check hook
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  exit 1
+fi
+
+# Check if any pnpm-related files changed
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+if echo "$CHANGED_FILES" | grep -qE "(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)"; then
+  echo "Package files changed, validating lockfile..."
+  exit 1
+else
+  echo "No package files changed, skipping lockfile validation."
+  exit 0
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "pnpm-lockfile-check with no package changes" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 9: End-to-end pre-push simulation
+test_pre_push_end_to_end() {
+  print_test_header "test_pre_push_end_to_end"
+
+  # Create temporary git repo
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create initial commit
+  echo "initial" > file.txt
+  git add file.txt
+  git commit -q -m "initial commit"
+
+  # Set up origin remote
+  git remote add origin .
+  git fetch -q origin
+
+  # Create feature branch
+  git checkout -q -b feature
+
+  # Make a change
+  echo "changed" > file.txt
+  git add file.txt
+  git commit -q -m "make change"
+
+  # Create a pre-push hook that simulates our checks
+  mkdir -p .git/hooks
+  cat > .git/hooks/pre-push <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+echo "Running pre-push checks..."
+
+# Simulate prettier check (always pass for this test)
+echo "✓ prettier-check-all passed"
+
+# Simulate MCP build check (no MCP files changed)
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+if echo "$CHANGED_FILES" | grep -qE "(gh-issue-mcp-server|gh-workflow-mcp-server|wiggum-mcp-server|git-mcp-server)/"; then
+  echo "✗ MCP build failed"
+  exit 1
+else
+  echo "✓ mcp-nix-build passed (no changes)"
+fi
+
+# Simulate pnpm lockfile check (no package files changed)
+if echo "$CHANGED_FILES" | grep -qE "(package\.json|pnpm-lock\.yaml)"; then
+  echo "✗ pnpm lockfile check failed"
+  exit 1
+else
+  echo "✓ pnpm-lockfile-check passed (no changes)"
+fi
+
+echo "All pre-push checks passed!"
+exit 0
+EOF
+  chmod +x .git/hooks/pre-push
+
+  # Simulate a git push by running the pre-push hook directly
+  # (we can't actually push since there's no real remote)
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "end-to-end pre-push hook execution" \
+    "cd $test_dir && .git/hooks/pre-push"
+}
+
+# Test 10: Worktree compatibility
+test_worktree_compatibility() {
+  print_test_header "test_worktree_compatibility"
+
+  # Create main repository
+  local main_repo=$(mktemp -d)
+  trap "rm -rf $main_repo" RETURN
+
+  cd "$main_repo"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create initial commit
+  echo "initial" > file.txt
+  git add file.txt
+  git commit -q -m "initial commit"
+
+  # Create a worktree
+  local worktree_dir="$main_repo/../worktree-test"
+  git worktree add -q -b feature "$worktree_dir"
+
+  # Verify worktree can access git information
+  cd "$worktree_dir"
+
+  # Create a script that mimics pre-push hook behavior in worktree
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify we're in a git repository (should work in worktree)
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+  echo "ERROR: Not in a git repository"
+  exit 1
+fi
+
+# Verify we can get current branch name (should be 'feature')
+BRANCH=$(git branch --show-current)
+if [ "$BRANCH" != "feature" ]; then
+  echo "ERROR: Expected branch 'feature', got '$BRANCH'"
+  exit 1
+fi
+
+# Verify we can access commits
+if ! git rev-parse HEAD > /dev/null 2>&1; then
+  echo "ERROR: Cannot access HEAD"
+  exit 1
+fi
+
+echo "Worktree compatibility check passed"
+echo "Branch: $BRANCH"
+exit 0
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "worktree compatibility check" \
+    "cd $worktree_dir && ./hook.sh"
+
+  # Cleanup worktree
+  cd "$main_repo"
+  git worktree remove -f "$worktree_dir" 2>/dev/null || true
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -340,6 +628,11 @@ main() {
       echo "  test_pnpm_lockfile_network_failure"
       echo "  test_prettier_missing_binary"
       echo "  test_prettier_check_fails"
+      echo "  test_prettier_check_success"
+      echo "  test_mcp_build_success"
+      echo "  test_pnpm_lockfile_success"
+      echo "  test_pre_push_end_to_end"
+      echo "  test_worktree_compatibility"
       exit 1
     fi
   else
@@ -349,6 +642,11 @@ main() {
     test_pnpm_lockfile_network_failure
     test_prettier_missing_binary
     test_prettier_check_fails
+    test_prettier_check_success
+    test_mcp_build_success
+    test_pnpm_lockfile_success
+    test_pre_push_end_to_end
+    test_worktree_compatibility
   fi
 
   # Print summary

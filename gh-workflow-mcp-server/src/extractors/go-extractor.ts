@@ -311,6 +311,7 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
+    // TODO(#329): Include sample validation errors in user-facing warning message
     // Build parse warnings from test event parsing errors and validation errors
     const warnings: string[] = [];
     if (testEventParseErrors > 0) {

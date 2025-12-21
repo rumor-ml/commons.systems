@@ -123,6 +123,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     };
   } catch (error) {
     // TODO(#272): Make catch block more specific - only catch expected "no PR" error
+    // TODO(#328): Consider extracting error extraction pattern into helper function
     // Current: catches all errors and treats as "PR doesn't exist" (see PR review #273)
     // Expected: no PR exists for current branch (GitHubCliError)
     // Log unexpected errors with full context

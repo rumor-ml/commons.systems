@@ -187,6 +187,7 @@ func TestPersistenceErrorBroadcast(t *testing.T) {
 		t.Skip("Skipping E2E test in short mode")
 	}
 
+	// TODO(#326): Fix persistence error test skipping in CI - currently skipped due to fd exhaustion
 	// This test is skipped in CI/full test runs due to file descriptor exhaustion
 	// in long test suites. It's primarily useful for local development and isolated testing.
 	if os.Getenv("SKIP_PERSISTENCE_ERROR_TESTS") == "1" {
@@ -303,6 +304,7 @@ func TestPersistenceFailure_ConcurrentOperations(t *testing.T) {
 		t.Skip("Skipping E2E test in short mode")
 	}
 
+	// TODO(#326): Fix persistence error test skipping in CI - currently skipped due to fd exhaustion
 	// This test is skipped in CI/full test runs due to file descriptor exhaustion
 	if os.Getenv("SKIP_PERSISTENCE_ERROR_TESTS") == "1" {
 		t.Skip("Skipping persistence error test to avoid file descriptor exhaustion in full test suite")

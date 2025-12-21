@@ -773,6 +773,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
     output.step_number = STEP_PHASE2_PR_REVIEW;
     // TODO(#299): Extract duplicated PR review instructions to helper function
+    // TODO(#328): Consider extracting PR review instructions pattern into helper function
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 

@@ -243,6 +243,7 @@ type AlertDaemon struct {
 	seqCounter             atomic.Uint64 // Global sequence number for message ordering
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyAlerts returns a copy of the alerts map with read lock protection
 func (d *AlertDaemon) copyAlerts() map[string]string {
 	d.alertsMu.RLock()
@@ -255,6 +256,7 @@ func (d *AlertDaemon) copyAlerts() map[string]string {
 	return copy
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyBlockedBranches returns a copy of the blockedBranches map with read lock protection
 func (d *AlertDaemon) copyBlockedBranches() map[string]string {
 	d.blockedMu.RLock()
@@ -833,6 +835,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
 				}
 
+				// TODO(#330): Add pattern detection for rapid connection close failures
 				if closeErr := client.conn.Close(); closeErr != nil {
 					totalCloseErrors := d.connectionCloseErrors.Add(1)
 					d.lastCloseError.Store(closeErr.Error())
