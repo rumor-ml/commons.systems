@@ -22,7 +22,9 @@ test.describe('Budget Visualization', () => {
 
     // Verify no loading spinner stuck
     const spinner = page.locator('.spinner, .loading');
-    await expect(spinner).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    await expect(spinner)
+      .not.toBeVisible({ timeout: 5000 })
+      .catch(() => {});
 
     // Verify no error messages in components
     const chartError = page.locator('#chart-island >> text=/Error loading/i');
@@ -116,9 +118,7 @@ test.describe('Budget Visualization', () => {
     await expect(housingItem).toBeVisible();
 
     // Initially, item should not be hidden (opacity 100%)
-    const initialOpacity = await housingItem.evaluate(el =>
-      window.getComputedStyle(el).opacity
-    );
+    const initialOpacity = await housingItem.evaluate((el) => window.getComputedStyle(el).opacity);
     expect(parseFloat(initialOpacity)).toBeGreaterThan(0.9);
 
     // Click to hide the category
@@ -126,9 +126,7 @@ test.describe('Budget Visualization', () => {
     await page.waitForTimeout(300);
 
     // Verify hidden state (opacity 50%)
-    const hiddenOpacity = await housingItem.evaluate(el =>
-      window.getComputedStyle(el).opacity
-    );
+    const hiddenOpacity = await housingItem.evaluate((el) => window.getComputedStyle(el).opacity);
     expect(parseFloat(hiddenOpacity)).toBeLessThan(0.6);
 
     // Click again to show
@@ -136,9 +134,7 @@ test.describe('Budget Visualization', () => {
     await page.waitForTimeout(300);
 
     // Verify visible state restored
-    const visibleOpacity = await housingItem.evaluate(el =>
-      window.getComputedStyle(el).opacity
-    );
+    const visibleOpacity = await housingItem.evaluate((el) => window.getComputedStyle(el).opacity);
     expect(parseFloat(visibleOpacity)).toBeGreaterThan(0.9);
   });
 
@@ -215,9 +211,7 @@ test.describe('Budget Visualization', () => {
     await page.waitForTimeout(500);
 
     // Verify it's hidden (opacity 50%)
-    const hiddenOpacity = await diningItem.evaluate(el =>
-      window.getComputedStyle(el).opacity
-    );
+    const hiddenOpacity = await diningItem.evaluate((el) => window.getComputedStyle(el).opacity);
     expect(parseFloat(hiddenOpacity)).toBeLessThan(0.6);
 
     // Reload the page
@@ -226,9 +220,11 @@ test.describe('Budget Visualization', () => {
     await page.waitForTimeout(500);
 
     // Should still be hidden after reload
-    const diningItemAfterReload = page.locator('#legend-island .legend-category-row:has-text("Dining")');
-    const reloadedOpacity = await diningItemAfterReload.evaluate(el =>
-      window.getComputedStyle(el).opacity
+    const diningItemAfterReload = page.locator(
+      '#legend-island .legend-category-row:has-text("Dining")'
+    );
+    const reloadedOpacity = await diningItemAfterReload.evaluate(
+      (el) => window.getComputedStyle(el).opacity
     );
     expect(parseFloat(reloadedOpacity)).toBeLessThan(0.6);
   });
@@ -349,9 +345,7 @@ test.describe('Budget Visualization', () => {
       await page.waitForTimeout(200);
 
       // Verify each becomes hidden
-      const opacity = await item.evaluate(el =>
-        window.getComputedStyle(el).opacity
-      );
+      const opacity = await item.evaluate((el) => window.getComputedStyle(el).opacity);
       expect(parseFloat(opacity)).toBeLessThan(0.6);
     }
 
@@ -402,9 +396,7 @@ test.describe('Budget Visualization', () => {
 
     for (let i = 0; i < count; i++) {
       const item = categoryItems.nth(i);
-      const opacity = await item.evaluate(el =>
-        window.getComputedStyle(el).opacity
-      );
+      const opacity = await item.evaluate((el) => window.getComputedStyle(el).opacity);
       // All should be visible (opacity > 0.9)
       expect(parseFloat(opacity)).toBeGreaterThan(0.9);
     }
@@ -558,7 +550,10 @@ test.describe('Budget Visualization', () => {
 
           // Skip if this bar doesn't match what we're looking for
           // Category comparison is case-insensitive (bar has "dining", label is "Dining")
-          if (barMonth !== monthYYYYMM || barCategory?.toLowerCase() !== categoryLabel.toLowerCase()) {
+          if (
+            barMonth !== monthYYYYMM ||
+            barCategory?.toLowerCase() !== categoryLabel.toLowerCase()
+          ) {
             continue;
           }
 
@@ -572,15 +567,19 @@ test.describe('Budget Visualization', () => {
 
             // Wait for tooltip to show the correct data for THIS bar
             // Use expect with retry to wait for tooltip content to match
-            await expect(tooltip.locator('.tooltip-category')).toHaveText(categoryLabel, { timeout: 3000 });
+            await expect(tooltip.locator('.tooltip-category')).toHaveText(categoryLabel, {
+              timeout: 3000,
+            });
 
             // Also wait for the month to update (convert expected month to formatted text)
             const expectedDate = new Date(monthYYYYMM + '-01');
             const expectedMonthText = expectedDate.toLocaleDateString('en-US', {
               month: 'long',
-              year: 'numeric'
+              year: 'numeric',
             });
-            await expect(tooltip.locator('.tooltip-month')).toHaveText(expectedMonthText, { timeout: 3000 });
+            await expect(tooltip.locator('.tooltip-month')).toHaveText(expectedMonthText, {
+              timeout: 3000,
+            });
 
             // Wait a bit more for sections to render completely
             await page.waitForTimeout(500);
@@ -608,7 +607,7 @@ test.describe('Budget Visualization', () => {
 
     test('March 2024 Dining - shows BOTH sections (4-way split)', async ({ page }) => {
       // Capture console logs
-      page.on('console', msg => {
+      page.on('console', (msg) => {
         if (msg.text().includes('[BudgetChart]') || msg.text().includes('[DEBUG]')) {
           console.log('Browser console:', msg.text());
         }
@@ -636,7 +635,7 @@ test.describe('Budget Visualization', () => {
       const nonRedeemable = parseCurrency(nonRedeemableText);
 
       expect(redeemable).toBeCloseTo(112.33, 1); // txn-81 (145.75 * 0.5) + txn-83 (78.90 * 0.5)
-      expect(nonRedeemable).toBeCloseTo(140.80, 1); // txn-80 (95.50) + txn-82 (45.30)
+      expect(nonRedeemable).toBeCloseTo(140.8, 1); // txn-80 (95.50) + txn-82 (45.30)
 
       // Verify type breakdown
       // Get rows by index (first row is Vacation, second is Non-vacation)
@@ -671,14 +670,16 @@ test.describe('Budget Visualization', () => {
 
       // Verify redemption breakdown
       // Get rows by index (first row is Redeemable, second is Non-redeemable)
-      const redemptionSection = tooltip.locator('.tooltip-section').filter({ hasText: 'By Redemption' });
+      const redemptionSection = tooltip
+        .locator('.tooltip-section')
+        .filter({ hasText: 'By Redemption' });
       const redemptionRows = redemptionSection.locator('.tooltip-row');
 
       const redeemableText = await redemptionRows.nth(0).locator('.tooltip-value').textContent();
       const nonRedeemableText = await redemptionRows.nth(1).locator('.tooltip-value').textContent();
 
-      expect(parseCurrency(redeemableText)).toBeCloseTo(117.50, 1); // txn-84 (235.00 * 0.5)
-      expect(parseCurrency(nonRedeemableText)).toBeCloseTo(32.50, 1); // txn-85
+      expect(parseCurrency(redeemableText)).toBeCloseTo(117.5, 1); // txn-84 (235.00 * 0.5)
+      expect(parseCurrency(nonRedeemableText)).toBeCloseTo(32.5, 1); // txn-85
 
       // Verify type breakdown
       // Get rows by index (first row is Vacation, second is Non-vacation)
@@ -688,8 +689,8 @@ test.describe('Budget Visualization', () => {
       const vacationText = await typeRows.nth(0).locator('.tooltip-value').textContent();
       const nonVacationText = await typeRows.nth(1).locator('.tooltip-value').textContent();
 
-      expect(parseCurrency(vacationText)).toBeCloseTo(117.50, 1); // txn-84 (235.00 * 0.5)
-      expect(parseCurrency(nonVacationText)).toBeCloseTo(32.50, 1); // txn-85
+      expect(parseCurrency(vacationText)).toBeCloseTo(117.5, 1); // txn-84 (235.00 * 0.5)
+      expect(parseCurrency(nonVacationText)).toBeCloseTo(32.5, 1); // txn-85
     });
 
     test('June 2024 Travel - shows Type section ONLY', async ({ page }) => {
@@ -725,7 +726,9 @@ test.describe('Budget Visualization', () => {
       expect(sectionTitles).toContain('By Type');
 
       // Verify redemption breakdown
-      const redemptionSection = tooltip.locator('.tooltip-section').filter({ hasText: 'By Redemption' });
+      const redemptionSection = tooltip
+        .locator('.tooltip-section')
+        .filter({ hasText: 'By Redemption' });
       const redemptionRows = redemptionSection.locator('.tooltip-row');
 
       const redeemableText = await redemptionRows.nth(0).locator('.tooltip-value').textContent();
@@ -758,13 +761,15 @@ test.describe('Budget Visualization', () => {
 
       // Verify redemption breakdown
       // Get rows by index (first row is Redeemable, second is Non-redeemable)
-      const redemptionSection = tooltip.locator('.tooltip-section').filter({ hasText: 'By Redemption' });
+      const redemptionSection = tooltip
+        .locator('.tooltip-section')
+        .filter({ hasText: 'By Redemption' });
       const redemptionRows = redemptionSection.locator('.tooltip-row');
 
       const redeemableText = await redemptionRows.nth(0).locator('.tooltip-value').textContent();
       const nonRedeemableText = await redemptionRows.nth(1).locator('.tooltip-value').textContent();
 
-      expect(parseCurrency(redeemableText)).toBeCloseTo(90.00, 1); // txn-17 (180 * 0.5)
+      expect(parseCurrency(redeemableText)).toBeCloseTo(90.0, 1); // txn-17 (180 * 0.5)
       expect(parseCurrency(nonRedeemableText)).toBeCloseTo(12.99, 1); // txn-90
     });
 
@@ -781,7 +786,9 @@ test.describe('Budget Visualization', () => {
 
       // Verify redemption breakdown
       // Get rows by index (first row is Redeemable, second is Non-redeemable)
-      const redemptionSection = tooltip.locator('.tooltip-section').filter({ hasText: 'By Redemption' });
+      const redemptionSection = tooltip
+        .locator('.tooltip-section')
+        .filter({ hasText: 'By Redemption' });
       const redemptionRows = redemptionSection.locator('.tooltip-row');
 
       const redeemableText = await redemptionRows.nth(0).locator('.tooltip-value').textContent();
