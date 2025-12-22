@@ -50,7 +50,9 @@ func AcquireLockFile(path string) (*LockFile, error) {
 
 	// Try to acquire exclusive lock (non-blocking)
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			debug.Log("LOCKFILE_CLOSE_ERROR_ON_ACQUIRE_FAILURE path=%s close_error=%v", path, closeErr)
+		}
 		if err == syscall.EWOULDBLOCK {
 			// Lock is held - try to read the PID for better error message
 			if existingPID, readErr := readPIDFromLockFile(path); readErr == nil {

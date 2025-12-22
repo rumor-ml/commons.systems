@@ -42,6 +42,9 @@ func main() {
 		if err := lockFile.Release(); err != nil {
 			debug.Log("DAEMON_MAIN_LOCKFILE_RELEASE_ERROR error=%v", err)
 			fmt.Fprintf(os.Stderr, "WARNING: Failed to release lock file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  Lock file: %s\n", lockPath)
+			fmt.Fprintf(os.Stderr, "  Note: The OS will automatically release the lock on process exit.\n")
+			fmt.Fprintf(os.Stderr, "  If daemon fails to start next time, run: rm -f %s\n", lockPath)
 		}
 	}()
 
@@ -77,17 +80,6 @@ func main() {
 
 	debug.Log("DAEMON_MAIN stopped")
 	fmt.Println("Daemon stopped")
-}
-
-// isDaemonRunning checks if the daemon is running by attempting to connect to the socket.
-func isDaemonRunning(socketPath string) bool {
-	// Simple check - try to create a client and connect
-	client := daemon.NewDaemonClient()
-	if err := client.Connect(); err == nil {
-		client.Close()
-		return true
-	}
-	return false
 }
 
 // TODO(#281): Add integration tests for health command CLI - see PR review for #273

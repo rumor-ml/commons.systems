@@ -43,6 +43,7 @@ NAMESPACE="/tmp/claude/$SESSION_NAME"
 LOCK_FILE="$NAMESPACE/daemon.lock"
 if [ -f "$LOCK_FILE" ]; then
   # Read PID BEFORE removing lock file
+  # TODO(#427): Add explicit error checking for lock file read failure
   LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
   if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
     echo "Killing daemon from lock file (PID: $LOCK_PID)"
@@ -58,6 +59,7 @@ else
   DAEMON_PIDS=$(pgrep -f tmux-tui-daemon || true)
   if [ -n "$DAEMON_PIDS" ]; then
     echo "Killing stray daemon processes: $DAEMON_PIDS"
+    # TODO(#427): Verify kill success and report failures to user
     echo "$DAEMON_PIDS" | xargs kill 2>/dev/null || true
     sleep 0.3
     echo -e "${GREEN}✓ Stray daemon processes killed${NC}"
@@ -88,6 +90,7 @@ DAEMON_LOG="/tmp/claude/daemon-restart.log"
 DAEMON_PID=$!
 sleep 0.5
 
+# TODO(#427): Check both socket existence AND process running state (not just socket)
 if [ -S "$DAEMON_SOCKET" ]; then
   echo -e "${GREEN}✓ Daemon started (PID: $DAEMON_PID)${NC}"
 else

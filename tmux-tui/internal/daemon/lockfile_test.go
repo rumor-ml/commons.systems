@@ -30,12 +30,8 @@ func TestAcquireLockFile_Success(t *testing.T) {
 	}
 
 	pidStr := strings.TrimSpace(string(data))
-	expectedPID := os.Getpid()
-	if pidStr != string(rune(expectedPID))+"0" && !strings.Contains(pidStr, string(rune(expectedPID/10))) {
-		// More lenient check - just verify PID is present
-		if len(pidStr) == 0 {
-			t.Errorf("Lock file should contain PID, got empty string")
-		}
+	if len(pidStr) == 0 {
+		t.Errorf("Lock file should contain PID, got empty string")
 	}
 }
 

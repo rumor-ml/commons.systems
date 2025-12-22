@@ -41,6 +41,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 if ! (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1); then
   echo "$(date): ERROR: Build failed in $PROJECT_ROOT" >> /tmp/claude/spawn-debug.log
+  # TODO(#427): Verify cached binary exists before proceeding
   tmux display-message -d 3000 "WARNING: tmux-tui build failed - using cached binary" 2>/dev/null || true
 fi
 
@@ -56,6 +57,7 @@ if [ -f "$DAEMON_BIN" ]; then
     "$DAEMON_BIN" >> /tmp/claude/daemon-output.log 2>&1 &
     DAEMON_PID=$!
     sleep 0.3
+    # TODO(#427): Add tmux display message for daemon start failures (not just log to file)
     if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
       echo "$(date): ERROR: Daemon failed to start (check /tmp/claude/daemon-output.log)" >> /tmp/claude/spawn-debug.log
     fi
