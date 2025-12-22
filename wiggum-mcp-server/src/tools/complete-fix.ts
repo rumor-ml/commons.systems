@@ -6,7 +6,11 @@
 
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
-import { getNextStepInstructions, safePostStateComment, safePostIssueStateComment } from '../state/router.js';
+import {
+  getNextStepInstructions,
+  safePostStateComment,
+  safePostIssueStateComment,
+} from '../state/router.js';
 import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
@@ -165,9 +169,22 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     });
 
     // Post comment to appropriate location based on phase
-    const stateResult = phase === 'phase1'
-      ? await safePostIssueStateComment(targetNumber, newState, commentTitle, commentBody, state.wiggum.step)
-      : await safePostStateComment(targetNumber, newState, commentTitle, commentBody, state.wiggum.step);
+    const stateResult =
+      phase === 'phase1'
+        ? await safePostIssueStateComment(
+            targetNumber,
+            newState,
+            commentTitle,
+            commentBody,
+            state.wiggum.step
+          )
+        : await safePostStateComment(
+            targetNumber,
+            newState,
+            commentTitle,
+            commentBody,
+            state.wiggum.step
+          );
 
     if (!stateResult.success) {
       logger.error('Critical: State comment failed to post (fast-path) - halting workflow', {
@@ -179,28 +196,32 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       });
 
       return {
-        content: [{
-          type: 'text',
-          text: formatWiggumResponse({
-            current_step: STEP_NAMES[state.wiggum.step],
-            step_number: state.wiggum.step,
-            iteration_count: newState.iteration,
-            instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
-              `The race condition fix requires state persistence to GitHub.\n\n` +
-              `Common causes:\n` +
-              `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
-              `- Network connectivity issues\n\n` +
-              `Please retry after resolving the issue.`,
-            steps_completed_by_tool: [
-              'Marked step as complete (not persisted)',
-              'Failed to post state comment',
-            ],
-            context: {
-              pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-              issue_number: phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-            },
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[state.wiggum.step],
+              step_number: state.wiggum.step,
+              iteration_count: newState.iteration,
+              instructions:
+                `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
+                `The race condition fix requires state persistence to GitHub.\n\n` +
+                `Common causes:\n` +
+                `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
+                `- Network connectivity issues\n\n` +
+                `Please retry after resolving the issue.`,
+              steps_completed_by_tool: [
+                'Marked step as complete (not persisted)',
+                'Failed to post state comment',
+              ],
+              context: {
+                pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
+                issue_number:
+                  phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
+              },
+            }),
+          },
+        ],
         isError: true,
       };
     }
@@ -272,9 +293,22 @@ ${input.fix_description}${outOfScopeSection}
   });
 
   // Post comment to appropriate location based on phase
-  const stateResult = phase === 'phase1'
-    ? await safePostIssueStateComment(targetNumber, newState, commentTitle, commentBody, state.wiggum.step)
-    : await safePostStateComment(targetNumber, newState, commentTitle, commentBody, state.wiggum.step);
+  const stateResult =
+    phase === 'phase1'
+      ? await safePostIssueStateComment(
+          targetNumber,
+          newState,
+          commentTitle,
+          commentBody,
+          state.wiggum.step
+        )
+      : await safePostStateComment(
+          targetNumber,
+          newState,
+          commentTitle,
+          commentBody,
+          state.wiggum.step
+        );
 
   if (!stateResult.success) {
     logger.error('Critical: State comment failed to post (main-path) - halting workflow', {
@@ -286,29 +320,33 @@ ${input.fix_description}${outOfScopeSection}
     });
 
     return {
-      content: [{
-        type: 'text',
-        text: formatWiggumResponse({
-          current_step: STEP_NAMES[state.wiggum.step],
-          step_number: state.wiggum.step,
-          iteration_count: newState.iteration,
-          instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
-            `The race condition fix requires state persistence to GitHub.\n\n` +
-            `Common causes:\n` +
-            `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
-            `- Network connectivity issues\n\n` +
-            `Please retry after resolving the issue.`,
-          steps_completed_by_tool: [
-            'Executed PR review fix',
-            'Posted fix description to comment (not persisted)',
-            'Failed to post state comment',
-          ],
-          context: {
-            pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-            issue_number: phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-          },
-        }),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[state.wiggum.step],
+            step_number: state.wiggum.step,
+            iteration_count: newState.iteration,
+            instructions:
+              `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
+              `The race condition fix requires state persistence to GitHub.\n\n` +
+              `Common causes:\n` +
+              `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
+              `- Network connectivity issues\n\n` +
+              `Please retry after resolving the issue.`,
+            steps_completed_by_tool: [
+              'Executed PR review fix',
+              'Posted fix description to comment (not persisted)',
+              'Failed to post state comment',
+            ],
+            context: {
+              pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
+              issue_number:
+                phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
+            },
+          }),
+        },
+      ],
       isError: true,
     };
   }

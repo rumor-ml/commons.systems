@@ -178,13 +178,7 @@ async function postStateComment(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
     }
-    return await safePostStateComment(
-      state.pr.number,
-      newState,
-      title,
-      body,
-      newState.step
-    );
+    return await safePostStateComment(state.pr.number, newState, title, body, newState.step);
   }
 }
 
@@ -349,13 +343,14 @@ export async function completeReview(
 - **Total: ${totalIssues}**`;
 
     return {
-      content: [{
-        type: 'text',
-        text: formatWiggumResponse({
-          current_step: STEP_NAMES[reviewStep],
-          step_number: reviewStep,
-          iteration_count: newState.iteration,
-          instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to post state comment due to ${result.reason}.
+      content: [
+        {
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[reviewStep],
+            step_number: reviewStep,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to post state comment due to ${result.reason}.
 
 ${reviewResultsSummary}
 
@@ -373,26 +368,27 @@ The race condition fix (issue #388) requires posting review results to the ${sta
 **Retry Instructions:**
 1. Check rate limits: \`gh api rate_limit\`
 2. Verify network connectivity: \`curl -I https://api.github.com\`
-3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : (state.pr.exists ? state.pr.number : '<pr-number>')}\`
+3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : state.pr.exists ? state.pr.number : '<pr-number>'}\`
 4. Once resolved, retry this tool call with the SAME parameters
 
 The workflow will resume from this step once the state comment posts successfully.`,
-          steps_completed_by_tool: [
-            `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
-            'Attempted to post state comment',
-            'Failed due to transient error - review results NOT persisted',
-          ],
-          context: {
-            pr_number: state.pr.exists ? state.pr.number : undefined,
-            issue_number: state.issue.exists ? state.issue.number : undefined,
-            review_type: config.reviewTypeLabel,
-            total_issues: totalIssues,
-            high_priority_issues: input.high_priority_issues,
-            medium_priority_issues: input.medium_priority_issues,
-            low_priority_issues: input.low_priority_issues,
-          },
-        })
-      }],
+            steps_completed_by_tool: [
+              `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
+              'Attempted to post state comment',
+              'Failed due to transient error - review results NOT persisted',
+            ],
+            context: {
+              pr_number: state.pr.exists ? state.pr.number : undefined,
+              issue_number: state.issue.exists ? state.issue.number : undefined,
+              review_type: config.reviewTypeLabel,
+              total_issues: totalIssues,
+              high_priority_issues: input.high_priority_issues,
+              medium_priority_issues: input.medium_priority_issues,
+              low_priority_issues: input.low_priority_issues,
+            },
+          }),
+        },
+      ],
       isError: true,
     };
   }

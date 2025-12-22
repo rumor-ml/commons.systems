@@ -114,9 +114,7 @@ export function createCompletedStepState(
   }
 ): WiggumState {
   return {
-    iteration: options?.incrementIteration
-      ? currentState.iteration + 1
-      : currentState.iteration,
+    iteration: options?.incrementIteration ? currentState.iteration + 1 : currentState.iteration,
     step,
     completedSteps: addToCompletedSteps(currentState.completedSteps, step),
     phase: options?.phase ?? currentState.phase,
