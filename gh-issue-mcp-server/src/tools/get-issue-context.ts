@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
 import { ghCliJson, resolveRepo } from '../utils/gh-cli.js';
-import { createErrorResult } from '../utils/errors.js';
+import { createErrorResult, ParsingError } from '../utils/errors.js';
 
 // Input schema
 export const GetIssueContextInputSchema = z
@@ -35,6 +35,29 @@ interface IssueContext {
   siblings: IssueData[];
 }
 
+/**
+ * Get comprehensive hierarchical context for a GitHub issue
+ *
+ * Fetches complete issue hierarchy including ancestors (parent chain to root),
+ * children (sub-issues), and siblings. Supports GitHub's sub-issues feature
+ * for understanding issue relationships in large projects.
+ *
+ * @param input - Query configuration
+ * @param input.issue_number - Issue number to fetch context for
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ *
+ * @returns Hierarchical issue context with root, ancestors, current, children, siblings
+ *
+ * @throws {ParsingError} If GraphQL response is invalid or missing required fields
+ *
+ * @example
+ * // Get full context for issue #123
+ * await getIssueContext({ issue_number: 123 });
+ *
+ * @example
+ * // Get context for issue in specific repo
+ * await getIssueContext({ issue_number: "456", repo: "owner/repo" });
+ */
 export async function getIssueContext(input: GetIssueContextInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
@@ -76,6 +99,13 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       {}
     );
 
+    // TODO: See issue #284 - Add integration tests for GraphQL validation error paths
+    if (!parentResult.data) {
+      throw new ParsingError(
+        `GraphQL response missing 'data' field when fetching parent for issue #${input.issue_number}`
+      );
+    }
+
     const parent = parentResult.data?.node?.parent || null;
 
     // Step 3: Recursively traverse ancestors to root
@@ -99,6 +129,12 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         ],
         {}
       );
+
+      if (!ancestorParentResult.data) {
+        throw new ParsingError(
+          `GraphQL response missing 'data' field when fetching ancestor parent for issue #${currentAncestor.number}`
+        );
+      }
 
       currentAncestor = ancestorParentResult.data?.node?.parent || null;
     }
@@ -136,6 +172,12 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       {}
     );
 
+    if (!childrenResult.data) {
+      throw new ParsingError(
+        `GraphQL response missing 'data' field when fetching children for issue #${input.issue_number}`
+      );
+    }
+
     const children = childrenResult.data?.node?.subIssues?.nodes || [];
 
     // Step 5: Fetch siblings (if parent exists)
@@ -155,6 +197,12 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         ],
         {}
       );
+
+      if (!siblingsResult.data) {
+        throw new ParsingError(
+          `GraphQL response missing 'data' field when fetching siblings for issue #${input.issue_number}`
+        );
+      }
 
       const allSiblings = siblingsResult.data?.node?.subIssues?.nodes || [];
       siblings = allSiblings.filter((s: IssueData) => s.number !== issue.number);
@@ -185,6 +233,32 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
   }
 }
 
+/**
+ * Format issue context into human-readable summary text
+ *
+ * Converts structured issue hierarchy into concise text representation showing
+ * relationships at a glance. Includes root issue, ancestor chain, children, and
+ * siblings with issue numbers and titles.
+ *
+ * @param context - Issue context object with hierarchy relationships
+ * @returns Multi-line summary string with issue relationships
+ *
+ * @example
+ * // Format context for issue with parent and children
+ * const summary = formatIssueContextSummary({
+ *   root: { number: 1, title: "Epic" },
+ *   ancestors: [{ number: 10, title: "Feature" }],
+ *   current: { number: 42, title: "Bug fix" },
+ *   children: [{ number: 43 }, { number: 44 }],
+ *   siblings: [{ number: 45 }]
+ * });
+ * // Returns:
+ * // "Issue Context for #42: Bug fix
+ * //  Root Issue: #1 - Epic
+ * //  Ancestor Chain: #10
+ * //  Children (2): #43, #44
+ * //  Siblings (1): #45"
+ */
 function formatIssueContextSummary(context: IssueContext): string {
   const lines: string[] = [];
 
