@@ -21,6 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Starting Firestore Emulator ==="
+# TODO(#327): Add emulator startup verification before health check
 # Start emulator in background with explicit project ID
 npx firebase-tools emulators:start --only firestore --project=demo-test > /tmp/emulator.log 2>&1 &
 EMULATOR_PID=$!

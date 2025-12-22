@@ -21,6 +21,21 @@ import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 export class PrettierExtractor implements FrameworkExtractor {
   readonly name = 'unknown' as const; // Still 'unknown' since it's not a test framework
 
+  /**
+   * Detect Prettier formatting errors from log output
+   *
+   * Searches for Prettier-specific patterns including formatting check messages,
+   * diff markers, and code style warnings. Returns high confidence when multiple
+   * Prettier markers are present.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level, or null if not Prettier
+   *
+   * @example
+   * // Detect Prettier formatting check failure
+   * const result = detect(logContainingPrettierErrors);
+   * // Returns: { framework: 'unknown', confidence: 'high', isJsonOutput: false }
+   */
   detect(logText: string): DetectionResult | null {
     // Detect prettier with HIGH confidence when we see formatting check patterns
     const hasPrettierCheck = /Checking formatting/i.test(logText);
@@ -38,6 +53,25 @@ export class PrettierExtractor implements FrameworkExtractor {
     return null; // Not a prettier error
   }
 
+  /**
+   * Extract formatting errors from Prettier logs
+   *
+   * Parses Prettier diff output to identify files with formatting issues. Extracts
+   * file paths, diff hunks, and formatting violations. Handles both detailed diffs
+   * and summary error messages.
+   *
+   * @param logText - Raw log text containing Prettier output
+   * @param maxErrors - Maximum number of file errors to extract (default: 10)
+   * @returns Extraction result with file paths and formatting diffs
+   *   - Returns fallback error with last 100 lines if no files detected but Prettier patterns found
+   *   - Continues extraction even if individual diff hunks are incomplete
+   *   - Handles mixed diff/summary output gracefully
+   *
+   * @example
+   * // Extract formatting errors from Prettier check
+   * const result = extract(logWithPrettierDiffs, 5);
+   * // Returns errors with fileName, message, and rawOutput containing diff hunks
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n').map((line) => this.stripTimestamp(line));
     const errors: ExtractedError[] = [];

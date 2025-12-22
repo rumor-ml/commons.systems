@@ -54,8 +54,14 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 
 	// Create type-safe v2 message
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewPersistenceErrorMessage fails (see PR review #273)
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
+		// TODO(#356): Add fallback notification when message construction fails
+		// Current: Returns early with only debug logging, no user visibility
+		// TODO(#281): Log message construction failures to stderr
+		// Current: Only debug logging, operations continue with no message sent
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
 		return
 	}
@@ -76,8 +82,12 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 	d.blockedMu.Unlock()
 
 	// Broadcast revert so all clients show correct state
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewBlockChangeMessage fails (see PR review #273)
 	msg, err := NewBlockChangeMessage(d.seqCounter.Add(1), branch, previousBlockedBy, wasBlocked)
 	if err != nil {
+		// TODO(#356): Add fallback notification for message construction failures
+		// See issue for details from PR #273 review
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
 		return
 	}
@@ -138,7 +148,7 @@ func (d *AlertDaemon) playAlertSound() {
 }
 
 // broadcastAudioError broadcasts an audio playback error with tracking
-// TODO(#251): Apply same failure handling as regular broadcasts
+// TODO(#251): Add timeout to audio error broadcasting to prevent goroutine leaks when eventCh is congested - see PR review for #273
 func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
 		"Troubleshooting:\n"+
@@ -243,6 +253,7 @@ type AlertDaemon struct {
 	seqCounter             atomic.Uint64 // Global sequence number for message ordering
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyAlerts returns a copy of the alerts map with read lock protection
 func (d *AlertDaemon) copyAlerts() map[string]string {
 	d.alertsMu.RLock()
@@ -255,6 +266,7 @@ func (d *AlertDaemon) copyAlerts() map[string]string {
 	return copy
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyBlockedBranches returns a copy of the blockedBranches map with read lock protection
 func (d *AlertDaemon) copyBlockedBranches() map[string]string {
 	d.blockedMu.RLock()
@@ -760,6 +772,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeHealthQuery:
 			// Return health status
 			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
+			// TODO(#281): Include field-level details in health validation errors
+			// Current: Generic message without specific field/value context
 			status, healthErr := d.GetHealthStatus()
 			if healthErr != nil {
 				// Send error message to client instead of fabricated health status
@@ -833,6 +847,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
 				}
 
+				// TODO(#330): Add pattern detection for rapid connection close failures
 				if closeErr := client.conn.Close(); closeErr != nil {
 					totalCloseErrors := d.connectionCloseErrors.Add(1)
 					d.lastCloseError.Store(closeErr.Error())
@@ -874,10 +889,12 @@ func (d *AlertDaemon) broadcast(msg Message) {
 				"Affected clients disconnected and will resync on reconnect.",
 			len(failedClients), totalClients, msg.Type, msg.SeqNum,
 		)
+		// TODO(#281): Improve sync warning error context
+		// Current: Fallback can cascade into another failure without clear user messaging
 		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
 		if err != nil {
 			// CRITICAL: Cannot construct sync warning - use fallback raw message
-			// TODO(#281): Add visibility for cascade failures
+			// TODO(#281): Escalate broadcast cascade failures to health metrics - see PR review for #273
 			fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning construction failed (type=%s, failed_clients=%d): %v\n",
 				msg.Type, len(failedClients), err)
 			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", err)
@@ -969,7 +986,7 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	blockedCount := len(d.blockedBranches)
 	d.blockedMu.RUnlock()
 
-	// TODO(#281): Add sentinel error for health validation failures
+	// TODO(#281): Include validation errors in health status response - see PR review for #273
 	status, err := NewHealthStatus(
 		d.broadcastFailures.Load(),
 		lastBroadcastErr,

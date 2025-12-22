@@ -141,6 +141,7 @@
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
+          git-mcp-server = pkgs.callPackage ./nix/packages/git-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Hooks
@@ -162,6 +163,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              git-mcp-server
             ];
 
             shellHook = ''
@@ -209,6 +211,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              git-mcp-server
               iac
               ;
             default = tmux-tui;

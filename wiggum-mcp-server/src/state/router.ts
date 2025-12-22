@@ -48,12 +48,16 @@ type CurrentStateWithPR = CurrentState & {
 /**
  * Result type for state comment posting operations
  *
+ * CONTEXT: This discriminated union supports race-safe state persistence (issue #388).
+ * By distinguishing successful persistence from transient failures, callers can make
+ * informed decisions about retrying vs halting the workflow when state updates fail.
+ *
  * Provides expressive error handling with clear failure reasons:
- * - success: true - Comment posted successfully
+ * - success: true - Comment posted successfully, state persisted
  * - success: false - Comment failed due to transient error (rate limit or network)
  *
- * Transient errors are logged but allow workflow to continue or halt gracefully.
- * Critical errors (404, auth) are thrown immediately.
+ * Transient errors are logged and cause workflow to halt gracefully with
+ * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
  */
 type StateCommentResult =
   | { success: true }
@@ -136,7 +140,12 @@ function checkBranchPushed(
 /**
  * Safely post wiggum state comment with error handling
  *
- * Wraps postWiggumStateComment with error classification and logging.
+ * State persistence is CRITICAL for race condition fix (issue #388). Without
+ * successful comment posting, workflow state may become inconsistent when tools
+ * are called out-of-order or GitHub API returns stale data. This function
+ * classifies errors to distinguish between transient failures (safe to retry)
+ * and critical failures (require immediate intervention).
+ *
  * Error handling strategy:
  * - Critical errors (404, 401/403): Throw - require immediate intervention
  * - Transient errors (429, network): Return failure Result - may self-resolve
@@ -1253,6 +1262,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     // Return Step p2-4 (PR Review) instructions
     output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
     output.step_number = STEP_PHASE2_PR_REVIEW;
+    // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated PR review instructions to helper function
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
