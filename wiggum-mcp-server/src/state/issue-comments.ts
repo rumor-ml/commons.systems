@@ -3,6 +3,8 @@
  * Mirrors PR comment functionality but operates on GitHub issues
  */
 
+// TODO(#302): Implement comprehensive tests for Phase 1 workflow
+// Currently 43% of tests are placeholders. See issue for specific test requirements.
 import { ghCli, ghCliJson, resolveRepo } from '../utils/gh-cli.js';
 import {
   WIGGUM_STATE_MARKER,
@@ -105,8 +107,11 @@ export async function getWiggumStateFromIssue(
         return validateWiggumState(raw, 'issue comment');
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
+        // TODO(#272): Add security alerting for prototype pollution detection
+        // Current: logs at ERROR but no notification/alert (see PR review #273)
         // Log prototype pollution attempts at ERROR level for security monitoring
         const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
+        // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Replace dynamic logger method selection with explicit if/else for clarity
         logger[logLevel]('getWiggumStateFromIssue: failed to parse state JSON from comment', {
           commentId: comment.id,
           error: errorMsg,

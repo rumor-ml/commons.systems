@@ -153,6 +153,7 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
+  // TODO(#328): Consider extracting budget calculation pattern into helper function
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {
@@ -212,6 +213,9 @@ function formatJobSummaries(
     output += warningText;
   }
 
+  // TODO(#345,#346): Track budget calculation bugs as tool errors, not silent warnings
+  // Current: Returns success with [BUG] diagnostics when output exceeds max_chars
+  // See PR review #273 for emergency truncation bug details
   // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
     const overage = output.length - maxChars;

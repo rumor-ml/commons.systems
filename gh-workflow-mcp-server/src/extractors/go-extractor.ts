@@ -111,7 +111,14 @@ export class GoExtractor implements FrameworkExtractor {
     let testEventParseErrors = 0;
     const validationTracker = new ValidationErrorTracker();
 
-    // ARCHITECTURAL PATTERN: Three-stage error handling with narrow catch scopes
+    // TODO(#315): Clarify stage count in error handling comment
+    // Current: Claims "three-stage" but only two stages actually handle errors
+    // Stage 2 is validation logic without error handling (see PR review #273)
+    // TODO(#302): Add motivation context to three-stage error handling
+    // Current: Excellent architecture comment but missing "why this complexity exists"
+    // WHY: Go test output intermingles valid events with build messages, compilation errors, and GitHub Actions logs
+    // TODO(#302): Fix misleading "three-stage error handling" comment
+    // Actual: Two stages with error handling + one validation stage without
     //
     // STAGE 1 (parseGoTestJson: JSON.parse loop): JSON.parse() wrapped in minimal try-catch
     //   - ONLY catches JSON syntax errors (malformed JSON)
@@ -310,6 +317,7 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
+    // TODO(#329): Include sample validation errors in user-facing warning message
     // Build parse warnings from test event parsing errors and validation errors
     const warnings: string[] = [];
     if (testEventParseErrors > 0) {

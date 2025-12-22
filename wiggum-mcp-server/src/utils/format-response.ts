@@ -20,6 +20,8 @@
  * @module format-response
  */
 
+// TODO(#304): Add readonly modifiers to type definitions
+
 import { FormattingError } from './errors.js';
 
 /**
@@ -53,6 +55,7 @@ interface ResponseData {
 /**
  * Validate response data has all required fields with correct types
  *
+ * TODO(#304): Fix instructions validation contradiction (allow empty strings) - see PR review for #273
  * Enforces ResponseData interface schema requirements (see lines 43-50):
  * - All fields are required by protocol specification
  * - Types must match exactly (string, number, array, object as specified)

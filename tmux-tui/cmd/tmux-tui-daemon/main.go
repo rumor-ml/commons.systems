@@ -87,6 +87,7 @@ func isDaemonRunning(socketPath string) bool {
 	return false
 }
 
+// TODO(#281): Add integration tests for health command CLI - see PR review for #273
 // showHealth connects to the daemon and displays health metrics
 func showHealth() error {
 	socketPath := namespace.DaemonSocket()

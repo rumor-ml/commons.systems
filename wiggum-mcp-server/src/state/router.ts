@@ -1248,6 +1248,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     // Return Step p2-4 (PR Review) instructions
     output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
     output.step_number = STEP_PHASE2_PR_REVIEW;
+    // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated PR review instructions to helper function
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 

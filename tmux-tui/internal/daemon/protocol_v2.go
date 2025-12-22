@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
 // Protocol v2: Type-safe message structs with internal encapsulation
 //
 // DESIGN RATIONALE:
@@ -280,6 +281,7 @@ type BlockChangeMessageV2 struct {
 	blocked       bool
 }
 
+// TODO(#328): Consider extracting conditional validation pattern into helper function
 // NewBlockChangeMessage creates a validated BlockChangeMessage.
 // Returns error if branch is empty after trimming.
 // If blocked is false, blockedBranch should be empty (will be cleared).
@@ -364,6 +366,7 @@ type BlockedStateResponseMessageV2 struct {
 	blockedBranch string
 }
 
+// TODO(#328): Consider extracting conditional validation pattern into helper function
 // NewBlockedStateResponseMessage creates a validated BlockedStateResponseMessage.
 // Returns error if branch is empty or if isBlocked is true but blockedBranch is empty.
 func NewBlockedStateResponseMessage(seqNum uint64, branch string, isBlocked bool, blockedBranch string) (*BlockedStateResponseMessageV2, error) {
