@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 interface PlaywrightJsonReport {
   config?: any; // Config object (optional, may not be present in all reports)
@@ -49,19 +50,24 @@ interface PlaywrightTestResult {
 export class PlaywrightExtractor implements FrameworkExtractor {
   readonly name = 'playwright' as const;
 
+  /**
+   * Detect Playwright test framework from log output
+   *
+   * Searches for Playwright JSON report structure in logs. Handles embedded
+   * JSON within GitHub Actions logs by extracting and parsing JSON content.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level, or null if not Playwright
+   */
   detect(logText: string): DetectionResult | null {
     // Check for JSON format (may be embedded in logs)
     // Look for Playwright JSON structure markers
-    const hasConfig = logText.includes('"config":');
     const hasSuites = logText.includes('"suites":');
-    console.error(`[DEBUG] Playwright detect: hasConfig=${hasConfig}, hasSuites=${hasSuites}`);
 
     if (hasSuites) {
       try {
         const jsonText = this.extractJsonFromLogs(logText);
-        console.error(`[DEBUG] Extracted JSON length: ${jsonText.length}`);
         const parsed = JSON.parse(jsonText);
-        console.error(`[DEBUG] JSON parsed successfully, has suites: ${!!parsed.suites}`);
         if (parsed.suites && Array.isArray(parsed.suites)) {
           return {
             framework: 'playwright',
@@ -70,10 +76,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // Not valid JSON or extraction failed
-        console.error(
-          `[DEBUG] JSON parsing failed: ${err instanceof Error ? err.message : String(err)}`
-        );
+        // Not valid JSON or extraction failed - this is expected, not an error
       }
     }
 
@@ -131,6 +134,20 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     return null;
   }
 
+  /**
+   * Extract test failures and errors from Playwright logs
+   *
+   * Handles both JSON and text output formats. For JSON, parses structured
+   * test results. For text, uses pattern matching. Provides detailed error
+   * context including file locations, error messages, and stack traces.
+   *
+   * @param logText - Raw log text containing Playwright output
+   * @param maxErrors - Maximum number of errors to extract (default: 10)
+   * @returns Extraction result with framework name, errors, and optional summary
+   *   - Returns timeout error if JSON extraction fails (incomplete test execution)
+   *   - Returns fallback error with context if JSON parsing fails
+   *   - Continues extraction even if individual test suites are malformed
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
@@ -159,6 +176,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     let globalSetupComplete = false;
     let webServerCommand: string | undefined;
     let timeGap: number | null | undefined;
+    let setupTimestamp: string | undefined;
+    let configTimestamp: string | undefined;
+    let timeDiagnostic: string | undefined;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -184,15 +204,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           const setupTimeMatch = setupMatch.match(/(\d{2}:\d{2}:\d{2})/);
           const configTimeMatch = line.match(/(\d{2}:\d{2}:\d{2})/);
           if (setupTimeMatch && configTimeMatch) {
-            const setupTime = setupTimeMatch[1];
-            const configTime = configTimeMatch[1];
-            timeGap = this.parseTimeDiff(setupTime, configTime);
-            // parseTimeDiff returns null on parse errors (invalid format, NaN values, unexpected errors)
-            // This is expected in edge cases where timestamp extraction from logs is unreliable
-            // We continue timeout analysis without time gap information rather than failing
-            if (timeGap === null) {
+            setupTimestamp = setupTimeMatch[1];
+            configTimestamp = configTimeMatch[1];
+            const timeResult = this.parseTimeDiff(setupTimestamp, configTimestamp);
+            timeGap = timeResult.seconds;
+
+            // Store diagnostic for inclusion in error message if parsing failed
+            if (timeResult.seconds === null && timeResult.diagnostic) {
+              timeDiagnostic = timeResult.diagnostic;
               console.error(
-                `[WARN] parsePlaywrightTimeout: parseTimeDiff returned null for timestamps "${setupTime}" and "${configTime}". Unable to calculate time gap for timeout analysis. Continuing without time gap information.`
+                `[WARN] parsePlaywrightTimeout: ${timeResult.diagnostic}. Continuing without time gap information.`
               );
             }
           }
@@ -210,6 +231,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (timeGap !== null && timeGap !== undefined && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
+    } else if (timeGap === null && timeDiagnostic) {
+      // Include diagnostic directly in user-facing message
+      message += `\n\nTimestamp diagnostic: ${timeDiagnostic}\n`;
+      message += `This may indicate log format changes or timestamp extraction issues. `;
     }
 
     message +=
@@ -229,80 +254,137 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += `\n\nwebServer command: ${webServerCommand}`;
     }
 
+    const validationTracker = new ValidationErrorTracker();
+    const validatedError = safeValidateExtractedError(
+      {
+        message,
+        failureType: 'timeout',
+        rawOutput: lines.slice(-50), // Include last 50 lines for context
+      },
+      'timeout error',
+      validationTracker
+    );
+
     return {
       framework: 'playwright',
-      errors: [
-        {
-          message,
-          failureType: 'timeout',
-          rawOutput: lines.slice(-50), // Include last 50 lines for context
-        },
-      ],
+      errors: [validatedError],
       summary: 'Playwright timeout (no tests executed)',
     };
   }
 
   /**
+   * Parse a single HH:MM:SS timestamp string into seconds
+   *
+   * @param timestamp - Timestamp string in HH:MM:SS format
+   * @param label - Descriptive label for error messages (e.g., "time1", "time2")
+   * @returns Seconds since midnight, or null if parsing fails
+   *
+   * @example
+   * parseTimestamp("12:30:45", "time1") // returns 45045
+   * parseTimestamp("invalid", "time1")  // returns null (logs warning)
+   */
+  private parseTimestamp(timestamp: string, label: string): number | null {
+    // Validate format is HH:MM:SS
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(timestamp)) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} has invalid format "${timestamp}" (expected HH:MM:SS)`
+      );
+      return null;
+    }
+
+    // Parse without try-catch - let unexpected errors propagate
+    const [h, m, s] = timestamp.split(':').map(Number);
+
+    // Check for NaN values (expected error - malformed input)
+    if (isNaN(h) || isNaN(m) || isNaN(s)) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} "${timestamp}" contains non-numeric values (h=${h}, m=${m}, s=${s})`
+      );
+      return null;
+    }
+
+    // Validate ranges (hours: 0-23, minutes/seconds: 0-59)
+    const rangeErrors: string[] = [];
+    if (h < 0 || h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
+    if (m < 0 || m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
+    if (s < 0 || s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
+
+    if (rangeErrors.length > 0) {
+      console.error(
+        `[WARN] parseTimestamp: ${label} "${timestamp}" out-of-range: ${rangeErrors.join(', ')}`
+      );
+      return null;
+    }
+
+    return h * 3600 + m * 60 + s;
+  }
+
+  /**
+   * TODO(#302): Test midnight rollover handling in full extraction - see PR review for #273
    * Parse time difference between two HH:MM:SS strings
    *
    * Extracts timestamps from GitHub Actions logs to calculate time gaps
    * (e.g., between global setup completion and test execution timeout).
    *
-   * FALLBACK STRATEGY:
-   * - Returns null on any parse error instead of throwing
+   * FAILURE HANDLING:
+   * - Returns structured result with optional diagnostic on failure
    * - Logs warnings for invalid formats or NaN values
-   * - Caller should handle null gracefully (e.g., skip time gap message)
+   * - Caller conditionally includes diagnostic in error messages when available
    *
-   * NULL RETURN CASES:
+   * FAILURE CASES:
    * - Invalid format (not HH:MM:SS)
    * - NaN after parsing (e.g., "12:AB:34")
    * - Unexpected parsing errors
    *
    * @param time1 - First timestamp in HH:MM:SS format
    * @param time2 - Second timestamp in HH:MM:SS format
-   * @returns Absolute difference in seconds, or null if parsing fails
+   * @returns Object with seconds (or null on failure) and optional diagnostic
    *
    * @example
-   * parseTimeDiff("12:30:00", "12:35:30") // returns 330 (5 minutes 30 seconds)
-   * parseTimeDiff("invalid", "12:30:00")  // returns null (logs warning)
+   * parseTimeDiff("12:30:00", "12:35:30") // returns { seconds: 330 }
+   * parseTimeDiff("invalid", "12:30:00")  // returns { seconds: null, diagnostic: "..." }
    */
-  private parseTimeDiff(time1: string, time2: string): number | null {
-    const parse = (t: string): number | null => {
-      try {
-        // Validate format is HH:MM:SS
-        if (!/^\d{2}:\d{2}:\d{2}$/.test(t)) {
-          console.error(
-            `[WARN] parseTimeDiff: invalid time format "${t}", expected HH:MM:SS. Returning null.`
-          );
-          return null;
-        }
+  private parseTimeDiff(
+    time1: string,
+    time2: string
+  ): {
+    seconds: number | null;
+    diagnostic?: string;
+  } {
+    const errors: string[] = [];
 
-        const [h, m, s] = t.split(':').map(Number);
-
-        // Check for NaN values
-        if (isNaN(h) || isNaN(m) || isNaN(s)) {
-          console.error(
-            `[WARN] parseTimeDiff: failed to parse numbers from "${t}" (h=${h}, m=${m}, s=${s}). Returning null.`
-          );
-          return null;
-        }
-
-        return h * 3600 + m * 60 + s;
-      } catch (error) {
-        console.error(
-          `[ERROR] parseTimeDiff: unexpected error parsing "${t}": ${error instanceof Error ? error.message : String(error)}. Returning null.`
-        );
-        return null;
-      }
-    };
-    const seconds1 = parse(time1);
-    const seconds2 = parse(time2);
-
-    if (seconds1 === null || seconds2 === null) {
-      return null;
+    const seconds1 = this.parseTimestamp(time1, 'time1');
+    if (seconds1 === null) {
+      errors.push(`time1 "${time1}" failed to parse`);
     }
 
-    return Math.abs(seconds2 - seconds1);
+    const seconds2 = this.parseTimestamp(time2, 'time2');
+    if (seconds2 === null) {
+      errors.push(`time2 "${time2}" failed to parse`);
+    }
+
+    if (seconds1 === null || seconds2 === null) {
+      return {
+        seconds: null,
+        diagnostic: `Failed to parse timestamps: ${errors.join('; ')}`,
+      };
+    }
+
+    const diff = Math.abs(seconds2 - seconds1);
+
+    // TODO(#289): Add stderr logging for midnight rollover detection
+    // TODO(#305): Document rationale for 12-hour threshold
+    // Why: Valid test runs never exceed 12h; larger gaps indicate date boundary crossed
+    // See PR review #273 comment improvement recommendations
+    // Detect midnight rollover (gap > 12 hours = likely crossed midnight)
+    if (diff > 43200) {
+      return {
+        seconds: null,
+        diagnostic: `Midnight rollover detected: time1="${time1}" (${seconds1}s), time2="${time2}" (${seconds2}s), diff=${diff}s > 43200s (12h)`,
+      };
+    }
+
+    return { seconds: diff };
   }
 
   /**
@@ -313,119 +395,153 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * are emitted as a single complete document at the end of test execution. The entire report
    * must be parsed to extract failures - there's no streaming or partial extraction.
    *
+   * The _maxErrors parameter exists because:
+   * 1. FrameworkExtractor interface requires it for consistency across extractors
+   * 2. Go extractor uses it to limit line-by-line parsing overhead in massive logs
+   * 3. Future extractors might support error limiting for other streaming formats
+   * 4. Keeping the parameter maintains API compatibility if limiting becomes useful later
+   *
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
    * @returns ExtractionResult with all failures found in the report
    */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
+    const validationTracker = new ValidationErrorTracker();
 
+    // Phase 1: Extract JSON from logs (let failure propagate for now)
+    let jsonText: string;
     try {
-      // Extract JSON from logs - it may be embedded within other output
-      const jsonText = this.extractJsonFromLogs(logText);
-      const report = JSON.parse(jsonText) as PlaywrightJsonReport;
-      console.error(`[DEBUG] parsePlaywrightJson: parsed ${report.suites?.length || 0} suites`);
+      jsonText = this.extractJsonFromLogs(logText);
+    } catch (extractErr) {
+      // extractJsonFromLogs failed - no valid JSON structure found
+      // TODO: See issue #332 - Include total log length, line count, and snippet from end of logs for better debugging
+      console.error(
+        `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ` +
+          `${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
+      );
+      const validatedError = safeValidateExtractedError(
+        {
+          message: `Failed to extract Playwright JSON from logs: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+          rawOutput: [logText.substring(0, 500)],
+        },
+        'JSON extraction error',
+        validationTracker
+      );
+      return {
+        framework: 'playwright',
+        errors: [validatedError],
+      };
+    }
 
-      const extractFromSuite = (suite: PlaywrightSuite) => {
-        for (const spec of suite.specs || []) {
-          if (!spec.ok) {
-            for (const test of spec.tests || []) {
-              for (const result of test.results || []) {
-                if (result.status !== 'passed' && result.status !== 'skipped') {
-                  const error = result.error;
-                  const rawOutput: string[] = [];
+    // Phase 2: Parse JSON (narrow catch)
+    let report: PlaywrightJsonReport;
+    try {
+      report = JSON.parse(jsonText) as PlaywrightJsonReport;
+    } catch (parseErr) {
+      // JSON.parse failed - malformed JSON after extraction
+      console.error(
+        `[ERROR] parsePlaywrightJson: JSON.parse failed after successful extraction: ` +
+          `${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+      );
+      const validatedError = safeValidateExtractedError(
+        {
+          message: `Failed to parse Playwright JSON report: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          rawOutput: [jsonText.substring(0, 500)],
+        },
+        'JSON parse error',
+        validationTracker
+      );
+      return {
+        framework: 'playwright',
+        errors: [validatedError],
+      };
+    }
 
-                  if (error?.message) rawOutput.push(error.message);
-                  if (error?.stack) rawOutput.push(error.stack);
-                  if (error?.snippet) rawOutput.push(error.snippet);
+    // Phase 3: Traverse suites (NO catch - bugs should propagate)
+    const extractFromSuite = (suite: PlaywrightSuite) => {
+      for (const spec of suite.specs || []) {
+        if (!spec.ok) {
+          for (const test of spec.tests || []) {
+            for (const result of test.results || []) {
+              if (result.status !== 'passed' && result.status !== 'skipped') {
+                const error = result.error;
+                const rawOutput: string[] = [];
 
-                  failures.push({
-                    testName: `[${test.projectName}] ${spec.title}`,
+                if (error?.message) rawOutput.push(error.message);
+                if (error?.stack) rawOutput.push(error.stack);
+                if (error?.snippet) rawOutput.push(error.snippet);
+
+                // Ensure rawOutput has at least one element for schema validation
+                if (rawOutput.length === 0) {
+                  rawOutput.push('Test failed');
+                }
+
+                const testName = `[${test.projectName}] ${spec.title}`;
+                const validatedError = safeValidateExtractedError(
+                  {
+                    testName,
                     fileName: suite.file,
                     lineNumber: suite.line,
-                    columnNumber: suite.column,
+                    columnNumber: suite.column > 0 ? suite.column : undefined, // Schema requires positive integers
                     message: error?.message || 'Test failed',
                     stack: error?.stack,
                     codeSnippet: error?.snippet,
                     duration: result.duration,
                     failureType: result.status,
                     rawOutput,
-                  });
-                }
+                  },
+                  testName,
+                  validationTracker
+                );
+
+                failures.push(validatedError);
               }
             }
           }
         }
-
-        // Recursively process nested suites
-        for (const nestedSuite of suite.suites || []) {
-          extractFromSuite(nestedSuite);
-        }
-      };
-
-      for (const suite of report.suites || []) {
-        extractFromSuite(suite);
       }
 
-      // Count total tests for summary
-      let totalPassed = 0;
-      let totalFailed = failures.length;
-
-      const countTests = (suite: PlaywrightSuite) => {
-        for (const spec of suite.specs || []) {
-          if (spec.ok) {
-            totalPassed += spec.tests.length;
-          }
-        }
-        for (const nestedSuite of suite.suites || []) {
-          countTests(nestedSuite);
-        }
-      };
-
-      for (const suite of report.suites || []) {
-        countTests(suite);
+      // Recursively process nested suites
+      for (const nestedSuite of suite.suites || []) {
+        extractFromSuite(nestedSuite);
       }
+    };
 
-      const summary =
-        totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
-
-      return {
-        framework: 'playwright',
-        errors: failures,
-        summary,
-      };
-    } catch (err) {
-      // JSON parsing failed - determine failure phase for diagnostics
-      // Phase 1: extractJsonFromLogs() failure (no valid JSON structure in logs)
-      // Phase 2: JSON.parse() failure (malformed JSON after extraction)
-      // Phase 3: Suite traversal failure (unexpected structure)
-      try {
-        const jsonText = this.extractJsonFromLogs(logText);
-        // extractJsonFromLogs succeeded - failure was in JSON.parse or suite traversal
-        console.error(
-          `[ERROR] parsePlaywrightJson: JSON extraction succeeded but parsing/traversal failed: ${err instanceof Error ? err.message : String(err)}`
-        );
-        console.error(`[DEBUG] First 200 chars of extracted JSON: ${jsonText.substring(0, 200)}`);
-      } catch (extractErr) {
-        // extractJsonFromLogs failed - no valid JSON structure found in logs
-        console.error(
-          `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
-        );
-        console.error(
-          `[ERROR] parsePlaywrightJson: Original parsing error: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-
-      return {
-        framework: 'playwright',
-        errors: [
-          {
-            message: `Failed to parse Playwright JSON report: ${err instanceof Error ? err.message : String(err)}`,
-            rawOutput: [logText.substring(0, 500)],
-          },
-        ],
-      };
+    for (const suite of report.suites || []) {
+      extractFromSuite(suite);
     }
+
+    // Count total tests for summary
+    let totalPassed = 0;
+    let totalFailed = failures.length;
+
+    const countTests = (suite: PlaywrightSuite) => {
+      for (const spec of suite.specs || []) {
+        if (spec.ok) {
+          totalPassed += spec.tests.length;
+        }
+      }
+      for (const nestedSuite of suite.suites || []) {
+        countTests(nestedSuite);
+      }
+    };
+
+    for (const suite of report.suites || []) {
+      countTests(suite);
+    }
+
+    const summary =
+      totalFailed > 0 ? `${totalFailed} failed, ${totalPassed} passed` : `${totalPassed} passed`;
+
+    const parseWarnings = validationTracker.getSummaryWarning();
+
+    return {
+      framework: 'playwright',
+      errors: failures,
+      summary,
+      parseWarnings,
+    };
   }
 
   private parsePlaywrightText(logText: string, maxErrors: number): ExtractionResult {
@@ -433,6 +549,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // Pattern: [✘✗] 1 [chromium] › file.spec.ts:123 › Test Name (100ms)
     const failPattern =
@@ -469,22 +586,37 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
-          testName: `[${projectName}] ${testName}`,
-          fileName,
-          lineNumber,
-          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
-          duration,
-          rawOutput,
-        });
+        // Ensure rawOutput has at least one element for schema validation
+        if (rawOutput.length === 0) {
+          rawOutput.push(`Test failed: ${testName}`);
+        }
+
+        const fullTestName = `[${projectName}] ${testName}`;
+        const validatedError = safeValidateExtractedError(
+          {
+            testName: fullTestName,
+            fileName,
+            lineNumber,
+            message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+            duration,
+            rawOutput,
+          },
+          fullTestName,
+          validationTracker
+        );
+
+        failures.push(validatedError);
         failed++;
       }
     }
+
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'playwright',
       errors: failures,
       summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
+      parseWarnings,
     };
   }
 
@@ -497,6 +629,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    *
    * EXTRACTION STRATEGY:
    * 1. Strip GitHub Actions timestamps (YYYY-MM-DDTHH:MM:SS.nnnnnnnZ) from all lines
+   *    Example: "2025-03-15T14:32:18.123456789Z {config: ...}" → "{config: ...}"
    * 2. Find JSON start marker: standalone "{" or line starting with '{"suites":'
    * 3. Verify next ~20 lines contain "config" or "suites" to confirm this is the report
    * 4. Progressively parse from start marker, adding lines until valid JSON with expected structure
@@ -543,6 +676,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       // FALLBACK 1: No JSON start marker found
       // This happens when logs don't contain a recognizable Playwright JSON report
       // Caller will likely fail to parse, but we provide full context for debugging
+      // TODO: See issue #332 - Validate fallback return value is parseable JSON before returning
       console.error(
         '[WARN] Playwright JSON extraction: No JSON start marker found. ' +
           'Expected standalone "{" followed by "config" or "suites" fields within ~20 lines. ' +
@@ -561,16 +695,12 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         const parsed = JSON.parse(candidate);
         // Successfully parsed and has the expected structure
         if (parsed.suites || parsed.config) {
-          if (parseAttempts > 0) {
-            console.error(
-              `[DEBUG] Playwright JSON extraction: Success after ${parseAttempts} parse attempts (jsonStart=${jsonStart}, jsonEnd=${jsonEnd}, total lines=${jsonEnd - jsonStart + 1})`
-            );
-          }
           return candidate;
         }
       } catch (parseErr) {
         // Keep trying with more lines
         // Log first few parse errors for diagnostics
+        // TODO: See issue #332 - Only catch SyntaxError, let other exceptions propagate to expose bugs
         if (parseAttempts < 3) {
           console.error(
             `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1} failed at jsonEnd=${jsonEnd}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
@@ -582,6 +712,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     // FALLBACK 2: Found JSON start marker but couldn't complete parsing
     // This indicates truncated or malformed JSON in the log output
+    // TODO: See issue #332 - Validate fallback JSON or throw specific error for incomplete JSON
     const extractedLines = cleanLines.length - jsonStart;
     console.error(
       `[ERROR] Playwright JSON extraction: FALLBACK 2 after ${parseAttempts} parse attempts. ` +

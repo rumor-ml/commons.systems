@@ -2,6 +2,10 @@
  * Shared types for framework-specific test failure extractors
  */
 
+// TODO(#304): Add readonly modifiers to type definitions
+
+import { z } from 'zod';
+
 export type TestFramework = 'go' | 'playwright' | 'tap' | 'unknown';
 
 export interface DetectionResult {
@@ -10,6 +14,7 @@ export interface DetectionResult {
   isJsonOutput: boolean;
   isTimeout?: boolean;
 }
+// TODO(#357): Improve type safety - add readonly modifiers, use enums, enforce immutability
 
 export interface ExtractedError {
   testName?: string;
@@ -25,10 +30,305 @@ export interface ExtractedError {
   rawOutput: string[]; // All output lines for this test
 }
 
+/**
+ * Zod schema for runtime validation of ExtractedError
+ *
+ * Ensures that extracted errors meet structural and type requirements:
+ * - message is non-empty
+ * - line/column numbers are positive integers
+ * - duration is non-negative
+ * - rawOutput contains at least one line
+ */
+export const ExtractedErrorSchema = z.object({
+  testName: z.string().optional(),
+  fileName: z.string().optional(),
+  lineNumber: z.number().int().positive().optional(),
+  columnNumber: z.number().int().positive().optional(),
+  message: z.string().min(1),
+  stack: z.string().optional(),
+  codeSnippet: z.string().optional(),
+  duration: z.number().nonnegative().optional(),
+  failureType: z.string().optional(),
+  errorCode: z.string().optional(),
+  rawOutput: z.array(z.string()).min(1),
+});
+
+/** Type inferred from ExtractedErrorSchema */
+export type ValidatedExtractedError = z.infer<typeof ExtractedErrorSchema>;
+
+/**
+ * Validate an extracted error against the schema
+ *
+ * @param data - Data to validate
+ * @returns Validated ExtractedError
+ * @throws ZodError if validation fails with details about what's invalid
+ */
+export function validateExtractedError(data: unknown): ValidatedExtractedError {
+  return ExtractedErrorSchema.parse(data);
+}
+
+/**
+ * Type guard to check if an error is a Zod validation error
+ */
+export function isZodError(error: unknown): error is z.ZodError {
+  return error instanceof z.ZodError;
+}
+
+/**
+ * Format a Zod validation error into a human-readable string
+ *
+ * @param error - Zod error to format
+ * @returns Formatted error message with field paths and issues
+ */
+export function formatValidationError(error: z.ZodError): string {
+  const issues = error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join('.') : 'root';
+    return `${path}: ${issue.message}`;
+  });
+  return issues.join('; ');
+}
+
+/**
+ * Create a fallback error that is valid-by-construction
+ *
+ * Used when validation fails - ensures we always return SOMETHING to the user
+ * rather than silently dropping test failures.
+ *
+ * @param context - Description of what failed (e.g., "test TestFoo")
+ * @param originalData - The data that failed validation (for diagnostics)
+ * @param validationError - The Zod error describing what was invalid
+ * @returns ExtractedError guaranteed to pass validation
+ */
+// TODO(#305): Validate fallback error before returning [was #285: Improve error logging context and messages]
+// TODO(#305): Add context explaining why validation is needed
+export function createFallbackError(
+  context: string,
+  originalData: unknown,
+  validationError: z.ZodError
+): ExtractedError {
+  // Extract whatever we can from original data
+  const partial = originalData as Partial<ExtractedError>;
+
+  // Construct message with validation diagnostics
+  const validationDetails = formatValidationError(validationError);
+  const truncatedDetails =
+    validationDetails.length > 500
+      ? validationDetails.substring(0, 500) + '... (truncated)'
+      : validationDetails;
+
+  let message = `Malformed test output detected for ${context}.\n\n`;
+  message += `Validation errors: ${truncatedDetails}\n\n`;
+
+  // Include original message if it exists and is non-empty
+  if (typeof partial.message === 'string' && partial.message.length > 0) {
+    message += `Original message:\n${partial.message}`;
+  }
+
+  // Construct rawOutput - ensure at least one element
+  const rawOutput = getRawOutput(partial, context);
+
+  // Return valid-by-construction error
+  return {
+    message,
+    rawOutput,
+    testName: partial.testName,
+    fileName: partial.fileName,
+    lineNumber: isPositiveInteger(partial.lineNumber) ? partial.lineNumber : undefined,
+    columnNumber: isPositiveInteger(partial.columnNumber) ? partial.columnNumber : undefined,
+    duration: isNonNegativeNumber(partial.duration) ? partial.duration : undefined,
+    failureType: partial.failureType,
+    errorCode: partial.errorCode,
+    stack: partial.stack,
+    codeSnippet: partial.codeSnippet,
+  };
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0;
+}
+
+function getRawOutput(partial: Partial<ExtractedError>, context: string): string[] {
+  if (Array.isArray(partial.rawOutput) && partial.rawOutput.length > 0) {
+    return partial.rawOutput;
+  }
+  if (typeof partial.message === 'string' && partial.message.length > 0) {
+    return [partial.message];
+  }
+  return [`Test output failed validation: ${context}`];
+}
+
+/**
+ * Track validation failures for a single extraction operation with integrity checks
+ *
+ * Created per extract() call to accumulate validation errors from malformed test output.
+ * Not persistent across calls.
+ *
+ * FEATURES:
+ * - Distinguishes expected errors (malformed test output) from bugs (extraction code)
+ * - Tracks failure count with defensive sanity checks (detects count corruption)
+ * - Validates internal consistency (count vs warnings.length)
+ * - Generates summary messages for users
+ * - Provides detailed warnings for debugging
+ *
+ * INTEGRITY CHECKS:
+ * - Detects negative counts (indicates memory corruption or overflow)
+ * - Detects count/array length mismatch (indicates state corruption)
+ * - Logs [BUG] messages to stderr when corruption detected
+ *
+ * USAGE:
+ *   const tracker = new ValidationErrorTracker();
+ *   tracker.recordValidationFailure('test #5', zodError);
+ *   const warning = tracker.getSummaryWarning();
+ */
+export class ValidationErrorTracker {
+  private validationFailures = 0;
+  private warnings: string[] = [];
+
+  /**
+   * Record a validation failure
+   * @param context - Context about what failed (e.g., "test #5", "Go test event")
+   * @param error - The Zod validation error
+   */
+  recordValidationFailure(context: string, error: z.ZodError): void {
+    // Sanity check: detect count corruption
+    if (this.validationFailures < 0) {
+      console.error(
+        `[BUG] ValidationErrorTracker.recordValidationFailure: validationFailures is negative (${this.validationFailures}). Resetting to 0.`
+      );
+      this.validationFailures = 0;
+    }
+
+    this.validationFailures++;
+    const formatted = formatValidationError(error);
+    this.warnings.push(`${context}: ${formatted}`);
+
+    // Sanity check: count should match warnings array length
+    if (this.validationFailures !== this.warnings.length) {
+      console.error(
+        `[BUG] ValidationErrorTracker.recordValidationFailure: count mismatch after increment. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `This indicates state corruption.`
+      );
+    }
+  }
+
+  /**
+   * Get count of validation failures
+   */
+  getFailureCount(): number {
+    return this.validationFailures;
+  }
+
+  /**
+   * Generate summary warning message for parse warnings
+   * Returns undefined if no failures
+   */
+  getSummaryWarning(): string | undefined {
+    // Sanity check: detect negative count
+    if (this.validationFailures < 0) {
+      console.error(
+        `[BUG] ValidationErrorTracker.getSummaryWarning: validationFailures is negative (${this.validationFailures}). ` +
+          `Returning diagnostic message.`
+      );
+      return `INTERNAL ERROR: Validation failure count corrupted (${this.validationFailures} < 0). Please file bug report.`;
+    }
+
+    // Sanity check: count should match warnings array length
+    if (this.validationFailures !== this.warnings.length) {
+      console.error(
+        `[BUG] ValidationErrorTracker.getSummaryWarning: count mismatch. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `Using warnings.length as source of truth.`
+      );
+      // Use warnings.length as source of truth
+      const actualCount = this.warnings.length;
+      if (actualCount === 0) {
+        return undefined;
+      }
+      return `${actualCount} test events failed validation - malformed output detected (count mismatch detected)`;
+    }
+
+    if (this.validationFailures === 0) {
+      return undefined;
+    }
+    return `${this.validationFailures} test events failed validation - malformed output detected`;
+  }
+
+  /**
+   * Get detailed warnings for debugging
+   */
+  getDetailedWarnings(): string[] {
+    return [...this.warnings];
+  }
+}
+
+/**
+ * Safe wrapper for validateExtractedError that distinguishes error types
+ *
+ * Always returns an ExtractedError (either validated or fallback). When validation
+ * fails, creates a fallback error that includes validation diagnostics so users
+ * can see what went wrong rather than silently losing test failures.
+ *
+ * @param data - Data to validate
+ * @param context - Context for error messages (e.g., "test #5")
+ * @param tracker - ValidationErrorTracker to record failures
+ * @returns Always returns an ExtractedError (validated or fallback)
+ * @throws Non-Zod errors (bugs in extraction code)
+ */
+// TODO: See issue #332 - Ensure all fallback paths in extractors use this validation tracker consistently
+export function safeValidateExtractedError(
+  data: unknown,
+  context: string,
+  tracker: ValidationErrorTracker
+): ExtractedError {
+  try {
+    return validateExtractedError(data);
+  } catch (error) {
+    if (isZodError(error)) {
+      // Expected validation error - malformed test output
+      tracker.recordValidationFailure(context, error);
+
+      // CRITICAL: Log prominently that we're showing fallback to user
+      const dataSnippet = JSON.stringify(data, null, 2);
+      const truncatedData =
+        dataSnippet.length > 500 ? dataSnippet.substring(0, 500) + '... (truncated)' : dataSnippet;
+
+      console.error(
+        `[ERROR] Extractor validation failure for ${context}: ${formatValidationError(error)}\n` +
+          `  This test failure will be shown to user as fallback error.\n` +
+          `  Original data: ${truncatedData}`
+      );
+
+      // Return valid-by-construction fallback
+      return createFallbackError(context, data, error);
+    }
+    // Unexpected error - bug in extraction code, let it propagate
+    throw error;
+  }
+}
+
+/**
+ * Result of extracting test failures from framework output
+ */
 export interface ExtractionResult {
-  framework: TestFramework;
-  errors: ExtractedError[];
-  summary?: string;
+  /** Test framework that produced this output */
+  readonly framework: TestFramework;
+
+  /** Structured error information extracted from test failures */
+  readonly errors: ExtractedError[];
+
+  /** Human-readable summary (e.g., "3 failed, 77 passed") */
+  readonly summary?: string;
+
+  /**
+   * Optional warning message about parse issues
+   * Example: "5 test events failed to parse - check stderr for [ERROR] Go extractor messages"
+   */
+  readonly parseWarnings?: string;
 }
 
 export interface FrameworkExtractor {

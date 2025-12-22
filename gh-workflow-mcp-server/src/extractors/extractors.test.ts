@@ -8,6 +8,7 @@ import { GoExtractor } from './go-extractor.js';
 import { PlaywrightExtractor } from './playwright-extractor.js';
 import { TapExtractor } from './tap-extractor.js';
 import { extractErrors, formatExtractionResult } from './index.js';
+import type { ExtractedError } from './types.js';
 
 describe('GoExtractor', () => {
   const extractor = new GoExtractor();
@@ -299,7 +300,8 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
       assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 5);
-      assert.strictEqual(result.errors[0].columnNumber, 0);
+      // columnNumber 0 is filtered out by validation (schema requires positive integers)
+      assert.strictEqual(result.errors[0].columnNumber, undefined);
       assert.strictEqual(result.errors[0].message, 'expect(received).toBe(expected)');
       assert.ok(result.errors[0].stack);
       assert.ok(result.errors[0].codeSnippet);
@@ -491,6 +493,319 @@ Just plain text
   });
 });
 
+describe('Validation Infrastructure', async () => {
+  // Import validation functions for testing
+  const { createFallbackError, safeValidateExtractedError, ValidationErrorTracker } = await import(
+    './types.js'
+  );
+  const { z } = await import('zod');
+
+  describe('createFallbackError', () => {
+    test('handles empty message by constructing diagnostic message', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'string',
+          inclusive: true,
+          message: 'String must contain at least 1 character(s)',
+          path: ['message'],
+        },
+      ]);
+      const fallback = createFallbackError('test #1', { message: '' }, validationError);
+
+      assert.ok(fallback.message.includes('Malformed test output detected for test #1'));
+      assert.ok(fallback.message.includes('message: String must contain at least 1 character(s)'));
+      assert.strictEqual(fallback.rawOutput.length, 1);
+      assert.ok(fallback.rawOutput[0].includes('Test output failed validation'));
+    });
+
+    test('handles empty rawOutput by constructing fallback', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'array',
+          inclusive: true,
+          message: 'Array must contain at least 1 element(s)',
+          path: ['rawOutput'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #2',
+        { message: 'Test failed', rawOutput: [] },
+        validationError
+      );
+
+      assert.ok(fallback.message.includes('Malformed test output detected for test #2'));
+      assert.strictEqual(fallback.rawOutput.length, 1);
+      assert.strictEqual(fallback.rawOutput[0], 'Test failed');
+    });
+
+    test('filters out negative line numbers', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'number',
+          inclusive: false,
+          message: 'Number must be greater than 0',
+          path: ['lineNumber'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #3',
+        {
+          message: 'Test failed',
+          rawOutput: ['output'],
+          lineNumber: -1,
+          columnNumber: -5,
+        },
+        validationError
+      );
+
+      assert.strictEqual(fallback.lineNumber, undefined);
+      assert.strictEqual(fallback.columnNumber, undefined);
+      assert.ok(fallback.message.includes('lineNumber: Number must be greater than 0'));
+    });
+
+    test('preserves valid metadata fields', () => {
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.too_small,
+          minimum: 1,
+          type: 'string',
+          inclusive: true,
+          message: 'String must contain at least 1 character(s)',
+          path: ['message'],
+        },
+      ]);
+      const fallback = createFallbackError(
+        'test #4',
+        {
+          message: '',
+          rawOutput: ['output'],
+          testName: 'TestFoo',
+          fileName: 'test.go',
+          lineNumber: 42,
+          duration: 100,
+        },
+        validationError
+      );
+
+      assert.strictEqual(fallback.testName, 'TestFoo');
+      assert.strictEqual(fallback.fileName, 'test.go');
+      assert.strictEqual(fallback.lineNumber, 42);
+      assert.strictEqual(fallback.duration, 100);
+    });
+
+    test('truncates long validation messages to 500 chars', () => {
+      const longMessage = 'x'.repeat(600);
+      const validationError = new z.ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          message: longMessage,
+          path: ['field'],
+        },
+      ]);
+      const fallback = createFallbackError('test #5', { message: 'test' }, validationError);
+
+      assert.ok(fallback.message.includes('... (truncated)'));
+      // The total message should be longer than 500 but the validation details part should be truncated
+      const validationPart = fallback.message.split('Validation errors: ')[1]?.split('\n\n')[0];
+      assert.ok(validationPart && validationPart.length <= 515); // 500 + "... (truncated)"
+    });
+  });
+
+  describe('safeValidateExtractedError', () => {
+    test('always returns an ExtractedError (never null)', () => {
+      const tracker = new ValidationErrorTracker();
+
+      // Valid data - should pass validation
+      const valid = safeValidateExtractedError(
+        {
+          message: 'Test failed',
+          rawOutput: ['output'],
+        },
+        'test #1',
+        tracker
+      );
+      assert.ok(valid);
+      assert.strictEqual(valid.message, 'Test failed');
+      assert.strictEqual(tracker.getFailureCount(), 0);
+
+      // Invalid data - should return fallback
+      const invalid = safeValidateExtractedError(
+        {
+          message: '', // Empty message violates schema
+          rawOutput: ['output'],
+        },
+        'test #2',
+        tracker
+      );
+      assert.ok(invalid);
+      assert.ok(invalid.message.includes('Malformed test output detected'));
+      assert.strictEqual(tracker.getFailureCount(), 1);
+    });
+
+    test('fallback errors include validation diagnostics', () => {
+      const tracker = new ValidationErrorTracker();
+
+      const result = safeValidateExtractedError(
+        {
+          message: '', // Violates min length
+          rawOutput: [], // Violates min array length
+          lineNumber: -1, // Violates positive integer
+        },
+        'test #3',
+        tracker
+      );
+
+      assert.ok(result.message.includes('Malformed test output detected for test #3'));
+      assert.ok(result.message.includes('Validation errors:'));
+      assert.ok(
+        result.message.includes('message:') ||
+          result.message.includes('rawOutput:') ||
+          result.message.includes('lineNumber:')
+      );
+      assert.strictEqual(tracker.getFailureCount(), 1);
+    });
+
+    test('tracks validation failures across multiple calls', () => {
+      const tracker = new ValidationErrorTracker();
+
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #1', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #2', tracker);
+      safeValidateExtractedError({ message: 'valid', rawOutput: ['x'] }, 'test #3', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #4', tracker);
+
+      assert.strictEqual(tracker.getFailureCount(), 3);
+
+      const warning = tracker.getSummaryWarning();
+      assert.ok(warning);
+      assert.ok(warning.includes('3 test events failed validation'));
+    });
+
+    test('ValidationErrorTracker provides detailed warnings', () => {
+      const tracker = new ValidationErrorTracker();
+
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'TestFoo', tracker);
+      safeValidateExtractedError({ message: 'x', rawOutput: [] }, 'TestBar', tracker);
+
+      const detailed = tracker.getDetailedWarnings();
+      assert.strictEqual(detailed.length, 2);
+      assert.ok(detailed[0].includes('TestFoo'));
+      assert.ok(detailed[1].includes('TestBar'));
+    });
+  });
+
+  describe('ValidationErrorTracker State Mutation (Phase 3.1)', () => {
+    test('tracks multiple validation failures with correct count', () => {
+      const tracker = new ValidationErrorTracker();
+
+      // Call safeValidateExtractedError 5 times with invalid data
+      for (let i = 1; i <= 5; i++) {
+        safeValidateExtractedError(
+          { message: '', rawOutput: ['test'] }, // Empty message violates schema
+          `test #${i}`,
+          tracker
+        );
+      }
+
+      // Verify count === 5
+      assert.strictEqual(tracker.getFailureCount(), 5);
+    });
+
+    test('accumulates warnings array correctly', () => {
+      const tracker = new ValidationErrorTracker();
+
+      // Validate 3 errors with different contexts
+      safeValidateExtractedError({ message: '', rawOutput: ['output1'] }, 'TestOne', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['output2'] }, 'TestTwo', tracker);
+      safeValidateExtractedError({ message: '', rawOutput: ['output3'] }, 'TestThree', tracker);
+
+      // Get detailed warnings
+      const warnings = tracker.getDetailedWarnings();
+
+      // Verify all 3 are present
+      assert.strictEqual(warnings.length, 3);
+      assert.ok(warnings[0].includes('TestOne'));
+      assert.ok(warnings[1].includes('TestTwo'));
+      assert.ok(warnings[2].includes('TestThree'));
+    });
+
+    test('handles interleaved success and failure', () => {
+      const tracker = new ValidationErrorTracker();
+
+      // Pattern: fail, succeed, fail, succeed, fail
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #1', tracker); // fail
+      safeValidateExtractedError({ message: 'valid', rawOutput: ['x'] }, 'test #2', tracker); // succeed
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #3', tracker); // fail
+      safeValidateExtractedError({ message: 'valid', rawOutput: ['x'] }, 'test #4', tracker); // succeed
+      safeValidateExtractedError({ message: '', rawOutput: ['x'] }, 'test #5', tracker); // fail
+
+      // Verify count === 3 (only failures)
+      assert.strictEqual(tracker.getFailureCount(), 3);
+
+      // Verify warnings array has 3 entries
+      const warnings = tracker.getDetailedWarnings();
+      assert.strictEqual(warnings.length, 3);
+    });
+  });
+
+  describe('PlaywrightExtractor parseTimeDiff - Midnight Rollover (Phase 3.5)', async () => {
+    const { PlaywrightExtractor } = await import('./playwright-extractor.js');
+    const extractor = new PlaywrightExtractor();
+
+    // Access the private parseTimeDiff method for testing
+    // @ts-ignore - accessing private method for testing
+    const parseTimeDiff = extractor.parseTimeDiff.bind(extractor);
+
+    test('midnight rollover: 23:59:50 to 00:00:10 returns null with diagnostic', () => {
+      const result = parseTimeDiff('23:59:50', '00:00:10');
+      // Should detect midnight boundary crossing and return null
+      // The actual time gap is ~20 seconds, but since we can't tell if it's
+      // the same day or crossed midnight, we return null for safety
+      assert.strictEqual(result.seconds, null);
+      assert.ok(result.diagnostic?.includes('Midnight rollover detected'));
+      assert.ok(result.diagnostic?.includes('23:59:50'));
+      assert.ok(result.diagnostic?.includes('00:00:10'));
+    });
+
+    test('midnight rollover: 23:59:30 to 00:00:00 returns null with diagnostic', () => {
+      const result = parseTimeDiff('23:59:30', '00:00:00');
+      // Should detect midnight boundary crossing and return null
+      assert.strictEqual(result.seconds, null);
+      assert.ok(result.diagnostic?.includes('Midnight rollover detected'));
+      assert.ok(result.diagnostic?.includes('23:59:30'));
+      assert.ok(result.diagnostic?.includes('00:00:00'));
+    });
+
+    test('valid same-day case: 10:00:00 to 10:00:05', () => {
+      const result = parseTimeDiff('10:00:00', '10:00:05');
+      // Should calculate correct duration: 5 seconds
+      assert.strictEqual(result.seconds, 5);
+    });
+
+    test('valid same-day case: 09:30:15 to 09:45:30', () => {
+      const result = parseTimeDiff('09:30:15', '09:45:30');
+      // Duration: 15 minutes 15 seconds = 915 seconds
+      assert.strictEqual(result.seconds, 915);
+    });
+
+    test('same timestamp returns 0', () => {
+      const result = parseTimeDiff('12:34:56', '12:34:56');
+      // Same time = 0 duration
+      assert.strictEqual(result.seconds, 0);
+    });
+
+    test('invalid format returns null', () => {
+      const result = parseTimeDiff('invalid', '12:34:56');
+      assert.strictEqual(result.seconds, null);
+    });
+  });
+});
+
 describe('formatExtractionResult', () => {
   test('formats Go test failures with duration and stack trace', () => {
     const result = {
@@ -593,5 +908,129 @@ describe('formatExtractionResult', () => {
     const formatted = formatExtractionResult(result);
     assert.ok(formatted.some((line) => line.includes('Error: Something went wrong')));
     assert.ok(!formatted.some((line) => line.includes('--- FAIL:')));
+  });
+
+  // TODO(#265): Add test timeouts for DoS edge cases
+  describe('DoS edge cases', () => {
+    const extractor = new GoExtractor();
+
+    test('handles extremely long error message (1MB)', () => {
+      // Create a 1MB error message
+      const longMsg = 'A'.repeat(1024 * 1024);
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: 'TestLongMessage',
+        Output: longMsg + '\n',
+      });
+
+      const result = extractor.extract(logText);
+
+      // Should extract the error without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+
+      // Message should be truncated or handled gracefully
+      assert.ok(result.errors[0].message.length > 0);
+      assert.ok(result.errors[0].rawOutput.length > 0);
+    });
+
+    test('handles extremely large test count with maxErrors limit', () => {
+      // Create log with 100k failed tests
+      const logLines: string[] = [];
+      for (let i = 0; i < 100000; i++) {
+        logLines.push(
+          JSON.stringify({
+            Time: '2024-01-01T00:00:00Z',
+            Action: 'fail',
+            Package: 'test/pkg',
+            Test: `Test${i}`,
+          })
+        );
+      }
+      const logText = logLines.join('\n');
+
+      const result = extractor.extract(logText, 100); // maxErrors = 100
+
+      // Should respect maxErrors limit
+      assert.strictEqual(result.framework, 'go');
+      assert.ok(result.errors.length <= 100);
+
+      // Verify first few errors are present
+      assert.ok(result.errors.some((e: ExtractedError) => e.testName === 'Test0'));
+      assert.ok(result.errors.some((e: ExtractedError) => e.testName === 'Test1'));
+    });
+
+    test('handles extremely long test name', () => {
+      // Create test with 100k character name
+      const longTestName = 'Test' + 'A'.repeat(100000);
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: longTestName,
+        Output: 'Failed\n',
+      });
+
+      const result = extractor.extract(logText);
+
+      // Should handle without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].testName?.includes('Test'));
+    });
+
+    test('handles extremely deep stack trace', () => {
+      // Create stack trace with 10k lines
+      const stackLines = [];
+      for (let i = 0; i < 10000; i++) {
+        stackLines.push(`    at function${i} (file.go:${i})`);
+      }
+      const deepStack = 'panic: error\n' + stackLines.join('\n');
+
+      const logText = JSON.stringify({
+        Time: '2024-01-01T00:00:00Z',
+        Action: 'fail',
+        Package: 'test/pkg',
+        Test: 'TestDeepStack',
+        Output: deepStack + '\n',
+      });
+
+      const result = extractor.extract(logText);
+
+      // Should handle without crashing
+      assert.strictEqual(result.framework, 'go');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.length > 0);
+    });
+
+    test('handles log with many empty lines and malformed JSON', () => {
+      // Mix of valid JSON, malformed JSON, and empty lines
+      const logLines = [];
+      for (let i = 0; i < 1000; i++) {
+        logLines.push(''); // Empty line
+        logLines.push('{invalid json'); // Malformed
+        logLines.push(
+          JSON.stringify({
+            Time: '2024-01-01T00:00:00Z',
+            Action: 'fail',
+            Package: 'test/pkg',
+            Test: `Test${i}`,
+          })
+        );
+      }
+      const logText = logLines.join('\n');
+
+      const result = extractor.extract(logText, 50);
+
+      // Should extract valid tests and handle errors gracefully
+      assert.strictEqual(result.framework, 'go');
+      assert.ok(result.errors.length > 0);
+      assert.ok(result.errors.length <= 50); // Respects maxErrors
+
+      // Should have parseWarnings about skipped lines
+      // (actual warning format depends on implementation)
+    });
   });
 });

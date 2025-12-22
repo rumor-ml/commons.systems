@@ -5,6 +5,7 @@
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { getGitRoot } from './git.js';
+import { logger } from './logger.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -61,6 +62,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const originalError = error instanceof Error ? error : new Error(String(error));
     throw new GitHubCliError(
       `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
+      undefined,
       undefined,
       undefined,
       originalError
@@ -122,6 +124,7 @@ export async function getCurrentRepo(): Promise<string> {
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
       error instanceof GitHubCliError ? error.exitCode : undefined,
       error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined,
       error instanceof Error ? error : undefined
     );
   }
@@ -329,9 +332,13 @@ export async function getPRReviewComments(
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
 
+  // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
+  // Current: throws on first malformed comment, blocking all remaining valid comments
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
+      // TODO(#319): Skip malformed comments instead of throwing
+      // Current: Single malformed comment blocks all subsequent valid comments
     } catch (error) {
       throw new GitHubCliError(
         `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`
@@ -422,6 +429,8 @@ export async function ghCliWithRetry(
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // TODO(#320): Log initial failure before retry logic
+    // Current: Only logs retry attempts, not what initially failed
     try {
       return await ghCli(args, options);
     } catch (error) {
@@ -434,17 +443,23 @@ export async function ghCliWithRetry(
 
       if (attempt === maxRetries) {
         // Final attempt failed
-        console.warn(
-          `ghCliWithRetry: all ${maxRetries} attempts failed for command: gh ${args.join(' ')}`
-        );
+        logger.warn('ghCliWithRetry: all attempts failed', {
+          maxRetries,
+          command: `gh ${args.join(' ')}`,
+          errorMessage: lastError.message,
+        });
         throw lastError;
       }
 
       // Exponential backoff: 2s, 4s, 8s
       const delayMs = Math.pow(2, attempt) * 1000;
-      console.warn(
-        `ghCliWithRetry: attempt ${attempt}/${maxRetries} failed for command: gh ${args.join(' ')}. Retrying in ${delayMs}ms. Error: ${lastError.message}`
-      );
+      logger.warn('ghCliWithRetry: attempt failed, retrying', {
+        attempt,
+        maxRetries,
+        command: `gh ${args.join(' ')}`,
+        retryDelayMs: delayMs,
+        errorMessage: lastError.message,
+      });
       await sleep(delayMs);
     }
   }

@@ -9,6 +9,7 @@ import {
   createToolError,
   isToolError,
   isToolSuccess,
+  validateToolResult,
   type ToolResult,
   type ToolSuccess,
   type ToolError,
@@ -359,6 +360,139 @@ describe('Immutability tests', () => {
     // Verify the mutation actually happened (shallow freeze limitation)
     if (result._meta && 'nested' in result._meta) {
       assert.equal((result._meta.nested as any).value, 456);
+    }
+  });
+});
+
+describe('Array validation', () => {
+  it('throws ValidationError when text is an array in createToolSuccess', () => {
+    assert.throws(() => createToolSuccess([] as any), {
+      name: 'ValidationError',
+      message: /text parameter must be a string, not an array/,
+    });
+  });
+
+  it('throws ValidationError when text is an array in createToolError', () => {
+    assert.throws(() => createToolError([] as any, 'Error'), {
+      name: 'ValidationError',
+      message: /text parameter must be a string, not an array/,
+    });
+  });
+});
+
+describe('validateToolResult', () => {
+  it('validates ToolSuccess created by factory', () => {
+    const result = createToolSuccess('test');
+    assert.equal(validateToolResult(result), true);
+  });
+
+  it('validates ToolError created by factory', () => {
+    const result = createToolError('error', 'TestError');
+    assert.equal(validateToolResult(result), true);
+  });
+
+  it('validates manually constructed ToolSuccess', () => {
+    const result = {
+      content: [{ type: 'text', text: 'test' }],
+      isError: false,
+    };
+    assert.equal(validateToolResult(result), true);
+  });
+
+  it('validates manually constructed ToolError', () => {
+    const result = {
+      content: [{ type: 'text', text: 'error' }],
+      isError: true,
+      _meta: { errorType: 'TestError' },
+    };
+    assert.equal(validateToolResult(result), true);
+  });
+
+  it('rejects null', () => {
+    assert.equal(validateToolResult(null), false);
+  });
+
+  it('rejects undefined', () => {
+    assert.equal(validateToolResult(undefined), false);
+  });
+
+  it('rejects non-objects', () => {
+    assert.equal(validateToolResult('string'), false);
+    assert.equal(validateToolResult(123), false);
+    assert.equal(validateToolResult(true), false);
+  });
+
+  it('rejects objects missing isError', () => {
+    const invalid = {
+      content: [{ type: 'text', text: 'test' }],
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects objects missing content', () => {
+    const invalid = {
+      isError: false,
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects objects with empty content array', () => {
+    const invalid = {
+      content: [],
+      isError: false,
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects objects with non-array content', () => {
+    const invalid = {
+      content: 'not an array',
+      isError: false,
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects error results without _meta', () => {
+    const invalid = {
+      content: [{ type: 'text', text: 'error' }],
+      isError: true,
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects error results without errorType in _meta', () => {
+    const invalid = {
+      content: [{ type: 'text', text: 'error' }],
+      isError: true,
+      _meta: { someOtherField: 'value' },
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects error results with empty errorType', () => {
+    const invalid = {
+      content: [{ type: 'text', text: 'error' }],
+      isError: true,
+      _meta: { errorType: '' },
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('rejects error results with non-string errorType', () => {
+    const invalid = {
+      content: [{ type: 'text', text: 'error' }],
+      isError: true,
+      _meta: { errorType: 123 },
+    };
+    assert.equal(validateToolResult(invalid), false);
+  });
+
+  it('provides type narrowing for valid results', () => {
+    const data: unknown = createToolSuccess('test');
+    if (validateToolResult(data)) {
+      // TypeScript should narrow the type to ToolResult
+      const result: ToolResult = data;
+      assert.equal(result.isError, false);
     }
   });
 });

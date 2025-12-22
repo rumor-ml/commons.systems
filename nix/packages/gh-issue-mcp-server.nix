@@ -40,7 +40,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps gh-issue-mcp-server/package-lock.json
-  npmDepsHash = "sha256-+hcEk5ha/lkiu2/sH3NW14MK7MDpSPxkWE4TFus2sCw=";
+  npmDepsHash = "sha256-v2zOKY1NLLoqVj/E6anArYbfS8Pn09jW0oK05jMUsHA=";
 
   # Link the built mcp-common package to satisfy file:../mcp-common reference
   # npm needs this directory to exist with package.json and dist/ for type resolution

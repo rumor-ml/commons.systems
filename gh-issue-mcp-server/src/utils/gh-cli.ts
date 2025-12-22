@@ -3,7 +3,7 @@
  */
 
 import { execa } from 'execa';
-import { GitHubCliError } from './errors.js';
+import { GitHubCliError, ParsingError } from './errors.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -39,7 +39,13 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       throw error;
     }
     if (error instanceof Error) {
-      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`);
+      throw new GitHubCliError(
+        `Failed to execute gh CLI: ${error.message}`,
+        undefined,
+        undefined,
+        undefined,
+        error
+      );
     }
     throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
   }
@@ -54,8 +60,13 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
-    throw new GitHubCliError(
-      `Failed to parse JSON response from gh CLI: ${error instanceof Error ? error.message : String(error)}`
+    // Provide context about what command failed and show output snippet
+    const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new ParsingError(
+      `Failed to parse JSON response from gh CLI: ${errorMessage}\n` +
+        `Command: gh ${args.join(' ')}\n` +
+        `Output (first 200 chars): ${outputSnippet}`
     );
   }
 }
@@ -68,6 +79,7 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // TODO: See issue #320 - Log original error before throwing wrapper
     throw new GitHubCliError(
       "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
     );

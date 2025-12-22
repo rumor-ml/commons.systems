@@ -13,6 +13,7 @@ import {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  isSystemError,
 } from './errors.js';
 import type { ToolResult, ToolError, ToolSuccess } from './types.js';
 import { createToolError, createToolSuccess } from './types.js';
@@ -20,13 +21,16 @@ import { createToolError, createToolSuccess } from './types.js';
 /**
  * Creates a ToolError from any error object with automatic type detection
  *
- * Preserves rich error context:
+ * **Error Handling Strategy:**
+ * - System errors (ENOMEM, ENOSPC, etc.): Re-thrown without wrapping
+ * - Programming errors (TypeError, ReferenceError, SyntaxError): Logged and wrapped with metadata
  * - GitHubCliError: Includes exitCode, stderr, stdout in metadata
  * - McpError subclasses: Includes error code if available
- * - Unknown errors: Logs to console, returns as UnknownError
+ * - Unknown errors: Logged with stack trace, returns as UnknownError
  *
  * @param error - Any error object to convert
  * @returns ToolError with appropriate errorType and metadata
+ * @throws Re-throws system errors (ENOMEM, ENOSPC, etc.) that cannot be recovered from
  *
  * @example
  * ```typescript
@@ -36,10 +40,34 @@ import { createToolError, createToolSuccess } from './types.js';
  * ```
  */
 export function createErrorResult(error: unknown): ToolError {
+  // Check for system errors first - these should never be wrapped
+  if (isSystemError(error)) {
+    console.error('[mcp-common] Critical system error detected, re-throwing:', {
+      code: (error as any).code,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   let errorType = 'UnknownError';
   let errorCode: string | undefined;
   let additionalMeta: Record<string, unknown> = {};
+
+  // Detect programming errors (TypeError, ReferenceError, SyntaxError)
+  const isProgrammingError =
+    error instanceof TypeError ||
+    error instanceof ReferenceError ||
+    error instanceof SyntaxError;
+
+  if (isProgrammingError && error instanceof Error) {
+    console.error('[mcp-common] Programming error detected:', {
+      type: error.constructor.name,
+      message: error.message,
+      stack: error.stack,
+    });
+    additionalMeta.isProgrammingError = true;
+  }
 
   // Categorize error types for better handling
   if (error instanceof TimeoutError) {
@@ -56,6 +84,7 @@ export function createErrorResult(error: unknown): ToolError {
     errorCode = 'GH_CLI_ERROR';
     // Preserve debugging context from GitHubCliError
     additionalMeta = {
+      ...additionalMeta,
       exitCode: error.exitCode,
       stderr: error.stderr,
       ...(error.stdout && { stdout: error.stdout }),
@@ -64,12 +93,13 @@ export function createErrorResult(error: unknown): ToolError {
     errorType = 'McpError';
     errorCode = error.code;
   } else {
-    // Log unknown error types for debugging
+    // Log unknown error types for debugging with stack trace
     if (error instanceof Error) {
       console.error('[mcp-common] Unknown error type encountered:', {
         name: error.name,
         message: error.message,
         constructor: error.constructor.name,
+        stack: error.stack,
       });
     } else {
       console.error('[mcp-common] Non-Error object thrown:', error);
@@ -82,6 +112,8 @@ export function createErrorResult(error: unknown): ToolError {
     message: message.substring(0, 100),
   });
 
+  // Manual construction used instead of createToolError factory to preserve
+  // programming error metadata that would be lost in factory's type narrowing
   return {
     content: [
       {
@@ -117,24 +149,37 @@ export function createSuccessResult(
 /**
  * Create error result from mcp-common error types (specialized version)
  *
- * Similar to createErrorResult() but returns null for non-McpError types instead
+ * Similar to createErrorResult() but can return null for non-McpError types instead
  * of handling them as UnknownError. This allows callers to implement custom
  * error handling for non-MCP errors.
+ *
+ * **Default behavior changed in v0.3.0:** Now defaults to fail-fast mode
+ * (fallbackToGeneric=false). Pass true to get the old fallback behavior.
  *
  * Use this when you want to handle non-McpError types differently.
  * Use createErrorResult() when you want automatic UnknownError handling.
  *
  * @param error - The error to convert
- * @param fallbackToGeneric - Whether to fall back to generic error for non-MCP errors (default: true)
+ * @param fallbackToGeneric - Whether to fall back to generic error for non-MCP errors (default: false, changed from true in v0.3.0)
  * @returns ToolError for McpError instances, null for other error types (if fallbackToGeneric is false)
+ * @throws {ValidationError} In development mode when non-McpError is passed with fallbackToGeneric=false
  */
 export function createErrorResultFromError(
   error: unknown,
-  fallbackToGeneric = true
+  fallbackToGeneric = false
 ): ToolError | null {
   if (!(error instanceof McpError)) {
     if (!fallbackToGeneric) {
-      console.warn('[mcp-common] Non-McpError passed to createErrorResultFromError:', error);
+      const errorMessage = '[mcp-common] Non-McpError passed to createErrorResultFromError';
+
+      // In development mode, throw instead of returning null
+      if (process.env.NODE_ENV === 'development') {
+        throw new ValidationError(
+          `${errorMessage}. Use createErrorResult() for automatic handling or pass fallbackToGeneric=true.`
+        );
+      }
+
+      console.warn(errorMessage, error);
       return null;
     }
 

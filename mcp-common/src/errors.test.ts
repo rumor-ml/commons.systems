@@ -11,6 +11,7 @@ import {
   NetworkError,
   GitHubCliError,
   isTerminalError,
+  analyzeRetryability,
   formatError,
   isSystemError,
   SYSTEM_ERROR_CODES,
@@ -469,5 +470,89 @@ describe('isSystemError', () => {
 
   it('verifies SYSTEM_ERROR_CODES constant', () => {
     assert.deepEqual(SYSTEM_ERROR_CODES, ['ENOMEM', 'ENOSPC', 'EMFILE', 'ENFILE']);
+  });
+});
+
+describe('analyzeRetryability', () => {
+  it('returns terminal decision for ValidationError', () => {
+    const error = new ValidationError('Invalid input');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, true);
+    assert.equal(decision.errorType, 'ValidationError');
+    assert.equal(decision.reason, 'Invalid input requires user correction');
+  });
+
+  it('returns retryable decision for TimeoutError', () => {
+    const error = new TimeoutError('Timed out');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'TimeoutError');
+    assert.ok(decision.reason.includes('may be transient'));
+  });
+
+  it('returns retryable decision for NetworkError', () => {
+    const error = new NetworkError('Connection failed');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'NetworkError');
+    assert.ok(decision.reason.includes('may be transient'));
+  });
+
+  it('returns retryable decision for GitHubCliError', () => {
+    const error = new GitHubCliError('gh failed', 1, 'stderr');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'GitHubCliError');
+  });
+
+  it('returns retryable decision for generic Error', () => {
+    const error = new Error('Generic error');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'Error');
+    assert.ok(decision.reason.includes('conservative default'));
+  });
+
+  it('returns retryable decision for TypeError', () => {
+    const error = new TypeError('Type error');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'TypeError');
+  });
+
+  it('returns retryable decision for string errors', () => {
+    const decision = analyzeRetryability('string error');
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'string');
+    assert.ok(decision.reason.includes('Non-Error object'));
+  });
+
+  it('returns retryable decision for null', () => {
+    const decision = analyzeRetryability(null);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'object'); // typeof null is 'object'
+  });
+
+  it('returns retryable decision for undefined', () => {
+    const decision = analyzeRetryability(undefined);
+
+    assert.equal(decision.isTerminal, false);
+    assert.equal(decision.errorType, 'undefined');
+  });
+
+  it('isTerminalError uses analyzeRetryability internally', () => {
+    const error = new ValidationError('test');
+    const decision = analyzeRetryability(error);
+    const isTerminal = isTerminalError(error);
+
+    assert.equal(isTerminal, decision.isTerminal);
   });
 });

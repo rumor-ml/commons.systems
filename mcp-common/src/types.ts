@@ -24,6 +24,12 @@ import { ValidationError } from './errors.js';
  * without breaking type compatibility. Use factory functions
  * (createToolSuccess) to maintain type safety.
  *
+ * **WARNING - Index Signature Escape Hatch:**
+ * The `[key: string]: unknown` index signature allows bypassing TypeScript's
+ * type safety. This is ONLY intended for MCP SDK internal use. Application
+ * code should NEVER rely on this - always use createToolSuccess() factory
+ * function to ensure proper validation and type safety.
+ *
  * @example
  * ```typescript
  * const result: ToolSuccess = {
@@ -36,7 +42,8 @@ export interface ToolSuccess {
   readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
   readonly isError: false; // Required discriminant for consistency
   readonly _meta?: Readonly<{ [key: string]: unknown }>;
-  [key: string]: unknown; // MCP SDK compatibility
+  // WARNING: Index signature allows bypassing type safety - use createToolSuccess() instead
+  [key: string]: unknown; // MCP SDK compatibility only
 }
 
 /**
@@ -54,6 +61,12 @@ export interface ToolSuccess {
  * extensions. This allows the MCP framework to add SDK-specific properties
  * without breaking type compatibility. Use factory functions
  * (createToolError) to maintain type safety.
+ *
+ * **WARNING - Index Signature Escape Hatch:**
+ * The `[key: string]: unknown` index signature allows bypassing TypeScript's
+ * type safety. This is ONLY intended for MCP SDK internal use. Application
+ * code should NEVER rely on this - always use createToolError() factory
+ * function to ensure proper validation and type safety.
  *
  * @example
  * ```typescript
@@ -73,7 +86,8 @@ export interface ToolError {
     readonly errorCode?: string; // Error code should be immutable
     [key: string]: unknown;
   }>;
-  [key: string]: unknown; // MCP SDK compatibility
+  // WARNING: Index signature allows bypassing type safety - use createToolError() instead
+  [key: string]: unknown; // MCP SDK compatibility only
 }
 
 /**
@@ -123,6 +137,61 @@ export function isToolSuccess(result: ToolResult): result is ToolSuccess {
 }
 
 /**
+ * Runtime validator to check if an unknown value is a valid ToolResult
+ *
+ * Performs runtime validation to ensure an object conforms to the ToolResult
+ * type structure. Useful for validating external data or API responses.
+ *
+ * **Validation checks:**
+ * - Object exists and is not null
+ * - Has 'isError' and 'content' properties
+ * - If isError is true, _meta must exist with errorType
+ * - If isError is false, no required _meta fields
+ *
+ * @param result - Unknown value to validate
+ * @returns true if result is a valid ToolResult, with type narrowing
+ *
+ * @example
+ * ```typescript
+ * const data: unknown = await fetchFromAPI();
+ * if (validateToolResult(data)) {
+ *   // TypeScript knows data is ToolResult
+ *   if (data.isError) {
+ *     console.error(data._meta.errorType);
+ *   }
+ * }
+ * ```
+ */
+export function validateToolResult(result: unknown): result is ToolResult {
+  if (!result || typeof result !== 'object') {
+    return false;
+  }
+
+  if (!('isError' in result) || !('content' in result)) {
+    return false;
+  }
+
+  const r = result as { isError: unknown; content: unknown; _meta?: unknown };
+
+  // Validate content array
+  if (!Array.isArray(r.content) || r.content.length === 0) {
+    return false;
+  }
+
+  // For error results, _meta with errorType is required
+  if (r.isError === true) {
+    if (!r._meta || typeof r._meta !== 'object') {
+      return false;
+    }
+    const meta = r._meta as Record<string, unknown>;
+    return typeof meta.errorType === 'string' && meta.errorType.length > 0;
+  }
+
+  // For success results, isError must be false
+  return r.isError === false;
+}
+
+/**
  * Legacy type alias for backward compatibility
  *
  * @deprecated Use ToolResult instead
@@ -132,10 +201,24 @@ export type ErrorResult = ToolError;
 /**
  * Factory function to create a successful tool result
  *
+ * **WARNING: Shallow Immutability Only**
+ * This function uses Object.freeze for ONLY shallow immutability. Nested objects
+ * and arrays in meta ARE FULLY MUTABLE at runtime. For example:
+ * ```typescript
+ * const result = createToolSuccess("test", { items: [1, 2] });
+ * result._meta.items.push(3);  // This WILL modify the array!
+ * ```
+ * TypeScript's readonly annotations provide compile-time type safety but no
+ * runtime enforcement. Do not rely on immutability for nested structures.
+ *
+ * **Development Mode:**
+ * In NODE_ENV=development, warns when metadata contains nested objects that
+ * are not deeply frozen.
+ *
  * @param text - Success message text (empty string allowed, null/undefined rejected)
  * @param meta - Optional metadata to include
  * @returns A properly typed ToolSuccess object
- * @throws {ValidationError} If text is null or undefined
+ * @throws {ValidationError} If text is null, undefined, or an array
  *
  * @example
  * ```typescript
@@ -146,14 +229,8 @@ export type ErrorResult = ToolError;
  * // These will throw ValidationError:
  * // createToolSuccess(null);       // Error: text is null
  * // createToolSuccess(undefined);  // Error: text is undefined
+ * // createToolSuccess([]);         // Error: text is an array
  * ```
- *
- * IMPORTANT: Uses Object.freeze for ONLY shallow immutability. Nested objects
- * and arrays in meta ARE FULLY MUTABLE at runtime. For example:
- *   const result = createToolSuccess("test", { items: [1, 2] });
- *   result._meta.items.push(3);  // This WILL modify the array!
- * TypeScript's readonly annotations provide compile-time type safety but no
- * runtime enforcement. Do not rely on immutability for nested structures.
  */
 export function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess {
   // Fail-fast validation: reject null/undefined (but allow empty strings)
@@ -165,6 +242,13 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
   if (text === undefined) {
     throw new ValidationError(
       'createToolSuccess: text parameter is required. Expected string, received undefined'
+    );
+  }
+
+  // Validate that text is not an array
+  if (Array.isArray(text)) {
+    throw new ValidationError(
+      'createToolSuccess: text parameter must be a string, not an array. Did you mean to pass text as a string?'
     );
   }
 
@@ -190,12 +274,20 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
 /**
  * Factory function to create an error tool result
  *
+ * **WARNING: Shallow Immutability Only**
+ * This function uses Object.freeze for ONLY shallow immutability. Nested objects
+ * and arrays in meta ARE FULLY MUTABLE at runtime.
+ *
+ * **Development Mode:**
+ * In NODE_ENV=development, throws ValidationError if meta contains reserved keys
+ * (isError, content) instead of just warning.
+ *
  * @param text - Error message text (empty string allowed, null/undefined rejected)
  * @param errorType - Error type for categorization (required, must be non-empty after trimming)
  * @param errorCode - Optional error code for programmatic handling
- * @param meta - Optional additional metadata
+ * @param meta - Optional additional metadata (must not contain 'isError' or 'content' keys)
  * @returns A properly typed ToolError object
- * @throws {ValidationError} If text or errorType is null/undefined/empty
+ * @throws {ValidationError} If text or errorType is null/undefined/empty, or if meta contains reserved keys (development mode only)
  *
  * @example
  * ```typescript
@@ -211,6 +303,7 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
  * // createToolError("msg", null);        // Error: errorType is null
  * // createToolError("msg", "");          // Error: errorType is empty
  * // createToolError("msg", "   ");       // Error: errorType is whitespace-only
+ * // createToolError("msg", "Error", undefined, { isError: true }); // Error in dev mode: reserved key
  * ```
  */
 export function createToolError(
@@ -228,6 +321,13 @@ export function createToolError(
   if (text === undefined) {
     throw new ValidationError(
       'createToolError: text parameter is required. Expected string, received undefined'
+    );
+  }
+
+  // Validate that text is not an array
+  if (Array.isArray(text)) {
+    throw new ValidationError(
+      'createToolError: text parameter must be a string, not an array. Did you mean to pass text as a string?'
     );
   }
 
@@ -250,18 +350,26 @@ export function createToolError(
 
   // Validate that meta doesn't contain reserved keys
   if (meta && ('isError' in meta || 'content' in meta)) {
-    console.warn(
-      '[mcp-common] meta contains reserved keys (isError, content), they will be overwritten'
-    );
+    const errorMessage =
+      '[mcp-common] meta contains reserved keys (isError, content), they will be overwritten';
+
+    // In development mode, throw instead of just warning
+    if (process.env.NODE_ENV === 'development') {
+      throw new ValidationError(
+        `${errorMessage}. Remove these keys from meta parameter - they are automatically set by the factory function.`
+      );
+    }
+
+    console.warn(errorMessage);
   }
 
   const result = {
     content: [{ type: 'text' as const, text }],
     isError: true as const,
     _meta: Object.freeze({
-      errorType: errorType.trim(),
+      ...meta, // User metadata first
+      errorType: errorType.trim(), // Then required fields
       ...(errorCode && { errorCode }),
-      ...meta,
     }),
   };
   return Object.freeze(result) as ToolError;

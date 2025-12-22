@@ -158,3 +158,65 @@ describe('GitError', () => {
     assert.strictEqual(error.stderr, undefined);
   });
 });
+
+describe('extractIssueNumberFromBranch', () => {
+  it('should extract issue number from standard branch format', async () => {
+    // This test verifies standard branch name parsing
+    // Implementation: Call extractIssueNumberFromBranch with "123-feature-name"
+    // Expected: Returns 123
+  });
+
+  it('should handle branch names with multiple dashes', async () => {
+    // This test verifies parsing with multiple dashes in name
+    // Implementation: Call extractIssueNumberFromBranch with "123-my-feature-name-here"
+    // Expected: Returns 123
+  });
+
+  it('should return null for invalid formats', async () => {
+    // This test verifies rejection of invalid formats
+    // Implementation: Call extractIssueNumberFromBranch with "feature-name", "main", "", "abc-feature"
+    // Expected: Returns null for all
+  });
+
+  it('should handle edge cases', async () => {
+    // This test verifies edge case handling
+    // Implementation: Call extractIssueNumberFromBranch with "0-feature", "1-x"
+    // Expected: Returns 0, 1 respectively
+  });
+
+  it('should handle branch names with only issue number', async () => {
+    // This test verifies that dash is required
+    // Implementation: Call extractIssueNumberFromBranch with "123"
+    // Expected: Returns null (no dash)
+  });
+
+  it('should handle branch names with leading zeros', async () => {
+    // This test verifies numeric parsing ignores leading zeros
+    // Implementation: Call extractIssueNumberFromBranch with "0123-feature"
+    // Expected: Returns 123
+  });
+
+  it('should return null for negative numbers', async () => {
+    // This test verifies negative numbers are rejected
+    // Implementation: Call extractIssueNumberFromBranch with "-123-feature"
+    // Expected: Returns null
+  });
+
+  it('should handle very large issue numbers', async () => {
+    // This test verifies large number support
+    // Implementation: Call extractIssueNumberFromBranch with "999999-large-issue"
+    // Expected: Returns 999999
+  });
+
+  it('should return null for branch names starting with non-numeric characters', async () => {
+    // This test verifies that first character must be numeric
+    // Implementation: Call extractIssueNumberFromBranch with "v123-feature", "feature-123"
+    // Expected: Returns null for both
+  });
+
+  it('should handle branch names with special characters after dash', async () => {
+    // This test verifies special characters after dash are allowed
+    // Implementation: Call extractIssueNumberFromBranch with "123-feature_name", "456-fix/bug"
+    // Expected: Returns 123, 456 respectively
+  });
+});

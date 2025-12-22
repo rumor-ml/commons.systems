@@ -3,7 +3,7 @@
  */
 
 import { execa } from 'execa';
-import { GitHubCliError } from './errors.js';
+import { GitHubCliError, ParsingError } from './errors.js';
 import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from '../constants.js';
 
 export interface GhCliOptions {
@@ -40,7 +40,13 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       throw error;
     }
     if (error instanceof Error) {
-      throw new GitHubCliError(`Failed to execute gh CLI: ${error.message}`);
+      throw new GitHubCliError(
+        `Failed to execute gh CLI: ${error.message}`,
+        undefined,
+        undefined,
+        undefined,
+        error
+      );
     }
     throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
   }
@@ -55,10 +61,11 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
+    // TODO: See issue #332 - Improve error context (show more output, include full command)
     // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new GitHubCliError(
+    throw new ParsingError(
       `Failed to parse JSON response from gh CLI: ${errorMessage}\n` +
         `Command: gh ${args.join(' ')}\n` +
         `Output (first 200 chars): ${outputSnippet}`
@@ -330,6 +337,9 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
  */
 export async function getPR(prNumber: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
+  // TODO(#349): Improve JSON parsing resilience - see PR #273 review
+  // Current: Throws on first malformed JSON, blocking all subsequent comments
+  // Recommended: Skip malformed lines with logging instead of throwing
   return ghCliJson(
     [
       'pr',

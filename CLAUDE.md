@@ -1,5 +1,7 @@
 **CRITICAL: always run git/gh/nix/gcloud/`go mod tidy`/pnpm commands with dangerouslyDisableSandbox: true**
 
+**CRITICAL: E2E tests require sandbox disabled** - `make test-e2e` must run with `dangerouslyDisableSandbox: true` due to tmux socket creation restrictions. The tests will detect sandbox issues and provide a clear error message.
+
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="accept-edits"` to execute the plan.
 
 Trust user bug reports. Do not assume caching errors or user error while building.
@@ -14,7 +16,9 @@ Do not ask user to fetch test results, logs or monitor workflows when you can do
 
 ## TypeScript MCP Server Changes
 
-When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server), verify:
+<!-- TODO(#302): Make this MCP server list more maintainable - see issue for options -->
+
+When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server, git-mcp-server), verify:
 
 1. **TypeScript compilation succeeds:** `npm run build` in the server directory
 2. **All tests pass:** `npm test` in the server directory
@@ -57,12 +61,12 @@ When you use the SlashCommand tool:
 assistant: <calls SlashCommand with /commit-merge-push>
 system: <command-message>commit-merge-push is running…</command-message>
         1. Invoke the commit subagent. Wait for successful commit before proceeding.
-        2. Run `git fetch origin && git merge origin/main`.
+        2. Run `git fetch origin && git merge origin/main` with `dangerouslyDisableSandbox: true`.
         3. If conflicts occur: Invoke the resolve-conflicts subagent.
         4. Invoke the push subagent.
 assistant: <executes step 1 - calls Task tool with subagent_type="Commit">
 assistant: <waits for commit to complete>
-assistant: <executes step 2 - runs git fetch and merge>
+assistant: <executes step 2 - runs git fetch and merge with dangerouslyDisableSandbox: true>
 assistant: <executes step 4 - calls Task tool with subagent_type="Push">
 assistant: <only after all steps complete, proceeds with other work>
 ```

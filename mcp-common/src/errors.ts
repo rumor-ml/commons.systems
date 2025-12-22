@@ -91,7 +91,7 @@ export class NetworkError extends McpError {
  *
  * Captures structured information from gh command failures including:
  * - Exit code (clamped to valid range 0-255)
- * - stderr output (required)
+ * - stderr output (can be empty string)
  * - stdout output (optional)
  *
  * Note: Exit codes outside 0-255 are clamped to valid range with a warning
@@ -106,6 +106,11 @@ export class NetworkError extends McpError {
  *   'Error: could not create pull request',
  *   ''
  * );
+ *
+ * // Invalid exit code is clamped with warning prefix:
+ * const err = new GitHubCliError('Failed', 500, 'stderr');
+ * // err.message === '[Warning: Invalid exit code 500 clamped to 255] Failed'
+ * // err.exitCode === 255
  * ```
  */
 export class GitHubCliError extends McpError {
@@ -113,27 +118,52 @@ export class GitHubCliError extends McpError {
 
   constructor(
     message: string,
-    exitCode: number,
-    public readonly stderr: string,
-    public readonly stdout?: string
+    exitCode: number = -1,
+    public readonly stderr: string = '',
+    public readonly stdout?: string,
+    cause?: Error
   ) {
-    // Clamp exit code to valid range instead of throwing
-    const clampedExitCode = Math.max(0, Math.min(255, exitCode));
+    // -1 indicates process didn't run or exit code unknown
+    // Clamp exit code to valid range (0-255) for actual exit codes
+    const clampedExitCode = exitCode === -1 ? -1 : Math.max(0, Math.min(255, exitCode));
 
-    // Add warning to message if exit code was invalid
+    // Add warning to message if exit code was invalid (but not for -1 sentinel)
     const warningPrefix =
-      exitCode !== clampedExitCode
+      exitCode !== -1 && exitCode !== clampedExitCode
         ? `[Warning: Invalid exit code ${exitCode} clamped to ${clampedExitCode}] `
         : '';
 
     super(`${warningPrefix}${message}`, 'GH_CLI_ERROR');
     this.name = 'GitHubCliError';
     this.exitCode = clampedExitCode;
+    if (cause) {
+      this.cause = cause;
+    }
   }
 }
 
 /**
- * Determine if an error is terminal (not retryable)
+ * Retry decision information with structured metadata
+ *
+ * Provides detailed information about whether an error should be retried,
+ * including the error type and reason for the retry decision.
+ */
+export interface RetryDecision {
+  /** Whether the error is terminal (should not be retried) */
+  readonly isTerminal: boolean;
+  /** The error type (e.g., 'ValidationError', 'TimeoutError', 'Error', 'string') */
+  readonly errorType: string;
+  /** Human-readable explanation of why the error is or is not terminal */
+  readonly reason: string;
+}
+
+/**
+ * Analyze an error to determine if it should be retried
+ *
+ * Returns structured metadata about the retry decision including:
+ * - Whether the error is terminal
+ * - The error type
+ * - The reason for the decision
  *
  * Retry Strategy:
  * - ValidationError: Terminal (requires user input correction)
@@ -155,25 +185,82 @@ export class GitHubCliError extends McpError {
  * - Con: Adds latency if retries are unsuccessful
  * Servers can override this behavior by checking specific error types before retrying.
  *
+ * @param error - Error to analyze
+ * @returns Structured retry decision with metadata
+ *
+ * @example
+ * ```typescript
+ * const decision = analyzeRetryability(error);
+ * if (decision.isTerminal) {
+ *   console.error(`Terminal error: ${decision.reason}`);
+ *   return createErrorResult(error);
+ * }
+ * console.log(`Retrying: ${decision.reason}`);
+ * await retry(operation);
+ * ```
+ */
+export function analyzeRetryability(error: unknown): RetryDecision {
+  // ValidationError is terminal - requires user input correction
+  if (error instanceof ValidationError) {
+    return {
+      isTerminal: true,
+      errorType: 'ValidationError',
+      reason: 'Invalid input requires user correction',
+    };
+  }
+
+  // All other error types are retryable by default (conservative approach)
+  if (error instanceof Error) {
+    const errorType = error.constructor.name;
+    const isKnownType = error instanceof McpError;
+
+    console.debug('[mcp-common] Error marked as retryable:', {
+      type: errorType,
+      message: error.message.substring(0, 100),
+      isKnownType,
+    });
+
+    return {
+      isTerminal: false,
+      errorType,
+      reason: isKnownType
+        ? `${errorType} may be transient, retry may succeed`
+        : 'Unknown error type treated as retryable (conservative default)',
+    };
+  }
+
+  // Non-Error objects (strings, numbers, etc.)
+  const errorType = typeof error;
+  return {
+    isTerminal: false,
+    errorType,
+    reason: `Non-Error object (${errorType}) treated as retryable`,
+  };
+}
+
+/**
+ * Determine if an error is terminal (not retryable)
+ *
+ * This is a convenience wrapper around analyzeRetryability() that returns
+ * only the boolean terminal status. For detailed retry decision information,
+ * use analyzeRetryability() instead.
+ *
+ * Retry Strategy:
+ * - ValidationError: Terminal (requires user input correction)
+ * - TimeoutError: Potentially retryable (may succeed with more time)
+ * - NetworkError: Potentially retryable (transient network issues)
+ * - Other errors: Treated as potentially retryable (conservative approach)
+ *
  * IMPORTANT: This function currently ONLY returns true for ValidationError.
  * All other error types (including unknown errors, null, strings, etc.) return false.
  *
  * @param error - Error to check
  * @returns true if error is terminal and should not be retried
+ *
+ * @see analyzeRetryability For detailed retry decision information
  */
 export function isTerminalError(error: unknown): boolean {
-  const isTerminal = error instanceof ValidationError;
-
-  // Log retry decisions for visibility
-  if (error instanceof Error && !isTerminal) {
-    console.debug('[mcp-common] Error marked as retryable:', {
-      type: error.constructor.name,
-      message: error.message.substring(0, 100),
-      isKnownType: error instanceof McpError,
-    });
-  }
-
-  return isTerminal;
+  return analyzeRetryability(error).isTerminal;
 }
 
 /**
@@ -233,10 +320,17 @@ export function isSystemError(error: unknown): boolean {
   const errorCode = (error as { code: unknown }).code;
 
   if (typeof errorCode !== 'string') {
-    console.warn('[mcp-common] Error object has non-string code:', {
+    const warningMessage = '[mcp-common] Error object has non-string code';
+    console.warn(warningMessage, {
       code: errorCode,
       type: typeof errorCode,
     });
+
+    // In development mode, provide additional diagnostic information
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`${warningMessage} - Full error object:`, error);
+    }
+
     return false;
   }
 

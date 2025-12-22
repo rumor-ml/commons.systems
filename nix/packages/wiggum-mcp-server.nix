@@ -38,7 +38,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps wiggum-mcp-server/package-lock.json
-  npmDepsHash = "sha256-VzwI1f1mAPLI237r6Jf8uVB9/rDtY+ZRzUGvmfZfa6g=";
+  npmDepsHash = "sha256-+wbxNUeJ7V6iO1uycT8h3xT7l+GRMtGotcQ9TiBlocU=";
 
   # Link the built mcp-common package to satisfy file:../mcp-common reference
   # npm needs this directory to exist with package.json and dist/ for type resolution

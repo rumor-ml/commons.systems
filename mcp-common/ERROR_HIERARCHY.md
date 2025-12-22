@@ -193,7 +193,7 @@ new GitHubCliError(
 - `name: string` - Always 'GitHubCliError'
 - `code: 'GH_CLI_ERROR'` - Automatically set
 - `exitCode: number` - Process exit code (clamped to 0-255)
-- `stderr: string` - Standard error output
+- `stderr: string` - Standard error output (can be empty string)
 - `stdout?: string` - Standard output (optional)
 
 **Special behavior**: Exit codes outside 0-255 are automatically clamped with a warning in the message. This ensures error construction never fails.
@@ -361,18 +361,20 @@ try {
 }
 ```
 
-**Automatic categorization**:
+**Error Handling Strategy**:
 
-- TimeoutError → `errorType: 'TimeoutError', errorCode: 'TIMEOUT'`
-- ValidationError → `errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR'`
-- NetworkError → `errorType: 'NetworkError', errorCode: 'NETWORK_ERROR'`
-- GitHubCliError → `errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR'`
-- McpError → `errorType: 'McpError', errorCode: error.code`
-- Other errors → `errorType: 'UnknownError'`
+- **System errors** (ENOMEM, ENOSPC, etc.): Re-thrown without wrapping
+- **Programming errors** (TypeError, ReferenceError, SyntaxError): Logged with full stack trace and wrapped with `isProgrammingError: true` metadata
+- **TimeoutError** → `errorType: 'TimeoutError', errorCode: 'TIMEOUT'`
+- **ValidationError** → `errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR'`
+- **NetworkError** → `errorType: 'NetworkError', errorCode: 'NETWORK_ERROR'`
+- **GitHubCliError** → `errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR'` (includes exitCode, stderr, stdout in metadata)
+- **McpError** → `errorType: 'McpError', errorCode: error.code`
+- **Other errors** → `errorType: 'UnknownError'` (logged with stack trace)
 
 ### createErrorResultFromError
 
-Specialized version that only handles McpError types.
+Specialized version that only handles McpError types. Can return null for non-MCP errors.
 
 **Signature**:
 
@@ -380,29 +382,75 @@ Specialized version that only handles McpError types.
 function createErrorResultFromError(error: unknown, fallbackToGeneric?: boolean): ToolError | null;
 ```
 
+**Default Behavior Change (v0.3.0)**:
+
+- **Old default** (v0.2.x): `fallbackToGeneric=true` - converts non-MCP errors to generic ToolError
+- **New default** (v0.3.0): `fallbackToGeneric=false` - returns null for non-MCP errors (fail-fast)
+
+**Development Mode Behavior**:
+
+In NODE_ENV=development, throws ValidationError for non-MCP errors instead of returning null, providing immediate feedback during development.
+
 **Usage**:
 
 ```typescript
 import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
 
-// With fallback (default)
+// Fail-fast mode (new default)
 const result = createErrorResultFromError(error);
-// Always returns ToolError
-
-// Without fallback
-const result = createErrorResultFromError(error, false);
 if (result) {
   return result;
 } else {
   // Handle non-MCP error differently
 }
+
+// Fallback mode (old behavior)
+const result = createErrorResultFromError(error, true);
+// Always returns ToolError
 ```
 
 ## Utility Functions
 
+### analyzeRetryability
+
+Analyzes an error to determine if it should be retried with structured metadata.
+
+**Signature**:
+
+```typescript
+function analyzeRetryability(error: unknown): RetryDecision;
+
+interface RetryDecision {
+  readonly isTerminal: boolean;
+  readonly errorType: string;
+  readonly reason: string;
+}
+```
+
+**Usage**:
+
+```typescript
+import { analyzeRetryability } from '@commons/mcp-common/errors';
+
+const decision = analyzeRetryability(error);
+if (decision.isTerminal) {
+  console.error(`Terminal error (${decision.errorType}): ${decision.reason}`);
+  return createErrorResult(error);
+}
+
+console.log(`Retrying (${decision.errorType}): ${decision.reason}`);
+await retry(operation);
+```
+
+**Decision Details**:
+
+- `isTerminal`: Whether the error is terminal (should not be retried)
+- `errorType`: Error type (e.g., 'ValidationError', 'TimeoutError', 'Error', 'string')
+- `reason`: Human-readable explanation of the decision
+
 ### isTerminalError
 
-Determines if an error should terminate retry attempts.
+Determines if an error should terminate retry attempts. This is a convenience wrapper around `analyzeRetryability()` that returns only the boolean terminal status.
 
 **Signature**:
 
@@ -439,6 +487,8 @@ await retry(operation, { maxRetries: 3 });
 - Retry limits prevent infinite loops
 - Only ValidationError is definitively terminal
 
+**Note**: For detailed retry decision information including error type and reason, use `analyzeRetryability()` instead.
+
 ### formatError
 
 Formats errors for display with optional context.
@@ -467,7 +517,7 @@ console.error(formatError(error, true));
 
 ### isSystemError
 
-Checks if an error is a critical system error.
+Checks if an error is a critical system error that should be re-thrown without wrapping.
 
 **Signature**:
 
@@ -481,6 +531,10 @@ function isSystemError(error: unknown): boolean;
 - `ENOSPC` - No space left on device
 - `EMFILE` - Too many open files (process limit)
 - `ENFILE` - Too many open files (system limit)
+
+**Development Mode Behavior**:
+
+In NODE_ENV=development, provides additional diagnostic information when an error object has a non-string code property.
 
 **Usage**:
 
@@ -498,6 +552,8 @@ try {
   return createErrorResult(error);
 }
 ```
+
+**Note**: `createErrorResult()` automatically checks for system errors and re-throws them, so explicit checking is only needed in custom error handling code.
 
 ## Type Guards
 
@@ -528,6 +584,41 @@ import { isToolSuccess } from '@commons/mcp-common/types';
 if (isToolSuccess(result)) {
   // TypeScript knows result is ToolSuccess
   console.log(result.content[0].text);
+}
+```
+
+### validateToolResult
+
+Runtime validator to check if an unknown value is a valid ToolResult.
+
+**Signature**:
+
+```typescript
+function validateToolResult(result: unknown): result is ToolResult;
+```
+
+**Validation checks**:
+
+- Object exists and is not null
+- Has 'isError' and 'content' properties
+- Content is a non-empty array
+- If isError is true, \_meta must exist with non-empty string errorType
+- If isError is false, no required \_meta fields
+
+**Usage**:
+
+```typescript
+import { validateToolResult } from '@commons/mcp-common/types';
+
+// Validate external data or API responses
+const data: unknown = await fetchFromAPI();
+if (validateToolResult(data)) {
+  // TypeScript knows data is ToolResult
+  if (data.isError) {
+    console.error(data._meta.errorType);
+  }
+} else {
+  throw new Error('Invalid tool result format');
 }
 ```
 
@@ -625,15 +716,18 @@ result._meta.items.push(3); // WORKS - array is mutable
 result._meta.config.debug = false; // WORKS - nested object is mutable
 ```
 
-**Development Mode Warning:**
-In development mode (`NODE_ENV === 'development'`), factory functions warn when
-you pass nested objects or arrays that remain mutable despite `readonly` type
-annotations.
+**Development Mode Warnings and Validations:**
+
+In development mode (`NODE_ENV === 'development'`), factory functions provide enhanced validation:
+
+- **Nested objects warning**: Warns when metadata contains nested objects that are not deeply frozen
+- **Reserved keys**: `createToolError()` throws ValidationError if meta contains reserved keys ('isError', 'content') instead of just warning
+- **Array validation**: Both factories throw ValidationError if text parameter is an array instead of a string
+- **Non-MCP errors**: `createErrorResultFromError()` throws ValidationError for non-MCP errors when `fallbackToGeneric=false`
 
 **Best Practice:**
-Treat result objects as immutable even though nested structures technically can
-be modified. The type system provides compile-time guarantees; runtime enforcement
-is shallow by design for performance.
+
+Treat result objects as immutable even though nested structures technically can be modified. The type system provides compile-time guarantees; runtime enforcement is shallow by design for performance.
 
 ## Migration Guide: Safe-Defaults to Fail-Fast
 

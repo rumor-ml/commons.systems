@@ -1,5 +1,22 @@
 /**
- * Error handling utilities for Gh Issue MCP server
+ * Error handling utilities for GitHub Issue MCP server
+ *
+ * This module provides a typed error hierarchy for categorizing failures in MCP tool operations.
+ * Error classes enable:
+ * - Type-safe error handling with instanceof checks
+ * - Structured error categorization for retry logic
+ * - Standardized error result formatting for MCP protocol
+ *
+ * Error Hierarchy:
+ * - McpError: Base class for all MCP-related errors
+ *   - TimeoutError: Operation exceeded time limit (may be retryable)
+ *   - ValidationError: Invalid input parameters (terminal, not retryable)
+ *   - NetworkError: Network-related failures (may be retryable)
+ *   - GitHubCliError: GitHub CLI command failures
+ *   - ParsingError: Failed to parse external command output
+ *   - FormattingError: Failed to format response data
+ *
+ * @module errors
  */
 
 import type { ToolError } from '@commons/mcp-common/types';
@@ -24,6 +41,33 @@ export {
   formatError,
   isTerminalError,
 };
+
+/**
+ * Error thrown when parsing external command output fails
+ *
+ * Indicates unexpected format or structure in command output (e.g., JSON
+ * parsing failures, malformed responses). Usually indicates version mismatch
+ * or breaking changes in external tools.
+ */
+export class ParsingError extends McpError {
+  constructor(message: string) {
+    super(message, 'PARSING_ERROR');
+    this.name = 'ParsingError';
+  }
+}
+
+/**
+ * Error thrown when formatting response data fails
+ *
+ * Indicates invalid response structure that doesn't match expected schema.
+ * Common when internal state or protocol contracts are violated.
+ */
+export class FormattingError extends McpError {
+  constructor(message: string) {
+    super(message, 'FORMATTING_ERROR');
+    this.name = 'FormattingError';
+  }
+}
 
 /**
  * Create a standardized error result for MCP tool responses

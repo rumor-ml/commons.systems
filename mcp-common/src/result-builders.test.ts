@@ -142,21 +142,73 @@ describe('createErrorResultFromError', () => {
     assert.equal(result!._meta.errorCode, 'PARSING_ERROR');
   });
 
-  it('returns generic ToolError for non-McpError with fallback (default)', () => {
+  it('returns null for non-McpError without fallback (new default)', () => {
     const error = new Error('Generic');
     const result = createErrorResultFromError(error);
 
-    // With fallbackToGeneric=true (default), returns ToolError
+    // With fallbackToGeneric=false (new default), returns null
+    assert.equal(result, null);
+  });
+
+  it('returns generic ToolError for non-McpError with fallback=true', () => {
+    const error = new Error('Generic');
+    const result = createErrorResultFromError(error, true);
+
+    // With fallbackToGeneric=true, returns ToolError
     assert.notEqual(result, null);
     assert.equal(result!._meta.errorType, 'Error');
     assert.equal(result!._meta.errorCode, 'UNKNOWN_ERROR');
   });
+});
 
-  it('returns null for non-McpError without fallback', () => {
-    const error = new Error('Generic');
-    const result = createErrorResultFromError(error, false);
+describe('createErrorResult - system error handling', () => {
+  it('re-throws system errors (ENOMEM)', () => {
+    const systemError = { code: 'ENOMEM', message: 'Out of memory' };
 
-    // With fallbackToGeneric=false, returns null
-    assert.equal(result, null);
+    assert.throws(
+      () => createErrorResult(systemError),
+      (err: any) => err === systemError
+    );
+  });
+
+  it('re-throws system errors (ENOSPC)', () => {
+    const systemError = { code: 'ENOSPC', message: 'No space left' };
+
+    assert.throws(
+      () => createErrorResult(systemError),
+      (err: any) => err === systemError
+    );
+  });
+
+  it('detects and logs programming errors (TypeError)', () => {
+    const error = new TypeError('Type error');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any).isProgrammingError, true);
+  });
+
+  it('detects and logs programming errors (ReferenceError)', () => {
+    const error = new ReferenceError('Reference error');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any).isProgrammingError, true);
+  });
+
+  it('detects and logs programming errors (SyntaxError)', () => {
+    const error = new SyntaxError('Syntax error');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any).isProgrammingError, true);
+  });
+
+  it('does not mark other Error types as programming errors', () => {
+    const error = new Error('Generic error');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.ok(!('isProgrammingError' in result._meta));
   });
 });

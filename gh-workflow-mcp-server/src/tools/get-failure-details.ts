@@ -150,8 +150,33 @@ function extractTestSummary(logText: string): string | null {
 function formatJobSummaries(
   run: WorkflowRunData,
   summaries: FailedJobSummary[],
-  maxChars: number
+  maxChars: number,
+  parseWarnings?: string[]
 ): ToolResult {
+  // TODO(#328): Consider extracting budget calculation pattern into helper function
+  // Calculate warning text size FIRST to reserve space in budget
+  let warningText = '';
+  if (parseWarnings && parseWarnings.length > 0) {
+    const warningLines = ['', '', '⚠️  EXTRACTION WARNING: Test output parsing encountered issues'];
+    for (const warning of parseWarnings) {
+      warningLines.push(`  - ${warning}`);
+    }
+    warningLines.push('Some test results may be incomplete. Check logs for details.');
+    warningText = warningLines.join('\n');
+  }
+
+  const warningSize = warningText.length;
+  const truncationMarker = '\n\n[... truncated due to length limit ...]';
+  const truncationMarkerSize = truncationMarker.length;
+
+  // Reserve space for warnings and truncation marker
+  // Use Math.max to ensure we don't get negative budget
+  const summaryBudget = Math.max(
+    100, // Minimum budget to show at least some content
+    maxChars - warningSize - truncationMarkerSize
+  );
+
+  // Build summary content
   const lines: string[] = [
     `Workflow Run Failed: ${run.name}`,
     `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
@@ -177,8 +202,49 @@ function formatJobSummaries(
   }
 
   let output = lines.join('\n');
+
+  // Truncate summary if it exceeds budget
+  if (output.length > summaryBudget) {
+    output = output.substring(0, summaryBudget) + truncationMarker;
+  }
+
+  // Append warnings (guaranteed to fit since we reserved space)
+  if (warningText) {
+    output += warningText;
+  }
+
+  // TODO(#345,#346): Track budget calculation bugs as tool errors, not silent warnings
+  // Current: Returns success with [BUG] diagnostics when output exceeds max_chars
+  // See PR review #273 for emergency truncation bug details
+  // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
-    output = output.substring(0, maxChars - 50) + '\n\n[... truncated due to length limit ...]';
+    const overage = output.length - maxChars;
+
+    const truncationNotice = [
+      '',
+      '⚠️  EMERGENCY TRUNCATION OCCURRED',
+      '',
+      `Content ${overage} chars over limit (${output.length} > ${maxChars})`,
+      'This indicates a budget calculation bug.',
+      '',
+      'Budget Breakdown:',
+      `  - Summary: ${summaryBudget} chars`,
+      `  - Warnings: ${warningSize} chars`,
+      `  - Expected: ${summaryBudget + warningSize + truncationMarkerSize}`,
+      `  - Actual: ${output.length}`,
+      '',
+      'PLEASE FILE BUG REPORT with budget breakdown',
+    ].join('\n');
+
+    console.error(
+      `[BUG] formatJobSummaries: output exceeded maxChars despite budget calculation. ` +
+        `Expected: ${maxChars}, Actual: ${output.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+    );
+
+    // Emergency truncation preserving as much context as possible
+    const preserveAmount = Math.max(500, maxChars - truncationNotice.length - warningText.length);
+    output =
+      output.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
   }
 
   return { content: [{ type: 'text', text: output }] };
@@ -195,11 +261,12 @@ function formatJobSummaries(
 async function getFailureDetailsFromLogFailed(
   runId: number,
   repo: string
-): Promise<FailedJobSummary[]> {
+): Promise<{ summaries: FailedJobSummary[]; parseWarnings: string[] }> {
   const output = await getFailedStepLogs(runId, repo);
   const parsedSteps = parseFailedStepLogs(output);
 
   const jobSummaries: Map<string, FailedJobSummary> = new Map();
+  const parseWarnings: string[] = [];
 
   for (const step of parsedSteps) {
     // Create job summary if it doesn't exist
@@ -218,6 +285,11 @@ async function getFailureDetailsFromLogFailed(
     const extraction = extractErrors(fullLog, 15);
     const errorLines = formatExtractionResult(extraction);
 
+    // Collect parse warnings if present
+    if (extraction.parseWarnings) {
+      parseWarnings.push(`${step.jobName} / ${step.stepName}: ${extraction.parseWarnings}`);
+    }
+
     // For unknown framework (generic extractor), use raw log lines instead of formatted output
     // This preserves formatting for diffs, build errors, etc.
     const finalLines = extraction.framework === 'unknown' ? step.lines.slice(-100) : errorLines;
@@ -230,9 +302,45 @@ async function getFailureDetailsFromLogFailed(
     });
   }
 
-  return Array.from(jobSummaries.values());
+  return {
+    summaries: Array.from(jobSummaries.values()),
+    parseWarnings,
+  };
 }
 
+/**
+ * Get token-efficient summary of workflow failures
+ *
+ * Extracts relevant error messages and context from failed jobs using framework-
+ * specific extractors (Playwright, Go, generic). Provides concise failure summaries
+ * optimized for LLM token budgets. Automatically falls back through multiple
+ * extraction strategies for robustness.
+ *
+ * Strategy:
+ * 1. Completed failed runs: Use `gh run view --log-failed` (cleanest output)
+ * 2. In-progress/API fallback: Use GitHub API jobs endpoint (raw logs)
+ *
+ * @param input - Extraction configuration
+ * @param input.run_id - Specific workflow run ID
+ * @param input.pr_number - PR number (uses first failed run)
+ * @param input.branch - Branch name (uses most recent run)
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.max_chars - Maximum response length (default: 10000)
+ *
+ * @returns Failure summary with error extraction and test results
+ *
+ * @throws {ValidationError} If no identifier provided or run not found
+ * @throws {GitHubCliError} If gh CLI command fails (exit code != 0)
+ * @throws {ParsingError} If JSON output from gh CLI is malformed
+ *
+ * @example
+ * // Get failure details for PR's first failed run
+ * await getFailureDetails({ pr_number: 42 });
+ *
+ * @example
+ * // Get failure details with custom length limit
+ * await getFailureDetails({ run_id: 123456, max_chars: 5000 });
+ */
 export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
@@ -296,30 +404,65 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
     // For completed failed runs, use --log-failed (best output)
     // This provides cleaner, step-filtered logs directly from GitHub CLI
+    let fallbackWarningPrefix = '';
+    let usingFallbackDueToLogFailedError = false;
+
     if (runCompleted && runFailed) {
       try {
-        const summaries = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
+        const result = await getFailureDetailsFromLogFailed(runId, resolvedRepo);
+
+        // Validate we got meaningful results
+        if (
+          result.summaries.length === 0 ||
+          result.summaries.every((s) => s.failed_steps.length === 0)
+        ) {
+          throw new Error('--log-failed returned no failure details despite run failing');
+        }
 
         // Format and return results using the new helper
-        return formatJobSummaries(run, summaries, input.max_chars);
+        return formatJobSummaries(run, result.summaries, input.max_chars, result.parseWarnings);
       } catch (error) {
+        // TODO: See issue #319 - Only catch GitHubCliError for --log-failed, let validation/timeout/parsing errors propagate
         // Fall through to job-based approach if --log-failed fails
         // This can happen if:
         // - No failed steps in the run (edge case)
         // - GitHub CLI version doesn't support --log-failed
         // - Other GitHub API issues
-        const fallbackNotice =
-          '\n\nNote: Failed to use `gh run view --log-failed` (preferred method). ' +
-          'Falling back to GitHub API jobs endpoint. ' +
-          'This may result in less precise error extraction.';
+        const errorDetails = formatErrorMessage(error);
+
+        // Extract exit code for warning prefix
+        let errorTypeInfo = '';
+        if (error instanceof GitHubCliError) {
+          errorTypeInfo = error.exitCode ? ` (exit code ${error.exitCode})` : '';
+        }
+
+        // Create comprehensive warning to prepend to output
+        fallbackWarningPrefix = [
+          '⚠️  WARNING: Unable to use preferred error extraction method',
+          '',
+          'Attempted: gh run view --log-failed (provides cleanest output)',
+          `Error: ${errorDetails}${errorTypeInfo}`,
+          '',
+          'Falling back to: GitHub API jobs endpoint',
+          `  - Returns raw step logs without framework-specific parsing`,
+          `  - May include build output mixed with test failures`,
+          '',
+          'To fix:',
+          '- Ensure latest gh CLI: gh upgrade',
+          '- Check GitHub token has workflow read permissions',
+          '',
+          '---',
+          '',
+        ].join('\n');
+
+        usingFallbackDueToLogFailedError = true;
 
         console.error(
           formatErrorMessage(
             error,
             `Failed to get --log-failed output for run ${runId}, falling back to API approach`
-          ) + fallbackNotice
+          )
         );
-        // Note: Subsequent output will use GitHub API jobs endpoint instead of --log-failed
       }
     }
 
@@ -328,9 +471,6 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // - In-progress runs with fail-fast detection
     // - Cases where --log-failed failed
     // - Runs that haven't completed yet but have failed jobs
-    //
-    // Track whether we're using fallback due to --log-failed failure
-    const usingFallbackDueToError = runCompleted && runFailed;
 
     // Get all jobs first - we need to check for failed jobs even if run is still in progress
     // (supports fail-fast monitoring where we detect failures before run completes)
@@ -401,6 +541,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
 
     // Collect failure details for each failed job
     const failedJobSummaries: FailedJobSummary[] = [];
+    const parseWarnings: string[] = [];
     let totalChars = 0;
 
     for (const job of failedJobs) {
@@ -422,6 +563,11 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // The extractor will identify framework-specific patterns
         const extraction = extractErrors(logs, 15);
         const errorLines = formatExtractionResult(extraction);
+
+        // Collect parse warnings if present
+        if (extraction.parseWarnings) {
+          parseWarnings.push(`${job.name}: ${extraction.parseWarnings}`);
+        }
 
         if (failedStepNames.length > 0) {
           // We know which steps failed, include that info
@@ -513,34 +659,88 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // Indicate if run is still in progress (fail-fast scenario)
     const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
 
-    // Add fallback notice if we fell back from --log-failed
-    const fallbackNotice = usingFallbackDueToError
-      ? [
-          ``,
-          `Note: Failed to use \`gh run view --log-failed\` (preferred method). Using GitHub API fallback instead.`,
-          `This may result in less precise error extraction.`,
-          ``,
-        ]
-      : [];
+    // Calculate warning text size FIRST to reserve space in budget
+    let warningText = '';
+    if (parseWarnings.length > 0) {
+      const warningLines = [
+        '',
+        '',
+        '⚠️  EXTRACTION WARNING: Test output parsing encountered issues',
+      ];
+      for (const warning of parseWarnings) {
+        warningLines.push(`  - ${warning}`);
+      }
+      warningLines.push('Some test results may be incomplete. Check logs for details.');
+      warningText = warningLines.join('\n');
+    }
 
-    const summary = [
+    const warningSize = warningText.length;
+    const truncationMarker = '\n\n... (truncated due to length limit)';
+    const truncationMarkerSize = truncationMarker.length;
+
+    // Reserve space for warnings and truncation marker
+    const summaryBudget = Math.max(
+      100, // Minimum budget
+      input.max_chars - warningSize - truncationMarkerSize
+    );
+
+    // Build summary content
+    let summary = [
+      // Prepend fallback warning if --log-failed failed
+      ...(usingFallbackDueToLogFailedError ? [fallbackWarningPrefix] : []),
       `Workflow Run Failed${headerSuffix}: ${run.name}`,
       `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
       `URL: ${run.url}`,
-      ...fallbackNotice,
       ``,
       `Failed Jobs (${failedJobSummaries.length}):`,
       ...jobSummaries,
     ].join('\n');
 
-    // Truncate if needed
-    const finalSummary =
-      summary.length > input.max_chars
-        ? summary.substring(0, input.max_chars) + '\n\n... (truncated due to length limit)'
-        : summary;
+    // Truncate summary if needed
+    if (summary.length > summaryBudget) {
+      summary = summary.substring(0, summaryBudget) + truncationMarker;
+    }
+
+    // Append warnings (guaranteed to fit)
+    const finalSummary = summary + warningText;
+
+    // Final safety check
+    let outputText = finalSummary;
+    if (finalSummary.length > input.max_chars) {
+      const overage = finalSummary.length - input.max_chars;
+
+      const truncationNotice = [
+        '',
+        '⚠️  EMERGENCY TRUNCATION OCCURRED',
+        '',
+        `Content ${overage} chars over limit (${finalSummary.length} > ${input.max_chars})`,
+        'This indicates a budget calculation bug.',
+        '',
+        'Budget Breakdown:',
+        `  - Summary: ${summaryBudget} chars`,
+        `  - Warnings: ${warningSize} chars`,
+        `  - Expected: ${summaryBudget + warningSize + truncationMarkerSize}`,
+        `  - Actual: ${finalSummary.length}`,
+        '',
+        'PLEASE FILE BUG REPORT with budget breakdown',
+      ].join('\n');
+
+      console.error(
+        `[BUG] getFailureDetails: output exceeded max_chars despite budget calculation. ` +
+          `Expected: ${input.max_chars}, Actual: ${finalSummary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+      );
+
+      // Emergency truncation
+      const preserveAmount = Math.max(
+        500,
+        input.max_chars - truncationNotice.length - warningText.length
+      );
+      outputText =
+        summary.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
+    }
 
     return {
-      content: [{ type: 'text', text: finalSummary }],
+      content: [{ type: 'text', text: outputText }],
     };
   } catch (error) {
     return createErrorResult(error);
