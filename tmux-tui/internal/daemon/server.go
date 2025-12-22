@@ -518,12 +518,7 @@ func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) b
 	d.eventsMu.Lock()
 	defer d.eventsMu.Unlock()
 
-	// Create event key
-	key := eventKey{
-		paneID:    paneID,
-		eventType: eventType,
-		created:   created,
-	}
+	key := eventKey{paneID: paneID, eventType: eventType, created: created}
 	now := time.Now()
 
 	// Check if this event occurred recently (deduplication window)

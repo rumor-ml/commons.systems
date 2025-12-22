@@ -106,25 +106,22 @@ func (l *LockFile) Release() error {
 		return nil
 	}
 
-	var errs []error
-
 	// Release the lock
+	var unlockErr error
 	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
 		debug.Log("LOCKFILE_RELEASE_ERROR path=%s error=%v", l.path, err)
-		errs = append(errs, fmt.Errorf("failed to release lock: %w", err))
+		unlockErr = fmt.Errorf("failed to release lock: %w", err)
 	}
 
 	// Close the file
+	var closeErr error
 	if err := l.file.Close(); err != nil {
 		debug.Log("LOCKFILE_CLOSE_ERROR path=%s error=%v", l.path, err)
-		errs = append(errs, fmt.Errorf("failed to close file: %w", err))
+		closeErr = fmt.Errorf("failed to close file: %w", err)
 	}
 
 	debug.Log("LOCKFILE_RELEASED path=%s", l.path)
 	l.file = nil
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
+	return errors.Join(unlockErr, closeErr)
 }

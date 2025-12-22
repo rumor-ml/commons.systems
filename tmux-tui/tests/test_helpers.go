@@ -413,18 +413,19 @@ func CleanupAlertFiles(socketName string) error {
 		fmt.Printf("Cleaning up %d entries from %s\n", len(entries), alertDir)
 		for _, entry := range entries {
 			entryPath := filepath.Join(alertDir, entry.Name())
-			if entry.IsDir() {
+
+			// Log entry type and size
+			switch {
+			case entry.IsDir():
 				fmt.Printf("  [dir]  %s\n", entry.Name())
-			} else {
-				info, _ := entry.Info()
-				if info != nil {
+			default:
+				if info, _ := entry.Info(); info != nil {
 					fmt.Printf("  [file] %s (%d bytes)\n", entry.Name(), info.Size())
 				} else {
 					fmt.Printf("  [file] %s\n", entry.Name())
 				}
 			}
 
-			// Attempt individual cleanup with error logging
 			if err := os.RemoveAll(entryPath); err != nil {
 				fmt.Fprintf(os.Stderr, "WARNING: Failed to remove %s: %v\n", entryPath, err)
 			}
