@@ -31,8 +31,10 @@ export interface ReviewConfig {
   phase1Step: WiggumStep;
   /** Step identifier for Phase 2 */
   phase2Step: WiggumStep;
-  /** Command that was executed */
-  commandName: string;
+  /** Command for Phase 1 */
+  phase1Command: string;
+  /** Command for Phase 2 */
+  phase2Command: string;
   /** Type label for logging and messages (e.g., "PR", "Security") */
   reviewTypeLabel: string;
   /** Issue type for messages (e.g., "issue(s)", "security issue(s)") */
@@ -82,12 +84,15 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
  * Build comment content based on review results
  * TODO: See issue #334 - Add tests for comment content formatting
  */
-function buildCommentContent(
+export function buildCommentContent(
   input: ReviewCompletionInput,
   reviewStep: WiggumStep,
   totalIssues: number,
-  config: ReviewConfig
+  config: ReviewConfig,
+  phase: WiggumPhase
 ): { title: string; body: string } {
+  const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
+
   const title =
     totalIssues > 0
       ? `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) - Issues Found`
@@ -95,7 +100,7 @@ function buildCommentContent(
 
   const body =
     totalIssues > 0
-      ? `**Command Executed:** \`${config.commandName}\`
+      ? `**Command Executed:** \`${commandExecuted}\`
 
 **${config.reviewTypeLabel} Issues Found:**
 - High Priority: ${input.high_priority_issues}
@@ -111,7 +116,7 @@ ${input.verbatim_response}
 </details>
 
 **Next Action:** Plan and implement ${config.reviewTypeLabel.toLowerCase()} fixes for all issues, then call \`wiggum_complete_fix\`.`
-      : `**Command Executed:** \`${config.commandName}\`
+      : `**Command Executed:** \`${commandExecuted}\`
 
 ${config.successMessage}`;
 
@@ -225,6 +230,7 @@ function buildIssuesFoundResponse(
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
+  // TODO: See issue #417 - Notify users when fallback workflow is used
   if (issueNumber) {
     logger.info(
       `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
@@ -313,12 +319,19 @@ export async function completeReview(
   const totalIssues =
     input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
 
-  const { title, body } = buildCommentContent(input, reviewStep, totalIssues, config);
+  const { title, body } = buildCommentContent(
+    input,
+    reviewStep,
+    totalIssues,
+    config,
+    state.wiggum.phase
+  );
   const hasIssues = totalIssues > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
   const result = await postStateComment(state, newState, title, body);
 
+  // TODO: See issue #415 - Add safe discriminated union access with type guards
   if (!result.success) {
     logger.error('Review state comment failed - halting workflow', {
       reviewType: config.reviewTypeLabel,

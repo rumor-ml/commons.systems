@@ -90,6 +90,7 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
  * Complete a fix cycle and update state
  */
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
+  // TODO: See issue #416 - Improve error message to provide user guidance instead of debugging internals
   if (!input.fix_description || input.fix_description.trim().length === 0) {
     logger.error('wiggum_complete_fix validation failed: empty fix_description', {
       receivedValue: input.fix_description,
@@ -102,6 +103,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   }
 
   // Validate out_of_scope_issues array contents if provided
+  // TODO: See issue #416 - Provide detailed validation explaining which specific validation each number failed
   if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
     const invalidNumbers = input.out_of_scope_issues.filter(
       (num) => !Number.isFinite(num) || num <= 0 || !Number.isInteger(num)
@@ -110,6 +112,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
         invalidNumbers,
       });
+      // TODO: See issue #312 - Add Sentry error ID for tracking
       throw new ValidationError(
         `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
       );
@@ -187,6 +190,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
           );
 
     if (!stateResult.success) {
+      // TODO: See issue #416 - Add reason-specific error guidance for different failure types
       logger.error('Critical: State comment failed to post (fast-path) - halting workflow', {
         targetNumber,
         phase,

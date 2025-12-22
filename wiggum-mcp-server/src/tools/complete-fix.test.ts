@@ -1,12 +1,12 @@
 /**
  * Tests for complete-fix tool
  *
- * Schema validation and type safety coverage for fix completion inputs.
- * Tests cover Zod schema validation for fix_description and out_of_scope_issues parameters.
+ * Zod schema validation coverage for CompleteFixInputSchema.
+ * Tests verify schema accepts valid inputs and rejects type mismatches.
  *
- * NOTE: Runtime validation tests (error messages, validation logic execution) are in
- * __tests__/complete-fix.validation.test.ts which actually executes completeFix()
- * with invalid inputs to verify ValidationErrors are thrown correctly.
+ * NOTE: Tool runtime validation (empty strings, invalid issue numbers) occurs
+ * in completeFix() function after schema validation passes. See test documentation
+ * in "error path validation (tool-level)" section below for runtime validation behavior.
  *
  * TODO: See issue #313 - Add integration tests with mocked GitHub/git for state updates,
  * comment posting, completedSteps filtering, and phase-specific behavior.
@@ -172,7 +172,7 @@ describe('complete-fix tool', () => {
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      // Schema accepts it - the tool validates and rejects non-integers
+      // Schema accepts decimals - tool runtime validation rejects non-integers
       assert.strictEqual(result.success, true);
     });
 
@@ -184,7 +184,7 @@ describe('complete-fix tool', () => {
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      // Schema accepts it - the tool validates and rejects negatives
+      // Zod accepts negative numbers - tool runtime validation rejects them
       assert.strictEqual(result.success, true);
     });
 
@@ -196,7 +196,7 @@ describe('complete-fix tool', () => {
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      // Schema accepts it - the tool validates and rejects zero
+      // Zod accepts zero - tool runtime validation rejects it
       assert.strictEqual(result.success, true);
     });
 
@@ -220,7 +220,7 @@ describe('complete-fix tool', () => {
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      // Schema accepts it - the tool validates and rejects Infinity
+      // Zod accepts Infinity - tool runtime validation rejects it
       assert.strictEqual(result.success, true);
     });
 

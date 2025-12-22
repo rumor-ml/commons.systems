@@ -168,6 +168,53 @@ describe('Step Order and Progression', () => {
   });
 });
 
+describe('Phase-Specific Review Commands', () => {
+  describe('command constant integrity', () => {
+    it('should define PHASE1_PR_REVIEW_COMMAND as /all-hands-review', () => {
+      const { PHASE1_PR_REVIEW_COMMAND } = require('./constants.js');
+      assert.strictEqual(PHASE1_PR_REVIEW_COMMAND, '/all-hands-review');
+    });
+
+    it('should define PHASE2_PR_REVIEW_COMMAND as /review', () => {
+      const { PHASE2_PR_REVIEW_COMMAND } = require('./constants.js');
+      assert.strictEqual(PHASE2_PR_REVIEW_COMMAND, '/review');
+    });
+
+    it('should have distinct phase1 and phase2 commands', () => {
+      const { PHASE1_PR_REVIEW_COMMAND, PHASE2_PR_REVIEW_COMMAND } = require('./constants.js');
+      assert.notStrictEqual(
+        PHASE1_PR_REVIEW_COMMAND,
+        PHASE2_PR_REVIEW_COMMAND,
+        'Phase 1 and Phase 2 commands must be different'
+      );
+    });
+
+    it('should follow slash command format for phase1', () => {
+      const { PHASE1_PR_REVIEW_COMMAND } = require('./constants.js');
+      assert.ok(PHASE1_PR_REVIEW_COMMAND.startsWith('/'), 'Phase 1 command should start with /');
+      assert.ok(PHASE1_PR_REVIEW_COMMAND.length > 1, 'Phase 1 command should have content after /');
+    });
+
+    it('should follow slash command format for phase2', () => {
+      const { PHASE2_PR_REVIEW_COMMAND } = require('./constants.js');
+      assert.ok(PHASE2_PR_REVIEW_COMMAND.startsWith('/'), 'Phase 2 command should start with /');
+      assert.ok(PHASE2_PR_REVIEW_COMMAND.length > 1, 'Phase 2 command should have content after /');
+    });
+
+    it('should define SECURITY_REVIEW_COMMAND as /security-review', () => {
+      const { SECURITY_REVIEW_COMMAND } = require('./constants.js');
+      assert.strictEqual(SECURITY_REVIEW_COMMAND, '/security-review');
+    });
+
+    it('should use same security review command for both phases', () => {
+      const { SECURITY_REVIEW_COMMAND } = require('./constants.js');
+      // Security review uses the same command in both phases
+      // This test documents that behavior
+      assert.strictEqual(SECURITY_REVIEW_COMMAND, '/security-review');
+    });
+  });
+});
+
 describe('generateTriageInstructions', () => {
   describe('issueNumber validation', () => {
     it('should reject non-finite issueNumber', () => {

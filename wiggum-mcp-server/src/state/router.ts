@@ -27,7 +27,8 @@ import {
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
-  PR_REVIEW_COMMAND,
+  PHASE1_PR_REVIEW_COMMAND,
+  PHASE2_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
@@ -169,6 +170,7 @@ export async function safePostStateComment(
     await postWiggumStateComment(prNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
+    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -286,6 +288,7 @@ export async function safePostIssueStateComment(
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
+    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -395,6 +398,7 @@ function formatFixInstructions(
   failureDetails: string | undefined,
   defaultMessage: string
 ): string {
+  // TODO: See issue #417 - Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
   const sanitizedDetails = failureDetails
@@ -656,7 +660,7 @@ Execute comprehensive PR review on the current branch before creating the pull r
 
 1. Execute the PR review command:
    \`\`\`
-   ${PR_REVIEW_COMMAND}
+   ${PHASE1_PR_REVIEW_COMMAND}
    \`\`\`
 
 2. After the review completes, call the \`wiggum_complete_pr_review\` tool with:
@@ -773,6 +777,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
+  // TODO: See issue #378 - Use hasExistingPR type guard instead of inline check
   if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
@@ -1261,7 +1266,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response
@@ -1317,7 +1322,7 @@ function handlePhase2PRReview(state: CurrentStateWithPR): ToolResult {
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 
 After all review agents complete:
 1. Capture the complete verbatim response
