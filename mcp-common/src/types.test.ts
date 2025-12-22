@@ -214,10 +214,17 @@ describe('GitHubCliError exit code validation', () => {
     assert.doesNotThrow(() => new GitHubCliError('msg', 255, 'stderr'));
   });
 
+  it('preserves -1 sentinel value without warning', () => {
+    const error = new GitHubCliError('Process did not run', -1, 'stderr');
+    assert.equal(error.exitCode, -1);
+    assert.ok(!error.message.includes('Warning'));
+    assert.equal(error.message, 'Process did not run');
+  });
+
   it('clamps invalid exit codes instead of throwing', () => {
-    const error1 = new GitHubCliError('msg', -1, 'stderr');
+    const error1 = new GitHubCliError('msg', -5, 'stderr');
     assert.equal(error1.exitCode, 0);
-    assert.ok(error1.message.includes('Warning: Invalid exit code -1 clamped to 0'));
+    assert.ok(error1.message.includes('Warning: Invalid exit code -5 clamped to 0'));
 
     const error2 = new GitHubCliError('msg', 256, 'stderr');
     assert.equal(error2.exitCode, 255);

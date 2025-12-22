@@ -107,10 +107,8 @@ export function createErrorResult(error: unknown): ToolError {
   const commonResult = createErrorResultFromError(error);
   if (commonResult) return commonResult;
 
-  let message = String(error);
-  if (error instanceof Error) {
-    message = error.message;
-  }
+  // TODO: See issue #444 - Simplify error message extraction patterns
+  const message = error instanceof Error ? error.message : String(error);
 
   let errorType = 'UnknownError';
   let errorCode: string | undefined;

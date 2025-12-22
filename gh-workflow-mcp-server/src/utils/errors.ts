@@ -63,8 +63,9 @@ export class FormattingError extends McpError {
  * Create a standardized error result for MCP tool responses
  *
  * Delegates to the shared createErrorResultFromError for all common error types.
- * Since this server only uses common errors (GitHubCliError, TimeoutError, etc.),
- * the shared helper handles everything.
+ * Server-specific errors (ParsingError, FormattingError) are handled by
+ * createErrorResultFromError as generic McpError with their error codes.
+ * Only non-McpError types fall through to the UnknownError fallback.
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ToolError with error information and type metadata
@@ -74,10 +75,7 @@ export function createErrorResult(error: unknown): ToolError {
   if (commonResult) return commonResult;
 
   // Fallback for unknown error types
-  let message = String(error);
-  if (error instanceof Error) {
-    message = error.message;
-  }
+  const message = error instanceof Error ? error.message : String(error);
   return {
     content: [
       {

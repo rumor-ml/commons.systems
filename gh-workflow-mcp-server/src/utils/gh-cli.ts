@@ -36,6 +36,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
+    // TODO: See issue #443 - Distinguish programming errors from operational errors
     if (error instanceof GitHubCliError) {
       throw error;
     }
@@ -61,7 +62,7 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
-    // TODO: See issue #332 - Improve error context (show more output, include full command)
+    // TODO: See issue #442 - Preserve stack trace in JSON parsing errors
     // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -81,6 +82,7 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // TODO: See issue #441 - Fix silent error swallowing in getCurrentRepo()
     throw new GitHubCliError(
       "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
     );

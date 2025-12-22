@@ -214,11 +214,13 @@ export function analyzeRetryability(error: unknown): RetryDecision {
     const errorType = error.constructor.name;
     const isKnownType = error instanceof McpError;
 
-    console.debug('[mcp-common] Error marked as retryable:', {
-      type: errorType,
-      message: error.message.substring(0, 100),
-      isKnownType,
-    });
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true') {
+      console.debug('[mcp-common] Error marked as retryable:', {
+        type: errorType,
+        message: error.message.substring(0, 100),
+        isKnownType,
+      });
+    }
 
     return {
       isTerminal: false,

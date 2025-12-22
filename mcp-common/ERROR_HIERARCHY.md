@@ -181,9 +181,10 @@ try {
 ```typescript
 new GitHubCliError(
   message: string,
-  exitCode: number,
-  stderr: string,
-  stdout?: string
+  exitCode: number = -1,
+  stderr: string = '',
+  stdout?: string,
+  cause?: Error
 )
 ```
 
@@ -192,11 +193,11 @@ new GitHubCliError(
 - `message: string` - Human-readable error description
 - `name: string` - Always 'GitHubCliError'
 - `code: 'GH_CLI_ERROR'` - Automatically set
-- `exitCode: number` - Process exit code (clamped to 0-255)
+- `exitCode: number` - Process exit code (clamped to 0-255, except -1 sentinel is preserved)
 - `stderr: string` - Standard error output (can be empty string)
 - `stdout?: string` - Standard output (optional)
 
-**Special behavior**: Exit codes outside 0-255 are automatically clamped with a warning in the message. This ensures error construction never fails.
+**Special behavior**: Exit codes outside 0-255 are automatically clamped with a warning in the message, except -1 which is preserved as a sentinel value for "exit code unknown". This ensures error construction never fails.
 
 **Example**:
 
@@ -699,22 +700,28 @@ async function fetchWithTimeout(url: string, timeout: number): Promise<string> {
 
 Factory functions use `Object.freeze()` for **shallow immutability only**:
 
-**✅ Protected (Immutable):**
+**✅ Protected (Immutable) - Top-level and first-level \_meta keys:**
 
 ```typescript
 const result = createToolSuccess('msg', { count: 5 });
 result.isError = true; // TypeError: Cannot assign to readonly property
 result._meta = {}; // TypeError: Cannot assign to readonly property
-result._meta.count = 10; // TypeError: Cannot assign to readonly property
+result._meta.count = 10; // TypeError: Cannot assign to readonly property (first-level key)
 ```
 
-**❌ Not Protected (Mutable):**
+**❌ Not Protected (Mutable) - Nested objects and arrays:**
 
 ```typescript
 const result = createToolSuccess('msg', { items: [1, 2], config: { debug: true } });
-result._meta.items.push(3); // WORKS - array is mutable
-result._meta.config.debug = false; // WORKS - nested object is mutable
+result._meta.items.push(3); // WORKS - arrays are mutable (shallow freeze)
+result._meta.config.debug = false; // WORKS - nested objects are mutable (shallow freeze)
 ```
+
+**Important:** Object.freeze() is shallow, meaning:
+
+- Top-level properties (isError, content, \_meta) are frozen
+- First-level keys within \_meta are frozen
+- Nested objects and arrays within \_meta are NOT frozen and remain mutable
 
 **Development Mode Warnings and Validations:**
 
@@ -729,46 +736,48 @@ In development mode (`NODE_ENV === 'development'`), factory functions provide en
 
 Treat result objects as immutable even though nested structures technically can be modified. The type system provides compile-time guarantees; runtime enforcement is shallow by design for performance.
 
-## Migration Guide: Safe-Defaults to Fail-Fast
+## Design Decision: Fail-Fast Validation
 
-**Version**: 0.2.0 (Breaking changes)
+**Historical Context**: This section documents the design rationale for fail-fast validation in factory functions.
 
-### What Changed
+### Design Philosophy
 
-Factory functions now throw `ValidationError` for invalid inputs instead of using safe defaults.
+Factory functions throw `ValidationError` for invalid inputs instead of using safe defaults. This fail-fast approach was chosen to:
 
-### Breaking Changes
+1. **Catch bugs early**: Null/undefined values indicate programming errors that should be fixed, not silently papered over
+2. **Prevent confusing error messages**: Safe defaults like "[Warning: ...] [Error: missing...]" hide the root cause
+3. **Improve debugging**: Stack traces point to the actual bug location, not downstream symptom
+4. **Maintain type safety**: TypeScript types promise string parameters; runtime validation enforces this
 
-**Before (v0.1.x)**:
+### What is Validated
 
-```typescript
-createToolSuccess(null); // Returned: "[Warning: ...] [Error: missing...]"
-createToolError('msg', ''); // Returned: errorType = 'UnknownError'
-```
-
-**After (v0.2.x)**:
+**Factory functions throw ValidationError for:**
 
 ```typescript
-createToolSuccess(null); // Throws ValidationError
-createToolError('msg', ''); // Throws ValidationError
+createToolSuccess(null); // Throws ValidationError (null not allowed)
+createToolSuccess(undefined); // Throws ValidationError (undefined not allowed)
+createToolError('msg', ''); // Throws ValidationError (empty errorType not allowed)
+createToolError('msg', '   '); // Throws ValidationError (whitespace-only errorType)
 ```
 
-### Migration Steps
+**What is allowed:**
+
+```typescript
+createToolSuccess(''); // OK - empty string is valid text
+createErrorResult(unknownError); // OK - converts unknown errors gracefully
+new GitHubCliError('msg', 500, 'stderr'); // OK - clamps invalid exit codes automatically
+```
+
+### Best Practice
 
 Ensure inputs are never null/undefined:
 
 ```typescript
-// BEFORE (risky)
+// NOT RECOMMENDED (risky)
 const message = data?.message;
 return createToolSuccess(message);
 
-// AFTER (safe)
+// RECOMMENDED (safe)
 const message = data?.message ?? 'Operation completed';
 return createToolSuccess(message);
 ```
-
-### What Stayed the Same
-
-- Empty strings are still valid: `createToolSuccess('')` works
-- `createErrorResult()` still converts unknown errors gracefully
-- `GitHubCliError` still clamps invalid exit codes

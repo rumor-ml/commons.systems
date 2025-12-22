@@ -95,14 +95,14 @@ export function createErrorResult(error: unknown): ToolError {
   } else {
     // Log unknown error types for debugging with stack trace
     if (error instanceof Error) {
-      console.error('[mcp-common] Unknown error type encountered:', {
+      console.error('[mcp-common] Converting unknown error type to ToolError (expected):', {
         name: error.name,
         message: error.message,
         constructor: error.constructor.name,
         stack: error.stack,
       });
     } else {
-      console.error('[mcp-common] Non-Error object thrown:', error);
+      console.error('[mcp-common] Converting non-Error object to ToolError (expected):', error);
     }
   }
 
@@ -153,14 +153,14 @@ export function createSuccessResult(
  * of handling them as UnknownError. This allows callers to implement custom
  * error handling for non-MCP errors.
  *
- * **Default behavior changed in v0.3.0:** Now defaults to fail-fast mode
- * (fallbackToGeneric=false). Pass true to get the old fallback behavior.
+ * **Current default behavior:** Defaults to fail-fast mode (fallbackToGeneric=false).
+ * Pass true to get fallback behavior for non-MCP errors.
  *
  * Use this when you want to handle non-McpError types differently.
  * Use createErrorResult() when you want automatic UnknownError handling.
  *
  * @param error - The error to convert
- * @param fallbackToGeneric - Whether to fall back to generic error for non-MCP errors (default: false, changed from true in v0.3.0)
+ * @param fallbackToGeneric - Whether to fall back to generic error for non-MCP errors (default: false)
  * @returns ToolError for McpError instances, null for other error types (if fallbackToGeneric is false)
  * @throws {ValidationError} In development mode when non-McpError is passed with fallbackToGeneric=false
  */

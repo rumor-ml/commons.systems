@@ -146,6 +146,14 @@ describe('GitHubCliError', () => {
     assert.ok(error.message.includes('clamped to 0'));
   });
 
+  it('preserves -1 sentinel value without warning', () => {
+    const error = new GitHubCliError('Process did not run', -1, 'stderr');
+
+    assert.equal(error.exitCode, -1); // NOT clamped
+    assert.ok(!error.message.includes('Warning')); // No warning for sentinel
+    assert.equal(error.message, 'Process did not run');
+  });
+
   it('clamps exit codes above 255 to 255', () => {
     const error = new GitHubCliError('Test', 500, 'stderr');
 
