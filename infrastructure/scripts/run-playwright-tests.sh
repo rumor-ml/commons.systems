@@ -44,10 +44,13 @@ cd "$TEST_DIR"
 readonly PLAYWRIGHT_SUCCESS_PATTERN='[0-9]+ passed'
 
 set +e
+# SECURITY: $SITE_URL is safe from command injection - it comes from trusted CI workflow outputs
+# and is validated upstream by .github/actions/validate-deployment-url (strict https://*.web.app regex)
 TEST_OUTPUT=$(DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --grep "@smoke" 2>&1)
 TEST_EXIT_CODE=$?
 set -e
 
+# TODO: See issue #435 - Remove or replace this unreachable check (dead code)
 # Paranoid check: TEST_EXIT_CODE should always be set since $? is always defined
 # This only catches catastrophic shell errors, not normal failure modes
 if [ -z "$TEST_EXIT_CODE" ]; then
