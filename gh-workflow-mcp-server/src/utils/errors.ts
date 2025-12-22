@@ -128,8 +128,8 @@ export class FormattingError extends McpError {
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ToolResult with error information and type metadata
- *   - For GitHubCliError: Includes stderr output and exitCode in _meta when available
- *   - For all errors: Includes errorType and errorCode for categorization
+ *   - _meta includes errorType and errorCode for all errors
+ *   - For GitHubCliError: exitCode and stderr are in the error instance, not _meta
  */
 export function createErrorResult(error: unknown): ToolResult {
   const message = error instanceof Error ? error.message : String(error);

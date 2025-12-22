@@ -237,6 +237,10 @@ export function formatError(error: unknown): string {
  * - NetworkError: Potentially retryable (transient network issues)
  * - Other errors: Treated as potentially retryable (conservative approach)
  *
+ * NOTE: Unlike gh-workflow/gh-issue MCP servers, this implementation does NOT
+ * treat FormattingError as terminal. This is intentional - wiggum's error handling
+ * prefers conservative retry behavior for internal errors to maximize workflow completion.
+ *
  * @param error - Error to check
  * @returns true if error is terminal and should not be retried
  */

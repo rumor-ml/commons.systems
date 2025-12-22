@@ -47,8 +47,12 @@ type CurrentStateWithPR = CurrentState & {
 /**
  * Result type for state comment posting operations
  *
+ * CONTEXT: This discriminated union supports race-safe state persistence (issue #388).
+ * By distinguishing successful persistence from transient failures, callers can make
+ * informed decisions about retrying vs halting the workflow when state updates fail.
+ *
  * Provides expressive error handling with clear failure reasons:
- * - success: true - Comment posted successfully
+ * - success: true - Comment posted successfully, state persisted
  * - success: false - Comment failed due to transient error (rate limit or network)
  *
  * Transient errors are logged and cause workflow to halt gracefully with
