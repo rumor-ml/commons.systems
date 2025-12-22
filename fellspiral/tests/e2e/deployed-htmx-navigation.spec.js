@@ -10,7 +10,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 const deployedUrl = process.env.DEPLOYED_URL;
 const shouldRun = !!deployedUrl;
 
-test.describe('Deployed Site - HTMX Navigation', () => {
+test.describe('@smoke Deployed Site - HTMX Navigation', () => {
   // Skip if not running against deployed site
   test.skip(!shouldRun, 'Requires DEPLOYED_URL environment variable');
 

@@ -6,7 +6,7 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Authentication', () => {
-  test('should display sign in button when not authenticated', async ({ page }) => {
+  test('@smoke should display sign in button when not authenticated', async ({ page }) => {
     await page.goto('/');
 
     // Check for auth button in navbar

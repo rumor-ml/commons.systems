@@ -7,7 +7,7 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Card Loading - Direct Page Visit', () => {
-  test('should show loading state then load cards or empty state', async ({ page }) => {
+  test('@smoke should show loading state then load cards or empty state', async ({ page }) => {
     // Directly visit cards.html (simulates typing URL or bookmark)
     await page.goto('/cards.html');
 

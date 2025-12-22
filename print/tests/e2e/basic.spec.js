@@ -1,12 +1,12 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Print Library Homepage', () => {
-  test('should load successfully', async ({ page }) => {
+  test('@smoke should load successfully', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Print - Document Library/);
   });
 
-  test('should display header with title and upload button', async ({ page }) => {
+  test('@smoke should display header with title and upload button', async ({ page }) => {
     await page.goto('/');
 
     // Check header title
@@ -21,7 +21,7 @@ test.describe('Print Library Homepage', () => {
   });
 
   // Firebase-dependent tests only run when deployed (local uses static http-server without Firebase)
-  test('should show loading state initially then resolve', async ({ page }) => {
+  test('@smoke should show loading state initially then resolve', async ({ page }) => {
     test.skip(
       !process.env.DEPLOYED,
       'Firebase-dependent test - only available in deployed environment'
@@ -73,7 +73,7 @@ test.describe('Print Library Homepage', () => {
     }
   });
 
-  test('should successfully load Firebase data', async ({ page }) => {
+  test('@smoke should successfully load Firebase data', async ({ page }) => {
     test.skip(
       !process.env.DEPLOYED,
       'Firebase-dependent test - only available in deployed environment'
@@ -230,7 +230,7 @@ test.describe('Print Library Homepage', () => {
 
 // Health endpoint only exists in deployed Cloud Run service, not in static http-server
 test.describe('Health Check', () => {
-  test('health endpoint should return 200', async ({ page }) => {
+  test('@smoke health endpoint should return 200', async ({ page }) => {
     test.skip(!process.env.DEPLOYED, 'Health endpoint only available in deployed environment');
     const response = await page.goto('/health');
     expect(response.status()).toBe(200);
