@@ -146,27 +146,35 @@ export function generateTriageInstructions(
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
+  // Error IDs for triage instruction validation
+  const ERROR_INVALID_REVIEW_TYPE = 'TRIAGE_INVALID_REVIEW_TYPE';
+  const ERROR_INVALID_ISSUE_NUMBER = 'TRIAGE_INVALID_ISSUE_NUMBER';
+  const ERROR_INVALID_TOTAL_ISSUES = 'TRIAGE_INVALID_TOTAL_ISSUES';
+
   // Validate reviewType: Must be exactly 'PR' or 'Security' (case-sensitive)
   // TypeScript type system should prevent this at compile time, but runtime check ensures safety
   // TODO(#367): Clarify when runtime validation catches issues
+  // TODO: See issue #416 - Add examples to validation error messages
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
-      `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
+      `[${ERROR_INVALID_REVIEW_TYPE}] Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
     );
   }
 
   // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN
+  // Note: Number.isFinite returns false for Infinity, -Infinity, and NaN
   // TODO(#367): Explain why edge case validation for Infinity/NaN
-  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-    throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
+  if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
+    throw new ValidationError(
+      `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
+    );
   }
 
   // Validate totalIssues: Must be non-negative integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN
-  if (!Number.isInteger(totalIssues) || totalIssues < 0) {
+  // Note: Number.isFinite returns false for Infinity, -Infinity, and NaN
+  if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
     throw new ValidationError(
-      `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
+      `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
   }
 

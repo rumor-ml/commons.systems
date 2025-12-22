@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -45,6 +46,7 @@ import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
+import type { WiggumState, CurrentState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -215,11 +217,11 @@ ${commits}`;
     }
 
     // Mark Phase 1 Step 4 complete and transition to Phase 2
-    const newState = {
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
-      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR],
-      phase: 'phase2' as const,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
+      phase: 'phase2',
     };
 
     try {
@@ -276,13 +278,33 @@ ${commits}`;
       );
     }
 
-    // Get updated state with PR now existing
-    const updatedState = await detectCurrentState();
+    // Fix stale PR state after PR creation (issue #429)
+    // The state captured at line 83 has pr.exists = false since no PR existed yet.
+    // We have authoritative PR data from the verified getPR() call, so we construct
+    // a complete updated state with both the new wiggum state AND the new PR state.
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+      pr: {
+        exists: true,
+        number: prNumber,
+        title: pr.title,
+        state: 'OPEN',
+        url: createOutput.trim(),
+        labels: [NEEDS_REVIEW_LABEL],
+        headRefName: branchName,
+        baseRefName: pr.baseRefName,
+      },
+    };
 
-    // Get next step instructions from router
-    const nextStepResult = await getNextStepInstructions(updatedState);
+    logger.info('Updated state with newly created PR', {
+      issueRef: '#429',
+      prNumber,
+      prTitle: pr.title,
+      phase: newState.phase,
+    });
 
-    return nextStepResult;
+    return await getNextStepInstructions(updatedState);
   } catch (error) {
     // Check if error indicates PR already exists
     const errorMsg = error instanceof Error ? error.message : String(error);

@@ -28,19 +28,25 @@ func main() {
 	ns := namespace.GetSessionNamespace()
 	debug.Log("DAEMON_MAIN namespace=%s", ns)
 
-	// Check if daemon is already running
-	socketPath := namespace.DaemonSocket()
-	if _, err := os.Stat(socketPath); err == nil {
-		// Socket exists - daemon may be running
-		// Try to connect to verify
-		if isDaemonRunning(socketPath) {
-			fmt.Fprintf(os.Stderr, "Daemon already running at %s\n", socketPath)
-			os.Exit(0)
-		}
-		// Stale socket - remove it
-		debug.Log("DAEMON_MAIN removing stale socket=%s", socketPath)
-		os.Remove(socketPath)
+	// Acquire lock file FIRST - this enforces singleton across all worktrees
+	lockPath := namespace.DaemonLockFile()
+	lockFile, err := daemon.AcquireLockFile(lockPath)
+	if err != nil {
+		// Lock already held - another daemon is running
+		// Exit gracefully (code 0) - this is expected behavior
+		debug.Log("DAEMON_MAIN lock_held path=%s", lockPath)
+		fmt.Fprintf(os.Stderr, "Daemon already running (lock held at %s)\n", lockPath)
+		os.Exit(0)
 	}
+	defer func() {
+		if err := lockFile.Release(); err != nil {
+			debug.Log("DAEMON_MAIN_LOCKFILE_RELEASE_ERROR error=%v", err)
+			fmt.Fprintf(os.Stderr, "WARNING: Failed to release lock file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  Lock file: %s\n", lockPath)
+			fmt.Fprintf(os.Stderr, "  Note: The OS will automatically release the lock on process exit.\n")
+			fmt.Fprintf(os.Stderr, "  If daemon fails to start next time, run: rm -f %s\n", lockPath)
+		}
+	}()
 
 	// Create and start daemon
 	d, err := daemon.NewAlertDaemon()
@@ -76,17 +82,7 @@ func main() {
 	fmt.Println("Daemon stopped")
 }
 
-// isDaemonRunning checks if the daemon is running by attempting to connect to the socket.
-func isDaemonRunning(socketPath string) bool {
-	// Simple check - try to create a client and connect
-	client := daemon.NewDaemonClient()
-	if err := client.Connect(); err == nil {
-		client.Close()
-		return true
-	}
-	return false
-}
-
+// TODO(#281): Add integration tests for health command CLI - see PR review for #273
 // showHealth connects to the daemon and displays health metrics
 func showHealth() error {
 	socketPath := namespace.DaemonSocket()

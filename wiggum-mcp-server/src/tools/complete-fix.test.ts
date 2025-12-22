@@ -6,7 +6,7 @@
  *
  * NOTE: Tool runtime validation (empty strings, invalid issue numbers) occurs
  * in completeFix() function after schema validation passes. See test documentation
- * in "error path validation (tool-level)" section for runtime validation behavior.
+ * in "error path validation (tool-level)" section below for runtime validation behavior.
  *
  * TODO(#313): Add integration tests with mocked GitHub/git for state updates,
  * comment posting, completedSteps filtering, and phase-specific behavior.
@@ -172,7 +172,7 @@ describe('complete-fix tool', () => {
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      // Zod silently coerces 456.5 to 456 at schema level (number array behavior)
+      // Schema accepts decimals - tool runtime validation rejects non-integers
       assert.strictEqual(result.success, true);
     });
 

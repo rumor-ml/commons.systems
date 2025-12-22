@@ -1,7 +1,9 @@
 /**
  * Tool: wiggum_complete_pr_review
  *
- * Called after /pr-review-toolkit:review-pr to report results
+ * Called after executing the phase-appropriate PR review command:
+ * - Phase 1 (Pre-PR): /all-hands-review
+ * - Phase 2 (Post-PR): /review
  */
 
 import { z } from 'zod';
@@ -15,9 +17,7 @@ import type { ToolResult } from '../types.js';
 import { completeReview, type ReviewConfig } from './review-completion-helper.js';
 
 export const CompletePRReviewInputSchema = z.object({
-  command_executed: z
-    .boolean()
-    .describe('Confirm /pr-review-toolkit:review-pr was actually executed'),
+  command_executed: z.boolean().describe('Confirm PR review command was actually executed'),
   verbatim_response: z.string().describe('Complete verbatim response from review command'),
   high_priority_issues: z.number().describe('Count of high priority issues found'),
   medium_priority_issues: z.number().describe('Count of medium priority issues found'),
