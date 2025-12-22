@@ -109,6 +109,7 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
+        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
         const msg = error.message || '';
 
         // Expected: already connected (happens on HTMX page swaps)

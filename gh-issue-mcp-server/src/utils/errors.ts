@@ -41,7 +41,8 @@ export class McpError extends Error {
  * Error thrown when an operation exceeds its time limit
  *
  * Used for polling operations, async waits, or long-running commands that
- * exceed configured timeout thresholds. May be retryable depending on context.
+ * exceed configured timeout thresholds. **Retryable** with increased timeout
+ * or after confirming external service is responsive.
  */
 export class TimeoutError extends McpError {
   constructor(message: string) {
@@ -66,8 +67,8 @@ export class ValidationError extends McpError {
 /**
  * Error thrown for network-related failures
  *
- * Covers HTTP requests, API calls, or other network operations that fail
- * due to connectivity issues, timeouts, or server errors. May be retryable.
+ * Indicates connectivity issues, DNS resolution failures, or network timeouts.
+ * **Retryable** after brief delay or after confirming network connectivity.
  */
 export class NetworkError extends McpError {
   constructor(message: string) {
@@ -133,7 +134,8 @@ export class FormattingError extends McpError {
  * - ParsingError: Failed to parse external command output (version mismatch or breaking changes)
  * - FormattingError: Failed to format response data (protocol contract violation)
  * - McpError: Generic MCP-related errors (base class for all custom errors)
- * - Generic errors: Unexpected failures (unknown error types)
+ * - Generic errors: Unexpected failures (non-MCP errors, programming bugs, or unknown types)
+ *   Examples: TypeError, ReferenceError, third-party library errors
  *
  * This function acts as a protocol bridge, converting TypeScript Error objects
  * into MCP-compliant ErrorResult format with structured metadata for error
@@ -141,6 +143,8 @@ export class FormattingError extends McpError {
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ErrorResult with error information and type metadata
+ *   - For GitHubCliError: Includes stderr output and exitCode in _meta when available
+ *   - For all errors: Includes errorType and errorCode for categorization
  */
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
@@ -197,11 +201,16 @@ export function formatError(error: unknown): string {
  * Determine if an error is terminal (not retryable)
  *
  * Retry Strategy:
- * - ValidationError: Terminal (requires user input correction)
- * - FormattingError: Terminal (internal protocol violation)
- * - TimeoutError: Potentially retryable (may succeed with more time)
- * - NetworkError: Potentially retryable (transient network issues)
+ * - ValidationError: Always terminal (requires user input correction)
+ * - FormattingError: Always terminal (internal protocol violation)
+ * - TimeoutError: Potentially retryable (operation may succeed with more time)
+ * - NetworkError: Potentially retryable (transient connectivity issues)
+ * - GitHubCliError: Currently treated as potentially retryable (see note below)
  * - Other errors: Treated as potentially retryable (conservative approach)
+ *
+ * NOTE: GitHubCliError instances are currently treated as retryable regardless
+ * of exit code. This is a known limitation - permanent failures like 401/403/404
+ * will be retried. See issue #391 for exit code-based classification.
  *
  * @param error - Error to check
  * @returns true if error is terminal and should not be retried

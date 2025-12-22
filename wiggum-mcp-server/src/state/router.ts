@@ -51,8 +51,8 @@ type CurrentStateWithPR = CurrentState & {
  * - success: true - Comment posted successfully
  * - success: false - Comment failed due to transient error (rate limit or network)
  *
- * Transient errors are logged but allow workflow to continue or halt gracefully.
- * Critical errors (404, auth) are thrown immediately.
+ * Transient errors are logged and cause workflow to halt gracefully with
+ * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
  */
 type StateCommentResult =
   | { success: true }
@@ -135,7 +135,12 @@ function checkBranchPushed(
 /**
  * Safely post wiggum state comment with error handling
  *
- * Wraps postWiggumStateComment with error classification and logging.
+ * State persistence is CRITICAL for race condition fix (issue #388). Without
+ * successful comment posting, workflow state may become inconsistent when tools
+ * are called out-of-order or GitHub API returns stale data. This function
+ * classifies errors to distinguish between transient failures (safe to retry)
+ * and critical failures (require immediate intervention).
+ *
  * Error handling strategy:
  * - Critical errors (404, 401/403): Throw - require immediate intervention
  * - Transient errors (429, network): Return failure Result - may self-resolve

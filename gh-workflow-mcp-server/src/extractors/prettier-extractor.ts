@@ -63,6 +63,9 @@ export class PrettierExtractor implements FrameworkExtractor {
    * @param logText - Raw log text containing Prettier output
    * @param maxErrors - Maximum number of file errors to extract (default: 10)
    * @returns Extraction result with file paths and formatting diffs
+   *   - Returns fallback error with last 100 lines if no files detected but Prettier patterns found
+   *   - Continues extraction even if individual diff hunks are incomplete
+   *   - Handles mixed diff/summary output gracefully
    *
    * @example
    * // Extract formatting errors from Prettier check

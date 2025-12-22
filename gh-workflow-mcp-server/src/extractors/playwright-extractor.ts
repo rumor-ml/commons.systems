@@ -144,6 +144,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * @param logText - Raw log text containing Playwright output
    * @param maxErrors - Maximum number of errors to extract (default: 10)
    * @returns Extraction result with framework name, errors, and optional summary
+   *   - Returns timeout error if JSON extraction fails (incomplete test execution)
+   *   - Returns fallback error with context if JSON parsing fails
+   *   - Continues extraction even if individual test suites are malformed
    */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);

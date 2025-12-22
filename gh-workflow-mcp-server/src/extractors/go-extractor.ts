@@ -105,6 +105,9 @@ export class GoExtractor implements FrameworkExtractor {
    * @param logText - Raw log text containing Go test output
    * @param maxErrors - Maximum number of errors to extract (default: 10)
    * @returns Extraction result with framework name, errors, and summary statistics
+   *   - Returns empty errors array if no valid test events found
+   *   - Skips malformed JSON lines (e.g., build output, dependency downloads)
+   *   - Continues extraction even if individual test events are malformed
    */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);

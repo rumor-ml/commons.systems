@@ -99,6 +99,7 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       {}
     );
 
+    // TODO: See issue #284 - Add integration tests for GraphQL validation error paths
     if (!parentResult.data) {
       throw new ParsingError(
         `GraphQL response missing 'data' field when fetching parent for issue #${input.issue_number}`

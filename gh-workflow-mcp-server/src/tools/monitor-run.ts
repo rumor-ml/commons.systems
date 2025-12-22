@@ -90,6 +90,8 @@ interface JobData {
  *
  * @throws {ValidationError} If no identifier provided or run not found
  * @throws {TimeoutError} If run doesn't complete within timeout
+ * @throws {GitHubCliError} If gh CLI command fails (exit code != 0)
+ * @throws {ParsingError} If JSON output from gh CLI is malformed
  *
  * @example
  * // Monitor specific run with fail-fast

@@ -326,6 +326,8 @@ async function getFailureDetailsFromLogFailed(
  * @returns Failure summary with error extraction and test results
  *
  * @throws {ValidationError} If no identifier provided or run not found
+ * @throws {GitHubCliError} If gh CLI command fails (exit code != 0)
+ * @throws {ParsingError} If JSON output from gh CLI is malformed
  *
  * @example
  * // Get failure details for PR's first failed run
@@ -416,6 +418,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Format and return results using the new helper
         return formatJobSummaries(run, result.summaries, input.max_chars, result.parseWarnings);
       } catch (error) {
+        // TODO: See issue #319 - Only catch GitHubCliError for --log-failed, let validation/timeout/parsing errors propagate
         // Fall through to job-based approach if --log-failed fails
         // This can happen if:
         // - No failed steps in the run (edge case)
