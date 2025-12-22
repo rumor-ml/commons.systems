@@ -60,6 +60,7 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
+    // TODO: See issue #332 - Improve error context (show more output, include full command)
     // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
