@@ -66,7 +66,9 @@ func AcquireLockFile(path string) (*LockFile, error) {
 	// Write our PID to the file for diagnostics
 	if err := writePIDToLockFile(file); err != nil {
 		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			debug.Log("LOCKFILE_CLOSE_ERROR_ON_WRITE_FAILURE path=%s write_error=%v close_error=%v", path, err, closeErr)
+		}
 		return nil, err
 	}
 
