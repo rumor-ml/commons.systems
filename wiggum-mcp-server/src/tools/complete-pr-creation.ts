@@ -38,7 +38,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
-import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
+import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -46,7 +46,7 @@ import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
-import type { WiggumState } from '../state/types.js';
+import type { WiggumState, CurrentState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -278,12 +278,32 @@ ${commits}`;
       );
     }
 
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
-    const updatedState = applyWiggumState(state, newState);
+    // Fix stale PR state after PR creation (issue #429)
+    // The state captured at line 83 has pr.exists = false since no PR existed yet.
+    // We have authoritative PR data from the verified getPR() call, so we construct
+    // a complete updated state with both the new wiggum state AND the new PR state.
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+      pr: {
+        exists: true,
+        number: prNumber,
+        title: pr.title,
+        state: 'OPEN',
+        url: createOutput.trim(),
+        labels: [NEEDS_REVIEW_LABEL],
+        headRefName: branchName,
+        baseRefName: pr.baseRefName,
+      },
+    };
+
+    logger.info('Updated state with newly created PR', {
+      issueRef: '#429',
+      prNumber,
+      prTitle: pr.title,
+      phase: newState.phase,
+    });
+
     return await getNextStepInstructions(updatedState);
   } catch (error) {
     // Check if error indicates PR already exists
