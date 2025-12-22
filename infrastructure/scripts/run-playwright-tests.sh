@@ -1,4 +1,5 @@
 #!/bin/bash
+# TODO: See issue #435 - Add automated tests for this script (criticality 10/10)
 # Run Playwright E2E tests against deployed site
 # Usage: run-playwright-tests.sh <site-name> <site-url>
 
@@ -34,8 +35,9 @@ if [ ! -d "$TEST_DIR" ]; then
 fi
 cd "$TEST_DIR"
 
-# Capture output to validate that @smoke tests actually ran
-# We check for "X passed" pattern to ensure tests executed, not just skipped
+# Capture output to validate that Playwright produced results
+# We check for "X passed" pattern to confirm Playwright executed successfully
+# Note: Pattern matches "0 passed" which may indicate tests were skipped - see TODO below
 # TODO: See issue #435 - Consider using Playwright JSON reporter for more reliable validation
 # TODO: See issue #435 - Add explicit timeout to prevent hung tests from wasting CI resources
 # TODO: See issue #435 - Validate grep pattern matches annotation syntax before running
@@ -46,9 +48,12 @@ TEST_OUTPUT=$(DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test
 TEST_EXIT_CODE=$?
 set -e
 
-# Defensive check: ensure exit code was captured
+# Paranoid check: TEST_EXIT_CODE should always be set since $? is always defined
+# This only catches catastrophic shell errors, not normal failure modes
 if [ -z "$TEST_EXIT_CODE" ]; then
   echo "ERROR: Unable to capture test exit code"
+  echo "This indicates a shell scripting bug, not a test failure."
+  echo "Please report this issue."
   exit 1
 fi
 
@@ -60,8 +65,8 @@ if [ $TEST_EXIT_CODE -ne 0 ]; then
   exit $TEST_EXIT_CODE
 fi
 
-# Verify at least one test ran by checking for "X passed" pattern
-# This prevents false positives where all @smoke tests are skipped/filtered out
+# Verify Playwright produced output by checking for "X passed" pattern
+# WARNING: This will match "0 passed" - see issue #435 for proper count validation
 # TODO: See issue #435 - Track expected smoke test count per app, validate actual matches expected
 if ! echo "$TEST_OUTPUT" | grep -qE "$PLAYWRIGHT_SUCCESS_PATTERN"; then
   echo "ERROR: No smoke tests found or executed for $SITE_NAME"

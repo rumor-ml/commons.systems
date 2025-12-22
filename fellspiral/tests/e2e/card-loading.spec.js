@@ -52,10 +52,8 @@ test.describe('Card Loading - Direct Page Visit', () => {
     );
 
     // Verify final state is valid (cards or empty state visible)
-    const cardList = page.locator('#cardList');
-    const emptyState = page.locator('#emptyState');
-    const cardsVisible = await cardList.isVisible();
-    const emptyVisible = await emptyState.isVisible();
+    const cardsVisible = await page.locator('#cardList').isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
 
     expect(cardsVisible || emptyVisible).toBe(true);
   });
@@ -77,11 +75,8 @@ test.describe('Card Loading - Direct Page Visit', () => {
     );
 
     // Check which state we ended up in
-    const cardList = page.locator('#cardList');
-    const emptyState = page.locator('#emptyState');
-
-    const cardsVisible = await cardList.isVisible();
-    const emptyVisible = await emptyState.isVisible();
+    const cardsVisible = await page.locator('#cardList').isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
 
     // Exactly one should be visible
     expect(cardsVisible || emptyVisible).toBe(true);
@@ -100,6 +95,7 @@ test.describe('Card Loading - Direct Page Visit', () => {
 
     await page.goto('/cards.html');
 
+    // TODO: See issue #435 - Log unexpected errors before swallowing with .catch(() => null)
     // Track when cards become visible
     const cardsVisiblePromise = page
       .locator('.card-item')
@@ -126,12 +122,11 @@ test.describe('Card Loading - Direct Page Visit', () => {
     // Cards should appear regardless of library nav state
     // Note: In local env with cards.json, cards should always load
     if (cardsTime) {
-      // Cards loaded successfully - good!
+      // Cards loaded successfully
       expect(cardsTime).toBeGreaterThan(0);
     } else {
       // Cards didn't load - verify we're showing empty state instead
-      const emptyState = page.locator('#emptyState');
-      await expect(emptyState).toBeVisible();
+      await expect(page.locator('#emptyState')).toBeVisible();
     }
   });
 });

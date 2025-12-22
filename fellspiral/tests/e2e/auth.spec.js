@@ -103,14 +103,7 @@ test.describe('Authentication', () => {
     await expect(authButton).toBeEnabled();
 
     // Button should not be in loading state
-    const buttonText = await authButton.locator('.auth-button__text').textContent();
-    expect(buttonText).not.toBe('Loading...');
-
-    // Verify button has correct data attribute
-    const isLoading = await authButton.evaluate((btn) => {
-      return btn.textContent.includes('Loading');
-    });
-    expect(isLoading).toBe(false);
+    await expect(authButton.locator('.auth-button__text')).not.toContainText('Loading');
   });
 
   test('auth styles should load correctly', async ({ page }) => {

@@ -52,15 +52,11 @@ test.describe('@smoke Deployed Site - HTMX Navigation', () => {
     );
 
     // Verify we're not stuck with spinner
-    const loadingState = page.locator('.loading-state');
-    await expect(loadingState).not.toBeVisible();
+    await expect(page.locator('.loading-state')).not.toBeVisible();
 
     // Either cards OR empty state should be visible
-    const cardList = page.locator('#cardList');
-    const emptyState = page.locator('#emptyState');
-
-    const cardsVisible = await cardList.isVisible();
-    const emptyVisible = await emptyState.isVisible();
+    const cardsVisible = await page.locator('#cardList').isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
 
     // Exactly one should be visible (not stuck loading, not both visible)
     expect(cardsVisible || emptyVisible).toBe(true);
@@ -89,25 +85,13 @@ test.describe('@smoke Deployed Site - HTMX Navigation', () => {
     );
 
     // Verify final state is valid
-    const cardList = page.locator('#cardList');
-    const emptyState = page.locator('#emptyState');
-    const loadingState = page.locator('.loading-state');
+    await expect(page.locator('.loading-state')).not.toBeVisible();
 
-    await expect(loadingState).not.toBeVisible();
-
-    const cardsVisible = await cardList.isVisible();
-    const emptyVisible = await emptyState.isVisible();
+    const cardsVisible = await page.locator('#cardList').isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
 
     // Must show either cards or empty state (not neither, not both)
     expect(cardsVisible || emptyVisible).toBe(true);
-
-    if (cardsVisible) {
-      // If cards loaded, verify they're actually rendered
-      const cardCount = await page.locator('.card-item').count();
-      // On deployed site with Firestore, we might have cards or might not
-      // Just verify if cards are visible, there's at least content rendered
-      expect(cardCount).toBeGreaterThanOrEqual(0);
-    }
   });
 
   test('should handle multiple HTMX navigations without getting stuck', async ({ page }) => {
@@ -133,8 +117,7 @@ test.describe('@smoke Deployed Site - HTMX Navigation', () => {
     );
 
     // Verify not stuck
-    let loadingState = page.locator('.loading-state');
-    await expect(loadingState).not.toBeVisible();
+    await expect(page.locator('.loading-state')).not.toBeVisible();
 
     // Second navigation: Go back to homepage
     await page.goto(deployedUrl + '/');
@@ -155,14 +138,11 @@ test.describe('@smoke Deployed Site - HTMX Navigation', () => {
     );
 
     // Verify not stuck on second navigation
-    loadingState = page.locator('.loading-state');
-    await expect(loadingState).not.toBeVisible();
+    await expect(page.locator('.loading-state')).not.toBeVisible();
 
     // Final state should be valid
-    const cardList = page.locator('#cardList');
-    const emptyState = page.locator('#emptyState');
-    const cardsVisible = await cardList.isVisible();
-    const emptyVisible = await emptyState.isVisible();
+    const cardsVisible = await page.locator('#cardList').isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
     expect(cardsVisible || emptyVisible).toBe(true);
   });
 });
