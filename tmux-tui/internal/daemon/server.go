@@ -17,6 +17,8 @@ import (
 
 const (
 	connectionCloseErrorThreshold = 10 // Warn after 10 close failures
+	eventDeduplicationWindow      = 100 * time.Millisecond
+	eventCleanupThreshold         = time.Second
 )
 
 var (
@@ -37,6 +39,13 @@ type clientConnection struct {
 type successfulClient struct {
 	id     string
 	client *clientConnection
+}
+
+// eventKey is used as a map key for event deduplication
+type eventKey struct {
+	paneID    string
+	eventType string
+	created   bool
 }
 
 // sendMessage safely sends a message to the client with mutex protection
@@ -137,13 +146,14 @@ func (d *AlertDaemon) playAlertSound() {
 	// Accumulation is mitigated by rate limiting but not prevented entirely.
 	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
+	pid := os.Getpid()
 	go func() {
-		debug.Log("AUDIO_PLAYING")
+		debug.Log("AUDIO_PLAYING pid=%d", pid)
 		if err := cmd.Run(); err != nil {
-			debug.Log("AUDIO_ERROR error=%v", err)
+			debug.Log("AUDIO_ERROR pid=%d error=%v", pid, err)
 			d.broadcastAudioError(err)
 		}
-		debug.Log("AUDIO_COMPLETED")
+		debug.Log("AUDIO_COMPLETED pid=%d", pid)
 	}()
 }
 
@@ -239,7 +249,9 @@ type AlertDaemon struct {
 	listener         net.Listener
 	done             chan struct{}
 	socketPath       string
-	blockedPath      string // Path to persist blocked state JSON
+	blockedPath      string                 // Path to persist blocked state JSON
+	recentEvents     map[eventKey]time.Time // Event deduplication: paneID+eventType+created -> last event time
+	eventsMu         sync.Mutex
 
 	// Health monitoring (accessed atomically)
 	broadcastFailures      atomic.Int64  // Total broadcast failures since startup
@@ -401,6 +413,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
+		recentEvents:     make(map[eventKey]time.Time),
 	}
 
 	// Initialize atomic.Value fields
@@ -492,6 +505,43 @@ func (d *AlertDaemon) watchPaneFocus() {
 	}
 }
 
+// isDuplicateEvent checks if an event is a duplicate within the deduplication window.
+// It also cleans up old entries to prevent memory leaks.
+// Returns true if the event should be skipped as a duplicate.
+func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) bool {
+	// Validate inputs - empty paneID or eventType should be rejected
+	if paneID == "" || eventType == "" {
+		debug.Log("DAEMON_INVALID_EVENT_INPUT paneID=%q eventType=%q", paneID, eventType)
+		return true // Skip invalid events
+	}
+
+	d.eventsMu.Lock()
+	defer d.eventsMu.Unlock()
+
+	key := eventKey{paneID: paneID, eventType: eventType, created: created}
+	now := time.Now()
+
+	// Check if this event occurred recently (deduplication window)
+	if lastTime, exists := d.recentEvents[key]; exists {
+		if now.Sub(lastTime) < eventDeduplicationWindow {
+			// Duplicate event - skip
+			return true
+		}
+	}
+
+	// Update recent event time
+	d.recentEvents[key] = now
+
+	// Clean up old entries (>cleanup threshold) to prevent memory leak
+	for k, timestamp := range d.recentEvents {
+		if now.Sub(timestamp) > eventCleanupThreshold {
+			delete(d.recentEvents, k)
+		}
+	}
+
+	return false
+}
+
 // handlePaneFocusEvent processes a pane focus event and broadcasts to clients.
 func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	debug.Log("DAEMON_PANE_FOCUS_EVENT paneID=%s", event.PaneID)
@@ -507,6 +557,12 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 
 // handleAlertEvent processes an alert event and broadcasts to clients.
 func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
+	// Check for duplicate events BEFORE taking any locks
+	if d.isDuplicateEvent(event.PaneID, event.EventType, event.Created) {
+		debug.Log("DAEMON_ALERT_DUPLICATE paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
+		return
+	}
+
 	debug.Log("DAEMON_ALERT_EVENT paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
 
 	d.alertsMu.Lock()
@@ -654,6 +710,20 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			}
 
 		case MsgTypeShowBlockPicker:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				fmt.Fprintf(os.Stderr, "ERROR: Invalid show_block_picker message: %v\n", err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid show_block_picker request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Broadcast to all clients to show picker for this pane
 			debug.Log("DAEMON_SHOW_PICKER paneID=%s", msg.PaneID)
 
@@ -801,6 +871,18 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
 			if err := d.sendFullState(client, clientID); err != nil {
 				debug.Log("DAEMON_RESYNC_FAILED client=%s error=%v", clientID, err)
+			}
+
+		default:
+			// Unknown message type
+			debug.Log("DAEMON_UNKNOWN_MESSAGE_TYPE client=%s type=%s", clientID, msg.Type)
+			fmt.Fprintf(os.Stderr, "ERROR: Unknown message type from client %s: %s\n", clientID, msg.Type)
+			errorMsg, constructErr := NewPersistenceErrorMessage(
+				d.seqCounter.Add(1),
+				fmt.Sprintf("Unknown message type: %s", msg.Type),
+			)
+			if constructErr == nil {
+				client.sendMessage(errorMsg.ToWireFormat())
 			}
 		}
 	}
