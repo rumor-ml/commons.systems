@@ -622,6 +622,10 @@ test_worktree_hook_execution() {
   git config user.name "Test User"
   git config user.email "test@example.com"
 
+  # Create bare repository to serve as remote
+  local bare_remote="$tempdir/remote.git"
+  git init --bare "$bare_remote"
+
   # Create simple pre-push hook that writes to a marker file
   mkdir -p .git/hooks
   cat > .git/hooks/pre-push <<'HOOKEOF'
@@ -636,6 +640,10 @@ HOOKEOF
   git add file.txt
   git commit -m "Initial commit"
   git branch -M main
+
+  # Add remote and push main branch
+  git remote add origin "$bare_remote"
+  git push -u origin main
 
   # Create worktree with hook configuration (simulate /worktree command)
   local worktree_path="$tempdir/worktrees/test-branch"
@@ -790,28 +798,37 @@ test_worktree_hook_blocks_invalid_changes() {
   git config user.name "Test User"
   git config user.email "test@example.com"
 
+  # Create bare repository to serve as remote
+  local bare_remote="$tempdir/remote.git"
+  git init --bare "$bare_remote"
+
   # Create pre-push hook that rejects files with "INVALID" content
   mkdir -p .git/hooks
   cat > .git/hooks/pre-push <<'HOOKEOF'
 #!/bin/bash
 # Hook that validates file contents - rejects INVALID marker
-if git diff --name-only origin/main...HEAD 2>/dev/null | xargs -I {} git show HEAD:{} 2>/dev/null | grep -q "INVALID"; then
-  echo "ERROR: Invalid content detected in changes"
-  echo "Pre-push hook blocked the push"
-  exit 1
-fi
+# Pre-push hooks receive input on stdin: <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read local_ref local_sha remote_ref remote_sha; do
+  # Check the actual commit being pushed
+  if git show "$local_sha:file.txt" 2>/dev/null | grep -q "INVALID"; then
+    echo "ERROR: Invalid content detected in changes"
+    echo "Pre-push hook blocked the push"
+    exit 1
+  fi
+done
 exit 0
 HOOKEOF
   chmod +x .git/hooks/pre-push
 
-  # Create initial commit on main with remote
+  # Create initial commit on main
   echo "valid content" > file.txt
   git add file.txt
   git commit -m "Initial commit"
   git branch -M main
 
-  # Setup fake remote
-  git remote add origin /tmp/fake-remote.git 2>/dev/null || true
+  # Add remote and push main branch
+  git remote add origin "$bare_remote"
+  git push -u origin main
 
   # Create worktree with hook configuration
   local worktree_path="$tempdir/worktrees/test-branch"
@@ -829,11 +846,15 @@ HOOKEOF
 
   # Verify hook blocks push in worktree
   TESTS_RUN=$((TESTS_RUN + 1))
-  if git push -u origin test-branch 2>&1 | grep -q "Pre-push hook blocked"; then
+  # Capture push output (expect failure, so disable exit-on-error temporarily)
+  push_output=$(git push -u origin test-branch 2>&1 || true)
+  if echo "$push_output" | grep -q "Pre-push hook blocked"; then
     echo -e "${GREEN}✓ PASS: Pre-push hook correctly blocked invalid changes in worktree${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
   else
     echo -e "${RED}✗ FAIL: Pre-push hook should have blocked invalid changes in worktree${NC}"
+    echo "Push output was:"
+    echo "$push_output"
     TESTS_FAILED=$((TESTS_FAILED + 1))
   fi
 
