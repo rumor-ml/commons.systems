@@ -38,7 +38,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
-import { applyWiggumState } from '../state/state-utils.js';
+import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -220,7 +220,7 @@ ${commits}`;
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
-      completedSteps: [...state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR],
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
       phase: 'phase2',
     };
 

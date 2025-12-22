@@ -149,7 +149,7 @@ function checkBranchPushed(
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-async function safePostStateComment(
+export async function safePostStateComment(
   prNumber: number,
   state: WiggumState,
   title: string,
@@ -264,7 +264,7 @@ async function safePostStateComment(
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-async function safePostIssueStateComment(
+export async function safePostIssueStateComment(
   issueNumber: number,
   state: WiggumState,
   title: string,
@@ -1362,10 +1362,9 @@ function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
 }
 
 /**
- * Export safe wrappers for use by other modules
- * These are exported so that review-completion-helper.ts can use them
+ * Export StateCommentResult type for use by other modules
+ * Note: safePostStateComment and safePostIssueStateComment are exported at their declarations above
  */
-export { safePostStateComment, safePostIssueStateComment };
 export type { StateCommentResult };
 
 /**
