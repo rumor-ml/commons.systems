@@ -327,13 +327,26 @@ export async function completeReview(
 
   if (!result.success) {
     logger.error('Review state comment failed - halting workflow', {
+      reviewType: config.reviewTypeLabel,
       reviewStep,
       reason: result.reason,
       isTransient: result.isTransient,
       phase: state.wiggum.phase,
       prNumber: state.pr.exists ? state.pr.number : undefined,
       issueNumber: state.issue.exists ? state.issue.number : undefined,
+      reviewResults: {
+        high: input.high_priority_issues,
+        medium: input.medium_priority_issues,
+        low: input.low_priority_issues,
+        total: totalIssues,
+      },
     });
+
+    const reviewResultsSummary = `**${config.reviewTypeLabel} Review Results (NOT persisted):**
+- High Priority: ${input.high_priority_issues}
+- Medium Priority: ${input.medium_priority_issues}
+- Low Priority: ${input.low_priority_issues}
+- **Total: ${totalIssues}**`;
 
     return {
       content: [{
@@ -342,11 +355,41 @@ export async function completeReview(
           current_step: STEP_NAMES[reviewStep],
           step_number: reviewStep,
           iteration_count: newState.iteration,
-          instructions: `ERROR: Failed to post review state comment due to ${result.reason}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists\n\nThe workflow will resume from this step once the issue is resolved.`,
-          steps_completed_by_tool: ['Attempted to post state comment', 'Failed due to transient error'],
+          instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to post state comment due to ${result.reason}.
+
+${reviewResultsSummary}
+
+**IMPORTANT:** The review itself succeeded. You do NOT need to re-run the ${config.reviewTypeLabel.toLowerCase()} review.
+
+**Why This Failed:**
+The race condition fix (issue #388) requires posting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} as a state comment. This state persistence failed.
+
+**Common Causes:**
+- GitHub API rate limiting (HTTP 429)
+- Network connectivity issues
+- Temporary GitHub API unavailability
+- ${state.wiggum.phase === 'phase1' ? 'Issue' : 'PR'} does not exist or was closed
+
+**Retry Instructions:**
+1. Check rate limits: \`gh api rate_limit\`
+2. Verify network connectivity: \`curl -I https://api.github.com\`
+3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : (state.pr.exists ? state.pr.number : '<pr-number>')}\`
+4. Once resolved, retry this tool call with the SAME parameters
+
+The workflow will resume from this step once the state comment posts successfully.`,
+          steps_completed_by_tool: [
+            `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
+            'Attempted to post state comment',
+            'Failed due to transient error - review results NOT persisted',
+          ],
           context: {
             pr_number: state.pr.exists ? state.pr.number : undefined,
             issue_number: state.issue.exists ? state.issue.number : undefined,
+            review_type: config.reviewTypeLabel,
+            total_issues: totalIssues,
+            high_priority_issues: input.high_priority_issues,
+            medium_priority_issues: input.medium_priority_issues,
+            low_priority_issues: input.low_priority_issues,
           },
         })
       }],
