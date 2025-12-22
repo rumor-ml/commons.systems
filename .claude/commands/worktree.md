@@ -21,8 +21,24 @@ model: haiku
 5. Create worktree at `$HOME/worktrees/<branch-name>` using absolute path (NOT relative to cwd):
    `git worktree add $HOME/worktrees/<branch-name> -b <branch-name> origin/main`
 6. Set upstream to origin/<branch-name> (don't push).
-7. Run `direnv allow` in the new worktree directory to enable the environment.
-8. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
+7. Configure git hooks path in the new worktree (required for pre-commit/pre-push hooks to work):
+
+   ```bash
+   cd $HOME/worktrees/<branch-name> && \
+   MAIN_GIT_DIR=$(git rev-parse --git-common-dir) && \
+   git config core.hooksPath "$MAIN_GIT_DIR/hooks"
+   ```
+
+   NOTE: By default, Git looks for hooks in each worktree's specific hooks directory
+   (.git/worktrees/<name>/hooks). To ensure all worktrees use the same hooks as the
+   main repository, we must explicitly configure core.hooksPath to point to the main
+   repository's hooks directory. This ensures pre-commit hooks (formatting, linting) and
+   pre-push hooks (tests) execute consistently across all worktrees. The command uses
+   `git rev-parse --git-common-dir` which reliably returns the main repository's .git
+   directory path in both worktrees and the main repo.
+
+8. Run `direnv allow` in the new worktree directory to enable the environment.
+9. Open a new tmux window running claude in nix dev shell (use absolute path from step 5):
    `tmux new-window -n "<branch-name>" -c "$HOME/worktrees/<branch-name>" "bash -c 'nix develop -c claude || exec bash'"`
 
    IMPORTANT: The -c path MUST match the worktree path from step 5. If it doesn't exist, tmux defaults to home directory.

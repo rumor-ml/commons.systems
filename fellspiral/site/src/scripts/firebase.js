@@ -1,5 +1,14 @@
 /**
  * Firebase and Firestore initialization
+ *
+ * Documentation and error handling improvements:
+ * - JSDoc for key functions explaining error handling
+ * - Improved comments for IPv4 address requirement (emulator binding)
+ * - Improved comments for module binding patterns
+ * - Better error logging with structured context objects
+ * - Enhanced error messages for Firebase operations
+ *
+ * Related: #305 for general documentation and error handling improvements
  */
 
 // TODO(#305): Add user-friendly error messages for CRUD operations
@@ -17,6 +26,7 @@ import {
   doc,
   query,
   orderBy,
+  where,
   serverTimestamp,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
@@ -99,19 +109,20 @@ async function initFirebase() {
       import.meta.env.MODE === 'development' ||
       import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      try {
-        // Use 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
-        const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
-        const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:10980';
+      // Use 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
+      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:10980';
 
+      try {
         const [firestoreHostname, firestorePort] = firestoreHost.split(':');
         connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
+        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
         const msg = error.message || '';
 
-        // Expected: already connected
+        // Expected: already connected (happens on HTMX page swaps)
         if (msg.includes('already')) {
           console.debug('[Firebase] Emulators already connected');
           return { app, db, auth, cardsCollection };
@@ -120,8 +131,9 @@ async function initFirebase() {
         // Unexpected: CRITICAL ERROR - emulator connection failed
         console.error('[Firebase] CRITICAL: Emulator connection failed', {
           message: msg,
-          firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
-          authHost: import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST,
+          firestoreHost,
+          authHost,
+          env: import.meta.env.MODE,
         });
 
         // Show user warning banner
@@ -130,8 +142,7 @@ async function initFirebase() {
           warning.className = 'warning-banner';
           warning.style.cssText =
             'background: var(--color-error); color: white; padding: 1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000;';
-          warning.textContent =
-            '⚠️ Failed to connect to emulator. You may be using production data.';
+          warning.textContent = 'Failed to connect to emulator. You may be using production data.';
           document.body.insertBefore(warning, document.body.firstChild);
         }
 
@@ -167,12 +178,15 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
 }
 
 // Get all cards from Firestore with timeout protection
+// Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {
-    const q = query(cardsCollection, orderBy('title', 'asc'));
+    // Query for public cards only - this matches the security rules requirement
+    // NOTE: Firestore requires query constraints to match security rule constraints
+    const q = query(cardsCollection, where('isPublic', '==', true), orderBy('title', 'asc'));
 
     // Wrap query with timeout to prevent hanging on slow/unresponsive Firestore
     const querySnapshot = await withTimeout(

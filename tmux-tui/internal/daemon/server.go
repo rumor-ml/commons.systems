@@ -17,6 +17,8 @@ import (
 
 const (
 	connectionCloseErrorThreshold = 10 // Warn after 10 close failures
+	eventDeduplicationWindow      = 100 * time.Millisecond
+	eventCleanupThreshold         = time.Second
 )
 
 var (
@@ -39,6 +41,13 @@ type successfulClient struct {
 	client *clientConnection
 }
 
+// eventKey is used as a map key for event deduplication
+type eventKey struct {
+	paneID    string
+	eventType string
+	created   bool
+}
+
 // sendMessage safely sends a message to the client with mutex protection
 func (c *clientConnection) sendMessage(msg Message) error {
 	c.encoderMu.Lock()
@@ -54,8 +63,14 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 
 	// Create type-safe v2 message
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewPersistenceErrorMessage fails (see PR review #273)
 	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
 	if err != nil {
+		// TODO(#356): Add fallback notification when message construction fails
+		// Current: Returns early with only debug logging, no user visibility
+		// TODO(#281): Log message construction failures to stderr
+		// Current: Only debug logging, operations continue with no message sent
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
 		return
 	}
@@ -76,8 +91,12 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 	d.blockedMu.Unlock()
 
 	// Broadcast revert so all clients show correct state
+	// TODO(#356): Add fallback notification when message construction fails
+	// Current: Silent no-op when NewBlockChangeMessage fails (see PR review #273)
 	msg, err := NewBlockChangeMessage(d.seqCounter.Add(1), branch, previousBlockedBy, wasBlocked)
 	if err != nil {
+		// TODO(#356): Add fallback notification for message construction failures
+		// See issue for details from PR #273 review
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
 		return
 	}
@@ -127,18 +146,19 @@ func (d *AlertDaemon) playAlertSound() {
 	// Accumulation is mitigated by rate limiting but not prevented entirely.
 	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
 	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
+	pid := os.Getpid()
 	go func() {
-		debug.Log("AUDIO_PLAYING")
+		debug.Log("AUDIO_PLAYING pid=%d", pid)
 		if err := cmd.Run(); err != nil {
-			debug.Log("AUDIO_ERROR error=%v", err)
+			debug.Log("AUDIO_ERROR pid=%d error=%v", pid, err)
 			d.broadcastAudioError(err)
 		}
-		debug.Log("AUDIO_COMPLETED")
+		debug.Log("AUDIO_COMPLETED pid=%d", pid)
 	}()
 }
 
 // broadcastAudioError broadcasts an audio playback error with tracking
-// TODO(#251): Apply same failure handling as regular broadcasts
+// TODO(#251): Add timeout to audio error broadcasting to prevent goroutine leaks when eventCh is congested - see PR review for #273
 func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
 		"Troubleshooting:\n"+
@@ -229,7 +249,9 @@ type AlertDaemon struct {
 	listener         net.Listener
 	done             chan struct{}
 	socketPath       string
-	blockedPath      string // Path to persist blocked state JSON
+	blockedPath      string                 // Path to persist blocked state JSON
+	recentEvents     map[eventKey]time.Time // Event deduplication: paneID+eventType+created -> last event time
+	eventsMu         sync.Mutex
 
 	// Health monitoring (accessed atomically)
 	broadcastFailures      atomic.Int64  // Total broadcast failures since startup
@@ -243,6 +265,7 @@ type AlertDaemon struct {
 	seqCounter             atomic.Uint64 // Global sequence number for message ordering
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyAlerts returns a copy of the alerts map with read lock protection
 func (d *AlertDaemon) copyAlerts() map[string]string {
 	d.alertsMu.RLock()
@@ -255,6 +278,7 @@ func (d *AlertDaemon) copyAlerts() map[string]string {
 	return copy
 }
 
+// TODO(#328): Consider extracting map copy pattern into generic helper function
 // copyBlockedBranches returns a copy of the blockedBranches map with read lock protection
 func (d *AlertDaemon) copyBlockedBranches() map[string]string {
 	d.blockedMu.RLock()
@@ -389,6 +413,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		done:             make(chan struct{}),
 		socketPath:       socketPath,
 		blockedPath:      blockedPath,
+		recentEvents:     make(map[eventKey]time.Time),
 	}
 
 	// Initialize atomic.Value fields
@@ -480,6 +505,43 @@ func (d *AlertDaemon) watchPaneFocus() {
 	}
 }
 
+// isDuplicateEvent checks if an event is a duplicate within the deduplication window.
+// It also cleans up old entries to prevent memory leaks.
+// Returns true if the event should be skipped as a duplicate.
+func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) bool {
+	// Validate inputs - empty paneID or eventType should be rejected
+	if paneID == "" || eventType == "" {
+		debug.Log("DAEMON_INVALID_EVENT_INPUT paneID=%q eventType=%q", paneID, eventType)
+		return true // Skip invalid events
+	}
+
+	d.eventsMu.Lock()
+	defer d.eventsMu.Unlock()
+
+	key := eventKey{paneID: paneID, eventType: eventType, created: created}
+	now := time.Now()
+
+	// Check if this event occurred recently (deduplication window)
+	if lastTime, exists := d.recentEvents[key]; exists {
+		if now.Sub(lastTime) < eventDeduplicationWindow {
+			// Duplicate event - skip
+			return true
+		}
+	}
+
+	// Update recent event time
+	d.recentEvents[key] = now
+
+	// Clean up old entries (>cleanup threshold) to prevent memory leak
+	for k, timestamp := range d.recentEvents {
+		if now.Sub(timestamp) > eventCleanupThreshold {
+			delete(d.recentEvents, k)
+		}
+	}
+
+	return false
+}
+
 // handlePaneFocusEvent processes a pane focus event and broadcasts to clients.
 func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	debug.Log("DAEMON_PANE_FOCUS_EVENT paneID=%s", event.PaneID)
@@ -495,6 +557,12 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 
 // handleAlertEvent processes an alert event and broadcasts to clients.
 func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
+	// Check for duplicate events BEFORE taking any locks
+	if d.isDuplicateEvent(event.PaneID, event.EventType, event.Created) {
+		debug.Log("DAEMON_ALERT_DUPLICATE paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
+		return
+	}
+
 	debug.Log("DAEMON_ALERT_EVENT paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
 
 	d.alertsMu.Lock()
@@ -642,6 +710,20 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			}
 
 		case MsgTypeShowBlockPicker:
+			// Validate message before processing
+			if err := ValidateMessage(msg); err != nil {
+				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
+				fmt.Fprintf(os.Stderr, "ERROR: Invalid show_block_picker message: %v\n", err)
+				errorMsg, constructErr := NewPersistenceErrorMessage(
+					d.seqCounter.Add(1),
+					fmt.Sprintf("Invalid show_block_picker request: %v", err),
+				)
+				if constructErr == nil {
+					client.sendMessage(errorMsg.ToWireFormat())
+				}
+				continue
+			}
+
 			// Broadcast to all clients to show picker for this pane
 			debug.Log("DAEMON_SHOW_PICKER paneID=%s", msg.PaneID)
 
@@ -760,6 +842,8 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		case MsgTypeHealthQuery:
 			// Return health status
 			debug.Log("DAEMON_HEALTH_QUERY client=%s", clientID)
+			// TODO(#281): Include field-level details in health validation errors
+			// Current: Generic message without specific field/value context
 			status, healthErr := d.GetHealthStatus()
 			if healthErr != nil {
 				// Send error message to client instead of fabricated health status
@@ -787,6 +871,18 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			debug.Log("DAEMON_RESYNC_REQUEST client=%s", clientID)
 			if err := d.sendFullState(client, clientID); err != nil {
 				debug.Log("DAEMON_RESYNC_FAILED client=%s error=%v", clientID, err)
+			}
+
+		default:
+			// Unknown message type
+			debug.Log("DAEMON_UNKNOWN_MESSAGE_TYPE client=%s type=%s", clientID, msg.Type)
+			fmt.Fprintf(os.Stderr, "ERROR: Unknown message type from client %s: %s\n", clientID, msg.Type)
+			errorMsg, constructErr := NewPersistenceErrorMessage(
+				d.seqCounter.Add(1),
+				fmt.Sprintf("Unknown message type: %s", msg.Type),
+			)
+			if constructErr == nil {
+				client.sendMessage(errorMsg.ToWireFormat())
 			}
 		}
 	}
@@ -833,6 +929,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
 				}
 
+				// TODO(#330): Add pattern detection for rapid connection close failures
 				if closeErr := client.conn.Close(); closeErr != nil {
 					totalCloseErrors := d.connectionCloseErrors.Add(1)
 					d.lastCloseError.Store(closeErr.Error())
@@ -874,10 +971,12 @@ func (d *AlertDaemon) broadcast(msg Message) {
 				"Affected clients disconnected and will resync on reconnect.",
 			len(failedClients), totalClients, msg.Type, msg.SeqNum,
 		)
+		// TODO(#281): Improve sync warning error context
+		// Current: Fallback can cascade into another failure without clear user messaging
 		syncWarning, err := NewSyncWarningMessage(d.seqCounter.Add(1), msg.Type, errorMsg)
 		if err != nil {
 			// CRITICAL: Cannot construct sync warning - use fallback raw message
-			// TODO(#281): Add visibility for cascade failures
+			// TODO(#281): Escalate broadcast cascade failures to health metrics - see PR review for #273
 			fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning construction failed (type=%s, failed_clients=%d): %v\n",
 				msg.Type, len(failedClients), err)
 			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", err)
@@ -969,7 +1068,7 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	blockedCount := len(d.blockedBranches)
 	d.blockedMu.RUnlock()
 
-	// TODO(#281): Add sentinel error for health validation failures
+	// TODO(#281): Include validation errors in health status response - see PR review for #273
 	status, err := NewHealthStatus(
 		d.broadcastFailures.Load(),
 		lastBroadcastErr,

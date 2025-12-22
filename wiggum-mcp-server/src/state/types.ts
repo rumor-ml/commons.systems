@@ -2,6 +2,8 @@
  * State management types for Wiggum flow
  */
 
+// TODO(#304): Add readonly modifiers to type definitions
+
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 
 /**

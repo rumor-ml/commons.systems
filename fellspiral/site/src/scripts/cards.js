@@ -1,5 +1,12 @@
 /**
  * Card Library - CRUD Operations and Tree Navigation
+ *
+ * Error handling improvements:
+ * - Better auth state management with retry logic
+ * - Structured error logging with context objects
+ * - User-friendly error messages for Firebase operations
+ *
+ * Related: #305 for general documentation and error handling improvements
  */
 
 // TODO(#305): Improve error logging for library nav initialization
@@ -588,8 +595,17 @@ async function loadCards() {
     });
     state.error = error.message;
 
-    // Auth errors: prompt login
+    // Auth errors: fallback to static data for anonymous users, prompt login for authenticated
     if (error.code === 'permission-denied' || error.code === 'unauthenticated') {
+      // If not authenticated, fall back to static data (public cards viewable without login)
+      // This handles the case where Firestore rules require query constraints we don't have
+      if (!getAuthInstance()?.currentUser) {
+        console.warn('[Cards] Permission denied for anonymous user, using static data fallback');
+        state.cards = cardsData || [];
+        state.filteredCards = [...state.cards];
+        return;
+      }
+      // Authenticated user with permission error - their session may have expired
       state.cards = [];
       state.filteredCards = [];
       showErrorUI('Please log in to view your cards.', () => {

@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// TODO(#280): Document error variables with usage context - see PR review for #273
 // Query response channel error types
 var (
 	ErrQueryChannelFull   = errors.New("query response channel full")
@@ -86,6 +87,7 @@ type Message struct {
 	ActivePaneID    string            `json:"active_pane_id,omitempty"`    // For pane_focus messages
 	// BlockedPanes maps paneID to the branch it's blocked on (inverse of BlockedBranches)
 	//
+	// TODO(#280): Update deprecation timeline to specific version - see PR review for #273
 	// DEPRECATED AS OF: Current development (never released) - Never populated by daemon
 	// REPLACEMENT: Use BlockedBranches (branch -> blockedByBranch) for all block state queries
 	//

@@ -58,6 +58,33 @@ interface PRData {
   mergeStateStatus: string; // "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY" | "UNSTABLE" etc.
 }
 
+/**
+ * Monitor all status checks for a pull request until completion
+ *
+ * Polls PR status checks until all complete or first failure occurs. Provides
+ * merge conflict detection and overall PR mergeability status. Useful for
+ * automated workflows waiting on CI/CD checks.
+ *
+ * @param input - Monitor configuration
+ * @param input.pr_number - Pull request number to monitor
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.poll_interval_seconds - Polling frequency (default: 10s)
+ * @param input.timeout_seconds - Maximum wait time (default: 600s)
+ * @param input.fail_fast - Exit on first failure (default: true)
+ *
+ * @returns Summary with overall status, check counts, and merge state
+ *
+ * @throws {ValidationError} If PR not found or not in open state
+ * @throws {TimeoutError} If checks don't complete within timeout
+ *
+ * @example
+ * // Monitor PR checks with fail-fast
+ * await monitorPRChecks({ pr_number: 42, fail_fast: true });
+ *
+ * @example
+ * // Wait for all checks to complete
+ * await monitorPRChecks({ pr_number: 42, fail_fast: false });
+ */
 export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);

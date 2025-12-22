@@ -65,7 +65,7 @@ You are NOT responsible for:
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Run `/pr-review-toolkit:review-pr` on local branch
+2. **p1-2: Code Review (Pre-PR)** - Run `/all-hands-review` on local branch
 3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
 4. **p1-4: Create PR** - Only after all pre-PR checks pass
 
@@ -78,7 +78,7 @@ Execute AFTER PR is created for final validation:
 1. **p2-1: Monitor Workflow** - PR workflow must pass (includes deployments + E2E tests)
 2. **p2-2: Monitor PR Checks** - All PR checks must pass
 3. **p2-3: Code Quality** - Address code quality bot comments
-4. **p2-4: PR Review (Post-PR)** - Run `/pr-review-toolkit:review-pr` on PR
+4. **p2-4: PR Review (Post-PR)** - Run `/review` on actual PR
 5. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
 6. **approval: Add "needs review" label** - Ready for human review
 
@@ -245,12 +245,15 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 ### wiggum_complete_pr_review
 
-Call after executing `/pr-review-toolkit:review-pr`.
+Call after executing the phase-appropriate review command:
+
+- **Phase 1:** After `/all-hands-review`
+- **Phase 2:** After `/review`
 
 **Used in TWO contexts:**
 
-- **Phase 1 (p1-2):** Pre-PR code review on local branch
-- **Phase 2 (p2-4):** Post-PR review on actual PR
+- **Phase 1 (p1-2):** Pre-PR code review on local branch (uses `/all-hands-review`)
+- **Phase 2 (p2-4):** Post-PR review on actual PR (uses `/review`)
 
 **Returns next step instructions.**
 
@@ -267,7 +270,10 @@ mcp__wiggum__wiggum_complete_pr_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
+- `verbatim_response` must contain the COMPLETE formatted output from the review command
+  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
+  - For `/review` or `/security-review`: Include the complete review output
+  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
@@ -297,7 +303,10 @@ mcp__wiggum__wiggum_complete_security_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
+- `verbatim_response` must contain the COMPLETE formatted output from the review command
+  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
+  - For `/review` or `/security-review`: Include the complete review output
+  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 

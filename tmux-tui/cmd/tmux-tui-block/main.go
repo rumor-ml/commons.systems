@@ -29,6 +29,7 @@ var (
 	ErrGitBranchFailed = errors.New("failed to get current branch")
 )
 
+// TODO(#328): Consider extracting error hint pattern into shared error handling package
 // printErrorHint prints a contextual hint based on error type
 func printErrorHint(err error) {
 	switch {

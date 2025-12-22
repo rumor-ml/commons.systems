@@ -1,6 +1,9 @@
 rules_version = '2';
 
-// TODO(#283): Add E2E tests validating these security rules
+// Firestore security rules for cards collection
+// Ensures data integrity and user attribution
+// Related: #283 for security rules validation tests
+// Related: #305 for general documentation improvements
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -18,15 +21,13 @@ service cloud.firestore {
     // Cards collection (for fellspiral) - includes PR-specific collections like cards_pr_123
     // and branch preview collections like cards_preview_my-branch
     match /{cardsCollection}/{cardId} {
-      // Allow reading if:
-      // 1. Card matches collection pattern, AND
-      // 2. User is authenticated, AND
-      // 3. Either: user owns the card OR card is public
+      // Allow reading public cards (anyone can view cards where isPublic == true)
+      // Cards are public by default, so this covers most use cases.
+      // Private cards (isPublic == false) require future implementation of owner-only queries.
+      // NOTE: Use .get() with defaults to handle documents missing isPublic field
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
-                  && request.auth != null
-                  && (resource.data.createdBy == request.auth.uid
-                      || resource.data.isPublic == true);
+                  && resource.data.get('isPublic', false) == true;
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
@@ -45,18 +46,20 @@ service cloud.firestore {
                     && request.resource.data.createdBy == request.auth.uid;
 
       // Allow update only if user is the creator or if updating their own modifications
+      // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
-                    && (resource.data.createdBy == request.auth.uid
+                    && (resource.data.get('createdBy', '') == request.auth.uid
                         || request.resource.data.lastModifiedBy == request.auth.uid)
                     && request.resource.data.lastModifiedAt == request.time;
 
       // Allow delete only if user is the creator
+      // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
-                    && resource.data.createdBy == request.auth.uid;
+                    && resource.data.get('createdBy', '') == request.auth.uid;
     }
 
     // User profiles (optional - for storing user preferences)
