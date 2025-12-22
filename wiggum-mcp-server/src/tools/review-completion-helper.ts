@@ -319,7 +319,13 @@ export async function completeReview(
   const totalIssues =
     input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
 
-  const { title, body } = buildCommentContent(input, reviewStep, totalIssues, config, state.wiggum.phase);
+  const { title, body } = buildCommentContent(
+    input,
+    reviewStep,
+    totalIssues,
+    config,
+    state.wiggum.phase
+  );
   const hasIssues = totalIssues > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
