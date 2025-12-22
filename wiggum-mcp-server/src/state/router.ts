@@ -34,6 +34,7 @@ import {
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { GitHubCliError } from '../utils/errors.js';
+import { sanitizeErrorMessage } from '../utils/security.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
@@ -367,16 +368,26 @@ async function safePostIssueStateComment(
  * Generates standardized fix instructions for any workflow or check failure,
  * including the complete Plan -> Fix -> Commit -> Complete cycle.
  *
+ * SECURITY: failureDetails is sanitized to prevent secret exposure and
+ * markdown formatting issues. Input comes from GitHub API (workflow logs,
+ * check outputs) via gh_get_failure_details.
+ *
  * @param failureType - Type of failure (e.g., "Workflow", "PR checks")
- * @param failureDetails - Detailed error information from gh_get_failure_details
+ * @param failureDetails - Detailed error information from gh_get_failure_details (will be sanitized)
  * @param defaultMessage - Fallback message if no failure details available
- * @returns Formatted markdown instructions for fixing the failure
+ * @returns Formatted markdown instructions with sanitized failure details
  */
 function formatFixInstructions(
   failureType: string,
   failureDetails: string | undefined,
   defaultMessage: string
 ): string {
+  // Sanitize external input to prevent secret exposure and markdown issues
+  // failureDetails comes from GitHub API responses (workflow logs, check outputs)
+  const sanitizedDetails = failureDetails
+    ? sanitizeErrorMessage(failureDetails, 1000)
+    : defaultMessage;
+
   return `${failureType} failed. Follow these steps to fix:
 
 1. Analyze the error details below (includes test failures, stack traces, file locations)
@@ -386,7 +397,7 @@ function formatFixInstructions(
 5. Call wiggum_complete_fix with fix_description
 
 **Failure Details:**
-${failureDetails || defaultMessage}`;
+${sanitizedDetails}`;
 }
 
 /**
