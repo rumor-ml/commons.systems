@@ -258,7 +258,7 @@ function buildIssuesFoundResponse(
 
   // Issue number is required for triage workflow to properly scope fixes
   // TODO(#312): Add Sentry error ID for tracking
-  // TODO: See issue #314 - Add actionable error context when issueNumber is undefined
+  // TODO(#314): Add actionable error context when issueNumber is undefined
   if (!issueNumber) {
     throw new ValidationError(
       `Issue number required for triage workflow but was undefined. This indicates a state detection issue. Branch: ${state.git.currentBranch}, Phase: ${state.wiggum.phase}`
@@ -326,6 +326,8 @@ export async function completeReview(
     );
   }
 
+  // TODO(#448): Add validation for non-negative integer issue counts
+
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
 
@@ -346,7 +348,7 @@ export async function completeReview(
 
   const result = await postStateComment(state, newState, title, body);
 
-  // TODO: See issue #415 - Add safe discriminated union access with type guards
+  // TODO(#415): Add safe discriminated union access with type guards
   if (!result.success) {
     logger.error('Review state comment failed - halting workflow', {
       reviewType: config.reviewTypeLabel,

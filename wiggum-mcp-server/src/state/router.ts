@@ -171,9 +171,10 @@ export async function safePostStateComment(
     await postWiggumStateComment(prNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
-    // Log but continue - state comment is for tracking, not critical path
+    // State comment posting is CRITICAL for race condition fix (issue #388)
+    // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
     // TODO(#320): Surface state comment failures to users instead of silent warning
-    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
+    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -291,7 +292,7 @@ export async function safePostIssueStateComment(
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
-    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
+    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -405,7 +406,7 @@ function formatFixInstructions(
   defaultMessage: string,
   issueNumber?: number
 ): string {
-  // TODO: See issue #417 - Add logging when sanitization occurs to help debugging
+  // TODO(#417): Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
   const sanitizedDetails = failureDetails
