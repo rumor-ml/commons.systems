@@ -153,6 +153,7 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
+  // TODO(#328): Consider extracting budget calculation pattern into helper function
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {
@@ -212,6 +213,9 @@ function formatJobSummaries(
     output += warningText;
   }
 
+  // TODO(#345,#346): Track budget calculation bugs as tool errors, not silent warnings
+  // Current: Returns success with [BUG] diagnostics when output exceeds max_chars
+  // See PR review #273 for emergency truncation bug details
   // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
     const overage = output.length - maxChars;
@@ -304,6 +308,39 @@ async function getFailureDetailsFromLogFailed(
   };
 }
 
+/**
+ * Get token-efficient summary of workflow failures
+ *
+ * Extracts relevant error messages and context from failed jobs using framework-
+ * specific extractors (Playwright, Go, generic). Provides concise failure summaries
+ * optimized for LLM token budgets. Automatically falls back through multiple
+ * extraction strategies for robustness.
+ *
+ * Strategy:
+ * 1. Completed failed runs: Use `gh run view --log-failed` (cleanest output)
+ * 2. In-progress/API fallback: Use GitHub API jobs endpoint (raw logs)
+ *
+ * @param input - Extraction configuration
+ * @param input.run_id - Specific workflow run ID
+ * @param input.pr_number - PR number (uses first failed run)
+ * @param input.branch - Branch name (uses most recent run)
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.max_chars - Maximum response length (default: 10000)
+ *
+ * @returns Failure summary with error extraction and test results
+ *
+ * @throws {ValidationError} If no identifier provided or run not found
+ * @throws {GitHubCliError} If gh CLI command fails (exit code != 0)
+ * @throws {ParsingError} If JSON output from gh CLI is malformed
+ *
+ * @example
+ * // Get failure details for PR's first failed run
+ * await getFailureDetails({ pr_number: 42 });
+ *
+ * @example
+ * // Get failure details with custom length limit
+ * await getFailureDetails({ run_id: 123456, max_chars: 5000 });
+ */
 export async function getFailureDetails(input: GetFailureDetailsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
@@ -385,6 +422,7 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Format and return results using the new helper
         return formatJobSummaries(run, result.summaries, input.max_chars, result.parseWarnings);
       } catch (error) {
+        // TODO: See issue #319 - Only catch GitHubCliError for --log-failed, let validation/timeout/parsing errors propagate
         // Fall through to job-based approach if --log-failed fails
         // This can happen if:
         // - No failed steps in the run (edge case)

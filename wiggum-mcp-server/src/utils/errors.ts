@@ -167,6 +167,8 @@ export class FormattingError extends McpError {
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ErrorResult with error information and type metadata
+ *   - _meta includes errorType and errorCode for all errors
+ *   - For GitError/ValidationError: additional properties are in the error instance, not _meta
  */
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
@@ -236,6 +238,10 @@ export function formatError(error: unknown): string {
  * - TimeoutError: Potentially retryable (may succeed with more time)
  * - NetworkError: Potentially retryable (transient network issues)
  * - Other errors: Treated as potentially retryable (conservative approach)
+ *
+ * NOTE: Unlike gh-workflow/gh-issue MCP servers, this implementation does NOT
+ * treat FormattingError as terminal. This is intentional - wiggum's error handling
+ * prefers conservative retry behavior for internal errors to maximize workflow completion.
  *
  * @param error - Error to check
  * @returns true if error is terminal and should not be retried

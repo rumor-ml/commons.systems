@@ -7,16 +7,20 @@
  */
 
 import { detectCurrentState } from '../state/detector.js';
-import { postWiggumStateComment } from '../state/comments.js';
-import { postWiggumStateIssueComment } from '../state/issue-comments.js';
-import { getNextStepInstructions } from '../state/router.js';
+import {
+  getNextStepInstructions,
+  safePostStateComment,
+  safePostIssueStateComment,
+  type StateCommentResult,
+} from '../state/router.js';
+import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
 import { MAX_ITERATIONS, STEP_NAMES, generateTriageInstructions } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
-import type { CurrentState } from '../state/types.js';
+import type { CurrentState, WiggumState } from '../state/types.js';
 
 /**
  * Configuration for a review type (PR or Security)
@@ -27,8 +31,10 @@ export interface ReviewConfig {
   phase1Step: WiggumStep;
   /** Step identifier for Phase 2 */
   phase2Step: WiggumStep;
-  /** Command that was executed */
-  commandName: string;
+  /** Command for Phase 1 */
+  phase1Command: string;
+  /** Command for Phase 2 */
+  phase2Command: string;
   /** Type label for logging and messages (e.g., "PR", "Security") */
   reviewTypeLabel: string;
   /** Issue type for messages (e.g., "issue(s)", "security issue(s)") */
@@ -78,12 +84,15 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
  * Build comment content based on review results
  * TODO: See issue #334 - Add tests for comment content formatting
  */
-function buildCommentContent(
+export function buildCommentContent(
   input: ReviewCompletionInput,
   reviewStep: WiggumStep,
   totalIssues: number,
-  config: ReviewConfig
+  config: ReviewConfig,
+  phase: WiggumPhase
 ): { title: string; body: string } {
+  const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
+
   const title =
     totalIssues > 0
       ? `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) - Issues Found`
@@ -91,7 +100,7 @@ function buildCommentContent(
 
   const body =
     totalIssues > 0
-      ? `**Command Executed:** \`${config.commandName}\`
+      ? `**Command Executed:** \`${commandExecuted}\`
 
 **${config.reviewTypeLabel} Issues Found:**
 - High Priority: ${input.high_priority_issues}
@@ -107,7 +116,7 @@ ${input.verbatim_response}
 </details>
 
 **Next Action:** Plan and implement ${config.reviewTypeLabel.toLowerCase()} fixes for all issues, then call \`wiggum_complete_fix\`.`
-      : `**Command Executed:** \`${config.commandName}\`
+      : `**Command Executed:** \`${commandExecuted}\`
 
 ${config.successMessage}`;
 
@@ -121,7 +130,7 @@ function buildNewState(
   currentState: CurrentState,
   reviewStep: WiggumStep,
   hasIssues: boolean
-): { iteration: number; step: WiggumStep; completedSteps: WiggumStep[]; phase: WiggumPhase } {
+): WiggumState {
   if (hasIssues) {
     return {
       iteration: currentState.wiggum.iteration + 1,
@@ -134,7 +143,7 @@ function buildNewState(
   return {
     iteration: currentState.wiggum.iteration,
     step: reviewStep,
-    completedSteps: [...currentState.wiggum.completedSteps, reviewStep],
+    completedSteps: addToCompletedSteps(currentState.wiggum.completedSteps, reviewStep),
     phase: currentState.wiggum.phase,
   };
 }
@@ -152,7 +161,7 @@ async function postStateComment(
   },
   title: string,
   body: string
-): Promise<void> {
+): Promise<StateCommentResult> {
   if (state.wiggum.phase === 'phase1') {
     if (!state.issue.exists || !state.issue.number) {
       // TODO: See issue #312 - Add Sentry error ID for tracking
@@ -160,7 +169,13 @@ async function postStateComment(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
     }
-    await postWiggumStateIssueComment(state.issue.number, newState, title, body);
+    return await safePostIssueStateComment(
+      state.issue.number,
+      newState,
+      title,
+      body,
+      newState.step
+    );
   } else {
     if (!state.pr.exists || !state.pr.number) {
       // TODO: See issue #312 - Add Sentry error ID for tracking
@@ -168,7 +183,7 @@ async function postStateComment(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
     }
-    await postWiggumStateComment(state.pr.number, newState, title, body);
+    return await safePostStateComment(state.pr.number, newState, title, body, newState.step);
   }
 }
 
@@ -215,6 +230,7 @@ function buildIssuesFoundResponse(
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
+  // TODO: See issue #417 - Notify users when fallback workflow is used
   if (issueNumber) {
     logger.info(
       `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
@@ -226,6 +242,7 @@ function buildIssuesFoundResponse(
       }
     );
   } else {
+    // TODO: See issue #314 - Add actionable error context when issueNumber is undefined
     logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
       phase: state.wiggum.phase,
       totalIssues,
@@ -302,11 +319,92 @@ export async function completeReview(
   const totalIssues =
     input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
 
-  const { title, body } = buildCommentContent(input, reviewStep, totalIssues, config);
+  const { title, body } = buildCommentContent(
+    input,
+    reviewStep,
+    totalIssues,
+    config,
+    state.wiggum.phase
+  );
   const hasIssues = totalIssues > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
-  await postStateComment(state, newState, title, body);
+  const result = await postStateComment(state, newState, title, body);
+
+  // TODO: See issue #415 - Add safe discriminated union access with type guards
+  if (!result.success) {
+    logger.error('Review state comment failed - halting workflow', {
+      reviewType: config.reviewTypeLabel,
+      reviewStep,
+      reason: result.reason,
+      isTransient: result.isTransient,
+      phase: state.wiggum.phase,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      issueNumber: state.issue.exists ? state.issue.number : undefined,
+      reviewResults: {
+        high: input.high_priority_issues,
+        medium: input.medium_priority_issues,
+        low: input.low_priority_issues,
+        total: totalIssues,
+      },
+    });
+
+    const reviewResultsSummary = `**${config.reviewTypeLabel} Review Results (NOT persisted):**
+- High Priority: ${input.high_priority_issues}
+- Medium Priority: ${input.medium_priority_issues}
+- Low Priority: ${input.low_priority_issues}
+- **Total: ${totalIssues}**`;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[reviewStep],
+            step_number: reviewStep,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to post state comment due to ${result.reason}.
+
+${reviewResultsSummary}
+
+**IMPORTANT:** The review itself succeeded. You do NOT need to re-run the ${config.reviewTypeLabel.toLowerCase()} review.
+
+**Why This Failed:**
+The race condition fix (issue #388) requires posting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} as a state comment. This state persistence failed.
+
+**Common Causes:**
+- GitHub API rate limiting (HTTP 429)
+- Network connectivity issues
+- Temporary GitHub API unavailability
+- ${state.wiggum.phase === 'phase1' ? 'Issue' : 'PR'} does not exist or was closed
+
+**Retry Instructions:**
+1. Check rate limits: \`gh api rate_limit\`
+2. Verify network connectivity: \`curl -I https://api.github.com\`
+3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : state.pr.exists ? state.pr.number : '<pr-number>'}\`
+4. Once resolved, retry this tool call with the SAME parameters
+
+The workflow will resume from this step once the state comment posts successfully.`,
+            steps_completed_by_tool: [
+              `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
+              'Attempted to post state comment',
+              'Failed due to transient error - review results NOT persisted',
+            ],
+            context: {
+              pr_number: state.pr.exists ? state.pr.number : undefined,
+              issue_number: state.issue.exists ? state.issue.number : undefined,
+              review_type: config.reviewTypeLabel,
+              total_issues: totalIssues,
+              high_priority_issues: input.high_priority_issues,
+              medium_priority_issues: input.medium_priority_issues,
+              low_priority_issues: input.low_priority_issues,
+            },
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
 
   if (newState.iteration >= MAX_ITERATIONS) {
     return buildIterationLimitResponse(state, reviewStep, totalIssues, newState.iteration);
@@ -316,6 +414,11 @@ export async function completeReview(
     return buildIssuesFoundResponse(state, reviewStep, totalIssues, newState.iteration, config);
   }
 
-  const updatedState = await detectCurrentState();
+  // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
+  // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
+  // state changes have occurred (PR closed, commits added, issue modified). This is safe
+  // during inline step transitions within the same tool call. For state staleness validation,
+  // see issue #391.
+  const updatedState = applyWiggumState(state, newState);
   return await getNextStepInstructions(updatedState);
 }

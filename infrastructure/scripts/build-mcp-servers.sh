@@ -37,10 +37,12 @@ MCP_SERVERS=(
   "wiggum-mcp-server"
   "gh-workflow-mcp-server"
   "gh-issue-mcp-server"
+  "git-mcp-server"
 )
 
 BUILD_FAILED=0
 FAILED_SERVERS=()
+# TODO(#328): Consider extracting BUILD_FAILED flag pattern into reusable test runner
 
 for server in "${MCP_SERVERS[@]}"; do
   if [[ ! -d "$server" ]]; then
