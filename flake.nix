@@ -150,6 +150,7 @@
           mcpServersHook = pkgs.callPackage ./nix/hooks/mcp-servers.nix { };
           tmuxTuiHook = pkgs.callPackage ./nix/hooks/tmux-tui.nix { };
           goEnvHook = pkgs.callPackage ./nix/hooks/go-env.nix { };
+          gitWorktreeHook = pkgs.callPackage ./nix/hooks/git-worktree.nix { };
 
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
@@ -168,6 +169,9 @@
 
             shellHook = ''
               ${pre-commit-check.shellHook}
+
+              # Configure git worktree extension (prevents core.bare issues)
+              ${gitWorktreeHook}
 
               # Initialize Go environment
               ${goEnvHook}
