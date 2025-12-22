@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Plot from '@observablehq/plot';
 import * as d3 from 'd3';
 import { Transaction, MonthlyData, Category, TooltipData, QualifierBreakdown } from './types';
@@ -45,6 +45,7 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
         return true;
       });
 
+      // TODO: See issue #445 - Extract data transformation to pure function for unit testing
       // Transform to monthly aggregates with qualifier tracking
       const monthlyMap = new Map<
         string,
@@ -147,11 +148,8 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
         };
       });
 
-
-      // Clear container by removing child nodes
-      while (containerRef.current.firstChild) {
-        containerRef.current.removeChild(containerRef.current.firstChild);
-      }
+      // Clear container
+      containerRef.current.replaceChildren();
 
       // Create the plot
       const plot = Plot.plot({
@@ -206,10 +204,7 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
 
           // Net income line
           Plot.line(netIncomeData, {
-            x: (d: { month: Date; netIncome: number }) => {
-              const month = d.month.toISOString().substring(0, 7);
-              return month;
-            },
+            x: (d) => d.month.toISOString().substring(0, 7),
             y: 'netIncome',
             stroke: '#00d4ed',
             strokeWidth: 3,
@@ -217,10 +212,7 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
 
           // 3-month trailing average line
           Plot.line(trailingAvgData, {
-            x: (d: { month: Date; trailingAvg: number }) => {
-              const month = d.month.toISOString().substring(0, 7);
-              return month;
-            },
+            x: (d) => d.month.toISOString().substring(0, 7),
             y: 'trailingAvg',
             stroke: '#00d4ed',
             strokeWidth: 2,
@@ -235,15 +227,13 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
       // Attach event listeners to bar segments for tooltips
       // We need to match bars to data - Plot renders bars in two groups (expenses and income)
       // The bars are in g[aria-label="bar"] elements - expenses first, then income
+      // TODO: See issue #384 - Log warnings when bar groups/elements not found for tooltip attachment
       const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
 
       // Helper function to attach event listeners to bar segments
-      const attachBarEventListeners = (
-        bars: NodeListOf<Element>,
-        data: MonthlyData[]
-      ) => {
+      const attachBarEventListeners = (bars: NodeListOf<Element>, data: MonthlyData[]) => {
         bars.forEach((rect, index) => {
           const barData = data[index];
           if (!barData) return;

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Category, Transaction } from './types';
 import { CATEGORY_COLORS, CATEGORY_LABELS } from './constants';
 
@@ -6,12 +6,6 @@ interface LegendProps {
   transactions: Transaction[];
   hiddenCategories: string[];
   showVacation: boolean;
-}
-
-interface CategorySummary {
-  category: Category;
-  total: number;
-  count: number;
 }
 
 export function Legend({ transactions, hiddenCategories, showVacation }: LegendProps) {
@@ -25,8 +19,7 @@ export function Legend({ transactions, hiddenCategories, showVacation }: LegendP
     const summaries = new Map<Category, { total: number; count: number }>();
 
     transactions
-      .filter((txn) => !txn.transfer)
-      .filter((txn) => !txn.vacation || showVacation)
+      .filter((txn) => !txn.transfer && (showVacation || !txn.vacation))
       .forEach((txn) => {
         const current = summaries.get(txn.category) || { total: 0, count: 0 };
         const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
@@ -41,7 +34,7 @@ export function Legend({ transactions, hiddenCategories, showVacation }: LegendP
       total: data.total,
       count: data.count,
     }));
-  }, [transactions, showVacation, hiddenCategories]);
+  }, [transactions, showVacation]);
 
   const handleVacationToggle = () => {
     // Dispatch custom event for vacation toggle
@@ -95,14 +88,11 @@ export function Legend({ transactions, hiddenCategories, showVacation }: LegendP
                   backgroundColor: CATEGORY_COLORS[category],
                 }}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-white font-medium">
-                    {CATEGORY_LABELS[category]}
-                  </span>
-                </div>
+                <span className="text-sm text-white font-medium">{CATEGORY_LABELS[category]}</span>
                 <div className="text-right">
                   <div className="text-sm text-white font-semibold">
-                    ${Math.abs(total).toLocaleString(undefined, {
+                    $
+                    {Math.abs(total).toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}

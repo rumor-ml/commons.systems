@@ -27,3 +27,6 @@ scaffolding/
 # Lock files
 pnpm-lock.yaml
 package-lock.json
+
+# Local settings files
+.claude/settings.local.json

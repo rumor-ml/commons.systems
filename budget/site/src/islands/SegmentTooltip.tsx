@@ -8,6 +8,7 @@ interface SegmentTooltipProps {
   onClose?: () => void;
 }
 
+// TODO: See issue #445 - Add unit tests for section visibility logic edge cases
 /**
  * Determines if the Redemption section should be shown.
  * Hide if either redeemable or nonRedeemable is zero (making the breakdown redundant).
@@ -32,6 +33,7 @@ export const SegmentTooltip = memo(function SegmentTooltip({
   if (!data) return null;
 
   const categoryLabel = CATEGORY_LABELS[data.category];
+  // TODO: See issue #384 - Validate date format before parsing to handle malformed month strings
   const monthFormatted = new Date(data.month + '-01').toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
@@ -57,15 +59,12 @@ export const SegmentTooltip = memo(function SegmentTooltip({
   };
 
   // Adjust position if it would go off screen
-  // This will be refined after we measure the tooltip size
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
-  const tooltipWidth = 280; // Approximate width
-  // Calculate approximate tooltip height based on visible sections
-  const baseHeight = 150; // header (60px) + total (50px) + footer (40px)
-  const sectionHeight = 100; // Each section ~100px
-  const sectionCount = (showRedemption ? 1 : 0) + (showType ? 1 : 0);
-  const tooltipHeight = baseHeight + (sectionCount * sectionHeight);
+  const tooltipWidth = 280;
+  // Calculate approximate tooltip height: base 150px + 100px per visible section
+  const sectionCount = Number(showRedemption) + Number(showType);
+  const tooltipHeight = 150 + sectionCount * 100;
 
   if (data.x + tooltipWidth > viewportWidth) {
     style.left = `${viewportWidth - tooltipWidth - 10}px`;

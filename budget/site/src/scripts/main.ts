@@ -1,7 +1,7 @@
 import '../styles/main.css';
 import { StateManager } from './state';
 import { renderSummaryCards } from './renderer';
-import { hydrateIsland, hydrateIslands } from '../islands/index';
+import { hydrateIsland } from '../islands/index';
 import { Transaction } from '../islands/types';
 import transactionsData from '../data/transactions.json';
 

@@ -18,10 +18,15 @@ Before analyzing changes, update any TODO comments that reference closed issues:
 1. **Scan for TODO references**: Use Grep tool to find all TODO comments with issue references:
    - Pattern: `TODO\(#\d+\)`
    - File types: `.go`, `.ts`, `.tsx`, `.md` files
-   <!-- TODO(#351): Add rationale for file type restriction (e.g., "common source and documentation files") -->
+   <!-- TODO(#305,#351): Add rationale for file type restriction
+        Why: TypeScript/Go are actively developed; excluding vendor dirs prevents noise
+        See PR review #273 for details -->
    - Search entire repository
    - Output mode: "content" to see the actual TODO text
-   <!-- TODO(#350): Add guidance to skip TODOs in non-comment contexts (strings, examples) -->
+     <!-- TODO(#365): Add context filtering to prevent matching TODOs in strings/URLs -->
+     <!-- TODO(#305,#350): Add guidance to skip TODOs in non-comment contexts
+          Why: Prevents false positives when TODO appears in strings/URLs
+          See PR review #273 -->
 
 2. **For each referenced issue found**:
    - Extract issue number from `TODO(#NNN)` pattern
@@ -48,7 +53,7 @@ Before analyzing changes, update any TODO comments that reference closed issues:
      - Use Grep tool to find all files containing the old TODO reference
      - For each file, use Edit tool to replace `TODO(#old)` with `TODO(#new)`
      - Add explanatory comment: `TODO(#new) [was #old: <old-title>]`
-     <!-- TODO(#351): Add concrete format examples and truncation rules -->
+     <!-- TODO(#365) [was #351: Improve TODO refresh documentation clarity]: Add concrete format examples and truncation rules -->
      - Stage updated files: `git add <files>`
      <!-- TODO(#353): Document git staging behavior and selective staging implications -->
      - Report to user: "Updated TODO(#old) → TODO(#new) in <file-count> files"

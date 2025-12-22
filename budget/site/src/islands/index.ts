@@ -15,6 +15,7 @@ const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
 
 export function hydrateIsland(element: HTMLElement, componentName: string) {
   // TODO: See issue #384 - Add error handling for JSON.parse, createRoot, and React.createElement failures
+  // TODO: See issue #384 - Wrap components in React Error Boundary to catch rendering errors gracefully
   const props = JSON.parse(element.dataset.islandProps || '{}');
   const Component = COMPONENTS[componentName];
 

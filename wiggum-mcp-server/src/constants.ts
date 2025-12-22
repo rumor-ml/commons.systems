@@ -92,53 +92,83 @@ export const STEP_NAMES: Record<WiggumStep, string> = {
 export const WIGGUM_STATE_MARKER = 'wiggum-state';
 export const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
 
-// PR Review and Security Review commands
-export const PR_REVIEW_COMMAND = '/pr-review-toolkit:review-pr' as const;
+// Phase-specific review commands
 export const SECURITY_REVIEW_COMMAND = '/security-review' as const;
+
+// Phase-specific PR review commands
+export const PHASE1_PR_REVIEW_COMMAND = '/all-hands-review' as const;
+export const PHASE2_PR_REVIEW_COMMAND = '/review' as const;
 
 // PR check failure states (used for fail-fast logic)
 export const FAILURE_STATES = ['FAILURE', 'ERROR'] as const;
 
 /**
- * Generate triage instructions for review issues.
+ * Generate comprehensive triage instructions for review issues
  *
- * This function generates a comprehensive multi-step workflow prompt that guides
- * the agent through the triage process for review recommendations. The workflow includes:
- * 1. Entering plan mode
- * 2. Fetching issue context from GitHub
- * 3. Triaging each recommendation as in-scope or out-of-scope
- * 4. Handling ambiguous scope with user clarification
- * 5. Tracking out-of-scope items to existing/new issues
- * 6. Writing a structured plan with in-scope fixes and out-of-scope tracking
- * 7. Executing the plan with fix implementation and TODO comments
+ * Produces a structured multi-step workflow that guides the agent through triaging
+ * review recommendations, separating in-scope fixes from out-of-scope tracking.
  *
- * @param issueNumber - The issue number being worked on (must be positive integer)
- * @param reviewType - Either 'PR' or 'Security'
- * @param totalIssues - Total number of issues found (must be non-negative integer)
- * @returns A multi-step triage workflow prompt with scope boundaries determined by issueNumber
- * @throws {ValidationError} If issueNumber or totalIssues are invalid
+ * **Workflow Phases:**
+ *
+ * 1. **Plan Mode Entry** - Uses EnterPlanMode tool to begin structured planning
+ *
+ * 2. **Triage Process:**
+ *    - Fetches issue context via mcp__gh-issue__gh_get_issue_context
+ *    - Evaluates each recommendation against in-scope criteria
+ *    - IN SCOPE: Required for validating issue implementation, improves new work, covers new tests
+ *    - OUT OF SCOPE: Different issue, general improvements, unchanged code
+ *    - Handles ambiguous cases with AskUserQuestion and gh issue edit
+ *    - Searches existing issues for out-of-scope tracking (gh issue list)
+ *
+ * 3. **Plan Structure:**
+ *    - Section A: In-scope fixes (all severity levels)
+ *    - Section B: Out-of-scope tracking with issue numbers and TODO locations
+ *
+ * 4. **Execution:**
+ *    - Exit plan mode
+ *    - Implement in-scope fixes with accept-edits subagent
+ *    - Create/update out-of-scope issues in parallel
+ *    - Add TODO comments linking to issues
+ *    - Commit via /commit-merge-push
+ *    - Report completion via wiggum_complete_fix
+ *
+ * **Validation:** Throws ValidationError if reviewType not 'PR'/'Security', issueNumber
+ * not a positive integer, or totalIssues not a non-negative integer.
+ *
+ * @param issueNumber - GitHub issue number defining scope boundary (positive integer)
+ * @param reviewType - Review category: 'PR' or 'Security'
+ * @param totalIssues - Count of recommendations to triage (non-negative integer)
+ * @returns Formatted multi-step triage workflow instructions
+ * @throws {ValidationError} Invalid reviewType, issueNumber, or totalIssues
  */
 export function generateTriageInstructions(
   issueNumber: number,
   reviewType: 'PR' | 'Security',
   totalIssues: number
 ): string {
-  // Validate reviewType
+  // Error IDs for triage instruction validation
+  const ERROR_INVALID_REVIEW_TYPE = 'TRIAGE_INVALID_REVIEW_TYPE';
+  const ERROR_INVALID_ISSUE_NUMBER = 'TRIAGE_INVALID_ISSUE_NUMBER';
+  const ERROR_INVALID_TOTAL_ISSUES = 'TRIAGE_INVALID_TOTAL_ISSUES';
+
+  // TODO: See issue #416 - Add examples to validation error messages
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
-      `Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
+      `[${ERROR_INVALID_REVIEW_TYPE}] Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`
     );
   }
 
-  // Validate issueNumber
+  // Validates that issueNumber is a positive integer (GitHub issue numbers are always positive)
   if (!Number.isFinite(issueNumber) || issueNumber <= 0 || !Number.isInteger(issueNumber)) {
-    throw new ValidationError(`Invalid issueNumber: ${issueNumber}. Must be a positive integer.`);
+    throw new ValidationError(
+      `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
+    );
   }
 
-  // Validate totalIssues
+  // Validates that totalIssues is a non-negative integer (zero means no issues to triage, which is valid)
   if (!Number.isFinite(totalIssues) || totalIssues < 0 || !Number.isInteger(totalIssues)) {
     throw new ValidationError(
-      `Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
+      `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
     );
   }
 

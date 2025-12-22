@@ -1,3 +1,4 @@
+// TODO: See issue #445 - Add unit tests for filterTransactions and calculateSummary
 import { Transaction } from '../islands/types';
 import { BudgetState } from './state';
 
@@ -8,10 +9,7 @@ interface SummaryStats {
   savingsRate: number;
 }
 
-export function filterTransactions(
-  transactions: Transaction[],
-  state: BudgetState
-): Transaction[] {
+export function filterTransactions(transactions: Transaction[], state: BudgetState): Transaction[] {
   const hiddenSet = new Set(state.hiddenCategories);
 
   return transactions.filter((txn) => {
@@ -62,6 +60,7 @@ export function formatCurrency(value: number): string {
 
 export function renderSummaryCards(transactions: Transaction[], state: BudgetState): void {
   const container = document.getElementById('summary-cards');
+  // TODO: See issue #384 - Log error when container element not found instead of silent return
   if (!container) return;
 
   const filtered = filterTransactions(transactions, state);
@@ -89,12 +88,8 @@ export function renderSummaryCards(transactions: Transaction[], state: BudgetSta
     return card;
   };
 
-  grid.appendChild(
-    createCard('Total Income', formatCurrency(summary.totalIncome), 'positive')
-  );
-  grid.appendChild(
-    createCard('Total Expenses', formatCurrency(summary.totalExpenses), 'negative')
-  );
+  grid.appendChild(createCard('Total Income', formatCurrency(summary.totalIncome), 'positive'));
+  grid.appendChild(createCard('Total Expenses', formatCurrency(summary.totalExpenses), 'negative'));
   grid.appendChild(
     createCard(
       'Net Income',
@@ -113,4 +108,3 @@ export function renderSummaryCards(transactions: Transaction[], state: BudgetSta
   // Replace all children safely
   container.replaceChildren(grid);
 }
-

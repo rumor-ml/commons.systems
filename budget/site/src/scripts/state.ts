@@ -1,15 +1,14 @@
 import { CATEGORIES } from '../islands/constants';
+import { Category } from '../islands/types';
 
 export interface BudgetState {
   hiddenCategories: string[];
   showVacation: boolean;
 }
 
+// TODO: See issue #445 - Add unit tests for migration, validation, and error recovery logic
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
-
-  // All valid categories for migration and validation
-  private static ALL_CATEGORIES = CATEGORIES;
 
   static load(): BudgetState {
     try {
@@ -26,9 +25,7 @@ export class StateManager {
 
       // Migration: Convert old selectedCategory to hiddenCategories
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
-        const hiddenCategories = this.ALL_CATEGORIES.filter(
-          cat => cat !== parsed.selectedCategory
-        );
+        const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
         return {
           hiddenCategories,
           showVacation: parsed.showVacation ?? true,
@@ -38,8 +35,8 @@ export class StateManager {
       // Validate and filter hiddenCategories
       let hiddenCategories: string[] = [];
       if (Array.isArray(parsed.hiddenCategories)) {
-        hiddenCategories = parsed.hiddenCategories.filter(cat =>
-          this.ALL_CATEGORIES.includes(cat)
+        hiddenCategories = parsed.hiddenCategories.filter((cat: string) =>
+          CATEGORIES.includes(cat as Category)
         );
       }
 

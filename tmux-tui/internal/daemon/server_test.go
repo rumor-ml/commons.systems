@@ -2622,10 +2622,14 @@ func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
 	// Create 12 clients (exceeds threshold of 10)
 	for i := 0; i < 12; i++ {
 		r, w := io.Pipe()
-		w.Close() // Force close error
+		w.Close() // Force write error for broadcast
 
 		daemon.clients[fmt.Sprintf("client-%d", i)] = &clientConnection{
-			conn:    &mockConn{reader: r, writer: w},
+			conn: &mockConn{
+				reader:   r,
+				writer:   w,
+				closeErr: errors.New("simulated close error"), // Force close error
+			},
 			encoder: json.NewEncoder(w),
 		}
 	}
@@ -2644,4 +2648,61 @@ func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
 	}
 
 	t.Logf("Successfully triggered threshold monitoring (%d errors)", closeErrors)
+}
+
+// setupTestDaemonForDeduplication creates a minimal daemon for testing deduplication
+func setupTestDaemonForDeduplication(t *testing.T) (*AlertDaemon, func()) {
+	t.Helper()
+
+	// Create minimal daemon struct for deduplication testing
+	daemon := &AlertDaemon{
+		recentEvents: make(map[eventKey]time.Time),
+	}
+
+	cleanup := func() {
+		// No cleanup needed for minimal struct
+	}
+
+	return daemon, cleanup
+}
+
+// TestIsDuplicateEvent_BasicDeduplication tests basic event deduplication
+func TestIsDuplicateEvent_BasicDeduplication(t *testing.T) {
+	daemon, cleanup := setupTestDaemonForDeduplication(t)
+	defer cleanup()
+
+	paneID := "%1"
+	eventType := "idle"
+
+	// First event should not be a duplicate
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("First event should not be marked as duplicate")
+	}
+
+	// Immediate second event should be a duplicate
+	if !daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("Immediate second event should be marked as duplicate")
+	}
+}
+
+// TestIsDuplicateEvent_WindowExpiration tests that duplicates expire after the window
+func TestIsDuplicateEvent_WindowExpiration(t *testing.T) {
+	daemon, cleanup := setupTestDaemonForDeduplication(t)
+	defer cleanup()
+
+	paneID := "%2"
+	eventType := "stop"
+
+	// First event
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("First event should not be duplicate")
+	}
+
+	// Wait for deduplication window to expire (100ms)
+	time.Sleep(150 * time.Millisecond)
+
+	// After window expires, same event should not be duplicate
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("Event after window expiration should not be duplicate")
+	}
 }
