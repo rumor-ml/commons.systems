@@ -1,6 +1,8 @@
 /**
  * Authentication Tests for Fellspiral
  * Tests GitHub OAuth integration and auth UI components
+ *
+ * TODO: See issue #435 - Improve comments and remove redundant "what" comments
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';

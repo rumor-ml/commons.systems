@@ -1,3 +1,5 @@
+// TODO: See issue #435 - Migrate from CSS selectors to data-testid attributes for stability
+// TODO: See issue #435 - Consolidate granular smoke tests into journey tests
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Print Library Homepage', () => {
