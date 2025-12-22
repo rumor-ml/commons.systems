@@ -33,10 +33,23 @@ if [ ! -d "$TEST_DIR" ]; then
 fi
 cd "$TEST_DIR"
 
-if DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --grep "@smoke"; then
-  echo "Tests passed: $SITE_NAME"
+# Capture output to validate tests actually ran
+TEST_OUTPUT=$(DEPLOYED=true DEPLOYED_URL="$SITE_URL" CI=true npx playwright test --grep "@smoke" 2>&1) || true
+TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+echo "$TEST_OUTPUT"
+
+if [ $TEST_EXIT_CODE -eq 0 ]; then
+  # Verify at least one test ran (check for "X passed" in output)
+  if echo "$TEST_OUTPUT" | grep -qE '[0-9]+ passed'; then
+    echo "✅ Smoke tests passed: $SITE_NAME"
+  else
+    echo "❌ ERROR: No smoke tests found or executed for $SITE_NAME"
+    echo "Expected tests with @smoke annotation in ${TEST_DIR}/e2e/"
+    echo "Verify that test files contain '@smoke' in test names"
+    exit 1
+  fi
 else
-  TEST_EXIT_CODE=$?
-  echo "Playwright tests failed for $SITE_NAME (exit code: $TEST_EXIT_CODE)"
+  echo "❌ Playwright tests failed for $SITE_NAME (exit code: $TEST_EXIT_CODE)"
   exit $TEST_EXIT_CODE
 fi

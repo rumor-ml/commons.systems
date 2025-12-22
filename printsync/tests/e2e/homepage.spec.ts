@@ -7,7 +7,7 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/Printsync/);
   });
 
-  test('HTMX partial loading works', async ({ page }) => {
+  test('@smoke HTMX partial loading works', async ({ page }) => {
     await page.goto('/');
 
     // Wait for HTMX to load partials
@@ -16,7 +16,7 @@ test.describe('Homepage', () => {
     await expect(itemsList).not.toContainText('Loading...');
   });
 
-  test('React island hydrates', async ({ page }) => {
+  test('@smoke React island hydrates', async ({ page }) => {
     await page.goto('/');
 
     // Check React island is hydrated
