@@ -151,6 +151,7 @@ export function generateTriageInstructions(
   const ERROR_INVALID_ISSUE_NUMBER = 'TRIAGE_INVALID_ISSUE_NUMBER';
   const ERROR_INVALID_TOTAL_ISSUES = 'TRIAGE_INVALID_TOTAL_ISSUES';
 
+  // TODO: See issue #416 - Add examples to validation error messages
   if (reviewType !== 'PR' && reviewType !== 'Security') {
     throw new ValidationError(
       `[${ERROR_INVALID_REVIEW_TYPE}] Invalid reviewType: ${JSON.stringify(reviewType)}. Must be either 'PR' or 'Security'.`

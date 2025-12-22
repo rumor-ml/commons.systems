@@ -230,6 +230,7 @@ function buildIssuesFoundResponse(
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
+  // TODO: See issue #417 - Notify users when fallback workflow is used
   if (issueNumber) {
     logger.info(
       `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
@@ -324,6 +325,7 @@ export async function completeReview(
 
   const result = await postStateComment(state, newState, title, body);
 
+  // TODO: See issue #415 - Add safe discriminated union access with type guards
   if (!result.success) {
     logger.error('Review state comment failed - halting workflow', {
       reviewType: config.reviewTypeLabel,

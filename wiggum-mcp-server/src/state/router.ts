@@ -161,6 +161,7 @@ export async function safePostStateComment(
     await postWiggumStateComment(prNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
+    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -278,6 +279,7 @@ export async function safePostIssueStateComment(
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
+    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -387,6 +389,7 @@ function formatFixInstructions(
   failureDetails: string | undefined,
   defaultMessage: string
 ): string {
+  // TODO: See issue #417 - Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
   const sanitizedDetails = failureDetails
