@@ -167,6 +167,8 @@ export class FormattingError extends McpError {
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ErrorResult with error information and type metadata
+ *   - _meta includes errorType and errorCode for all errors
+ *   - For GitError/ValidationError: additional properties are in the error instance, not _meta
  */
 export function createErrorResult(error: unknown): ErrorResult {
   const message = error instanceof Error ? error.message : String(error);
