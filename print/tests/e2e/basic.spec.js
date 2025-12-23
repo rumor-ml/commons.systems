@@ -1,12 +1,14 @@
+// TODO: See issue #435 - Migrate from CSS selectors to data-testid attributes for stability
+// TODO: See issue #435 - Consolidate granular smoke tests into journey tests
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Print Library Homepage', () => {
-  test('should load successfully', async ({ page }) => {
+  test('@smoke should load successfully', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Print - Document Library/);
   });
 
-  test('should display header with title and upload button', async ({ page }) => {
+  test('@smoke should display header with title and upload button', async ({ page }) => {
     await page.goto('/');
 
     // Check header title
@@ -21,7 +23,7 @@ test.describe('Print Library Homepage', () => {
   });
 
   // Firebase-dependent tests only run when deployed (local uses static http-server without Firebase)
-  test('should show loading state initially then resolve', async ({ page }) => {
+  test('@smoke should show loading state initially then resolve', async ({ page }) => {
     test.skip(
       !process.env.DEPLOYED,
       'Firebase-dependent test - only available in deployed environment'
@@ -46,13 +48,9 @@ test.describe('Print Library Homepage', () => {
     await expect(loading).toBeHidden();
 
     // Verify exactly one content state is visible
-    const emptyState = page.locator('#emptyState');
-    const documentsContainer = page.locator('#documents');
-    const errorState = page.locator('#errorState');
-
-    const emptyVisible = await emptyState.isVisible();
-    const docsVisible = await documentsContainer.isVisible();
-    const errorVisible = await errorState.isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
+    const docsVisible = await page.locator('#documents').isVisible();
+    const errorVisible = await page.locator('#errorState').isVisible();
 
     // Exactly one state should be visible
     const visibleCount = [emptyVisible, docsVisible, errorVisible].filter(Boolean).length;
@@ -73,7 +71,7 @@ test.describe('Print Library Homepage', () => {
     }
   });
 
-  test('should successfully load Firebase data', async ({ page }) => {
+  test('@smoke should successfully load Firebase data', async ({ page }) => {
     test.skip(
       !process.env.DEPLOYED,
       'Firebase-dependent test - only available in deployed environment'
@@ -99,6 +97,7 @@ test.describe('Print Library Homepage', () => {
         { timeout: 10000 }
       );
     } catch (e) {
+      // TODO: See issue #435 - Make catch block more specific, distinguish timeout vs unexpected errors
       // Print console messages to help debug Firebase errors
       console.log('Browser console output:');
       consoleMessages.forEach((msg) => console.log('  ', msg));
@@ -110,13 +109,9 @@ test.describe('Print Library Homepage', () => {
     await expect(loading).toBeHidden();
 
     // Verify exactly one SUCCESS state is visible (not error)
-    const emptyState = page.locator('#emptyState');
-    const documentsContainer = page.locator('#documents');
-    const errorState = page.locator('#errorState');
-
-    const emptyVisible = await emptyState.isVisible();
-    const docsVisible = await documentsContainer.isVisible();
-    const errorVisible = await errorState.isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
+    const docsVisible = await page.locator('#documents').isVisible();
+    const errorVisible = await page.locator('#errorState').isVisible();
 
     // Error state should NOT be visible - Firebase must work
     expect(errorVisible).toBe(false);
@@ -146,13 +141,9 @@ test.describe('Print Library Homepage', () => {
     );
 
     // Verify a final state is reached
-    const emptyState = page.locator('#emptyState');
-    const documentsContainer = page.locator('#documents');
-    const errorState = page.locator('#errorState');
-
-    const emptyVisible = await emptyState.isVisible();
-    const docsVisible = await documentsContainer.isVisible();
-    const errorVisible = await errorState.isVisible();
+    const emptyVisible = await page.locator('#emptyState').isVisible();
+    const docsVisible = await page.locator('#documents').isVisible();
+    const errorVisible = await page.locator('#errorState').isVisible();
 
     // At least one final state should be visible
     expect(emptyVisible || docsVisible || errorVisible).toBe(true);
@@ -230,7 +221,7 @@ test.describe('Print Library Homepage', () => {
 
 // Health endpoint only exists in deployed Cloud Run service, not in static http-server
 test.describe('Health Check', () => {
-  test('health endpoint should return 200', async ({ page }) => {
+  test('@smoke health endpoint should return 200', async ({ page }) => {
     test.skip(!process.env.DEPLOYED, 'Health endpoint only available in deployed environment');
     const response = await page.goto('/health');
     expect(response.status()).toBe(200);
