@@ -320,7 +320,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   }
 
   /**
-   * TODO(#302): Test midnight rollover handling in full extraction - see PR review for #273
    * Parse time difference between two HH:MM:SS strings
    *
    * Extracts timestamps from GitHub Actions logs to calculate time gaps
