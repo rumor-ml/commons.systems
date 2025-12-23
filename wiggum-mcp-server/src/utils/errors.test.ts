@@ -85,7 +85,7 @@ describe('createErrorResult', () => {
 
     assert.strictEqual(result.isError, true);
     assert.strictEqual(result.content[0].type, 'text');
-    assert.strictEqual(result.content[0].text, 'Error: Timed out');
+    assert.strictEqual(result.content[0].text, 'Timed out');
     assert.strictEqual(result._meta?.errorType, 'TimeoutError');
     assert.strictEqual(result._meta?.errorCode, 'TIMEOUT');
   });
@@ -118,7 +118,8 @@ describe('createErrorResult', () => {
     const error = new GitError('Git failed');
     const result = createErrorResult(error);
 
-    assert.strictEqual(result._meta?.errorType, 'GitError');
+    // GitError extends McpError, so it's handled as McpError with specific code
+    assert.strictEqual(result._meta?.errorType, 'McpError');
     assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
   });
 
@@ -126,7 +127,8 @@ describe('createErrorResult', () => {
     const error = new FormattingError('Invalid format');
     const result = createErrorResult(error);
 
-    assert.strictEqual(result._meta?.errorType, 'FormattingError');
+    // FormattingError extends McpError, so it's handled as McpError with specific code
+    assert.strictEqual(result._meta?.errorType, 'McpError');
     assert.strictEqual(result._meta?.errorCode, 'FORMATTING_ERROR');
   });
 
@@ -149,7 +151,8 @@ describe('createErrorResult', () => {
 describe('formatError', () => {
   it('should format Error object', () => {
     const error = new Error('Test error');
-    assert.strictEqual(formatError(error), 'Test error');
+    // formatError from mcp-common includes error type prefix
+    assert.strictEqual(formatError(error), '[Error] Test error');
   });
 
   it('should format string error', () => {

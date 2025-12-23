@@ -387,6 +387,7 @@ export function sleep(ms: number): Promise<void> {
  * }
  * ```
  */
+// TODO: See issue #453 - Use error types instead of string matching for retry logic
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();

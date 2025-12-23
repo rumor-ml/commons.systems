@@ -147,17 +147,18 @@ export function createSuccessResult(
 }
 
 /**
- * Create error result from mcp-common error types (specialized version)
+ * Create error result from McpError types only (specialized version)
  *
- * Similar to createErrorResult() but can return null for non-McpError types instead
- * of handling them as UnknownError. This allows callers to implement custom
- * error handling for non-MCP errors.
+ * Unlike createErrorResult() which converts ALL errors to ToolError (including
+ * programming errors, system errors, and unknown types), this function only
+ * handles McpError instances and can return null for other types. This allows
+ * callers to implement custom handling for non-MCP error types.
  *
  * **Current default behavior:** Defaults to fail-fast mode (fallbackToGeneric=false).
  * Pass true to get fallback behavior for non-MCP errors.
  *
- * Use this when you want to handle non-McpError types differently.
- * Use createErrorResult() when you want automatic UnknownError handling.
+ * Use this when you want explicit control over non-McpError handling.
+ * Use createErrorResult() when you want automatic handling of all error types.
  *
  * @param error - The error to convert
  * @param fallbackToGeneric - Whether to fall back to generic error for non-MCP errors (default: false)

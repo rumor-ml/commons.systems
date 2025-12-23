@@ -94,8 +94,9 @@ export class NetworkError extends McpError {
  * - stderr output (can be empty string)
  * - stdout output (optional)
  *
- * Note: Exit codes outside 0-255 are clamped to valid range with a warning
- * in the error message. This ensures error construction never fails.
+ * Note: Exit codes outside 0-255 are clamped to valid range (0-255) with a warning
+ * in the error message, EXCEPT -1 which is preserved as a sentinel value indicating
+ * "exit code unknown". This ensures error construction never fails.
  *
  * @example
  * ```typescript

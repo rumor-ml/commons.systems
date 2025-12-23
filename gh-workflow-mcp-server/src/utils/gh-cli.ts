@@ -164,6 +164,7 @@ export interface FailedStepLog {
 export function parseFailedStepLogs(output: string): FailedStepLog[] {
   const steps: Map<string, FailedStepLog> = new Map();
 
+  // TODO: See issue #454 - Add debug logging for skipped malformed log lines
   for (const line of output.split('\n')) {
     // Split by first two tabs only
     const firstTab = line.indexOf('\t');

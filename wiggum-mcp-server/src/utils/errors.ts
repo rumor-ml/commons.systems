@@ -110,19 +110,5 @@ export function createErrorResult(error: unknown): ToolError {
   // TODO: See issue #444 - Simplify error message extraction patterns
   const message = error instanceof Error ? error.message : String(error);
 
-  let errorType = 'UnknownError';
-  let errorCode: string | undefined;
-
-  if (error instanceof GitError) {
-    errorType = 'GitError';
-    errorCode = 'GIT_ERROR';
-  } else if (error instanceof ParsingError) {
-    errorType = 'ParsingError';
-    errorCode = 'PARSING_ERROR';
-  } else if (error instanceof FormattingError) {
-    errorType = 'FormattingError';
-    errorCode = 'FORMATTING_ERROR';
-  }
-
-  return createToolError(`Error: ${message}`, errorType, errorCode);
+  return createToolError(`Error: ${message}`, 'UnknownError', undefined);
 }

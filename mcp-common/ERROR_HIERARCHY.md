@@ -464,7 +464,7 @@ function isTerminalError(error: unknown): boolean;
 - ValidationError: **Terminal** (returns `true`) - requires user input correction
 - TimeoutError: Retryable (returns `false`) - may succeed with more time
 - NetworkError: Retryable (returns `false`) - transient network issues
-- GitHubCliError: Retryable (returns `false`) - conservative default
+- GitHubCliError: **Currently treated as retryable** (returns `false`) - **WARNING: This is a known limitation.** Permanent failures like 401/403/404 will be retried unnecessarily. Exit code-based classification is planned.
 - Other errors: Retryable (returns `false`) - conservative approach
 
 **Usage**:
