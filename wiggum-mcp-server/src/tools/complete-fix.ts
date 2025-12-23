@@ -90,7 +90,7 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
  * Complete a fix cycle and update state
  */
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
-  // TODO: See issue #416 - Improve error message to provide user guidance instead of debugging internals
+  // TODO(#416): Improve error message to provide user guidance instead of debugging internals
   if (!input.fix_description || input.fix_description.trim().length === 0) {
     logger.error('wiggum_complete_fix validation failed: empty fix_description', {
       receivedValue: input.fix_description,
@@ -103,16 +103,17 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   }
 
   // Validate out_of_scope_issues array contents if provided
-  // TODO: See issue #416 - Provide detailed validation explaining which specific validation each number failed
+  // TODO(#416): Provide detailed validation explaining which specific validation each number failed
   if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
+    // Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
     const invalidNumbers = input.out_of_scope_issues.filter(
-      (num) => !Number.isFinite(num) || num <= 0 || !Number.isInteger(num)
+      (num) => !Number.isInteger(num) || num <= 0
     );
     if (invalidNumbers.length > 0) {
       logger.error('wiggum_complete_fix validation failed: invalid out_of_scope_issues', {
         invalidNumbers,
       });
-      // TODO: See issue #312 - Add Sentry error ID for tracking
+      // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
       );
@@ -190,7 +191,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
           );
 
     if (!stateResult.success) {
-      // TODO: See issue #416 - Add reason-specific error guidance for different failure types
+      // TODO(#416): Add reason-specific error guidance for different failure types
       logger.error('Critical: State comment failed to post (fast-path) - halting workflow', {
         targetNumber,
         phase,
@@ -259,7 +260,7 @@ ${input.fix_description}${outOfScopeSection}
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found, preventing
   // the workflow from skipping validation steps after a fix is applied
-  // TODO: See issue #334 - Add integration tests for completedSteps filtering
+  // TODO(#334): Add integration tests for completedSteps filtering
   const currentStepIndex = STEP_ORDER.indexOf(state.wiggum.step);
 
   logger.info('Filtering completed steps', {
@@ -268,7 +269,7 @@ ${input.fix_description}${outOfScopeSection}
     completedStepsBefore: state.wiggum.completedSteps,
   });
 
-  // TODO: See issue #334 - Add validation for unknown steps in filter
+  // TODO(#377): Add validation for unknown steps in filter
   const completedStepsFiltered = state.wiggum.completedSteps.filter((step) => {
     const stepIndex = STEP_ORDER.indexOf(step);
     return stepIndex < currentStepIndex;

@@ -26,6 +26,7 @@ export const CompletePRReviewInputSchema = z.object({
 
 export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
 
+// TODO(#334): Add validation tests for phase-specific fields
 const PR_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_PR_REVIEW,
   phase2Step: STEP_PHASE2_PR_REVIEW,
@@ -47,7 +48,7 @@ const PR_REVIEW_CONFIG: ReviewConfig = {
 /**
  * Complete PR review and update state
  *
- * TODO: See issue #314 - Replace silent fallback with ValidationError when issueNumber undefined
+ * TODO(#314): Replace silent fallback with ValidationError when issueNumber undefined
  */
 export async function completePRReview(input: CompletePRReviewInput): Promise<ToolResult> {
   return completeReview(input, PR_REVIEW_CONFIG);

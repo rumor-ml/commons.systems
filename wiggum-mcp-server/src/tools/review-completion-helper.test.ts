@@ -6,7 +6,7 @@
  *
  * Current coverage: Type safety and interface structure validation.
  *
- * TODO: See issue #313 - Add integration tests with mocked GitHub/git for:
+ * TODO(#313): Add integration tests with mocked GitHub/git for:
  * - State detection and validation (issue in phase1, PR in phase2)
  * - Comment posting to correct locations (issue vs PR)
  * - Iteration increment vs step completion logic
@@ -31,7 +31,8 @@ describe('review-completion-helper', () => {
       // PR review config includes:
       // - phase1Step: STEP_PHASE1_PR_REVIEW ('p1-2')
       // - phase2Step: STEP_PHASE2_PR_REVIEW ('p2-4')
-      // - commandName: '/pr-review-toolkit:review-pr'
+      // - phase1Command: '/all-hands-review' (or '/pr-review-toolkit:review-pr')
+      // - phase2Command: '/review' (or '/pr-review-toolkit:review-pr')
       // - reviewTypeLabel: 'PR'
       // - issueTypeLabel: 'issue(s)'
       // - successMessage: 'No PR review issues found...'
@@ -52,7 +53,8 @@ describe('review-completion-helper', () => {
       // Security review config includes:
       // - phase1Step: STEP_PHASE1_SECURITY_REVIEW ('p1-3')
       // - phase2Step: STEP_PHASE2_SECURITY_REVIEW ('p2-5')
-      // - commandName: '/security-review'
+      // - phase1Command: '/security-review'
+      // - phase2Command: '/security-review'
       // - reviewTypeLabel: 'Security'
       // - issueTypeLabel: 'security issue(s)'
       // - successMessage: 'No security issues found...'
