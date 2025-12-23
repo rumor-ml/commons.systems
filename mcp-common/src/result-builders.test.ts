@@ -211,4 +211,37 @@ describe('createErrorResult - system error handling', () => {
     assert.equal(result.isError, true);
     assert.ok(!('isProgrammingError' in result._meta));
   });
+
+  it('re-throws system errors without modification', () => {
+    const systemError = Object.freeze({ code: 'ENOMEM', message: 'Out of memory' });
+
+    try {
+      createErrorResult(systemError);
+      assert.fail('Should have thrown');
+    } catch (error) {
+      // Verify error is EXACTLY the same object (reference equality)
+      assert.strictEqual(error, systemError);
+      // Verify no new properties were added
+      assert.deepEqual(Object.keys(error), ['code', 'message']);
+    }
+  });
+
+  it('wraps ENOENT errors instead of re-throwing', () => {
+    const fileError = { code: 'ENOENT', message: 'File not found' };
+
+    // Should NOT throw, should wrap
+    const result = createErrorResult(fileError);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any).errorType, 'UnknownError');
+  });
+
+  it('wraps custom error codes instead of re-throwing', () => {
+    const customError = { code: 'CUSTOM_ERROR', message: 'Custom failure' };
+
+    const result = createErrorResult(customError);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any).errorType, 'UnknownError');
+  });
 });

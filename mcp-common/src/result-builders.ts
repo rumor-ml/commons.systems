@@ -23,7 +23,8 @@ import { createToolError, createToolSuccess } from './types.js';
  *
  * **Error Handling Strategy:**
  * - System errors (ENOMEM, ENOSPC, etc.): Re-thrown without wrapping
- * - Programming errors (TypeError, ReferenceError, SyntaxError): Logged and wrapped with metadata
+ * - Programming errors (TypeError, ReferenceError, SyntaxError): Logged and returned with
+ *   user-facing message to report as bug, includes isProgrammingError=true metadata flag
  * - GitHubCliError: Includes exitCode, stderr, stdout in metadata
  * - McpError subclasses: Includes error code if available
  * - Unknown errors: Logged with stack trace, returns as UnknownError
@@ -66,7 +67,29 @@ export function createErrorResult(error: unknown): ToolError {
       message: error.message,
       stack: error.stack,
     });
-    additionalMeta.isProgrammingError = true;
+
+    // Make it CLEAR to users this is a bug they should report
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Internal Error (Bug): ${error.message}\n\n` +
+            `This appears to be a programming error in the MCP server. ` +
+            `Please report this issue with the following details:\n` +
+            `- Error type: ${error.constructor.name}\n` +
+            `- Stack trace available in server logs\n` +
+            `- This should not happen during normal operation`,
+        },
+      ],
+      isError: true,
+      _meta: {
+        errorType: error.constructor.name,
+        errorCode: 'PROGRAMMING_ERROR',
+        isProgrammingError: true,
+        originalMessage: error.message,
+      },
+    } as ToolError;
   }
 
   // Categorize error types for better handling
@@ -83,26 +106,27 @@ export function createErrorResult(error: unknown): ToolError {
     errorType = 'GitHubCliError';
     errorCode = 'GH_CLI_ERROR';
     // Preserve debugging context from GitHubCliError
-    additionalMeta = {
-      ...additionalMeta,
-      exitCode: error.exitCode,
-      stderr: error.stderr,
-      ...(error.stdout && { stdout: error.stdout }),
-    };
+    additionalMeta.exitCode = error.exitCode;
+    additionalMeta.stderr = error.stderr;
+    if (error.stdout) {
+      additionalMeta.stdout = error.stdout;
+    }
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;
   } else {
-    // Log unknown error types for debugging with stack trace
-    if (error instanceof Error) {
-      console.error('[mcp-common] Converting unknown error type to ToolError (expected):', {
-        name: error.name,
-        message: error.message,
-        constructor: error.constructor.name,
-        stack: error.stack,
-      });
-    } else {
-      console.error('[mcp-common] Converting non-Error object to ToolError (expected):', error);
+    // Log unknown error types for debugging (development/debug mode only)
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true') {
+      if (error instanceof Error) {
+        console.error('[mcp-common] Converting unknown error type to ToolError (expected):', {
+          name: error.name,
+          message: error.message,
+          constructor: error.constructor.name,
+          stack: error.stack,
+        });
+      } else {
+        console.error('[mcp-common] Converting non-Error object to ToolError (expected):', error);
+      }
     }
   }
 
@@ -112,8 +136,8 @@ export function createErrorResult(error: unknown): ToolError {
     message: message.substring(0, 100),
   });
 
-  // Manual construction used instead of createToolError factory to preserve
-  // programming error metadata that would be lost in factory's type narrowing
+  // Manual construction to maintain consistent error message format
+  // and include additional metadata (e.g., isProgrammingError flag)
   return {
     content: [
       {

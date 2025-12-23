@@ -2,6 +2,8 @@
  * Tests for MCP error classes and utility functions
  */
 
+// TODO: See issue #460 - Add comprehensive test coverage for analyzeRetryability, concurrency, cause chains, and environment-specific behavior
+
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {

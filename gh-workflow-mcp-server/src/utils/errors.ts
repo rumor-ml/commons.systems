@@ -39,6 +39,7 @@ export { McpError, TimeoutError, ValidationError, GitHubCliError, formatError, i
  * parsing failures, malformed responses). Usually indicates version mismatch
  * or breaking changes in external tools.
  */
+// TODO: See issue #459 - Add cause parameter to preserve error chains
 export class ParsingError extends McpError {
   constructor(message: string) {
     super(message, 'PARSING_ERROR');
@@ -52,6 +53,7 @@ export class ParsingError extends McpError {
  * Indicates invalid response structure that doesn't match expected schema.
  * Common when internal state or protocol contracts are violated.
  */
+// TODO: See issue #459 - Add cause parameter to preserve error chains
 export class FormattingError extends McpError {
   constructor(message: string) {
     super(message, 'FORMATTING_ERROR');
