@@ -342,3 +342,53 @@ export function isSystemError(error: unknown): boolean {
 
   return SYSTEM_ERROR_CODES.includes(errorCode as any);
 }
+
+/**
+ * ParsingError - Error thrown when parsing data fails
+ *
+ * Used for JSON parsing failures, malformed responses, and data format errors.
+ * Commonly seen with gh CLI JSON output parsing.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   return JSON.parse(output);
+ * } catch (error) {
+ *   throw new ParsingError(`Failed to parse JSON: ${error.message}`, error);
+ * }
+ * ```
+ */
+export class ParsingError extends McpError {
+  constructor(message: string, cause?: Error) {
+    super(message, 'PARSING_ERROR');
+    this.name = 'ParsingError';
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
+/**
+ * FormattingError - Error thrown when formatting data fails
+ *
+ * Used for string formatting failures, template errors, and output generation issues.
+ * Commonly seen when constructing error messages or formatted output.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   return formatTemplate(data);
+ * } catch (error) {
+ *   throw new FormattingError(`Failed to format template: ${error.message}`, error);
+ * }
+ * ```
+ */
+export class FormattingError extends McpError {
+  constructor(message: string, cause?: Error) {
+    super(message, 'FORMATTING_ERROR');
+    this.name = 'FormattingError';
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}

@@ -13,6 +13,8 @@ import {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   isSystemError,
 } from './errors.js';
 import type { ToolResult, ToolError, ToolSuccess } from './types.js';
@@ -111,23 +113,41 @@ export function createErrorResult(error: unknown): ToolError {
     if (error.stdout) {
       additionalMeta.stdout = error.stdout;
     }
+  } else if (error instanceof ParsingError) {
+    errorType = 'ParsingError';
+    errorCode = 'PARSING_ERROR';
+  } else if (error instanceof FormattingError) {
+    errorType = 'FormattingError';
+    errorCode = 'FORMATTING_ERROR';
   } else if (error instanceof McpError) {
     errorType = 'McpError';
     errorCode = error.code;
   } else {
-    // Log unknown error types for debugging (development/debug mode only)
-    if (process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true') {
-      if (error instanceof Error) {
-        console.error('[mcp-common] Converting unknown error type to ToolError (expected):', {
-          name: error.name,
-          message: error.message,
-          constructor: error.constructor.name,
-          stack: error.stack,
-        });
-      } else {
-        console.error('[mcp-common] Converting non-Error object to ToolError (expected):', error);
+    // ALWAYS log unknown error types - this indicates unexpected error types
+    // that we should either handle explicitly or investigate
+    if (error instanceof Error) {
+      const logData: any = {
+        name: error.name,
+        message: error.message.substring(0, 200),
+        constructor: error.constructor.name,
+      };
+
+      // Only include stack trace in development
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true') {
+        logData.stack = error.stack;
       }
+
+      console.warn('[mcp-common] Unknown error type converted to ToolError:', logData);
+    } else {
+      console.warn('[mcp-common] Non-Error object converted to ToolError:', {
+        type: typeof error,
+        value: String(error).substring(0, 200),
+      });
     }
+
+    // In production, this data would ideally be sent to error tracking
+    // (e.g., Sentry, Datadog) to monitor for third-party library errors
+    // or unexpected failure patterns
   }
 
   console.debug('[mcp-common] Created error result:', {

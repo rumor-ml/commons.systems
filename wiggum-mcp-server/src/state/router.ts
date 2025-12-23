@@ -32,6 +32,7 @@ import {
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
+  generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { GitHubCliError } from '../utils/errors.js';
@@ -170,7 +171,10 @@ export async function safePostStateComment(
     await postWiggumStateComment(prNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
-    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
+    // State comment posting is CRITICAL for race condition fix (issue #388)
+    // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
+    // TODO(#320): Surface state comment failures to users instead of silent warning
+    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -288,7 +292,7 @@ export async function safePostIssueStateComment(
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
-    // TODO: See issue #415 - Add type guards to catch blocks to avoid broad exception catching
+    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
@@ -381,8 +385,9 @@ export async function safePostIssueStateComment(
 /**
  * Format fix instructions for workflow/check failures
  *
- * Generates standardized fix instructions for any workflow or check failure,
- * including the complete Plan -> Fix -> Commit -> Complete cycle.
+ * Generates standardized fix instructions for any workflow or check failure.
+ * If issueNumber is provided, uses triage workflow to separate in-scope from out-of-scope failures.
+ * Otherwise, provides direct fix instructions for the complete Plan -> Fix -> Commit -> Complete cycle.
  *
  * SECURITY: failureDetails is sanitized to prevent secret exposure and
  * markdown formatting issues. Input comes from GitHub API (workflow logs,
@@ -391,20 +396,33 @@ export async function safePostIssueStateComment(
  * @param failureType - Type of failure (e.g., "Workflow", "PR checks")
  * @param failureDetails - Detailed error information from gh_get_failure_details (will be sanitized)
  * @param defaultMessage - Fallback message if no failure details available
- * @returns Formatted markdown instructions with sanitized failure details
+ * @param issueNumber - Optional issue number to enable triage mode
+ * @returns Formatted markdown instructions for fixing the failure with sanitized failure details
  */
+// TODO(#334): Add integration test for triage branching logic
 function formatFixInstructions(
   failureType: string,
   failureDetails: string | undefined,
-  defaultMessage: string
+  defaultMessage: string,
+  issueNumber?: number
 ): string {
-  // TODO: See issue #417 - Add logging when sanitization occurs to help debugging
+  // TODO(#417): Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
   const sanitizedDetails = failureDetails
     ? sanitizeErrorMessage(failureDetails, 1000)
     : defaultMessage;
 
+  // If issueNumber provided, use triage workflow
+  if (issueNumber !== undefined) {
+    return generateWorkflowTriageInstructions(
+      issueNumber,
+      failureType as 'Workflow' | 'PR checks',
+      sanitizedDetails
+    );
+  }
+
+  // Fall back to direct fix instructions if no issueNumber
   return `${failureType} failed. Follow these steps to fix:
 
 1. Analyze the error details below (includes test failures, stack traces, file locations)
@@ -434,11 +452,9 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
   });
 
   // Route based on phase
-  if (state.wiggum.phase === 'phase1') {
-    return await getPhase1NextStep(state);
-  } else {
-    return await getPhase2NextStep(state);
-  }
+  return state.wiggum.phase === 'phase1'
+    ? await getPhase1NextStep(state)
+    : await getPhase2NextStep(state);
 }
 
 /**
@@ -487,6 +503,7 @@ async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
  * On success, it marks Step p1-1 complete and proceeds to Step p1-2.
  * On failure, it returns fix instructions with failure details.
  */
+// TODO(#334): Add integration test for failure path with triage
 async function handlePhase1MonitorWorkflow(
   state: CurrentState,
   issueNumber: number
@@ -575,7 +592,7 @@ async function handlePhase1MonitorWorkflow(
     // Continue to Step p1-2 (PR Review)
     return await getNextStepInstructions(updatedState);
   } else {
-    // Workflow failed - increment iteration and return fix instructions
+    // Workflow failed - increment iteration and return fix instructions with triage
     const newState = {
       iteration: state.wiggum.iteration + 1,
       step: STEP_PHASE1_MONITOR_WORKFLOW,
@@ -624,10 +641,12 @@ async function handlePhase1MonitorWorkflow(
     }
 
     output.iteration_count = newState.iteration;
+    // Use triage instructions with issue number for scope filtering
     output.instructions = formatFixInstructions(
       'Workflow',
       monitorResult.failureDetails || monitorResult.errorSummary,
-      'See workflow logs for details'
+      'See workflow logs for details',
+      issueNumber
     );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',
@@ -777,7 +796,7 @@ Phase 1 reviews passed - creating PR will begin Phase 2.`,
 async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
   // Ensure OPEN PR exists (treat CLOSED/MERGED PRs as non-existent)
   // We need an OPEN PR to proceed with monitoring and reviews
-  // TODO: See issue #378 - Use hasExistingPR type guard instead of inline check
+  // TODO(#378): Use hasExistingPR type guard instead of inline check
   if (!state.pr.exists || state.pr.state !== 'OPEN') {
     logger.error('Phase 2 workflow requires an open PR', {
       prExists: state.pr.exists,
@@ -959,11 +978,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
     if (!prChecksResult.success) {
-      // PR checks failed - return fix instructions
+      // PR checks failed - return fix instructions with triage
       output.instructions = formatFixInstructions(
         'PR checks',
         prChecksResult.failureDetails || prChecksResult.errorSummary,
-        'See PR checks for details'
+        'See PR checks for details',
+        updatedState.issue.number
       );
       output.steps_completed_by_tool = [
         ...stepsCompleted,
@@ -1048,11 +1068,12 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       stepsCompleted
     );
   } else {
-    // Return fix instructions
+    // Return fix instructions with triage
     output.instructions = formatFixInstructions(
       'Workflow',
       monitorResult.failureDetails || monitorResult.errorSummary,
-      'See workflow logs for details'
+      'See workflow logs for details',
+      state.issue.number
     );
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
@@ -1159,11 +1180,12 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       stepsCompleted
     );
   } else {
-    // Return fix instructions
+    // Return fix instructions with triage
     output.instructions = formatFixInstructions(
       'PR checks',
       prChecksResult.failureDetails || prChecksResult.errorSummary,
-      'See PR checks for details'
+      'See PR checks for details',
+      state.issue.number
     );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',
