@@ -76,6 +76,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
+        // TODO: See issue #332 - Empty catch swallows all errors including unexpected ones
         // Not valid JSON or extraction failed - this is expected, not an error
       }
     }
