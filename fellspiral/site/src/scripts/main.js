@@ -1105,9 +1105,6 @@ document.addEventListener('DOMContentLoaded', () => {
       combatLog.style.display = 'block';
     });
   }
-
-  // Initialize mobile menu
-  initMobileMenu();
 });
 
 // Initialize mobile menu - extracted as function to allow reinitialization after HTMX navigation

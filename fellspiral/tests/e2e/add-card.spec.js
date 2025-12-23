@@ -3,6 +3,10 @@
  * Tests the complete Add Card workflow including UI, validation, and persistence
  *
  * TODO(#311): Replace fixed timeouts with condition-based waiting for better test reliability
+ * TODO: See issue #241 - Add delete card E2E tests (security, confirmation, Firestore removal)
+ * TODO: See issue #241 - Add concurrent edit conflict detection tests
+ * TODO: See issue #241 - Add network error handling tests (timeouts, retries, user guidance)
+ * TODO: See issue #241 - Replace fixed waitForTimeout calls with condition-based waiting
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';

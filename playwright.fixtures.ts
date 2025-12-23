@@ -1,4 +1,5 @@
 // playwright.fixtures.ts
+// TODO: See issue #462 - Add email/password validation and explicit error types to auth fixtures
 import { test as base, expect } from '@playwright/test';
 import admin from 'firebase-admin';
 

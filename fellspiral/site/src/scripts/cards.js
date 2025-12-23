@@ -12,6 +12,7 @@
 // TODO(#305): Improve error logging for library nav initialization
 // TODO(#305): Show warning banner when event listener setup fails
 // TODO(#305): Add JSDoc for getAllCards() explaining error handling
+// TODO: See issue #285 - Improve error handling: narrow catch blocks, add specific error messages instead of generic ones
 
 // Import Firestore operations
 import {
@@ -59,6 +60,7 @@ function sanitizeCardType(type) {
 }
 
 // State management
+// TODO: See issue #462 - Add JSDoc for ApplicationState and state mutation helpers with validation
 const state = {
   cards: [],
   filteredCards: [],
@@ -82,7 +84,7 @@ const state = {
 
 // Reset state for fresh initialization
 function resetState() {
-  isSaving = false; // Reset submission lock
+  isSaving = false;
   state.cards = [];
   state.filteredCards = [];
   state.selectedNode = null;
@@ -90,7 +92,7 @@ function resetState() {
   state.filters = { type: '', subtype: '', search: '' };
   state.loading = false;
   state.error = null;
-  state.listenersAttached = false; // Reset listeners flag
+  state.listenersAttached = false;
   // Clean up pending auth timeout
   if (state.authTimeoutId) {
     clearTimeout(state.authTimeoutId);
@@ -125,6 +127,7 @@ function getSubtypesForType(type) {
 }
 
 // Generic combobox controller
+// TODO: See issue #462 - Add JSDoc type annotations for ComboboxConfig with required field validation
 function createCombobox(config) {
   const { inputId, listboxId, comboboxId, getOptions, onSelect } = config;
 
@@ -274,13 +277,11 @@ function createCombobox(config) {
   input.addEventListener('blur', () => {
     // CRITICAL: 200ms delay handles browser event sequencing for dropdown clicks
     // Event sequence: mousedown → blur → mouseup → click
-    // The mousedown handler calls e.preventDefault() to cancel blur, but browser
-    // implementation varies - some fire blur before preventDefault executes.
-    // The 200ms buffer ensures mousedown handler completes before blur fires.
-    // This is an event-ordering workaround, not a race condition (no async timing).
-    // TODO(#286): Specify which browsers/scenarios need this or test comprehensively
-    // Alternative approaches considered: mousedown-only handling (accessibility issues),
-    // relatedTarget checking (unreliable cross-browser).
+    // The mousedown handler calls preventDefault() to cancel blur, but some browsers
+    // fire blur before preventDefault() executes due to event loop timing.
+    // The 200ms delay ensures mousedown completes before hiding the dropdown.
+    // This is a timing-based workaround with a safety margin.
+    // TODO: See issue #286 - Document browser compatibility test results and minimum safe delay values
     setTimeout(() => {
       hide();
     }, 200);
@@ -727,7 +728,14 @@ function setupEventListeners() {
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      const failed = !typeOk && !subtypeOk ? 'type and subtype' : !typeOk ? 'type' : 'subtype';
+      let failed;
+      if (!typeOk && !subtypeOk) {
+        failed = 'type and subtype';
+      } else if (!typeOk) {
+        failed = 'type';
+      } else {
+        failed = 'subtype';
+      }
 
       console.error('[Cards] CRITICAL: Combobox init failed:', {
         errorId: 'COMBOBOX_INIT_FAILED',
@@ -848,7 +856,7 @@ function setupAuthStateListener() {
     // module initialization race by retrying every 500ms until auth-init exports
     // are available (up to 10 retries = 5 seconds). Once available, Firebase SDK
     // guarantees immediate callback invocation with current auth state.
-    // TODO(#286): Clarify why ES6 static imports don't prevent this race (dynamic init?)
+    // TODO: See issue #286 - Clarify comment: issue is Firebase SDK async init, not module loading
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }

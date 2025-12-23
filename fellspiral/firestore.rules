@@ -1,8 +1,8 @@
 rules_version = '2';
 
 // Firestore security rules for cards collection
+// Cards require 'title' and 'type' fields (title changed from 'name' in #244)
 // Ensures data integrity and user attribution
-// Related: #283 for security rules validation tests
 // Related: #305 for general documentation improvements
 
 service cloud.firestore {
@@ -22,23 +22,24 @@ service cloud.firestore {
     // and branch preview collections like cards_preview_my-branch
     match /{cardsCollection}/{cardId} {
       // Allow reading public cards (anyone can view cards where isPublic == true)
-      // Cards are public by default, so this covers most use cases.
-      // Private cards (isPublic == false) require future implementation of owner-only queries.
-      // NOTE: Use .get() with defaults to handle documents missing isPublic field
+      // NOTE: Use .get() with false default - documents missing isPublic will be DENIED
+      // (contrary to "public by default" claim - that only applies to client-created cards)
+      // Migration consideration: Existing cards without isPublic field won't be readable
+      // until updated with isPublic: true
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // SECURITY TRADE-OFF: We cannot validate createdAt == request.time because
-      // serverTimestamp() is a sentinel value during rule evaluation (not yet resolved).
-      // This means clients CAN provide arbitrary/missing createdAt values - this is
-      // a known data integrity risk we accept in favor of simplicity.
-      // User authentication is enforced via createdBy == request.auth.uid check.
-      // Card visibility is enforced via isPublic field (read access control).
-      // TODO(#283): Add tests confirming server timestamps are used, not client-provided
-      // See: https://firebase.google.com/docs/reference/rules/rules.firestore.FieldValue#servertimestamp
+      // SECURITY TRADE-OFF: We do not validate createdAt timestamps.
+      // Clients must use serverTimestamp() when creating cards, but we cannot
+      // enforce this in security rules because serverTimestamp() is a sentinel
+      // value during rule evaluation. This means clients CAN provide arbitrary
+      // or missing createdAt values - a known data integrity risk we accept.
+      // Mitigation: Client code should always use serverTimestamp() (see cards.js).
+      // User authentication is enforced via createdBy == request.auth.uid.
+      // TODO(#283): Add tests confirming server timestamps are actually used
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()

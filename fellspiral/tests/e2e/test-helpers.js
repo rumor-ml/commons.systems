@@ -43,6 +43,7 @@ export async function setupDesktopViewport(page) {
  *   stat1: string, stat2: string, cost: string
  * }} Card data object
  */
+// TODO: See issue #462 - Add type/subtype validation with centralized constants and Object.freeze()
 export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
   const uniqueSuffix = suffix ? `-${suffix}` : '';

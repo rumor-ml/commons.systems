@@ -4,6 +4,7 @@
  */
 
 // TODO(#305): Improve error message in getAuthInstance()
+// TODO: See issue #285 - Replace fragile string matching for error detection with proper error types
 
 import { initializeApp } from 'firebase/app';
 import {

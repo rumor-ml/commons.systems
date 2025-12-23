@@ -13,6 +13,7 @@
 
 // TODO(#305): Add user-friendly error messages for CRUD operations
 // TODO(#305): Wrap Firebase errors with actionable guidance
+// TODO: See issue #285 - Add blocking error screen for emulator connection failures to prevent accidental production writes
 
 import { initializeApp, getApp } from 'firebase/app';
 import {
