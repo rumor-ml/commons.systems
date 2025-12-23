@@ -415,6 +415,34 @@ function isRetryableError(error: unknown): boolean {
 }
 
 /**
+ * Classify error type for logging and diagnostics
+ */
+function classifyErrorType(error: Error): string {
+  const msg = error.message.toLowerCase();
+
+  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
+    return 'network';
+  }
+  if (msg.includes('timeout') || msg.includes('etimedout')) {
+    return 'timeout';
+  }
+  if (msg.includes('rate limit') || msg.includes('429')) {
+    return 'rate_limit';
+  }
+  if (msg.includes('forbidden') || msg.includes('401') || msg.includes('403')) {
+    return 'permission';
+  }
+  if (msg.includes('404') || msg.includes('not found')) {
+    return 'not_found';
+  }
+  if (msg.includes('502') || msg.includes('503') || msg.includes('504')) {
+    return 'server_error';
+  }
+
+  return 'unknown';
+}
+
+/**
  * Execute gh CLI command with retry logic
  */
 export async function ghCliWithRetry(
@@ -423,15 +451,53 @@ export async function ghCliWithRetry(
   maxRetries = 3
 ): Promise<string> {
   let lastError: Error | undefined;
+  let firstError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await ghCli(args, options);
+      const result = await ghCli(args, options);
+
+      // Success after retry - log recovery
+      if (attempt > 1 && firstError) {
+        console.log(
+          `[gh-workflow] ghCliWithRetry: succeeded after retry (attempt ${attempt}, errorType: ${classifyErrorType(firstError)})`
+        );
+      }
+
+      return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      if (!isRetryableError(error) || attempt === maxRetries) {
+      // Capture first error for diagnostics
+      if (attempt === 1) {
+        firstError = lastError;
+      }
+
+      if (!isRetryableError(error)) {
+        // Non-retryable error, fail immediately
         throw lastError;
+      }
+
+      if (attempt === maxRetries) {
+        // Final attempt failed - log all attempts exhausted
+        console.warn(
+          `[gh-workflow] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)})`
+        );
+        throw lastError;
+      }
+
+      // Log based on attempt number
+      const errorType = classifyErrorType(lastError);
+      if (attempt === 1) {
+        // Initial failure - log at INFO level since retry is designed for this
+        console.log(
+          `[gh-workflow] ghCliWithRetry: initial attempt failed, will retry (errorType: ${errorType}, command: gh ${args.join(' ')})`
+        );
+      } else {
+        // Subsequent failures - log at WARN level
+        console.warn(
+          `[gh-workflow] ghCliWithRetry: retry attempt ${attempt} failed, will retry again (errorType: ${errorType})`
+        );
       }
 
       // Exponential backoff: 2s, 4s, 8s

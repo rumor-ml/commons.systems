@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { MAX_ITERATIONS } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { StateDetectionError, StateApiError, createErrorResult } from '../utils/errors.js';
 
 export const WiggumInitInputSchema = z.object({});
 
@@ -24,7 +25,23 @@ export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
  * After initialization, completion tools will provide next step instructions directly.
  */
 export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
-  const state = await detectCurrentState();
+  let state;
+  try {
+    state = await detectCurrentState();
+  } catch (error) {
+    if (error instanceof StateDetectionError || error instanceof StateApiError) {
+      logger.error('wiggum_init: state detection failed', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        context: error instanceof StateDetectionError ? error.context : undefined,
+        operation: error instanceof StateApiError ? error.operation : undefined,
+        resourceType: error instanceof StateApiError ? error.resourceType : undefined,
+      });
+      return createErrorResult(error);
+    }
+    // Re-throw unexpected errors
+    throw error;
+  }
 
   logger.info('wiggum_init', {
     branch: state.git.currentBranch,

@@ -17,6 +17,7 @@ import { getWiggumState } from './comments.js';
 import { getWiggumStateFromIssue } from './issue-comments.js';
 import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
+import { StateDetectionError, StateApiError } from '../utils/errors.js';
 import type { GitState, PRState, CurrentState, IssueState } from './types.js';
 import type { WiggumPhase } from '../constants.js';
 
@@ -121,38 +122,95 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       headRefName: result.headRefName,
       baseRefName: result.baseRefName,
     };
-    // TODO(#319): Narrow catch to only "no pull requests found" error
-    // Current: Masks rate limiting, auth failures, network issues, API outages
   } catch (error) {
-    // TODO(#319,#320): Make catch block more specific - only catch expected "no PR" error
-    // TODO(#328): Consider extracting error extraction pattern into helper function
-    // Current: catches all errors and treats as "PR doesn't exist" (see PR review #273)
-    // Masks: rate limiting, auth failures, network issues, API outages
-    // Expected: no PR exists for current branch (GitHubCliError)
-    // Log unexpected errors with full context
-    if (error instanceof Error) {
-      const isExpectedError = error.message.includes('no pull requests found');
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const lowerMsg = errorMsg.toLowerCase();
 
-      if (!isExpectedError) {
-        // Unexpected error - provide full diagnostic information
-        logger.warn('detectPRState: unexpected error while checking for PR', {
-          repo: resolvedRepo,
-          errorMessage: error.message,
-          errorType: error.constructor.name,
-          stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
-        });
-      }
-    } else {
-      // Non-Error thrown - log it
-      logger.warn('detectPRState: unexpected non-Error thrown', {
+    // Expected error: no PR exists for current branch
+    if (
+      lowerMsg.includes('no pull requests found') ||
+      lowerMsg.includes('could not resolve to a pullrequest')
+    ) {
+      logger.debug('detectPRState: no PR found for current branch', {
         repo: resolvedRepo,
-        error: String(error),
       });
+      return {
+        exists: false,
+      };
     }
 
-    return {
-      exists: false,
-    };
+    // Rate limit errors - throw StateApiError with specific guidance
+    if (lowerMsg.includes('rate limit') || lowerMsg.includes('api rate limit exceeded')) {
+      logger.error('detectPRState: GitHub API rate limit exceeded', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+      });
+      throw new StateApiError(
+        `Failed to detect PR state: GitHub API rate limit exceeded. ` +
+          `Check rate limit status with: gh api rate_limit`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Auth errors - throw StateApiError with auth guidance
+    if (
+      lowerMsg.includes('forbidden') ||
+      lowerMsg.includes('unauthorized') ||
+      lowerMsg.includes('http 403') ||
+      lowerMsg.includes('http 401')
+    ) {
+      logger.error('detectPRState: GitHub authentication failed', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+      });
+      throw new StateApiError(
+        `Failed to detect PR state: GitHub authentication failed. ` +
+          `Check auth status with: gh auth status`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Network errors - throw StateApiError (retryable)
+    if (
+      lowerMsg.includes('network') ||
+      lowerMsg.includes('timeout') ||
+      lowerMsg.includes('econnrefused') ||
+      lowerMsg.includes('enotfound')
+    ) {
+      logger.error('detectPRState: Network error while checking for PR', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+      });
+      throw new StateApiError(
+        `Failed to detect PR state: Network error. ` +
+          `Check connectivity and retry. Error: ${errorMsg}`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Unknown error - throw StateApiError with full context
+    logger.error('detectPRState: unexpected error while checking for PR', {
+      repo: resolvedRepo,
+      errorMessage: errorMsg,
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+    });
+    throw new StateApiError(
+      `Failed to detect PR state: Unexpected error. ${errorMsg}`,
+      'read',
+      'pr',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
   }
 }
 
@@ -234,8 +292,6 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        // TODO(#272): Throw instead of returning stale state when recursion limit exceeded
-        // Current: returns potentially unreliable data (see PR review #273)
         if (depth >= MAX_RECURSION_DEPTH) {
           logger.error(
             'detectCurrentState: maximum recursion depth exceeded during PR revalidation',
@@ -247,14 +303,19 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
               stateDetectionTime,
             }
           );
-          // Return current state rather than failing - caller can handle unstable state
-          // This prevents infinite recursion in pathological cases where PR keeps changing
-          return {
-            git,
-            pr,
-            issue,
-            wiggum,
-          };
+          throw new StateDetectionError(
+            `State detection failed: PR state changed ${depth} times during detection. ` +
+              `This indicates rapid PR changes that prevent reliable state tracking. ` +
+              `Previous PR: #${pr.number}, New PR: #${revalidatedPr.number}. ` +
+              `Manual intervention required - verify PR state is stable before retrying.`,
+            {
+              depth,
+              maxDepth: MAX_RECURSION_DEPTH,
+              previousState: `PR #${pr.number}`,
+              newState: `PR #${revalidatedPr.number}`,
+              stateDetectionTime,
+            }
+          );
         }
 
         logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
