@@ -8,7 +8,7 @@
  * in completeFix() function after schema validation passes. See test documentation
  * in "error path validation (tool-level)" section below for runtime validation behavior.
  *
- * TODO: See issue #313 - Add integration tests with mocked GitHub/git for state updates,
+ * TODO(#313): Add integration tests with mocked GitHub/git for state updates,
  * comment posting, completedSteps filtering, and phase-specific behavior.
  */
 

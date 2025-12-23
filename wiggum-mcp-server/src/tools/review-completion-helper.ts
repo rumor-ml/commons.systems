@@ -6,6 +6,7 @@
  * the distinct behavior of each review type.
  */
 
+import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {
   getNextStepInstructions,
@@ -23,9 +24,22 @@ import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
 
 /**
- * Configuration for a review type (PR or Security)
+ * Zod schema for ReviewConfig runtime validation
  */
-// TODO: See issue #333 - Add runtime validation (Zod schemas) for ReviewConfig and ReviewCompletionInput types
+export const ReviewConfigSchema = z.object({
+  phase1Step: z.string(),
+  phase2Step: z.string(),
+  phase1Command: z.string(),
+  phase2Command: z.string(),
+  reviewTypeLabel: z.string(),
+  issueTypeLabel: z.string(),
+  successMessage: z.string(),
+});
+
+/**
+ * Configuration for a review type (PR or Security)
+ * TODO(#333, #363): Add readonly modifiers and runtime validation
+ */
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
   phase1Step: WiggumStep;
@@ -44,7 +58,19 @@ export interface ReviewConfig {
 }
 
 /**
+ * Zod schema for ReviewCompletionInput runtime validation
+ */
+export const ReviewCompletionInputSchema = z.object({
+  command_executed: z.boolean(),
+  verbatim_response: z.string(),
+  high_priority_issues: z.number(),
+  medium_priority_issues: z.number(),
+  low_priority_issues: z.number(),
+});
+
+/**
  * Input for review completion
+ * TODO(#333, #363): Add readonly modifiers and integer validation
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
@@ -66,14 +92,14 @@ function getReviewStep(phase: WiggumPhase, config: ReviewConfig): WiggumStep {
  */
 function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): void {
   if (state.wiggum.phase === 'phase1' && (!state.issue.exists || !state.issue.number)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No issue found. Phase 1 ${config.reviewTypeLabel.toLowerCase()} review requires an issue number in the branch name.`
     );
   }
 
   if (state.wiggum.phase === 'phase2' && (!state.pr.exists || !state.pr.number)) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No PR found. Cannot complete ${config.reviewTypeLabel.toLowerCase()} review.`
     );
@@ -82,7 +108,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
 
 /**
  * Build comment content based on review results
- * TODO: See issue #334 - Add tests for comment content formatting
+ * TODO(#334): Add test for phase-specific command selection
  */
 export function buildCommentContent(
   input: ReviewCompletionInput,
@@ -164,7 +190,7 @@ async function postStateComment(
 ): Promise<StateCommentResult> {
   if (state.wiggum.phase === 'phase1') {
     if (!state.issue.exists || !state.issue.number) {
-      // TODO: See issue #312 - Add Sentry error ID for tracking
+      // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
@@ -178,7 +204,7 @@ async function postStateComment(
     );
   } else {
     if (!state.pr.exists || !state.pr.number) {
-      // TODO: See issue #312 - Add Sentry error ID for tracking
+      // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
@@ -230,43 +256,32 @@ function buildIssuesFoundResponse(
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
-  // TODO: See issue #417 - Notify users when fallback workflow is used
-  if (issueNumber) {
-    logger.info(
-      `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
-      {
-        phase: state.wiggum.phase,
-        issueNumber,
-        totalIssues,
-        iteration: newIteration,
-      }
+  // Issue number is required for triage workflow to properly scope fixes
+  // TODO(#312): Add Sentry error ID for tracking
+  // TODO(#314): Add actionable error context when issueNumber is undefined
+  if (!issueNumber) {
+    throw new ValidationError(
+      `Issue number required for triage workflow but was undefined. This indicates a state detection issue. Branch: ${state.git.currentBranch}, Phase: ${state.wiggum.phase}`
     );
-  } else {
-    // TODO: See issue #314 - Add actionable error context when issueNumber is undefined
-    logger.warn('Issue number undefined - using fallback fix instructions instead of triage', {
-      phase: state.wiggum.phase,
-      totalIssues,
-      iteration: newIteration,
-      issueExists: state.issue.exists,
-      branchName: state.git.currentBranch,
-    });
   }
 
-  const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
-  const fallbackInstructions = `${totalIssues} ${config.issueTypeLabel} found.
+  logger.info(
+    `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
+    {
+      phase: state.wiggum.phase,
+      issueNumber,
+      totalIssues,
+      iteration: newIteration,
+    }
+  );
 
-1. Use Task tool with subagent_type="Plan" and model="opus" to create ${config.reviewTypeLabel.toLowerCase()} fix plan for ALL issues
-2. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement ${config.reviewTypeLabel.toLowerCase()} fixes
-3. Execute /commit-merge-push slash command using SlashCommand tool
-4. Call wiggum_complete_fix with fix_description`;
+  const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
 
   const output = {
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
     iteration_count: newIteration,
-    instructions: issueNumber
-      ? generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues)
-      : fallbackInstructions,
+    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues),
     steps_completed_by_tool: [
       `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
@@ -305,11 +320,13 @@ export async function completeReview(
   config: ReviewConfig
 ): Promise<ToolResult> {
   if (!input.command_executed) {
-    // TODO: See issue #312 - Add Sentry error ID for tracking
+    // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `command_executed must be true. Do not shortcut the ${config.reviewTypeLabel.toLowerCase()} review process.`
     );
   }
+
+  // TODO(#448): Add validation for non-negative integer issue counts
 
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
@@ -331,7 +348,7 @@ export async function completeReview(
 
   const result = await postStateComment(state, newState, title, body);
 
-  // TODO: See issue #415 - Add safe discriminated union access with type guards
+  // TODO(#415): Add safe discriminated union access with type guards
   if (!result.success) {
     logger.error('Review state comment failed - halting workflow', {
       reviewType: config.reviewTypeLabel,
