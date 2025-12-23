@@ -106,7 +106,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       enable = true;
       name = "prettier-check-all";
       description = "Validate all tracked files are formatted (prevents CI failures)";
-      entry = "${pkgs.prettier}/bin/prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml}'";
+      entry = "${pkgs.prettier}/bin/prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml,html,css}'";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;
