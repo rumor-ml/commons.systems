@@ -4,7 +4,7 @@
  * Comprehensive test coverage for security review completion.
  * Tests cover input validation, security issue counting, and state management.
  */
-// TODO: See issue #313 - Convert to behavioral/integration tests
+// TODO(#313): Convert to behavioral/integration tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

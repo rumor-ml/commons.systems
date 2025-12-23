@@ -1,4 +1,3 @@
-// @ts-nocheck - TODO(#317): Disabled type checking due to Phase 1/2 refactor
 /**
  * Tests for prototype pollution detection in comments.ts
  *
@@ -6,13 +5,12 @@
  * prototype pollution attacks via PR comments.
  */
 
-// TODO(#317): Skipped due to Phase 1/2 refactor - old constant names no longer exist
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { hasPrototypePollution, safeJsonParse, validateWiggumState } from './utils.js';
 import { STEP_PHASE1_MONITOR_WORKFLOW, isValidStep } from '../constants.js';
 
-describe.skip('hasPrototypePollution (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('hasPrototypePollution', () => {
   describe('basic attack vectors', () => {
     it('should detect __proto__ at root level', () => {
       // Note: Direct object literal { __proto__: {} } is handled specially by JS
@@ -141,7 +139,7 @@ describe.skip('hasPrototypePollution (TODO #317: broken after Phase 1/2 refactor
   });
 });
 
-describe.skip('safeJsonParse (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('safeJsonParse', () => {
   describe('attack vectors', () => {
     it('should reject JSON with __proto__ pollution', () => {
       const json = '{"__proto__": {"isAdmin": true}}';
@@ -213,7 +211,7 @@ describe.skip('safeJsonParse (TODO #317: broken after Phase 1/2 refactor)', () =
   });
 });
 
-describe.skip('validateWiggumState (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('validateWiggumState', () => {
   describe('valid state objects', () => {
     it('should return complete valid state', () => {
       const input = {
@@ -350,7 +348,7 @@ describe.skip('validateWiggumState (TODO #317: broken after Phase 1/2 refactor)'
   });
 });
 
-describe.skip('Performance and DoS Prevention (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('Performance and DoS Prevention', () => {
   it('should handle deeply nested safe objects without timeout', () => {
     // Create 20-level deep nesting (beyond recursion limit)
     let obj: Record<string, unknown> = { value: 'bottom' };

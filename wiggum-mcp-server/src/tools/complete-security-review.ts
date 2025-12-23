@@ -23,6 +23,7 @@ export const CompleteSecurityReviewInputSchema = z.object({
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
+// TODO(#334): Add validation tests for phase-specific fields
 const SECURITY_REVIEW_CONFIG: ReviewConfig = {
   phase1Step: STEP_PHASE1_SECURITY_REVIEW,
   phase2Step: STEP_PHASE2_SECURITY_REVIEW,
@@ -43,7 +44,7 @@ const SECURITY_REVIEW_CONFIG: ReviewConfig = {
 /**
  * Complete security review and update state
  *
- * TODO: See issue #314 - Replace silent fallback with ValidationError when issueNumber undefined
+ * TODO(#314): Replace silent fallback with ValidationError when issueNumber undefined
  */
 export async function completeSecurityReview(
   input: CompleteSecurityReviewInput

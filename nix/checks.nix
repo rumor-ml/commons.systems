@@ -106,7 +106,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       enable = true;
       name = "prettier-check-all";
       description = "Validate all tracked files are formatted (prevents CI failures)";
-      entry = "${pkgs.prettier}/bin/prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml}'";
+      entry = "${pkgs.prettier}/bin/prettier --check --ignore-unknown '**/*.{ts,tsx,js,jsx,json,md,yaml,yml,html,css}'";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;
@@ -164,6 +164,75 @@ pre-commit-hooks.lib.${pkgs.system}.run {
           ./infrastructure/scripts/build-mcp-servers.sh
         else
           echo "No MCP server changes detected, skipping Nix build."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Run npm tests for MCP servers when their files change
+    # Ensures tests pass before push (complements mcp-nix-build which validates builds)
+    mcp-npm-test = {
+      enable = true;
+      name = "mcp-npm-test";
+      description = "Run tests for changed MCP servers";
+      entry = "${pkgs.writeShellScript "mcp-npm-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Define MCP servers to test
+        MCP_SERVERS=(wiggum-mcp-server gh-workflow-mcp-server gh-issue-mcp-server git-mcp-server)
+        FAILED=0
+
+        for server in "''${MCP_SERVERS[@]}"; do
+          if echo "$CHANGED_FILES" | grep -q "^$server/"; then
+            echo "Running tests for $server..."
+            if ! (cd "$server" && npm test); then
+              echo "FAIL: Tests failed for $server"
+              FAILED=1
+            fi
+          fi
+        done
+
+        if [ $FAILED -eq 1 ]; then
+          echo ""
+          echo "ERROR: MCP server tests failed"
+          echo "Fix the failing tests before pushing."
+          exit 1
+        fi
+
+        # Check if any MCP servers were tested
+        TESTED=0
+        for server in "''${MCP_SERVERS[@]}"; do
+          if echo "$CHANGED_FILES" | grep -q "^$server/"; then
+            TESTED=1
+            break
+          fi
+        done
+
+        if [ $TESTED -eq 0 ]; then
+          echo "No MCP server changes detected, skipping tests."
         fi
       ''}";
       language = "system";

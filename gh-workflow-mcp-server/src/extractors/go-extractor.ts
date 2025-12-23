@@ -135,32 +135,32 @@ export class GoExtractor implements FrameworkExtractor {
     let testEventParseErrors = 0;
     const validationTracker = new ValidationErrorTracker();
 
-    // TODO(#315): Clarify stage count in error handling comment
-    // Current: Claims "three-stage" but only two stages actually handle errors
-    // Stage 2 is validation logic without error handling (see PR review #273)
-    // TODO(#302): Add motivation context to three-stage error handling
-    // Current: Excellent architecture comment but missing "why this complexity exists"
-    // WHY: Go test output intermingles valid events with build messages, compilation errors, and GitHub Actions logs
-    // TODO(#302): Fix misleading "three-stage error handling" comment
-    // Actual: Two stages with error handling + one validation stage without
+    // Architecture: Three-stage processing with two error handling boundaries
     //
-    // STAGE 1 (parseGoTestJson: JSON.parse loop): JSON.parse() wrapped in minimal try-catch
-    //   - ONLY catches JSON syntax errors (malformed JSON)
-    //   - Expected errors: build output, compilation messages, GitHub Actions logs
-    //   - Action: Skip line and log diagnostics
+    // WHY THIS COMPLEXITY EXISTS:
+    // Go test output (`go test -json`) intermingles valid test events with build messages,
+    // compilation errors, and GitHub Actions log lines. We need to:
+    // 1. Parse valid JSON from mixed content (some lines aren't JSON at all)
+    // 2. Filter test events from other JSON (build output can also be valid JSON)
+    // 3. Validate extracted data meets our ExtractedError schema
     //
-    // STAGE 2 (parseGoTestJson: Test event validation): Test event validation (NO catch - structural bugs propagate)
-    //   - Validates parsed JSON has required test event fields (Time, Action, Package)
-    //   - No catch block: bugs in field access should crash for debugging
-    //   - Action: Skip non-test-event JSON
+    // STAGE 1 (JSON.parse): Error handling boundary - catches syntax errors
+    //   - Wraps JSON.parse() in try-catch
+    //   - Expected errors: non-JSON lines (build output, GH Actions logs, compiler messages)
+    //   - Action: Skip line, track diagnostic samples for user visibility
     //
-    // STAGE 3 (parseGoTestJson/parseGoTestText: safeValidateExtractedError calls): Schema validation with fallback errors
-    //   - safeValidateExtractedError() catches Zod validation errors
-    //   - Creates fallback ExtractedError with diagnostics
+    // STAGE 2 (Field validation): NO error handling - validation only
+    //   - Checks parsed JSON has required test event fields (Time, Action, Package)
+    //   - No catch block: bugs in field access propagate for debugging
+    //   - Action: Skip non-test-event JSON (e.g., build metadata)
+    //
+    // STAGE 3 (Schema validation): Error handling boundary - catches schema errors
+    //   - safeValidateExtractedError() catches Zod validation failures
+    //   - Creates fallback ExtractedError with full diagnostics
     //   - Ensures we NEVER silently drop test failures
     //
     // This separation ensures:
-    // 1. JSON syntax errors don't mask validation issues
+    // 1. JSON syntax errors don't mask structural validation issues
     // 2. Validation errors get full diagnostic context (line number, raw JSON)
     // 3. Bugs in extraction code propagate for visibility (not caught accidentally)
 
