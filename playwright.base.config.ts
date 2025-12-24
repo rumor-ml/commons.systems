@@ -1,6 +1,7 @@
 // playwright.base.config.ts
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
+// TODO(#486): Add runtime validation with zod for SiteConfig
 export interface SiteConfig {
   siteName: string;
   port: number;

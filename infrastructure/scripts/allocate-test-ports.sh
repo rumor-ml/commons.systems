@@ -25,29 +25,14 @@ mkdir -p "$WORKTREE_TMP_DIR"
 
 # UNIQUE EMULATOR PORTS - Different per worktree
 # Each worktree runs isolated emulators for concurrent testing
-AUTH_PORT=$((10000 + ($PORT_OFFSET * 10)))
-FIRESTORE_PORT=$((11000 + ($PORT_OFFSET * 10)))
-STORAGE_PORT=$((12000 + ($PORT_OFFSET * 10)))
-UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
+BASE_AUTH_PORT=$((10000 + ($PORT_OFFSET * 10)))
+BASE_FIRESTORE_PORT=$((11000 + ($PORT_OFFSET * 10)))
+BASE_STORAGE_PORT=$((12000 + ($PORT_OFFSET * 10)))
+BASE_UI_PORT=$((13000 + ($PORT_OFFSET * 10)))
 
 # UNIQUE APP SERVER PORT - Different per worktree
 # Prevents conflicts when running multiple app servers concurrently
-APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
-
-# Export port variables for emulators (unique per worktree)
-export FIREBASE_AUTH_PORT="$AUTH_PORT"
-export FIREBASE_FIRESTORE_PORT="$FIRESTORE_PORT"
-export FIREBASE_STORAGE_PORT="$STORAGE_PORT"
-export FIREBASE_UI_PORT="$UI_PORT"
-
-# Export app port variables (unique per worktree)
-export TEST_PORT="$APP_PORT"
-export PORT="$APP_PORT"  # For Go app
-
-# Export emulator connection strings
-export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
-export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
-export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
+BASE_APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
 
 # Port availability check function
 # Returns 0 if port is available, 1 if in use
@@ -63,16 +48,56 @@ check_port_available() {
 # Find next available port starting from base
 find_available_port() {
   local base_port=$1
+  local service_name=$2
   local port=$base_port
+  local attempts=0
+
   while ! check_port_available $port; do
     port=$((port + 1))
+    attempts=$((attempts + 1))
     if [ $port -gt $((base_port + 1000)) ]; then
-      echo "ERROR: Could not find available port near $base_port" >&2
+      echo "ERROR: Could not find available port for $service_name" >&2
+      echo "  Base port: $base_port" >&2
+      echo "  Ports checked: $attempts" >&2
+      echo "  Last port tried: $port" >&2
+      echo "" >&2
+      echo "  Processes using ports in this range:" >&2
+      if command -v lsof >/dev/null 2>&1; then
+        lsof -ti :${base_port}-${port} 2>/dev/null | head -5 | while read pid; do
+          ps -p $pid -o pid,comm,args 2>/dev/null | tail -1 >&2
+        done
+      else
+        echo "  (lsof not available - cannot show process details)" >&2
+      fi
+      echo "" >&2
+      echo "  Action: Stop conflicting processes or choose different port range" >&2
       exit 1
     fi
   done
   echo $port
 }
+
+# Find available ports for each service
+AUTH_PORT=$(find_available_port $BASE_AUTH_PORT "Firebase Auth")
+FIRESTORE_PORT=$(find_available_port $BASE_FIRESTORE_PORT "Firestore")
+STORAGE_PORT=$(find_available_port $BASE_STORAGE_PORT "Firebase Storage")
+UI_PORT=$(find_available_port $BASE_UI_PORT "Firebase UI")
+APP_PORT=$(find_available_port $BASE_APP_PORT "App Server")
+
+# Export port variables for emulators (unique per worktree)
+export FIREBASE_AUTH_PORT="$AUTH_PORT"
+export FIREBASE_FIRESTORE_PORT="$FIRESTORE_PORT"
+export FIREBASE_STORAGE_PORT="$STORAGE_PORT"
+export FIREBASE_UI_PORT="$UI_PORT"
+
+# Export app port variables (unique per worktree)
+export TEST_PORT="$APP_PORT"
+export PORT="$APP_PORT"  # For Go app
+
+# Export emulator connection strings
+export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
+export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
+export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
 # Print allocated ports for debugging
 echo "Port allocation for worktree '${WORKTREE_NAME}' (offset: ${PORT_OFFSET}):"

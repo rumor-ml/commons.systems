@@ -39,6 +39,7 @@ cd "${REPO_ROOT}"
 
 # Generate temporary firebase.json with worktree-specific ports using jq
 # NOTE: Keep paths relative - Firebase will resolve them from the repo root where we run the command
+# TODO(#366): Move temporary firebase config to /tmp/claude/ instead of repo root
 TEMP_FIREBASE_JSON="${REPO_ROOT}/firebase.${WORKTREE_HASH}.json"
 jq --arg auth_port "$AUTH_PORT" \
    --arg firestore_port "$FIRESTORE_PORT" \
@@ -67,56 +68,32 @@ echo "$EMULATOR_PID" > "$PID_FILE"
 echo "Firebase emulators started with PID: ${EMULATOR_PID}"
 echo "Log file: $LOG_FILE"
 
-# Health check for Auth
-echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
-RETRY_COUNT=0
-while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
-    echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
-    kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
-    exit 1
-  fi
-  sleep $RETRY_INTERVAL
-done
-echo "Auth emulator is ready on port ${AUTH_PORT}"
+# Health check function for emulator ports
+wait_for_emulator() {
+  local name="$1"
+  local port="$2"
+  local retry_count=0
 
-# Health check for Firestore
-echo "Waiting for Firestore emulator on port ${FIRESTORE_PORT}..."
-RETRY_COUNT=0
-while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
-    echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
-    kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
-    exit 1
-  fi
-  sleep $RETRY_INTERVAL
-done
-echo "Firestore emulator is ready on port ${FIRESTORE_PORT}"
+  echo "Waiting for ${name} emulator on port ${port}..."
+  while ! nc -z localhost ${port} 2>/dev/null; do
+    retry_count=$((retry_count + 1))
+    if [ $retry_count -ge $MAX_RETRIES ]; then
+      echo "ERROR: ${name} emulator failed to start after ${MAX_RETRIES} seconds"
+      echo "Last 20 lines of emulator log:"
+      tail -n 20 "$LOG_FILE"
+      kill $EMULATOR_PID 2>/dev/null || true
+      rm -f "$PID_FILE"
+      exit 1
+    fi
+    sleep $RETRY_INTERVAL
+  done
+  echo "${name} emulator is ready on port ${port}"
+}
 
-# Health check for Storage
-echo "Waiting for Storage emulator on port ${STORAGE_PORT}..."
-RETRY_COUNT=0
-while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
-    echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
-    kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
-    exit 1
-  fi
-  sleep $RETRY_INTERVAL
-done
-echo "Storage emulator is ready on port ${STORAGE_PORT}"
+# Wait for all emulators to be ready
+wait_for_emulator "Auth" "$AUTH_PORT"
+wait_for_emulator "Firestore" "$FIRESTORE_PORT"
+wait_for_emulator "Storage" "$STORAGE_PORT"
 
 echo ""
 echo "Firebase emulators are ready!"

@@ -11,6 +11,39 @@ import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const PROJECT_ID = 'demo-test';
+const QA_TEST_USER = {
+  uid: 'qa-test-user-id',
+  email: 'qa@test.com',
+  password: 'testpassword123',
+  displayName: 'QA Test User',
+};
+
+/**
+ * Seed QA test user in Auth emulator (creates if not exists)
+ */
+async function seedQaTestUser(admin: typeof import('firebase-admin')): Promise<void> {
+  try {
+    const auth = admin.auth();
+    await auth.getUserByEmail(QA_TEST_USER.email);
+    console.log('   ✓ QA test user already exists');
+  } catch (error: unknown) {
+    const errorObj = error as { code?: string };
+    if (errorObj.code === 'auth/user-not-found') {
+      await admin.auth().createUser(QA_TEST_USER);
+      console.log(`✅ SUCCESS: Seeded QA test user (${QA_TEST_USER.email}) to Auth emulator`);
+    } else {
+      console.warn(
+        '⚠️  WARNING: Failed to seed QA test user\n' +
+          `   Error: ${error instanceof Error ? error.message : String(error)}\n` +
+          '   Impact: Tests requiring authenticated users will fail\n' +
+          '   Action: Check that FIREBASE_AUTH_EMULATOR_HOST is set and emulator is running'
+      );
+      // Consider: Should this fail the setup entirely?
+    }
+  }
+}
+
 async function globalSetup() {
   console.log('🔧 Running global test setup...');
   console.log(`   Environment: ${process.env.CI ? 'CI' : 'Local'}`);
@@ -59,10 +92,8 @@ async function globalSetup() {
 
     // Initialize Firebase Admin with emulator
     if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: 'demo-test',
-      });
-      console.log(`   ✓ Initialized Firebase Admin (projectId: demo-test)`);
+      admin.initializeApp({ projectId: PROJECT_ID });
+      console.log(`   ✓ Initialized Firebase Admin (projectId: ${PROJECT_ID})`);
     } else {
       console.log(`   ✓ Using existing Firebase Admin app`);
     }
@@ -123,29 +154,7 @@ async function globalSetup() {
 
     // Seed QA test user in Auth emulator
     console.log('📦 Seeding Auth emulator with QA test user...');
-    const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
-
-    try {
-      // Use Firebase Admin SDK to create test user in Auth emulator
-      const auth = admin.auth();
-
-      try {
-        // Check if user already exists
-        await auth.getUserByEmail('qa@test.com');
-        console.log('   ✓ QA test user already exists');
-      } catch (error) {
-        // User doesn't exist, create it
-        await auth.createUser({
-          uid: 'qa-test-user-id',
-          email: 'qa@test.com',
-          password: 'testpassword123',
-          displayName: 'QA Test User',
-        });
-        console.log('✅ SUCCESS: Seeded QA test user (qa@test.com) to Auth emulator');
-      }
-    } catch (authError) {
-      console.warn('⚠️  WARNING: Failed to seed QA test user:', authError instanceof Error ? authError.message : String(authError));
-    }
+    await seedQaTestUser(admin);
 
     console.log('✅ Global setup complete');
   } catch (error) {

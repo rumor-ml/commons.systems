@@ -159,24 +159,19 @@ export async function createCardViaUI(page, cardData) {
     await page.locator('#cardSubtype').press('Escape');
   }
 
-  if (cardData.tags) {
-    await page.locator('#cardTags').fill(cardData.tags);
-  }
+  // Fill optional fields
+  const optionalFields = [
+    ['#cardTags', cardData.tags],
+    ['#cardDescription', cardData.description],
+    ['#cardStat1', cardData.stat1],
+    ['#cardStat2', cardData.stat2],
+    ['#cardCost', cardData.cost],
+  ];
 
-  if (cardData.description) {
-    await page.locator('#cardDescription').fill(cardData.description);
-  }
-
-  if (cardData.stat1) {
-    await page.locator('#cardStat1').fill(cardData.stat1);
-  }
-
-  if (cardData.stat2) {
-    await page.locator('#cardStat2').fill(cardData.stat2);
-  }
-
-  if (cardData.cost) {
-    await page.locator('#cardCost').fill(cardData.cost);
+  for (const [selector, value] of optionalFields) {
+    if (value) {
+      await page.locator(selector).fill(value);
+    }
   }
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
@@ -197,7 +192,15 @@ export async function createCardViaUI(page, cardData) {
         currentUser: !!window.__testAuth?.currentUser,
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
-      throw new Error(`Auth not ready after 5s: ${JSON.stringify(authState)}`);
+      throw new Error(
+        `Auth not ready after 5s: ${JSON.stringify(authState)}\n` +
+          `Possible causes:\n` +
+          `  - authEmulator fixture not used in test\n` +
+          `  - Firebase Auth emulator not running\n` +
+          `  - Auth initialization failed silently\n` +
+          `  - Network issues connecting to emulator\n` +
+          `Original error: ${error.message}`
+      );
     });
 
   // Submit form

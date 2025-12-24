@@ -1,6 +1,8 @@
 // playwright.fixtures.ts
 import { test as base, expect } from '@playwright/test';
 
+// TODO(#486): Extract magic timeout constants with documentation
+
 type AuthFixtures = {
   authEmulator: {
     createTestUser: (email: string, password?: string) => Promise<string>;

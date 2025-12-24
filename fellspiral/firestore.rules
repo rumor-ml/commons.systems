@@ -27,9 +27,11 @@ service cloud.firestore {
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // NOTE: We don't validate createdAt == request.time because serverTimestamp()
-      // values are only resolved after rule evaluation, making comparison impossible.
-      // User attribution security is enforced via createdBy == request.auth.uid check.
+      // NOTE: We don't validate createdAt == request.time on CREATE because serverTimestamp()
+      // placeholder values cannot be compared during rule evaluation (they're resolved post-evaluation).
+      // However, UPDATE operations CAN validate lastModifiedAt == request.time because the update
+      // operation resolves serverTimestamp() before rule evaluation completes.
+      // User attribution security is always enforced via createdBy/lastModifiedBy == request.auth.uid checks.
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
@@ -42,7 +44,10 @@ service cloud.firestore {
                     && isAuthenticated()
                     && resource.data.createdBy == request.auth.uid
                     && request.resource.data.lastModifiedBy == request.auth.uid
-                    && request.resource.data.lastModifiedAt == request.time;
+                    && request.resource.data.lastModifiedAt == request.time
+                    // Enforce field immutability
+                    && request.resource.data.createdBy == resource.data.createdBy
+                    && request.resource.data.createdAt == resource.data.createdAt;
 
       // Allow delete only if user is the creator
       allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')

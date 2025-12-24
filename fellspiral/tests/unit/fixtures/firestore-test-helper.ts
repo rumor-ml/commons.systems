@@ -3,6 +3,19 @@ import { Firestore } from '@google-cloud/firestore';
 import { AuthTestHelper } from './auth-test-helper.js';
 import assert from 'node:assert';
 
+const PROJECT_ID = 'demo-test';
+
+/**
+ * Parse emulator host string into host and port components
+ */
+function parseEmulatorHost(hostString: string): { host: string; port: number } {
+  const [host, portStr] = hostString.split(':');
+  return {
+    host: host || '127.0.0.1',
+    port: parseInt(portStr || '11000'), // Changed from 11980 to match BASE_FIRESTORE_PORT
+  };
+}
+
 /**
  * FirestoreTestHelper provides utilities for testing Firestore security rules
  * Uses the Firestore Emulator when FIRESTORE_EMULATOR_HOST is set
@@ -11,6 +24,7 @@ export class FirestoreTestHelper {
   private static adminFirestore: Firestore | null = null;
   private authHelper: AuthTestHelper;
   private userFirestores: Map<string, Firestore> = new Map();
+  private emulatorHost: { host: string; port: number };
 
   constructor() {
     this.authHelper = new AuthTestHelper();
@@ -24,6 +38,7 @@ export class FirestoreTestHelper {
       );
     }
 
+    this.emulatorHost = parseEmulatorHost(firestoreEmulatorHost);
     console.log(`✓ FirestoreTestHelper initialized with emulator at ${firestoreEmulatorHost}`);
   }
 
@@ -42,13 +57,10 @@ export class FirestoreTestHelper {
         delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
       }
 
-      const projectId = 'demo-test';
-      const firestoreEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
-
       FirestoreTestHelper.adminFirestore = new Firestore({
-        projectId,
-        host: firestoreEmulatorHost?.split(':')[0] || '127.0.0.1',
-        port: parseInt(firestoreEmulatorHost?.split(':')[1] || '11980'),
+        projectId: PROJECT_ID,
+        host: this.emulatorHost.host,
+        port: this.emulatorHost.port,
         ssl: false,
         customHeaders: {
           Authorization: 'Bearer owner',
@@ -76,13 +88,10 @@ export class FirestoreTestHelper {
     const idToken = await this.authHelper.createUserAndGetToken(uid);
 
     // Create Firestore instance with user auth
-    const projectId = 'demo-test';
-    const firestoreEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
-
     const userFirestore = new Firestore({
-      projectId,
-      host: firestoreEmulatorHost?.split(':')[0] || '127.0.0.1',
-      port: parseInt(firestoreEmulatorHost?.split(':')[1] || '11980'),
+      projectId: PROJECT_ID,
+      host: this.emulatorHost.host,
+      port: this.emulatorHost.port,
       ssl: false,
       customHeaders: {
         Authorization: `Bearer ${idToken}`,
@@ -96,12 +105,35 @@ export class FirestoreTestHelper {
   }
 
   /**
+   * Get an unauthenticated Firestore instance (no auth context)
+   * Used to test that security rules deny access to unauthenticated users
+   */
+  getFirestoreAsUnauthenticated(): Firestore {
+    const projectId = process.env.GCLOUD_PROJECT || 'demo-test';
+    const { host, port } = this.emulatorHost;
+
+    // Create Firestore without authentication
+    const firestore = new Firestore({
+      projectId,
+      host,
+      port,
+      ssl: false,
+      customHeaders: {
+        // No Authorization header - simulates unauthenticated access
+      },
+    });
+
+    return firestore;
+  }
+
+  /**
    * Create a card as a specific user
    * @param uid User ID to create card as
    * @param cardData Card data (must include title and type)
    * @param collection Collection name (default: 'cards')
    * @returns Document reference
    */
+  // TODO(#486): Define CardData interface instead of Record<string, unknown>
   async createCardAsUser(
     uid: string,
     cardData: Record<string, unknown>,
@@ -189,34 +221,92 @@ export class FirestoreTestHelper {
 
   /**
    * Cleanup: delete test data and close connections
+   *
+   * NOTE: This method throws if cleanup fails to ensure test pollution is visible
    */
   async cleanup(): Promise<void> {
+    const errors: Error[] = [];
+
     try {
       // Clear all collections using admin instance
       const adminDb = this.getAdminFirestore();
+      // TODO(#486): Track collections dynamically instead of hardcoding list
       const collections = ['cards', 'cards_pr_123', 'cards_preview_test-branch'];
 
       for (const collectionName of collections) {
-        const snapshot = await adminDb.collection(collectionName).get();
-        const batch = adminDb.batch();
-        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-        console.log(`✓ Cleared collection ${collectionName}`);
+        try {
+          const snapshot = await adminDb.collection(collectionName).get();
+          const batch = adminDb.batch();
+          snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+          console.log(`✓ Cleared collection ${collectionName}`);
+        } catch (error) {
+          const err = new Error(
+            `Failed to clear collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          console.error(err);
+          errors.push(err);
+        }
       }
 
       // Close user Firestore instances
       for (const [uid, firestore] of this.userFirestores.entries()) {
-        await firestore.terminate();
-        console.log(`✓ Closed Firestore instance for user ${uid}`);
+        try {
+          await firestore.terminate();
+          console.log(`✓ Closed Firestore instance for user ${uid}`);
+        } catch (error) {
+          const err = new Error(
+            `Failed to close Firestore for user ${uid}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          console.error(err);
+          errors.push(err);
+        }
       }
       this.userFirestores.clear();
 
       // Cleanup auth helper
-      await this.authHelper.cleanup();
+      try {
+        await this.authHelper.cleanup();
+      } catch (error) {
+        const err = new Error(
+          `Auth helper cleanup failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        console.error(err);
+        errors.push(err);
+      }
+
+      // Close admin Firestore instance
+      if (FirestoreTestHelper.adminFirestore) {
+        try {
+          await FirestoreTestHelper.adminFirestore.terminate();
+          FirestoreTestHelper.adminFirestore = null;
+          console.log('✓ Closed admin Firestore instance');
+        } catch (error) {
+          const err = new Error(
+            `Failed to close admin Firestore: ${error instanceof Error ? error.message : String(error)}`
+          );
+          console.error(err);
+          errors.push(err);
+        }
+      }
+
+      if (errors.length > 0) {
+        console.error(
+          `CRITICAL: FirestoreTestHelper cleanup encountered ${errors.length} error(s)`,
+          {
+            errors: errors.map((e) => e.message),
+          }
+        );
+        throw new AggregateError(errors, `Cleanup encountered ${errors.length} error(s)`);
+      }
 
       console.log('✓ FirestoreTestHelper cleaned up');
     } catch (error) {
-      console.error('Failed to cleanup FirestoreTestHelper:', error);
+      if (error instanceof AggregateError) {
+        throw error; // Already formatted
+      }
+      console.error('CRITICAL: FirestoreTestHelper cleanup failed', error);
+      throw error;
     }
   }
 }

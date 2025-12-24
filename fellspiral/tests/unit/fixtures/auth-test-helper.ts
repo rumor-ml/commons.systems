@@ -1,9 +1,12 @@
 import admin from 'firebase-admin';
 
+const PROJECT_ID = 'demo-test';
+
 /**
  * AuthTestHelper generates Firebase Auth tokens for unit tests
  * Uses the Firebase Auth Emulator when FIREBASE_AUTH_EMULATOR_HOST is set
  */
+// TODO(#486): Implement singleton pattern to prevent multiple Firebase Admin app instances
 export class AuthTestHelper {
   private app: admin.app.App;
   private auth: admin.auth.Auth;
@@ -34,12 +37,10 @@ export class AuthTestHelper {
 
     // Initialize Firebase Admin SDK with emulator
     // The SDK automatically connects to the emulator when FIREBASE_AUTH_EMULATOR_HOST is set
-    // Always use 'demo-test' for unit tests
     // Do NOT use process.env.GCP_PROJECT_ID - CI sets it to production project
-    const projectId = 'demo-test';
     this.app = admin.initializeApp(
       {
-        projectId,
+        projectId: PROJECT_ID,
         // Note: We do NOT provide credentials for emulator
         // The emulator does not require authentication
       },
@@ -57,80 +58,107 @@ export class AuthTestHelper {
    * @param claims Optional custom claims to add to the token
    * @returns ID token string that can be used for authentication
    */
+  // TODO(#486): Add branded type for UserId with validation
   async createUserAndGetToken(uid: string, claims: Record<string, unknown> = {}): Promise<string> {
+    // Ensure user exists (create if not already present)
+    await this.ensureUserExists(uid);
+
+    // Generate a custom token and exchange for ID token
+    const customToken = await this.auth.createCustomToken(uid, claims);
+    return this.exchangeCustomTokenForIdToken(customToken);
+  }
+
+  /**
+   * Ensure a test user exists in the emulator
+   */
+  private async ensureUserExists(uid: string): Promise<void> {
     try {
-      // Try to create the user (will fail if already exists, which is ok)
-      await this.auth
-        .createUser({
+      await this.auth.createUser({
+        uid,
+        email: `${uid}@test.example.com`,
+        emailVerified: true,
+      });
+      console.log(`✓ Created user ${uid} in emulator`);
+    } catch (error: any) {
+      if (error.code === 'auth/uid-already-exists') {
+        console.log(`ℹ User ${uid} already exists in emulator`);
+      } else {
+        // Unexpected error - log with full context and re-throw
+        console.error(`Failed to create user ${uid}`, {
           uid,
           email: `${uid}@test.example.com`,
-          emailVerified: true,
-        })
-        .catch((err) => {
-          // User already exists - this is fine in tests
-          if (err.code === 'auth/uid-already-exists') {
-            console.log(`ℹ User ${uid} already exists in emulator`);
-          } else {
-            throw err;
-          }
+          errorCode: error?.code,
+          errorMessage: error?.message,
+          emulatorHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
         });
-
-      // Generate a custom token (first step of OAuth flow)
-      const customToken = await this.auth.createCustomToken(uid, claims);
-
-      // Exchange custom token for ID token via emulator REST API
-      const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
-      const response = await fetch(
-        `http://${authEmulatorHost}/identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=fake-api-key`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token: customToken,
-            returnSecureToken: true,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`Failed to exchange token: ${JSON.stringify(error)}`);
+        throw new Error(`Failed to create test user ${uid}: ${error?.message || String(error)}`);
       }
-
-      const data = (await response.json()) as {
-        idToken: string;
-      };
-      return data.idToken;
-    } catch (error) {
-      console.error(`Failed to create token for user ${uid}:`, error);
-      throw error;
     }
   }
 
   /**
-   * Delete a test user
-   * @param uid User ID to delete
+   * Exchange a custom token for an ID token via emulator REST API
+   */
+  private async exchangeCustomTokenForIdToken(customToken: string): Promise<string> {
+    const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+    const response = await fetch(
+      `http://${authEmulatorHost}/identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=fake-api-key`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: customToken,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Failed to exchange token: ${JSON.stringify(error)}`);
+    }
+
+    const data = (await response.json()) as { idToken: string };
+    return data.idToken;
+  }
+
+  /**
+   * Delete a test user from the emulator
+   *
+   * NOTE: Logs errors but doesn't throw - cleanup errors shouldn't fail tests
+   * if the user doesn't exist. However, other errors are logged with full context.
    */
   async deleteUser(uid: string): Promise<void> {
     try {
       await this.auth.deleteUser(uid);
       console.log(`✓ Deleted test user ${uid}`);
-    } catch (error) {
-      console.error(`Failed to delete user ${uid}:`, error);
-      // Don't throw - cleanup errors shouldn't fail tests
+    } catch (error: any) {
+      console.error(`CLEANUP WARNING: Failed to delete user ${uid}`, {
+        uid,
+        errorMessage: error?.message,
+        errorCode: error?.code,
+        emulatorHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
+      });
+      // Don't throw - user may not exist, which is fine for cleanup
     }
   }
 
   /**
-   * Cleanup: delete all created users and shutdown the app
-   * Note: Full emulator cleanup happens when start-emulators.sh script stops
+   * Cleanup: delete Firebase Admin app
+   *
+   * NOTE: This method throws if cleanup fails to prevent resource leaks
    */
   async cleanup(): Promise<void> {
     try {
       await admin.app(this.app.name).delete();
       console.log('✓ AuthTestHelper cleaned up');
-    } catch (error) {
-      console.error('Failed to cleanup AuthTestHelper:', error);
+    } catch (error: any) {
+      console.error('CRITICAL: AuthTestHelper cleanup failed', {
+        appName: this.app.name,
+        errorMessage: error?.message,
+        errorCode: error?.code,
+      });
+      throw error; // Cleanup failures should be visible to test framework
     }
   }
 }
