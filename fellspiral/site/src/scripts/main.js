@@ -1176,19 +1176,10 @@ document.body.addEventListener('htmx:afterSwap', async (event) => {
   const target = event.detail.target;
   const hasMainContent = target?.classList?.contains('main-content');
 
-  // Use URL to check if we're on cards page (HTMX boost changes URL before swap)
-  const currentPath = window.location.pathname;
-  const isCardsPageByURL = currentPath.includes('cards.html') || currentPath.endsWith('/cards');
-
-  // Check if we're navigating to the cards page using URL
-  if (hasMainContent && isCardsPageByURL) {
-    // Dynamically import and initialize the cards page
-    const { initCardsPage } = await import('./cards.js');
-    await initCardsPage(); // Await initialization to complete before continuing
-  }
-
   // Re-initialize sidebar navigation on any page swap
-  initSidebarNav();
+  if (hasMainContent) {
+    initSidebarNav();
+  }
 
   // Re-initialize library navigation on page swap
   initLibraryNav().catch((error) => {

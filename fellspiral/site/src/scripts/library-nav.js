@@ -129,11 +129,9 @@ export class LibraryNav {
     const typeToggle = document.createElement('a');
     typeToggle.className = `library-nav-item library-nav-toggle ${isExpanded ? 'expanded' : ''}`;
     typeToggle.dataset.toggle = typeId;
-    typeToggle.href = `/cards.html#library-${type.toLowerCase()}`;
-    // Disable HTMX boost on cards.html since we handle hash navigation manually
-    if (window.location.pathname.includes('cards.html')) {
-      typeToggle.setAttribute('hx-boost', 'false');
-    }
+    typeToggle.href = `/#library-${type.toLowerCase()}`;
+    // Disable HTMX boost since we handle hash navigation manually
+    typeToggle.setAttribute('hx-boost', 'false');
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';
@@ -187,11 +185,9 @@ export class LibraryNav {
     const subtypeItem = document.createElement('a');
     subtypeItem.className = `library-nav-item library-nav-subtype-item ${isSubtypeExpanded ? 'expanded' : ''}`;
     subtypeItem.dataset.toggle = subtypeId;
-    subtypeItem.href = `/cards.html#library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
-    // Disable HTMX boost on cards.html since we handle hash navigation manually
-    if (window.location.pathname.includes('cards.html')) {
-      subtypeItem.setAttribute('hx-boost', 'false');
-    }
+    subtypeItem.href = `/#library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
+    // Disable HTMX boost since we handle hash navigation manually
+    subtypeItem.setAttribute('hx-boost', 'false');
 
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'toggle-icon';
@@ -219,8 +215,6 @@ export class LibraryNav {
   attachEventListeners() {
     if (!this.container) return;
 
-    const isOnCardsPage = window.location.pathname.includes('cards.html');
-
     // Type clicks - expand/collapse AND navigate
     const typeToggles = this.container.querySelectorAll('.library-nav-type > .library-nav-toggle');
     typeToggles.forEach((toggle) => {
@@ -229,14 +223,10 @@ export class LibraryNav {
         const toggleId = toggle.dataset.toggle;
         this.toggleExpand(toggleId);
 
-        // On cards.html, handle hash navigation manually to prevent HTMX from doing a body swap
-        // This keeps the expand state intact
-        if (isOnCardsPage) {
-          e.preventDefault();
-          const type = toggle.closest('.library-nav-type').dataset.type;
-          window.location.hash = `library-${type.toLowerCase()}`;
-        }
-        // On other pages (index.html), let HTMX handle the navigation to cards.html
+        // Handle hash navigation to update the library filter
+        e.preventDefault();
+        const type = toggle.closest('.library-nav-type').dataset.type;
+        window.location.hash = `library-${type.toLowerCase()}`;
       });
     });
 
@@ -244,15 +234,12 @@ export class LibraryNav {
     const subtypeItems = this.container.querySelectorAll('.library-nav-subtype-item');
     subtypeItems.forEach((item) => {
       item.addEventListener('click', (e) => {
-        // On cards.html, handle hash navigation manually
-        if (isOnCardsPage) {
-          e.preventDefault();
-          const subtypeDiv = item.closest('.library-nav-subtype');
-          const type = subtypeDiv.dataset.type;
-          const subtype = subtypeDiv.dataset.subtype;
-          window.location.hash = `library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
-        }
-        // On other pages, let HTMX handle navigation
+        // Handle hash navigation to update the library filter
+        e.preventDefault();
+        const subtypeDiv = item.closest('.library-nav-subtype');
+        const type = subtypeDiv.dataset.type;
+        const subtype = subtypeDiv.dataset.subtype;
+        window.location.hash = `library-${type.toLowerCase()}-${subtype.toLowerCase()}`;
       });
     });
   }
@@ -280,23 +267,21 @@ export class LibraryNav {
   }
 
   /**
-   * Navigate to a filtered view (deprecated - now using HTMX)
-   * Kept for backwards compatibility with hash change events
+   * Navigate to a filtered view
+   * Updates the hash to trigger library card filtering
    */
   navigate({ type, subtype }) {
     // Construct hash
-    let hash = '#library';
+    let hash = 'library';
     if (type) {
-      hash += `/${type.toLowerCase()}`;
+      hash += `-${type.toLowerCase()}`;
     }
     if (subtype) {
-      hash += `/${subtype.toLowerCase()}`;
+      hash += `-${subtype.toLowerCase()}`;
     }
 
-    // Update URL (only for hash-based navigation within same page)
-    if (window.location.pathname.includes('cards.html')) {
-      window.location.hash = hash;
-    }
+    // Update URL hash to trigger filtering
+    window.location.hash = hash;
 
     // Call callback
     this.options.onNavigate({ type, subtype });
