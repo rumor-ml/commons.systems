@@ -56,6 +56,7 @@ export function initAuth(firebaseConfig, options = {}) {
           'localhost:9099';
         connectAuthEmulator(auth, `http://${emulatorHost}`, { disableWarnings: true });
       } catch (error) {
+        // TODO(#285): Use error codes instead of string matching for better reliability
         const msg = error.message || '';
 
         // Expected: already connected

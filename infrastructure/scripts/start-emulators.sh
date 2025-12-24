@@ -67,6 +67,7 @@ echo "$EMULATOR_PID" > "$PID_FILE"
 echo "Firebase emulators started with PID: ${EMULATOR_PID}"
 echo "Log file: $LOG_FILE"
 
+# TODO(#366): Extract health check logic to reusable function (duplicated 3 times)
 # Health check for Auth
 echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
 RETRY_COUNT=0

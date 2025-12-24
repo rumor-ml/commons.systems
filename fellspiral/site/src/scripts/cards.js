@@ -181,46 +181,16 @@ function createCombobox(config) {
 
   // Refresh options based on input value
   function refresh() {
+    const inputValue = input.value.trim().toLowerCase();
+
+    // Wrap only getOptions() in try-catch - let rendering errors propagate
+    let availableOptions;
     try {
-      const inputValue = input.value.trim().toLowerCase();
-      const availableOptions = getOptions();
-
-      // Clear any previous error state
-      listbox.classList.remove('combobox-error');
-
-      // Filter options based on input
-      currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
-
-      // Check if input exactly matches an existing option
-      const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
-      const showAddNew = inputValue && !exactMatch;
-
-      // Clear listbox
-      listbox.replaceChildren();
-
-      // Show "no options" message if nothing to display
-      if (currentOptions.length === 0 && !showAddNew) {
-        const li = document.createElement('li');
-        li.className = 'combobox-option';
-        li.textContent = 'No options available';
-        li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
-        listbox.appendChild(li);
-        return;
-      }
-
-      // Add matching options
-      currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
-
-      // Add "Add new" option for custom values
-      if (showAddNew) {
-        listbox.appendChild(
-          createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
-        );
-      }
+      availableOptions = getOptions();
     } catch (error) {
       // TODO(#285): Categorize errors and provide specific user guidance (DOM vs data vs unexpected)
       // Log comprehensive error details for debugging
-      console.error('[Cards] Error refreshing combobox options:', {
+      console.error('[Cards] Error fetching combobox options:', {
         comboboxId: comboboxId,
         inputValue: input.value,
         message: error.message,
@@ -236,6 +206,40 @@ function createCombobox(config) {
       errorLi.className = 'combobox-option combobox-error-message';
       errorLi.textContent = 'Error loading options. Please try again.';
       listbox.appendChild(errorLi);
+      return;
+    }
+
+    // Clear any previous error state
+    listbox.classList.remove('combobox-error');
+
+    // Filter options based on input
+    currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
+
+    // Check if input exactly matches an existing option
+    const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
+    const showAddNew = inputValue && !exactMatch;
+
+    // Clear listbox
+    listbox.replaceChildren();
+
+    // Show "no options" message if nothing to display
+    if (currentOptions.length === 0 && !showAddNew) {
+      const li = document.createElement('li');
+      li.className = 'combobox-option';
+      li.textContent = 'No options available';
+      li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
+      listbox.appendChild(li);
+      return;
+    }
+
+    // Add matching options
+    currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
+
+    // Add "Add new" option for custom values
+    if (showAddNew) {
+      listbox.appendChild(
+        createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+      );
     }
   }
 
@@ -513,7 +517,21 @@ async function init() {
     // Initialize library navigation (populates library section)
     // Don't await - let it load in background to avoid blocking card display
     initLibraryNav().catch((error) => {
-      console.error('Failed to initialize library navigation:', error);
+      console.warn('[Cards] Library navigation initialization failed - continuing anyway:', error);
+
+      // Show non-blocking warning banner to user
+      const warningBanner = document.createElement('div');
+      warningBanner.className = 'warning-banner';
+      warningBanner.style.cssText =
+        'background: var(--color-warning); color: white; padding: 0.75rem; text-align: center; font-size: 0.9rem;';
+      warningBanner.textContent =
+        'Library navigation failed to load. You can still use cards normally.';
+
+      const mainContent = document.querySelector('main') || document.body;
+      mainContent.insertBefore(warningBanner, mainContent.firstChild);
+
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => warningBanner.remove(), 5000);
     });
 
     // Setup hash routing (only once)
@@ -596,20 +614,28 @@ async function loadCards() {
     });
     state.error = error.message;
 
-    // Auth errors: fallback to static data for anonymous users, prompt login for authenticated
-    if (error.code === 'permission-denied' || error.code === 'unauthenticated') {
-      // If not authenticated, fall back to static data (public cards viewable without login)
-      // This handles the case where Firestore rules require query constraints we don't have
+    // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
+    if (error.code === 'permission-denied') {
+      // Permission denied - expected for anonymous users
       if (!getAuthInstance()?.currentUser) {
-        console.warn('[Cards] Permission denied for anonymous user, using static data fallback');
+        console.warn(
+          '[Cards] Permission denied for anonymous user (expected), using static data fallback'
+        );
         state.cards = cardsData || [];
         state.filteredCards = [...state.cards];
         return;
+      } else {
+        // Authenticated user got permission-denied - unexpected, likely a security rules issue
+        console.error('[Cards] Permission denied for authenticated user - check security rules');
+        showAppError('Permission denied. Please contact support if this persists.');
+        return;
       }
-      // Authenticated user with permission error - their session may have expired
+    } else if (error.code === 'unauthenticated') {
+      // Unauthenticated error - session may have expired
+      console.warn('[Cards] Unauthenticated error - session may have expired');
       state.cards = [];
       state.filteredCards = [];
-      showErrorUI('Please log in to view your cards.', () => {
+      showErrorUI('Your session has expired. Please log in to view your cards.', () => {
         document.getElementById('loginBtn')?.click();
       });
       return;
@@ -704,23 +730,29 @@ function setupEventListeners() {
       try {
         typeCombobox.destroy();
       } catch (error) {
-        console.error('[Cards] Failed to destroy type combobox:', {
+        // Warn but continue - cleanup failure shouldn't block re-initialization
+        console.warn('[Cards] Failed to destroy type combobox - continuing anyway:', {
           message: error.message,
           stack: error.stack,
           errorType: error.constructor.name,
         });
       }
+      // Set to null regardless of success to prevent memory leaks
+      typeCombobox = null;
     }
     if (subtypeCombobox) {
       try {
         subtypeCombobox.destroy();
       } catch (error) {
-        console.error('[Cards] Failed to destroy subtype combobox:', {
+        // Warn but continue - cleanup failure shouldn't block re-initialization
+        console.warn('[Cards] Failed to destroy subtype combobox - continuing anyway:', {
           message: error.message,
           stack: error.stack,
           errorType: error.constructor.name,
         });
       }
+      // Set to null regardless of success to prevent memory leaks
+      subtypeCombobox = null;
     }
 
     // Initialize comboboxes and report failures
@@ -728,17 +760,14 @@ function setupEventListeners() {
     const subtypeOk = initSubtypeCombobox();
 
     if (!typeOk || !subtypeOk) {
-      let failed;
-      if (!typeOk && !subtypeOk) {
-        failed = 'type and subtype';
-      } else if (!typeOk) {
-        failed = 'type';
-      } else {
-        failed = 'subtype';
-      }
+      // Build failed combobox list using filter/join pattern
+      const failedComboboxes = [!typeOk && 'type', !subtypeOk && 'subtype']
+        .filter(Boolean)
+        .join(' and ');
 
       console.error('[Cards] CRITICAL: Combobox init failed:', {
         errorId: 'COMBOBOX_INIT_FAILED',
+        failed: failedComboboxes,
         typeOk,
         subtypeOk,
       });
@@ -750,8 +779,9 @@ function setupEventListeners() {
         addCardBtn.title = 'Add Card is unavailable. Please refresh the page.';
       }
 
-      showErrorUI(`Card ${failed} selection failed to initialize. Please refresh the page.`, () =>
-        window.location.reload()
+      showErrorUI(
+        `Card ${failedComboboxes} selection failed to initialize. Please refresh the page.`,
+        () => window.location.reload()
       );
     }
 
@@ -772,8 +802,10 @@ function setupEventListeners() {
     });
 
     // TODO(#305): Show blocking error UI instead of continuing in broken state
-    // Re-throw critical errors so caller (init) can handle them
-    throw new Error(`Event listener setup failed: ${error.message}`);
+    // Create enriched error with original error preserved
+    const enrichedError = new Error(`Event listener setup failed: ${error.message}`);
+    enrichedError.originalError = error;
+    throw enrichedError;
   }
 }
 
@@ -850,13 +882,12 @@ function setupAuthStateListener() {
     state.authListenerRetries = 0;
 
     // Register listener for auth state changes
-    // NOTE: onAuthStateChanged is provided by auth-init.js module. If this code runs
-    // before auth-init.js is fully loaded, onAuthStateChanged will be undefined,
-    // causing "before auth initialized" errors. The retry logic below handles this
-    // module initialization race by retrying every 500ms until auth-init exports
-    // are available (up to 10 retries = 5 seconds). Once available, Firebase SDK
-    // guarantees immediate callback invocation with current auth state.
-    // TODO: See issue #286 - Clarify comment: issue is Firebase SDK async init, not module loading
+    // NOTE: Firebase Auth initialization is asynchronous. If this code runs before
+    // the Firebase Auth SDK is ready, onAuthStateChanged will be undefined, causing
+    // "before auth initialized" errors. The retry logic below handles Firebase SDK
+    // async initialization by retrying every 500ms until the auth instance is ready
+    // (up to 10 retries = 5 seconds). Once available, Firebase SDK guarantees
+    // immediate callback invocation with current auth state.
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }
@@ -880,16 +911,22 @@ function setupAuthStateListener() {
       }
     }, 500);
   } catch (error) {
-    const errorStr = String(error.message || error);
+    // Check error using structured properties instead of fragile string matching
+    const isAuthNotReady =
+      error.code === 'auth-not-initialized' ||
+      error.name === 'AuthNotInitializedError' ||
+      String(error.message || '').includes('before auth initialized');
 
     // Expected: auth not initialized yet - retry with limit
-    if (errorStr.includes('before auth initialized')) {
+    if (isAuthNotReady) {
       state.authListenerRetries++;
 
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
         console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
           retries: state.authListenerRetries,
           maxRetries: state.authListenerMaxRetries,
+          errorCode: error.code,
+          errorName: error.name,
         });
         showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
           window.location.reload()
@@ -1218,6 +1255,7 @@ function closeCardEditor() {
 }
 
 // Validate card form before submission
+// TODO(#475): Use createCardData() factory for centralized validation
 function validateCardForm() {
   const errors = [];
 
@@ -1233,6 +1271,7 @@ function validateCardForm() {
   if (!title) {
     errors.push({ field: 'cardTitle', message: 'Title is required' });
   } else if (title.length > 100) {
+    // TODO(#475): Use shared validation constants (CONSTRAINTS.TITLE_MAX_LENGTH)
     errors.push({ field: 'cardTitle', message: 'Title must be 100 characters or less' });
   }
 
@@ -1382,21 +1421,41 @@ async function handleCardSave(e) {
     closeCardEditor();
     applyFilters();
   } catch (error) {
-    console.error('[Cards] Error saving card:', error);
+    console.error('[Cards] Error saving card:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      cardData: { title: cardData.title, type: cardData.type },
+    });
 
-    // Categorize errors for user-friendly messages
+    // Categorize errors for specific user guidance
     let userMessage = 'Failed to save card. ';
-    if (error.code === 'permission-denied' || error.message?.includes('authenticated')) {
-      userMessage += 'You must be logged in to save cards.';
+    let errorCategory = 'unknown';
+
+    if (error.code === 'permission-denied') {
+      errorCategory = 'permission';
+      userMessage += 'You do not have permission to save cards. Please contact support.';
+    } else if (error.code === 'unauthenticated' || error.message?.includes('authenticated')) {
+      errorCategory = 'authentication';
+      userMessage += 'You must be logged in to save cards. Please refresh and sign in again.';
     } else if (error.message?.includes('timeout')) {
+      errorCategory = 'timeout';
       userMessage += 'The operation timed out. Please check your connection and try again.';
-    } else if (error.message?.includes('required')) {
-      userMessage += error.message;
-    } else if (error.code === 'unavailable') {
+    } else if (error.code === 'unavailable' || error.message?.includes('unavailable')) {
+      errorCategory = 'unavailable';
       userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
+    } else if (error.message?.includes('required') || error.code === 'invalid-argument') {
+      errorCategory = 'validation';
+      userMessage += `Validation error: ${error.message}`;
+    } else if (error.code === 'failed-precondition') {
+      errorCategory = 'precondition';
+      userMessage += 'Operation failed due to server validation. Please check your input.';
     } else {
-      userMessage += `Error: ${error.message}. If this persists, please refresh the page.`;
+      errorCategory = 'unexpected';
+      userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
     }
+
+    console.error(`[Cards] Save error category: ${errorCategory}`);
 
     // Show inline error instead of blocking alert
     showFormError(userMessage);
@@ -1420,7 +1479,7 @@ async function deleteCard() {
   const cardExists = state.cards.some((c) => c.id === id);
   if (!cardExists) {
     console.warn('[Cards] Card not found in local state:', id);
-    alert('Card not found. It may have already been deleted. Closing editor.');
+    showFormError('Card not found. It may have already been deleted.');
     closeCardEditor();
     return;
   }
@@ -1440,13 +1499,13 @@ async function deleteCard() {
 
       // Handle not-found errors specifically
       if (error.message?.includes('not found') || error.code === 'not-found') {
-        alert('Card was already deleted. Refreshing list.');
+        showFormError('Card was already deleted. Refreshing list.');
         // Remove from local state anyway
         state.cards = state.cards.filter((c) => c.id !== id);
         closeCardEditor();
         applyFilters();
       } else {
-        alert(`Error deleting card: ${error.message}`);
+        showFormError(`Error deleting card: ${error.message}`);
       }
     }
   }

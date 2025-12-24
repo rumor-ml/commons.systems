@@ -22,28 +22,34 @@ service cloud.firestore {
     // and branch preview collections like cards_preview_my-branch
     match /{cardsCollection}/{cardId} {
       // Allow reading public cards (anyone can view cards where isPublic == true)
-      // NOTE: Use .get() with false default - documents missing isPublic will be DENIED
-      // (contrary to "public by default" claim - that only applies to client-created cards)
+      // SECURE BY DEFAULT: Documents missing isPublic field are DENIED access
+      // This is enforced by .get('isPublic', false) which returns false for missing fields
       // Migration consideration: Existing cards without isPublic field won't be readable
-      // until updated with isPublic: true
+      // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // SECURITY TRADE-OFF: We do not validate createdAt timestamps.
-      // Clients must use serverTimestamp() when creating cards, but we cannot
-      // enforce this in security rules because serverTimestamp() is a sentinel
-      // value during rule evaluation. This means clients CAN provide arbitrary
-      // or missing createdAt values - a known data integrity risk we accept.
-      // Mitigation: Client code should always use serverTimestamp() (see cards.js).
-      // User authentication is enforced via createdBy == request.auth.uid.
+      // SECURITY TRADE-OFF: We do not validate createdAt timestamps because
+      // serverTimestamp() is a sentinel value during rule evaluation (request.time
+      // cannot be used to validate it). This means clients CAN provide arbitrary
+      // or missing createdAt values - a known data integrity risk we accept for
+      // simplicity. Mitigation: Client code should always use serverTimestamp()
+      // (see cards.js). User authentication is enforced via createdBy == request.auth.uid.
       // TODO(#283): Add tests confirming server timestamps are actually used
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
-                    && request.resource.data.keys().hasAll(['title', 'type'])
+                    && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.type is string
+                    && request.resource.data.type.size() > 0
+                    && request.resource.data.subtype is string
+                    && request.resource.data.subtype.size() > 0
+                    && request.resource.data.isPublic is bool
                     && request.resource.data.createdBy == request.auth.uid;
 
       // Allow update only if user is the creator or if updating their own modifications

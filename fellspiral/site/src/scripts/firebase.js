@@ -65,11 +65,22 @@ async function getFirebaseConfig() {
       }
     } catch (error) {
       const isTimeout = error.message?.includes('timeout');
-      console.warn('[Firebase] Failed to fetch Firebase Hosting config, using local config:', {
+      console.error('[Firebase] CRITICAL: Failed to fetch Firebase Hosting config:', {
         message: error.message,
         isTimeout,
         hostname: window.location.hostname,
       });
+
+      // Show blocking error banner - wrong environment could cause data corruption
+      if (typeof window !== 'undefined') {
+        const errorBanner = document.createElement('div');
+        errorBanner.className = 'error-banner';
+        errorBanner.style.cssText =
+          'background: var(--color-error); color: white; padding: 1.5rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; text-align: center; font-weight: bold;';
+        errorBanner.textContent =
+          '⚠️ CONFIGURATION ERROR: Failed to load Firebase config. You may be connected to the wrong environment. Please refresh or contact support.';
+        document.body.insertBefore(errorBanner, document.body.firstChild);
+      }
     }
   }
 
@@ -137,17 +148,35 @@ async function initFirebase() {
           env: import.meta.env.MODE,
         });
 
-        // Show user warning banner
+        // CRITICAL: Show blocking error screen and halt execution
+        // Prevents accidental writes to production database
         if (typeof window !== 'undefined') {
-          const warning = document.createElement('div');
-          warning.className = 'warning-banner';
-          warning.style.cssText =
-            'background: var(--color-error); color: white; padding: 1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000;';
-          warning.textContent = 'Failed to connect to emulator. You may be using production data.';
-          document.body.insertBefore(warning, document.body.firstChild);
+          const errorScreen = document.createElement('div');
+          errorScreen.style.cssText =
+            'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--color-error); color: white; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; padding: 2rem; text-align: center;';
+
+          const title = document.createElement('h1');
+          title.textContent = '🛑 EMULATOR CONNECTION FAILED';
+          title.style.cssText = 'font-size: 2rem; margin-bottom: 1rem;';
+
+          const message = document.createElement('p');
+          message.textContent =
+            'Cannot connect to Firebase emulator. Execution halted to prevent accidental production writes.';
+          message.style.cssText = 'font-size: 1.2rem; margin-bottom: 2rem; max-width: 600px;';
+
+          const instructions = document.createElement('p');
+          instructions.textContent =
+            'Please ensure emulators are running (make dev) and refresh the page.';
+          instructions.style.cssText = 'font-size: 1rem;';
+
+          errorScreen.appendChild(title);
+          errorScreen.appendChild(message);
+          errorScreen.appendChild(instructions);
+          document.body.appendChild(errorScreen);
         }
 
-        throw error; // Never silently fail on unexpected errors
+        // Throw error to halt execution - do not allow any Firebase operations
+        throw error;
       }
     }
 
@@ -238,6 +267,7 @@ export async function getCard(cardId) {
 }
 
 // Create a new card
+// TODO(#475): Use Card type from types.js for better type safety
 export async function createCard(cardData) {
   await initFirebase();
 
@@ -346,6 +376,7 @@ export async function deleteCard(cardId) {
 }
 
 // Batch import cards (for seeding from rules.md)
+// TODO(#285): Surface failed card imports to user (currently only logged to console)
 export async function importCards(cards) {
   await initFirebase();
   try {
