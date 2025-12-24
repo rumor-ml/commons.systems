@@ -36,17 +36,19 @@ export interface ExtractedError {
  * - duration is non-negative
  * - rawOutput contains at least one line
  */
+const optionalNonEmptyString = z.string().min(1).optional();
+
 export const ExtractedErrorSchema = z.object({
-  testName: z.string().optional(),
-  fileName: z.string().optional(),
+  testName: optionalNonEmptyString,
+  fileName: optionalNonEmptyString,
   lineNumber: z.number().int().positive().optional(),
   columnNumber: z.number().int().positive().optional(),
   message: z.string().min(1),
-  stack: z.string().optional(),
-  codeSnippet: z.string().optional(),
+  stack: optionalNonEmptyString,
+  codeSnippet: optionalNonEmptyString,
   duration: z.number().nonnegative().optional(),
-  failureType: z.string().optional(),
-  errorCode: z.string().optional(),
+  failureType: optionalNonEmptyString,
+  errorCode: optionalNonEmptyString,
   rawOutput: z.array(z.string()).min(1),
 });
 
@@ -206,6 +208,24 @@ export class ValidationErrorTracker {
   private validationFailures = 0;
   private warnings: string[] = [];
 
+  private checkInvariants(context: string): void {
+    if (this.validationFailures < 0) {
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
+          `validationFailures=${this.validationFailures} (expected >= 0). ` +
+          `Context: ${context}`
+      );
+    }
+
+    if (this.validationFailures !== this.warnings.length) {
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corruption. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `Context: ${context}`
+      );
+    }
+  }
+
   /**
    * Record a validation failure
    * @param context - Context about what failed (e.g., "test #5", "Go test event")
@@ -213,26 +233,21 @@ export class ValidationErrorTracker {
    */
   recordValidationFailure(context: string, error: z.ZodError): void {
     // Sanity check: detect count corruption - this is a BUG
-    if (this.validationFailures < 0) {
-      throw new Error(
-        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
-          `validationFailures=${this.validationFailures} (expected >= 0). ` +
-          `This indicates memory corruption or a bug in the tracker. ` +
-          `Context: ${context}`
-      );
-    }
+    this.checkInvariants(context);
 
     this.validationFailures++;
     const formatted = formatValidationError(error);
     this.warnings.push(`${context}: ${formatted}`);
 
-    // Sanity check: count should match warnings array length
+    // Post-increment validation with recovery
     if (this.validationFailures !== this.warnings.length) {
-      throw new Error(
-        `INTERNAL BUG: ValidationErrorTracker state corruption after increment. ` +
-          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `Context: ${context}`
+      // Attempt to recover by resetting to consistent state
+      const correctCount = this.warnings.length;
+      console.error(
+        `[BUG] ValidationErrorTracker corruption detected and recovered. ` +
+          `Was: ${this.validationFailures}, corrected to: ${correctCount}. Context: ${context}`
       );
+      this.validationFailures = correctCount;
     }
   }
 
@@ -248,23 +263,8 @@ export class ValidationErrorTracker {
    * Returns undefined if no failures
    */
   getSummaryWarning(): string | undefined {
-    // Sanity check: detect negative count - this is a BUG
-    if (this.validationFailures < 0) {
-      throw new Error(
-        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
-          `validationFailures=${this.validationFailures} (expected >= 0). ` +
-          `This indicates memory corruption or a bug in the tracker.`
-      );
-    }
-
-    // Sanity check: count should match warnings array length
-    if (this.validationFailures !== this.warnings.length) {
-      throw new Error(
-        `INTERNAL BUG: ValidationErrorTracker state corruption. ` +
-          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `Count and array size must match.`
-      );
-    }
+    // Sanity check: detect corruption
+    this.checkInvariants('getSummaryWarning');
 
     if (this.validationFailures === 0) {
       return undefined;
