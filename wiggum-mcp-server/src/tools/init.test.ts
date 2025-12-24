@@ -8,6 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { WiggumInitInputSchema } from './init.js';
+import { StateDetectionError, StateApiError, createErrorResult } from '../utils/errors.js';
 
 describe('init tool', () => {
   describe('WiggumInitInputSchema', () => {
@@ -26,5 +27,41 @@ describe('init tool', () => {
       const result = WiggumInitInputSchema.safeParse({ unexpectedField: 'value' });
       assert.strictEqual(result.success, true);
     });
+  });
+
+  describe('error handling integration', () => {
+    // These tests verify the error types and result structures are correct
+    // Full integration tests would require mocking detectCurrentState()
+
+    it('should have StateDetectionError available for race condition handling', () => {
+      const error = new StateDetectionError('Race condition', {
+        depth: 3,
+        maxDepth: 3,
+      });
+      const result = createErrorResult(error);
+      assert.strictEqual(result.isError, true);
+      assert.strictEqual(result._meta?.errorType, 'StateDetectionError');
+    });
+
+    it('should have StateApiError available for API error handling', () => {
+      const error = new StateApiError('API failure', 'read', 'pr', 123);
+      const result = createErrorResult(error);
+      assert.strictEqual(result.isError, true);
+      assert.strictEqual(result._meta?.errorType, 'StateApiError');
+    });
+
+    it('should use createErrorResult for error responses', () => {
+      const error = new Error('Test error');
+      const result = createErrorResult(error);
+      assert.strictEqual(result.isError, true);
+      assert.strictEqual(result.content[0].type, 'text');
+    });
+
+    // NOTE: Full behavioral testing of wiggum_init error handling
+    // requires integration tests with mocked detectCurrentState().
+    // The error handling logic (lines 31-57):
+    // 1. Returns error result for StateDetectionError
+    // 2. Returns error result for StateApiError
+    // 3. Re-throws unexpected errors after logging
   });
 });

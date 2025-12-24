@@ -14,6 +14,7 @@ import {
 import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
+import { buildValidationErrorMessage } from '../utils/error-messages.js';
 import { STEP_ORDER, STEP_NAMES } from '../constants.js';
 import type { WiggumPhase } from '../constants.js';
 import type { ToolResult } from '../types.js';
@@ -90,7 +91,6 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
  * Complete a fix cycle and update state
  */
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
-  // TODO(#416): Improve error message to provide user guidance instead of debugging internals
   if (!input.fix_description || input.fix_description.trim().length === 0) {
     logger.error('wiggum_complete_fix validation failed: empty fix_description', {
       receivedValue: input.fix_description,
@@ -98,12 +98,21 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       valueLength: input.fix_description?.length ?? 0,
     });
     throw new ValidationError(
-      `fix_description is required and cannot be empty. Received: ${JSON.stringify(input.fix_description)} (type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0}). Please provide a meaningful description of what was fixed.`
+      buildValidationErrorMessage({
+        problem: 'fix_description is required and cannot be empty',
+        context: `Received: ${JSON.stringify(input.fix_description)} (type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0})`,
+        expected: 'Non-empty string describing what was fixed (1-2 sentences)',
+        remediation: [
+          'Provide a meaningful description of what you fixed',
+          'Example: "Fixed authentication bug in login flow"',
+          'Example: "Updated error handling to classify GitHub API failures"',
+          'Keep it concise and focused on the changes made',
+        ],
+      })
     );
   }
 
   // Validate out_of_scope_issues array contents if provided
-  // TODO(#416): Provide detailed validation explaining which specific validation each number failed
   if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
     // Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
     const invalidNumbers = input.out_of_scope_issues.filter(
@@ -115,7 +124,17 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       });
       // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
-        `Invalid issue numbers in out_of_scope_issues: ${invalidNumbers.join(', ')}. All issue numbers must be positive integers.`
+        buildValidationErrorMessage({
+          problem: 'Invalid issue numbers in out_of_scope_issues array',
+          context: `Found invalid values: ${invalidNumbers.map((n) => `${n} (type: ${typeof n})`).join(', ')}`,
+          expected: 'Array of positive integers representing GitHub issue numbers',
+          remediation: [
+            'Ensure all issue numbers are positive integers (e.g., [123, 456])',
+            'Remove any non-numeric values from the array',
+            'Remove any zero, negative, or decimal numbers',
+            'Example: out_of_scope_issues: [123, 456, 789]',
+          ],
+        })
       );
     }
 
@@ -160,6 +179,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     // Post minimal state comment documenting fast-path completion
     const commentTitle = `${state.wiggum.step} - Complete (No In-Scope Fixes)`;
+    // TODO(#478): Extract markdown formatting to helper function
     const outOfScopeSection = input.out_of_scope_issues?.length
       ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
       : '';

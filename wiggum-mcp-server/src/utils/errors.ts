@@ -16,6 +16,8 @@
  *   - GitError: Git command failures (wiggum-specific)
  *   - ParsingError: Failed to parse external command output (from mcp-common)
  *   - FormattingError: Failed to format response data (from mcp-common)
+ *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
+ *   - StateApiError: GitHub API failures during state operations
  *
  * @module errors
  */
@@ -29,7 +31,7 @@ import {
   ParsingError,
   FormattingError,
   formatError,
-  isTerminalError,
+  isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
 import { createErrorResult } from '@commons/mcp-common/result-builders';
 
@@ -42,7 +44,6 @@ export {
   ParsingError,
   FormattingError,
   formatError,
-  isTerminalError,
   createErrorResult,
 };
 
@@ -64,4 +65,81 @@ export class GitError extends McpError {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
   }
+}
+
+/**
+ * Error thrown when state detection fails
+ *
+ * Indicates that the workflow state could not be reliably determined, typically
+ * due to rapid PR state changes exceeding recursion limits or other detection
+ * failures. This is a terminal error requiring manual intervention.
+ */
+export class StateDetectionError extends McpError {
+  constructor(
+    message: string,
+    public readonly context?: {
+      depth?: number;
+      maxDepth?: number;
+      previousState?: string;
+      newState?: string;
+      [key: string]: unknown;
+    }
+  ) {
+    super(message, 'STATE_DETECTION_ERROR');
+    this.name = 'StateDetectionError';
+  }
+}
+
+/**
+ * Error thrown when GitHub API operations fail during state management
+ *
+ * Wraps GitHub API errors (auth, rate limit, network, etc.) with context about
+ * the specific state operation that failed. Use this for failures during state
+ * reads/writes rather than generic GitHubCliError.
+ */
+export class StateApiError extends McpError {
+  constructor(
+    message: string,
+    public readonly operation: 'read' | 'write',
+    public readonly resourceType: 'pr' | 'issue',
+    public readonly resourceId?: number,
+    public readonly cause?: Error
+  ) {
+    super(message, 'STATE_API_ERROR');
+    this.name = 'StateApiError';
+  }
+}
+
+/**
+ * Determine if an error is terminal (not retryable)
+ *
+ * Retry Strategy:
+ * - ValidationError: Terminal (requires user input correction)
+ * - StateDetectionError: Terminal (workflow state unreliable, requires manual intervention)
+ * - TimeoutError: Potentially retryable (may succeed with more time)
+ * - NetworkError: Potentially retryable (transient network issues)
+ * - StateApiError: Potentially retryable (may be transient API failure)
+ * - Other errors: Treated as potentially retryable (conservative approach)
+ *
+ * NOTE: Unlike gh-workflow/gh-issue MCP servers, this implementation does NOT
+ * treat FormattingError as terminal. This is intentional - wiggum's error handling
+ * prefers conservative retry behavior for internal errors to maximize workflow completion.
+ *
+ * @param error - Error to check
+ * @returns true if error is terminal and should not be retried
+ */
+export function isTerminalError(error: unknown): boolean {
+  // First check base terminal errors (ValidationError, FormattingError from mcp-common)
+  // But for wiggum, we override FormattingError to be retryable
+  if (error instanceof FormattingError) {
+    return false; // Wiggum treats FormattingError as retryable
+  }
+
+  // StateDetectionError is always terminal
+  if (error instanceof StateDetectionError) {
+    return true;
+  }
+
+  // Delegate to base implementation for other error types
+  return baseIsTerminalError(error);
 }
