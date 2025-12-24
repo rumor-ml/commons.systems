@@ -153,7 +153,7 @@ describe('Error Cause Chains: Preservation through pipeline', () => {
   it('preserves error cause chain when converting to ToolError', () => {
     const rootCause = new NetworkError('Connection refused');
     const ghError = new GitHubCliError('gh api failed', 1, 'stderr', undefined, rootCause);
-    const result = createErrorResult(ghError);
+    createErrorResult(ghError);
 
     // Verify the original error preserves its cause
     assert.ok(ghError.cause === rootCause, 'Cause should be preserved on GitHubCliError object');
