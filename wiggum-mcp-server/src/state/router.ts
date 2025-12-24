@@ -1318,9 +1318,9 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
       - has_in_scope_fixes: true
 
 3. If NO valid issues (all comments are stale/invalid):
-   a. To identify stale comments, check if code was modified in earlier commits:
-      - Use git log to check commit history for the file
-      - Compare comment's referenced code with current state
+   a. To identify stale comments, check if code was modified after branching from main:
+      - Use \`git log main..HEAD -- <file>\` to check commit history for the file on this branch
+      - Compare comment's referenced code with current state in the file
    b. Call wiggum_complete_fix with:
       - fix_description: "All code quality comments evaluated - N stale (already fixed), M invalid (incorrect suggestions)"
       - has_in_scope_fixes: false

@@ -328,8 +328,8 @@ mcp__wiggum__wiggum_complete_fix({
 
 - `fix_description` (required): Brief description of what was fixed or why issues were ignored
 - `has_in_scope_fixes` (required): Boolean indicating if any in-scope code changes were made
-  - `true`: Made code changes → Tool clears completed steps and returns re-verification instructions
-  - `false`: No code changes → Tool marks step complete and advances to next step
+  - `true`: Made code changes — the tool will clear completed steps and return re-verification instructions
+  - `false`: No code changes — the tool will mark step complete and advance to next step
 - `out_of_scope_issues` (optional): Array of issue numbers for recommendations that should be tracked separately
 
 **Tool Behavior:**

@@ -10,6 +10,7 @@
  *
  * TODO(#313): Add integration tests with mocked GitHub/git for state updates,
  * comment posting, completedSteps filtering, and phase-specific behavior.
+ * TODO(#313): Add test case: wiggum_complete_fix({ has_in_scope_fixes: false }) should skip PR comment and mark step complete
  */
 
 import { describe, it } from 'node:test';
