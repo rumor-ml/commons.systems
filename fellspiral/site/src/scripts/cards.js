@@ -9,7 +9,6 @@
  * Related: #305 for general documentation and error handling improvements
  */
 
-// TODO(#286): Remove or clarify TODO about closed issues
 // TODO(#484): Issues #305 and #285 are CLOSED - review if these TODOs are still needed or create new issues
 // TODO(#305): Improve error logging for library nav initialization
 // TODO(#305): Show warning banner when event listener setup fails
@@ -195,50 +194,71 @@ function createCombobox(config) {
         throw new TypeError(`getOptions() returned non-array: ${typeof availableOptions}`);
       }
     } catch (error) {
-      if (error instanceof TypeError && error.message.includes('cards')) {
-        // TODO(#285): Provide actionable error messages with guidance
-        console.error('[Cards] Cards data unavailable:', {
-          comboboxId,
-          errorType: 'DATA_NOT_READY',
-        });
-        listbox.replaceChildren();
-        listbox.classList.add('combobox-error');
-        const errorLi = document.createElement('li');
-        errorLi.className = 'combobox-option combobox-error-message';
-        errorLi.textContent = 'Options are loading. Please try again.';
-        listbox.appendChild(errorLi);
-        return;
-      }
-      // Unexpected errors propagate with clear context
-      console.error('[Cards] CRITICAL: Unexpected combobox error:', { comboboxId, error });
-      throw new Error(`Combobox ${comboboxId} failed unexpectedly: ${error.message}`);
-    }
+      // TODO(#285): Categorize errors and provide specific user guidance
+      console.error('[Cards] Error fetching combobox options:', {
+        comboboxId: comboboxId,
+        inputValue: input.value,
+        message: error.message,
+        stack: error.stack,
+        errorType: error.constructor.name,
+      });
 
-    listbox.classList.remove('combobox-error');
+      // Show error state in UI
+      listbox.replaceChildren();
+      listbox.classList.add('combobox-error');
 
-    const filteredOptions = availableOptions.filter((opt) =>
-      opt.toLowerCase().includes(inputValue)
-    );
-    const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
-    const showAddNew = inputValue && !exactMatch;
-
-    listbox.replaceChildren();
-
-    if (filteredOptions.length === 0 && !showAddNew) {
-      const li = document.createElement('li');
-      li.className = 'combobox-option';
-      li.textContent = 'No options available';
-      li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
-      listbox.appendChild(li);
+      const errorLi = document.createElement('li');
+      errorLi.className = 'combobox-option combobox-error-message';
+      errorLi.textContent = 'Unable to load options. Please refresh the page.';
+      listbox.appendChild(errorLi);
       return;
     }
 
-    filteredOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
+    // Render options - separate try-catch for DOM errors with clearer context
+    try {
+      // Clear any previous error state
+      listbox.classList.remove('combobox-error');
 
-    if (showAddNew) {
-      listbox.appendChild(
-        createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+      // Filter options based on input
+      const filteredOptions = availableOptions.filter((opt) =>
+        opt.toLowerCase().includes(inputValue)
       );
+
+      // Check if input exactly matches an existing option
+      const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
+      const showAddNew = inputValue && !exactMatch;
+
+      // Clear listbox
+      listbox.replaceChildren();
+
+      // Show "no options" message if nothing to display
+      if (filteredOptions.length === 0 && !showAddNew) {
+        const li = document.createElement('li');
+        li.className = 'combobox-option';
+        li.textContent = 'No options available';
+        li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
+        listbox.appendChild(li);
+        return;
+      }
+
+      // Add matching options
+      filteredOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
+
+      // Add "Add new" option for custom values
+      if (showAddNew) {
+        listbox.appendChild(
+          createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+        );
+      }
+    } catch (error) {
+      console.error('[Cards] Error rendering combobox options:', {
+        comboboxId: comboboxId,
+        errorType: error.constructor.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      // Let rendering errors propagate with clear context about what failed
+      throw new Error(`Combobox rendering failed for ${comboboxId}: ${error.message}`);
     }
   }
 
@@ -739,6 +759,7 @@ function setupEventListeners() {
     bindListener('cardForm', 'submit', handleCardSave, missingElements);
     bindListener('.modal-backdrop', 'click', closeCardEditor, missingElements);
 
+    // TODO(#481): Extract combobox cleanup to helper function to remove duplication (~15 lines)
     // Clean up existing comboboxes to prevent memory leaks
     typeCombobox = destroyCombobox(typeCombobox, 'type');
     subtypeCombobox = destroyCombobox(subtypeCombobox, 'subtype');
