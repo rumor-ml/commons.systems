@@ -35,12 +35,14 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
+    // TODO: See issue #443 - Distinguish programming errors from operational errors
     if (error instanceof GitHubCliError) {
       throw error;
     }
     if (error instanceof Error) {
       throw new GitHubCliError(
         `Failed to execute gh CLI: ${error.message}`,
+        undefined,
         undefined,
         undefined,
         error
@@ -65,7 +67,8 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
     throw new ParsingError(
       `Failed to parse JSON response from gh CLI: ${errorMessage}\n` +
         `Command: gh ${args.join(' ')}\n` +
-        `Output (first 200 chars): ${outputSnippet}`
+        `Output (first 200 chars): ${outputSnippet}`,
+      error instanceof Error ? error : undefined
     );
   }
 }
@@ -78,9 +81,13 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
-    // TODO: See issue #320 - Log original error before throwing wrapper
+    // TODO: See issue #441 - Preserve original error details (currently discards cause chain)
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${error instanceof Error ? error.message : String(error)}`,
+      error instanceof GitHubCliError ? error.exitCode : undefined,
+      error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined, // stdout parameter
+      error instanceof Error ? error : undefined // cause parameter
     );
   }
 }
