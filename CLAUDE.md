@@ -14,19 +14,6 @@ Keep iterating until problem resolution is fully verified by test results, logs 
 
 Do not ask user to fetch test results, logs or monitor workflows when you can do so yourself.
 
-## TypeScript MCP Server Changes
-
-When making changes to TypeScript MCP servers (wiggum-mcp-server, gh-workflow-mcp-server, gh-issue-mcp-server), verify:
-
-1. **TypeScript compilation succeeds:** `npm run build` in the server directory
-2. **All tests pass:** `npm test` in the server directory
-3. **Nix build succeeds:** `nix build .#<server>` from repository root
-4. **New source files are git-tracked** before declaring work complete
-
-**Critical:** Nix builds only include git-tracked files. If you create new source files (\*.ts), you MUST stage them (`git add <file>`) before the Nix build will succeed. Failing to do this means `direnv reload` will fail for the user even though `npm run build` works.
-
-**Recommended:** Run `./infrastructure/scripts/build-mcp-servers.sh` which tests both npm and Nix builds and provides helpful diagnostics for common issues.
-
 **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
 
 # Slash Command Execution
@@ -59,15 +46,83 @@ When you use the SlashCommand tool:
 assistant: <calls SlashCommand with /commit-merge-push>
 system: <command-message>commit-merge-push is running…</command-message>
         1. Invoke the commit subagent. Wait for successful commit before proceeding.
-        2. Run `git fetch origin && git merge origin/main`.
+        2. Run `git fetch origin && git merge origin/main` with `dangerouslyDisableSandbox: true`.
         3. If conflicts occur: Invoke the resolve-conflicts subagent.
         4. Invoke the push subagent.
 assistant: <executes step 1 - calls Task tool with subagent_type="Commit">
 assistant: <waits for commit to complete>
-assistant: <executes step 2 - runs git fetch and merge>
+assistant: <executes step 2 - runs git fetch and merge with dangerouslyDisableSandbox: true>
 assistant: <executes step 4 - calls Task tool with subagent_type="Push">
 assistant: <only after all steps complete, proceeds with other work>
 ```
+
+# GitHub Issue Relationships
+
+Use the GitHub REST API via `gh api` to manage issue dependencies and sub-issues.
+
+## Issue Dependencies (Blocked By / Blocking)
+
+To add a dependency where issue A is blocked by issue B:
+
+```bash
+# Get the blocker issue ID (not issue number)
+BLOCKER_ID=$(gh api repos/{owner}/{repo}/issues/BLOCKER_NUMBER --jq ".id")
+
+# Add the dependency
+gh api repos/{owner}/{repo}/issues/BLOCKED_NUMBER/dependencies/blocked_by \
+  --method POST \
+  --input - <<< "{\"issue_id\":$BLOCKER_ID}"
+```
+
+To remove a dependency:
+
+```bash
+gh api repos/{owner}/{repo}/issues/BLOCKED_NUMBER/dependencies/blocked_by/BLOCKER_ID \
+  --method DELETE
+```
+
+To list dependencies:
+
+```bash
+# Issues blocking this one
+gh api repos/{owner}/{repo}/issues/NUMBER/dependencies/blocked_by
+
+# Issues this one is blocking
+gh api repos/{owner}/{repo}/issues/NUMBER/dependencies/blocking
+```
+
+## Sub-Issues (Parent/Child)
+
+To add a child issue to a parent:
+
+```bash
+# Get the child issue ID
+CHILD_ID=$(gh api repos/{owner}/{repo}/issues/CHILD_NUMBER --jq ".id")
+
+# Add as sub-issue
+gh api repos/{owner}/{repo}/issues/PARENT_NUMBER/sub_issues \
+  --method POST \
+  --input - <<< "{\"sub_issue_id\":$CHILD_ID}"
+```
+
+To remove a sub-issue:
+
+```bash
+gh api repos/{owner}/{repo}/issues/PARENT_NUMBER/sub_issues/CHILD_ID \
+  --method DELETE
+```
+
+To list sub-issues:
+
+```bash
+gh api repos/{owner}/{repo}/issues/PARENT_NUMBER/sub_issues
+```
+
+## Important Notes
+
+- The `issue_id` parameter must be an integer (the internal ID), not the issue number
+- Use `--input -` with heredoc to ensure proper JSON integer typing
+- The `-f` flag converts values to strings which causes 422 errors for `issue_id`
 
 # Frontend Architecture
 

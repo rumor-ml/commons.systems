@@ -1,12 +1,14 @@
 /**
  * Authentication Tests for Fellspiral
  * Tests GitHub OAuth integration and auth UI components
+ *
+ * TODO: See issue #435 - Improve comments and remove redundant "what" comments
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Authentication', () => {
-  test('should display sign in button when not authenticated', async ({ page }) => {
+  test('@smoke should display sign in button when not authenticated', async ({ page }) => {
     await page.goto('/');
 
     // Check for auth button in navbar
@@ -101,14 +103,7 @@ test.describe('Authentication', () => {
     await expect(authButton).toBeEnabled();
 
     // Button should not be in loading state
-    const buttonText = await authButton.locator('.auth-button__text').textContent();
-    expect(buttonText).not.toBe('Loading...');
-
-    // Verify button has correct data attribute
-    const isLoading = await authButton.evaluate((btn) => {
-      return btn.textContent.includes('Loading');
-    });
-    expect(isLoading).toBe(false);
+    await expect(authButton.locator('.auth-button__text')).not.toContainText('Loading');
   });
 
   test('auth styles should load correctly', async ({ page }) => {

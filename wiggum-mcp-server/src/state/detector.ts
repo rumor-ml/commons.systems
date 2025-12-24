@@ -94,6 +94,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     // gh pr view will fail if no PR exists
     const result: GitHubPR = await getPR(undefined, resolvedRepo); // undefined gets PR for current branch
 
+    // TODO(#315): Remove redundant ONLY emphasis (see PR review #273)
     // ONLY treat OPEN PRs as existing PRs for wiggum workflow
     // Closed/Merged PRs should be treated as non-existent to avoid state pollution
     // This prevents carrying over workflow state from closed PRs to new PRs on the same branch
@@ -118,7 +119,13 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       headRefName: result.headRefName,
       baseRefName: result.baseRefName,
     };
+    // TODO(#319): Narrow catch to only "no pull requests found" error
+    // Current: Masks rate limiting, auth failures, network issues, API outages
   } catch (error) {
+    // TODO(#319,#320): Make catch block more specific - only catch expected "no PR" error
+    // TODO(#328): Consider extracting error extraction pattern into helper function
+    // Current: catches all errors and treats as "PR doesn't exist" (see PR review #273)
+    // Masks: rate limiting, auth failures, network issues, API outages
     // Expected: no PR exists for current branch (GitHubCliError)
     // Log unexpected errors with full context
     if (error instanceof Error) {
@@ -219,11 +226,14 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     wiggum = await getWiggumState(pr.number, repo);
     wiggum.phase = 'phase2';
 
+    // TODO(#315): Remove obvious timing comment (see PR review #273)
     // If state detection took longer than 5 seconds, re-validate PR state exists
     // This helps detect race conditions where PR might have been closed/modified
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
+        // TODO(#272): Throw instead of returning stale state when recursion limit exceeded
+        // Current: returns potentially unreliable data (see PR review #273)
         if (depth >= MAX_RECURSION_DEPTH) {
           logger.error(
             'detectCurrentState: maximum recursion depth exceeded during PR revalidation',

@@ -68,3 +68,8 @@ func BlockedPanesFile() string {
 func BlockedBranchesFile() string {
 	return filepath.Join(GetSessionNamespace(), "tui-blocked-branches.json")
 }
+
+// DaemonLockFile returns the path to the daemon lock file for this session.
+func DaemonLockFile() string {
+	return filepath.Join(GetSessionNamespace(), "daemon.lock")
+}

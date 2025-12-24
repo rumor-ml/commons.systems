@@ -14,10 +14,16 @@
     enable = true;
 
     # Set terminal type to support 256 colors
-    terminal = "tmux-256color";
+    # Use xterm-256color to match Terminal.app (macOS default terminal)
+    # NOTE: Do NOT use tmux-256color - it can cause color mapping issues
+    terminal = "xterm-256color";
 
     # Additional tmux configuration
     extraConfig = ''
+      # IMPORTANT: Terminal.app does NOT support true color (24-bit RGB)
+      # Do NOT add terminal-overrides with Tc or RGB flags
+      # Only iTerm2, Alacritty, Kitty, WezTerm support true color
+
       # Enable hyperlink support for tmux 3.2+
       set -as terminal-features ",*:hyperlinks"
 
