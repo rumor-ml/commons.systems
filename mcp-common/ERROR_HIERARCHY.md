@@ -383,10 +383,10 @@ Specialized version that only handles McpError types. Can return null for non-MC
 function createErrorResultFromError(error: unknown, fallbackToGeneric?: boolean): ToolError | null;
 ```
 
-**Default Behavior Change (v0.3.0)**:
+**Default Behavior Change (v0.2.0)**:
 
-- **Old default** (v0.2.x): `fallbackToGeneric=true` - converts non-MCP errors to generic ToolError
-- **New default** (v0.3.0): `fallbackToGeneric=false` - returns null for non-MCP errors (fail-fast)
+- **New default** (v0.2.0): `fallbackToGeneric=false` - returns null for non-MCP errors (fail-fast)
+- **Old behavior**: Pass `fallbackToGeneric=true` to convert non-MCP errors to generic ToolError
 
 **Development Mode Behavior**:
 
@@ -464,7 +464,7 @@ function isTerminalError(error: unknown): boolean;
 - ValidationError: **Terminal** (returns `true`) - requires user input correction
 - TimeoutError: Retryable (returns `false`) - may succeed with more time
 - NetworkError: Retryable (returns `false`) - transient network issues
-- GitHubCliError: **Currently treated as retryable** (returns `false`) - **WARNING: This is a known limitation.** Permanent failures like 401/403/404 will be retried unnecessarily. Exit code-based classification is planned.
+- GitHubCliError: Retryable (returns `false` from isTerminalError()) - **WARNING: This is a known limitation.** Permanent failures like 401/403/404 will be retried unnecessarily. Exit code-based classification is planned.
 - Other errors: Retryable (returns `false`) - conservative approach
 
 **Usage**:

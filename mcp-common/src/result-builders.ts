@@ -21,6 +21,39 @@ import type { ToolResult, ToolError, ToolSuccess } from './types.js';
 import { createToolError, createToolSuccess } from './types.js';
 
 /**
+ * Shared error type mapping for consistent categorization
+ */
+interface ErrorTypeInfo {
+  errorType: string;
+  errorCode: string;
+}
+
+function getErrorTypeInfo(error: unknown): ErrorTypeInfo | null {
+  if (error instanceof TimeoutError) {
+    return { errorType: 'TimeoutError', errorCode: 'TIMEOUT' };
+  }
+  if (error instanceof ValidationError) {
+    return { errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR' };
+  }
+  if (error instanceof NetworkError) {
+    return { errorType: 'NetworkError', errorCode: 'NETWORK_ERROR' };
+  }
+  if (error instanceof GitHubCliError) {
+    return { errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR' };
+  }
+  if (error instanceof ParsingError) {
+    return { errorType: 'ParsingError', errorCode: 'PARSING_ERROR' };
+  }
+  if (error instanceof FormattingError) {
+    return { errorType: 'FormattingError', errorCode: 'FORMATTING_ERROR' };
+  }
+  if (error instanceof McpError) {
+    return { errorType: 'McpError', errorCode: error.code ?? 'UNKNOWN_ERROR' };
+  }
+  return null;
+}
+
+/**
  * Creates a ToolError from any error object with automatic type detection
  *
  * **Error Handling Strategy:**
@@ -28,6 +61,8 @@ import { createToolError, createToolSuccess } from './types.js';
  * - Programming errors (TypeError, ReferenceError, SyntaxError): Logged and returned with
  *   user-facing message to report as bug, includes isProgrammingError=true metadata flag
  * - GitHubCliError: Includes exitCode, stderr, stdout in metadata
+ * - ParsingError: Data parsing failures (retryable)
+ * - FormattingError: Data structure violations (terminal)
  * - McpError subclasses: Includes error code if available
  * - Unknown errors: Logged with stack trace, returns as UnknownError
  *
@@ -95,33 +130,19 @@ export function createErrorResult(error: unknown): ToolError {
   }
 
   // Categorize error types for better handling
-  if (error instanceof TimeoutError) {
-    errorType = 'TimeoutError';
-    errorCode = 'TIMEOUT';
-  } else if (error instanceof ValidationError) {
-    errorType = 'ValidationError';
-    errorCode = 'VALIDATION_ERROR';
-  } else if (error instanceof NetworkError) {
-    errorType = 'NetworkError';
-    errorCode = 'NETWORK_ERROR';
-  } else if (error instanceof GitHubCliError) {
-    errorType = 'GitHubCliError';
-    errorCode = 'GH_CLI_ERROR';
-    // Preserve debugging context from GitHubCliError
-    additionalMeta.exitCode = error.exitCode;
-    additionalMeta.stderr = error.stderr;
-    if (error.stdout) {
-      additionalMeta.stdout = error.stdout;
+  const typeInfo = getErrorTypeInfo(error);
+  if (typeInfo) {
+    errorType = typeInfo.errorType;
+    errorCode = typeInfo.errorCode;
+
+    // GitHubCliError needs special metadata handling
+    if (error instanceof GitHubCliError) {
+      additionalMeta.exitCode = error.exitCode;
+      additionalMeta.stderr = error.stderr;
+      if (error.stdout) {
+        additionalMeta.stdout = error.stdout;
+      }
     }
-  } else if (error instanceof ParsingError) {
-    errorType = 'ParsingError';
-    errorCode = 'PARSING_ERROR';
-  } else if (error instanceof FormattingError) {
-    errorType = 'FormattingError';
-    errorCode = 'FORMATTING_ERROR';
-  } else if (error instanceof McpError) {
-    errorType = 'McpError';
-    errorCode = error.code;
   } else {
     // ALWAYS log unknown error types - this indicates unexpected error types
     // that we should either handle explicitly or investigate
@@ -137,9 +158,9 @@ export function createErrorResult(error: unknown): ToolError {
         logData.stack = error.stack;
       }
 
-      console.warn('[mcp-common] Unknown error type converted to ToolError:', logData);
+      console.error('[mcp-common] Unknown error type converted to ToolError:', logData);
     } else {
-      console.warn('[mcp-common] Non-Error object converted to ToolError:', {
+      console.error('[mcp-common] Non-Error object converted to ToolError:', {
         type: typeof error,
         value: String(error).substring(0, 200),
       });
@@ -150,28 +171,20 @@ export function createErrorResult(error: unknown): ToolError {
     // or unexpected failure patterns
   }
 
-  console.debug('[mcp-common] Created error result:', {
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true') {
+    console.debug('[mcp-common] Created error result:', {
+      errorType,
+      errorCode,
+      message: message.substring(0, 100),
+    });
+  }
+
+  return createToolError(
+    `Error: ${message}`,
     errorType,
     errorCode,
-    message: message.substring(0, 100),
-  });
-
-  // Manual construction to maintain consistent error message format
-  // and include additional metadata (e.g., isProgrammingError flag)
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}`,
-      },
-    ],
-    isError: true,
-    _meta: {
-      errorType,
-      ...(errorCode && { errorCode }),
-      ...additionalMeta,
-    },
-  } as ToolError;
+    additionalMeta
+  );
 }
 
 /**
@@ -230,7 +243,7 @@ export function createErrorResultFromError(
 
     // Fallback for non-MCP errors
     const rawMessage = error instanceof Error ? error.message : String(error);
-    const message = `Error: ${rawMessage}`;
+    const message = rawMessage;
     const errorType = error instanceof Error ? error.constructor.name : 'UnknownError';
 
     console.warn('[mcp-common] Converting non-MCP error to generic ToolError:', {
@@ -238,29 +251,15 @@ export function createErrorResultFromError(
       message: rawMessage.substring(0, 100),
     });
 
-    return createToolError(message, errorType, 'UNKNOWN_ERROR');
+    return createToolError(`Error: ${message}`, errorType, 'UNKNOWN_ERROR');
   }
 
-  const message = `Error: ${error.message}`;
+  const message = error.message;
 
-  if (error instanceof TimeoutError) {
-    return createToolError(message, 'TimeoutError', 'TIMEOUT');
-  }
-  if (error instanceof ValidationError) {
-    return createToolError(message, 'ValidationError', 'VALIDATION_ERROR');
-  }
-  if (error instanceof NetworkError) {
-    return createToolError(message, 'NetworkError', 'NETWORK_ERROR');
-  }
-  if (error instanceof GitHubCliError) {
-    return createToolError(message, 'GitHubCliError', 'GH_CLI_ERROR');
-  }
-  if (error instanceof ParsingError) {
-    return createToolError(message, 'ParsingError', 'PARSING_ERROR');
-  }
-  if (error instanceof FormattingError) {
-    return createToolError(message, 'FormattingError', 'FORMATTING_ERROR');
+  const typeInfo = getErrorTypeInfo(error);
+  if (typeInfo) {
+    return createToolError(`Error: ${message}`, typeInfo.errorType, typeInfo.errorCode);
   }
 
-  return createToolError(message, 'McpError', error.code);
+  return createToolError(`Error: ${message}`, 'McpError', error.code);
 }

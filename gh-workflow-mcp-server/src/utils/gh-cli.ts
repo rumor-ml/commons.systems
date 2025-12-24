@@ -82,7 +82,7 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
-    // TODO: See issue #441 - Fix silent error swallowing in getCurrentRepo()
+    // TODO: See issue #441 - Preserve original error details (currently discards cause chain)
     throw new GitHubCliError(
       "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
     );
@@ -157,6 +157,9 @@ export interface FailedStepLog {
  * "job-name\tstep-name\ttimestamp log-line"
  *
  * This function groups log lines by job and step for easier processing.
+ *
+ * **Important**: Malformed lines (missing tabs) are silently skipped.
+ * See issue #454 for debug logging enhancement.
  *
  * @param output - Raw output from `gh run view --log-failed`
  * @returns Array of failed step logs grouped by job and step
@@ -266,8 +269,9 @@ export async function getWorkflowRunsForCommit(
  * to the workflow run status format used by the monitoring tools.
  *
  * Mapping rationale:
- * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": All represent actively running or queued checks
- * - All other states (SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE) → "completed": Terminal states
+ * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
+ * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
+ * - Unknown states → "completed": Conservative default (treats unrecognized states as terminal)
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE

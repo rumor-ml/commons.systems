@@ -12,6 +12,8 @@ import {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   isTerminalError,
   analyzeRetryability,
   formatError,
@@ -140,6 +142,14 @@ describe('GitHubCliError', () => {
     assert.equal(error.exitCode, 0);
   });
 
+  it('handles exit code 0 (success exit code)', () => {
+    const error = new GitHubCliError('Command succeeded but returned error', 0, 'warning output');
+
+    assert.equal(error.exitCode, 0);
+    assert.equal(error.message, 'Command succeeded but returned error');
+    assert.ok(!error.message.includes('Warning')); // No clamping warning
+  });
+
   it('clamps negative exit codes to 0', () => {
     const error = new GitHubCliError('Test', -5, 'stderr');
 
@@ -177,6 +187,124 @@ describe('GitHubCliError', () => {
     assert.ok(error instanceof GitHubCliError);
     assert.ok(error instanceof McpError);
     assert.ok(error instanceof Error);
+  });
+
+  it('sets cause property when provided', () => {
+    const rootCause = new NetworkError('Connection refused');
+    const error = new GitHubCliError('gh api failed', 1, 'stderr', undefined, rootCause);
+
+    assert.strictEqual(error.cause, rootCause);
+    assert.ok(error.cause instanceof NetworkError);
+  });
+
+  it('does not set cause property when undefined', () => {
+    const error = new GitHubCliError('gh failed', 1, 'stderr', undefined, undefined);
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('does not set cause property when omitted', () => {
+    const error = new GitHubCliError('gh failed', 1, 'stderr');
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('cause property is accessible for debugging', () => {
+    const cause = new Error('DNS timeout');
+    const error = new GitHubCliError('gh pr create failed', 128, 'api error', undefined, cause);
+
+    assert.ok('cause' in error);
+    assert.equal((error as any).cause.message, 'DNS timeout');
+  });
+});
+
+describe('ParsingError', () => {
+  it('creates parsing error with correct code', () => {
+    const error = new ParsingError('Failed to parse JSON');
+
+    assert.equal(error.message, 'Failed to parse JSON');
+    assert.equal(error.name, 'ParsingError');
+    assert.equal(error.code, 'PARSING_ERROR');
+  });
+
+  it('extends McpError', () => {
+    const error = new ParsingError('Parse failed');
+
+    assert.ok(error instanceof ParsingError);
+    assert.ok(error instanceof McpError);
+    assert.ok(error instanceof Error);
+  });
+
+  it('sets cause property when provided', () => {
+    const rootCause = new SyntaxError('Unexpected token');
+    const error = new ParsingError('Failed to parse API response', rootCause);
+
+    assert.strictEqual(error.cause, rootCause);
+    assert.ok(error.cause instanceof SyntaxError);
+  });
+
+  it('does not set cause property when undefined', () => {
+    const error = new ParsingError('Parse failed', undefined);
+
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('does not set cause property when omitted', () => {
+    const error = new ParsingError('Parse failed');
+
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('cause property is accessible for debugging', () => {
+    const cause = new Error('Invalid JSON structure');
+    const error = new ParsingError('Failed to parse response', cause);
+
+    assert.ok('cause' in error);
+    assert.equal((error as any).cause.message, 'Invalid JSON structure');
+  });
+});
+
+describe('FormattingError', () => {
+  it('creates formatting error with correct code', () => {
+    const error = new FormattingError('Failed to format response');
+
+    assert.equal(error.message, 'Failed to format response');
+    assert.equal(error.name, 'FormattingError');
+    assert.equal(error.code, 'FORMATTING_ERROR');
+  });
+
+  it('extends McpError', () => {
+    const error = new FormattingError('Format failed');
+
+    assert.ok(error instanceof FormattingError);
+    assert.ok(error instanceof McpError);
+    assert.ok(error instanceof Error);
+  });
+
+  it('sets cause property when provided', () => {
+    const rootCause = new TypeError('Cannot read property of undefined');
+    const error = new FormattingError('Failed to format output', rootCause);
+
+    assert.strictEqual(error.cause, rootCause);
+    assert.ok(error.cause instanceof TypeError);
+  });
+
+  it('does not set cause property when undefined', () => {
+    const error = new FormattingError('Format failed', undefined);
+
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('does not set cause property when omitted', () => {
+    const error = new FormattingError('Format failed');
+
+    assert.strictEqual(error.cause, undefined);
+  });
+
+  it('cause property is accessible for debugging', () => {
+    const cause = new Error('Template error');
+    const error = new FormattingError('Failed to render template', cause);
+
+    assert.ok('cause' in error);
+    assert.equal((error as any).cause.message, 'Template error');
   });
 });
 
@@ -247,6 +375,11 @@ describe('isTerminalError', () => {
     assert.equal(isTerminalError(error), true);
   });
 
+  it('returns true for FormattingError (terminal like ValidationError)', () => {
+    const error = new FormattingError('Invalid response structure');
+    assert.equal(isTerminalError(error), true);
+  });
+
   it('returns false for TimeoutError', () => {
     const error = new TimeoutError('Timed out');
     assert.equal(isTerminalError(error), false);
@@ -287,6 +420,11 @@ describe('isTerminalError', () => {
 
   it('returns false for undefined', () => {
     assert.equal(isTerminalError(undefined), false);
+  });
+
+  it('returns false for ParsingError (retryable)', () => {
+    const error = new ParsingError('Failed to parse JSON');
+    assert.equal(isTerminalError(error), false);
   });
 
   it('returns false for non-Error objects', () => {
@@ -481,6 +619,121 @@ describe('isSystemError', () => {
   it('verifies SYSTEM_ERROR_CODES constant', () => {
     assert.deepEqual(SYSTEM_ERROR_CODES, ['ENOMEM', 'ENOSPC', 'EMFILE', 'ENFILE']);
   });
+
+  it('warns when error has numeric code', () => {
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = { code: 123, message: 'Error' };
+      isSystemError(error);
+
+      // Verify console.warn was called
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
+      assert.equal(warnings[0][1].code, 123);
+      assert.equal(warnings[0][1].type, 'number');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('warns when error has symbol code', () => {
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const testSymbol = Symbol('ENOMEM');
+      const error = { code: testSymbol, message: 'Error' };
+      isSystemError(error);
+
+      // Verify console.warn was called
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
+      assert.strictEqual(warnings[0][1].code, testSymbol);
+      assert.equal(warnings[0][1].type, 'symbol');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('warns when error has boolean code', () => {
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = { code: true, message: 'Error' };
+      isSystemError(error);
+
+      // Verify console.warn was called
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
+      assert.equal(warnings[0][1].code, true);
+      assert.equal(warnings[0][1].type, 'boolean');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('logs full error object in development mode for non-string code', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      process.env.NODE_ENV = 'development';
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = { code: 456, message: 'Dev error', extra: 'data' };
+      isSystemError(error);
+
+      // Verify console.warn was called twice (regular + dev mode)
+      assert.equal(warnings.length, 2);
+
+      // First warning: regular warning
+      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
+      assert.equal(warnings[0][1].code, 456);
+
+      // Second warning: dev mode with full error object
+      assert.ok(
+        warnings[1][0].includes(
+          '[mcp-common] Error object has non-string code - Full error object:'
+        )
+      );
+      assert.strictEqual(warnings[1][1], error);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
+
+  it('does not log full error object in production mode for non-string code', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = { code: 789, message: 'Prod error', extra: 'data' };
+      isSystemError(error);
+
+      // Verify console.warn was called only once (no dev mode warning)
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
+      assert.equal(warnings[0][1].code, 789);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
 });
 
 describe('analyzeRetryability', () => {
@@ -491,6 +744,15 @@ describe('analyzeRetryability', () => {
     assert.equal(decision.isTerminal, true);
     assert.equal(decision.errorType, 'ValidationError');
     assert.equal(decision.reason, 'Invalid input requires user correction');
+  });
+
+  it('returns terminal decision for FormattingError', () => {
+    const error = new FormattingError('Response does not match schema');
+    const decision = analyzeRetryability(error);
+
+    assert.equal(decision.isTerminal, true);
+    assert.equal(decision.errorType, 'FormattingError');
+    assert.equal(decision.reason, 'Invalid response structure that does not match expected schema');
   });
 
   it('returns retryable decision for TimeoutError', () => {
@@ -564,5 +826,119 @@ describe('analyzeRetryability', () => {
     const isTerminal = isTerminalError(error);
 
     assert.equal(isTerminal, decision.isTerminal);
+  });
+
+  it('logs debug information in development mode for retryable errors', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const debugLogs: any[] = [];
+    const originalDebug = console.debug;
+
+    try {
+      process.env.NODE_ENV = 'development';
+      console.debug = (...args: any[]) => debugLogs.push(args);
+
+      const error = new TimeoutError('Operation timed out');
+      analyzeRetryability(error);
+
+      // Verify console.debug was called
+      assert.equal(debugLogs.length, 1);
+      assert.ok(debugLogs[0][0].includes('[mcp-common] Error marked as retryable:'));
+      assert.equal(debugLogs[0][1].type, 'TimeoutError');
+      assert.equal(debugLogs[0][1].message, 'Operation timed out');
+      assert.equal(debugLogs[0][1].isKnownType, true);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.debug = originalDebug;
+    }
+  });
+
+  it('logs debug information when DEBUG=true for retryable errors', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalDebug = process.env.DEBUG;
+    const debugLogs: any[] = [];
+    const originalDebugFn = console.debug;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.DEBUG = 'true';
+      console.debug = (...args: any[]) => debugLogs.push(args);
+
+      const error = new NetworkError('Connection failed');
+      analyzeRetryability(error);
+
+      // Verify console.debug was called even in production when DEBUG=true
+      assert.equal(debugLogs.length, 1);
+      assert.ok(debugLogs[0][0].includes('[mcp-common] Error marked as retryable:'));
+      assert.equal(debugLogs[0][1].type, 'NetworkError');
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      process.env.DEBUG = originalDebug;
+      console.debug = originalDebugFn;
+    }
+  });
+
+  it('does not log debug information in production without DEBUG flag', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalDebug = process.env.DEBUG;
+    const debugLogs: any[] = [];
+    const originalDebugFn = console.debug;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      delete process.env.DEBUG;
+      console.debug = (...args: any[]) => debugLogs.push(args);
+
+      const error = new TimeoutError('Timed out');
+      analyzeRetryability(error);
+
+      // Verify console.debug was NOT called in production
+      assert.equal(debugLogs.length, 0);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      process.env.DEBUG = originalDebug;
+      console.debug = originalDebugFn;
+    }
+  });
+
+  it('does not log debug information for terminal errors even in development', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const debugLogs: any[] = [];
+    const originalDebug = console.debug;
+
+    try {
+      process.env.NODE_ENV = 'development';
+      console.debug = (...args: any[]) => debugLogs.push(args);
+
+      const error = new ValidationError('Invalid input');
+      analyzeRetryability(error);
+
+      // Verify console.debug was NOT called for terminal errors
+      assert.equal(debugLogs.length, 0);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.debug = originalDebug;
+    }
+  });
+
+  it('includes isKnownType=false for unknown error types in debug logs', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const debugLogs: any[] = [];
+    const originalDebug = console.debug;
+
+    try {
+      process.env.NODE_ENV = 'development';
+      console.debug = (...args: any[]) => debugLogs.push(args);
+
+      const error = new Error('Generic error');
+      analyzeRetryability(error);
+
+      // Verify console.debug was called with isKnownType=false
+      assert.equal(debugLogs.length, 1);
+      assert.equal(debugLogs[0][1].isKnownType, false);
+      assert.equal(debugLogs[0][1].type, 'Error');
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.debug = originalDebug;
+    }
   });
 });

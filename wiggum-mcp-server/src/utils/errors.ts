@@ -12,15 +12,14 @@
  *   - TimeoutError: Operation exceeded time limit (from mcp-common)
  *   - ValidationError: Invalid input parameters (from mcp-common)
  *   - NetworkError: Network-related failures (from mcp-common)
- *   - GitHubCliError: GitHub CLI command failures (wiggum-specific)
+ *   - GitHubCliError: GitHub CLI command failures (from mcp-common)
  *   - GitError: Git command failures (wiggum-specific)
- *   - ParsingError: Failed to parse external command output (wiggum-specific)
- *   - FormattingError: Failed to format response data (wiggum-specific)
+ *   - ParsingError: Failed to parse external command output (from mcp-common)
+ *   - FormattingError: Failed to format response data (from mcp-common)
  *
  * @module errors
  */
 
-import type { ToolError } from '@commons/mcp-common/types';
 import {
   McpError,
   TimeoutError,
@@ -32,10 +31,8 @@ import {
   formatError,
   isTerminalError,
 } from '@commons/mcp-common/errors';
-import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
-import { createToolError } from '@commons/mcp-common/types';
+import { createErrorResult } from '@commons/mcp-common/result-builders';
 
-// Re-export common errors for convenience
 export {
   McpError,
   TimeoutError,
@@ -46,13 +43,17 @@ export {
   FormattingError,
   formatError,
   isTerminalError,
+  createErrorResult,
 };
 
 /**
- * Error thrown when git commands fail
+ * Error thrown when git commands fail (wiggum-specific)
  *
  * Captures exit code and stderr output for debugging git operation failures.
  * Common for merge conflicts, permission issues, or invalid git state.
+ *
+ * Note: This extends McpError, so it's automatically handled by createErrorResult()
+ * from mcp-common (falls through to the McpError base case).
  */
 export class GitError extends McpError {
   constructor(
@@ -63,25 +64,4 @@ export class GitError extends McpError {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
   }
-}
-
-/**
- * Create a standardized error result for MCP tool responses
- *
- * Delegates to the shared createErrorResultFromError for all common error types
- * including ParsingError and FormattingError (which are now in mcp-common).
- * Wiggum-specific error (GitError) is handled in the fallback.
- *
- * @param error - The error to convert to a tool result
- * @returns Standardized ToolError with error information and type metadata
- */
-export function createErrorResult(error: unknown): ToolError {
-  const commonResult = createErrorResultFromError(error);
-  if (commonResult) return commonResult;
-
-  // TODO: See issue #444 - Simplify error message extraction patterns
-  const rawMessage = error instanceof Error ? error.message : String(error);
-  const message = `Error: ${rawMessage}`;
-
-  return createToolError(message, 'UnknownError', undefined);
 }

@@ -336,15 +336,20 @@ export function isSystemError(error: unknown): boolean {
 
   if (typeof errorCode !== 'string') {
     const warningMessage = '[mcp-common] Error object has non-string code';
+
+    // THROW in development mode to catch type bugs early
+    if (process.env.NODE_ENV === 'development') {
+      throw new ValidationError(
+        `${warningMessage}. Error codes must be strings. ` +
+          `Received type: ${typeof errorCode}, value: ${String(errorCode)}`
+      );
+    }
+
+    // Log in production and return false
     console.warn(warningMessage, {
       code: errorCode,
       type: typeof errorCode,
     });
-
-    // In development mode, provide additional diagnostic information
-    if (process.env.NODE_ENV === 'development') {
-      console.warn(`${warningMessage} - Full error object:`, error);
-    }
 
     return false;
   }

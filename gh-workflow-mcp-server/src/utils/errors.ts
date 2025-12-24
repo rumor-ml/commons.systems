@@ -18,7 +18,6 @@
  * @module errors
  */
 
-import type { ToolError } from '@commons/mcp-common/types';
 import {
   McpError,
   TimeoutError,
@@ -30,10 +29,8 @@ import {
   formatError,
   isTerminalError,
 } from '@commons/mcp-common/errors';
-import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
-import { createToolError } from '@commons/mcp-common/types';
+import { createErrorResult } from '@commons/mcp-common/result-builders';
 
-// Re-export common errors for convenience
 export {
   McpError,
   TimeoutError,
@@ -44,24 +41,5 @@ export {
   FormattingError,
   formatError,
   isTerminalError,
+  createErrorResult,
 };
-
-/**
- * Create a standardized error result for MCP tool responses
- *
- * Delegates to the shared createErrorResultFromError for all common error types
- * including ParsingError and FormattingError (which are now in mcp-common).
- * Only non-McpError types fall through to the UnknownError fallback.
- *
- * @param error - The error to convert to a tool result
- * @returns Standardized ToolError with error information and type metadata
- */
-export function createErrorResult(error: unknown): ToolError {
-  const commonResult = createErrorResultFromError(error);
-  if (commonResult) return commonResult;
-
-  // Fallback for unknown error types
-  const rawMessage = error instanceof Error ? error.message : String(error);
-  const message = `Error: ${rawMessage}`;
-  return createToolError(message, 'UnknownError', undefined);
-}

@@ -234,14 +234,10 @@ export type ErrorResult = ToolError;
  */
 export function createToolSuccess(text: string, meta?: Record<string, unknown>): ToolSuccess {
   // Fail-fast validation: reject null/undefined (but allow empty strings)
-  if (text === null) {
+  if (text == null) {
+    // Intentional == for null/undefined
     throw new ValidationError(
-      'createToolSuccess: text parameter is required. Expected string, received null'
-    );
-  }
-  if (text === undefined) {
-    throw new ValidationError(
-      'createToolSuccess: text parameter is required. Expected string, received undefined'
+      `createToolSuccess: text parameter is required. Expected string, received ${text === null ? 'null' : 'undefined'}`
     );
   }
 
@@ -268,7 +264,7 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
     isError: false as const,
     ...(meta && { _meta: Object.freeze(meta) }),
   };
-  return Object.freeze(result) as ToolSuccess;
+  return Object.freeze(result);
 }
 
 /**
@@ -313,14 +309,10 @@ export function createToolError(
   meta?: Record<string, unknown>
 ): ToolError {
   // Fail-fast validation for text (allow empty strings)
-  if (text === null) {
+  if (text == null) {
+    // Intentional == for null/undefined
     throw new ValidationError(
-      'createToolError: text parameter is required. Expected string, received null'
-    );
-  }
-  if (text === undefined) {
-    throw new ValidationError(
-      'createToolError: text parameter is required. Expected string, received undefined'
+      `createToolError: text parameter is required. Expected string, received ${text === null ? 'null' : 'undefined'}`
     );
   }
 
@@ -332,14 +324,10 @@ export function createToolError(
   }
 
   // Fail-fast validation for errorType (must be non-empty after trimming)
-  if (errorType === null) {
+  if (errorType == null) {
+    // Intentional == for null/undefined
     throw new ValidationError(
-      'createToolError: errorType parameter is required. Expected string, received null'
-    );
-  }
-  if (errorType === undefined) {
-    throw new ValidationError(
-      'createToolError: errorType parameter is required. Expected string, received undefined'
+      `createToolError: errorType parameter is required. Expected string, received ${errorType === null ? 'null' : 'undefined'}`
     );
   }
   if (typeof errorType === 'string' && errorType.trim().length === 0) {
@@ -372,5 +360,5 @@ export function createToolError(
       ...(errorCode && { errorCode }),
     }),
   };
-  return Object.freeze(result) as ToolError;
+  return Object.freeze(result);
 }

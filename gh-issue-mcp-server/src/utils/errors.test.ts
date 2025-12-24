@@ -122,7 +122,6 @@ describe('createErrorResult', () => {
     const result = createErrorResult(error);
 
     assert.equal(result.isError, true);
-    // ParsingError now has explicit instanceof handling in createErrorResultFromError
     assert.equal((result._meta as any)?.errorType, 'ParsingError');
     assert.equal((result._meta as any)?.errorCode, 'PARSING_ERROR');
   });
@@ -132,7 +131,6 @@ describe('createErrorResult', () => {
     const result = createErrorResult(error);
 
     assert.equal(result.isError, true);
-    // FormattingError now has explicit instanceof handling in createErrorResultFromError
     assert.equal((result._meta as any)?.errorType, 'FormattingError');
     assert.equal((result._meta as any)?.errorCode, 'FORMATTING_ERROR');
   });
