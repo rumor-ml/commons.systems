@@ -29,7 +29,10 @@ export type ErrorCode =
   | 'FORMATTING_ERROR'
   | 'SCRIPT_EXECUTION_ERROR'
   | 'INFRASTRUCTURE_ERROR'
-  | 'TEST_OUTPUT_PARSE_ERROR';
+  | 'TEST_OUTPUT_PARSE_ERROR'
+  | 'STATE_DETECTION_ERROR'
+  | 'STATE_API_ERROR'
+  | 'UNEXPECTED_ERROR';
 
 /**
  * Base error class for all MCP-related errors

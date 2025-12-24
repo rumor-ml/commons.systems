@@ -33,7 +33,9 @@ import {
   formatError,
   isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
-import { createErrorResult } from '@commons/mcp-common/result-builders';
+import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
+import type { ToolError } from '@commons/mcp-common/types';
+import { createToolError } from '@commons/mcp-common/types';
 
 export {
   McpError,
@@ -44,7 +46,6 @@ export {
   ParsingError,
   FormattingError,
   formatError,
-  createErrorResult,
 };
 
 /**
@@ -142,4 +143,31 @@ export function isTerminalError(error: unknown): boolean {
 
   // Delegate to base implementation for other error types
   return baseIsTerminalError(error);
+}
+
+/**
+ * Create a standardized error result for MCP tool responses
+ *
+ * This wiggum-specific wrapper handles StateDetectionError and StateApiError
+ * before delegating to the mcp-common createErrorResult for other error types.
+ *
+ * @param error - The error to convert to a tool result
+ * @returns Standardized ToolError with error information and type metadata
+ */
+export function createErrorResult(error: unknown): ToolError {
+  // Handle wiggum-specific error types first
+  if (error instanceof StateDetectionError) {
+    return createToolError(
+      `Error: ${error.message}`,
+      'StateDetectionError',
+      'STATE_DETECTION_ERROR'
+    );
+  }
+
+  if (error instanceof StateApiError) {
+    return createToolError(`Error: ${error.message}`, 'StateApiError', 'STATE_API_ERROR');
+  }
+
+  // Delegate to mcp-common for all other error types
+  return baseCreateErrorResult(error);
 }
