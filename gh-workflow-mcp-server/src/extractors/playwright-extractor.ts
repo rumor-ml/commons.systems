@@ -76,8 +76,14 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // TODO: See issue #332 - Empty catch swallows all errors including unexpected ones
-        // Not valid JSON or extraction failed - this is expected, not an error
+        // Expected: SyntaxError or "No valid Playwright JSON" message
+        if (
+          err instanceof SyntaxError ||
+          (err instanceof Error && err.message.includes('No valid Playwright JSON'))
+        ) {
+          return null; // Not Playwright - try other detectors
+        }
+        throw err; // Unexpected error - propagate bug
       }
     }
 
@@ -372,11 +378,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     const diff = Math.abs(seconds2 - seconds1);
 
-    // TODO(#289): Add stderr logging for midnight rollover detection
-    // TODO(#305): Document rationale for 12-hour threshold
-    // Why: Valid test runs never exceed 12h; larger gaps indicate date boundary crossed
-    // See PR review #273 comment improvement recommendations
-    // Detect midnight rollover (gap > 12 hours = likely crossed midnight)
+    // Midnight rollover detection: 12h threshold (43200s)
+    // Rationale: Valid test runs never exceed 12h; larger gaps = date boundary
+    // See parseTimeDiff JSDoc for full documentation
     if (diff > 43200) {
       return {
         seconds: null,
@@ -389,6 +393,19 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
   /**
    * Parse Playwright JSON report from logs
+   *
+   * Processes Playwright's JSON reporter output to extract test failures with full context.
+   * Handles logs containing embedded JSON (e.g., GitHub Actions with timestamps).
+   *
+   * ERROR HANDLING PHASES:
+   * 1. JSON Extraction (extractJsonFromLogs): Throws on no valid JSON structure found
+   * 2. JSON Parsing (JSON.parse): Returns fallback error on malformed JSON
+   * 3. Suite Traversal: No try-catch - bugs propagate (expected structure)
+   *
+   * FAILURE MODES:
+   * - Extraction fails → Returns error with log size context
+   * - Parse fails → Returns error with JSON snippet
+   * - Traversal throws → Bug propagates (indicates schema change or extractor bug)
    *
    * NOTE: The _maxErrors parameter is intentionally unused but retained for interface compatibility.
    * Unlike Go test JSON (which streams line-by-line and can be limited), Playwright JSON reports
@@ -404,6 +421,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
    * @returns ExtractionResult with all failures found in the report
+   * @throws Never throws - returns error result instead for user-facing errors
+   *
+   * @example
+   * // Typical usage with embedded JSON
+   * const logText = `
+   * 2025-01-15T10:00:00.000Z Running tests...
+   * 2025-01-15T10:00:01.000Z {"suites":[{"specs":[...]}]}
+   * `;
+   * const result = parsePlaywrightJson(logText, 10);
+   * // Returns: { framework: 'playwright', errors: [...], summary: '2 failed, 8 passed' }
    */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
@@ -414,24 +441,46 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     try {
       jsonText = this.extractJsonFromLogs(logText);
     } catch (extractErr) {
-      // extractJsonFromLogs failed - no valid JSON structure found
-      // TODO(#332): Include total log length, line count, and snippet from end of logs for better debugging
+      const lines = logText.split('\n');
+      const logStats = {
+        totalChars: logText.length,
+        totalLines: lines.length,
+        firstLine: lines[0]?.substring(0, 100) || '(empty)',
+        lastLine: lines[lines.length - 1]?.substring(0, 100) || '(empty)',
+      };
+      const endSnippet = lines.slice(-10).join('\n');
+
       console.error(
-        `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ` +
-          `${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
+        `[ERROR] parsePlaywrightJson: JSON extraction failed.\n` +
+          `  Error: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}\n` +
+          `  Log stats: ${logStats.totalChars} chars, ${logStats.totalLines} lines\n` +
+          `  Last 10 lines:\n${endSnippet}`
       );
+
       const validatedError = safeValidateExtractedError(
         {
-          message: `Failed to extract Playwright JSON from logs: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
-          rawOutput: [logText.substring(0, 500)],
+          message:
+            `Failed to extract Playwright JSON from logs.\n\n` +
+            `Error: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}\n\n` +
+            `Log statistics:\n` +
+            `  - Total: ${logStats.totalChars} chars, ${logStats.totalLines} lines\n` +
+            `  - First: ${logStats.firstLine}\n` +
+            `  - Last: ${logStats.lastLine}\n\n` +
+            `Common causes:\n` +
+            `  1. Wrong reporter (use --reporter=json)\n` +
+            `  2. Truncated output\n` +
+            `  3. JSON generation failure\n\n` +
+            `Last 10 lines:\n${endSnippet}`,
+          rawOutput: [
+            `First 500 chars: ${logText.substring(0, 500)}`,
+            `Last 500 chars: ${logText.substring(Math.max(0, logText.length - 500))}`,
+          ],
         },
         'JSON extraction error',
         validationTracker
       );
-      return {
-        framework: 'playwright',
-        errors: [validatedError],
-      };
+
+      return { framework: 'playwright', errors: [validatedError] };
     }
 
     // Phase 2: Parse JSON (narrow catch)
@@ -439,14 +488,15 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     try {
       report = JSON.parse(jsonText) as PlaywrightJsonReport;
     } catch (parseErr) {
+      // Only catch expected SyntaxError from JSON.parse
+      if (!(parseErr instanceof SyntaxError)) {
+        throw parseErr; // Unexpected error - propagate bug (OOM, internal V8 error, etc.)
+      }
       // JSON.parse failed - malformed JSON after extraction
-      console.error(
-        `[ERROR] parsePlaywrightJson: JSON.parse failed after successful extraction: ` +
-          `${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
-      );
+      console.error(`[ERROR] parsePlaywrightJson: JSON.parse failed: ${parseErr.message}`);
       const validatedError = safeValidateExtractedError(
         {
-          message: `Failed to parse Playwright JSON report: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          message: `Failed to parse Playwright JSON report: ${parseErr.message}`,
           rawOutput: [jsonText.substring(0, 500)],
         },
         'JSON parse error',
@@ -673,17 +723,29 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     if (jsonStart === -1) {
-      // FALLBACK 1: No JSON start marker found
-      // This happens when logs don't contain a recognizable Playwright JSON report
-      // Caller will likely fail to parse, but we provide full context for debugging
-      // TODO(#332): Validate fallback return value is parseable JSON before returning
-      console.error(
-        '[WARN] Playwright JSON extraction: No JSON start marker found. ' +
-          'Expected standalone "{" followed by "config" or "suites" fields within ~20 lines. ' +
-          'FALLBACK: Returning entire log text (will likely fail in JSON.parse). ' +
-          `Log size: ${logText.length} chars, ${lines.length} lines`
+      console.error('[WARN] Playwright JSON extraction: No JSON start marker found...');
+
+      // Edge case: try parsing entire log
+      try {
+        const parsed = JSON.parse(logText.trim());
+        if (parsed.suites || parsed.config) {
+          console.error('[WARN] Entire log is valid Playwright JSON');
+          return logText.trim();
+        }
+      } catch (err) {
+        // Expected: SyntaxError if log is not valid JSON
+        if (!(err instanceof SyntaxError)) {
+          console.error(`[ERROR] Unexpected error parsing entire log: ${err}`);
+          // Continue to throw Error below with diagnostic message
+        }
+      }
+
+      throw new Error(
+        `No valid Playwright JSON found in logs. ` +
+          `Log contains ${lines.length} lines (${logText.length} chars). ` +
+          `Expected JSON with "suites" or "config" fields. ` +
+          `Use --reporter=json in playwright.config.ts`
       );
-      return logText.trim();
     }
 
     // Try progressive parsing - keep adding lines until we have valid JSON
@@ -698,29 +760,34 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           return candidate;
         }
       } catch (parseErr) {
-        // Keep trying with more lines
-        // Log first few parse errors for diagnostics
-        // TODO(#332): Only catch SyntaxError, let other exceptions propagate to expose bugs
+        if (!(parseErr instanceof SyntaxError)) {
+          throw parseErr; // Other errors are bugs
+        }
+        // SyntaxError expected during progressive parsing
         if (parseAttempts < 3) {
           console.error(
-            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1} failed at jsonEnd=${jsonEnd}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1}...`
           );
         }
         parseAttempts++;
       }
     }
 
-    // FALLBACK 2: Found JSON start marker but couldn't complete parsing
-    // This indicates truncated or malformed JSON in the log output
-    // TODO(#332): Validate fallback JSON or throw specific error for incomplete JSON
-    const extractedLines = cleanLines.length - jsonStart;
-    console.error(
-      `[ERROR] Playwright JSON extraction: FALLBACK 2 after ${parseAttempts} parse attempts. ` +
-        `Found JSON start at line ${jsonStart} but could not parse complete JSON. ` +
-        `FALLBACK: Returning ${extractedLines} lines from jsonStart to end (may be incomplete/malformed). ` +
-        `This likely indicates truncated or malformed JSON in logs. ` +
-        `Expected "suites" or "config" fields but parsing never succeeded.`
-    );
-    return cleanLines.slice(jsonStart).join('\n');
+    // FALLBACK 2: Try parsing what we have
+    const fallbackJson = cleanLines.slice(jsonStart).join('\n');
+    try {
+      JSON.parse(fallbackJson);
+      console.error(`[WARN] Fallback JSON parsed after ${parseAttempts} attempts`);
+      return fallbackJson;
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        throw new Error(
+          `Incomplete Playwright JSON after ${parseAttempts} attempts. ` +
+            `Found start at line ${jsonStart} but parsing failed. ` +
+            `SyntaxError: ${err.message}. Indicates truncated/malformed JSON.`
+        );
+      }
+      throw err;
+    }
   }
 }

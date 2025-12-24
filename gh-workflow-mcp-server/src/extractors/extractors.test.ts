@@ -66,12 +66,15 @@ FAIL	github.com/example/pkg	0.012s
       assert.strictEqual(result.framework, 'go');
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].testName, 'TestFoo');
-      // Note: fileName/lineNumber extraction from JSON output needs improvement
+      // KNOWN LIMITATION: fileName/lineNumber extraction from Go JSON output requires
+      // parsing structured Output field. Current implementation prioritizes reliability.
+      // When implemented, uncomment these assertions:
       // assert.strictEqual(result.errors[0].fileName, "foo_test.go");
       // assert.strictEqual(result.errors[0].lineNumber, 42);
       assert.ok(result.errors[0].message.includes('TestFoo'));
       assert.strictEqual(result.errors[0].duration, 10); // 0.01s = 10ms
-      // Note: rawOutput collection from JSON needs debugging
+      // KNOWN LIMITATION: rawOutput collection from JSON needs debugging
+      // When implemented, uncomment these assertions:
       // assert.ok(result.errors[0].rawOutput);
       // assert.ok(result.errors[0].rawOutput.length > 0);
       assert.strictEqual(result.summary, '1 failed, 1 passed');
@@ -372,6 +375,257 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.ok(result.errors[0].codeSnippet);
       assert.strictEqual(result.errors[0].duration, 1234);
       assert.strictEqual(result.errors[0].failureType, 'failed');
+    });
+  });
+
+  describe('PlaywrightExtractor - Suite traversal edge cases', () => {
+    const extractor = new PlaywrightExtractor();
+
+    test('handles deeply nested suites (5 levels)', () => {
+      const jsonOutput = JSON.stringify({
+        suites: [
+          {
+            title: 'Level 1',
+            file: 'level1.spec.ts',
+            line: 1,
+            column: 0,
+            specs: [],
+            suites: [
+              {
+                title: 'Level 2',
+                file: 'level2.spec.ts',
+                line: 2,
+                column: 0,
+                specs: [],
+                suites: [
+                  {
+                    title: 'Level 3',
+                    file: 'level3.spec.ts',
+                    line: 3,
+                    column: 0,
+                    specs: [],
+                    suites: [
+                      {
+                        title: 'Level 4',
+                        file: 'level4.spec.ts',
+                        line: 4,
+                        column: 0,
+                        specs: [],
+                        suites: [
+                          {
+                            title: 'Level 5',
+                            file: 'level5.spec.ts',
+                            line: 5,
+                            column: 0,
+                            specs: [
+                              {
+                                title: 'deep test',
+                                ok: false,
+                                tests: [
+                                  {
+                                    expectedStatus: 'passed',
+                                    status: 'failed',
+                                    projectName: 'chromium',
+                                    results: [
+                                      {
+                                        duration: 100,
+                                        status: 'failed',
+                                        error: { message: 'Deep failure' },
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            ],
+                            suites: [],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const result = extractor.extract(jsonOutput);
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.errors[0].message, 'Deep failure');
+      assert.strictEqual(result.errors[0].fileName, 'level5.spec.ts');
+    });
+
+    test('handles missing optional fields gracefully', () => {
+      const jsonOutput = JSON.stringify({
+        suites: [
+          {
+            title: 'suite',
+            file: 'test.spec.ts',
+            line: 10,
+            column: 0,
+            specs: [
+              {
+                title: 'test without error details',
+                ok: false,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'failed',
+                    projectName: 'chromium',
+                    results: [
+                      {
+                        duration: 50,
+                        status: 'failed',
+                        // No error object - testing graceful handling
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const result = extractor.extract(jsonOutput);
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.errors[0].message, 'Test failed');
+      assert.strictEqual(result.errors[0].rawOutput.length, 1);
+    });
+
+    test('handles empty arrays', () => {
+      const jsonOutput = JSON.stringify({
+        suites: [
+          {
+            title: 'empty suite',
+            file: 'empty.spec.ts',
+            line: 1,
+            column: 0,
+            specs: [],
+            suites: [],
+          },
+        ],
+      });
+      const result = extractor.extract(jsonOutput);
+      assert.strictEqual(result.errors.length, 0);
+      assert.strictEqual(result.summary, '0 passed');
+    });
+
+    test('handles null/undefined error object', () => {
+      const jsonOutput = JSON.stringify({
+        suites: [
+          {
+            title: 'suite',
+            file: 'test.spec.ts',
+            line: 10,
+            column: 0,
+            specs: [
+              {
+                title: 'test with null error',
+                ok: false,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'failed',
+                    projectName: 'firefox',
+                    results: [
+                      {
+                        duration: 75,
+                        status: 'failed',
+                        error: null,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const result = extractor.extract(jsonOutput);
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.errors[0].message, 'Test failed');
+      assert.ok(result.errors[0].rawOutput.includes('Test failed'));
+    });
+
+    test('handles multiple suites with mixed pass/fail', () => {
+      const jsonOutput = JSON.stringify({
+        suites: [
+          {
+            title: 'Suite A',
+            file: 'suiteA.spec.ts',
+            line: 1,
+            column: 0,
+            specs: [
+              {
+                title: 'passing test',
+                ok: true,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'passed',
+                    projectName: 'chromium',
+                    results: [{ duration: 10, status: 'passed' }],
+                  },
+                ],
+              },
+            ],
+            suites: [],
+          },
+          {
+            title: 'Suite B',
+            file: 'suiteB.spec.ts',
+            line: 20,
+            column: 0,
+            specs: [
+              {
+                title: 'failing test',
+                ok: false,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'failed',
+                    projectName: 'webkit',
+                    results: [
+                      {
+                        duration: 200,
+                        status: 'failed',
+                        error: { message: 'Suite B failure' },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            suites: [],
+          },
+          {
+            title: 'Suite C',
+            file: 'suiteC.spec.ts',
+            line: 30,
+            column: 0,
+            specs: [
+              {
+                title: 'another pass',
+                ok: true,
+                tests: [
+                  {
+                    expectedStatus: 'passed',
+                    status: 'passed',
+                    projectName: 'chromium',
+                    results: [{ duration: 15, status: 'passed' }],
+                  },
+                ],
+              },
+            ],
+            suites: [],
+          },
+        ],
+      });
+      const result = extractor.extract(jsonOutput);
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.errors[0].message, 'Suite B failure');
+      assert.strictEqual(result.errors[0].fileName, 'suiteB.spec.ts');
+      assert.strictEqual(result.summary, '1 failed, 2 passed');
     });
   });
 
