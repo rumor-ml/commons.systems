@@ -85,7 +85,7 @@ describe('createErrorResult', () => {
 
     assert.equal(result.isError, true);
     assert.equal(result.content[0]?.type, 'text');
-    assert.equal((result.content[0] as any).text, 'Timed out');
+    assert.equal((result.content[0] as any).text, 'Error: Timed out');
     assert.equal((result._meta as any)?.errorType, 'TimeoutError');
     assert.equal((result._meta as any)?.errorCode, 'TIMEOUT');
   });
@@ -122,8 +122,8 @@ describe('createErrorResult', () => {
     const result = createErrorResult(error);
 
     assert.equal(result.isError, true);
-    // ParsingError extends McpError, so it's handled as McpError with specific code
-    assert.equal((result._meta as any)?.errorType, 'McpError');
+    // ParsingError now has explicit instanceof handling in createErrorResultFromError
+    assert.equal((result._meta as any)?.errorType, 'ParsingError');
     assert.equal((result._meta as any)?.errorCode, 'PARSING_ERROR');
   });
 
@@ -132,8 +132,8 @@ describe('createErrorResult', () => {
     const result = createErrorResult(error);
 
     assert.equal(result.isError, true);
-    // FormattingError extends McpError, so it's handled as McpError with specific code
-    assert.equal((result._meta as any)?.errorType, 'McpError');
+    // FormattingError now has explicit instanceof handling in createErrorResultFromError
+    assert.equal((result._meta as any)?.errorType, 'FormattingError');
     assert.equal((result._meta as any)?.errorCode, 'FORMATTING_ERROR');
   });
 
@@ -161,10 +161,10 @@ describe('isTerminalError', () => {
     assert.equal(isTerminalError(error), true);
   });
 
-  it('FormattingError is not terminal (generic McpError behavior)', () => {
+  it('FormattingError is terminal (like ValidationError)', () => {
     const error = new FormattingError('Invalid format');
-    // FormattingError extends McpError but isn't explicitly terminal like ValidationError
-    assert.equal(isTerminalError(error), false);
+    // FormattingError is now explicitly terminal like ValidationError
+    assert.equal(isTerminalError(error), true);
   });
 
   it('TimeoutError is not terminal (may be retryable)', () => {

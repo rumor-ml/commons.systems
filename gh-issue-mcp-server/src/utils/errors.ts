@@ -26,10 +26,13 @@ import {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   formatError,
   isTerminalError,
 } from '@commons/mcp-common/errors';
 import { createErrorResultFromError } from '@commons/mcp-common/result-builders';
+import { createToolError } from '@commons/mcp-common/types';
 
 // Re-export common errors for convenience
 export {
@@ -38,45 +41,17 @@ export {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   formatError,
   isTerminalError,
 };
 
 /**
- * Error thrown when parsing external command output fails
- *
- * Indicates unexpected format or structure in command output (e.g., JSON
- * parsing failures, malformed responses). Usually indicates version mismatch
- * or breaking changes in external tools.
- */
-// TODO: See issue #459 - Add cause parameter to preserve error chains
-export class ParsingError extends McpError {
-  constructor(message: string) {
-    super(message, 'PARSING_ERROR');
-    this.name = 'ParsingError';
-  }
-}
-
-/**
- * Error thrown when formatting response data fails
- *
- * Indicates invalid response structure that doesn't match expected schema.
- * Common when internal state or protocol contracts are violated.
- */
-// TODO: See issue #459 - Add cause parameter to preserve error chains
-export class FormattingError extends McpError {
-  constructor(message: string) {
-    super(message, 'FORMATTING_ERROR');
-    this.name = 'FormattingError';
-  }
-}
-
-/**
  * Create a standardized error result for MCP tool responses
  *
- * Delegates to the shared createErrorResultFromError for all common error types.
- * Server-specific errors (ParsingError, FormattingError) are handled by
- * createErrorResultFromError as generic McpError with their error codes.
+ * Delegates to the shared createErrorResultFromError for all common error types
+ * including ParsingError and FormattingError (which are now in mcp-common).
  * Only non-McpError types fall through to the UnknownError fallback.
  *
  * @param error - The error to convert to a tool result
@@ -87,18 +62,7 @@ export function createErrorResult(error: unknown): ToolError {
   if (commonResult) return commonResult;
 
   // Fallback for unknown error types
-  const message = error instanceof Error ? error.message : String(error);
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}`,
-      },
-    ],
-    isError: true,
-    _meta: {
-      errorType: 'UnknownError',
-      errorCode: undefined,
-    },
-  };
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = `Error: ${rawMessage}`;
+  return createToolError(message, 'UnknownError', undefined);
 }

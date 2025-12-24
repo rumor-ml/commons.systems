@@ -27,6 +27,8 @@ import {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   formatError,
   isTerminalError,
 } from '@commons/mcp-common/errors';
@@ -40,6 +42,8 @@ export {
   ValidationError,
   NetworkError,
   GitHubCliError,
+  ParsingError,
+  FormattingError,
   formatError,
   isTerminalError,
 };
@@ -62,43 +66,11 @@ export class GitError extends McpError {
 }
 
 /**
- * Error thrown when parsing external command output fails
- *
- * Indicates unexpected format or structure in command output (e.g., JSON
- * parsing failures, malformed responses). Usually indicates version mismatch
- * or breaking changes in external tools.
- */
-export class ParsingError extends McpError {
-  constructor(message: string) {
-    super(message, 'PARSING_ERROR');
-    this.name = 'ParsingError';
-  }
-}
-
-/**
- * Error thrown when formatting response data fails
- *
- * Indicates invalid response structure that doesn't match expected schema.
- * Common when internal state or protocol contracts are violated.
- */
-export class FormattingError extends McpError {
-  constructor(message: string) {
-    super(message, 'FORMATTING_ERROR');
-    this.name = 'FormattingError';
-  }
-}
-
-/**
  * Create a standardized error result for MCP tool responses
  *
- * Extends the base createErrorResult from mcp-common to handle wiggum-specific errors:
- * - GitHubCliError: GitHub CLI command failures (may include exit code and stderr)
- * - GitError: Git command failures (may include exit code and stderr)
- * - ParsingError: Failed to parse external command output (version mismatch or breaking changes)
- * - FormattingError: Failed to format response data (protocol contract violation)
- *
- * For common errors (TimeoutError, ValidationError, NetworkError), this delegates
- * to the base implementation in mcp-common.
+ * Delegates to the shared createErrorResultFromError for all common error types
+ * including ParsingError and FormattingError (which are now in mcp-common).
+ * Wiggum-specific error (GitError) is handled in the fallback.
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ToolError with error information and type metadata
@@ -108,7 +80,8 @@ export function createErrorResult(error: unknown): ToolError {
   if (commonResult) return commonResult;
 
   // TODO: See issue #444 - Simplify error message extraction patterns
-  const message = error instanceof Error ? error.message : String(error);
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = `Error: ${rawMessage}`;
 
-  return createToolError(`Error: ${message}`, 'UnknownError', undefined);
+  return createToolError(message, 'UnknownError', undefined);
 }

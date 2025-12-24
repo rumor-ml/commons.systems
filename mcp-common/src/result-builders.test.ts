@@ -245,3 +245,100 @@ describe('createErrorResult - system error handling', () => {
     assert.equal((result._meta as any).errorType, 'UnknownError');
   });
 });
+
+describe('createErrorResult - unknown error logging', () => {
+  it('logs unknown Error instances with stack trace in development mode', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      process.env.NODE_ENV = 'development';
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = new Error('Unknown error type');
+      createErrorResult(error);
+
+      // Verify console.warn was called with stack trace
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Unknown error type'));
+      assert.ok(warnings[0][1].stack !== undefined);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
+
+  it('logs unknown Error instances without stack trace in production', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = new Error('Unknown error type');
+      createErrorResult(error);
+
+      // Verify console.warn was called without stack trace
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Unknown error type'));
+      assert.ok(warnings[0][1].stack === undefined);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
+});
+
+describe('createErrorResult - message truncation', () => {
+  it('truncates long error messages to 200 characters including unicode', () => {
+    // Create a message longer than 200 chars with unicode emoji
+    const longMessage = '🚨 ' + 'A'.repeat(300) + ' 🚨';
+    const error = new Error(longMessage);
+
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: any[]) => warnings.push(args);
+
+    try {
+      createErrorResult(error);
+
+      // Verify message was truncated in log
+      assert.ok(warnings[0][1].message.length <= 200);
+      assert.ok(warnings[0][1].message.includes('🚨'));
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+});
+
+describe('createErrorResult - GitHubCliError stdout edge cases', () => {
+  it('handles empty string stdout', () => {
+    const error = new GitHubCliError('Command failed', 1, 'stderr output', '');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    // Empty string stdout should not be included
+    assert.ok(!('stdout' in result._meta));
+  });
+
+  it('handles whitespace-only stdout', () => {
+    const error = new GitHubCliError('Command failed', 1, 'stderr output', '   \n\t  ');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    // Whitespace-only stdout should still be included (might be significant)
+    assert.equal((result._meta as any).stdout, '   \n\t  ');
+  });
+
+  it('handles undefined stdout', () => {
+    const error = new GitHubCliError('Command failed', 1, 'stderr output');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    // undefined stdout should not be included
+    assert.ok(!('stdout' in result._meta));
+  });
+});

@@ -229,18 +229,19 @@ export function createErrorResultFromError(
     }
 
     // Fallback for non-MCP errors
-    const message = error instanceof Error ? error.message : String(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = `Error: ${rawMessage}`;
     const errorType = error instanceof Error ? error.constructor.name : 'UnknownError';
 
     console.warn('[mcp-common] Converting non-MCP error to generic ToolError:', {
       errorType,
-      message: message.substring(0, 100),
+      message: rawMessage.substring(0, 100),
     });
 
     return createToolError(message, errorType, 'UNKNOWN_ERROR');
   }
 
-  const message = error.message;
+  const message = `Error: ${error.message}`;
 
   if (error instanceof TimeoutError) {
     return createToolError(message, 'TimeoutError', 'TIMEOUT');
@@ -253,6 +254,12 @@ export function createErrorResultFromError(
   }
   if (error instanceof GitHubCliError) {
     return createToolError(message, 'GitHubCliError', 'GH_CLI_ERROR');
+  }
+  if (error instanceof ParsingError) {
+    return createToolError(message, 'ParsingError', 'PARSING_ERROR');
+  }
+  if (error instanceof FormattingError) {
+    return createToolError(message, 'FormattingError', 'FORMATTING_ERROR');
   }
 
   return createToolError(message, 'McpError', error.code);

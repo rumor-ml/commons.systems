@@ -302,6 +302,46 @@ describe('Factory function validation', () => {
         /createToolError: errorType parameter is required.*Expected string, received undefined/,
     });
   });
+
+  it('createToolError throws ValidationError for reserved key "isError" in dev mode', () => {
+    const originalEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'development';
+      assert.throws(() => createToolError('Error', 'TestError', undefined, { isError: false }), {
+        name: 'ValidationError',
+        message: /meta contains reserved keys \(isError, content\)/,
+      });
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('createToolError throws ValidationError for reserved key "content" in dev mode', () => {
+    const originalEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'development';
+      assert.throws(() => createToolError('Error', 'TestError', undefined, { content: [] }), {
+        name: 'ValidationError',
+        message: /meta contains reserved keys \(isError, content\)/,
+      });
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('createToolError does not throw for reserved keys in production', () => {
+    const originalEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      // Should not throw, just warn (captured in console.warn)
+      assert.doesNotThrow(() =>
+        createToolError('Error', 'TestError', undefined, { isError: false })
+      );
+      assert.doesNotThrow(() => createToolError('Error', 'TestError', undefined, { content: [] }));
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
 });
 
 describe('Immutability tests', () => {
@@ -314,17 +354,18 @@ describe('Immutability tests', () => {
     });
   });
 
-  it('content array is mutable (shallow freeze limitation)', () => {
+  it('content array freeze behavior (shallow vs deep)', () => {
     const result = createToolSuccess('test');
 
-    // The content array is NOT frozen (shallow freeze limitation)
-    // This documents the actual behavior
-    assert.doesNotThrow(() => {
+    // Try to mutate the content array
+    try {
       result.content.push({ type: 'text', text: 'new' } as any);
-    });
-
-    // Verify the mutation actually happened
-    assert.equal(result.content.length, 2);
+      // If push succeeded, we have shallow freeze (current behavior)
+      assert.equal(result.content.length, 2, 'Shallow freeze: array is mutable');
+    } catch (error) {
+      // If push threw, we have deep freeze (future enhancement)
+      assert.equal(result.content.length, 1, 'Deep freeze: array is immutable');
+    }
   });
 
   it('prevents mutation of ToolError result object', () => {

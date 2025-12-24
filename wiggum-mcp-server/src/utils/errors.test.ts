@@ -85,7 +85,7 @@ describe('createErrorResult', () => {
 
     assert.strictEqual(result.isError, true);
     assert.strictEqual(result.content[0].type, 'text');
-    assert.strictEqual(result.content[0].text, 'Timed out');
+    assert.strictEqual(result.content[0].text, 'Error: Timed out');
     assert.strictEqual(result._meta?.errorType, 'TimeoutError');
     assert.strictEqual(result._meta?.errorCode, 'TIMEOUT');
   });
@@ -127,8 +127,8 @@ describe('createErrorResult', () => {
     const error = new FormattingError('Invalid format');
     const result = createErrorResult(error);
 
-    // FormattingError extends McpError, so it's handled as McpError with specific code
-    assert.strictEqual(result._meta?.errorType, 'McpError');
+    // FormattingError now has explicit instanceof handling in createErrorResultFromError
+    assert.strictEqual(result._meta?.errorType, 'FormattingError');
     assert.strictEqual(result._meta?.errorCode, 'FORMATTING_ERROR');
   });
 

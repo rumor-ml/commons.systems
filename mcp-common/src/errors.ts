@@ -213,6 +213,15 @@ export function analyzeRetryability(error: unknown): RetryDecision {
     };
   }
 
+  // FormattingError is terminal - indicates data structure violation
+  if (error instanceof FormattingError) {
+    return {
+      isTerminal: true,
+      errorType: 'FormattingError',
+      reason: 'Invalid response structure that does not match expected schema',
+    };
+  }
+
   // All other error types are retryable by default (conservative approach)
   if (error instanceof Error) {
     const errorType = error.constructor.name;
@@ -340,7 +349,7 @@ export function isSystemError(error: unknown): boolean {
     return false;
   }
 
-  return SYSTEM_ERROR_CODES.includes(errorCode as any);
+  return (SYSTEM_ERROR_CODES as readonly string[]).includes(errorCode);
 }
 
 /**
