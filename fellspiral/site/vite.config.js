@@ -10,7 +10,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/index.html'),
-        cards: resolve(__dirname, 'src/cards.html'),
       },
     },
   },

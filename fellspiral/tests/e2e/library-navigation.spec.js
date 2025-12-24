@@ -284,7 +284,7 @@ const skipDataReflectionTests = process.env.CI;
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
         // Give Firestore time to propagate deletion
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     });
 
