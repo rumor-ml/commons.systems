@@ -45,6 +45,37 @@ describe('complete-pr-creation tool', () => {
   // Note: Testing issue extraction and PR creation logic would require
   // mocking git/gh CLI commands, which is beyond the scope of basic
   // schema validation tests. These would be integration tests.
+
+  describe('completePRCreation verification error handling', () => {
+    // TODO(#320): Add behavioral tests for PR verification error handling
+    // These tests verify that errors during PR verification are handled correctly
+    // TODO(#320): Test StateApiError preservation during verification
+    // it('should re-throw StateApiError when PR verification fails due to API error', async () => {
+    //   // This test ensures retryable API errors during verification are preserved
+    //   // Mock ghCli to succeed for "pr create" but getPR to throw StateApiError
+    //
+    //   // Expected behavior:
+    //   // - ghCli(['pr', 'create', ...]) succeeds, returns "https://github.com/owner/repo/pull/123"
+    //   // - getPR(123) throws new StateApiError('Rate limit exceeded', 'read', 'pr', 123)
+    //   // - completePRCreation should re-throw the StateApiError (not convert to ValidationError)
+    //   // - Error message should include PR number and retryable guidance
+    //
+    //   // Requires ES module mocking to mock ghCli and getPR functions
+    // });
+    // TODO(#320): Test ValidationError for unknown verification errors
+    // it('should throw ValidationError for unknown verification errors', async () => {
+    //   // This test ensures unknown errors during verification get clear guidance
+    //   // Mock ghCli to succeed for "pr create" but getPR to throw generic Error
+    //
+    //   // Expected behavior:
+    //   // - ghCli(['pr', 'create', ...]) succeeds
+    //   // - getPR(123) throws new Error('Something unexpected')
+    //   // - completePRCreation should throw ValidationError with timing issue guidance
+    //   // - Error should include PR number and indicate verification failed
+    //
+    //   // Requires ES module mocking to mock ghCli and getPR functions
+    // });
+  });
 });
 
 describe('PR state validation', () => {

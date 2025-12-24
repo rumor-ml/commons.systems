@@ -236,7 +236,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  * }
  * ```
  */
-async function detectIssueState(git: GitState): Promise<IssueState> {
+function detectIssueState(git: GitState): IssueState {
   const issueNumber = extractIssueNumberFromBranch(git.currentBranch);
 
   return {
@@ -277,7 +277,7 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
-  const issue = await detectIssueState(git);
+  const issue = detectIssueState(git);
   const stateDetectionTime = Date.now() - startTime;
 
   // Determine phase based on PR existence

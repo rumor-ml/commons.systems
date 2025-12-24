@@ -60,14 +60,7 @@ export type CompletePRCreationInput = z.infer<typeof CompletePRCreationInputSche
  * Expected format: "123-feature-name" -> "123"
  */
 function extractIssueNumber(branchName: string): string {
-  const parts = branchName.split('-');
-  if (parts.length === 0) {
-    throw new ValidationError(
-      `Cannot extract issue number from branch name: "${branchName}". Expected format: "123-feature-name"`
-    );
-  }
-
-  const issueNum = parts[0];
+  const issueNum = branchName.split('-')[0];
   if (!/^\d+$/.test(issueNum)) {
     throw new ValidationError(
       `First segment of branch name must be numeric issue number. Got: "${issueNum}" from branch: "${branchName}"`

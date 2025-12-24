@@ -210,6 +210,98 @@ describe('Type Safety', () => {
     // 3. StateApiError for auth errors (403/401)
     // 4. StateApiError for network errors
     // 5. StateApiError for unexpected errors
+
+    // TODO(#320): Add behavioral tests for detectPRState error handling
+    // These tests verify error classification added for #320 but require ES module mocking
+
+    // TODO(#320): Test rate limit error classification
+    // it('should throw StateApiError with rate limit guidance for 429 errors', async () => {
+    //   // This test ensures rate limit errors are properly classified and provide actionable guidance
+    //   const mockRepo = 'test-owner/test-repo';
+    //   const rateLimitError = new Error('API rate limit exceeded');
+    //
+    //   // Mock getPR to throw rate limit error
+    //   // Expected behavior:
+    //   // - detectPRState should catch the error
+    //   // - Classify it as rate limit error
+    //   // - Throw StateApiError with operation='read', resourceType='pr'
+    //   // - Error message should include 'rate limit' and remediation guidance
+    //
+    //   try {
+    //     await detectPRState(mockRepo);
+    //     assert.fail('Expected StateApiError to be thrown');
+    //   } catch (error) {
+    //     assert.ok(error instanceof StateApiError);
+    //     assert.strictEqual(error.operation, 'read');
+    //     assert.strictEqual(error.resourceType, 'pr');
+    //     assert.ok(error.message.includes('rate limit'));
+    //   }
+    // });
+
+    // TODO(#320): Test auth error classification
+    // it('should throw StateApiError with auth guidance for 403 errors', async () => {
+    //   // This test ensures auth errors provide guidance to run gh auth status
+    //   const mockRepo = 'test-owner/test-repo';
+    //   const authError = new Error('HTTP 403: Forbidden');
+    //
+    //   // Mock getPR to throw auth error
+    //   // Expected behavior:
+    //   // - detectPRState should catch the error
+    //   // - Classify it as permission error
+    //   // - Throw StateApiError with operation='read', resourceType='pr'
+    //   // - Error message should include 'authentication' or 'auth' guidance
+    //
+    //   try {
+    //     await detectPRState(mockRepo);
+    //     assert.fail('Expected StateApiError to be thrown');
+    //   } catch (error) {
+    //     assert.ok(error instanceof StateApiError);
+    //     assert.strictEqual(error.operation, 'read');
+    //     assert.strictEqual(error.resourceType, 'pr');
+    //     assert.ok(error.message.includes('authentication') || error.message.includes('auth'));
+    //   }
+    // });
+
+    // TODO(#320): Test network error classification
+    // it('should throw StateApiError with network guidance for network errors', async () => {
+    //   // This test ensures network errors are classified as retryable
+    //   const mockRepo = 'test-owner/test-repo';
+    //   const networkError = new Error('network timeout: ETIMEDOUT');
+    //
+    //   // Mock getPR to throw network error
+    //   // Expected behavior:
+    //   // - detectPRState should catch the error
+    //   // - Classify it as network error
+    //   // - Throw StateApiError with operation='read', resourceType='pr'
+    //   // - Error message should include 'network' or 'connectivity' guidance
+    //
+    //   try {
+    //     await detectPRState(mockRepo);
+    //     assert.fail('Expected StateApiError to be thrown');
+    //   } catch (error) {
+    //     assert.ok(error instanceof StateApiError);
+    //     assert.strictEqual(error.operation, 'read');
+    //     assert.strictEqual(error.resourceType, 'pr');
+    //     assert.ok(error.message.includes('network') || error.message.includes('connectivity'));
+    //   }
+    // });
+
+    // TODO(#320): Test "not found" is treated as expected state
+    // it('should return {exists: false} for "no pull requests found" errors', async () => {
+    //   // This test ensures "not found" is treated as expected, not error
+    //   const mockRepo = 'test-owner/test-repo';
+    //   const notFoundError = new Error('no pull requests found for branch');
+    //
+    //   // Mock getPR to throw not found error
+    //   // Expected behavior:
+    //   // - detectPRState should catch the error
+    //   // - Recognize it as "no PR exists" case
+    //   // - Return {exists: false} instead of throwing
+    //   // - Should NOT throw StateApiError
+    //
+    //   const result = await detectPRState(mockRepo);
+    //   assert.strictEqual(result.exists, false);
+    // });
   });
 
   describe('detectCurrentState recursion protection', () => {

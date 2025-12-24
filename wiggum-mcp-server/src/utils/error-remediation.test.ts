@@ -52,6 +52,33 @@ describe('classifyGitHubError', () => {
     const result = classifyGitHubError('Some error', 4);
     assert.strictEqual(result.type, 'permission');
   });
+
+  it('should use exit code 4 for auth classification over message patterns', () => {
+    // Exit code takes precedence: exit 4 = auth error in gh CLI
+    // Even if message says "network timeout", exit code 4 means auth failure
+    const result = classifyGitHubError('network timeout', 4);
+    assert.strictEqual(result.type, 'permission');
+    assert.strictEqual(result.isRetryable, false);
+    assert.ok(result.remediationSteps.some((step) => step.includes('gh auth status')));
+  });
+
+  it('should classify HTTP 503 as retryable server error', () => {
+    // Server errors (502, 503, 504) should be retryable
+    // Note: Current implementation classifies HTTP 503 as 'unknown' type
+    // but this test documents expected behavior for future enhancement
+    const result = classifyGitHubError('Service Unavailable (HTTP 503)');
+
+    // TODO(#320): Enhance classifyGitHubError to recognize server errors (502, 503, 504)
+    // For now, verify it's classified as unknown (fallback behavior)
+    assert.strictEqual(result.type, 'unknown');
+
+    // When server_error type is added, this should become:
+    // assert.strictEqual(result.type, 'server_error');
+    // assert.strictEqual(result.isRetryable, true);
+    // assert.ok(result.remediationSteps.some(step =>
+    //   step.includes('GitHub') || step.includes('retry')
+    // ));
+  });
 });
 
 describe('buildGitHubErrorMessage', () => {

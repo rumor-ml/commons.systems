@@ -12,7 +12,12 @@ import { logger } from '../utils/logger.js';
 import { MAX_ITERATIONS } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
-import { StateDetectionError, StateApiError, createErrorResult } from '../utils/errors.js';
+import {
+  StateDetectionError,
+  StateApiError,
+  McpError,
+  createErrorResult,
+} from '../utils/errors.js';
 
 export const WiggumInitInputSchema = z.object({});
 
@@ -47,13 +52,17 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
       });
       return createErrorResult(error);
     }
-    // Re-throw unexpected errors after logging
+    // Handle unexpected errors gracefully
     logger.error('wiggum_init: unexpected error during state detection', {
       errorType: error instanceof Error ? error.constructor.name : typeof error,
       errorMessage: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    throw error;
+
+    // Return error result instead of throwing
+    const unexpectedError =
+      error instanceof Error ? error : new McpError(String(error), 'UNEXPECTED_ERROR');
+    return createErrorResult(unexpectedError);
   }
 
   logger.info('wiggum_init', {
