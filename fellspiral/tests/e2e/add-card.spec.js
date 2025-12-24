@@ -3,10 +3,15 @@
  * Tests the complete Add Card workflow including UI, validation, and persistence
  *
  * TODO(#311): Replace fixed timeouts with condition-based waiting for better test reliability
+ * TODO(#480): Add 5 critical missing tests from all-hands review:
+ *   1. Double-submit prevention via rapid Enter key presses
+ *   2. XSS protection for custom type values via "Add New"
+ *   3. Firestore write failure state cleanup (isSaving flag)
+ *   4. Auth state restoration retry logic
+ *   5. Combobox error state on getOptions() exception
  * TODO: See issue #241 - Add delete card E2E tests (security, confirmation, Firestore removal)
  * TODO: See issue #241 - Add concurrent edit conflict detection tests
  * TODO: See issue #241 - Add network error handling tests (timeouts, retries, user guidance)
- * TODO: See issue #241 - Replace fixed waitForTimeout calls with condition-based waiting
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
@@ -15,7 +20,8 @@ import { createCardViaUI, getCardFromFirestore, generateTestCardData } from './t
 const isEmulatorMode = process.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 
 // Tests run serially within each browser project but Firefox/Chromium run in parallel.
-// Each test creates cards with unique timestamps, so no cleanup is needed.
+// Each test creates cards with unique timestamps to prevent conflicts within a test run.
+// Note: Emulator data persists between runs - use `make clean-emulator` to reset
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Add Card - Happy Path Tests', () => {
@@ -37,6 +43,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Wait for Firestore write to propagate (emulator can have delays, especially in Firefox)
+    // TODO(#286): Document empirical browser latency findings
     // TODO(#474): Document empirical browser latency findings
     await page.waitForTimeout(2000);
 
@@ -1050,13 +1057,7 @@ test.describe('Combobox Interaction Tests', () => {
 test.describe('Combobox - Error State Recovery', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test.skip('should show error message when getOptions() throws', async ({
-    page,
-    authEmulator,
-  }) => {
-    // TODO: See issue #469 - Fix flaky test: error message element not found
-    // Test expects .combobox-error-message to appear when getOptions() throws,
-    // but element is not rendered (implementation gap or timing issue)
+  test('should show error message when getOptions() throws', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
@@ -1086,7 +1087,7 @@ test.describe('Combobox - Error State Recovery', () => {
     // Verify error message is shown
     const errorMessage = page.locator('#typeListbox .combobox-error-message');
     await expect(errorMessage).toBeVisible();
-    await expect(errorMessage).toHaveText('Error loading options. Please try again.');
+    await expect(errorMessage).toHaveText('Unable to load options. Please refresh the page.');
 
     // Verify error class is added to listbox
     const listbox = page.locator('#typeListbox');
@@ -1469,6 +1470,43 @@ test.describe('Add Card - XSS Protection in Other Fields', () => {
       return typeElements.length > 0;
     });
     expect(hasOnclickHandler).toBe(false);
+  });
+
+  test('should handle empty VALID_CARD_TYPES array gracefully', async ({ page, authEmulator }) => {
+    const email = `xss-empty-types-${Date.now()}@test.com`;
+    await authEmulator.createUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Temporarily clear VALID_CARD_TYPES array to test edge case
+    await page.evaluate(() => {
+      // Save original array
+      window.__originalValidCardTypes = window.VALID_CARD_TYPES;
+      // Clear the array
+      window.VALID_CARD_TYPES = [];
+    });
+
+    const cardData = {
+      title: `Test Card ${Date.now()}-empty-types`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify sanitizeCardType handles empty array (should return empty string)
+    const sanitizedType = await page.evaluate(() => {
+      return window.sanitizeCardType('Equipment');
+    });
+    expect(sanitizedType).toBe('');
+
+    // Verify card still renders without crashing
+    const cardVisible = await page.locator('.card-item').first().isVisible();
+    expect(cardVisible).toBe(true);
+
+    // Restore original array
+    await page.evaluate(() => {
+      window.VALID_CARD_TYPES = window.__originalValidCardTypes;
+    });
   });
 });
 
@@ -3637,3 +3675,19 @@ test.describe('Form Validation - Field Length Limits', () => {
     await expect(page.locator('#cardTitle')).toBeFocused();
   });
 });
+
+// TODO(#241): Add test for Enter key double-submit
+// Test should verify that rapid Enter key presses on form fields don't create duplicate cards
+// due to the isSaving submission lock
+
+// TODO(#241): Add test for XSS in custom type values
+// Test should verify that custom types/subtypes created via "Add New" combobox option
+// are properly escaped with escapeHtml() and don't execute script tags
+
+// TODO(#241): Add test for whitespace-only subtype
+// Test should verify that whitespace-only subtypes are rejected by validation
+// (current validation uses .trim() but no test verifies the rejection)
+
+// TODO(#311, #241): Replace fixed timeouts with condition-based waiting
+// Many tests use page.waitForTimeout() with hardcoded values (2000ms, 3000ms, etc.)
+// Replace with condition-based waiting for better reliability and faster test execution

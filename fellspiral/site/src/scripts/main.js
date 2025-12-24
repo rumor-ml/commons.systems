@@ -1114,6 +1114,7 @@ function initMobileMenu() {
 
   if (!mobileMenuToggle || !sidebar) return;
 
+  // TODO(#481): Extract clone-for-listener-removal pattern to helper (repeated 3 times)
   // Remove old event listeners by replacing the element
   const newToggle = mobileMenuToggle.cloneNode(true);
   mobileMenuToggle.parentNode.replaceChild(newToggle, mobileMenuToggle);

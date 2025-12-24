@@ -11,6 +11,22 @@
     ]
   },
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": [
+      {
+        "collectionGroup": "cards",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          }
+        ]
+      }
+    ]
   }
 }

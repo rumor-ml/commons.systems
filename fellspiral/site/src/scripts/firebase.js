@@ -211,6 +211,7 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
+  // TODO(#286): Add rationale comment for 5 second timeout
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {
@@ -234,6 +235,7 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
+    // TODO(#286): Update comment to reflect new Error object creation
     // Enrich error with context before re-throwing
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
     enrichedError.originalError = error;
@@ -271,6 +273,7 @@ export async function getCard(cardId) {
 export async function createCard(cardData) {
   await initFirebase();
 
+  // TODO(#481): Extract validation to validateCardData() helper to remove duplication with updateCard
   // Validate required fields before making Firestore call
   if (!cardData.title?.trim()) {
     throw new Error('Card title is required');
@@ -280,6 +283,9 @@ export async function createCard(cardData) {
   }
   if (!cardData.subtype?.trim()) {
     throw new Error('Card subtype is required');
+  }
+  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
+    throw new Error('isPublic must be a boolean value');
   }
 
   // Use getAuthInstance() to get the current auth instance
@@ -325,6 +331,9 @@ export async function updateCard(cardId, cardData) {
   }
   if (!cardData.subtype?.trim()) {
     throw new Error('Card subtype is required');
+  }
+  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
+    throw new Error('isPublic must be a boolean value');
   }
 
   const authInstance = getAuthInstance();
@@ -440,6 +449,8 @@ export async function getFirebaseAuth() {
 // This fixes module binding issue where auth is undefined at import time
 // IMPORTANT: Checks window.__testAuth first to handle test mode where
 // the signed-in user is on the test auth instance, not firebase.js's auth
+// SECURITY: Checks user exists but does NOT validate token freshness
+// Expired tokens will fail at Firestore level with permission-denied errors
 export function getAuthInstance() {
   // In test mode, always prefer window.__testAuth if it exists
   if (typeof window !== 'undefined' && window.__testAuth) {

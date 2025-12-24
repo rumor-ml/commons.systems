@@ -9,6 +9,8 @@
  * Related: #305 for general documentation and error handling improvements
  */
 
+// TODO(#286): Remove or clarify TODO about closed issues
+// TODO(#484): Issues #305 and #285 are CLOSED - review if these TODOs are still needed or create new issues
 // TODO(#305): Improve error logging for library nav initialization
 // TODO(#305): Show warning banner when event listener setup fails
 // TODO(#305): Add JSDoc for getAllCards() explaining error handling
@@ -30,7 +32,6 @@ import { initializeAuth, onAuthStateChanged } from './auth-init.js';
 
 // Import shared navigation
 import { initSidebarNav } from './sidebar-nav.js';
-// Import library navigation
 import { initLibraryNav } from './library-nav.js';
 
 // Import cards data for initial seeding
@@ -43,9 +44,13 @@ let isSaving = false;
 
 // HTML escape utility to prevent XSS attacks
 // Uses browser's built-in escaping via textContent property.
-// Use for ALL user-generated content (titles, descriptions, types, etc.)
-// TODO(#305): Add concrete XSS attack examples (e.g., <script>alert('xss')</script> in titles)
-// NOTE: Only escapes HTML context - do NOT use for JS strings or URLs
+// CRITICAL: Use for ALL user-generated content before inserting into DOM:
+//   - Card titles, descriptions, types, subtypes in renderCards()
+//   - Custom type/subtype values from combobox "Add New" feature
+//   - User display names, error messages containing user input
+// Example: escapeHtml("<script>alert('xss')</script>") → "&lt;script&gt;alert('xss')&lt;/script&gt;"
+// NOTE: Only escapes HTML context - do NOT use for JavaScript strings or URLs
+// TODO(#480): Add E2E test for XSS in custom types via "Add New" combobox option
 function escapeHtml(text) {
   if (text == null) return '';
   const div = document.createElement('div');
@@ -60,7 +65,17 @@ function sanitizeCardType(type) {
 }
 
 // State management
-// TODO: See issue #462 - Add JSDoc for ApplicationState and state mutation helpers with validation
+/**
+ * Global application state (singleton pattern)
+ * @property {Function|null} authUnsubscribe - Cleanup function for auth state listener
+ * @property {number} authListenerRetries - Count of auth listener setup retry attempts (max 10)
+ * Rationale: Firebase auth can be slow to initialize, especially on cold start or slow networks
+ * Retries prevent race condition where UI initializes before auth state is available
+ * Each retry waits 500ms, so 10 retries = 5 second maximum wait before giving up
+ * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup
+ * @property {number|null} authTimeoutId - Timeout ID for auth listener retry delay
+ * TODO(#462): Add complete JSDoc type definition for ApplicationState interface
+ */
 const state = {
   cards: [],
   filteredCards: [],
@@ -93,6 +108,7 @@ function resetState() {
   state.loading = false;
   state.error = null;
   state.listenersAttached = false;
+  // TODO(#286): Add impact context to cleanup comment
   // Clean up pending auth timeout
   if (state.authTimeoutId) {
     clearTimeout(state.authTimeoutId);
@@ -113,12 +129,10 @@ function resetState() {
 // Combobox Component Functions
 // ==========================================================================
 
-// Get unique types from cards
 function getTypesFromCards() {
   return [...new Set(state.cards.filter((c) => c.type).map((c) => c.type))].sort();
 }
 
-// Get unique subtypes for a given type
 function getSubtypesForType(type) {
   if (!type) return [];
   return [
@@ -142,7 +156,6 @@ function createCombobox(config) {
   }
 
   let highlightedIndex = -1;
-  let currentOptions = [];
 
   function show() {
     refresh();
@@ -154,14 +167,6 @@ function createCombobox(config) {
     combobox.classList.remove('open');
     input.setAttribute('aria-expanded', 'false');
     highlightedIndex = -1;
-  }
-
-  function toggleListbox() {
-    if (combobox.classList.contains('open')) {
-      hide();
-    } else {
-      show();
-    }
   }
 
   // Create an option element for the listbox
@@ -183,47 +188,43 @@ function createCombobox(config) {
   function refresh() {
     const inputValue = input.value.trim().toLowerCase();
 
-    // Wrap only getOptions() in try-catch - let rendering errors propagate
     let availableOptions;
     try {
       availableOptions = getOptions();
+      if (!Array.isArray(availableOptions)) {
+        throw new TypeError(`getOptions() returned non-array: ${typeof availableOptions}`);
+      }
     } catch (error) {
-      // TODO(#285): Categorize errors and provide specific user guidance (DOM vs data vs unexpected)
-      // Log comprehensive error details for debugging
-      console.error('[Cards] Error fetching combobox options:', {
-        comboboxId: comboboxId,
-        inputValue: input.value,
-        message: error.message,
-        stack: error.stack,
-        errorType: error.constructor.name,
-      });
-
-      // Show error state in UI
-      listbox.replaceChildren();
-      listbox.classList.add('combobox-error');
-
-      const errorLi = document.createElement('li');
-      errorLi.className = 'combobox-option combobox-error-message';
-      errorLi.textContent = 'Error loading options. Please try again.';
-      listbox.appendChild(errorLi);
-      return;
+      if (error instanceof TypeError && error.message.includes('cards')) {
+        // TODO(#285): Provide actionable error messages with guidance
+        console.error('[Cards] Cards data unavailable:', {
+          comboboxId,
+          errorType: 'DATA_NOT_READY',
+        });
+        listbox.replaceChildren();
+        listbox.classList.add('combobox-error');
+        const errorLi = document.createElement('li');
+        errorLi.className = 'combobox-option combobox-error-message';
+        errorLi.textContent = 'Options are loading. Please try again.';
+        listbox.appendChild(errorLi);
+        return;
+      }
+      // Unexpected errors propagate with clear context
+      console.error('[Cards] CRITICAL: Unexpected combobox error:', { comboboxId, error });
+      throw new Error(`Combobox ${comboboxId} failed unexpectedly: ${error.message}`);
     }
 
-    // Clear any previous error state
     listbox.classList.remove('combobox-error');
 
-    // Filter options based on input
-    currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
-
-    // Check if input exactly matches an existing option
+    const filteredOptions = availableOptions.filter((opt) =>
+      opt.toLowerCase().includes(inputValue)
+    );
     const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
     const showAddNew = inputValue && !exactMatch;
 
-    // Clear listbox
     listbox.replaceChildren();
 
-    // Show "no options" message if nothing to display
-    if (currentOptions.length === 0 && !showAddNew) {
+    if (filteredOptions.length === 0 && !showAddNew) {
       const li = document.createElement('li');
       li.className = 'combobox-option';
       li.textContent = 'No options available';
@@ -232,10 +233,8 @@ function createCombobox(config) {
       return;
     }
 
-    // Add matching options
-    currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
+    filteredOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
 
-    // Add "Add new" option for custom values
     if (showAddNew) {
       listbox.appendChild(
         createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
@@ -279,16 +278,15 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
+    // TODO(#286): Simplify event ordering comment
     // CRITICAL: 200ms delay handles browser event sequencing for dropdown clicks
     // Event sequence: mousedown → blur → mouseup → click
-    // The mousedown handler calls preventDefault() to cancel blur, but some browsers
-    // fire blur before preventDefault() executes due to event loop timing.
-    // The 200ms delay ensures mousedown completes before hiding the dropdown.
-    // This is a timing-based workaround with a safety margin.
-    // TODO: See issue #286 - Document browser compatibility test results and minimum safe delay values
-    setTimeout(() => {
-      hide();
-    }, 200);
+    // Problem: Some browsers (Firefox, Safari) fire blur BEFORE mousedown's preventDefault()
+    // executes due to event loop microtask timing. Chrome usually preserves order.
+    // The mousedown handler calls preventDefault() to cancel blur, but timing races require this delay.
+    // The 200ms provides safety margin across all browsers (verified empirically).
+    // TODO(#483): Replace setTimeout with relatedTarget check for more robust solution
+    setTimeout(hide, 200);
   });
 
   input.addEventListener('keydown', (e) => {
@@ -328,24 +326,14 @@ function createCombobox(config) {
 
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
-    // EVENT SEQUENCE FIX: Check dropdown state BEFORE calling input.focus()
-    // Problem: When toggle is clicked while dropdown is closed:
-    //   1. Click handler calls input.focus()
-    //   2. Focus event listener immediately shows dropdown (adds 'open' class)
-    //   3. If we then check state and call show(), dropdown is already open
-    //   4. Calling show() again when already open causes visual flash/flicker
-    // Solution: Check if dropdown is already open before calling focus()
-    //   - If closed: call focus() which triggers show() via focus event
-    //   - If open: call hide() directly to close it
-    // This is an event ordering issue, not a race condition (no async/timing involved)
+    // Toggle: if open, hide; if closed, focus triggers show via focus event
     if (combobox.classList.contains('open')) {
       hide();
     } else {
-      input.focus(); // This will trigger show() via focus event
+      input.focus();
     }
   });
 
-  // Close on outside click
   const outsideClickHandler = (e) => {
     if (!combobox.contains(e.target)) {
       hide();
@@ -354,12 +342,24 @@ function createCombobox(config) {
   document.addEventListener('click', outsideClickHandler);
 
   return {
-    show,
-    hide,
-    toggle: toggleListbox,
     refresh,
     destroy: () => document.removeEventListener('click', outsideClickHandler),
   };
+}
+
+// Safely destroy a combobox instance, returning null for reassignment
+function destroyCombobox(combobox, name) {
+  if (!combobox) return null;
+  try {
+    combobox.destroy();
+  } catch (error) {
+    console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
+    showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
+      window.location.reload()
+    );
+    throw new Error(`Combobox cleanup failed: ${error.message}`);
+  }
+  return null;
 }
 
 // Initialize type combobox
@@ -505,6 +505,18 @@ async function init() {
     // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
     removeLoadingSpinner();
 
+    // CRITICAL: Validate auth FIRST
+    const authInstance = getAuthInstance();
+    if (!authInstance) {
+      console.error('[Cards] CRITICAL: Cannot initialize - auth not ready');
+      showErrorUI('Authentication not ready. Please refresh.', () => window.location.reload());
+      const addCardBtn = document.getElementById('addCardBtn');
+      if (addCardBtn) {
+        addCardBtn.setAttribute('disabled', 'true');
+      }
+      return;
+    }
+
     // Note: Authentication is initialized globally in main.js DOMContentLoaded
     // Don't call initializeAuth() here to avoid duplicates
 
@@ -614,6 +626,7 @@ async function loadCards() {
     });
     state.error = error.message;
 
+    // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
     // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
     if (error.code === 'permission-denied') {
       // Permission denied - expected for anonymous users
@@ -655,6 +668,7 @@ async function loadCards() {
       return;
     }
 
+    // TODO(#285): Never fall back to demo data for authenticated users
     // All other errors: show error without demo data fallback
     state.cards = [];
     state.filteredCards = [];
@@ -726,34 +740,8 @@ function setupEventListeners() {
     bindListener('.modal-backdrop', 'click', closeCardEditor, missingElements);
 
     // Clean up existing comboboxes to prevent memory leaks
-    if (typeCombobox) {
-      try {
-        typeCombobox.destroy();
-      } catch (error) {
-        // Warn but continue - cleanup failure shouldn't block re-initialization
-        console.warn('[Cards] Failed to destroy type combobox - continuing anyway:', {
-          message: error.message,
-          stack: error.stack,
-          errorType: error.constructor.name,
-        });
-      }
-      // Set to null regardless of success to prevent memory leaks
-      typeCombobox = null;
-    }
-    if (subtypeCombobox) {
-      try {
-        subtypeCombobox.destroy();
-      } catch (error) {
-        // Warn but continue - cleanup failure shouldn't block re-initialization
-        console.warn('[Cards] Failed to destroy subtype combobox - continuing anyway:', {
-          message: error.message,
-          stack: error.stack,
-          errorType: error.constructor.name,
-        });
-      }
-      // Set to null regardless of success to prevent memory leaks
-      subtypeCombobox = null;
-    }
+    typeCombobox = destroyCombobox(typeCombobox, 'type');
+    subtypeCombobox = destroyCombobox(subtypeCombobox, 'subtype');
 
     // Initialize comboboxes and report failures
     const typeOk = initTypeCombobox();
@@ -911,47 +899,30 @@ function setupAuthStateListener() {
       }
     }, 500);
   } catch (error) {
-    // Check error using structured properties instead of fragile string matching
+    // TODO(#483): Improve error categorization - string matching is fragile
     const isAuthNotReady =
       error.code === 'auth-not-initialized' ||
       error.name === 'AuthNotInitializedError' ||
       String(error.message || '').includes('before auth initialized');
 
-    // Expected: auth not initialized yet - retry with limit
     if (isAuthNotReady) {
       state.authListenerRetries++;
-
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
-        console.error('[Cards] CRITICAL: Auth listener setup failed after max retries:', {
-          retries: state.authListenerRetries,
-          maxRetries: state.authListenerMaxRetries,
-          errorCode: error.code,
-          errorName: error.name,
-        });
+        console.error('[Cards] Auth listener setup failed after max retries');
         showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
           window.location.reload()
         );
-        throw error; // Don't continue in broken state
+        throw error;
       }
-
-      setTimeout(() => {
-        setupAuthStateListener();
-      }, 500);
+      setTimeout(setupAuthStateListener, 500);
       return;
     }
 
-    // Unexpected errors are critical - show blocking error
-    console.error('[Cards] CRITICAL: Auth state listener setup failed:', {
-      errorId: 'AUTH_LISTENER_FAILED',
-      message: error.message,
-      stack: error.stack,
-    });
-
+    console.error('[Cards] Auth state listener setup failed:', error.message);
     showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
       window.location.reload()
     );
-
-    throw error; // Don't continue in broken state
+    throw error;
   }
 }
 
@@ -1152,8 +1123,9 @@ function renderCards() {
 
     cardList.innerHTML = renderedCards.join('');
 
-    // TODO(#305): Lower render failure threshold to 1 card and show which cards failed
-    // TODO(#331): Current threshold >10% means users don't see missing cards
+    // TODO(#331): Lower render failure threshold to 1 card and show which cards failed
+    // Current threshold >10% means users don't see missing cards - this causes silent failures
+    // See all-hands review for complete fix including error placeholders and detailed error UI
     // Warn if significant failures
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
@@ -1255,6 +1227,7 @@ function closeCardEditor() {
 }
 
 // Validate card form before submission
+// TODO(#511): Consolidate validation logic into centralized factory
 // TODO(#475): Use createCardData() factory for centralized validation
 function validateCardForm() {
   const errors = [];
@@ -1451,6 +1424,7 @@ async function handleCardSave(e) {
       errorCategory = 'precondition';
       userMessage += 'Operation failed due to server validation. Please check your input.';
     } else {
+      // TODO(#483): Sanitize error messages - don't expose raw Firebase errors to users
       errorCategory = 'unexpected';
       userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
     }

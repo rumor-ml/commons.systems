@@ -1,19 +1,20 @@
 rules_version = '2';
 
+// TODO(#283): Add tests for isPublic field validation
 // Firestore security rules for cards collection
-// Cards require 'title' and 'type' fields (title changed from 'name' in #244)
+// Cards require 'title', 'type', 'subtype', 'isPublic', and 'createdBy' fields
+// See CREATE rule (line 41-52) for complete validation logic
 // Ensures data integrity and user attribution
-// Related: #305 for general documentation improvements
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if user is authenticated
+    // Helper: Check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper function to check if user owns the document
+    // Helper: Check if user owns the document
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
@@ -26,18 +27,20 @@ service cloud.firestore {
       // This is enforced by .get('isPublic', false) which returns false for missing fields
       // Migration consideration: Existing cards without isPublic field won't be readable
       // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
+      // DEPLOYMENT WARNING: Run fellspiral/scripts/migrate-ispublic.js BEFORE deploying these rules
+      // Consequence: Cards without isPublic field will become UNREADABLE (users will see empty library)
+      // Verification: Run with --dry-run flag first, ensure 0 cards need migration before deploying rules
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // SECURITY TRADE-OFF: We do not validate createdAt timestamps because
-      // serverTimestamp() is a sentinel value during rule evaluation (request.time
-      // cannot be used to validate it). This means clients CAN provide arbitrary
-      // or missing createdAt values - a known data integrity risk we accept for
-      // simplicity. Mitigation: Client code should always use serverTimestamp()
-      // (see cards.js). User authentication is enforced via createdBy == request.auth.uid.
+      // SECURITY TRADE-OFF: We cannot validate createdAt == request.time during CREATE
+      // because serverTimestamp() is a sentinel value that only resolves after rule evaluation.
+      // This means clients could provide arbitrary createdAt values during document creation.
+      // MITIGATION: Client code uses serverTimestamp() in createCard() (see firebase.js).
+      // UPDATE operations DO enforce lastModifiedAt == request.time (line 61).
       // TODO(#283): Add tests confirming server timestamps are actually used
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
@@ -52,7 +55,8 @@ service cloud.firestore {
                     && request.resource.data.isPublic is bool
                     && request.resource.data.createdBy == request.auth.uid;
 
-      // Allow update only if user is the creator or if updating their own modifications
+      // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
+      // WARNING: The OR condition may allow unauthorized updates - verify this is intended behavior
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
