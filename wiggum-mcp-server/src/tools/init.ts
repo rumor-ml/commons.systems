@@ -12,6 +12,12 @@ import { logger } from '../utils/logger.js';
 import { MAX_ITERATIONS } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import {
+  StateDetectionError,
+  StateApiError,
+  McpError,
+  createErrorResult,
+} from '../utils/errors.js';
 
 export const WiggumInitInputSchema = z.object({});
 
@@ -24,7 +30,40 @@ export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
  * After initialization, completion tools will provide next step instructions directly.
  */
 export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
-  const state = await detectCurrentState();
+  let state;
+  try {
+    state = await detectCurrentState();
+  } catch (error) {
+    if (error instanceof StateDetectionError) {
+      logger.error('wiggum_init: state detection failed - race condition or rapid state changes', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        context: error.context,
+      });
+      return createErrorResult(error);
+    }
+    if (error instanceof StateApiError) {
+      logger.error('wiggum_init: GitHub API error during state detection', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        operation: error.operation,
+        resourceType: error.resourceType,
+        resourceId: error.resourceId,
+      });
+      return createErrorResult(error);
+    }
+    // Handle unexpected errors gracefully
+    logger.error('wiggum_init: unexpected error during state detection', {
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    // Return error result instead of throwing
+    const unexpectedError =
+      error instanceof Error ? error : new McpError(String(error), 'UNEXPECTED_ERROR');
+    return createErrorResult(unexpectedError);
+  }
 
   logger.info('wiggum_init', {
     branch: state.git.currentBranch,

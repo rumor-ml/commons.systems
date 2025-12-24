@@ -16,9 +16,13 @@
  *   - GitError: Git command failures
  *   - ParsingError: Failed to parse external command output
  *   - FormattingError: Failed to format response data
+ *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
+ *   - StateApiError: GitHub API failures during state operations
  *
  * @module errors
  */
+
+// TODO(#479): Make McpError abstract, strengthen StateDetectionError context type
 
 import type { ErrorResult } from '../types.js';
 
@@ -148,6 +152,49 @@ export class FormattingError extends McpError {
 }
 
 /**
+ * Error thrown when state detection fails
+ *
+ * Indicates that the workflow state could not be reliably determined, typically
+ * due to rapid PR state changes exceeding recursion limits or other detection
+ * failures. This is a terminal error requiring manual intervention.
+ */
+export class StateDetectionError extends McpError {
+  constructor(
+    message: string,
+    public readonly context?: {
+      depth?: number;
+      maxDepth?: number;
+      previousState?: string;
+      newState?: string;
+      [key: string]: unknown;
+    }
+  ) {
+    super(message, 'STATE_DETECTION_ERROR');
+    this.name = 'StateDetectionError';
+  }
+}
+
+/**
+ * Error thrown when GitHub API operations fail during state management
+ *
+ * Wraps GitHub API errors (auth, rate limit, network, etc.) with context about
+ * the specific state operation that failed. Use this for failures during state
+ * reads/writes rather than generic GitHubCliError.
+ */
+export class StateApiError extends McpError {
+  constructor(
+    message: string,
+    public readonly operation: 'read' | 'write',
+    public readonly resourceType: 'pr' | 'issue',
+    public readonly resourceId?: number,
+    public readonly cause?: Error
+  ) {
+    super(message, 'STATE_API_ERROR');
+    this.name = 'StateApiError';
+  }
+}
+
+/**
  * Create a standardized error result for MCP tool responses
  *
  * Categorizes errors by type to help consumers handle different error scenarios:
@@ -158,6 +205,8 @@ export class FormattingError extends McpError {
  * - GitError: Git command failures (may include exit code and stderr)
  * - ParsingError: Failed to parse external command output (version mismatch or breaking changes)
  * - FormattingError: Failed to format response data (protocol contract violation)
+ * - StateDetectionError: State detection failed (terminal, not retryable)
+ * - StateApiError: GitHub API failures during state operations (may be retryable)
  * - McpError: Generic MCP-related errors (base class for all custom errors)
  * - Generic errors: Unexpected failures (unknown error types)
  *
@@ -217,6 +266,12 @@ function categorizeError(error: unknown): { errorType: string; errorCode: string
   if (error instanceof FormattingError) {
     return { errorType: 'FormattingError', errorCode: 'FORMATTING_ERROR' };
   }
+  if (error instanceof StateDetectionError) {
+    return { errorType: 'StateDetectionError', errorCode: 'STATE_DETECTION_ERROR' };
+  }
+  if (error instanceof StateApiError) {
+    return { errorType: 'StateApiError', errorCode: 'STATE_API_ERROR' };
+  }
   if (error instanceof McpError) {
     return { errorType: 'McpError', errorCode: error.code };
   }
@@ -235,8 +290,10 @@ export function formatError(error: unknown): string {
  *
  * Retry Strategy:
  * - ValidationError: Terminal (requires user input correction)
+ * - StateDetectionError: Terminal (workflow state unreliable, requires manual intervention)
  * - TimeoutError: Potentially retryable (may succeed with more time)
  * - NetworkError: Potentially retryable (transient network issues)
+ * - StateApiError: Potentially retryable (may be transient API failure)
  * - Other errors: Treated as potentially retryable (conservative approach)
  *
  * NOTE: Unlike gh-workflow/gh-issue MCP servers, this implementation does NOT
@@ -247,7 +304,7 @@ export function formatError(error: unknown): string {
  * @returns true if error is terminal and should not be retried
  */
 export function isTerminalError(error: unknown): boolean {
-  // Validation errors are always terminal (bad input)
-  // Network and timeout errors may be retryable
-  return error instanceof ValidationError;
+  // Validation errors and state detection errors are always terminal
+  // Network, timeout, and state API errors may be retryable
+  return error instanceof ValidationError || error instanceof StateDetectionError;
 }
