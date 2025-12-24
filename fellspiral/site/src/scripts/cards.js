@@ -5,14 +5,7 @@
  * - Better auth state management with retry logic
  * - Structured error logging with context objects
  * - User-friendly error messages for Firebase operations
- *
- * Related: #305 for general documentation and error handling improvements
  */
-
-// TODO(#484): Issues #305 and #285 are CLOSED - review if these TODOs are still needed or create new issues
-// TODO(#305): Improve error logging for library nav initialization
-// TODO(#305): Show warning banner when event listener setup fails
-// TODO(#305): Add JSDoc for getAllCards() explaining error handling
 // TODO: See issue #285 - Improve error handling: narrow catch blocks, add specific error messages instead of generic ones
 
 // Import Firestore operations
@@ -43,6 +36,7 @@ let isSaving = false;
 
 // HTML escape utility to prevent XSS attacks
 // Uses browser's built-in escaping via textContent property.
+// TODO(#484): Document specific XSS attack vectors this prevents (e.g., <script>, onerror, javascript:)
 // CRITICAL: Use for ALL user-generated content before inserting into DOM:
 //   - Card titles, descriptions, types, subtypes in renderCards()
 //   - Custom type/subtype values from combobox "Add New" feature
@@ -73,7 +67,8 @@ function sanitizeCardType(type) {
  * Each retry waits 500ms, so 10 retries = 5 second maximum wait before giving up
  * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup
  * @property {number|null} authTimeoutId - Timeout ID for auth listener retry delay
- * TODO(#462): Add complete JSDoc type definition for ApplicationState interface
+ * TODO(#475, #511): Create comprehensive JSDoc typedef for ApplicationState
+ * Should document all state properties with types, defaults, and usage notes
  */
 const state = {
   cards: [],
@@ -140,7 +135,8 @@ function getSubtypesForType(type) {
 }
 
 // Generic combobox controller
-// TODO: See issue #462 - Add JSDoc type annotations for ComboboxConfig with required field validation
+// TODO(#475, #511): Add JSDoc typedef for ComboboxConfig with required field validation
+// Type should include: comboboxId, inputId, listboxId, getOptions, onSelect
 function createCombobox(config) {
   const { inputId, listboxId, comboboxId, getOptions, onSelect } = config;
 
@@ -257,8 +253,17 @@ function createCombobox(config) {
         message: error.message,
         stack: error.stack,
       });
-      // Let rendering errors propagate with clear context about what failed
-      throw new Error(`Combobox rendering failed for ${comboboxId}: ${error.message}`);
+
+      // Show error state in UI instead of crashing the app
+      listbox.classList.add('combobox-error');
+      listbox.replaceChildren();
+      const errorLi = document.createElement('li');
+      errorLi.className = 'combobox-option';
+      errorLi.textContent = 'Error loading options';
+      errorLi.style.cssText = 'font-style: italic; color: var(--color-error);';
+      listbox.appendChild(errorLi);
+
+      // Don't re-throw - user can still type and submit manually
     }
   }
 
@@ -288,9 +293,7 @@ function createCombobox(config) {
   }
 
   // Event listeners
-  input.addEventListener('focus', () => {
-    show();
-  });
+  input.addEventListener('focus', show);
 
   input.addEventListener('input', () => {
     refresh();
@@ -373,6 +376,8 @@ function destroyCombobox(combobox, name) {
   try {
     combobox.destroy();
   } catch (error) {
+    // TODO(#483): Improve error handling - distinguish between benign cleanup failures and critical errors
+    // Currently treats all destroy() failures as critical and forces page reload
     console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
     showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
       window.location.reload()
@@ -885,6 +890,8 @@ function setupMobileMenu() {
 }
 
 // Setup auth state listener to show/hide auth-controls
+// TODO(#480): Add E2E test coverage for auth listener retry logic (lines 889-950)
+// Test scenarios: SDK not ready on first attempt, max retries exceeded, recovery after transient failure
 function setupAuthStateListener() {
   try {
     // Reset retry counter on successful setup
@@ -1139,20 +1146,28 @@ function renderCards() {
           error: error.message,
         });
         failedCards++;
+
+        // Show error placeholder for this card so it doesn't silently disappear
+        const errorPlaceholder = `
+          <li class="card-item card-item--error" data-card-id="${escapeHtml(card?.id || 'unknown')}">
+            <div class="card-error-message">
+              <strong>Error loading card</strong>
+              <span>${escapeHtml(card?.title || 'Unknown card')}</span>
+            </div>
+          </li>
+        `;
+        renderedCards.push(errorPlaceholder);
       }
     });
 
     cardList.innerHTML = renderedCards.join('');
 
-    // TODO(#331): Lower render failure threshold to 1 card and show which cards failed
-    // Current threshold >10% means users don't see missing cards - this causes silent failures
-    // See all-hands review for complete fix including error placeholders and detailed error UI
-    // Warn if significant failures
+    // Warn user immediately if any cards failed to render
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
-      if (failedCards > state.filteredCards.length * 0.1) {
-        showWarningBanner('Some cards could not be displayed. Please refresh the page.');
-      }
+      showWarningBanner(
+        `${failedCards} card${failedCards > 1 ? 's' : ''} could not be displayed. Please refresh the page or contact support if the issue persists.`
+      );
     }
   } catch (error) {
     console.error('Error rendering cards:', error);
@@ -1383,6 +1398,8 @@ async function handleCardSave(e) {
   }
 
   const id = document.getElementById('cardId').value;
+  // TODO(#475): Extract to createCardData() factory function with centralized validation
+  // Factory should validate required fields, trim strings, normalize types
   const cardData = {
     title: document.getElementById('cardTitle').value.trim(),
     type: document.getElementById('cardType').value.trim(),
@@ -1415,6 +1432,8 @@ async function handleCardSave(e) {
     closeCardEditor();
     applyFilters();
   } catch (error) {
+    // TODO(#483): Narrow catch block scope - separate try-catch for Firestore vs local state updates
+    // This broad catch hides unrelated errors like local state corruption
     console.error('[Cards] Error saving card:', {
       message: error.message,
       code: error.code,
@@ -1433,12 +1452,14 @@ async function handleCardSave(e) {
       errorCategory = 'authentication';
       userMessage += 'You must be logged in to save cards. Please refresh and sign in again.';
     } else if (error.message?.includes('timeout')) {
+      // TODO(#483): Improve timeout handling - use error.code instead of string matching
       errorCategory = 'timeout';
       userMessage += 'The operation timed out. Please check your connection and try again.';
     } else if (error.code === 'unavailable' || error.message?.includes('unavailable')) {
       errorCategory = 'unavailable';
       userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
     } else if (error.message?.includes('required') || error.code === 'invalid-argument') {
+      // TODO(#483): Validation error detection via string matching is fragile - use structured error codes
       errorCategory = 'validation';
       userMessage += `Validation error: ${error.message}`;
     } else if (error.code === 'failed-precondition') {

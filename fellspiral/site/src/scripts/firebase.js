@@ -211,7 +211,7 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
-  // TODO(#286): Add rationale comment for 5 second timeout
+  // TODO(#484): Document timeout rationale - why 5 seconds? Based on empirical data or estimated worst-case?
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {

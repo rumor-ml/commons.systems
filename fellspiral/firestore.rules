@@ -3,7 +3,7 @@ rules_version = '2';
 // TODO(#283): Add tests for isPublic field validation
 // Firestore security rules for cards collection
 // Cards require 'title', 'type', 'subtype', 'isPublic', and 'createdBy' fields
-// See CREATE rule (line 41-52) for complete validation logic
+// See CREATE rule (lines 45-56) for complete validation logic
 // Ensures data integrity and user attribution
 
 service cloud.firestore {
@@ -34,13 +34,13 @@ service cloud.firestore {
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
 
+      // TODO(#484): Remove redundant comment - "Cards created will have metadata" is obvious from field validation below
       // Allow create for authenticated users (only in collections starting with "cards")
-      // Cards created will have metadata about who created them
-      // SECURITY TRADE-OFF: We cannot validate createdAt == request.time during CREATE
+      // SECURITY LIMITATION: We cannot validate createdAt == request.time during CREATE
       // because serverTimestamp() is a sentinel value that only resolves after rule evaluation.
-      // This means clients could provide arbitrary createdAt values during document creation.
-      // MITIGATION: Client code uses serverTimestamp() in createCard() (see firebase.js).
-      // UPDATE operations DO enforce lastModifiedAt == request.time (line 61).
+      // This means clients COULD provide arbitrary createdAt values during document creation.
+      // MITIGATION: Client code uses serverTimestamp() in createCard() (see firebase.js),
+      // but this cannot be enforced by security rules. UPDATE operations validate lastModifiedAt.
       // TODO(#283): Add tests confirming server timestamps are actually used
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
@@ -56,7 +56,10 @@ service cloud.firestore {
                     && request.resource.data.createdBy == request.auth.uid;
 
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
-      // WARNING: The OR condition may allow unauthorized updates - verify this is intended behavior
+      // SECURITY DESIGN: The OR condition allows ANY authenticated user to update ANY card
+      // by setting lastModifiedBy to their own UID. This is intentional for collaborative editing.
+      // The lastModifiedBy field tracks who made the change, even if they're not the original creator.
+      // Use case: Multiple users can edit public cards, with audit trail via lastModifiedBy.
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))

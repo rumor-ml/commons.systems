@@ -68,7 +68,7 @@ async function migrateCards() {
   const cardsRef = db.collection('cards');
 
   try {
-    // TODO(#286): Clarify temporal context of migration
+    // TODO(#484): Clarify temporal context - when should this migration be run relative to security rules deployment?
     // Get all cards (no query filter - we need to check all cards)
     const snapshot = await cardsRef.get();
 
@@ -128,7 +128,7 @@ async function migrateCards() {
         const docRef = cardsRef.doc(card.id);
         batch.update(docRef, {
           isPublic: true,
-          // TODO(#286): Explain how to use audit trail
+          // TODO(#484): Document audit trail usage - how should _migratedIsPublic field be queried/analyzed?
           // Add migration metadata for audit trail
           _migratedIsPublic: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -140,25 +140,22 @@ async function migrateCards() {
         updatedCount += batchCards.length;
         console.log(`✅ Batch ${batchNum}: ${batchCards.length} cards updated`);
       } catch (error) {
-        errorCount += batchCards.length;
-        console.error(`❌ CRITICAL: Batch ${batchNum} failed (${batchCards.length} cards):`, {
+        // Stop immediately on first batch failure to prevent inconsistent database state
+        console.error(`\n❌ CRITICAL: Batch ${batchNum} FAILED - Migration stopped immediately!`, {
           error: error?.message || String(error),
           code: error?.code || 'UNKNOWN',
           cardIds: batchCards.map((c) => c.id),
         });
-        failedBatches.push({ batchNum, cards: batchCards, error: error.message });
+        console.error('\n⚠️  DATABASE STATE IS INCONSISTENT:');
+        console.error(`  Successfully updated: ${updatedCount} cards (batches 1-${batchNum - 1})`);
+        console.error(`  Failed batch: ${batchCards.length} cards (batch ${batchNum})`);
+        console.error(
+          `  Not processed: ${needsMigration.length - i - batchCards.length} cards (remaining batches)`
+        );
+        console.error('\n⚠️  DO NOT DEPLOY security rules until ALL batches succeed!');
+        console.error('  Fix the error and re-run this script.');
+        process.exit(1);
       }
-    }
-
-    if (failedBatches.length > 0) {
-      console.error(`\n❌ MIGRATION INCOMPLETE - ${failedBatches.length} batches failed:`);
-      failedBatches.forEach((batch) => {
-        console.error(`  Batch ${batch.batchNum}: ${batch.cards.length} cards - ${batch.error}`);
-      });
-      console.error('\n⚠️  DO NOT DEPLOY security rules until all batches succeed!');
-      console.error(`  Failed: ${errorCount} cards`);
-      console.error(`  Succeeded: ${updatedCount} cards`);
-      process.exit(1);
     }
 
     console.log(`\n✅ Migration complete! All ${updatedCount} cards updated successfully.`);

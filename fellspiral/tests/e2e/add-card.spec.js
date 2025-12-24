@@ -3321,6 +3321,8 @@ test.describe('Add Card - Combobox Error Recovery Tests', () => {
     await page.locator('#addCardBtn').click();
     await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
+    // TODO(#480): Test is tightly coupled to implementation details (window.__getTypesFromCards)
+    // Consider testing error behavior via network mocking or documented test hooks
     // Mock getTypesFromCards to throw error
     await page.evaluate(() => {
       const originalGetTypesFromCards = window.__getTypesFromCards;
@@ -3676,13 +3678,151 @@ test.describe('Form Validation - Field Length Limits', () => {
   });
 });
 
-// TODO(#241): Add test for Enter key double-submit
-// Test should verify that rapid Enter key presses on form fields don't create duplicate cards
-// due to the isSaving submission lock
+test.describe('Add Card - Edge Cases and Security Tests', () => {
+  test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-// TODO(#241): Add test for XSS in custom type values
-// Test should verify that custom types/subtypes created via "Add New" combobox option
-// are properly escaped with escapeHtml() and don't execute script tags
+  test('should prevent double-submit via rapid Enter key presses', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `double-submit-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form
+    const cardData = generateTestCardData('double-submit-test');
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(cardData.type);
+    await page.locator('#cardSubtype').fill(cardData.subtype);
+
+    // Rapidly press Enter multiple times on a field
+    const titleInput = page.locator('#cardTitle');
+    await titleInput.press('Enter');
+    await titleInput.press('Enter');
+    await titleInput.press('Enter');
+
+    // Wait for save to complete
+    await page.waitForTimeout(3000);
+
+    // Verify only ONE card was created (isSaving lock worked)
+    const firestoreCards = await page.evaluate(async (title) => {
+      const { collection, query, where, getDocs } = window.firestore;
+      const q = query(collection(window.db, 'cards'), where('title', '==', title));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.length;
+    }, cardData.title);
+
+    expect(firestoreCards).toBe(1);
+  });
+
+  test('should sanitize XSS attempts in custom type values', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `xss-test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Try to inject XSS via custom type using "Add New" combobox
+    const xssPayload = '<script>alert("XSS")</script>';
+    const cardData = generateTestCardData('xss-test');
+
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(xssPayload);
+    // Trigger "Add New" option by typing non-existent type
+    await page.locator('#cardType').press('ArrowDown');
+    await page.locator('#cardType').press('Enter');
+
+    await page.locator('#cardSubtype').fill('Normal Subtype');
+    await page.locator('#saveCardBtn').click();
+
+    await page.waitForTimeout(3000);
+
+    // Verify the XSS payload was escaped in the rendered card
+    const cardInList = page.locator('.card-item').filter({ hasText: cardData.title });
+    await expect(cardInList).toBeVisible();
+
+    // The escaped content should be visible as text, not executed
+    const cardHtml = await cardInList.innerHTML();
+    expect(cardHtml).toContain('&lt;script&gt;');
+    expect(cardHtml).not.toContain('<script>alert');
+
+    // Verify no alert was triggered (page should still be functional)
+    const modalVisible = await page.locator('#cardEditorModal.active').isVisible();
+    expect(modalVisible).toBe(false); // Modal should have closed normally
+  });
+
+  test('should clear isSaving flag after Firestore write failure', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `firestore-fail-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+    await page.waitForTimeout(1000);
+
+    // Mock Firestore to fail
+    await page.evaluate(() => {
+      const originalAddDoc = window.firestore.addDoc;
+      window.firestore.addDoc = async () => {
+        throw new Error('Firestore write failed');
+      };
+      window.__restoreFirestore = () => {
+        window.firestore.addDoc = originalAddDoc;
+      };
+    });
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill and submit form
+    const cardData = generateTestCardData('firestore-fail-test');
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(cardData.type);
+    await page.locator('#cardSubtype').fill(cardData.subtype);
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for error to be handled
+    await page.waitForTimeout(2000);
+
+    // Verify save button is re-enabled (isSaving flag was cleared)
+    const saveBtn = page.locator('#saveCardBtn');
+    const isDisabled = await saveBtn.isDisabled();
+    expect(isDisabled).toBe(false);
+
+    // Restore Firestore and verify user can retry
+    await page.evaluate(() => {
+      window.__restoreFirestore();
+    });
+
+    await page.locator('#saveCardBtn').click();
+    await page.waitForTimeout(3000);
+
+    // Verify card was created on retry
+    const cardInList = page.locator('.card-item').filter({ hasText: cardData.title });
+    await expect(cardInList).toBeVisible();
+  });
+});
 
 // TODO(#241): Add test for whitespace-only subtype
 // Test should verify that whitespace-only subtypes are rejected by validation
@@ -3691,3 +3831,7 @@ test.describe('Form Validation - Field Length Limits', () => {
 // TODO(#311, #241): Replace fixed timeouts with condition-based waiting
 // Many tests use page.waitForTimeout() with hardcoded values (2000ms, 3000ms, etc.)
 // Replace with condition-based waiting for better reliability and faster test execution
+
+// TODO(#480): Add 2 more critical tests from all-hands review:
+//   1. Auth state restoration retry logic (lines 69-81, 871-887 in cards.js)
+//   2. Combobox error state on getOptions() exception (already has partial coverage)

@@ -18,17 +18,9 @@ export const test = base.extend<AuthFixtures>({
 
     // Initialize Firebase Admin SDK for creating custom tokens
     // Use default app if available, otherwise create it
-    let app;
-    let adminAuth;
-    if (admin.apps.length > 0) {
-      app = admin.app();
-      adminAuth = admin.auth(app);
-    } else {
-      app = admin.initializeApp({
-        projectId: 'demo-test',
-      });
-      adminAuth = admin.auth(app);
-    }
+    const app =
+      admin.apps.length > 0 ? admin.app() : admin.initializeApp({ projectId: 'demo-test' });
+    const adminAuth = admin.auth(app);
 
     // Store console errors for test assertions
     const consoleErrors: string[] = [];

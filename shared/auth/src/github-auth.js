@@ -64,6 +64,9 @@ export function initAuth(firebaseConfig, options = {}) {
         if (msg.includes('already')) {
           console.debug('[GitHub Auth] Emulator already connected');
         } else {
+          // TODO(#483): Should emulator connection failure show warning or block execution?
+          // Currently shows warning banner and re-throws, which may cause app to crash
+          // Consider: Warning-only for flexibility vs blocking execution to prevent prod writes
           // Unexpected: CRITICAL ERROR - emulator connection failed
           console.error('[GitHub Auth] CRITICAL: Emulator connection failed', {
             message: msg,
