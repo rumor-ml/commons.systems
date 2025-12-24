@@ -242,13 +242,12 @@ export function createErrorResultFromError(
     }
 
     // Fallback for non-MCP errors
-    const rawMessage = error instanceof Error ? error.message : String(error);
-    const message = rawMessage;
+    const message = error instanceof Error ? error.message : String(error);
     const errorType = error instanceof Error ? error.constructor.name : 'UnknownError';
 
     console.warn('[mcp-common] Converting non-MCP error to generic ToolError:', {
       errorType,
-      message: rawMessage.substring(0, 100),
+      message: message.substring(0, 100),
     });
 
     return createToolError(`Error: ${message}`, errorType, 'UNKNOWN_ERROR');

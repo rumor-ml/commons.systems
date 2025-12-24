@@ -359,45 +359,54 @@ describe('createErrorResult - system error handling', () => {
 describe('createErrorResult - unknown error logging', () => {
   it('logs unknown Error instances with stack trace in development mode', () => {
     const originalEnv = process.env.NODE_ENV;
-    const warnings: any[] = [];
-    const originalWarn = console.warn;
+    const errors: any[] = [];
+    const originalError = console.error;
 
     try {
       process.env.NODE_ENV = 'development';
-      console.warn = (...args: any[]) => warnings.push(args);
+      console.error = (...args: any[]) => errors.push(args);
 
       const error = new Error('Unknown error type');
       createErrorResult(error);
 
-      // Verify console.warn was called with stack trace
-      assert.equal(warnings.length, 1);
-      assert.ok(warnings[0][0].includes('[mcp-common] Unknown error type'));
-      assert.ok(warnings[0][1].stack !== undefined);
+      // Verify console.error was called with stack trace
+      assert.ok(errors.length >= 1);
+      const unknownErrorLog = errors.find((e) =>
+        e[0].includes('[mcp-common] Unknown error type converted to ToolError')
+      );
+      assert.ok(unknownErrorLog, 'Should log unknown error type');
+      assert.ok(unknownErrorLog[1].stack !== undefined, 'Should include stack in development');
     } finally {
       process.env.NODE_ENV = originalEnv;
-      console.warn = originalWarn;
+      console.error = originalError;
     }
   });
 
   it('logs unknown Error instances without stack trace in production', () => {
     const originalEnv = process.env.NODE_ENV;
-    const warnings: any[] = [];
-    const originalWarn = console.warn;
+    const originalDebug = process.env.DEBUG;
+    const errors: any[] = [];
+    const originalError = console.error;
 
     try {
       process.env.NODE_ENV = 'production';
-      console.warn = (...args: any[]) => warnings.push(args);
+      delete process.env.DEBUG;
+      console.error = (...args: any[]) => errors.push(args);
 
       const error = new Error('Unknown error type');
       createErrorResult(error);
 
-      // Verify console.warn was called without stack trace
-      assert.equal(warnings.length, 1);
-      assert.ok(warnings[0][0].includes('[mcp-common] Unknown error type'));
-      assert.ok(warnings[0][1].stack === undefined);
+      // Verify console.error was called without stack trace
+      assert.ok(errors.length >= 1);
+      const unknownErrorLog = errors.find((e) =>
+        e[0].includes('[mcp-common] Unknown error type converted to ToolError')
+      );
+      assert.ok(unknownErrorLog, 'Should log unknown error type');
+      assert.ok(unknownErrorLog[1].stack === undefined, 'Should not include stack in production');
     } finally {
       process.env.NODE_ENV = originalEnv;
-      console.warn = originalWarn;
+      process.env.DEBUG = originalDebug;
+      console.error = originalError;
     }
   });
 });
@@ -408,18 +417,23 @@ describe('createErrorResult - message truncation', () => {
     const longMessage = '🚨 ' + 'A'.repeat(300) + ' 🚨';
     const error = new Error(longMessage);
 
-    const warnings: any[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: any[]) => warnings.push(args);
+    const errors: any[] = [];
+    const originalError = console.error;
+    console.error = (...args: any[]) => errors.push(args);
 
     try {
       createErrorResult(error);
 
+      // Find the unknown error log entry
+      const unknownErrorLog = errors.find((e) =>
+        e[0].includes('[mcp-common] Unknown error type converted to ToolError')
+      );
+      assert.ok(unknownErrorLog, 'Should log unknown error type');
       // Verify message was truncated in log
-      assert.ok(warnings[0][1].message.length <= 200);
-      assert.ok(warnings[0][1].message.includes('🚨'));
+      assert.ok(unknownErrorLog[1].message.length <= 200);
+      assert.ok(unknownErrorLog[1].message.includes('🚨'));
     } finally {
-      console.warn = originalWarn;
+      console.error = originalError;
     }
   });
 });

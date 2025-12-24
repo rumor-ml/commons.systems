@@ -27,7 +27,7 @@ import { ValidationError } from './errors.js';
  * **WARNING - Index Signature Escape Hatch:**
  * The `[key: string]: unknown` index signature allows bypassing TypeScript's
  * type safety. This is ONLY intended for MCP SDK internal use. Application
- * code should NEVER rely on this - always use createToolSuccess() factory
+ * code should NEVER use this directly - always use createToolSuccess() factory
  * function to ensure proper validation and type safety.
  *
  * @example
@@ -65,7 +65,7 @@ export interface ToolSuccess {
  * **WARNING - Index Signature Escape Hatch:**
  * The `[key: string]: unknown` index signature allows bypassing TypeScript's
  * type safety. This is ONLY intended for MCP SDK internal use. Application
- * code should NEVER rely on this - always use createToolError() factory
+ * code should NEVER use this directly - always use createToolError() factory
  * function to ensure proper validation and type safety.
  *
  * @example

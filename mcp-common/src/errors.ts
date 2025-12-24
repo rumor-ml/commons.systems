@@ -96,7 +96,7 @@ export class NetworkError extends McpError {
  *
  * Exit code handling:
  * - Valid range (0-255): Used as-is
- * - Sentinel value (-1): Preserved to indicate "exit code unknown"
+ * - Sentinel value (-1): Preserved to indicate "exit code unknown" (not part of 0-255 range)
  * - Invalid values: Clamped to 0-255 range with warning prefix in message
  *
  * This ensures error construction never fails.
@@ -108,7 +108,8 @@ export class NetworkError extends McpError {
  *   'Failed to create PR',
  *   1,
  *   'Error: could not create pull request',
- *   ''
+ *   '',
+ *   undefined
  * );
  *
  * // Invalid exit code is clamped with warning prefix:
@@ -266,7 +267,7 @@ export function analyzeRetryability(error: unknown): RetryDecision {
  * - NetworkError: Potentially retryable (transient network issues)
  * - Other errors: Treated as potentially retryable (conservative approach)
  *
- * IMPORTANT: This function currently ONLY returns true for ValidationError.
+ * IMPORTANT: This function currently ONLY returns true for ValidationError and FormattingError.
  * All other error types (including unknown errors, null, strings, etc.) return false.
  *
  * @param error - Error to check

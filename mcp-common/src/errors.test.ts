@@ -681,39 +681,32 @@ describe('isSystemError', () => {
     }
   });
 
-  it('logs full error object in development mode for non-string code', () => {
+  it('throws ValidationError in development mode for non-string code', () => {
     const originalEnv = process.env.NODE_ENV;
-    const warnings: any[] = [];
-    const originalWarn = console.warn;
 
     try {
       process.env.NODE_ENV = 'development';
-      console.warn = (...args: any[]) => warnings.push(args);
 
       const error = { code: 456, message: 'Dev error', extra: 'data' };
-      isSystemError(error);
 
-      // Verify console.warn was called twice (regular + dev mode)
-      assert.equal(warnings.length, 2);
-
-      // First warning: regular warning
-      assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
-      assert.equal(warnings[0][1].code, 456);
-
-      // Second warning: dev mode with full error object
-      assert.ok(
-        warnings[1][0].includes(
-          '[mcp-common] Error object has non-string code - Full error object:'
-        )
+      // In development mode, should throw ValidationError to catch type bugs early
+      assert.throws(
+        () => isSystemError(error),
+        (err: unknown) => {
+          if (!(err instanceof ValidationError)) return false;
+          return (
+            err.message.includes('[mcp-common] Error object has non-string code') &&
+            err.message.includes('Received type: number') &&
+            err.message.includes('value: 456')
+          );
+        }
       );
-      assert.strictEqual(warnings[1][1], error);
     } finally {
       process.env.NODE_ENV = originalEnv;
-      console.warn = originalWarn;
     }
   });
 
-  it('does not log full error object in production mode for non-string code', () => {
+  it('logs warning in production mode for non-string code', () => {
     const originalEnv = process.env.NODE_ENV;
     const warnings: any[] = [];
     const originalWarn = console.warn;
@@ -723,9 +716,10 @@ describe('isSystemError', () => {
       console.warn = (...args: any[]) => warnings.push(args);
 
       const error = { code: 789, message: 'Prod error', extra: 'data' };
-      isSystemError(error);
+      const result = isSystemError(error);
 
-      // Verify console.warn was called only once (no dev mode warning)
+      // Should return false and log warning in production
+      assert.equal(result, false);
       assert.equal(warnings.length, 1);
       assert.ok(warnings[0][0].includes('[mcp-common] Error object has non-string code'));
       assert.equal(warnings[0][1].code, 789);
