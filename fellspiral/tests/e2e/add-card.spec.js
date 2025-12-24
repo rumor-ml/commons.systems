@@ -3,10 +3,15 @@
  * Tests the complete Add Card workflow including UI, validation, and persistence
  *
  * TODO(#311): Replace fixed timeouts with condition-based waiting for better test reliability
+ * TODO(#480): Add 5 critical missing tests from all-hands review:
+ *   1. Double-submit prevention via rapid Enter key presses
+ *   2. XSS protection for custom type values via "Add New"
+ *   3. Firestore write failure state cleanup (isSaving flag)
+ *   4. Auth state restoration retry logic
+ *   5. Combobox error state on getOptions() exception
  * TODO: See issue #241 - Add delete card E2E tests (security, confirmation, Firestore removal)
  * TODO: See issue #241 - Add concurrent edit conflict detection tests
  * TODO: See issue #241 - Add network error handling tests (timeouts, retries, user guidance)
- * TODO: See issue #241 - Replace fixed waitForTimeout calls with condition-based waiting
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
@@ -1469,6 +1474,43 @@ test.describe('Add Card - XSS Protection in Other Fields', () => {
       return typeElements.length > 0;
     });
     expect(hasOnclickHandler).toBe(false);
+  });
+
+  test('should handle empty VALID_CARD_TYPES array gracefully', async ({ page, authEmulator }) => {
+    const email = `xss-empty-types-${Date.now()}@test.com`;
+    await authEmulator.createUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Temporarily clear VALID_CARD_TYPES array to test edge case
+    await page.evaluate(() => {
+      // Save original array
+      window.__originalValidCardTypes = window.VALID_CARD_TYPES;
+      // Clear the array
+      window.VALID_CARD_TYPES = [];
+    });
+
+    const cardData = {
+      title: `Test Card ${Date.now()}-empty-types`,
+      type: 'Equipment',
+      subtype: 'Weapon',
+    };
+
+    await createCardViaUI(page, cardData);
+
+    // Verify sanitizeCardType handles empty array (should return empty string)
+    const sanitizedType = await page.evaluate(() => {
+      return window.sanitizeCardType('Equipment');
+    });
+    expect(sanitizedType).toBe('');
+
+    // Verify card still renders without crashing
+    const cardVisible = await page.locator('.card-item').first().isVisible();
+    expect(cardVisible).toBe(true);
+
+    // Restore original array
+    await page.evaluate(() => {
+      window.VALID_CARD_TYPES = window.__originalValidCardTypes;
+    });
   });
 });
 

@@ -66,6 +66,8 @@ export function generateTestCardData(suffix = '') {
  * need to wait for it to complete before interacting with auth-dependent features
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {number} timeout - Timeout in milliseconds (default: 3000)
+ * TODO(#481): Function name implies Firebase-specific logic but just wraps waitForTimeout
+ * Consider: rename to waitForAppInit, replace with direct calls, or actually check Firebase state
  */
 export async function waitForFirebaseInit(page, timeout = 3000) {
   await page.waitForTimeout(timeout);

@@ -271,6 +271,7 @@ export async function getCard(cardId) {
 export async function createCard(cardData) {
   await initFirebase();
 
+  // TODO(#481): Extract validation to validateCardData() helper to remove duplication with updateCard
   // Validate required fields before making Firestore call
   if (!cardData.title?.trim()) {
     throw new Error('Card title is required');

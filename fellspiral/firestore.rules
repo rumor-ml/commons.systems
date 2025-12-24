@@ -1,9 +1,8 @@
 rules_version = '2';
 
 // Firestore security rules for cards collection
-// Cards require 'title' and 'type' fields (title changed from 'name' in #244)
+// Cards require 'title', 'type', 'subtype', and 'isPublic' fields
 // Ensures data integrity and user attribution
-// Related: #305 for general documentation improvements
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -32,12 +31,11 @@ service cloud.firestore {
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // SECURITY TRADE-OFF: We do not validate createdAt timestamps because
-      // serverTimestamp() is a sentinel value during rule evaluation (request.time
-      // cannot be used to validate it). This means clients CAN provide arbitrary
-      // or missing createdAt values - a known data integrity risk we accept for
-      // simplicity. Mitigation: Client code should always use serverTimestamp()
-      // (see cards.js). User authentication is enforced via createdBy == request.auth.uid.
+      // SECURITY TRADE-OFF: We cannot validate createdAt timestamps during CREATE
+      // because serverTimestamp() is a sentinel value during rule evaluation.
+      // This means clients could theoretically provide arbitrary createdAt values.
+      // However, UPDATE operations DO validate lastModifiedAt == request.time.
+      // Mitigation: Client code uses serverTimestamp() (see firebase.js:298,342).
       // TODO(#283): Add tests confirming server timestamps are actually used
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))

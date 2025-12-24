@@ -18,8 +18,8 @@
  *   --dry-run    Show what would be updated without making changes
  *
  * Prerequisites:
- *   - Firebase Admin SDK credentials configured (GOOGLE_APPLICATION_CREDENTIALS env var)
- *   - Or run with: firebase-admin permissions
+ *   - GOOGLE_APPLICATION_CREDENTIALS environment variable set to service account JSON path
+ *   - Service account must have Firestore write permissions for the target project
  */
 
 import admin from 'firebase-admin';
@@ -116,6 +116,7 @@ async function migrateCards() {
     const batchSize = 500; // Firestore batch limit
     let updatedCount = 0;
     let errorCount = 0;
+    const failedBatches = [];
 
     for (let i = 0; i < cardsNeedingUpdate.length; i += batchSize) {
       const batch = db.batch();
@@ -130,21 +131,34 @@ async function migrateCards() {
         });
       });
 
+      const batchNum = Math.floor(i / batchSize) + 1;
       try {
         await batch.commit();
         updatedCount += batchCards.length;
-        console.log(`Updated batch ${Math.floor(i / batchSize) + 1}: ${batchCards.length} cards`);
+        console.log(`✅ Batch ${batchNum}: ${batchCards.length} cards updated`);
       } catch (error) {
         errorCount += batchCards.length;
-        console.error(`Error updating batch ${Math.floor(i / batchSize) + 1}:`, error.message);
+        console.error(`❌ CRITICAL: Batch ${batchNum} failed (${batchCards.length} cards):`, {
+          error: error.message,
+          code: error.code,
+          cardIds: batchCards.map(c => c.id)
+        });
+        failedBatches.push({ batchNum, cards: batchCards, error: error.message });
       }
     }
 
-    console.log(`\n✅ Migration complete!`);
-    console.log(`  Updated: ${updatedCount} cards`);
-    if (errorCount > 0) {
-      console.log(`  Errors: ${errorCount} cards`);
+    if (failedBatches.length > 0) {
+      console.error(`\n❌ MIGRATION INCOMPLETE - ${failedBatches.length} batches failed:`);
+      failedBatches.forEach(batch => {
+        console.error(`  Batch ${batch.batchNum}: ${batch.cards.length} cards - ${batch.error}`);
+      });
+      console.error('\n⚠️  DO NOT DEPLOY security rules until all batches succeed!');
+      console.error(`  Failed: ${errorCount} cards`);
+      console.error(`  Succeeded: ${updatedCount} cards`);
+      process.exit(1);
     }
+
+    console.log(`\n✅ Migration complete! All ${updatedCount} cards updated successfully.`);
   } catch (error) {
     console.error('Migration failed:', error);
     process.exit(1);

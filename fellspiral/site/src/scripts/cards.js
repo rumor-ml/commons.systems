@@ -9,6 +9,7 @@
  * Related: #305 for general documentation and error handling improvements
  */
 
+// TODO(#484): Issues #305 and #285 are CLOSED - review if these TODOs are still needed or create new issues
 // TODO(#305): Improve error logging for library nav initialization
 // TODO(#305): Show warning banner when event listener setup fails
 // TODO(#305): Add JSDoc for getAllCards() explaining error handling
@@ -113,12 +114,10 @@ function resetState() {
 // Combobox Component Functions
 // ==========================================================================
 
-// Get unique types from cards
 function getTypesFromCards() {
   return [...new Set(state.cards.filter((c) => c.type).map((c) => c.type))].sort();
 }
 
-// Get unique subtypes for a given type
 function getSubtypesForType(type) {
   if (!type) return [];
   return [
@@ -183,13 +182,12 @@ function createCombobox(config) {
   function refresh() {
     const inputValue = input.value.trim().toLowerCase();
 
-    // Wrap only getOptions() in try-catch - let rendering errors propagate
+    // Fetch options - separate try-catch for data fetching errors
     let availableOptions;
     try {
       availableOptions = getOptions();
     } catch (error) {
-      // TODO(#285): Categorize errors and provide specific user guidance (DOM vs data vs unexpected)
-      // Log comprehensive error details for debugging
+      // TODO(#285): Categorize errors and provide specific user guidance
       console.error('[Cards] Error fetching combobox options:', {
         comboboxId: comboboxId,
         inputValue: input.value,
@@ -204,42 +202,54 @@ function createCombobox(config) {
 
       const errorLi = document.createElement('li');
       errorLi.className = 'combobox-option combobox-error-message';
-      errorLi.textContent = 'Error loading options. Please try again.';
+      errorLi.textContent = 'Unable to load options. Please refresh the page.';
       listbox.appendChild(errorLi);
       return;
     }
 
-    // Clear any previous error state
-    listbox.classList.remove('combobox-error');
+    // Render options - separate try-catch for DOM errors with clearer context
+    try {
+      // Clear any previous error state
+      listbox.classList.remove('combobox-error');
 
-    // Filter options based on input
-    currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
+      // Filter options based on input
+      currentOptions = availableOptions.filter((opt) => opt.toLowerCase().includes(inputValue));
 
-    // Check if input exactly matches an existing option
-    const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
-    const showAddNew = inputValue && !exactMatch;
+      // Check if input exactly matches an existing option
+      const exactMatch = availableOptions.some((opt) => opt.toLowerCase() === inputValue);
+      const showAddNew = inputValue && !exactMatch;
 
-    // Clear listbox
-    listbox.replaceChildren();
+      // Clear listbox
+      listbox.replaceChildren();
 
-    // Show "no options" message if nothing to display
-    if (currentOptions.length === 0 && !showAddNew) {
-      const li = document.createElement('li');
-      li.className = 'combobox-option';
-      li.textContent = 'No options available';
-      li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
-      listbox.appendChild(li);
-      return;
-    }
+      // Show "no options" message if nothing to display
+      if (currentOptions.length === 0 && !showAddNew) {
+        const li = document.createElement('li');
+        li.className = 'combobox-option';
+        li.textContent = 'No options available';
+        li.style.cssText = 'font-style: italic; color: var(--color-text-tertiary);';
+        listbox.appendChild(li);
+        return;
+      }
 
-    // Add matching options
-    currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
+      // Add matching options
+      currentOptions.forEach((opt) => listbox.appendChild(createOption(opt, opt)));
 
-    // Add "Add new" option for custom values
-    if (showAddNew) {
-      listbox.appendChild(
-        createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
-      );
+      // Add "Add new" option for custom values
+      if (showAddNew) {
+        listbox.appendChild(
+          createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+        );
+      }
+    } catch (error) {
+      console.error('[Cards] Error rendering combobox options:', {
+        comboboxId: comboboxId,
+        errorType: error.constructor.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      // Let rendering errors propagate with clear context about what failed
+      throw new Error(`Combobox rendering failed for ${comboboxId}: ${error.message}`);
     }
   }
 
@@ -285,7 +295,8 @@ function createCombobox(config) {
     // fire blur before preventDefault() executes due to event loop timing.
     // The 200ms delay ensures mousedown completes before hiding the dropdown.
     // This is a timing-based workaround with a safety margin.
-    // TODO: See issue #286 - Document browser compatibility test results and minimum safe delay values
+    // TODO(#483): Replace setTimeout with relatedTarget check (timing-based hack fails on slow devices)
+    // TODO(#484): Issue #286 is CLOSED - document browser tests or acknowledge as magic number
     setTimeout(() => {
       hide();
     }, 200);
@@ -614,6 +625,7 @@ async function loadCards() {
     });
     state.error = error.message;
 
+    // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
     // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
     if (error.code === 'permission-denied') {
       // Permission denied - expected for anonymous users
@@ -725,6 +737,7 @@ function setupEventListeners() {
     bindListener('cardForm', 'submit', handleCardSave, missingElements);
     bindListener('.modal-backdrop', 'click', closeCardEditor, missingElements);
 
+    // TODO(#481): Extract combobox cleanup to helper function to remove duplication (~15 lines)
     // Clean up existing comboboxes to prevent memory leaks
     if (typeCombobox) {
       try {
@@ -911,6 +924,8 @@ function setupAuthStateListener() {
       }
     }, 500);
   } catch (error) {
+    // TODO(#483): Auth listener string matching is fragile - improve error categorization
+    // String matching could misclassify errors (e.g., "CORS blocked" matching "before auth")
     // Check error using structured properties instead of fragile string matching
     const isAuthNotReady =
       error.code === 'auth-not-initialized' ||
@@ -1152,8 +1167,9 @@ function renderCards() {
 
     cardList.innerHTML = renderedCards.join('');
 
-    // TODO(#305): Lower render failure threshold to 1 card and show which cards failed
-    // TODO(#331): Current threshold >10% means users don't see missing cards
+    // TODO(#331): Lower render failure threshold to 1 card and show which cards failed
+    // Current threshold >10% means users don't see missing cards - this causes silent failures
+    // See all-hands review for complete fix including error placeholders and detailed error UI
     // Warn if significant failures
     if (failedCards > 0) {
       console.error(`[Cards] ${failedCards}/${state.filteredCards.length} cards failed to render`);
@@ -1451,6 +1467,7 @@ async function handleCardSave(e) {
       errorCategory = 'precondition';
       userMessage += 'Operation failed due to server validation. Please check your input.';
     } else {
+      // TODO(#483): Sanitize error messages - don't expose raw Firebase errors to users
       errorCategory = 'unexpected';
       userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
     }
