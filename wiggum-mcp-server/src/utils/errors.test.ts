@@ -21,9 +21,9 @@ import {
 
 describe('Error Classes', () => {
   it('should create McpError with message and code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.strictEqual(error.message, 'Test error');
-    assert.strictEqual(error.code, 'TEST_CODE');
+    assert.strictEqual(error.code, 'TIMEOUT');
     assert.strictEqual(error.name, 'McpError');
   });
 
@@ -59,7 +59,7 @@ describe('Error Classes', () => {
 
   it('should create GitHubCliError with cause', () => {
     const cause = new Error('Original error');
-    const error = new GitHubCliError('Command failed', undefined, undefined, cause);
+    const error = new GitHubCliError('Command failed', undefined, undefined, undefined, cause);
     assert.strictEqual(error.cause, cause);
   });
 
@@ -167,7 +167,8 @@ describe('createErrorResult', () => {
     const error = new GitError('Git failed');
     const result = createErrorResult(error);
 
-    assert.strictEqual(result._meta?.errorType, 'GitError');
+    // GitError extends McpError, so it's handled as McpError with specific code
+    assert.strictEqual(result._meta?.errorType, 'McpError');
     assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
   });
 
@@ -175,6 +176,7 @@ describe('createErrorResult', () => {
     const error = new FormattingError('Invalid format');
     const result = createErrorResult(error);
 
+    // FormattingError now has explicit instanceof handling in createErrorResultFromError
     assert.strictEqual(result._meta?.errorType, 'FormattingError');
     assert.strictEqual(result._meta?.errorCode, 'FORMATTING_ERROR');
   });
@@ -219,7 +221,8 @@ describe('createErrorResult', () => {
 describe('formatError', () => {
   it('should format Error object', () => {
     const error = new Error('Test error');
-    assert.strictEqual(formatError(error), 'Test error');
+    // formatError from mcp-common includes error type prefix
+    assert.strictEqual(formatError(error), '[Error] Test error');
   });
 
   it('should format string error', () => {

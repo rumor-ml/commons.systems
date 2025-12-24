@@ -36,12 +36,14 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
+    // TODO: See issue #443 - Distinguish programming errors from operational errors
     if (error instanceof GitHubCliError) {
       throw error;
     }
     if (error instanceof Error) {
       throw new GitHubCliError(
         `Failed to execute gh CLI: ${error.message}`,
+        undefined,
         undefined,
         undefined,
         error
@@ -60,14 +62,14 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
-    // TODO: See issue #332 - Improve error context (show more output, include full command)
     // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new ParsingError(
       `Failed to parse JSON response from gh CLI: ${errorMessage}\n` +
         `Command: gh ${args.join(' ')}\n` +
-        `Output (first 200 chars): ${outputSnippet}`
+        `Output (first 200 chars): ${outputSnippet}`,
+      error instanceof Error ? error : undefined
     );
   }
 }
@@ -156,12 +158,16 @@ export interface FailedStepLog {
  *
  * This function groups log lines by job and step for easier processing.
  *
+ * **Important**: Malformed lines (missing tabs) are silently skipped.
+ * See issue #454 for debug logging enhancement.
+ *
  * @param output - Raw output from `gh run view --log-failed`
  * @returns Array of failed step logs grouped by job and step
  */
 export function parseFailedStepLogs(output: string): FailedStepLog[] {
   const steps: Map<string, FailedStepLog> = new Map();
 
+  // TODO: See issue #454 - Add debug logging for skipped malformed log lines
   for (const line of output.split('\n')) {
     // Split by first two tabs only
     const firstTab = line.indexOf('\t');
@@ -263,8 +269,9 @@ export async function getWorkflowRunsForCommit(
  * to the workflow run status format used by the monitoring tools.
  *
  * Mapping rationale:
- * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": All represent actively running or queued checks
- * - All other states (SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE) → "completed": Terminal states
+ * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
+ * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
+ * - Unknown states → "completed": Conservative default (treats unrecognized states as terminal)
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE

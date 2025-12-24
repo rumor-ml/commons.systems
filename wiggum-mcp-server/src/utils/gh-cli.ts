@@ -55,6 +55,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
+    // TODO: See issue #443 - Distinguish programming errors from operational errors
     if (error instanceof GitHubCliError) {
       throw error;
     }
@@ -62,6 +63,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const originalError = error instanceof Error ? error : new Error(String(error));
     throw new GitHubCliError(
       `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
+      undefined,
       undefined,
       undefined,
       originalError
@@ -123,6 +125,7 @@ export async function getCurrentRepo(): Promise<string> {
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
       error instanceof GitHubCliError ? error.exitCode : undefined,
       error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined,
       error instanceof Error ? error : undefined
     );
   }
@@ -331,6 +334,7 @@ export async function getPRReviewComments(
   const comments: GitHubPRReviewComment[] = [];
 
   // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
+  // TODO: See issue #457 - Skip malformed comments, log warning, continue processing valid comments
   // Current: throws on first malformed comment, blocking all remaining valid comments
   for (const line of lines) {
     try {
@@ -384,6 +388,7 @@ export function sleep(ms: number): Promise<void> {
  * }
  * ```
  */
+// TODO: See issue #453 - Use error types instead of string matching for retry logic
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
