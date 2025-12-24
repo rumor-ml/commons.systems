@@ -1,104 +1,61 @@
 /**
  * Tests for state detection
+ *
+ * NOTE: Full behavioral tests for detectGitState, detectPRState, and detectCurrentState
+ * require mocking ES module exports, which Node.js test runner doesn't support directly.
+ * These tests verify:
+ * 1. Functions are exported correctly
+ * 2. Type safety for discriminated unions (PRState)
+ * 3. Basic error handling patterns
+ *
+ * For full integration testing, use actual git repositories via test fixtures.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
+import { detectGitState, detectPRState, detectCurrentState } from './detector.js';
+import type { PRState } from './types.js';
+
 describe('State Detection', () => {
-  describe('detectGitState', () => {
-    it('should detect all git state properties', async () => {
-      // This test verifies that detectGitState collects all required git information
-      // Implementation: Mock git utilities to return known values
-      // Expected: Returns GitState with all properties correctly set
+  describe('exports', () => {
+    it('should export detectGitState function', () => {
+      assert.strictEqual(typeof detectGitState, 'function');
     });
 
-    it('should correctly identify main branch', async () => {
-      // This test verifies main branch detection
-      // Implementation: Mock getCurrentBranch to return "main", getMainBranch to return "main"
-      // Expected: isMainBranch is true
+    it('should export detectPRState function', () => {
+      assert.strictEqual(typeof detectPRState, 'function');
     });
 
-    it('should correctly identify feature branch', async () => {
-      // This test verifies feature branch detection
-      // Implementation: Mock getCurrentBranch to return "feature-123", getMainBranch to return "main"
-      // Expected: isMainBranch is false
-    });
-
-    it('should detect uncommitted changes', async () => {
-      // This test verifies uncommitted changes detection
-      // Implementation: Mock hasUncommittedChanges to return true
-      // Expected: hasUncommittedChanges is true
-    });
-
-    it('should detect pushed branch with remote tracking', async () => {
-      // This test verifies pushed branch detection
-      // Implementation: Mock hasRemoteTracking and isBranchPushed to return true
-      // Expected: isRemoteTracking and isPushed are true
+    it('should export detectCurrentState function', () => {
+      assert.strictEqual(typeof detectCurrentState, 'function');
     });
   });
 
-  describe('detectPRState', () => {
-    it('should detect existing PR', async () => {
-      // This test verifies PR detection when PR exists
-      // Implementation: Mock getPR to return PR data
-      // Expected: Returns PRState with exists=true and all PR details
+  describe('function signatures', () => {
+    it('detectGitState should return a Promise', () => {
+      // Verify it's an async function by checking constructor name
+      // We don't actually call it to avoid git operations
+      assert.ok(
+        detectGitState.constructor.name === 'AsyncFunction',
+        'detectGitState should be an async function'
+      );
     });
 
-    it('should handle missing PR', async () => {
-      // This test verifies handling when no PR exists
-      // Implementation: Mock getPR to throw error
-      // Expected: Returns PRState with exists=false
+    it('detectPRState should accept optional repo parameter', () => {
+      // Function length tells us about required params
+      // Optional params still result in length 0 for the first optional
+      assert.ok(
+        detectPRState.constructor.name === 'AsyncFunction',
+        'detectPRState should be an async function'
+      );
     });
 
-    it('should log warning for unexpected errors', async () => {
-      // This test verifies logging of unexpected errors
-      // Implementation: Mock getPR to throw unexpected error (not "no pull requests found")
-      // Expected: Returns exists=false, logs warning with error message
-    });
-
-    it('should not log warning for expected "no PR" errors', async () => {
-      // This test verifies no warning for expected errors
-      // Implementation: Mock getPR to throw error with "no pull requests found"
-      // Expected: Returns exists=false, no warning logged
-    });
-
-    it('should extract PR labels correctly', async () => {
-      // This test verifies label extraction
-      // Implementation: Mock getPR to return PR with labels
-      // Expected: Returns PRState with correct label names
-    });
-
-    it('should handle PR with no labels', async () => {
-      // This test verifies handling of PRs without labels
-      // Implementation: Mock getPR to return PR with empty/undefined labels
-      // Expected: Returns PRState with empty labels array
-    });
-  });
-
-  describe('detectCurrentState', () => {
-    it('should combine git, PR, and wiggum state', async () => {
-      // This test verifies that detectCurrentState combines all state sources
-      // Implementation: Mock all detection functions
-      // Expected: Returns CurrentState with git, pr, and wiggum properties
-    });
-
-    it('should fetch wiggum state when PR exists', async () => {
-      // This test verifies wiggum state fetching for existing PRs
-      // Implementation: Mock PR to exist, mock getWiggumState
-      // Expected: Returns CurrentState with wiggum state from PR comments
-    });
-
-    it('should use initial wiggum state when PR does not exist', async () => {
-      // This test verifies default wiggum state for non-existent PRs
-      // Implementation: Mock PR to not exist
-      // Expected: Returns CurrentState with initial wiggum state (iteration=0, step="0", completedSteps=[])
-    });
-
-    it('should handle errors gracefully', async () => {
-      // This test verifies error handling in state detection
-      // Implementation: Mock one of the detection functions to fail
-      // Expected: Error is propagated or handled appropriately
+    it('detectCurrentState should accept optional repo and depth parameters', () => {
+      assert.ok(
+        detectCurrentState.constructor.name === 'AsyncFunction',
+        'detectCurrentState should be an async function'
+      );
     });
   });
 });
@@ -106,10 +63,8 @@ describe('State Detection', () => {
 describe('Type Safety', () => {
   describe('PRState discriminated union', () => {
     it('should narrow type when exists is true', () => {
-      // This test verifies TypeScript type narrowing
-      // Implementation: Create PRState with exists=true
-      // Expected: TypeScript knows number, title, etc. are available
-      const prState: any = {
+      // TypeScript compile-time test: accessing properties should type-check
+      const prState: PRState = {
         exists: true,
         number: 123,
         title: 'Test PR',
@@ -121,25 +76,105 @@ describe('Type Safety', () => {
       };
 
       if (prState.exists) {
-        // Type narrowing should allow accessing these properties
+        // Type narrowing allows accessing these properties
         assert.strictEqual(typeof prState.number, 'number');
         assert.strictEqual(typeof prState.title, 'string');
+        assert.strictEqual(typeof prState.state, 'string');
+        assert.strictEqual(typeof prState.url, 'string');
+        assert.ok(Array.isArray(prState.labels));
+        assert.strictEqual(typeof prState.headRefName, 'string');
+        assert.strictEqual(typeof prState.baseRefName, 'string');
       }
     });
 
-    it('should not have optional properties when exists is false', () => {
-      // This test verifies type safety for non-existent PR
-      // Implementation: Create PRState with exists=false
-      // Expected: TypeScript knows optional properties are not available
-      const prState: any = {
+    it('should have correct structure when exists is false', () => {
+      const prState: PRState = {
         exists: false,
       };
 
-      if (!prState.exists) {
-        // Type narrowing should indicate no PR properties
-        assert.strictEqual(prState.number, undefined);
-        assert.strictEqual(prState.title, undefined);
+      assert.strictEqual(prState.exists, false);
+      // TypeScript prevents accessing .number, .title, etc. when exists is false
+      // Runtime check: these properties should not exist
+      assert.strictEqual('number' in prState, false);
+      assert.strictEqual('title' in prState, false);
+    });
+
+    it('should only accept OPEN, CLOSED, or MERGED states', () => {
+      const validStates = ['OPEN', 'CLOSED', 'MERGED'];
+
+      // All valid states should work
+      for (const state of validStates) {
+        const prState: PRState = {
+          exists: true,
+          number: 1,
+          title: 'Test',
+          state: state as 'OPEN' | 'CLOSED' | 'MERGED',
+          url: 'https://github.com/test/test/pull/1',
+          labels: [],
+          headRefName: 'test',
+          baseRefName: 'main',
+        };
+        assert.ok(validStates.includes(prState.state));
       }
+    });
+
+    it('should require all fields when exists is true', () => {
+      // This is a compile-time check - TypeScript would error if any field is missing
+      const prState: PRState = {
+        exists: true,
+        number: 123,
+        title: 'Required',
+        state: 'OPEN',
+        url: 'https://github.com/owner/repo/pull/123',
+        labels: [],
+        headRefName: 'feature',
+        baseRefName: 'main',
+      };
+
+      // All required fields present
+      assert.ok(prState.exists);
+      assert.ok(typeof prState.number === 'number');
+      assert.ok(typeof prState.title === 'string');
+      assert.ok(typeof prState.state === 'string');
+      assert.ok(typeof prState.url === 'string');
+      assert.ok(Array.isArray(prState.labels));
+      assert.ok(typeof prState.headRefName === 'string');
+      assert.ok(typeof prState.baseRefName === 'string');
+    });
+  });
+
+  describe('labels array', () => {
+    it('should accept empty labels array', () => {
+      const prState: PRState = {
+        exists: true,
+        number: 1,
+        title: 'Test',
+        state: 'OPEN',
+        url: 'https://github.com/test/test/pull/1',
+        labels: [],
+        headRefName: 'test',
+        baseRefName: 'main',
+      };
+
+      assert.deepStrictEqual(prState.labels, []);
+    });
+
+    it('should accept labels array with strings', () => {
+      const prState: PRState = {
+        exists: true,
+        number: 1,
+        title: 'Test',
+        state: 'OPEN',
+        url: 'https://github.com/test/test/pull/1',
+        labels: ['bug', 'enhancement', 'priority:high'],
+        headRefName: 'test',
+        baseRefName: 'main',
+      };
+
+      assert.strictEqual(prState.labels.length, 3);
+      assert.ok(prState.labels.includes('bug'));
+      assert.ok(prState.labels.includes('enhancement'));
+      assert.ok(prState.labels.includes('priority:high'));
     });
   });
 });

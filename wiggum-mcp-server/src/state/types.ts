@@ -2,7 +2,9 @@
  * State management types for Wiggum flow
  */
 
-import type { WiggumStep } from '../constants.js';
+// TODO(#304): Add readonly modifiers to type definitions
+
+import type { WiggumStep, WiggumPhase } from '../constants.js';
 
 /**
  * Wiggum state tracked via PR comments
@@ -11,6 +13,7 @@ export interface WiggumState {
   iteration: number;
   step: WiggumStep;
   completedSteps: WiggumStep[];
+  phase: WiggumPhase;
 }
 
 /**
@@ -56,10 +59,19 @@ export interface PRDoesNotExist {
 }
 
 /**
+ * Issue state from GitHub
+ */
+export interface IssueState {
+  exists: boolean;
+  number?: number;
+}
+
+/**
  * Complete current state for wiggum flow
  */
 export interface CurrentState {
   git: GitState;
   pr: PRState;
+  issue: IssueState;
   wiggum: WiggumState;
 }

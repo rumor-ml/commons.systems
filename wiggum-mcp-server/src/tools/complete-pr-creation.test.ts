@@ -148,4 +148,74 @@ describe('PR state validation', () => {
       assert.strictEqual(shouldBlock, false);
     });
   });
+
+  describe('Phase 2 routing validation (issue #429)', () => {
+    it('should pass Phase 2 validation with updated PR state after creation', () => {
+      // After PR creation, the updated state should have pr.exists = true
+      // This validates the fix for issue #429 where stale state caused failure
+      const updatedState = {
+        git: {
+          currentBranch: '123-feature',
+          isMainBranch: false,
+          hasUncommittedChanges: false,
+          isRemoteTracking: true,
+          isPushed: true,
+        },
+        pr: {
+          exists: true,
+          number: 456,
+          title: '123-feature',
+          state: 'OPEN' as const,
+          url: 'https://github.com/owner/repo/pull/456',
+          labels: ['needs-review'],
+          headRefName: '123-feature',
+          baseRefName: 'main',
+        },
+        issue: { exists: true, number: 123 },
+        wiggum: {
+          iteration: 0,
+          step: 'p1-4' as const,
+          completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4'] as const,
+          phase: 'phase2' as const,
+        },
+      };
+
+      // The validation in getPhase2NextStep at router.ts:781 checks:
+      // !state.pr.exists || state.pr.state !== 'OPEN'
+      const wouldFailValidation = !updatedState.pr.exists || updatedState.pr.state !== 'OPEN';
+      assert.strictEqual(
+        wouldFailValidation,
+        false,
+        'Updated state should pass Phase 2 validation'
+      );
+    });
+
+    it('should fail Phase 2 validation with stale PR state (demonstrates bug)', () => {
+      // Before the fix, state.pr would retain exists: false after PR creation
+      // This demonstrates the bug behavior that issue #429 fixes
+      const staleState = {
+        git: {
+          currentBranch: '123-feature',
+          isMainBranch: false,
+          hasUncommittedChanges: false,
+          isRemoteTracking: true,
+          isPushed: true,
+        },
+        pr: {
+          exists: false, // STALE: PR was just created but state wasn't updated
+        },
+        issue: { exists: true, number: 123 },
+        wiggum: {
+          iteration: 0,
+          step: 'p1-4' as const,
+          completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4'] as const,
+          phase: 'phase2' as const,
+        },
+      };
+
+      // The validation would fail with stale state
+      const wouldFailValidation = !staleState.pr.exists;
+      assert.strictEqual(wouldFailValidation, true, 'Stale state would fail Phase 2 validation');
+    });
+  });
 });

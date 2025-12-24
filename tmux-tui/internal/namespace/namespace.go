@@ -57,7 +57,9 @@ func DaemonPID() string {
 }
 
 // BlockedPanesFile returns the path to the blocked panes JSON file for this session.
-// Deprecated: Use BlockedBranchesFile instead.
+// DEPRECATED: Use BlockedBranchesFile instead.
+// STATUS: Never used in daemon, retained only for JSON backward compatibility.
+// REMOVAL: Can be safely removed in next major version when breaking protocol changes are acceptable.
 func BlockedPanesFile() string {
 	return filepath.Join(GetSessionNamespace(), "tui-blocked-panes.json")
 }
@@ -65,4 +67,9 @@ func BlockedPanesFile() string {
 // BlockedBranchesFile returns the path to the blocked branches JSON file for this session.
 func BlockedBranchesFile() string {
 	return filepath.Join(GetSessionNamespace(), "tui-blocked-branches.json")
+}
+
+// DaemonLockFile returns the path to the daemon lock file for this session.
+func DaemonLockFile() string {
+	return filepath.Join(GetSessionNamespace(), "daemon.lock")
 }

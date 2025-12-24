@@ -6,7 +6,9 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('HTMX Cross-Page Navigation', () => {
-  test('should load cards when navigating from homepage to Equipment type', async ({ page }) => {
+  test('@smoke should load cards when navigating from homepage to Equipment type', async ({
+    page,
+  }) => {
     // Start at homepage
     await page.goto('/');
 

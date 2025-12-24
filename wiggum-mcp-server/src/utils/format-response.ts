@@ -20,6 +20,8 @@
  * @module format-response
  */
 
+// TODO(#304): Add readonly modifiers to type definitions
+
 import { FormattingError } from './errors.js';
 
 /**
@@ -46,12 +48,14 @@ interface ResponseData {
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
+  warning?: string;
   context: ResponseContext;
 }
 
 /**
  * Validate response data has all required fields with correct types
  *
+ * TODO(#304): Fix instructions validation contradiction (allow empty strings) - see PR review for #273
  * Enforces ResponseData interface schema requirements (see lines 43-50):
  * - All fields are required by protocol specification
  * - Types must match exactly (string, number, array, object as specified)
@@ -170,8 +174,15 @@ export function formatWiggumResponse(data: unknown): string {
     iteration_count,
     instructions,
     steps_completed_by_tool,
+    warning,
     context,
   } = data;
+
+  // Format warning banner if present
+  let response = '';
+  if (warning) {
+    response += `${warning}\n\n`;
+  }
 
   // Format steps completed section
   const stepsSection =
@@ -194,7 +205,7 @@ export function formatWiggumResponse(data: unknown): string {
     })
     .join('\n');
 
-  return `## ${current_step} (Step ${step_number})
+  response += `## ${current_step} (Step ${step_number})
 **Iteration:** ${iteration_count}
 
 ### BINDING INSTRUCTIONS - EXECUTE IMMEDIATELY
@@ -215,4 +226,6 @@ ${stepsSection}
 
 ### Context
 ${contextEntries}`;
+
+  return response;
 }

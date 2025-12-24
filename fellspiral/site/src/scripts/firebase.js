@@ -1,5 +1,14 @@
 /**
  * Firebase and Firestore initialization
+ *
+ * Documentation and error handling improvements:
+ * - JSDoc for key functions explaining error handling
+ * - Improved comments for IPv4 address requirement (emulator binding)
+ * - Improved comments for module binding patterns
+ * - Better error logging with structured context objects
+ * - Enhanced error messages for Firebase operations
+ *
+ * Related: #305 for general documentation and error handling improvements
  */
 
 import { initializeApp, getApp } from 'firebase/app';
@@ -106,9 +115,10 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
+        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
         const msg = error.message || '';
 
-        // Expected: already connected
+        // Expected: already connected (happens on HTMX page swaps)
         if (msg.includes('already')) {
           console.debug('[Firebase] Emulators already connected');
           return { app, db, auth, cardsCollection };
@@ -317,7 +327,11 @@ export async function deleteCard(cardId) {
     const cardRef = doc(db, getCardsCollectionName(), cardId);
     await deleteDoc(cardRef);
   } catch (error) {
-    console.error('Error deleting card:', error);
+    console.error('[Firebase] Error deleting card:', {
+      cardId,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }

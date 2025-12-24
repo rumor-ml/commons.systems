@@ -1,0 +1,293 @@
+/* Import design system */
+@import '@commons/design-system';
+
+/* Tailwind base */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styles */
+body {
+  @apply bg-bg-base text-text-primary;
+  min-height: 100vh;
+}
+
+/* App container */
+.app-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Header */
+.app-header {
+  @apply mb-8;
+}
+
+.app-title {
+  @apply text-4xl font-bold text-text-primary mb-2;
+}
+
+.app-subtitle {
+  @apply text-text-secondary;
+}
+
+/* Main layout - chart and legend side by side */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Summary cards */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  @apply bg-bg-elevated rounded-lg shadow-md p-4;
+}
+
+.summary-label {
+  @apply text-text-secondary text-sm uppercase tracking-wide mb-1;
+}
+
+.summary-value {
+  @apply text-2xl font-bold;
+}
+
+.summary-value.positive {
+  @apply text-success;
+}
+
+.summary-value.negative {
+  @apply text-error;
+}
+
+.summary-value.neutral {
+  @apply text-text-primary;
+}
+
+/* Chart container adjustments */
+.chart-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Observable Plot overrides for dark theme */
+svg {
+  background: transparent;
+}
+
+/* Ensure checkboxes work with design system */
+input[type='checkbox'] {
+  cursor: pointer;
+}
+
+/* Loading spinner from design system */
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline-block;
+}
+
+/* Prevent FOUC - hide content until JS initializes */
+.app-container.app-loading {
+  opacity: 0;
+}
+
+.app-container {
+  opacity: 1;
+  transition: opacity 150ms ease-in;
+}
+
+/* Loading skeleton states */
+.skeleton-card {
+  @apply bg-bg-elevated rounded-lg shadow-md p-4;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-line {
+  @apply bg-bg-hover rounded;
+  height: 1rem;
+  margin-bottom: 0.5rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-line.wide {
+  width: 100%;
+}
+
+.skeleton-line.medium {
+  width: 60%;
+}
+
+.skeleton-line.small {
+  width: 40%;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Legend item transitions */
+.legend-item {
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+
+/* Legend category row styles */
+.legend-category-row {
+  transition: all 200ms ease;
+}
+
+.legend-category-row:not(.legend-category-hidden):hover {
+  filter: brightness(1.15);
+  transform: scale(1.02);
+}
+
+.legend-category-hidden {
+  filter: grayscale(100%);
+  opacity: 0.5;
+}
+
+/* Tooltip styles */
+.segment-tooltip {
+  min-width: 280px;
+  max-width: 320px;
+  padding: 1rem;
+  animation: tooltipFadeIn 150ms ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-bg-hover);
+}
+
+.tooltip-category {
+  @apply text-lg font-semibold text-text-primary;
+  margin: 0;
+}
+
+.tooltip-month {
+  @apply text-sm text-text-secondary;
+  margin: 0.25rem 0 0 0;
+}
+
+.tooltip-close {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 1rem;
+  transition: color 150ms ease;
+}
+
+.tooltip-close:hover {
+  color: var(--color-text-primary);
+}
+
+.tooltip-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--color-bg-surface);
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-primary-muted);
+}
+
+.tooltip-total-label {
+  @apply font-semibold text-text-primary;
+}
+
+.tooltip-total-value {
+  @apply text-lg font-bold text-primary;
+}
+
+.tooltip-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tooltip-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tooltip-section-title {
+  @apply text-xs font-semibold text-text-secondary uppercase tracking-wide;
+  margin: 0 0 0.25rem 0;
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.375rem 0;
+}
+
+.tooltip-label {
+  @apply text-sm text-text-secondary;
+}
+
+.tooltip-value {
+  @apply text-sm font-medium text-text-primary;
+}
+
+.tooltip-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-bg-hover);
+}
+
+.tooltip-transaction-count {
+  @apply text-xs text-text-tertiary;
+}
+
+.tooltip-hint {
+  @apply text-xs text-text-tertiary italic;
+}

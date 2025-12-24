@@ -1,5 +1,10 @@
 rules_version = '2';
 
+// Firestore security rules for cards collection
+// Ensures data integrity and user attribution
+// Related: #283 for security rules validation tests
+// Related: #305 for general documentation improvements
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
