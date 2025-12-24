@@ -8,6 +8,7 @@ import type {
   ExtractedError,
   FrameworkExtractor,
 } from './types.js';
+import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
 
 interface GoTestEvent {
   Time: string;
@@ -31,6 +32,16 @@ export class GoExtractor implements FrameworkExtractor {
     return match ? line.slice(match[0].length) : line;
   }
 
+  /**
+   * Detect Go test framework from log output
+   *
+   * Searches for Go test JSON format (-json flag) or text format markers.
+   * Handles GitHub Actions timestamp prefixes. Samples first 500 lines due
+   * to Actions preamble.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level and format type, or null if not Go
+   */
   detect(logText: string): DetectionResult | null {
     const lines = logText.split('\n');
     let jsonLineCount = 0;
@@ -84,11 +95,25 @@ export class GoExtractor implements FrameworkExtractor {
     return null;
   }
 
+  /**
+   * Extract test failures and errors from Go test logs
+   *
+   * Handles both JSON (-json flag) and text output formats. For JSON, parses
+   * structured test events. For text, extracts failure messages using pattern
+   * matching. Includes test summary statistics when available.
+   *
+   * @param logText - Raw log text containing Go test output
+   * @param maxErrors - Maximum number of errors to extract (default: 10)
+   * @returns Extraction result with framework name, errors, and summary statistics
+   *   - Returns empty errors array if no valid test events found
+   *   - Skips malformed JSON lines (e.g., build output, dependency downloads)
+   *   - Continues extraction even if individual test events are malformed
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
     if (detection?.isJsonOutput) {
-      return this.parseGoTestJson(logText);
+      return this.parseGoTestJson(logText, maxErrors);
     } else if (detection) {
       return this.parseGoTestText(logText, maxErrors);
     }
@@ -100,58 +125,124 @@ export class GoExtractor implements FrameworkExtractor {
     };
   }
 
-  private parseGoTestJson(logText: string): ExtractionResult {
+  private parseGoTestJson(logText: string, maxErrors = 10): ExtractionResult {
     const lines = logText.split('\n');
     const testOutputs = new Map<string, string[]>();
     const failures: ExtractedError[] = [];
     const testResults = new Map<string, 'pass' | 'fail'>();
     const testDurations = new Map<string, number>();
     let skippedNonJsonLines = 0;
+    let testEventParseErrors = 0;
+    const validationTracker = new ValidationErrorTracker();
 
-    for (const rawLine of lines) {
+    // Architecture: Three-stage processing with two error handling boundaries
+    //
+    // WHY THIS COMPLEXITY EXISTS:
+    // Go test output (`go test -json`) intermingles valid test events with build messages,
+    // compilation errors, and GitHub Actions log lines. We need to:
+    // 1. Parse valid JSON from mixed content (some lines aren't JSON at all)
+    // 2. Filter test events from other JSON (build output can also be valid JSON)
+    // 3. Validate extracted data meets our ExtractedError schema
+    //
+    // STAGE 1 (JSON.parse): Error handling boundary - catches syntax errors
+    //   - Wraps JSON.parse() in try-catch
+    //   - Expected errors: non-JSON lines (build output, GH Actions logs, compiler messages)
+    //   - Action: Skip line, track diagnostic samples for user visibility
+    //
+    // STAGE 2 (Field validation): NO error handling - validation only
+    //   - Checks parsed JSON has required test event fields (Time, Action, Package)
+    //   - No catch block: bugs in field access propagate for debugging
+    //   - Action: Skip non-test-event JSON (e.g., build metadata)
+    //
+    // STAGE 3 (Schema validation): Error handling boundary - catches schema errors
+    //   - safeValidateExtractedError() catches Zod validation failures
+    //   - Creates fallback ExtractedError with full diagnostics
+    //   - Ensures we NEVER silently drop test failures
+    //
+    // This separation ensures:
+    // 1. JSON syntax errors don't mask structural validation issues
+    // 2. Validation errors get full diagnostic context (line number, raw JSON)
+    // 3. Bugs in extraction code propagate for visibility (not caught accidentally)
+
+    // Parse error samples for user visibility
+    interface ParseErrorSample {
+      lineSnippet: string; // First 200 chars
+      errorMessage: string; // Parse error
+      lineNumber: number; // Position in log
+    }
+    const parseErrorSamples: ParseErrorSample[] = [];
+    const MAX_ERROR_SAMPLES = 3;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const rawLine = lines[lineIndex];
       const line = this.stripTimestamp(rawLine);
       if (!line.startsWith('{')) continue;
 
+      // SECTION 1: Parse JSON (narrow catch scope - only catches JSON.parse errors)
+      let event: GoTestEvent;
       try {
-        const event = JSON.parse(line) as GoTestEvent;
+        event = JSON.parse(line) as GoTestEvent;
+      } catch (parseError) {
+        // ONLY handles JSON.parse() failures - EXPECTED
+        // Expected: build output, compilation messages, GitHub Actions logs
+        const looksLikeTestEvent =
+          line.includes('"Time"') || line.includes('"Action"') || line.includes('"Package"');
 
-        // Use a more specific key that includes both package and test
-        // This ensures we don't mix up tests from different packages
-        const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
+        if (looksLikeTestEvent) {
+          // CRITICAL: Test event JSON that failed to parse - always log prominently
+          testEventParseErrors++;
+          const lineSnippet = line.length > 200 ? line.substring(0, 200) + '...' : line;
 
-        // Collect output lines for each test
-        if (event.Action === 'output' && event.Output) {
-          if (!testOutputs.has(key)) {
-            testOutputs.set(key, []);
+          // Store sample for user visibility
+          if (parseErrorSamples.length < MAX_ERROR_SAMPLES) {
+            parseErrorSamples.push({
+              lineSnippet,
+              errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
+              lineNumber: lineIndex + 1,
+            });
           }
-          testOutputs.get(key)!.push(event.Output);
-        }
 
-        // Track test results and duration
-        if (event.Action === 'fail' && event.Test) {
-          testResults.set(key, 'fail');
-          if (event.Elapsed !== undefined) {
-            testDurations.set(key, event.Elapsed * 1000); // Convert to ms
-          }
-        } else if (event.Action === 'pass' && event.Test) {
-          testResults.set(key, 'pass');
-        }
-      } catch (error) {
-        // Skip invalid JSON lines - these are expected in normal test output:
-        //   - Build/compilation messages before tests run
-        //   - GitHub Actions runner setup logs
-        //   - Package download/cache messages
-        //   - Environment variable output
-        //   - Test execution summary lines (e.g., "PASS", "FAIL" markers)
-        // Only the actual test events are JSON formatted when using -json flag
-        // Log only first few failures to avoid spam
-        if (skippedNonJsonLines < 3) {
           console.error(
-            `[DEBUG] Go extractor: failed to parse JSON line (failure ${skippedNonJsonLines + 1}): ${error instanceof Error ? error.message : String(error)}`
+            `[ERROR] Go extractor: failed to parse test event JSON\n` +
+              `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
+              `  Line content: ${lineSnippet}`
           );
+        } else {
+          // Malformed JSON that doesn't look like a test event
+          // This could be build output, dependency downloads, etc.
+          skippedNonJsonLines++;
         }
+        continue; // Skip this line
+      }
+
+      // SECTION 2: Validate test event structure (NO catch - bugs should propagate)
+      if (!('Time' in event && 'Action' in event && 'Package' in event)) {
+        // Valid JSON but not a test event - likely build output JSON
         skippedNonJsonLines++;
         continue;
+      }
+
+      // SECTION 3: Process event (NO catch - bugs should propagate)
+      // Use a more specific key that includes both package and test
+      // This ensures we don't mix up tests from different packages
+      const key = event.Test ? `${event.Package}::${event.Test}` : event.Package;
+
+      // Collect output lines for each test
+      if (event.Action === 'output' && event.Output) {
+        if (!testOutputs.has(key)) {
+          testOutputs.set(key, []);
+        }
+        testOutputs.get(key)!.push(event.Output);
+      }
+
+      // Track test results and duration
+      if (event.Action === 'fail' && event.Test) {
+        testResults.set(key, 'fail');
+        if (event.Elapsed !== undefined) {
+          testDurations.set(key, event.Elapsed * 1000); // Convert to ms
+        }
+      } else if (event.Action === 'pass' && event.Test) {
+        testResults.set(key, 'pass');
       }
     }
 
@@ -180,6 +271,11 @@ export class GoExtractor implements FrameworkExtractor {
 
     // Extract failures with their output
     for (const [key, result] of testResults.entries()) {
+      // Stop if we've reached the maxErrors limit
+      if (failures.length >= maxErrors) {
+        break;
+      }
+
       if (result === 'fail') {
         const outputs = testOutputs.get(key) || [];
         const fullOutput = outputs.join('');
@@ -204,17 +300,25 @@ export class GoExtractor implements FrameworkExtractor {
         }
 
         // Store all output lines for this test
-        const rawOutput = outputs.map((line) => line.trimEnd());
+        // Ensure rawOutput has at least one element for schema validation
+        const rawOutput =
+          outputs.length > 0 ? outputs.map((line) => line.trimEnd()) : [`Test failed: ${testName}`];
 
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          message: fullOutput.trim() || `Test failed: ${testName}`,
-          stack,
-          duration: testDurations.get(key),
-          rawOutput,
-        });
+        const validatedError = safeValidateExtractedError(
+          {
+            testName,
+            fileName,
+            lineNumber,
+            message: fullOutput.trim() || `Test failed: ${testName}`,
+            stack,
+            duration: testDurations.get(key),
+            rawOutput,
+          },
+          `test ${testName}`,
+          validationTracker
+        );
+
+        failures.push(validatedError);
       }
     }
 
@@ -223,10 +327,33 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
+    // TODO(#329): Include sample validation errors in user-facing warning message
+    // Build parse warnings from test event parsing errors and validation errors
+    const warnings: string[] = [];
+    if (testEventParseErrors > 0) {
+      let warning = `${testEventParseErrors} test event(s) failed to parse`;
+
+      if (parseErrorSamples.length > 0) {
+        warning += '\n\nFirst ' + parseErrorSamples.length + ' error(s):';
+        for (const sample of parseErrorSamples) {
+          warning += `\n  Line ${sample.lineNumber}: ${sample.errorMessage}`;
+          warning += `\n    Content: ${sample.lineSnippet}`;
+        }
+        warning += '\n\nCheck: (1) -json flag set, (2) no mixed output, (3) valid UTF-8';
+      }
+      warnings.push(warning);
+    }
+    const validationWarning = validationTracker.getSummaryWarning();
+    if (validationWarning) {
+      warnings.push(validationWarning);
+    }
+    const parseWarnings = warnings.length > 0 ? warnings.join('; ') : undefined;
+
     return {
       framework: 'go',
       errors: failures,
       summary,
+      parseWarnings,
     };
   }
 
@@ -235,6 +362,7 @@ export class GoExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     let passed = 0;
     let failed = 0;
+    const validationTracker = new ValidationErrorTracker();
 
     // Pattern: --- FAIL: TestName (0.01s)
     const failPattern = /^---\s*FAIL:\s+(\w+)\s+\((\d+(?:\.\d+)?)s\)/;
@@ -271,22 +399,36 @@ export class GoExtractor implements FrameworkExtractor {
           }
         }
 
-        failures.push({
-          testName,
-          fileName,
-          lineNumber,
-          message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
-          duration,
-          rawOutput,
-        });
+        // Ensure rawOutput has at least one element for schema validation
+        if (rawOutput.length === 0) {
+          rawOutput.push(`Test failed: ${testName}`);
+        }
+
+        const validatedError = safeValidateExtractedError(
+          {
+            testName,
+            fileName,
+            lineNumber,
+            message: rawOutput.join('\n').trim() || `Test failed: ${testName}`,
+            duration,
+            rawOutput,
+          },
+          `test ${testName}`,
+          validationTracker
+        );
+
+        failures.push(validatedError);
         failed++;
       }
     }
+
+    const parseWarnings = validationTracker.getSummaryWarning();
 
     return {
       framework: 'go',
       errors: failures,
       summary: failed > 0 ? `${failed} failed, ${passed} passed` : undefined,
+      parseWarnings,
     };
   }
 }

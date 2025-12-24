@@ -38,13 +38,15 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
+import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
-import { STEP_ENSURE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
+import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
+import type { WiggumState, CurrentState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -134,7 +136,7 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
 
     // Sanitize error message for PR body using security utility
     // Full error is already logged above for debugging
-    const sanitizedError = sanitizeErrorMessage(errorMsg, 200);
+    const sanitizedError = sanitizeErrorMessage(errorMsg, 500);
 
     commits = `⚠️ **Unable to fetch commits from GitHub API**
 
@@ -214,39 +216,46 @@ ${commits}`;
       );
     }
 
-    // Mark Step 0 complete
-    const newState = {
+    // Mark Phase 1 Step 4 complete and transition to Phase 2
+    const newState: WiggumState = {
       iteration: state.wiggum.iteration,
-      step: STEP_ENSURE_PR,
-      completedSteps: [...state.wiggum.completedSteps, STEP_ENSURE_PR],
+      step: STEP_PHASE1_CREATE_PR,
+      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
+      phase: 'phase2',
     };
 
     try {
       await postWiggumStateComment(
         prNumber,
         newState,
-        `${STEP_NAMES[STEP_ENSURE_PR]} - Complete`,
-        `PR created successfully!
+        `${STEP_NAMES[STEP_PHASE1_CREATE_PR]} - Complete`,
+        `PR created successfully! Phase 1 complete. Transitioning to Phase 2 (PR workflow).
 
 **PR:** #${prNumber}
 **Title:** ${pr.title}
 **Base:** ${pr.baseRefName}
 **Closes:** #${issueNum}
 
-**Next Action:** Proceeding to workflow monitoring.`
+**Next Action:** Beginning Phase 2 workflow monitoring.`
       );
     } catch (commentError) {
       // Classify GitHub API errors for better diagnostics
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
       const isPermissionError = /permission|forbidden|401|403/i.test(errorMsg);
       const isRateLimitError = /rate limit|429/i.test(errorMsg);
-      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|network|fetch/i.test(errorMsg);
+      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      const isTimeoutError = /timeout|timed out|ETIMEDOUT/i.test(errorMsg);
+      const isNotFoundError = /not found|404/i.test(errorMsg);
 
       let errorClassification = 'Unknown error';
       if (isPermissionError) {
         errorClassification = 'Permission denied (check gh auth token scopes)';
       } else if (isRateLimitError) {
         errorClassification = 'GitHub API rate limit exceeded';
+      } else if (isTimeoutError) {
+        errorClassification = 'Request timeout (GitHub API not responding)';
+      } else if (isNotFoundError) {
+        errorClassification = 'Resource not found (PR or repository may not exist)';
       } else if (isNetworkError) {
         errorClassification = 'Network connectivity issue';
       }
@@ -257,6 +266,8 @@ ${commits}`;
         errorClassification,
         isPermissionError,
         isRateLimitError,
+        isTimeoutError,
+        isNotFoundError,
         isNetworkError,
       });
       throw new ValidationError(
@@ -267,13 +278,33 @@ ${commits}`;
       );
     }
 
-    // Get updated state with PR now existing
-    const updatedState = await detectCurrentState();
+    // Fix stale PR state after PR creation (issue #429)
+    // The state captured at line 83 has pr.exists = false since no PR existed yet.
+    // We have authoritative PR data from the verified getPR() call, so we construct
+    // a complete updated state with both the new wiggum state AND the new PR state.
+    const updatedState: CurrentState = {
+      ...state,
+      wiggum: newState,
+      pr: {
+        exists: true,
+        number: prNumber,
+        title: pr.title,
+        state: 'OPEN',
+        url: createOutput.trim(),
+        labels: [NEEDS_REVIEW_LABEL],
+        headRefName: branchName,
+        baseRefName: pr.baseRefName,
+      },
+    };
 
-    // Get next step instructions from router
-    const nextStepResult = await getNextStepInstructions(updatedState);
+    logger.info('Updated state with newly created PR', {
+      issueRef: '#429',
+      prNumber,
+      prTitle: pr.title,
+      phase: newState.phase,
+    });
 
-    return nextStepResult;
+    return await getNextStepInstructions(updatedState);
   } catch (error) {
     // Check if error indicates PR already exists
     const errorMsg = error instanceof Error ? error.message : String(error);

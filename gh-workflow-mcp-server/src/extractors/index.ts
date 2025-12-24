@@ -51,6 +51,12 @@ export function extractErrors(logText: string, maxErrors = 10): ExtractionResult
 export function formatExtractionResult(result: ExtractionResult): string[] {
   const lines: string[] = [];
 
+  // Surface parse warnings to user
+  if (result.parseWarnings) {
+    lines.push(`  ⚠️  ${result.parseWarnings}`);
+    lines.push('');
+  }
+
   if (result.errors.length === 0) {
     return ['No errors detected'];
   }

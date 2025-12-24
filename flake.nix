@@ -141,6 +141,7 @@
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix { };
           gh-issue-mcp-server = pkgs.callPackage ./nix/packages/gh-issue-mcp-server.nix { };
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { };
+          git-mcp-server = pkgs.callPackage ./nix/packages/git-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
 
           # Hooks
@@ -149,6 +150,7 @@
           mcpServersHook = pkgs.callPackage ./nix/hooks/mcp-servers.nix { };
           tmuxTuiHook = pkgs.callPackage ./nix/hooks/tmux-tui.nix { };
           goEnvHook = pkgs.callPackage ./nix/hooks/go-env.nix { };
+          gitWorktreeHook = pkgs.callPackage ./nix/hooks/git-worktree.nix { };
 
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
@@ -162,10 +164,14 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              git-mcp-server
             ];
 
             shellHook = ''
               ${pre-commit-check.shellHook}
+
+              # Configure git worktree extension (prevents core.bare issues)
+              ${gitWorktreeHook}
 
               # Initialize Go environment
               ${goEnvHook}
@@ -209,6 +215,7 @@
               gh-workflow-mcp-server
               gh-issue-mcp-server
               wiggum-mcp-server
+              git-mcp-server
               iac
               ;
             default = tmux-tui;

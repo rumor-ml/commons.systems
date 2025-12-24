@@ -2,12 +2,12 @@
 import { test, expect } from '../fixtures/printsync-fixtures';
 
 test.describe('Homepage', () => {
-  test('loads successfully', async ({ page }) => {
+  test('@smoke loads successfully', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Printsync/);
   });
 
-  test('HTMX partial loading works', async ({ page }) => {
+  test('@smoke HTMX partial loading works', async ({ page }) => {
     await page.goto('/');
 
     // Wait for HTMX to load partials
@@ -16,7 +16,7 @@ test.describe('Homepage', () => {
     await expect(itemsList).not.toContainText('Loading...');
   });
 
-  test('React island hydrates', async ({ page }) => {
+  test('@smoke React island hydrates', async ({ page }) => {
     await page.goto('/');
 
     // Check React island is hydrated
@@ -24,7 +24,7 @@ test.describe('Homepage', () => {
     await expect(island).toHaveAttribute('data-island-hydrated', 'true');
   });
 
-  test('health endpoint returns OK', async ({ request }) => {
+  test('@smoke health endpoint returns OK', async ({ request }) => {
     const response = await request.get('/health');
     expect(response.ok()).toBeTruthy();
 
@@ -32,7 +32,7 @@ test.describe('Homepage', () => {
     expect(body.status).toBe('healthy');
   });
 
-  test('navigation works', async ({ page }) => {
+  test('@smoke navigation works', async ({ page }) => {
     await page.goto('/');
 
     // Click dashboard link

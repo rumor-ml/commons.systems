@@ -31,31 +31,46 @@ fi
 
 echo -e "${GREEN}Project root: $PROJECT_ROOT${NC}"
 
-# Step 1: Stop existing daemon
-echo -e "\n${YELLOW}Step 1: Stopping existing daemon...${NC}"
+# Step 1: Stop existing daemon and clean up
+echo -e "\n${YELLOW}Step 1: Stopping existing daemon and cleaning up...${NC}"
 
 # Extract session name from $TMUX
 TMUX_SOCKET=$(echo "$TMUX" | cut -d',' -f1)
 SESSION_NAME=$(basename "$TMUX_SOCKET")
-DAEMON_PID_FILE="/tmp/claude/$SESSION_NAME/daemon.pid"
+NAMESPACE="/tmp/claude/$SESSION_NAME"
 
-if [ -f "$DAEMON_PID_FILE" ]; then
-  DAEMON_PID=$(cat "$DAEMON_PID_FILE")
-  if kill -0 "$DAEMON_PID" 2>/dev/null; then
-    echo "Killing daemon (PID: $DAEMON_PID)"
-    kill "$DAEMON_PID" 2>/dev/null || true
-    sleep 0.5
+# Kill daemon process from lock file first (may be from different worktree)
+LOCK_FILE="$NAMESPACE/daemon.lock"
+if [ -f "$LOCK_FILE" ]; then
+  # Read PID BEFORE removing lock file
+  # TODO(#427): Add explicit error checking for lock file read failure
+  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    echo "Killing daemon from lock file (PID: $LOCK_PID)"
+    kill -9 "$LOCK_PID" 2>/dev/null || true
+    sleep 0.2
+    echo -e "${GREEN}✓ Daemon process killed${NC}"
   fi
-  rm -f "$DAEMON_PID_FILE"
-  echo -e "${GREEN}✓ Daemon stopped${NC}"
+  # Remove lock file after killing process
+  rm -f "$LOCK_FILE"
+  echo -e "${GREEN}✓ Lock file removed${NC}"
 else
-  echo "No daemon PID file found (may not be running)"
+  # No lock file - check for stray daemon processes
+  DAEMON_PIDS=$(pgrep -f tmux-tui-daemon || true)
+  if [ -n "$DAEMON_PIDS" ]; then
+    echo "Killing stray daemon processes: $DAEMON_PIDS"
+    # TODO(#427): Verify kill success and report failures to user
+    echo "$DAEMON_PIDS" | xargs kill 2>/dev/null || true
+    sleep 0.3
+    echo -e "${GREEN}✓ Stray daemon processes killed${NC}"
+  fi
 fi
 
-# Clean up socket too
-DAEMON_SOCKET="/tmp/claude/$SESSION_NAME/daemon.sock"
+# Remove socket file if present
+DAEMON_SOCKET="$NAMESPACE/daemon.sock"
 if [ -S "$DAEMON_SOCKET" ]; then
   rm -f "$DAEMON_SOCKET"
+  echo -e "${GREEN}✓ Socket file removed${NC}"
 fi
 
 # Wait a moment for cleanup
@@ -70,14 +85,19 @@ echo -e "${GREEN}✓ Binaries rebuilt${NC}"
 
 # Step 2.5: Start the daemon
 echo -e "\n${YELLOW}Step 2.5: Starting daemon...${NC}"
-"$PROJECT_ROOT/build/tmux-tui-daemon" >/dev/null 2>&1 &
+DAEMON_LOG="/tmp/claude/daemon-restart.log"
+"$PROJECT_ROOT/build/tmux-tui-daemon" >> "$DAEMON_LOG" 2>&1 &
+DAEMON_PID=$!
 sleep 0.5
 
-# Check if daemon started
+# TODO(#427): Check both socket existence AND process running state (not just socket)
 if [ -S "$DAEMON_SOCKET" ]; then
-  echo -e "${GREEN}✓ Daemon started${NC}"
+  echo -e "${GREEN}✓ Daemon started (PID: $DAEMON_PID)${NC}"
 else
-  echo -e "${RED}Warning: Daemon may not have started correctly${NC}"
+  echo -e "${RED}Error: Daemon failed to start. Check $DAEMON_LOG for details${NC}"
+  if [ -f "$DAEMON_LOG" ]; then
+    tail -5 "$DAEMON_LOG"
+  fi
 fi
 
 # Step 3: Kill all existing TUI panes

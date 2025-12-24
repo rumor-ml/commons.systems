@@ -1,12 +1,12 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Video Browser Homepage', () => {
-  test('should load successfully', async ({ page }) => {
+  test('@smoke should load successfully', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Video Browser/);
   });
 
-  test('should display header with title and subtitle', async ({ page }) => {
+  test('@smoke should display header with title and subtitle', async ({ page }) => {
     await page.goto('/');
 
     // Check header title
@@ -20,7 +20,7 @@ test.describe('Video Browser Homepage', () => {
     await expect(subtitle).toContainText('rml-media/video');
   });
 
-  test('should display video player', async ({ page }) => {
+  test('@smoke should display video player', async ({ page }) => {
     await page.goto('/');
 
     // Check video player exists

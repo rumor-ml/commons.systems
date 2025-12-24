@@ -523,7 +523,7 @@ func TestHealthMessages(t *testing.T) {
 	}
 
 	// Health Response
-	status, err := NewHealthStatus(0, 0, 0, 0, 0, 0, 0)
+	status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("NewHealthStatus() error = %v", err)
 	}

@@ -103,7 +103,7 @@ func TestJSONSerializationPreservesAllFields(t *testing.T) {
 		{
 			name: "HealthResponseMessage",
 			creator: func() (MessageV2, error) {
-				status, err := NewHealthStatus(100, 5, 10, 3, 2, 1, 0)
+				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 5, 10, 3)
 				if err != nil {
 					return nil, err
 				}
@@ -262,7 +262,7 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 		{
 			name: "HealthResponseMessage",
 			creator: func() (MessageV2, error) {
-				status, err := NewHealthStatus(100, 5, 10, 3, 2, 1, 0)
+				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 5, 10, 3)
 				if err != nil {
 					return nil, err
 				}
@@ -547,8 +547,10 @@ func TestV2ClientCanDeserializeV1Messages(t *testing.T) {
 	}
 }
 
-// TestDeprecatedMessageTypesStillWork verifies that deprecated message types
-// (MsgTypeBlockPane, MsgTypeUnblockPane) remain deserializable for backward compatibility.
+// TestDeprecatedMessageTypesStillWork verifies that arbitrary message types
+// remain deserializable from JSON for backward compatibility.
+// Note: MsgTypeBlockPane and MsgTypeUnblockPane were removed from the protocol
+// before this test file was created. This test verifies generic JSON round-trip.
 func TestDeprecatedMessageTypesStillWork(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -556,22 +558,11 @@ func TestDeprecatedMessageTypesStillWork(t *testing.T) {
 		createMsg func() Message
 	}{
 		{
-			name:    "BlockPane",
-			msgType: MsgTypeBlockPane,
+			name:    "UnknownType",
+			msgType: "some_unknown_type",
 			createMsg: func() Message {
 				return Message{
-					Type:          MsgTypeBlockPane,
-					PaneID:        "pane1",
-					BlockedBranch: "branch1",
-				}
-			},
-		},
-		{
-			name:    "UnblockPane",
-			msgType: MsgTypeUnblockPane,
-			createMsg: func() Message {
-				return Message{
-					Type:   MsgTypeUnblockPane,
+					Type:   "some_unknown_type",
 					PaneID: "pane1",
 				}
 			},
@@ -599,7 +590,7 @@ func TestDeprecatedMessageTypesStillWork(t *testing.T) {
 				t.Errorf("Type = %v, want %v", msgBack.Type, tt.msgType)
 			}
 
-			// Note: These types are not convertible to v2 (FromWireFormat will return error)
+			// Note: Unknown types are not convertible to v2 (FromWireFormat will return error)
 			// but they should still be deserializable from JSON
 		})
 	}

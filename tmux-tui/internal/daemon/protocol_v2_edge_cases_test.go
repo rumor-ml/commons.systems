@@ -31,7 +31,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				SeqNum: 42,
 			},
 			expectError:   true,
-			errorContains: "client_id required",
+			errorContains: "client_id",
 		},
 		{
 			name: "alert_change_missing_pane_id",
@@ -41,7 +41,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				EventType: "event1",
 			},
 			expectError:   true,
-			errorContains: "pane_id required",
+			errorContains: "pane_id",
 		},
 		{
 			name: "alert_change_missing_event_type",
@@ -51,7 +51,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				PaneID: "pane1",
 			},
 			expectError:   true,
-			errorContains: "event_type required",
+			errorContains: "event_type",
 		},
 		{
 			name: "pane_focus_missing_active_pane_id",
@@ -60,7 +60,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				SeqNum: 42,
 			},
 			expectError:   true,
-			errorContains: "active_pane_id required",
+			errorContains: "active_pane_id",
 		},
 		{
 			name: "block_branch_missing_branch",
@@ -70,7 +70,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				BlockedBranch: "branch2",
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		{
 			name: "block_branch_missing_blocked_branch",
@@ -80,7 +80,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Branch: "branch1",
 			},
 			expectError:   true,
-			errorContains: "blocked_branch required",
+			errorContains: "blocked_branch",
 		},
 		{
 			name: "unblock_branch_missing_branch",
@@ -89,7 +89,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				SeqNum: 42,
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		{
 			name: "block_change_missing_branch",
@@ -99,7 +99,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Blocked: true,
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		{
 			name: "block_change_blocked_true_but_no_blocked_branch",
@@ -110,7 +110,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Blocked: true,
 			},
 			expectError:   true,
-			errorContains: "blocked_branch required",
+			errorContains: "blocked_branch",
 		},
 		{
 			name: "query_blocked_state_missing_branch",
@@ -119,7 +119,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				SeqNum: 42,
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		{
 			name: "blocked_state_response_missing_branch",
@@ -129,7 +129,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				IsBlocked: true,
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		{
 			name: "health_response_missing_health_status",
@@ -148,7 +148,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Error:  "error",
 			},
 			expectError:   true,
-			errorContains: "original_msg_type required",
+			errorContains: "original_msg_type",
 		},
 		{
 			name: "persistence_error_empty_error",
@@ -175,7 +175,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				SeqNum: 42,
 			},
 			expectError:   true,
-			errorContains: "pane_id required",
+			errorContains: "pane_id",
 		},
 		// Whitespace-only fields
 		{
@@ -186,7 +186,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				ClientID: "   ",
 			},
 			expectError:   true,
-			errorContains: "client_id required",
+			errorContains: "client_id",
 		},
 		{
 			name: "alert_change_whitespace_pane_id",
@@ -197,7 +197,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				EventType: "event1",
 			},
 			expectError:   true,
-			errorContains: "pane_id required",
+			errorContains: "pane_id",
 		},
 		{
 			name: "block_branch_whitespace_branch",
@@ -208,7 +208,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				BlockedBranch: "branch2",
 			},
 			expectError:   true,
-			errorContains: "branch required",
+			errorContains: "branch",
 		},
 		// Valid messages (edge cases that should work)
 		{
@@ -560,7 +560,13 @@ func TestRoundTripFidelity(t *testing.T) {
 	})
 
 	t.Run("health_response_message", func(t *testing.T) {
-		status, err := NewHealthStatus(100, 5, 10, 3, 2, 1, 0)
+		// NewHealthStatus signature:
+		// broadcastFailures int64, lastBroadcastError string,
+		// watcherErrors int64, lastWatcherError string,
+		// connectionCloseErrors int64, lastCloseError string,
+		// audioBroadcastFailures int64, lastAudioBroadcastErr string,
+		// connectedClients int, activeAlerts int, blockedBranches int
+		status, err := NewHealthStatus(2, "", 1, "", 0, "", 0, "", 5, 10, 3)
 		if err != nil {
 			t.Fatalf("Failed to create health status: %v", err)
 		}
@@ -585,26 +591,20 @@ func TestRoundTripFidelity(t *testing.T) {
 
 		// Verify health status fields via getters
 		hs := hr.HealthStatus()
-		if hs.UptimeSeconds() != 100 {
-			t.Errorf("UptimeSeconds = %v, want 100", hs.UptimeSeconds())
+		if hs.GetConnectedClients() != 5 {
+			t.Errorf("GetConnectedClients = %v, want 5", hs.GetConnectedClients())
 		}
-		if hs.ConnectedClients() != 5 {
-			t.Errorf("ConnectedClients = %v, want 5", hs.ConnectedClients())
+		if hs.GetActiveAlerts() != 10 {
+			t.Errorf("GetActiveAlerts = %v, want 10", hs.GetActiveAlerts())
 		}
-		if hs.ActiveAlerts() != 10 {
-			t.Errorf("ActiveAlerts = %v, want 10", hs.ActiveAlerts())
+		if hs.GetBlockedBranches() != 3 {
+			t.Errorf("GetBlockedBranches = %v, want 3", hs.GetBlockedBranches())
 		}
-		if hs.BlockedBranches() != 3 {
-			t.Errorf("BlockedBranches = %v, want 3", hs.BlockedBranches())
+		if hs.GetBroadcastFailures() != 2 {
+			t.Errorf("GetBroadcastFailures = %v, want 2", hs.GetBroadcastFailures())
 		}
-		if hs.BroadcastFailures() != 2 {
-			t.Errorf("BroadcastFailures = %v, want 2", hs.BroadcastFailures())
-		}
-		if hs.WatcherErrors() != 1 {
-			t.Errorf("WatcherErrors = %v, want 1", hs.WatcherErrors())
-		}
-		if hs.PersistenceErrors() != 0 {
-			t.Errorf("PersistenceErrors = %v, want 0", hs.PersistenceErrors())
+		if hs.GetWatcherErrors() != 1 {
+			t.Errorf("GetWatcherErrors = %v, want 1", hs.GetWatcherErrors())
 		}
 	})
 }

@@ -48,6 +48,32 @@ interface PRData {
   mergedAt?: string;
 }
 
+/**
+ * Track a pull request through the GitHub merge queue until merged
+ *
+ * Monitors PR merge state transitions through the merge queue process. Tracks
+ * status history and provides detailed feedback on merge queue progression.
+ * Detects merge failures and provides actionable error messages.
+ *
+ * @param input - Monitor configuration
+ * @param input.pr_number - Pull request number to track
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.poll_interval_seconds - Polling frequency (default: 15s)
+ * @param input.timeout_seconds - Maximum wait time (default: 1800s / 30min)
+ *
+ * @returns Summary with merge status, timestamp, and status history
+ *
+ * @throws {ValidationError} If PR closed without merging
+ * @throws {TimeoutError} If PR doesn't merge within timeout
+ *
+ * @example
+ * // Monitor PR through merge queue
+ * await monitorMergeQueue({ pr_number: 42 });
+ *
+ * @example
+ * // Monitor with custom timeout (1 hour)
+ * await monitorMergeQueue({ pr_number: 42, timeout_seconds: 3600 });
+ */
 export async function monitorMergeQueue(input: MonitorMergeQueueInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);

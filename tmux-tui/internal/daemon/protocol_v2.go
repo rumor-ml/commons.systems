@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
 // Protocol v2: Type-safe message structs with internal encapsulation
 //
 // DESIGN RATIONALE:
@@ -23,38 +24,6 @@ import (
 // BACKWARD COMPATIBILITY:
 //   - Wire protocol unchanged - clients see no difference
 //   - Internal refactoring only - compile-time safety improvements
-//
-// USAGE EXAMPLES:
-//
-// Creating and sending a message (server side):
-//
-//   msg, err := NewAlertChangeMessage(seqNum, paneID, eventType, created)
-//   if err != nil {
-//       log.Printf("Failed to create message: %v", err)
-//       return err
-//   }
-//   wire := msg.ToWireFormat()
-//   if err := encoder.Encode(wire); err != nil {
-//       return fmt.Errorf("send failed: %w", err)
-//   }
-//
-// Receiving and processing a message (client side):
-//
-//   var wire Message
-//   if err := decoder.Decode(&wire); err != nil {
-//       return fmt.Errorf("decode failed: %w", err)
-//   }
-//   msg, err := FromWireFormat(wire)
-//   if err != nil {
-//       return fmt.Errorf("invalid message: %w", err)
-//   }
-//   switch m := msg.(type) {
-//   case *AlertChangeMessageV2:
-//       handleAlertChange(m.PaneID(), m.EventType(), m.Created())
-//   case *FullStateMessageV2:
-//       handleFullState(m.Alerts(), m.BlockedBranches())
-//   // ... handle other types
-//   }
 
 // MessageV2 is the base interface for all protocol v2 messages
 type MessageV2 interface {
@@ -312,6 +281,7 @@ type BlockChangeMessageV2 struct {
 	blocked       bool
 }
 
+// TODO(#328): Consider extracting conditional validation pattern into helper function
 // NewBlockChangeMessage creates a validated BlockChangeMessage.
 // Returns error if branch is empty after trimming.
 // If blocked is false, blockedBranch should be empty (will be cleared).
@@ -396,6 +366,7 @@ type BlockedStateResponseMessageV2 struct {
 	blockedBranch string
 }
 
+// TODO(#328): Consider extracting conditional validation pattern into helper function
 // NewBlockedStateResponseMessage creates a validated BlockedStateResponseMessage.
 // Returns error if branch is empty or if isBlocked is true but blockedBranch is empty.
 func NewBlockedStateResponseMessage(seqNum uint64, branch string, isBlocked bool, blockedBranch string) (*BlockedStateResponseMessageV2, error) {

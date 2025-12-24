@@ -18,6 +18,7 @@ export interface MonitorResult {
   success: boolean;
   errorSummary?: string;
   failureDetails?: string; // Formatted error details from gh_get_failure_details
+  enrichmentError?: string; // Error message if failure detail enrichment failed
 }
 
 /**
@@ -51,6 +52,9 @@ export async function monitorRun(
   });
 
   // If failed, enrich with failure details
+  // TODO(#375): Surface enrichment errors to users in failure messages
+  // Current: enrichment failures only logged, not shown to users (see PR review #273)
+  // Supersedes #272 with implementation details from PR review
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { branch });
     try {
@@ -59,14 +63,18 @@ export async function monitorRun(
         max_chars: WORKFLOW_LOG_MAX_CHARS,
       });
       result.failureDetails = failureDetails;
+      // TODO(#375): Surface enrichment errors in errorSummary for user visibility
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors
+      const enrichmentErrorMsg =
+        enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError);
       logger.warn('Failed to enrich failure result with detailed information', {
         branch,
-        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+        error: enrichmentErrorMsg,
       });
-      // Leave result.failureDetails undefined; errorSummary is still available
+      // Surface enrichment error in result for debugging
+      result.enrichmentError = `Failed to fetch detailed failure information: ${enrichmentErrorMsg}`;
     }
   }
 
@@ -107,6 +115,7 @@ export async function monitorPRChecks(
   });
 
   // If failed, enrich with failure details
+  // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated enrichment logic to helper function
   if (!result.success && !result.failureDetails) {
     logger.info('Enriching failure result with detailed failure information', { prNumber });
     try {
@@ -118,11 +127,14 @@ export async function monitorPRChecks(
     } catch (enrichmentError) {
       // Log enrichment failure but preserve original failure information
       // The workflow already failed - don't crash on enrichment errors
+      const enrichmentErrorMsg =
+        enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError);
       logger.warn('Failed to enrich failure result with detailed information', {
         prNumber,
-        error: enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError),
+        error: enrichmentErrorMsg,
       });
-      // Leave result.failureDetails undefined; errorSummary is still available
+      // Surface enrichment error in result for debugging
+      result.enrichmentError = `Failed to fetch detailed failure information: ${enrichmentErrorMsg}`;
     }
   }
 
