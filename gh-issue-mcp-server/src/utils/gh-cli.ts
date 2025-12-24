@@ -83,7 +83,11 @@ export async function getCurrentRepo(): Promise<string> {
   } catch (error) {
     // TODO: See issue #441 - Preserve original error details (currently discards cause chain)
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${error instanceof Error ? error.message : String(error)}`,
+      error instanceof GitHubCliError ? error.exitCode : undefined,
+      error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined, // stdout parameter
+      error instanceof Error ? error : undefined // cause parameter
     );
   }
 }
