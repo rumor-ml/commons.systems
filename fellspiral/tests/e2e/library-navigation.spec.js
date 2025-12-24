@@ -17,7 +17,7 @@ const cardsData = JSON.parse(readFileSync(cardsPath, 'utf8'));
 
 test.describe('Library Navigation - Tree Structure', () => {
   test('should display library section in sidebar', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const librarySection = page.locator('.nav-section-library');
     await expect(librarySection).toBeVisible();
@@ -27,7 +27,7 @@ test.describe('Library Navigation - Tree Structure', () => {
   });
 
   test('should display all card types', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -41,7 +41,7 @@ test.describe('Library Navigation - Tree Structure', () => {
   });
 
   test('should display card counts for each type', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -57,7 +57,7 @@ test.describe('Library Navigation - Tree Structure', () => {
   });
 
   test('should display subtypes for each type', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -81,7 +81,7 @@ test.describe('Library Navigation - Tree Structure', () => {
 
 test.describe('Library Navigation - Expand/Collapse', () => {
   test('types should be collapsed by default', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -98,7 +98,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   });
 
   test('should expand type when clicking toggle', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -126,7 +126,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   });
 
   test('should persist expand state in localStorage', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -152,7 +152,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   });
 
   test('should restore expand state on page reload', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -194,7 +194,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
 
 test.describe('Library Navigation - Navigation Interaction', () => {
   test('should navigate to type listing when clicking type', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -213,7 +213,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   });
 
   test('should navigate to subtype listing when clicking subtype', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -243,7 +243,7 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   });
 
   test('should filter cards based on navigation', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library nav and cards to load
     await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -289,7 +289,7 @@ const skipDataReflectionTests = process.env.CI;
     });
 
     test('navigation should display correct card counts', async ({ page }) => {
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       // Wait for library nav to load
       await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -345,7 +345,7 @@ const skipDataReflectionTests = process.env.CI;
     });
 
     test('Origin type should include former Foe subtypes', async ({ page }) => {
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       // Wait for library nav to load
       await page.waitForSelector('.library-nav-type', { timeout: 10000 });
@@ -379,7 +379,7 @@ const skipDataReflectionTests = process.env.CI;
     });
 
     test('Foe type should not exist in navigation', async ({ page }) => {
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       // Wait for library nav to load
       await page.waitForSelector('.library-nav-type', { timeout: 10000 });

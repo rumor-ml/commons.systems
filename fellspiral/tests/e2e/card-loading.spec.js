@@ -9,7 +9,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 test.describe('Card Loading - Direct Page Visit', () => {
   test('@smoke should show loading state then load cards or empty state', async ({ page }) => {
     // Directly visit cards.html (simulates typing URL or bookmark)
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Per user's logic: "if card loads too fast to show progress this is a pass,
     // if cards show progress then eventually load this is a pass,
@@ -30,7 +30,7 @@ test.describe('Card Loading - Direct Page Visit', () => {
   });
 
   test('should not get stuck in infinite loading state', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Per user's logic: cards OR empty state must eventually appear
     // Loading spinner presence is optional (cards might load instantly)
@@ -63,7 +63,7 @@ test.describe('Card Loading - Direct Page Visit', () => {
     // In local env with cards.json, cards should load
     // In deployed env without Firestore data, empty state should show
 
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for loading to complete
     await page.waitForFunction(
@@ -93,7 +93,7 @@ test.describe('Card Loading - Direct Page Visit', () => {
     // This test verifies that library navigation loading doesn't block card display
     // (the bug we just fixed)
 
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // TODO: See issue #435 - Log unexpected errors before swallowing with .catch(() => null)
     // Track when cards become visible

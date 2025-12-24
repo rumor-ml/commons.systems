@@ -7,7 +7,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 
 test.describe('Auth-Aware UI - Logged Out State', () => {
   test('should hide Add Card button when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const addCardBtn = page.locator('#addCardBtn');
     await expect(addCardBtn).toBeAttached();
@@ -15,7 +15,7 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
   });
 
   test('should hide Export button when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const exportBtn = page.locator('#exportCardsBtn');
     await expect(exportBtn).toBeAttached();
@@ -23,14 +23,14 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
   });
 
   test('should not have authenticated class on body when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const body = page.locator('body');
     await expect(body).not.toHaveClass(/authenticated/);
   });
 
   test('all auth-controls should be hidden when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Get all elements with auth-controls class
     const authControls = page.locator('.auth-controls');
@@ -46,7 +46,7 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
 
 test.describe('Auth-Aware UI - Modal Controls', () => {
   test('should hide Delete button in modal when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Delete button should be in DOM but hidden
     const deleteBtn = page.locator('#deleteCardBtn');
@@ -55,7 +55,7 @@ test.describe('Auth-Aware UI - Modal Controls', () => {
   });
 
   test('should hide Save button in modal when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Save button should be in DOM but hidden
     const saveBtn = page.locator('#saveCardBtn');
@@ -64,7 +64,7 @@ test.describe('Auth-Aware UI - Modal Controls', () => {
   });
 
   test('modal should not be open initially', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const modal = page.locator('#cardEditorModal');
     await expect(modal).not.toHaveClass(/active/);
@@ -73,7 +73,7 @@ test.describe('Auth-Aware UI - Modal Controls', () => {
 
 test.describe('Auth-Aware UI - Body Class Management', () => {
   test('body should not have authenticated class on page load', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for page to load
     await page.waitForSelector('.card-toolbar', { timeout: 5000 });
@@ -95,7 +95,7 @@ test.describe('Auth-Aware UI - Body Class Management', () => {
 
 test.describe('Auth-Aware UI - CSS Verification', () => {
   test('auth-controls class should have display:none by default', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Check computed styles for auth-controls class
     const addCardBtn = page.locator('#addCardBtn.auth-controls');
@@ -107,7 +107,7 @@ test.describe('Auth-Aware UI - CSS Verification', () => {
   });
 
   test('body without authenticated class should hide auth-controls', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Verify body doesn't have authenticated class
     const body = page.locator('body');
@@ -122,7 +122,7 @@ test.describe('Auth-Aware UI - CSS Verification', () => {
 
 test.describe('Auth-Aware UI - Read-Only Mode', () => {
   test('should allow viewing cards when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for cards to load
     await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
@@ -133,7 +133,7 @@ test.describe('Auth-Aware UI - Read-Only Mode', () => {
   });
 
   test('should allow using search when logged out', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for page to load
     await page.waitForSelector('#searchCards', { timeout: 5000 });

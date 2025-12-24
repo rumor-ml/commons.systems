@@ -46,7 +46,7 @@ async function verifyCardFiltering(page, expectedType, expectedSubtype = null) {
 
 test.describe('Hash Routing - Pattern Recognition', () => {
   test('should filter all cards on #library', async ({ page }) => {
-    await page.goto('/cards.html#library');
+    await page.goto('/#library');
 
     // Wait for loading state to disappear
     await page.waitForFunction(
@@ -65,21 +65,21 @@ test.describe('Hash Routing - Pattern Recognition', () => {
   });
 
   test('should filter by type on #library-equipment', async ({ page }) => {
-    await page.goto('/cards.html#library-equipment');
+    await page.goto('/#library-equipment');
 
     // Verify cards are filtered to Equipment type
     await verifyCardFiltering(page, 'Equipment');
   });
 
   test('should filter by type+subtype on #library-equipment-weapon', async ({ page }) => {
-    await page.goto('/cards.html#library-equipment-weapon');
+    await page.goto('/#library-equipment-weapon');
 
     // Verify cards are filtered to Equipment/Weapon
     await verifyCardFiltering(page, 'Equipment', 'Weapon');
   });
 
   test('should handle invalid type gracefully', async ({ page }) => {
-    await page.goto('/cards.html#library/invalidtype');
+    await page.goto('/#library/invalidtype');
 
     // Wait for page to load - just check DOM is ready, not networkidle
     await page.waitForLoadState('domcontentloaded');
@@ -92,21 +92,21 @@ test.describe('Hash Routing - Pattern Recognition', () => {
   });
 
   test('should handle case-insensitive hashes', async ({ page }) => {
-    await page.goto('/cards.html#library-equipment-weapon');
+    await page.goto('/#library-equipment-weapon');
 
     // Verify cards are filtered to Equipment/Weapon (case-insensitive)
     await verifyCardFiltering(page, 'Equipment', 'Weapon');
   });
 
   test('should handle skill type routing', async ({ page }) => {
-    await page.goto('/cards.html#library-skill');
+    await page.goto('/#library-skill');
 
     // Verify cards are filtered to Skill type
     await verifyCardFiltering(page, 'Skill');
   });
 
   test('should handle skill subtypes routing', async ({ page }) => {
-    await page.goto('/cards.html#library-skill-attack');
+    await page.goto('/#library-skill-attack');
 
     // Verify cards are filtered to Skill/Attack
     await verifyCardFiltering(page, 'Skill', 'Attack');
@@ -115,7 +115,7 @@ test.describe('Hash Routing - Pattern Recognition', () => {
 
 test.describe('Hash Routing - Hash Updates', () => {
   test('should update hash when using library navigation', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -133,7 +133,7 @@ test.describe('Hash Routing - Hash Updates', () => {
   });
 
   test('should update hash when clicking subtype in library nav', async ({ page }) => {
-    await page.goto('/cards.html#library-equipment');
+    await page.goto('/#library-equipment');
 
     // Wait for loading state to disappear
     await page.waitForFunction(
@@ -178,7 +178,7 @@ test.describe('Hash Routing - Hash Updates', () => {
   });
 
   test('should update hash when clicking sidebar navigation', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -195,17 +195,17 @@ test.describe('Hash Routing - Hash Updates', () => {
   });
 
   test('should support browser back/forward', async ({ page }) => {
-    await page.goto('/cards.html#library');
+    await page.goto('/#library');
     await page.waitForFunction(() => !document.querySelector('#cardList .loading-state'), {
       timeout: 15000,
     });
     await page.waitForSelector('.card-item', { timeout: 10000 });
 
-    await page.goto('/cards.html#library-equipment');
+    await page.goto('/#library-equipment');
     await page.waitForSelector('.card-item', { timeout: 10000 });
     await page.waitForTimeout(300); // Wait for filtering to complete
 
-    await page.goto('/cards.html#library-equipment-weapon');
+    await page.goto('/#library-equipment-weapon');
     await page.waitForSelector('.card-item', { timeout: 10000 });
     await page.waitForTimeout(300); // Wait for filtering to complete
 
@@ -226,7 +226,7 @@ test.describe('Hash Routing - Hash Updates', () => {
   });
 
   test('should clear subtype when changing type in library nav', async ({ page }) => {
-    await page.goto('/cards.html#library-equipment-weapon');
+    await page.goto('/#library-equipment-weapon');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });
@@ -246,7 +246,7 @@ test.describe('Hash Routing - Hash Updates', () => {
   });
 
   test('should handle rapid hash changes', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/');
 
     // Wait for library nav to load
     await page.waitForSelector('.library-nav-type', { timeout: 5000 });

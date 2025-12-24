@@ -3,12 +3,12 @@ import { VIEWPORTS, setupMobileViewport, setupDesktopViewport } from './test-hel
 
 test.describe('Card Library Page', () => {
   test('should load successfully', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
     await expect(page).toHaveTitle(/Library - Fellspiral/);
   });
 
   test('should display sidebar navigation', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for sidebar to be ready
     await page.locator('.sidebar').waitFor({ state: 'visible' });
@@ -24,7 +24,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should have all navigation links in sidebar', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for sidebar navigation to be ready
     await page.locator('.sidebar-nav').waitFor({ state: 'visible' });
@@ -52,7 +52,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should have Library section in sidebar', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Library section should exist
     const librarySection = page.locator('.nav-section-library');
@@ -65,7 +65,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should navigate to homepage sections when clicking nav links', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Click on a nav link that goes to homepage
     await page.click('.sidebar-nav a[href="/#initiative"]');
@@ -76,7 +76,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should display library navigation in main sidebar', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     // Wait for library navigation to load
     await page.waitForSelector('#libraryNavContainer', { timeout: 5000 });
@@ -92,7 +92,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should have mobile menu toggle button in DOM', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const mobileMenuToggle = page.locator('#mobileMenuToggle');
     // Button exists in DOM but may be hidden on desktop
@@ -103,7 +103,7 @@ test.describe('Card Library Page', () => {
   test.describe('Mobile menu functionality', () => {
     test('should toggle sidebar on mobile', async ({ page }) => {
       await setupMobileViewport(page);
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       const sidebar = page.locator('#sidebar');
       const mobileMenuToggle = page.locator('#mobileMenuToggle');
@@ -129,7 +129,7 @@ test.describe('Card Library Page', () => {
 
     test('should close sidebar when clicking nav link on mobile', async ({ page }) => {
       await setupMobileViewport(page);
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       const sidebar = page.locator('#sidebar');
       const mobileMenuToggle = page.locator('#mobileMenuToggle');
@@ -151,7 +151,7 @@ test.describe('Card Library Page', () => {
 
     test('should close sidebar when clicking outside on mobile', async ({ page }) => {
       await setupMobileViewport(page);
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       const sidebar = page.locator('#sidebar');
       const toggle = page.locator('#mobileMenuToggle');
@@ -168,7 +168,7 @@ test.describe('Card Library Page', () => {
 
     test('should handle rapid toggle clicks', async ({ page }) => {
       await setupMobileViewport(page);
-      await page.goto('/cards.html');
+      await page.goto('/#library');
 
       const sidebar = page.locator('#sidebar');
       const toggle = page.locator('#mobileMenuToggle');
@@ -186,7 +186,7 @@ test.describe('Card Library Page', () => {
   });
 
   test('should display view mode controls', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const viewControls = page.locator('.card-view-controls');
     await expect(viewControls).toBeVisible();
@@ -204,7 +204,7 @@ test.describe('Card Library Page', () => {
 
   test('should navigate to external links on desktop', async ({ page }) => {
     await setupDesktopViewport(page);
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const introLink = page.locator('.sidebar-nav a[href="/#introduction"]');
     await expect(introLink).toBeVisible();

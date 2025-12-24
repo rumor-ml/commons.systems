@@ -18,7 +18,7 @@ test.describe('Authentication', () => {
   });
 
   test('should have auth button on cards page', async ({ page }) => {
-    await page.goto('/cards.html');
+    await page.goto('/#library');
 
     const authButton = page.locator('.auth-button');
     await expect(authButton).toBeVisible();
