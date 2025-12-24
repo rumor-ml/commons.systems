@@ -1,4 +1,3 @@
-// @ts-nocheck - TODO(#317): Disabled type checking due to Phase 1/2 refactor
 /**
  * Tests for router state machine logic
  *
@@ -6,7 +5,6 @@
  * type guards, and helper functions.
  */
 
-// TODO(#317): Skipped due to Phase 1/2 refactor - old constant names no longer exist
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports } from './router.js';
@@ -24,9 +22,6 @@ import {
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
 } from '../constants.js';
-
-// STEP_VERIFY_REVIEWS no longer exists in new two-phase workflow
-const STEP_VERIFY_REVIEWS = 'verify-reviews' as WiggumStep;
 
 const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInstructions } =
   _testExports;
@@ -74,7 +69,7 @@ function createMockState(overrides: {
   };
 }
 
-describe.skip('hasExistingPR type guard (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('hasExistingPR type guard', () => {
   it('should return true when PR exists', () => {
     const state = createMockState({ pr: { exists: true, state: 'OPEN', number: 42 } });
     assert.strictEqual(hasExistingPR(state), true);
@@ -95,7 +90,7 @@ describe.skip('hasExistingPR type guard (TODO #317: broken after Phase 1/2 refac
   });
 });
 
-describe.skip('checkUncommittedChanges (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('checkUncommittedChanges', () => {
   it('should return ToolResult when uncommitted changes exist', () => {
     const state = createMockState({ git: { hasUncommittedChanges: true } });
     const output = {
@@ -138,7 +133,7 @@ describe.skip('checkUncommittedChanges (TODO #317: broken after Phase 1/2 refact
   });
 });
 
-describe.skip('checkBranchPushed (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('checkBranchPushed', () => {
   it('should return ToolResult when branch is not pushed', () => {
     const state = createMockState({ git: { isPushed: false } });
     const output = {
@@ -179,7 +174,7 @@ describe.skip('checkBranchPushed (TODO #317: broken after Phase 1/2 refactor)', 
   });
 });
 
-describe.skip('formatFixInstructions (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('formatFixInstructions', () => {
   it('should format fix instructions with failure details', () => {
     const result = formatFixInstructions(
       'Workflow',
@@ -218,7 +213,7 @@ describe.skip('formatFixInstructions (TODO #317: broken after Phase 1/2 refactor
   });
 });
 
-describe.skip('Step Sequencing Logic (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('Step Sequencing Logic', () => {
   describe('completedSteps filtering', () => {
     it('should recognize valid step values in completedSteps', () => {
       const validSteps: WiggumStep[] = [
@@ -270,7 +265,7 @@ describe.skip('Step Sequencing Logic (TODO #317: broken after Phase 1/2 refactor
   });
 });
 
-describe.skip('State Machine Invariants (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('State Machine Invariants', () => {
   it('should not have duplicate steps in completedSteps', () => {
     const completedSteps: WiggumStep[] = [
       STEP_PHASE1_CREATE_PR,
@@ -310,7 +305,7 @@ describe.skip('State Machine Invariants (TODO #317: broken after Phase 1/2 refac
   });
 });
 
-describe.skip('Error State Handling (TODO #317: broken after Phase 1/2 refactor)', () => {
+describe('Error State Handling', () => {
   it('should handle main branch error state', () => {
     const state = createMockState({
       git: { isMainBranch: true },

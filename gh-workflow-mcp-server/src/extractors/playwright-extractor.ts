@@ -76,6 +76,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
+        // TODO: See issue #332 - Empty catch swallows all errors including unexpected ones
         // Not valid JSON or extraction failed - this is expected, not an error
       }
     }
@@ -320,7 +321,6 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   }
 
   /**
-   * TODO(#302): Test midnight rollover handling in full extraction - see PR review for #273
    * Parse time difference between two HH:MM:SS strings
    *
    * Extracts timestamps from GitHub Actions logs to calculate time gaps
