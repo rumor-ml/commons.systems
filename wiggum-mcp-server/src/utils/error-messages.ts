@@ -54,6 +54,7 @@ export interface ErrorMessageParts {
 export function buildValidationErrorMessage(parts: ErrorMessageParts): string {
   const lines: string[] = [];
 
+  // TODO(#477): Add descriptive section header comments
   // Problem statement (required)
   lines.push(`Problem: ${parts.problem}`);
 

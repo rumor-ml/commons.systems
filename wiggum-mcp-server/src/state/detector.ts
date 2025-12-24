@@ -74,6 +74,7 @@ export async function detectGitState(): Promise<GitState> {
 export async function detectPRState(repo?: string): Promise<PRState> {
   let resolvedRepo: string;
 
+  // TODO(#477): Explain when repo parameter used vs getCurrentRepo() call
   try {
     resolvedRepo = repo || (await getCurrentRepo());
   } catch (repoError) {
@@ -99,7 +100,6 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     // gh pr view will fail if no PR exists
     const result: GitHubPR = await getPR(undefined, resolvedRepo); // undefined gets PR for current branch
 
-    // TODO(#315): Remove redundant ONLY emphasis (see PR review #273)
     // ONLY treat OPEN PRs as existing PRs for wiggum workflow
     // Closed/Merged PRs should be treated as non-existent to avoid state pollution
     // This prevents carrying over workflow state from closed PRs to new PRs on the same branch
@@ -128,6 +128,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const lowerMsg = errorMsg.toLowerCase();
 
+    // TODO(#478): Extract shared error classification patterns
     // Expected error: no PR exists for current branch
     if (
       lowerMsg.includes('no pull requests found') ||
@@ -288,7 +289,6 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     wiggum = await getWiggumState(pr.number, repo);
     wiggum.phase = 'phase2';
 
-    // TODO(#315): Remove obvious timing comment (see PR review #273)
     // If state detection took longer than 5 seconds, re-validate PR state exists
     // This helps detect race conditions where PR might have been closed/modified
     if (stateDetectionTime > 5000) {

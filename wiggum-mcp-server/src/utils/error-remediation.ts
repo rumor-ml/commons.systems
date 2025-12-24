@@ -4,6 +4,8 @@
  * Provides specific, actionable guidance for different types of GitHub CLI/API failures.
  */
 
+// TODO(#479): Add exit code validation, use readonly modifiers, extract remediation constants
+
 export type GitHubErrorType =
   | 'permission'
   | 'rate_limit'

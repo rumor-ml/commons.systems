@@ -12,6 +12,8 @@ import {
   GitHubCliError,
   GitError,
   FormattingError,
+  StateDetectionError,
+  StateApiError,
   createErrorResult,
   formatError,
   isTerminalError,
@@ -76,6 +78,53 @@ describe('Error Classes', () => {
     assert.strictEqual(error.code, 'FORMATTING_ERROR');
     assert.strictEqual(error.name, 'FormattingError');
   });
+
+  it('should create StateDetectionError with context', () => {
+    const error = new StateDetectionError('Rapid PR changes', {
+      depth: 3,
+      maxDepth: 3,
+      previousState: 'PR #123',
+      newState: 'PR #124',
+    });
+    assert.strictEqual(error.message, 'Rapid PR changes');
+    assert.strictEqual(error.code, 'STATE_DETECTION_ERROR');
+    assert.strictEqual(error.name, 'StateDetectionError');
+    assert.strictEqual(error.context?.depth, 3);
+    assert.strictEqual(error.context?.maxDepth, 3);
+    assert.strictEqual(error.context?.previousState, 'PR #123');
+    assert.strictEqual(error.context?.newState, 'PR #124');
+  });
+
+  it('should create StateDetectionError without context', () => {
+    const error = new StateDetectionError('Detection failed');
+    assert.strictEqual(error.message, 'Detection failed');
+    assert.strictEqual(error.code, 'STATE_DETECTION_ERROR');
+    assert.strictEqual(error.name, 'StateDetectionError');
+    assert.strictEqual(error.context, undefined);
+  });
+
+  it('should create StateApiError with all fields', () => {
+    const cause = new Error('Rate limit exceeded');
+    const error = new StateApiError('Failed to read PR state', 'read', 'pr', 123, cause);
+    assert.strictEqual(error.message, 'Failed to read PR state');
+    assert.strictEqual(error.code, 'STATE_API_ERROR');
+    assert.strictEqual(error.name, 'StateApiError');
+    assert.strictEqual(error.operation, 'read');
+    assert.strictEqual(error.resourceType, 'pr');
+    assert.strictEqual(error.resourceId, 123);
+    assert.strictEqual(error.cause, cause);
+  });
+
+  it('should create StateApiError without optional fields', () => {
+    const error = new StateApiError('Failed to write issue state', 'write', 'issue');
+    assert.strictEqual(error.message, 'Failed to write issue state');
+    assert.strictEqual(error.code, 'STATE_API_ERROR');
+    assert.strictEqual(error.name, 'StateApiError');
+    assert.strictEqual(error.operation, 'write');
+    assert.strictEqual(error.resourceType, 'issue');
+    assert.strictEqual(error.resourceId, undefined);
+    assert.strictEqual(error.cause, undefined);
+  });
 });
 
 describe('createErrorResult', () => {
@@ -128,6 +177,27 @@ describe('createErrorResult', () => {
 
     assert.strictEqual(result._meta?.errorType, 'FormattingError');
     assert.strictEqual(result._meta?.errorCode, 'FORMATTING_ERROR');
+  });
+
+  it('should create error result for StateDetectionError', () => {
+    const error = new StateDetectionError('State detection failed', {
+      depth: 2,
+      maxDepth: 3,
+    });
+    const result = createErrorResult(error);
+
+    assert.strictEqual(result._meta?.errorType, 'StateDetectionError');
+    assert.strictEqual(result._meta?.errorCode, 'STATE_DETECTION_ERROR');
+    assert.strictEqual(result.content[0].text, 'Error: State detection failed');
+  });
+
+  it('should create error result for StateApiError', () => {
+    const error = new StateApiError('API operation failed', 'read', 'pr', 456);
+    const result = createErrorResult(error);
+
+    assert.strictEqual(result._meta?.errorType, 'StateApiError');
+    assert.strictEqual(result._meta?.errorCode, 'STATE_API_ERROR');
+    assert.strictEqual(result.content[0].text, 'Error: API operation failed');
   });
 
   it('should create error result for generic Error', () => {
@@ -183,11 +253,13 @@ describe('isTerminalError', () => {
     assert.strictEqual(isTerminalError(error), false);
   });
 
-  // TODO(#313): Add test coverage for StateDetectionError and StateApiError classes
-  // - StateDetectionError should return true (terminal error)
-  // - StateApiError should return false (retryable error)
-  // - Test context field preservation
-  // - Test operation/resourceType/resourceId fields
-  // - Test error code and name fields
-  // - Test createErrorResult() categorization
+  it('should treat StateDetectionError as terminal', () => {
+    const error = new StateDetectionError('Detection failed');
+    assert.strictEqual(isTerminalError(error), true);
+  });
+
+  it('should treat StateApiError as retryable (not terminal)', () => {
+    const error = new StateApiError('API failed', 'read', 'pr');
+    assert.strictEqual(isTerminalError(error), false);
+  });
 });

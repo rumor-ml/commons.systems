@@ -179,6 +179,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     // Post minimal state comment documenting fast-path completion
     const commentTitle = `${state.wiggum.step} - Complete (No In-Scope Fixes)`;
+    // TODO(#478): Extract markdown formatting to helper function
     const outOfScopeSection = input.out_of_scope_issues?.length
       ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
       : '';

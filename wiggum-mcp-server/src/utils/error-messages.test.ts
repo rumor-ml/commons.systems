@@ -6,6 +6,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { buildValidationErrorMessage } from './error-messages.js';
 
+// TODO(#313): Add negative test cases - null/undefined inputs, empty strings, edge cases
+
 describe('buildValidationErrorMessage', () => {
   it('should build message with all parts', () => {
     const message = buildValidationErrorMessage({
@@ -67,6 +69,7 @@ describe('buildValidationErrorMessage', () => {
     assert.ok(message.includes('3. Third'));
   });
 
+  // TODO(#313): Add integration tests verifying ValidationErrors use buildValidationErrorMessage
   // TODO(#313): Add integration tests verifying ValidationErrors use buildValidationErrorMessage correctly
   // - Test actual usage in complete-fix.ts (empty fix_description)
   // - Test actual usage in complete-fix.ts (invalid out_of_scope_issues)

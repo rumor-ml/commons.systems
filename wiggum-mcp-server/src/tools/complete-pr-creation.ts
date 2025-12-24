@@ -41,7 +41,7 @@ import { getNextStepInstructions } from '../state/router.js';
 import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
-import { ValidationError, GitHubCliError, StateApiError } from '../utils/errors.js';
+import { ValidationError, GitHubCliError, StateApiError, NetworkError } from '../utils/errors.js';
 import { buildGitHubErrorMessage } from '../utils/error-remediation.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
@@ -120,6 +120,8 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
 
   // Get commit messages for PR body
   let commits: string;
+  let commitsFallback = false;
+
   try {
     commits = await ghCli([
       'api',
@@ -129,10 +131,13 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
     ]);
     commits = commits.trim();
   } catch (error) {
+    commitsFallback = true;
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to fetch commits from GitHub API for PR body', {
+
+    logger.warn('Failed to fetch commits - using fallback message in PR body', {
       error: errorMsg,
       branch: branchName,
+      willContinue: true,
     });
 
     // Sanitize error message for PR body using security utility
@@ -176,6 +181,7 @@ ${commits}`;
     logger.info('PR creation command executed successfully', {
       outputLength: createOutput.length,
       branch: branchName,
+      commitsFallback,
     });
 
     // Parse PR URL from output (gh pr create outputs the PR URL)
@@ -206,14 +212,24 @@ ${commits}`;
         state: pr.state,
       });
     } catch (verifyError) {
+      const errorMsg = verifyError instanceof Error ? verifyError.message : String(verifyError);
+
       logger.error('Failed to verify PR after creation', {
         prNumber,
-        error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        errorType: verifyError instanceof Error ? verifyError.constructor.name : typeof verifyError,
+        error: errorMsg,
       });
+
+      // Re-throw specific error types with proper context
+      if (verifyError instanceof StateApiError || verifyError instanceof NetworkError) {
+        throw verifyError;
+      }
+
+      // Only treat unknown errors as verification failures
       throw new ValidationError(
         `PR #${prNumber} was created but could not be verified. ` +
           `This may indicate a timing issue with GitHub API. ` +
-          `Error: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`
+          `Error: ${errorMsg}`
       );
     }
 
@@ -225,6 +241,7 @@ ${commits}`;
       phase: 'phase2',
     };
 
+    // TODO(#320): Add diagnostics field to StateApiError for HTTP status, rate limits, etc.
     try {
       await postWiggumStateComment(
         prNumber,

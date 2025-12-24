@@ -80,6 +80,7 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // TODO(#463): Preserve original error diagnostic information when rethrowing
     throw new GitHubCliError(
       "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
     );
@@ -414,6 +415,7 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
+// TODO(#477): Explain exit code precedence, error message patterns, classification logic
 /**
  * Classify error type for logging and diagnostics
  */
@@ -442,6 +444,7 @@ function classifyErrorType(error: Error): string {
   return 'unknown';
 }
 
+// TODO(#389): Replace console.error with structured logger for retry monitoring
 /**
  * Execute gh CLI command with retry logic
  */
@@ -457,7 +460,8 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery with full context
+      // Success after retry - log recovery with first error type for diagnostics
+      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
         console.error(
           `[gh-workflow] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError)}, command: gh ${args.join(' ')})`
@@ -490,20 +494,22 @@ export async function ghCliWithRetry(
       }
 
       // Log retry attempts with consistent formatting and full context
+      // Note: Using console.error() for all logs to ensure visibility in MCP stderr streams
+      // The INFO/WARN prefixes in the message indicate severity for human readers
       const errorType = classifyErrorType(lastError);
       if (attempt === 1) {
-        // Initial failure - log at INFO level since retry is designed for this
+        // Initial failure - INFO level since retry is designed for this
         console.error(
           `[gh-workflow] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       } else {
-        // Subsequent failures - log at WARN level with consistent message format
+        // Subsequent failures - WARN level to indicate multiple failures
         console.error(
           `[gh-workflow] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       }
 
-      // Exponential backoff: 2s, 4s, 8s
+      // Exponential backoff: 2^attempt seconds (attempt 1→2s, 2→4s, 3→8s)
       const delayMs = Math.pow(2, attempt) * 1000;
       await sleep(delayMs);
     }

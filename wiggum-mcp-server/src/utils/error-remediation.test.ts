@@ -6,6 +6,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { classifyGitHubError, buildGitHubErrorMessage } from './error-remediation.js';
 
+// TODO(#313): Add negative test cases - null/undefined inputs, empty strings, edge cases
+
 describe('classifyGitHubError', () => {
   it('should classify permission errors', () => {
     const result = classifyGitHubError('GraphQL: Forbidden (HTTP 403)');
@@ -87,6 +89,7 @@ describe('buildGitHubErrorMessage', () => {
     assert.ok(!message.includes('This error is likely transient'));
   });
 
+  // TODO(#313): Add edge case tests - exit code precedence, HTTP 502/503/504, case-insensitive matching
   // TODO(#313): Add edge case tests for GitHub error classification
   // - Test exit code 4 as permission (precedence over message)
   // - Test HTTP 502/503/504 classification
@@ -95,6 +98,7 @@ describe('buildGitHubErrorMessage', () => {
   // - Test empty error message handling
   // - Test overlapping patterns (e.g., "network timeout")
 
+  // TODO(#313): Improve test structure verification - use line-by-line assertions instead of .includes()
   // TODO(#313): Improve test structure verification (avoid brittle string inclusion)
   // - Verify exact structure and ordering of error message sections
   // - Use line-by-line assertions instead of .includes()

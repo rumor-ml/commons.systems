@@ -22,6 +22,8 @@
  * @module errors
  */
 
+// TODO(#479): Make McpError abstract, strengthen StateDetectionError context type
+
 import type { ErrorResult } from '../types.js';
 
 /**
