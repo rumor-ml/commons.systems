@@ -23,6 +23,38 @@ import (
 // BACKWARD COMPATIBILITY:
 //   - Wire protocol unchanged - clients see no difference
 //   - Internal refactoring only - compile-time safety improvements
+//
+// USAGE EXAMPLES:
+//
+// Creating and sending a message (server side):
+//
+//   msg, err := NewAlertChangeMessage(seqNum, paneID, eventType, created)
+//   if err != nil {
+//       log.Printf("Failed to create message: %v", err)
+//       return err
+//   }
+//   wire := msg.ToWireFormat()
+//   if err := encoder.Encode(wire); err != nil {
+//       return fmt.Errorf("send failed: %w", err)
+//   }
+//
+// Receiving and processing a message (client side):
+//
+//   var wire Message
+//   if err := decoder.Decode(&wire); err != nil {
+//       return fmt.Errorf("decode failed: %w", err)
+//   }
+//   msg, err := FromWireFormat(wire)
+//   if err != nil {
+//       return fmt.Errorf("invalid message: %w", err)
+//   }
+//   switch m := msg.(type) {
+//   case *AlertChangeMessageV2:
+//       handleAlertChange(m.PaneID(), m.EventType(), m.Created())
+//   case *FullStateMessageV2:
+//       handleFullState(m.Alerts(), m.BlockedBranches())
+//   // ... handle other types
+//   }
 
 // MessageV2 is the base interface for all protocol v2 messages
 type MessageV2 interface {
