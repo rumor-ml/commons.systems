@@ -668,6 +668,23 @@ Another line of output
       const result = extractor.extract(singleLineJson);
       assert.strictEqual(result.framework, 'playwright');
     });
+
+    test('returns error with diagnostic when no JSON found', () => {
+      const logWithoutJson = `
+Some random build output
+More build output
+No JSON here at all
+`;
+      const result = extractor.extract(logWithoutJson);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.includes('No valid Playwright JSON found'));
+      assert.ok(result.errors[0].message.includes('Use --reporter=json'));
+      assert.ok(result.errors[0].message.includes('Log contains'));
+    });
+
+    // TODO(#510): Add tests for truncated JSON diagnostic, non-SyntaxError propagation, and validation warnings in result
   });
 });
 

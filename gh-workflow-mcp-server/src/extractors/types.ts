@@ -100,6 +100,7 @@ export function formatValidationError(error: z.ZodError): string {
  * 3. lineNumber/columnNumber: Filtered to positive integers via isPositiveInteger
  * 4. duration: Filtered to non-negative via isNonNegativeNumber
  * 5. Optional fields: Passed through if valid, otherwise undefined
+ *    TODO(#509): Clarify what "valid" means (type-checked? non-empty? schema-validated?)
  *
  * WHY VALIDATION IS NEEDED:
  * Test framework output can be malformed in many ways:
@@ -211,12 +212,14 @@ export class ValidationErrorTracker {
    * @param error - The Zod validation error
    */
   recordValidationFailure(context: string, error: z.ZodError): void {
-    // Sanity check: detect count corruption
+    // Sanity check: detect count corruption - this is a BUG
     if (this.validationFailures < 0) {
-      console.error(
-        `[BUG] ValidationErrorTracker.recordValidationFailure: validationFailures is negative (${this.validationFailures}). Resetting to 0.`
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
+          `validationFailures=${this.validationFailures} (expected >= 0). ` +
+          `This indicates memory corruption or a bug in the tracker. ` +
+          `Context: ${context}`
       );
-      this.validationFailures = 0;
     }
 
     this.validationFailures++;
@@ -225,10 +228,10 @@ export class ValidationErrorTracker {
 
     // Sanity check: count should match warnings array length
     if (this.validationFailures !== this.warnings.length) {
-      console.error(
-        `[BUG] ValidationErrorTracker.recordValidationFailure: count mismatch after increment. ` +
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corruption after increment. ` +
           `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `This indicates state corruption.`
+          `Context: ${context}`
       );
     }
   }
@@ -245,28 +248,22 @@ export class ValidationErrorTracker {
    * Returns undefined if no failures
    */
   getSummaryWarning(): string | undefined {
-    // Sanity check: detect negative count
+    // Sanity check: detect negative count - this is a BUG
     if (this.validationFailures < 0) {
-      console.error(
-        `[BUG] ValidationErrorTracker.getSummaryWarning: validationFailures is negative (${this.validationFailures}). ` +
-          `Returning diagnostic message.`
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
+          `validationFailures=${this.validationFailures} (expected >= 0). ` +
+          `This indicates memory corruption or a bug in the tracker.`
       );
-      return `INTERNAL ERROR: Validation failure count corrupted (${this.validationFailures} < 0). Please file bug report.`;
     }
 
     // Sanity check: count should match warnings array length
     if (this.validationFailures !== this.warnings.length) {
-      console.error(
-        `[BUG] ValidationErrorTracker.getSummaryWarning: count mismatch. ` +
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corruption. ` +
           `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `Using warnings.length as source of truth.`
+          `Count and array size must match.`
       );
-      // Use warnings.length as source of truth
-      const actualCount = this.warnings.length;
-      if (actualCount === 0) {
-        return undefined;
-      }
-      return `${actualCount} test events failed validation - malformed output detected (count mismatch detected)`;
     }
 
     if (this.validationFailures === 0) {
@@ -297,6 +294,7 @@ export class ValidationErrorTracker {
  * @throws Non-Zod errors (bugs in extraction code)
  */
 // All extractor fallback paths verified in #332 - using safeValidateExtractedError consistently
+// TODO(#506): Fix inaccurate line number references (all numbers are 6-50 lines off)
 // See playwright-extractor.ts: parsePlaywrightTimeout (259), parsePlaywrightJson (459, 483, 517), parsePlaywrightText (595)
 export function safeValidateExtractedError(
   data: unknown,

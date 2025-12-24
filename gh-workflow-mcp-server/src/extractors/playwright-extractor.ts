@@ -76,14 +76,23 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // Expected: SyntaxError or "No valid Playwright JSON" message
+        // Expected errors from extractJsonFromLogs/JSON.parse:
+        // - SyntaxError: malformed JSON
+        // - Error("No valid Playwright JSON..."): missing required fields
         if (
           err instanceof SyntaxError ||
           (err instanceof Error && err.message.includes('No valid Playwright JSON'))
         ) {
           return null; // Not Playwright - try other detectors
         }
-        throw err; // Unexpected error - propagate bug
+        // Unexpected error - log before propagating
+        console.error(
+          `[ERROR] Unexpected error during Playwright detection: ` +
+            `${err instanceof Error ? err.message : String(err)}` +
+            (err instanceof Error && err.stack ? `\nStack: ${err.stack}` : '') +
+            `. This is a bug in the Playwright extractor detection logic.`
+        );
+        throw err; // Propagate bug (OOM, internal V8 errors, etc.)
       }
     }
 
@@ -169,11 +178,18 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return this.parsePlaywrightText(logText, maxErrors);
     }
 
-    // No Playwright detected at all
-    return {
-      framework: 'unknown',
-      errors: [],
-    };
+    // Check if this might be Playwright with missing/invalid JSON
+    // by attempting to extract and parse JSON
+    if (logText.includes('"suites":') || logText.includes('"config":')) {
+      // Has Playwright JSON markers but detection failed - likely extraction/parse error
+      return this.parsePlaywrightJson(logText, maxErrors);
+    }
+
+    // No Playwright detected - but still try parsePlaywrightJson to provide
+    // a helpful error message about missing JSON if that's the issue
+    // This handles cases where someone calls extract() on a Playwright extractor
+    // with text that has no JSON and no Playwright markers
+    return this.parsePlaywrightJson(logText, maxErrors);
   }
 
   private parsePlaywrightTimeout(logText: string): ExtractionResult {
@@ -238,9 +254,14 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (typeof timeGap === 'number' && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
-    } else if (timeGap === null && timeDiagnostic) {
-      // Include diagnostic directly in user-facing message
-      message += `\n\nTimestamp diagnostic: ${timeDiagnostic}\n`;
+    } else if (timeGap === null) {
+      // ALWAYS show diagnostic when time gap parsing fails
+      message += `\n\nCould not determine time gap between events. `;
+      if (timeDiagnostic) {
+        message += `Diagnostic: ${timeDiagnostic}\n`;
+      } else {
+        message += `Timestamps: ${setupTimestamp} → ${configTimestamp}\n`;
+      }
       message += `This may indicate log format changes or timestamp extraction issues. `;
     }
 
@@ -378,6 +399,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     const diff = Math.abs(seconds2 - seconds1);
 
+    // TODO(#507): Remove redundant cross-reference (already in parseTimeDiff function)
     // Midnight rollover detection: 12h threshold (43200s)
     // Rationale: Valid test runs never exceed 12h; larger gaps = date boundary
     // See parseTimeDiff JSDoc for full documentation
@@ -450,9 +472,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       };
       const endSnippet = lines.slice(-10).join('\n');
 
+      // TODO(#508): Replace console.error with logError for Sentry integration
       console.error(
         `[ERROR] parsePlaywrightJson: JSON extraction failed.\n` +
           `  Error: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}\n` +
+          `  Stack: ${extractErr instanceof Error && extractErr.stack ? '\n' + extractErr.stack : '(no stack trace)'}\n` +
           `  Log stats: ${logStats.totalChars} chars, ${logStats.totalLines} lines\n` +
           `  Last 10 lines:\n${endSnippet}`
       );
@@ -487,13 +511,30 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     let report: PlaywrightJsonReport;
     try {
       report = JSON.parse(jsonText) as PlaywrightJsonReport;
+
+      // Validate structure
+      if (!report.suites && !report.config) {
+        throw new Error(
+          `Parsed JSON does not match Playwright schema. ` +
+            `Expected "suites" or "config" fields. ` +
+            `Found: ${Object.keys(report).join(', ')}`
+        );
+      }
+      if (report.suites && !Array.isArray(report.suites)) {
+        throw new Error(
+          `Parsed JSON has invalid "suites" field. ` + `Expected array, got ${typeof report.suites}`
+        );
+      }
     } catch (parseErr) {
       // Only catch expected SyntaxError from JSON.parse
       if (!(parseErr instanceof SyntaxError)) {
         throw parseErr; // Unexpected error - propagate bug (OOM, internal V8 error, etc.)
       }
       // JSON.parse failed - malformed JSON after extraction
-      console.error(`[ERROR] parsePlaywrightJson: JSON.parse failed: ${parseErr.message}`);
+      console.error(
+        `[ERROR] parsePlaywrightJson: JSON.parse failed: ${parseErr.message}` +
+          (parseErr instanceof Error && parseErr.stack ? `\nStack: ${parseErr.stack}` : '')
+      );
       const validatedError = safeValidateExtractedError(
         {
           message: `Failed to parse Playwright JSON report: ${parseErr.message}`,
@@ -508,6 +549,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       };
     }
 
+    // TODO(#504): Add error boundaries to suite traversal for resilience against schema changes
     // Phase 3: Traverse suites (NO catch - bugs should propagate)
     const extractFromSuite = (suite: PlaywrightSuite) => {
       for (const spec of suite.specs || []) {
@@ -562,6 +604,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       extractFromSuite(suite);
     }
 
+    // TODO(#505): Add defensive error handling to prevent counting crashes from losing extraction results
     // Count total tests for summary
     let totalPassed = 0;
     let totalFailed = failures.length;
@@ -735,9 +778,18 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       } catch (err) {
         // Expected: SyntaxError if log is not valid JSON
         if (!(err instanceof SyntaxError)) {
-          console.error(`[ERROR] Unexpected error parsing entire log: ${err}`);
-          // Continue to throw Error below with diagnostic message
+          console.error(
+            `[ERROR] Unexpected error parsing entire log (${logText.length} chars): ` +
+              `${err instanceof Error ? err.message : String(err)}` +
+              (err instanceof Error && err.stack ? `\nStack: ${err.stack}` : '')
+          );
+          // Re-throw with context - this is a bug or resource issue, not user error
+          throw new Error(
+            `Unexpected error parsing log file: ${err instanceof Error ? err.message : String(err)}. ` +
+              `Log size: ${logText.length} chars. This may indicate a bug or resource limitation.`
+          );
         }
+        // SyntaxError is expected - fall through to main error
       }
 
       throw new Error(
@@ -787,7 +839,14 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             `SyntaxError: ${err.message}. Indicates truncated/malformed JSON.`
         );
       }
-      throw err;
+      // Unexpected error - add context before re-throwing
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Unexpected error during Playwright JSON extraction fallback: ${errorMsg}. ` +
+          `Parse attempts: ${parseAttempts}, JSON start line: ${jsonStart}, ` +
+          `Fallback JSON size: ${fallbackJson.length} chars. ` +
+          `This may indicate memory issues or a bug in JSON.parse.`
+      );
     }
   }
 }
