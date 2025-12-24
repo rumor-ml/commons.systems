@@ -159,6 +159,78 @@ describe('createErrorResultFromError', () => {
     assert.equal(result!._meta.errorType, 'Error');
     assert.equal(result!._meta.errorCode, 'UNKNOWN_ERROR');
   });
+
+  it('throws ValidationError in development mode for non-McpError without fallback', () => {
+    const originalEnv = process.env.NODE_ENV;
+
+    try {
+      process.env.NODE_ENV = 'development';
+
+      const error = new Error('Generic error');
+
+      assert.throws(
+        () => createErrorResultFromError(error, false),
+        (err: any) => {
+          return (
+            err instanceof ValidationError &&
+            err.message.includes('Non-McpError passed to createErrorResultFromError') &&
+            err.message.includes('Use createErrorResult() for automatic handling')
+          );
+        }
+      );
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('logs warning in production mode for non-McpError without fallback', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = new Error('Generic error');
+      const result = createErrorResultFromError(error, false);
+
+      // Verify it returns null
+      assert.equal(result, null);
+
+      // Verify console.warn was called
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Non-McpError passed to createErrorResultFromError'));
+      assert.strictEqual(warnings[0][1], error);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
+
+  it('logs warning in undefined NODE_ENV for non-McpError without fallback', () => {
+    const originalEnv = process.env.NODE_ENV;
+    const warnings: any[] = [];
+    const originalWarn = console.warn;
+
+    try {
+      delete process.env.NODE_ENV;
+      console.warn = (...args: any[]) => warnings.push(args);
+
+      const error = new Error('Generic error');
+      const result = createErrorResultFromError(error, false);
+
+      // Verify it returns null
+      assert.equal(result, null);
+
+      // Verify console.warn was called
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0][0].includes('[mcp-common] Non-McpError passed to createErrorResultFromError'));
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      console.warn = originalWarn;
+    }
+  });
 });
 
 describe('createErrorResult - system error handling', () => {
