@@ -318,15 +318,63 @@ Call after completing any Plan+Fix cycle. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_fix({
-  fix_description: 'Brief description of what was fixed',
+  fix_description: 'Brief description of what was fixed or why no fixes were needed',
+  has_in_scope_fixes: true, // or false
+  out_of_scope_issues: [123, 456], // Optional: issue numbers for out-of-scope recommendations
 });
 ```
 
-The tool:
+**Parameters:**
 
-- Posts fix documentation to PR
-- Clears completed steps to re-verify from current step
-- Returns instructions to re-verify the step where issues were found
+- `fix_description` (required): Brief description of what was fixed or why issues were ignored
+- `has_in_scope_fixes` (required): Boolean indicating if any in-scope code changes were made
+  - `true`: Made code changes → Tool clears completed steps and returns re-verification instructions
+  - `false`: No code changes → Tool marks step complete and advances to next step
+- `out_of_scope_issues` (optional): Array of issue numbers for recommendations that should be tracked separately
+
+**Tool Behavior:**
+
+- If `has_in_scope_fixes: true`:
+  - Posts fix documentation to PR
+  - Clears completed steps to re-verify from current step
+  - Returns instructions to re-verify the step where issues were found
+- If `has_in_scope_fixes: false`:
+  - Skips PR comment posting
+  - Marks current step as complete
+  - Advances to next workflow step
+
+**Common Scenarios:**
+
+```typescript
+// Scenario 1: Stale Code Quality Comments (issue #430)
+// All comments reference already-fixed code from earlier commits
+wiggum_complete_fix({
+  fix_description:
+    'All 3 code quality comments evaluated - all reference already-fixed code from earlier commits',
+  has_in_scope_fixes: false,
+});
+
+// Scenario 2: Valid Issues Found and Fixed
+wiggum_complete_fix({
+  fix_description: 'Fixed 2 code quality issues: removed unused imports, fixed type errors',
+  has_in_scope_fixes: true,
+});
+
+// Scenario 3: Mixed Valid and Stale
+// Fixed some issues but others were stale - ANY fixes require re-verification
+wiggum_complete_fix({
+  fix_description: 'Fixed 1 valid issue (type error), ignored 2 stale comments (already fixed)',
+  has_in_scope_fixes: true, // Made fixes - needs re-verification
+});
+
+// Scenario 4: All Out-of-Scope
+// No in-scope fixes, but created issues for broader improvements
+wiggum_complete_fix({
+  fix_description: 'All 5 recommendations are out-of-scope architectural changes',
+  has_in_scope_fixes: false,
+  out_of_scope_issues: [567, 568, 569],
+});
+```
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
 

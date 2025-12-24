@@ -1313,10 +1313,19 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 2. If valid issues identified:
    a. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fixes
    b. Execute /commit-merge-push slash command using SlashCommand tool
-   c. Call wiggum_complete_fix with fix_description
-3. If all comments are invalid/should be ignored:
-   - Mark step complete and proceed to next step
-   - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
+   c. Call wiggum_complete_fix with:
+      - fix_description: "Fixed N code quality issues: <brief summary>"
+      - has_in_scope_fixes: true
+
+3. If NO valid issues (all comments are stale/invalid):
+   a. To identify stale comments, check if code was modified in earlier commits:
+      - Use git log to check commit history for the file
+      - Compare comment's referenced code with current state
+   b. Call wiggum_complete_fix with:
+      - fix_description: "All code quality comments evaluated - N stale (already fixed), M invalid (incorrect suggestions)"
+      - has_in_scope_fixes: false
+
+   CRITICAL: Using has_in_scope_fixes: false marks this step complete and proceeds to next step WITHOUT re-verification.`;
   }
 
   return {
