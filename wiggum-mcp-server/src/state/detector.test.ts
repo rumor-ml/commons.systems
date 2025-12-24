@@ -177,4 +177,19 @@ describe('Type Safety', () => {
       assert.ok(prState.labels.includes('priority:high'));
     });
   });
+
+  // TODO(#313): Add behavioral tests for detectPRState error handling paths
+  // Requires mocking getPR() - see file header NOTE
+  // - Test StateApiError thrown for rate limit errors
+  // - Test StateApiError thrown for auth errors (403/401)
+  // - Test StateApiError thrown for network errors
+  // - Test {exists: false} returned for "no pull requests found"
+  // - Test error logging for unexpected errors
+
+  // TODO(#334): Add behavioral tests for detectCurrentState recursion limit enforcement
+  // Requires mocking detectPRState to return different PR numbers each call
+  // - Test StateDetectionError thrown when recursion limit exceeded
+  // - Test error.context includes depth, maxDepth, previousState, newState
+  // - Test timing information in context
+  // - Verify fix from TODO(#272) prevents returning stale state
 });

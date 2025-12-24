@@ -41,7 +41,7 @@ import { getNextStepInstructions } from '../state/router.js';
 import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
-import { ValidationError, GitHubCliError } from '../utils/errors.js';
+import { ValidationError, GitHubCliError, StateApiError } from '../utils/errors.js';
 import { buildGitHubErrorMessage } from '../utils/error-remediation.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
@@ -257,12 +257,17 @@ ${commits}`;
           prNumber,
           impact: 'PR created successfully but state tracking failed',
           prStatus: 'PR exists and can be viewed',
-          nextSteps: 'You may need to manually add a wiggum state comment or restart the workflow',
+          nextSteps: 'Call wiggum_init to verify PR state and continue workflow',
         }
       );
 
-      throw new ValidationError(
-        `PR #${prNumber} was created successfully but failed to post state comment.\n\n${detailedError}`
+      throw new StateApiError(
+        `PR #${prNumber} was created successfully but failed to post state comment.\n\n${detailedError}\n\n` +
+          `**Recovery:** Call wiggum_init to verify PR state and get next step instructions.`,
+        'write',
+        'pr',
+        prNumber,
+        commentError instanceof Error ? commentError : undefined
       );
     }
 

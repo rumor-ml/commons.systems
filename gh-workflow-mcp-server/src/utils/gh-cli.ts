@@ -457,10 +457,10 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery
+      // Success after retry - log recovery with full context
       if (attempt > 1 && firstError) {
-        console.log(
-          `[gh-workflow] ghCliWithRetry: succeeded after retry (attempt ${attempt}, errorType: ${classifyErrorType(firstError)})`
+        console.error(
+          `[gh-workflow] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError)}, command: gh ${args.join(' ')})`
         );
       }
 
@@ -474,29 +474,32 @@ export async function ghCliWithRetry(
       }
 
       if (!isRetryableError(error)) {
-        // Non-retryable error, fail immediately
+        // Non-retryable error, fail immediately with context
+        console.error(
+          `[gh-workflow] ghCliWithRetry: non-retryable error encountered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')})`
+        );
         throw lastError;
       }
 
       if (attempt === maxRetries) {
-        // Final attempt failed - log all attempts exhausted
-        console.warn(
-          `[gh-workflow] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)})`
+        // Final attempt failed - log all attempts exhausted with full context
+        console.error(
+          `[gh-workflow] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
         throw lastError;
       }
 
-      // Log based on attempt number
+      // Log retry attempts with consistent formatting and full context
       const errorType = classifyErrorType(lastError);
       if (attempt === 1) {
         // Initial failure - log at INFO level since retry is designed for this
-        console.log(
-          `[gh-workflow] ghCliWithRetry: initial attempt failed, will retry (errorType: ${errorType}, command: gh ${args.join(' ')})`
+        console.error(
+          `[gh-workflow] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       } else {
-        // Subsequent failures - log at WARN level
-        console.warn(
-          `[gh-workflow] ghCliWithRetry: retry attempt ${attempt} failed, will retry again (errorType: ${errorType})`
+        // Subsequent failures - log at WARN level with consistent message format
+        console.error(
+          `[gh-workflow] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       }
 

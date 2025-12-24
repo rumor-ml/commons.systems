@@ -86,4 +86,22 @@ describe('buildGitHubErrorMessage', () => {
 
     assert.ok(!message.includes('This error is likely transient'));
   });
+
+  // TODO(#313): Add edge case tests for GitHub error classification
+  // - Test exit code 4 as permission (precedence over message)
+  // - Test HTTP 502/503/504 classification
+  // - Test case-insensitive error message matching
+  // - Test multiple error indicators (precedence order)
+  // - Test empty error message handling
+  // - Test overlapping patterns (e.g., "network timeout")
+
+  // TODO(#313): Improve test structure verification (avoid brittle string inclusion)
+  // - Verify exact structure and ordering of error message sections
+  // - Use line-by-line assertions instead of .includes()
+  // - Consider snapshot testing for complex multi-line messages
+
+  // TODO(#313): Add explicit tests for isRetryable flag consistency
+  // - Verify all error types have correct isRetryable value
+  // - Test: permission → false, rate_limit → true, timeout → true
+  // - Test: network → true, not_found → false, unknown → false
 });

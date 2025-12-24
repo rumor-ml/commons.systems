@@ -182,4 +182,12 @@ describe('isTerminalError', () => {
     const error = new Error('Generic');
     assert.strictEqual(isTerminalError(error), false);
   });
+
+  // TODO(#313): Add test coverage for StateDetectionError and StateApiError classes
+  // - StateDetectionError should return true (terminal error)
+  // - StateApiError should return false (retryable error)
+  // - Test context field preservation
+  // - Test operation/resourceType/resourceId fields
+  // - Test error code and name fields
+  // - Test createErrorResult() categorization
 });

@@ -29,17 +29,30 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   try {
     state = await detectCurrentState();
   } catch (error) {
-    if (error instanceof StateDetectionError || error instanceof StateApiError) {
-      logger.error('wiggum_init: state detection failed', {
+    if (error instanceof StateDetectionError) {
+      logger.error('wiggum_init: state detection failed - race condition or rapid state changes', {
         errorType: error.constructor.name,
         errorMessage: error.message,
-        context: error instanceof StateDetectionError ? error.context : undefined,
-        operation: error instanceof StateApiError ? error.operation : undefined,
-        resourceType: error instanceof StateApiError ? error.resourceType : undefined,
+        context: error.context,
       });
       return createErrorResult(error);
     }
-    // Re-throw unexpected errors
+    if (error instanceof StateApiError) {
+      logger.error('wiggum_init: GitHub API error during state detection', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        operation: error.operation,
+        resourceType: error.resourceType,
+        resourceId: error.resourceId,
+      });
+      return createErrorResult(error);
+    }
+    // Re-throw unexpected errors after logging
+    logger.error('wiggum_init: unexpected error during state detection', {
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw error;
   }
 

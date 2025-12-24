@@ -27,4 +27,12 @@ describe('init tool', () => {
       assert.strictEqual(result.success, true);
     });
   });
+
+  // TODO(#313): Add behavioral tests for wiggum_init error handling integration
+  // Requires mocking detectCurrentState() - see detector.test.ts header NOTE
+  // - Test error result returned for StateDetectionError
+  // - Test error result returned for StateApiError
+  // - Test error logging includes errorType, errorMessage, context fields
+  // - Test unexpected errors are re-thrown (not caught)
+  // - Test logging before re-throw for unexpected errors
 });

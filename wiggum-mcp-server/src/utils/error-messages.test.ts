@@ -66,4 +66,10 @@ describe('buildValidationErrorMessage', () => {
     assert.ok(message.includes('2. Second'));
     assert.ok(message.includes('3. Third'));
   });
+
+  // TODO(#313): Add integration tests verifying ValidationErrors use buildValidationErrorMessage correctly
+  // - Test actual usage in complete-fix.ts (empty fix_description)
+  // - Test actual usage in complete-fix.ts (invalid out_of_scope_issues)
+  // - Verify all 4 parts (Problem, Context, Expected, How to fix) appear in thrown errors
+  // - Verify error message formatting is consistent across codebase
 });

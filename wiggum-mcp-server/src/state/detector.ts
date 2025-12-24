@@ -77,17 +77,21 @@ export async function detectPRState(repo?: string): Promise<PRState> {
   try {
     resolvedRepo = repo || (await getCurrentRepo());
   } catch (repoError) {
-    // Failed to determine repository - log and return no PR exists
+    // Failed to determine repository - throw StateApiError with guidance
     const errorMsg = repoError instanceof Error ? repoError.message : String(repoError);
-    const errorType = repoError instanceof Error ? repoError.constructor.name : typeof repoError;
-    logger.warn('detectPRState: failed to determine repository', {
+    logger.error('detectPRState: failed to determine repository', {
       providedRepo: repo,
       errorMessage: errorMsg,
-      errorType,
+      errorType: repoError instanceof Error ? repoError.constructor.name : typeof repoError,
     });
-    return {
-      exists: false,
-    };
+    throw new StateApiError(
+      `Failed to detect PR state: Could not determine current repository. ` +
+        `Ensure you are in a git repository with a GitHub remote. Error: ${errorMsg}`,
+      'read',
+      'pr',
+      undefined,
+      repoError instanceof Error ? repoError : undefined
+    );
   }
 
   try {
