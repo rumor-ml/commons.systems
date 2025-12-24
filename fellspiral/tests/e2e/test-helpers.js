@@ -64,10 +64,21 @@ export function generateTestCardData(suffix = '') {
  * Firebase initialization happens asynchronously on DOMContentLoaded, so tests
  * need to wait for it to complete before interacting with auth-dependent features
  * @param {import('@playwright/test').Page} page - Playwright page object
- * @param {number} timeout - Timeout in milliseconds (default: 3000)
+ * @param {number} timeout - Timeout in milliseconds (default: 5000)
  */
-export async function waitForFirebaseInit(page, timeout = 3000) {
-  await page.waitForTimeout(timeout);
+export async function waitForFirebaseInit(page, timeout = 5000) {
+  // Wait for window.__testAuth to be available (set by authEmulator fixture)
+  // This indicates Firebase Auth has been initialized and connected to emulator
+  await page
+    .waitForFunction(() => window.__testAuth != null, { timeout })
+    .catch(async (error) => {
+      // Enhanced error with init state snapshot for debugging
+      const initState = await page.evaluate(() => ({
+        testAuthExists: window.__testAuth != null,
+        firebaseAppExists: typeof window.firebase !== 'undefined',
+      }));
+      throw new Error(`Firebase not initialized after ${timeout}ms: ${JSON.stringify(initState)}`);
+    });
 }
 
 /**
@@ -207,9 +218,26 @@ export async function createCardViaUI(page, cardData) {
   // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
   await page.waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 });
 
-  // Wait for card to appear in UI list (gives time for applyFilters → renderCards → DOM paint)
-  // Use waitForTimeout instead of waitForSelector to avoid test failures if cards don't appear
-  await page.waitForTimeout(2000);
+  // Wait for card to appear in UI by checking for the specific card title in the DOM
+  // This replaces the fixed 2-second timeout with condition-based waiting
+  try {
+    await page.waitForFunction(
+      (title) => {
+        const cardItems = document.querySelectorAll('.card-item');
+        return Array.from(cardItems).some(
+          (item) => item.textContent && item.textContent.includes(title)
+        );
+      },
+      cardData.title,
+      { timeout: 5000 }
+    );
+  } catch (error) {
+    // If card doesn't appear, log warning but don't fail
+    // Some tests may not need to verify card appearance immediately
+    console.warn(
+      `Card "${cardData.title}" did not appear in UI after 5s - may need explicit verification in test`
+    );
+  }
 }
 
 // Shared Firebase Admin instance for Firestore operations
