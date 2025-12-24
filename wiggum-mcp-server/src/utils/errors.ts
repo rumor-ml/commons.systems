@@ -8,110 +8,54 @@
  * - Standardized error result formatting for MCP protocol
  *
  * Error Hierarchy:
- * - McpError: Base class for all MCP-related errors
- *   - TimeoutError: Operation exceeded time limit (may be retryable)
- *   - ValidationError: Invalid input parameters (terminal, not retryable)
- *   - NetworkError: Network-related failures (may be retryable)
- *   - GitHubCliError: GitHub CLI command failures
- *   - GitError: Git command failures
- *   - ParsingError: Failed to parse external command output
- *   - FormattingError: Failed to format response data
+ * - McpError: Base class for all MCP-related errors (from mcp-common)
+ *   - TimeoutError: Operation exceeded time limit (from mcp-common)
+ *   - ValidationError: Invalid input parameters (from mcp-common)
+ *   - NetworkError: Network-related failures (from mcp-common)
+ *   - GitHubCliError: GitHub CLI command failures (from mcp-common)
+ *   - GitError: Git command failures (wiggum-specific)
+ *   - ParsingError: Failed to parse external command output (from mcp-common)
+ *   - FormattingError: Failed to format response data (from mcp-common)
  *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
  *   - StateApiError: GitHub API failures during state operations
  *
  * @module errors
  */
 
-// TODO(#479): Make McpError abstract, strengthen StateDetectionError context type
+import {
+  McpError,
+  TimeoutError,
+  ValidationError,
+  NetworkError,
+  GitHubCliError,
+  ParsingError,
+  FormattingError,
+  formatError,
+  isTerminalError as baseIsTerminalError,
+} from '@commons/mcp-common/errors';
+import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
+import type { ToolError } from '@commons/mcp-common/types';
+import { createToolError } from '@commons/mcp-common/types';
 
-import type { ErrorResult } from '../types.js';
-
-/**
- * Base error class for all MCP-related errors
- *
- * Provides optional error code for categorization and extends standard Error
- * with MCP-specific context. All wiggum MCP errors should extend this class.
- */
-export class McpError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string
-  ) {
-    super(message);
-    this.name = 'McpError';
-  }
-}
-
-/**
- * Error thrown when an operation exceeds its time limit
- *
- * Used for polling operations, async waits, or long-running commands that
- * exceed configured timeout thresholds. May be retryable depending on context.
- */
-export class TimeoutError extends McpError {
-  constructor(message: string) {
-    super(message, 'TIMEOUT');
-    this.name = 'TimeoutError';
-  }
-}
+export {
+  McpError,
+  TimeoutError,
+  ValidationError,
+  NetworkError,
+  GitHubCliError,
+  ParsingError,
+  FormattingError,
+  formatError,
+};
 
 /**
- * Error thrown when input parameters fail validation
- *
- * Indicates malformed or invalid input data. These errors are terminal
- * (not retryable) as they require user correction of input parameters.
- *
- * TODO(#312): Add Sentry error tracking integration
- * All ValidationError instances across the codebase should include Sentry error IDs
- * for better error tracking and debugging in production. This affects:
- * - complete-fix.ts (5 instances)
- * - constants.ts (3 instances)
- * - review-completion-helper.ts (4 instances)
- */
-export class ValidationError extends McpError {
-  constructor(message: string) {
-    super(message, 'VALIDATION_ERROR');
-    this.name = 'ValidationError';
-  }
-}
-
-/**
- * Error thrown for network-related failures
- *
- * Covers HTTP requests, API calls, or other network operations that fail
- * due to connectivity issues, timeouts, or server errors. May be retryable.
- */
-export class NetworkError extends McpError {
-  constructor(message: string) {
-    super(message, 'NETWORK_ERROR');
-    this.name = 'NetworkError';
-  }
-}
-
-/**
- * Error thrown when GitHub CLI (gh) commands fail
- *
- * Captures exit code, stderr output, and optional cause for detailed
- * debugging of gh command failures. Common for API errors, auth issues,
- * or invalid gh command parameters.
- */
-export class GitHubCliError extends McpError {
-  constructor(
-    message: string,
-    public readonly exitCode?: number,
-    public readonly stderr?: string,
-    public readonly cause?: Error
-  ) {
-    super(message, 'GH_CLI_ERROR');
-    this.name = 'GitHubCliError';
-  }
-}
-
-/**
- * Error thrown when git commands fail
+ * Error thrown when git commands fail (wiggum-specific)
  *
  * Captures exit code and stderr output for debugging git operation failures.
  * Common for merge conflicts, permission issues, or invalid git state.
+ *
+ * Note: This extends McpError, so it's automatically handled by createErrorResult()
+ * from mcp-common (falls through to the McpError base case).
  */
 export class GitError extends McpError {
   constructor(
@@ -121,33 +65,6 @@ export class GitError extends McpError {
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
-  }
-}
-
-/**
- * Error thrown when parsing external command output fails
- *
- * Indicates unexpected format or structure in command output (e.g., JSON
- * parsing failures, malformed responses). Usually indicates version mismatch
- * or breaking changes in external tools.
- */
-export class ParsingError extends McpError {
-  constructor(message: string) {
-    super(message, 'PARSING_ERROR');
-    this.name = 'ParsingError';
-  }
-}
-
-/**
- * Error thrown when formatting response data fails
- *
- * Indicates invalid response structure that doesn't match expected schema.
- * Common when internal state or protocol contracts are violated.
- */
-export class FormattingError extends McpError {
-  constructor(message: string) {
-    super(message, 'FORMATTING_ERROR');
-    this.name = 'FormattingError';
   }
 }
 
@@ -195,97 +112,6 @@ export class StateApiError extends McpError {
 }
 
 /**
- * Create a standardized error result for MCP tool responses
- *
- * Categorizes errors by type to help consumers handle different error scenarios:
- * - TimeoutError: Operation exceeded time limit (may be retryable)
- * - ValidationError: Invalid input parameters (terminal, not retryable)
- * - NetworkError: Network-related failures (may be retryable)
- * - GitHubCliError: GitHub CLI command failures (may include exit code and stderr)
- * - GitError: Git command failures (may include exit code and stderr)
- * - ParsingError: Failed to parse external command output (version mismatch or breaking changes)
- * - FormattingError: Failed to format response data (protocol contract violation)
- * - StateDetectionError: State detection failed (terminal, not retryable)
- * - StateApiError: GitHub API failures during state operations (may be retryable)
- * - McpError: Generic MCP-related errors (base class for all custom errors)
- * - Generic errors: Unexpected failures (unknown error types)
- *
- * This function acts as a protocol bridge, converting TypeScript Error objects
- * into MCP-compliant ErrorResult format with structured metadata for error
- * categorization and retry logic.
- *
- * @param error - The error to convert to a tool result
- * @returns Standardized ErrorResult with error information and type metadata
- *   - _meta includes errorType and errorCode for all errors
- *   - For GitError/ValidationError: additional properties are in the error instance, not _meta
- */
-export function createErrorResult(error: unknown): ErrorResult {
-  const message = error instanceof Error ? error.message : String(error);
-  const { errorType, errorCode } = categorizeError(error);
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}`,
-      },
-    ],
-    isError: true,
-    _meta: {
-      errorType,
-      errorCode,
-    },
-  };
-}
-
-/**
- * Categorize an error by type and code
- *
- * Maps error instances to their type name and error code for structured
- * error handling in MCP responses.
- */
-function categorizeError(error: unknown): { errorType: string; errorCode: string | undefined } {
-  if (error instanceof TimeoutError) {
-    return { errorType: 'TimeoutError', errorCode: 'TIMEOUT' };
-  }
-  if (error instanceof ValidationError) {
-    return { errorType: 'ValidationError', errorCode: 'VALIDATION_ERROR' };
-  }
-  if (error instanceof NetworkError) {
-    return { errorType: 'NetworkError', errorCode: 'NETWORK_ERROR' };
-  }
-  if (error instanceof GitHubCliError) {
-    return { errorType: 'GitHubCliError', errorCode: 'GH_CLI_ERROR' };
-  }
-  if (error instanceof GitError) {
-    return { errorType: 'GitError', errorCode: 'GIT_ERROR' };
-  }
-  if (error instanceof ParsingError) {
-    return { errorType: 'ParsingError', errorCode: 'PARSING_ERROR' };
-  }
-  if (error instanceof FormattingError) {
-    return { errorType: 'FormattingError', errorCode: 'FORMATTING_ERROR' };
-  }
-  if (error instanceof StateDetectionError) {
-    return { errorType: 'StateDetectionError', errorCode: 'STATE_DETECTION_ERROR' };
-  }
-  if (error instanceof StateApiError) {
-    return { errorType: 'StateApiError', errorCode: 'STATE_API_ERROR' };
-  }
-  if (error instanceof McpError) {
-    return { errorType: 'McpError', errorCode: error.code };
-  }
-  return { errorType: 'UnknownError', errorCode: undefined };
-}
-
-export function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-/**
  * Determine if an error is terminal (not retryable)
  *
  * Retry Strategy:
@@ -304,7 +130,44 @@ export function formatError(error: unknown): string {
  * @returns true if error is terminal and should not be retried
  */
 export function isTerminalError(error: unknown): boolean {
-  // Validation errors and state detection errors are always terminal
-  // Network, timeout, and state API errors may be retryable
-  return error instanceof ValidationError || error instanceof StateDetectionError;
+  // First check base terminal errors (ValidationError, FormattingError from mcp-common)
+  // But for wiggum, we override FormattingError to be retryable
+  if (error instanceof FormattingError) {
+    return false; // Wiggum treats FormattingError as retryable
+  }
+
+  // StateDetectionError is always terminal
+  if (error instanceof StateDetectionError) {
+    return true;
+  }
+
+  // Delegate to base implementation for other error types
+  return baseIsTerminalError(error);
+}
+
+/**
+ * Create a standardized error result for MCP tool responses
+ *
+ * This wiggum-specific wrapper handles StateDetectionError and StateApiError
+ * before delegating to the mcp-common createErrorResult for other error types.
+ *
+ * @param error - The error to convert to a tool result
+ * @returns Standardized ToolError with error information and type metadata
+ */
+export function createErrorResult(error: unknown): ToolError {
+  // Handle wiggum-specific error types first
+  if (error instanceof StateDetectionError) {
+    return createToolError(
+      `Error: ${error.message}`,
+      'StateDetectionError',
+      'STATE_DETECTION_ERROR'
+    );
+  }
+
+  if (error instanceof StateApiError) {
+    return createToolError(`Error: ${error.message}`, 'StateApiError', 'STATE_API_ERROR');
+  }
+
+  // Delegate to mcp-common for all other error types
+  return baseCreateErrorResult(error);
 }

@@ -79,3 +79,16 @@ export const CONTEXT_PATTERNS = [
   /› .*\.spec\.(js|ts):\d+/, // Test file location
   /retry #\d+/i, // Retry markers
 ];
+
+// Check icon mapping (for getCheckIcon utility)
+export const CHECK_ICONS: Record<string, string> = {
+  success: '✓',
+  failure: '✗',
+  timed_out: '✗',
+  cancelled: '○',
+  skipped: '○',
+  null: '○',
+} as const;
+
+// Watch defaults (gh CLI native behavior)
+export const DEFAULT_WATCH_INTERVAL = 3; // seconds (gh native polling)
