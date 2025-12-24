@@ -31,12 +31,12 @@ service cloud.firestore {
                     && request.resource.data.keys().hasAll(['title', 'type'])
                     && request.resource.data.createdBy == request.auth.uid;
 
-      // Allow update only if user is the creator or if updating their own modifications
+      // Allow update only if user is the creator
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
-                    && (resource.data.createdBy == request.auth.uid
-                        || request.resource.data.lastModifiedBy == request.auth.uid)
+                    && resource.data.createdBy == request.auth.uid
+                    && request.resource.data.lastModifiedBy == request.auth.uid
                     && request.resource.data.lastModifiedAt == request.time;
 
       // Allow delete only if user is the creator
