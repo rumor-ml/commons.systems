@@ -294,8 +294,8 @@ export class ValidationErrorTracker {
  * @throws Non-Zod errors (bugs in extraction code)
  */
 // All extractor fallback paths verified in #332 - using safeValidateExtractedError consistently
-// TODO(#506): Fix inaccurate line number references (all numbers are 6-50 lines off)
-// See playwright-extractor.ts: parsePlaywrightTimeout (259), parsePlaywrightJson (459, 483, 517), parsePlaywrightText (595)
+// TODO(#506): Fix inaccurate line number references in historical comments
+// See playwright-extractor.ts methods: parsePlaywrightTimeout, parsePlaywrightJson, parsePlaywrightText
 export function safeValidateExtractedError(
   data: unknown,
   context: string,

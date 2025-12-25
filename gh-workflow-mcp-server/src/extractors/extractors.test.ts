@@ -67,7 +67,8 @@ FAIL	github.com/example/pkg	0.012s
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].testName, 'TestFoo');
       // TODO(#510): fileName/lineNumber extraction from Go JSON output requires
-      // parsing structured Output field. Current implementation prioritizes reliability.
+      // parsing structured Output field (regex matching "foo_test.go:42:" in Output strings).
+      // Current implementation prioritizes reliability over completeness.
       // When implemented, uncomment these assertions:
       // assert.strictEqual(result.errors[0].fileName, "foo_test.go");
       // assert.strictEqual(result.errors[0].lineNumber, 42);
@@ -324,7 +325,7 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result?.isJsonOutput, true);
     });
 
-    test('detect() returns null on unexpected errors instead of throwing', () => {
+    test('detect() throws on unexpected errors (bugs must propagate)', () => {
       const maliciousJSON =
         '{"suites": [{"specs": [], "line": 1, "column": 0, "file": "test.ts"}]}';
 
@@ -334,9 +335,40 @@ describe('PlaywrightExtractor - JSON', () => {
       };
 
       try {
-        // detect() should return null instead of throwing - detection should never break the pipeline
-        const result = extractor.detect(maliciousJSON);
-        assert.strictEqual(result, null);
+        // detect() should throw wrapped error for unexpected errors
+        // Rationale: Bugs in detection logic must be surfaced, not hidden
+        let thrownError: any = null;
+        try {
+          extractor.detect(maliciousJSON);
+          assert.fail('Expected detect() to throw an error');
+        } catch (err) {
+          thrownError = err;
+        }
+
+        // Verify error chain structure
+        assert.ok(thrownError instanceof Error, 'Should throw an Error');
+        assert.ok(
+          thrownError.message.includes('Playwright detector encountered unexpected error'),
+          `Expected message to include 'Playwright detector encountered unexpected error', got: ${thrownError.message}`
+        );
+        assert.ok(
+          thrownError.cause instanceof Error,
+          `Expected cause to be an Error, got: ${typeof thrownError.cause}`
+        );
+        assert.ok(
+          thrownError.cause.message.includes(
+            'Unexpected error during Playwright JSON extraction fallback'
+          ),
+          `Expected cause message to include 'Unexpected error during Playwright JSON extraction fallback', got: ${thrownError.cause.message}`
+        );
+        assert.ok(
+          thrownError.cause.cause instanceof TypeError,
+          `Expected cause.cause to be TypeError, got: ${thrownError.cause.cause?.constructor?.name}`
+        );
+        assert.ok(
+          thrownError.cause.cause.message.includes('Simulated internal error'),
+          `Expected cause.cause message to include 'Simulated internal error', got: ${thrownError.cause.cause.message}`
+        );
       } finally {
         JSON.parse = originalParse;
       }
@@ -388,7 +420,8 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
       assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 5);
-      // columnNumber 0 is filtered out by validation (schema requires positive integers)
+      // columnNumber 0 filtered out by validation (schema requires positive integers)
+      // Business context: Playwright suite.column=0 means "unknown/not specified", not a valid column position
       assert.strictEqual(result.errors[0].columnNumber, undefined);
       assert.strictEqual(result.errors[0].message, 'expect(received).toBe(expected)');
       assert.ok(result.errors[0].stack);
@@ -410,12 +443,18 @@ describe('PlaywrightExtractor - JSON', () => {
         assert.throws(
           () => extractor.extract(logWithValidStructure),
           (err: any) => {
-            // Error should be wrapped with context but preserve original via cause chain
+            // Error should be wrapped with context and preserve original via cause chain
+            // extract() calls detect() which calls extractJsonFromLogs()
+            // Cause chain: detect() Error -> extractJsonFromLogs() Error -> TypeError
             return (
               err instanceof Error &&
-              err.message.includes('Unexpected error') &&
-              err.cause instanceof TypeError &&
-              (err.cause as TypeError).message.includes('Internal V8 error')
+              err.message.includes('Playwright detector encountered unexpected error') &&
+              err.cause instanceof Error &&
+              err.cause.message.includes(
+                'Unexpected error during Playwright JSON extraction fallback'
+              ) &&
+              err.cause.cause instanceof TypeError &&
+              (err.cause.cause as TypeError).message.includes('Internal V8 error')
             );
           },
           'Should wrap TypeError with context and preserve via cause chain'
@@ -427,7 +466,6 @@ describe('PlaywrightExtractor - JSON', () => {
 
     test('parsePlaywrightJson validation warnings mechanism exists', () => {
       // This test verifies that the parseWarnings field exists in the result
-      // Actual validation warnings are tested in the Validation Infrastructure tests
       const jsonOutput = JSON.stringify({
         suites: [
           {
@@ -660,7 +698,7 @@ describe('PlaywrightExtractor - JSON', () => {
       const result = extractor.extract(jsonOutput);
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].message, 'Test failed');
-      assert.ok(result.errors[0].rawOutput.includes('Test failed'));
+      assert.ok(result.errors[0].rawOutput.some((line) => line.includes('Test failed')));
     });
 
     test('handles multiple suites with mixed pass/fail', () => {
