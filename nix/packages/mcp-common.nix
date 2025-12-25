@@ -17,7 +17,7 @@
 
 buildNpmPackage {
   pname = "mcp-common";
-  version = "0.1.0";
+  version = "0.2.0";
 
   # Include all source files (no dist/ since it's not git-tracked)
   src = builtins.path {
@@ -38,7 +38,7 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps mcp-common/package-lock.json
-  npmDepsHash = "sha256-nZYi5JlMhAJGrzWCrUTBXWxwdK5TozeXO6pgiOkS/0E=";
+  npmDepsHash = "sha256-/cRfZjtMHfMPbH6kH9AP68EmUQmd0/euFNlcgyC1M4s=";
 
   # Simple build - just TypeScript compilation
   # buildNpmPackage handles: npm ci && npm run build
