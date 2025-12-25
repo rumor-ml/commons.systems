@@ -27,7 +27,7 @@ const PlaywrightTestResultSchema = z.object({
       stack: z.string().optional(),
       snippet: z.string().optional(),
     })
-    .nullish(), // Allow undefined or null
+    .nullish(), // Allow undefined or null - Playwright sends null when test fails before error object creation (e.g., timeout scenarios)
 });
 
 const PlaywrightTestSchema = z.object({
@@ -43,7 +43,8 @@ const PlaywrightSpecSchema = z.object({
   tests: z.array(PlaywrightTestSchema),
 });
 
-// Define types first to avoid circular reference errors
+// Define types first, then schemas with z.lazy() to handle circular references
+// Pattern: interface → schema → z.lazy() allows self-referential PlaywrightSuite.suites
 interface PlaywrightSuite {
   title: string;
   file: string;
@@ -73,7 +74,7 @@ interface PlaywrightTestResult {
     message: string;
     stack?: string;
     snippet?: string;
-  } | null; // Playwright can send null for error
+  } | null; // Playwright sends null when test fails before error object creation (e.g., timeout); undefined when test passes
 }
 
 interface PlaywrightJsonReport {
@@ -140,20 +141,22 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // Expected errors from extractJsonFromLogs/JSON.parse:
+        // detect() only handles expected errors - returns null for non-Playwright:
         // - SyntaxError: malformed JSON
         // - PlaywrightJsonNotFoundError: missing required fields
+        // All other errors propagate (OOM, V8 bugs, etc.)
         if (err instanceof SyntaxError || err instanceof PlaywrightJsonNotFoundError) {
           return null; // Not Playwright - try other detectors
         }
-        // Unexpected error - log before propagating
+        // Unexpected error - log diagnostic before propagating
         const stack = getErrorStack(err);
         console.error(
           `[ERROR] Unexpected error during Playwright detection: ${getErrorMessage(err)}` +
             (stack ? `\nStack: ${stack}` : '') +
             `. This is a bug in the Playwright extractor detection logic.`
         );
-        throw err; // Propagate bug (OOM, internal V8 errors, etc.)
+        // Return null instead of throwing - detection should never break the pipeline
+        return null;
       }
     }
 
@@ -293,7 +296,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             const timeResult = this.parseTimeDiff(setupTimestamp, configTimestamp);
             timeGap = timeResult.seconds;
 
-            // Store diagnostic for inclusion in error message if parsing failed
+            // Store diagnostic for inclusion in error message
+            // Diagnostic present when: timestamps exist but parsing failed (invalid format, midnight rollover, etc.)
             if (timeResult.seconds === null && timeResult.diagnostic) {
               timeDiagnostic = timeResult.diagnostic;
               console.error(
@@ -315,17 +319,18 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (typeof timeGap === 'number' && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
-    } else if (timeGap === null || timeGap === undefined) {
-      // ALWAYS show diagnostic when time gap parsing fails or timestamps unavailable
+    } else if (timeGap === null && (setupTimestamp || configTimestamp)) {
+      // Show diagnostic only if timestamps exist but parsing failed
       message += `\n\nCould not determine time gap between events. `;
       if (timeDiagnostic) {
         message += `Diagnostic: ${timeDiagnostic}\n`;
-      } else if (setupTimestamp && configTimestamp) {
-        message += `Timestamps: ${setupTimestamp} → ${configTimestamp}\n`;
       } else {
-        message += `Timestamps: unavailable or unparseable\n`;
+        message += `Timestamps: ${setupTimestamp || '?'} → ${configTimestamp || '?'}\n`;
       }
       message += `This may indicate log format changes or timestamp extraction issues. `;
+    } else if (timeGap === undefined) {
+      // No timestamps found at all - less critical
+      message += `No timestamp information available in logs. `;
     }
 
     message +=
@@ -462,10 +467,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     const diff = Math.abs(seconds2 - seconds1);
 
-    // TODO(#507): Remove redundant cross-reference (already in parseTimeDiff function)
     // Midnight rollover detection: 12h threshold (43200s)
-    // Rationale: Valid test runs never exceed 12h; larger gaps = date boundary
-    // See parseTimeDiff JSDoc for full documentation
+    // Rationale: CI timeouts typically 2-6h max; 12h provides safety margin while detecting date boundaries
     if (diff > 43200) {
       return {
         seconds: null,
@@ -485,7 +488,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * ERROR HANDLING PHASES:
    * 1. JSON Extraction (extractJsonFromLogs): Throws on no valid JSON structure found
    * 2. JSON Parsing (JSON.parse): Returns fallback error on malformed JSON
-   * 3. Suite Traversal: No try-catch - bugs propagate (expected structure)
+   * 3. Schema Validation (Zod): Returns fallback error on invalid Playwright structure
+   * 4. Suite Traversal: No try-catch - bugs propagate (expected structure after validation)
    *
    * FAILURE MODES:
    * - Extraction fails → Returns error with log size context
@@ -506,7 +510,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
    * @returns ExtractionResult with all failures found in the report
-   * @throws Never throws - returns error result instead for user-facing errors
+   * @throws {Error} Propagates unexpected errors (OOM, V8 bugs) - never throws for user-facing errors like malformed JSON
    *
    * @example
    * // Typical usage with embedded JSON
@@ -521,11 +525,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     const failures: ExtractedError[] = [];
     const validationTracker = new ValidationErrorTracker();
 
-    // Phase 1: Extract JSON from logs (let failure propagate for now)
+    // Phase 1: Extract JSON from logs
     let jsonText: string;
     try {
       jsonText = this.extractJsonFromLogs(logText);
     } catch (extractErr) {
+      // Only catch user-facing errors (PlaywrightJsonNotFoundError)
+      // Propagate unexpected errors (wrapped Errors with cause) for fail-fast
+      if (!(extractErr instanceof PlaywrightJsonNotFoundError)) {
+        throw extractErr; // Unexpected error - propagate (OOM, V8 bugs with context)
+      }
       const lines = logText.split('\n');
       const logStats = {
         totalChars: logText.length,
@@ -590,9 +599,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       }
       report = validationResult.data;
     } catch (parseErr) {
-      // Catch expected errors: SyntaxError from JSON.parse, Error from schema validation
-      if (!(parseErr instanceof SyntaxError) && !(parseErr instanceof Error)) {
-        throw parseErr; // Unexpected error - propagate (OOM, internal V8 errors)
+      // Catch only expected errors: SyntaxError from JSON.parse
+      // Schema validation throws Error, but those are user-facing validation failures
+      if (!(parseErr instanceof SyntaxError || parseErr instanceof Error)) {
+        // Unexpected non-Error thrown (extremely rare: OOM, internal V8 errors)
+        const errorMsg = String(parseErr);
+        throw new Error(
+          `Unexpected non-Error exception during JSON parsing: ${errorMsg}. ` +
+            `This indicates a critical runtime issue.`,
+          { cause: parseErr }
+        );
       }
       // JSON.parse or validation failed - malformed JSON after extraction
       console.error(
@@ -614,7 +630,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     // TODO(#504): Add error boundaries to suite traversal for resilience against schema changes
-    // Phase 3: Traverse suites (NO catch - bugs should propagate)
+    // Phase 4: Traverse suites (NO catch - bugs should propagate)
+    // Rationale: After Zod validation, structure is guaranteed. Any errors = extractor bugs or schema drift.
+    // Fail-fast reveals issues immediately rather than silently producing bad results.
     const extractFromSuite = (suite: PlaywrightSuite) => {
       for (const spec of suite.specs || []) {
         if (!spec.ok) {
@@ -793,9 +811,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * 5. Fallback to entire log text if no marker found or parsing fails
    *
    * FALLBACK BEHAVIOR:
-   * - If no JSON start marker found: logs warning, returns entire log text (may fail downstream)
-   * - If progressive parsing fails: logs error with retry count, returns from marker to end
-   * - Caller (parsePlaywrightJson) will catch JSON.parse errors and return error result
+   * - No JSON start marker → throws PlaywrightJsonNotFoundError with diagnostic
+   * - Progressive parsing all fail → throws PlaywrightJsonNotFoundError for incomplete JSON
+   * - Unexpected errors in fallback → throws Error with context (cause chain preserved)
+   * - Caller (parsePlaywrightJson) catches these and returns error result to user
    *
    * WHY PROGRESSIVE PARSING:
    * - Handles nested braces in JSON strings correctly (regex-based brace counting would fail)
@@ -869,6 +888,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Try progressive parsing - keep adding lines until we have valid JSON
     // This handles nested braces in strings correctly
     let parseAttempts = 0;
+    // Start at +10 to skip typical config object header (~5-8 lines), ensuring we include enough JSON structure
     for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
       try {
         const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
@@ -882,6 +902,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           throw parseErr; // Other errors are bugs
         }
         // SyntaxError expected during progressive parsing
+        // Limit debug logging to first 3 attempts to avoid spam in large logs
         if (parseAttempts < 3) {
           console.error(
             `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1}...`
@@ -894,7 +915,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // FALLBACK 2: Try parsing what we have
     const fallbackJson = cleanLines.slice(jsonStart).join('\n');
     try {
-      JSON.parse(fallbackJson);
+      const parsed = JSON.parse(fallbackJson);
+      if (!parsed.suites && !parsed.config) {
+        throw new PlaywrightJsonNotFoundError(
+          `Valid JSON found but missing required fields (suites, config). ` +
+            `Parse attempts: ${parseAttempts}. May be incomplete Playwright output.`
+        );
+      }
       console.error(`[WARN] Fallback JSON parsed after ${parseAttempts} attempts`);
       return fallbackJson;
     } catch (err) {

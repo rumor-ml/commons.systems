@@ -66,14 +66,15 @@ FAIL	github.com/example/pkg	0.012s
       assert.strictEqual(result.framework, 'go');
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].testName, 'TestFoo');
-      // KNOWN LIMITATION: fileName/lineNumber extraction from Go JSON output requires
+      // TODO(#510): fileName/lineNumber extraction from Go JSON output requires
       // parsing structured Output field. Current implementation prioritizes reliability.
       // When implemented, uncomment these assertions:
       // assert.strictEqual(result.errors[0].fileName, "foo_test.go");
       // assert.strictEqual(result.errors[0].lineNumber, 42);
       assert.ok(result.errors[0].message.includes('TestFoo'));
       assert.strictEqual(result.errors[0].duration, 10); // 0.01s = 10ms
-      // KNOWN LIMITATION: rawOutput collection from JSON needs debugging
+      // TODO(#510): rawOutput collection from Go JSON Output field requires parsing.
+      // Root cause: Output field contains structured log lines that need extraction.
       // When implemented, uncomment these assertions:
       // assert.ok(result.errors[0].rawOutput);
       // assert.ok(result.errors[0].rawOutput.length > 0);
@@ -134,8 +135,9 @@ FAIL	github.com/example/pkg	0.012s
       assert.strictEqual(result.framework, 'go');
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].testName, 'TestFoo');
-      // Note: fileName/lineNumber extraction from timestamped output needs investigation
-      // Current stripTimestamp implementation removes leading whitespace which breaks regex matching
+      // TODO(#510): fileName/lineNumber extraction from timestamped output requires improved regex.
+      // Root cause: stripTimestamp removes leading whitespace which breaks file path regex matching.
+      // Need to preserve indentation structure for pattern matching while removing timestamps.
       assert.ok(result.errors[0].message.includes('foo_test.go:42:'));
       assert.ok(result.errors[0].message.includes('Expected: 5'));
     });
@@ -322,7 +324,7 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result?.isJsonOutput, true);
     });
 
-    test('detect() propagates non-SyntaxError exceptions', () => {
+    test('detect() returns null on unexpected errors instead of throwing', () => {
       const maliciousJSON =
         '{"suites": [{"specs": [], "line": 1, "column": 0, "file": "test.ts"}]}';
 
@@ -332,19 +334,9 @@ describe('PlaywrightExtractor - JSON', () => {
       };
 
       try {
-        assert.throws(
-          () => extractor.detect(maliciousJSON),
-          (err: any) => {
-            // Error should be wrapped with context but preserve original via cause chain
-            return (
-              err instanceof Error &&
-              err.message.includes('Unexpected error') &&
-              err.cause instanceof TypeError &&
-              (err.cause as TypeError).message.includes('Simulated internal error')
-            );
-          },
-          'Should wrap TypeError with context and preserve via cause chain'
-        );
+        // detect() should return null instead of throwing - detection should never break the pipeline
+        const result = extractor.detect(maliciousJSON);
+        assert.strictEqual(result, null);
       } finally {
         JSON.parse = originalParse;
       }
@@ -473,6 +465,32 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result.errors.length, 1);
       // parseWarnings may or may not be present depending on validation
       assert.ok(result.parseWarnings === undefined || typeof result.parseWarnings === 'string');
+    });
+
+    test('Zod schema validation failure returns error result with field details', () => {
+      // Invalid Playwright JSON - missing required fields
+      const invalidJson = JSON.stringify({
+        suites: [
+          {
+            // Missing required 'file', 'line', 'column' fields
+            title: 'suite',
+            specs: [],
+          },
+        ],
+      });
+
+      const result = extractor.extract(invalidJson);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      // Should return error result with validation details
+      assert.ok(result.errors[0].message.includes('does not match Playwright schema'));
+      // Should mention which fields are missing
+      assert.ok(
+        result.errors[0].message.includes('file') ||
+          result.errors[0].message.includes('line') ||
+          result.errors[0].message.includes('column')
+      );
     });
   });
 
@@ -810,14 +828,82 @@ No JSON here at all
       assert.ok(result.errors[0].message.includes('No valid Playwright JSON'));
       assert.ok(result.errors[0].message.includes('Use --reporter=json'));
     });
+
+    test('extractJsonFromLogs fallback path validates structure after progressive parsing fails', () => {
+      // Create log where progressive parsing will fail but fallback succeeds
+      const logOutput = `
+2025-11-29T21:44:33.3461112Z Running tests...
+2025-11-29T21:44:33.3461234Z {
+2025-11-29T21:44:33.3461345Z   "config": {"configFile": "playwright.config.ts"},
+2025-11-29T21:44:33.3461456Z   "suites": []
+2025-11-29T21:44:33.3461567Z }
+`;
+
+      const result = extractor.extract(logOutput);
+
+      // Should successfully extract using fallback path
+      assert.strictEqual(result.framework, 'playwright');
+      // Empty suites = no errors but valid extraction
+      assert.strictEqual(result.errors.length, 0);
+    });
+
+    test('extractJsonFromLogs fallback rejects JSON without required fields', () => {
+      // Valid JSON but missing both suites and config
+      const logOutput = `
+2025-11-29T21:44:33.3461112Z {
+2025-11-29T21:44:33.3461234Z   "random": "data",
+2025-11-29T21:44:33.3461345Z   "other": "fields"
+2025-11-29T21:44:33.3461456Z }
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.includes('missing required fields'));
+      assert.ok(result.errors[0].message.includes('suites, config'));
+    });
   });
 
   describe('PlaywrightExtractor - Timeout diagnostic edge cases', () => {
     const extractor = new PlaywrightExtractor();
 
-    test('parsePlaywrightTimeout shows timestamps when diagnostic unavailable', () => {
+    test('parsePlaywrightTimeout shows diagnostic when timestamps exist but parsing failed', () => {
+      // Logs with valid timestamp format but midnight rollover triggers null result
       const logOutput = `
-Global setup complete at XX:XX:XX
+23:59:50 Global setup complete
+Some output
+00:00:10 {"config": {"configFile": "playwright.config.ts"}}
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      // Should show diagnostic because timestamps exist but parsing returned null
+      assert.ok(result.errors[0].message.includes('Could not determine time gap'));
+    });
+
+    test('parsePlaywrightTimeout shows timestamp info when no diagnostic', () => {
+      // Timestamps exist but no diagnostic (e.g., unusual format)
+      const logOutput = `
+12:30:00 Global setup complete
+Some output
+12:35:00 {"config": {"configFile": "playwright.config.ts"}}
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      // Should show actual time gap (5 minutes = 300 seconds > 60)
+      assert.ok(result.errors[0].message.includes('5 minute gap'));
+    });
+
+    test('parsePlaywrightTimeout handles missing timestamps gracefully', () => {
+      // No timestamps found at all
+      const logOutput = `
+Global setup complete
 Some output
 {"config": {"configFile": "playwright.config.ts"}}
 `;
@@ -826,10 +912,8 @@ Some output
 
       assert.strictEqual(result.framework, 'playwright');
       assert.strictEqual(result.errors.length, 1);
-      assert.ok(
-        result.errors[0].message.includes('Could not determine time gap') ||
-          result.errors[0].message.includes('Timestamps:')
-      );
+      // Should mention no timestamp information available
+      assert.ok(result.errors[0].message.includes('No timestamp information available'));
     });
   });
 });
