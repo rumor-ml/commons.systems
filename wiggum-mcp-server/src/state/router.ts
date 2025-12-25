@@ -1216,7 +1216,8 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   stepsCompletedSoFar: string[]
 ): Promise<ToolResult> {
   // Fetch code quality bot comments
-  // TODO(#517): Add error handling for GitHub API failures (rate limit, auth, network, etc.)
+  // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
+  // Current: errors propagate as GitHubCliError without wiggum-specific context
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
   const output: WiggumInstructions = {
@@ -1322,9 +1323,12 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
       - has_in_scope_fixes: true
 
 3. If NO valid issues (all comments are stale/invalid):
-   a. To identify stale comments, check if code was modified after branching from main:
-      - Use \`git log main..HEAD -- <file>\` to check commit history for the file on this branch
-      - Compare comment's referenced code with current state in the file
+   a. To identify stale comments, verify the code was already fixed:
+      1. Check commit history: \`git log main..HEAD -- <file>\`
+      2. If commits exist for the file, read the file at the comment's line number
+      3. Compare: If the issue mentioned in the comment is already fixed → comment is stale
+         Example: Comment says "missing null check" but current code has null check → stale
+      4. If all comments are stale, no code changes needed → use has_in_scope_fixes: false
    b. Call wiggum_complete_fix with:
       - fix_description: "All code quality comments evaluated - N stale (already fixed), M invalid (incorrect suggestions)"
       - has_in_scope_fixes: false
