@@ -13,6 +13,7 @@
 {
   lib,
   buildNpmPackage,
+  mcp-common,
 }:
 
 buildNpmPackage {
@@ -39,7 +40,22 @@ buildNpmPackage {
   };
 
   # Computed with: nix run nixpkgs#prefetch-npm-deps gh-issue-mcp-server/package-lock.json
-  npmDepsHash = "sha256-tt5vnPMPLW5aUPwq0/IW9osr1bZBZcP5bxOSp/lp6Po=";
+  npmDepsHash = "sha256-v2zOKY1NLLoqVj/E6anArYbfS8Pn09jW0oK05jMUsHA=";
+
+  # Link the built mcp-common package to satisfy file:../mcp-common reference
+  # npm needs this directory to exist with package.json and dist/ for type resolution
+  preBuild = ''
+    mkdir -p ../mcp-common
+    ln -s ${mcp-common}/lib/node_modules/@commons/mcp-common/* ../mcp-common/
+  '';
+
+  # Fix broken symlink created by npm during installation
+  # Replace the symlink with actual mcp-common files from the Nix store
+  postInstall = ''
+    rm -rf $out/lib/node_modules/gh-issue-mcp-server/node_modules/@commons/mcp-common
+    mkdir -p $out/lib/node_modules/gh-issue-mcp-server/node_modules/@commons
+    cp -r ${mcp-common}/lib/node_modules/@commons/mcp-common $out/lib/node_modules/gh-issue-mcp-server/node_modules/@commons/
+  '';
 
   meta = with lib; {
     description = "MCP server for GitHub Issue management";
