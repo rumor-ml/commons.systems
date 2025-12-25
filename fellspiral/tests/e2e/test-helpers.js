@@ -280,26 +280,24 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
   const cardsCollection = db.collection(collectionName);
 
   // Retry with exponential backoff
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
 
     if (!snapshot.empty) {
-      // Found the card!
       const doc = snapshot.docs[0];
-      return {
-        id: doc.id,
-        ...doc.data(),
-      };
-    }
-
-    // If this was the last attempt, return null
-    if (attempt === maxRetries) {
-      return null;
+      return { id: doc.id, ...doc.data() };
     }
 
     // Wait before retrying (exponential backoff)
     const delayMs = initialDelayMs * Math.pow(2, attempt);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  // Final attempt after all retries
+  const finalSnapshot = await cardsCollection.where('title', '==', cardTitle).get();
+  if (!finalSnapshot.empty) {
+    const doc = finalSnapshot.docs[0];
+    return { id: doc.id, ...doc.data() };
   }
 
   return null;
@@ -323,22 +321,14 @@ export async function deleteTestCards(titlePattern) {
   const snapshot = await cardsCollection.get();
 
   // Filter cards by title pattern
-  const docsToDelete = [];
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    const title = data.title || '';
-
-    let matches;
-    if (titlePattern instanceof RegExp) {
-      matches = titlePattern.test(title);
-    } else {
-      matches = title.startsWith(titlePattern);
-    }
-
-    if (matches) {
-      docsToDelete.push(doc.ref);
-    }
-  });
+  const docsToDelete = snapshot.docs
+    .filter((doc) => {
+      const title = doc.data().title || '';
+      return titlePattern instanceof RegExp
+        ? titlePattern.test(title)
+        : title.startsWith(titlePattern);
+    })
+    .map((doc) => doc.ref);
 
   // Batch delete matching cards
   if (docsToDelete.length > 0) {

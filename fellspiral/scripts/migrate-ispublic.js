@@ -117,8 +117,8 @@ async function migrateCards() {
     // See: https://firebase.google.com/docs/firestore/manage-data/transactions#batched-writes
     const batchSize = 500;
     let updatedCount = 0;
-    let errorCount = 0;
-    const failedBatches = [];
+    // Note: Script uses fail-fast approach - exits immediately on first error
+    // so error accumulation variables are not needed
 
     for (let i = 0; i < cardsNeedingUpdate.length; i += batchSize) {
       const batch = db.batch();

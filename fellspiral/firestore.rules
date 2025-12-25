@@ -4,7 +4,7 @@ rules_version = '2';
 // Firestore security rules for cards collection
 // REQUIRED fields (enforced in CREATE rule): 'title', 'type', 'subtype', 'isPublic', 'createdBy'
 // Additional fields (optional): 'description', 'tags', 'stat1', 'stat2', 'cost', timestamps
-// See CREATE rule (lines 45-56) for complete validation logic
+// See the 'allow create' rule below for complete validation logic
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -27,9 +27,11 @@ service cloud.firestore {
       // This is enforced by .get('isPublic', false) which returns false for missing fields
       // Migration consideration: Existing cards without isPublic field won't be readable
       // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
-      // DEPLOYMENT WARNING: Run fellspiral/scripts/migrate-ispublic.js BEFORE deploying these rules
-      // Consequence: Cards without isPublic field will become UNREADABLE (users will see empty library)
-      // Verification: Run with --dry-run flag first, ensure 0 cards need migration before deploying rules
+      // DEPLOYMENT DECISION TREE:
+      // 1. First, run: node fellspiral/scripts/migrate-ispublic.js --dry-run
+      // 2. If output shows "Cards needing migration: 0" → safe to deploy rules immediately
+      // 3. If output shows cards needing migration → run migration WITHOUT --dry-run → verify success → then deploy rules
+      // Consequence if deployed without migration: Cards without isPublic field become UNREADABLE (users see empty library)
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
@@ -48,12 +50,15 @@ service cloud.firestore {
                     && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
                     && request.resource.data.title is string
                     && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 100
                     && request.resource.data.type is string
                     && request.resource.data.type.size() > 0
                     && request.resource.data.subtype is string
                     && request.resource.data.subtype.size() > 0
                     && request.resource.data.isPublic is bool
-                    && request.resource.data.createdBy == request.auth.uid;
+                    && request.resource.data.createdBy == request.auth.uid
+                    && (!request.resource.data.keys().hasAny(['description'])
+                        || request.resource.data.description.size() <= 500);
 
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
       // SECURITY IMPACT: ANY authenticated user can edit ANY card by setting lastModifiedBy to their UID.

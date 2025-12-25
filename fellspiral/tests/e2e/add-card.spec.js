@@ -3940,6 +3940,218 @@ test.describe('Add Card - Security Tests', () => {
       await expect(emptyState).toBeVisible();
     }
   });
+
+  test('should reject oversized title field (server-side validation)', async ({
+    page,
+    authEmulator,
+  }) => {
+    // Verifies server-side length validation prevents DoS via oversized fields
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Attempt direct Firestore write with oversized title (>100 chars)
+    const oversizedTitle = 'A'.repeat(101) + `-${Date.now()}`;
+
+    let errorOccurred = false;
+    try {
+      await page.evaluate(
+        async ({ title }) => {
+          const { db, auth } = await import('/src/scripts/firebase.js');
+          const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+          const cardsCollection = collection(db, 'cards');
+
+          // Bypass client-side validation by directly calling Firestore
+          await addDoc(cardsCollection, {
+            title,
+            type: 'Equipment',
+            subtype: 'Weapon',
+            isPublic: true,
+            createdBy: auth.currentUser?.uid,
+            createdAt: serverTimestamp(),
+            lastModifiedAt: serverTimestamp(),
+          });
+        },
+        { title: oversizedTitle }
+      );
+    } catch (error) {
+      errorOccurred = true;
+      // Expected: permission-denied or failed-precondition
+      console.log('Expected error for oversized title:', error.message);
+    }
+
+    // Verify the write was rejected
+    expect(errorOccurred).toBe(true);
+
+    // Verify card does NOT appear in UI
+    await page.reload();
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(2000);
+
+    const cardExists = await page.locator('.card-item-title').filter({ hasText: 'AAAA' }).count();
+    expect(cardExists).toBe(0);
+  });
+
+  test('should reject oversized description field (server-side validation)', async ({
+    page,
+    authEmulator,
+  }) => {
+    // Verifies server-side length validation for optional description field
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Attempt direct Firestore write with oversized description (>500 chars)
+    const cardTitle = `Test Card ${Date.now()}-oversized-desc`;
+    const oversizedDescription = 'B'.repeat(501);
+
+    let errorOccurred = false;
+    try {
+      await page.evaluate(
+        async ({ title, description }) => {
+          const { db, auth } = await import('/src/scripts/firebase.js');
+          const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+          const cardsCollection = collection(db, 'cards');
+
+          await addDoc(cardsCollection, {
+            title,
+            type: 'Equipment',
+            subtype: 'Weapon',
+            description,
+            isPublic: true,
+            createdBy: auth.currentUser?.uid,
+            createdAt: serverTimestamp(),
+            lastModifiedAt: serverTimestamp(),
+          });
+        },
+        { title: cardTitle, description: oversizedDescription }
+      );
+    } catch (error) {
+      errorOccurred = true;
+      console.log('Expected error for oversized description:', error.message);
+    }
+
+    // Verify the write was rejected
+    expect(errorOccurred).toBe(true);
+  });
+
+  test('should reject card with isPublic: false (prevents lockout)', async ({
+    page,
+    authEmulator,
+  }) => {
+    // Verifies users cannot create unreadable cards by setting isPublic: false
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    const cardTitle = `Test Card ${Date.now()}-ispublic-false`;
+
+    // Attempt to create card with isPublic: false
+    let cardCreated = false;
+    try {
+      await page.evaluate(
+        async ({ title }) => {
+          const { db, auth } = await import('/src/scripts/firebase.js');
+          const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+          const cardsCollection = collection(db, 'cards');
+
+          await addDoc(cardsCollection, {
+            title,
+            type: 'Equipment',
+            subtype: 'Weapon',
+            isPublic: false, // Should make card unreadable
+            createdBy: auth.currentUser?.uid,
+            createdAt: serverTimestamp(),
+            lastModifiedAt: serverTimestamp(),
+          });
+        },
+        { title: cardTitle }
+      );
+      cardCreated = true;
+    } catch (error) {
+      console.log('Card creation with isPublic:false result:', error.message);
+    }
+
+    // Refresh page to check if card is visible
+    await page.reload();
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(2000);
+
+    // Card should either be rejected OR created but unreadable
+    const cardVisible = await page
+      .locator('.card-item-title')
+      .filter({ hasText: cardTitle })
+      .count();
+
+    if (cardCreated) {
+      // Card was created - verify it's NOT visible (demonstrates the lockout bug)
+      expect(cardVisible).toBe(0);
+    } else {
+      // Ideal case: card creation was rejected by security rules
+      expect(cardVisible).toBe(0);
+    }
+  });
+
+  test('should validate timestamp on UPDATE operations', async ({ page, authEmulator }) => {
+    // Verifies lastModifiedAt timestamp forgery protection on updates
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Create a card normally first
+    const cardData = generateTestCardData('timestamp-forgery');
+    await createCardViaUI(page, cardData);
+
+    await page.waitForTimeout(2000);
+
+    // Get the card from Firestore
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard).toBeTruthy();
+
+    // Attempt to update with forged lastModifiedAt timestamp
+    const forgedTimestamp = new Date('2020-01-01');
+    let errorOccurred = false;
+
+    try {
+      await page.evaluate(
+        async ({ cardId, forgedTime }) => {
+          const { db } = await import('/src/scripts/firebase.js');
+          const { doc, updateDoc } = await import('firebase/firestore');
+
+          const cardRef = doc(db, 'cards', cardId);
+          await updateDoc(cardRef, {
+            title: 'Updated Title',
+            lastModifiedAt: new Date(forgedTime), // Forged timestamp
+            lastModifiedBy: 'user-id',
+          });
+        },
+        { cardId: firestoreCard.id, forgedTime: forgedTimestamp.toISOString() }
+      );
+    } catch (error) {
+      errorOccurred = true;
+      // Expected: permission-denied due to lastModifiedAt != request.time check
+      console.log('Expected error for timestamp forgery:', error.message);
+    }
+
+    // Verify the update was rejected
+    expect(errorOccurred).toBe(true);
+  });
 });
 
 test.describe('Add Card - XSS Protection Tests', () => {

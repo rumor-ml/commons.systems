@@ -29,6 +29,14 @@ import { initLibraryNav } from './library-nav.js';
 // Import cards data for initial seeding
 import cardsData from '../data/cards.json';
 
+// Timeout constants for various operations
+const TIMEOUTS = {
+  BLUR_DELAY_MS: 200, // Browser event ordering safety margin
+  AUTH_RETRY_MS: 500, // Firebase SDK init wait
+  FIRESTORE_MS: 5000, // Firestore query timeout
+  DEBOUNCE_MS: 300, // Button click debounce
+};
+
 // Submission lock to prevent double-submit on rapid clicks or Enter key spam.
 // Set at start of handleCardSave(), cleared in finally block.
 // Separate from button.disabled to handle Enter key submissions.
@@ -327,14 +335,14 @@ function createCombobox(config) {
 
   input.addEventListener('blur', () => {
     // TODO(#286): Simplify event ordering comment
-    // CRITICAL: 200ms delay handles browser event sequencing for dropdown clicks
+    // CRITICAL: Delay handles browser event sequencing for dropdown clicks
     // Event sequence: mousedown → blur → mouseup → click
     // Problem: Some browsers (Firefox, Safari) fire blur BEFORE mousedown's preventDefault()
     // executes due to event loop microtask timing. Chrome usually preserves order.
     // The mousedown handler calls preventDefault() to cancel blur, but timing races require this delay.
-    // The 200ms provides safety margin across all browsers (verified empirically).
+    // The delay provides safety margin across all browsers (verified empirically).
     // TODO(#483): Replace setTimeout with relatedTarget check for more robust solution
-    setTimeout(hide, 200);
+    setTimeout(hide, TIMEOUTS.BLUR_DELAY_MS);
   });
 
   input.addEventListener('keydown', (e) => {
@@ -494,22 +502,13 @@ function showErrorUI(message, onRetry) {
   container.insertBefore(errorDiv, container.firstChild);
 }
 
-// Create a banner element with optional icon
-function createBanner(message, options = {}) {
-  const { className = 'warning-banner', icon = null, extraClass = null } = options;
-
+// Create a warning banner element
+function createBanner(message) {
   const banner = document.createElement('div');
-  banner.className = extraClass ? `${extraClass} ${className}` : className;
+  banner.className = 'warning-banner';
 
   const content = document.createElement('div');
   content.className = 'warning-content';
-
-  if (icon) {
-    const iconSpan = document.createElement('span');
-    iconSpan.textContent = icon;
-    iconSpan.style.cssText = 'font-size: 1.25rem; flex-shrink: 0;';
-    content.appendChild(iconSpan);
-  }
 
   const text = document.createElement('p');
   text.textContent = message;
@@ -590,18 +589,16 @@ async function init() {
     initLibraryNav().catch((error) => {
       console.warn('[Cards] Library navigation initialization failed - continuing anyway:', error);
 
-      // Show non-blocking warning banner to user
-      const warningBanner = document.createElement('div');
-      warningBanner.className = 'warning-banner';
+      // Show non-blocking warning banner to user with auto-dismiss
+      const warningBanner = createBanner(
+        'Library navigation failed to load. You can still use cards normally.'
+      );
       warningBanner.style.cssText =
         'background: var(--color-warning); color: white; padding: 0.75rem; text-align: center; font-size: 0.9rem;';
-      warningBanner.textContent =
-        'Library navigation failed to load. You can still use cards normally.';
 
       const mainContent = document.querySelector('main') || document.body;
       mainContent.insertBefore(warningBanner, mainContent.firstChild);
 
-      // Auto-dismiss after 5 seconds
       setTimeout(() => warningBanner.remove(), 5000);
     });
 
@@ -649,7 +646,7 @@ async function init() {
 
 // Load cards from Firestore
 async function loadCards() {
-  const FIRESTORE_TIMEOUT_MS = 5000;
+  const FIRESTORE_TIMEOUT_MS = TIMEOUTS.FIRESTORE_MS;
 
   try {
     state.loading = true;
@@ -688,22 +685,27 @@ async function loadCards() {
     // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
     // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
     // TODO(#285): Never fall back to demo data - show explicit auth error instead
+    const isAuthenticated = !!getAuthInstance()?.currentUser;
+
+    // TODO(#285): CRITICAL - Never fall back to demo data for authenticated users - causes data loss
+    // Authenticated user with permission-denied will see demo data, add cards thinking they're saving → work lost
     if (error.code === 'permission-denied') {
-      // Permission denied - expected for anonymous users
-      if (!getAuthInstance()?.currentUser) {
+      if (!isAuthenticated) {
+        // Permission denied for anonymous users is expected
         console.warn(
           '[Cards] Permission denied for anonymous user (expected), using static data fallback'
         );
         state.cards = cardsData || [];
         state.filteredCards = [...state.cards];
         return;
-      } else {
-        // Authenticated user got permission-denied - unexpected, likely a security rules issue
-        console.error('[Cards] Permission denied for authenticated user - check security rules');
-        showAppError('Permission denied. Please contact support if this persists.');
-        return;
       }
-    } else if (error.code === 'unauthenticated') {
+      // Authenticated user got permission-denied - unexpected, likely a security rules issue
+      console.error('[Cards] Permission denied for authenticated user - check security rules');
+      showAppError('Permission denied. Please contact support if this persists.');
+      return;
+    }
+
+    if (error.code === 'unauthenticated') {
       // Unauthenticated error - session may have expired
       console.warn('[Cards] Unauthenticated error - session may have expired');
       state.cards = [];
@@ -775,7 +777,7 @@ function setupEventListeners() {
         if (addCardDebounce) return;
         addCardDebounce = setTimeout(() => {
           addCardDebounce = null;
-        }, 300);
+        }, TIMEOUTS.DEBOUNCE_MS);
         openCardEditor();
       },
       missingElements
@@ -961,7 +963,7 @@ function setupAuthStateListener() {
       if (currentUser && !document.body.classList.contains('authenticated')) {
         document.body.classList.add('authenticated');
       }
-    }, 500);
+    }, TIMEOUTS.AUTH_RETRY_MS);
   } catch (error) {
     // TODO(#483): Improve error categorization - string matching is fragile
     const isAuthNotReady =
@@ -978,7 +980,7 @@ function setupAuthStateListener() {
         );
         throw error;
       }
-      setTimeout(setupAuthStateListener, 500);
+      setTimeout(setupAuthStateListener, TIMEOUTS.AUTH_RETRY_MS);
       return;
     }
 
