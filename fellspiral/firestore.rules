@@ -43,7 +43,11 @@ service cloud.firestore {
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
                     && resource.data.createdBy == request.auth.uid
+                    // Explicitly require lastModifiedBy field in the update and match auth.uid
+                    && 'lastModifiedBy' in request.writeFields
                     && request.resource.data.lastModifiedBy == request.auth.uid
+                    // Explicitly require lastModifiedAt field in the update and match request.time
+                    && 'lastModifiedAt' in request.writeFields
                     && request.resource.data.lastModifiedAt == request.time
                     // Enforce field immutability
                     && request.resource.data.createdBy == resource.data.createdBy
