@@ -279,8 +279,8 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
   const collectionName = getCardsCollectionName();
   const cardsCollection = db.collection(collectionName);
 
-  // Retry with exponential backoff
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  // Retry with exponential backoff (includes initial attempt)
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
 
     if (!snapshot.empty) {
@@ -288,16 +288,11 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
       return { id: doc.id, ...doc.data() };
     }
 
-    // Wait before retrying (exponential backoff)
-    const delayMs = initialDelayMs * Math.pow(2, attempt);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-
-  // Final attempt after all retries
-  const finalSnapshot = await cardsCollection.where('title', '==', cardTitle).get();
-  if (!finalSnapshot.empty) {
-    const doc = finalSnapshot.docs[0];
-    return { id: doc.id, ...doc.data() };
+    // Wait before retrying (skip delay on final attempt)
+    if (attempt < maxRetries) {
+      const delayMs = initialDelayMs * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
 
   return null;

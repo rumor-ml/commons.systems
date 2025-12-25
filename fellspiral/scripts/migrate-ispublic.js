@@ -68,7 +68,11 @@ async function migrateCards() {
   const cardsRef = db.collection('cards');
 
   try {
-    // TODO(#484): Clarify temporal context - when should this migration be run relative to security rules deployment?
+    // DEPLOYMENT SEQUENCE (CRITICAL - follow this order to prevent data access issues):
+    // 1. Deploy NEW security rules (require isPublic field)
+    // 2. Run THIS migration script to backfill isPublic on existing cards
+    // 3. Verify migration completed successfully (all cards now have isPublic field)
+    // If migration fails mid-way, DO NOT deploy security rules until ALL cards are migrated
     // Get all cards (no query filter - we need to check all cards)
     const snapshot = await cardsRef.get();
 
@@ -128,8 +132,11 @@ async function migrateCards() {
         const docRef = cardsRef.doc(card.id);
         batch.update(docRef, {
           isPublic: true,
-          // TODO(#484): Document audit trail usage - how should _migratedIsPublic field be queried/analyzed?
-          // Add migration metadata for audit trail
+          // Audit trail for debugging and rollback:
+          // - Query migrated cards: db.collection('cards').where('_migratedIsPublic', '!=', null)
+          // - Count migrations: aggregation query on _migratedIsPublic field
+          // - Rollback if needed: identify cards by _migratedIsPublic timestamp, remove isPublic field
+          // - Debug migration issues: compare createdAt vs _migratedIsPublic to find edge cases
           _migratedIsPublic: admin.firestore.FieldValue.serverTimestamp(),
         });
       });

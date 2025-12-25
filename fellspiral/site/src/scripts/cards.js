@@ -68,15 +68,24 @@ function sanitizeCardType(type) {
 // State management
 /**
  * Global application state (singleton pattern)
+ * @property {Array} cards - All cards loaded from Firestore
+ * @property {Array} filteredCards - Cards matching current filters
+ * @property {Object|null} selectedNode - Currently selected tree node
+ * @property {string} viewMode - Current view mode: 'grid' or 'list'
+ * @property {Object} filters - Current filter state (type, subtype, search)
+ * @property {boolean} loading - Whether data is currently being loaded
+ * @property {string|null} error - Current error message, if any
+ * @property {boolean} initialized - Whether global listeners have been set up
+ * @property {boolean} initializing - Whether initialization is currently in progress
  * @property {Function|null} authUnsubscribe - Cleanup function for auth state listener
- * @property {number} authListenerRetries - Count of auth listener setup retry attempts (max 10)
- * Rationale: Firebase auth can be slow to initialize, especially on cold start or slow networks
- * Retries prevent race condition where UI initializes before auth state is available
- * Each retry waits 500ms, so 10 retries = 5 second maximum wait before giving up
- * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup
- * @property {number|null} authTimeoutId - Timeout ID for auth listener retry delay
- * TODO(#475, #511): Create comprehensive JSDoc typedef for ApplicationState
- * Should document all state properties with types, defaults, and usage notes
+ * @property {boolean} listenersAttached - Whether event listeners are attached
+ * @property {number|null} authTimeoutId - Timeout ID for backup auth check cleanup
+ * @property {number} authListenerRetries - Count of auth listener setup retry attempts
+ *   Rationale: Firebase auth can be slow to initialize, especially on cold start or slow networks.
+ *   Retries prevent race condition where UI initializes before auth state is available.
+ *   Each retry waits 500ms, so 10 retries = 5 second maximum wait before giving up.
+ * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup (default: 10)
+ *   10 retries × 500ms delay = 5 seconds total timeout for auth initialization
  */
 const state = {
   cards: [],
@@ -142,9 +151,18 @@ function getSubtypesForType(type) {
   ].sort();
 }
 
+/**
+ * @typedef {Object} ComboboxConfig
+ * @property {string} comboboxId - ID of the combobox container element (required)
+ * @property {string} inputId - ID of the combobox input element (required)
+ * @property {string} listboxId - ID of the combobox listbox element (required)
+ * @property {Function} getOptions - Function that returns array of available option strings (required)
+ * @property {Function} [onSelect] - Callback function invoked when an option is selected (optional)
+ * @property {string} [placeholder] - Placeholder text for the input field (optional)
+ * @property {boolean} [allowCustom] - Whether to allow custom values via "Add New" option (optional, default: true)
+ */
+
 // Generic combobox controller
-// TODO(#475, #511): Add JSDoc typedef for ComboboxConfig with required field validation
-// Type should include: comboboxId, inputId, listboxId, getOptions, onSelect
 function createCombobox(config) {
   // Validate required config fields
   const requiredFields = ['comboboxId', 'inputId', 'listboxId', 'getOptions'];
@@ -210,13 +228,21 @@ function createCombobox(config) {
         throw new TypeError(`getOptions() returned non-array: ${typeof availableOptions}`);
       }
     } catch (error) {
-      // TODO(#285): Categorize errors and provide specific user guidance
+      // Categorize combobox-specific errors for debugging
+      const errorCategory =
+        error instanceof TypeError
+          ? 'type_error'
+          : error.name === 'ReferenceError'
+            ? 'missing_data'
+            : 'unknown';
+
       console.error('[Cards] Error fetching combobox options:', {
         comboboxId: comboboxId,
         inputValue: input.value,
         message: error.message,
         stack: error.stack,
         errorType: error.constructor.name,
+        category: errorCategory,
       });
 
       // Show error state in UI
@@ -304,6 +330,12 @@ function createCombobox(config) {
           message: error.message,
           stack: error.stack,
         });
+
+        // Show user-facing error before propagating
+        showFormError(
+          `Failed to update form after selecting "${value}". Please try again or refresh the page.`
+        );
+
         // Re-throw to propagate error to callers
         throw error;
       }
@@ -334,13 +366,8 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
-    // TODO(#286): Simplify event ordering comment
-    // CRITICAL: Delay handles browser event sequencing for dropdown clicks
-    // Event sequence: mousedown → blur → mouseup → click
-    // Problem: Some browsers (Firefox, Safari) fire blur BEFORE mousedown's preventDefault()
-    // executes due to event loop microtask timing. Chrome usually preserves order.
-    // The mousedown handler calls preventDefault() to cancel blur, but timing races require this delay.
-    // The delay provides safety margin across all browsers (verified empirically).
+    // 200ms delay prevents blur from closing dropdown before click events fire
+    // Browsers vary in mousedown→blur→click ordering; delay ensures clicks register first
     // TODO(#483): Replace setTimeout with relatedTarget check for more robust solution
     setTimeout(hide, TIMEOUTS.BLUR_DELAY_MS);
   });
@@ -419,12 +446,15 @@ function destroyCombobox(combobox, name) {
       return null;
     }
 
-    // Critical: unexpected error during destroy
+    // Critical: unexpected error during destroy - show error UI and throw
+    // Note: showErrorUI is called BEFORE throw to ensure user sees the error
+    // Throwing after UI update allows caller to handle the error if needed
     console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
+    const errorObj = new Error(`Combobox cleanup failed: ${error.message}`);
     showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
       window.location.reload()
     );
-    throw new Error(`Combobox cleanup failed: ${error.message}`);
+    throw errorObj;
   }
   return null;
 }
@@ -646,8 +676,6 @@ async function init() {
 
 // Load cards from Firestore
 async function loadCards() {
-  const FIRESTORE_TIMEOUT_MS = TIMEOUTS.FIRESTORE_MS;
-
   try {
     state.loading = true;
     state.error = null;
@@ -662,7 +690,7 @@ async function loadCards() {
       if (getAuthInstance()?.currentUser) {
         await withTimeout(
           importCardsFromData(cardsData),
-          FIRESTORE_TIMEOUT_MS,
+          TIMEOUTS.FIRESTORE_MS,
           'Import cards timeout'
         );
         state.cards = await getAllCards();
@@ -1009,41 +1037,28 @@ function setupHashRouting() {
 function handleHashChange() {
   const hash = window.location.hash.slice(1); // Remove '#'
 
-  if (!hash || !hash.startsWith('library')) {
-    // Clear filters if no library hash
-    state.filters.type = '';
-    state.filters.subtype = '';
-    applyFilters();
-    return;
-  }
+  // Default: clear filters
+  state.filters.type = '';
+  state.filters.subtype = '';
 
   // Parse hash using - as separator (valid CSS selector character)
   // This ensures HTMX's querySelector-based scrolling works correctly
   // Format: #library, #library-equipment, #library-equipment-weapon
-  if (hash === 'library') {
-    // #library - show all cards
-    state.filters.type = '';
-    state.filters.subtype = '';
-  } else if (hash.startsWith('library-')) {
+  if (hash.startsWith('library-')) {
     // Remove 'library-' prefix and split remaining parts
     const remainder = hash.slice('library-'.length);
     const parts = remainder.split('-');
 
-    if (parts.length === 1) {
-      // #library-equipment - filter by type
-      const type = capitalizeFirstLetter(parts[0]);
-      state.filters.type = type;
-      state.filters.subtype = '';
-    } else if (parts.length >= 2) {
-      // #library-equipment-weapon - filter by type and subtype
-      const type = capitalizeFirstLetter(parts[0]);
-      const subtype = capitalizeFirstLetter(parts[1]);
-      state.filters.type = type;
-      state.filters.subtype = subtype;
+    // #library-equipment - filter by type
+    state.filters.type = capitalizeFirstLetter(parts[0]);
+
+    // #library-equipment-weapon - filter by type and subtype
+    if (parts.length >= 2) {
+      state.filters.subtype = capitalizeFirstLetter(parts[1]);
     }
   }
+  // For #library or non-library hashes, filters stay empty (already set above)
 
-  // Apply filters
   applyFilters();
 }
 
@@ -1065,7 +1080,7 @@ function setViewMode(mode) {
 }
 
 // Handle filter changes
-function handleFilterChange(e) {
+function handleFilterChange() {
   state.filters.search = document.getElementById('searchCards').value.toLowerCase();
   applyFilters();
 }
@@ -1138,11 +1153,8 @@ function renderCards() {
       emptyState.style.display = 'none';
       cardList.style.display = 'grid';
 
-      // Always remove existing spinner first (handles HTMX-swapped HTML)
-      const existingSpinner = cardList.querySelector('.loading-state');
-      if (existingSpinner) {
-        existingSpinner.remove();
-      }
+      // Remove existing spinner first (handles HTMX-swapped HTML)
+      removeLoadingSpinner();
 
       // Create fresh loading spinner
       const spinner = document.createElement('div');
