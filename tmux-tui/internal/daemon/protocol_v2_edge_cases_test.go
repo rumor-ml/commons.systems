@@ -162,18 +162,20 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 			wire: Message{
 				Type:   MsgTypePersistenceError,
 				SeqNum: 42,
-				Error:  "", // Error field may be empty - FromWireFormat accepts empty strings for persistence/audio errors
+				Error:  "", // Empty error messages are now rejected for better diagnostics
 			},
-			expectError: false, // Empty error is allowed
+			expectError:   true,
+			errorContains: "error_msg required",
 		},
 		{
 			name: "audio_error_empty_error",
 			wire: Message{
 				Type:   MsgTypeAudioError,
 				SeqNum: 42,
-				Error:  "", // Error field is optional for these messages
+				Error:  "", // Empty error messages are now rejected for better diagnostics
 			},
-			expectError: false, // Empty error is allowed
+			expectError:   true,
+			errorContains: "error_msg required",
 		},
 		{
 			name: "show_block_picker_missing_pane_id",
