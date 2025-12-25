@@ -6,8 +6,7 @@ import admin from 'firebase-admin';
 // TODO(#485): Add batch operation tests, invalid collection name tests, and field edge case tests
 describe('Firestore Security Rules - Cards Collection', () => {
   let helper: FirestoreTestHelper;
-  let testCardId: string;
-  // TODO(#485): Use before() hooks for test isolation instead of shared testCardId
+  // Removed shared testCardId - each describe block now manages its own test data (#485)
   const USER_1 = 'test-user-1';
   const USER_2 = 'test-user-2';
 
@@ -29,9 +28,8 @@ describe('Firestore Security Rules - Cards Collection', () => {
         description: 'Test description',
       });
 
-      testCardId = cardRef.id;
-      assert.ok(testCardId, 'Card ID should be set');
-      console.log(`✓ Created card ${testCardId} as ${USER_1}`);
+      assert.ok(cardRef.id, 'Card ID should be set');
+      console.log(`✓ Created card ${cardRef.id} as ${USER_1}`);
     });
 
     it('should deny create if title field is missing', async () => {
@@ -97,9 +95,90 @@ describe('Firestore Security Rules - Cards Collection', () => {
       assert.ok(cardRef.id, 'Card ID should be set in preview collection');
       console.log(`✓ Created card ${cardRef.id} in cards_preview_test-branch as ${USER_1}`);
     });
+
+    it('should deny create with non-string title', { skip: true }, async () => {
+      // SKIP: Security rules don't currently validate field types (tracking issue: #534)
+      // TODO(#534): Update rules to validate title is string: request.resource.data.title is string
+      // Test with number title: 12345
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb
+          .collection('cards')
+          .doc()
+          .set({
+            title: 12345 as unknown, // Type coercion attack
+            type: 'task',
+            createdBy: USER_1,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+      }, 'Create with non-string title should be denied');
+    });
+
+    it('should deny create with empty string title', { skip: true }, async () => {
+      // SKIP: Security rules don't currently validate string length (tracking issue: #534)
+      // TODO(#534): Update rules to validate title is non-empty: request.resource.data.title.size() > 0
+      // Test with title: ''
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc().set({
+          title: '',
+          type: 'task',
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Create with empty string title should be denied');
+    });
+
+    it('should deny create with null required fields', { skip: true }, async () => {
+      // SKIP: Security rules don't currently validate against null (tracking issue: #534)
+      // TODO(#534): Update rules to validate field is not null: request.resource.data.title != null
+      // Test with title: null
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb
+          .collection('cards')
+          .doc()
+          .set({
+            title: null as unknown,
+            type: 'task',
+            createdBy: USER_1,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+      }, 'Create with null title should be denied');
+    });
+
+    it('should deny create with excessively long title', { skip: true }, async () => {
+      // SKIP: Security rules don't currently validate field size limits (tracking issue: #534)
+      // TODO(#534): Update rules to validate max size: request.resource.data.title.size() < 1000
+      // Test with 1MB title for DoS protection
+      const longTitle = 'A'.repeat(1024 * 1024); // 1MB string
+
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc().set({
+          title: longTitle,
+          type: 'task',
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Create with excessively long title should be denied');
+    });
   });
 
   describe('UPDATE operations', () => {
+    let testCardId: string;
+
+    before(async () => {
+      // Create a test card for UPDATE tests
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Update Test Card',
+        type: 'task',
+        description: 'Card for testing updates',
+      });
+      testCardId = cardRef.id;
+      console.log(`✓ Setup: Created test card ${testCardId} for UPDATE tests`);
+    });
+
     it('should allow creator to update their own card', async () => {
       await helper.updateCardAsUser(USER_1, testCardId, {
         title: 'Updated Test Card',
@@ -200,9 +279,70 @@ describe('Firestore Security Rules - Cards Collection', () => {
         });
       }, 'Non-creator should never be able to update card, even with correct lastModifiedBy');
     });
+
+    it('should deny partial update omitting lastModifiedBy', async () => {
+      // Attacker tries to update without providing lastModifiedBy
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc(testCardId).update({
+          title: 'Partial Update Attack',
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+          // Missing lastModifiedBy - should be denied by 'lastModifiedBy' in request.writeFields check
+        });
+      }, 'Partial update omitting lastModifiedBy should be denied');
+    });
+
+    it('should deny adding createdBy field retroactively', async () => {
+      // Create a card, then try to add createdBy field after creation
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const docRef = userDb.collection('cards').doc();
+
+      // First, use admin to create a card without createdBy (simulating old data)
+      const adminDb = await helper.getAdminFirestore();
+      await adminDb.collection('cards').doc(docRef.id).set({
+        title: 'Legacy Card',
+        type: 'task',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Try to add createdBy retroactively
+      await helper.assertPermissionDenied(async () => {
+        await docRef.update({
+          createdBy: USER_1, // Trying to add createdBy after creation
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Adding createdBy field retroactively should be denied (fails createdBy == resource.data.createdBy check)');
+    });
+
+    it('should deny removing immutable fields', async () => {
+      // Try to remove createdBy via FieldValue.delete()
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc(testCardId).update({
+          title: 'Updated Title',
+          createdBy: admin.firestore.FieldValue.delete(), // Trying to delete immutable field
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Removing immutable fields should be denied');
+    });
   });
 
   describe('DELETE operations', () => {
+    let testCardId: string;
+
+    before(async () => {
+      // Create a test card for DELETE tests
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Delete Test Card',
+        type: 'task',
+        description: 'Card for testing deletes',
+      });
+      testCardId = cardRef.id;
+      console.log(`✓ Setup: Created test card ${testCardId} for DELETE tests`);
+    });
+
     it('should deny delete if user is not the creator', async () => {
       await helper.assertPermissionDenied(async () => {
         await helper.deleteCardAsUser(USER_2, testCardId);
@@ -304,6 +444,166 @@ describe('Firestore Security Rules - Cards Collection', () => {
         const unauthDb = helper.getFirestoreAsUnauthenticated();
         await unauthDb.collection('cards').doc(cardRef.id).delete();
       }, 'Unauthenticated users should not be able to delete cards');
+    });
+  });
+
+  describe('BATCH operations', () => {
+    it('should allow batch create of multiple cards by same user', async () => {
+      // Batch create 2 cards by USER_1
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const batch = userDb.batch();
+
+      const card1Ref = userDb.collection('cards').doc();
+      const card2Ref = userDb.collection('cards').doc();
+
+      batch.set(card1Ref, {
+        title: 'Batch Card 1',
+        type: 'task',
+        createdBy: USER_1,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastModifiedBy: USER_1,
+        lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(card2Ref, {
+        title: 'Batch Card 2',
+        type: 'bug',
+        createdBy: USER_1,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastModifiedBy: USER_1,
+        lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      // Verify both cards were created
+      const card1 = await userDb.collection('cards').doc(card1Ref.id).get();
+      const card2 = await userDb.collection('cards').doc(card2Ref.id).get();
+
+      assert.ok(card1.exists, 'Card 1 should exist');
+      assert.ok(card2.exists, 'Card 2 should exist');
+      console.log(`✓ Batch created cards ${card1Ref.id} and ${card2Ref.id}`);
+    });
+
+    it('should deny batch if any operation violates rules', async () => {
+      // Valid create + invalid update (non-creator) = entire batch fails
+      const card1Ref = await helper.createCardAsUser(USER_1, {
+        title: 'Batch Test Card',
+        type: 'task',
+      });
+
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        const batch = userDb.batch();
+
+        // Valid create
+        const newCardRef = userDb.collection('cards').doc();
+        batch.set(newCardRef, {
+          title: 'Valid Batch Card',
+          type: 'feature',
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // Invalid update (trying to change createdBy)
+        batch.update(userDb.collection('cards').doc(card1Ref.id), {
+          title: 'Updated Title',
+          createdBy: USER_2, // Invalid: changing createdBy
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await batch.commit();
+      }, 'Batch with invalid operation should be denied');
+    });
+
+    it('should deny cross-user batch operations', async () => {
+      // USER_1 tries to create card with createdBy: USER_2
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        const batch = userDb.batch();
+
+        const cardRef = userDb.collection('cards').doc();
+        batch.set(cardRef, {
+          title: 'Fake Card',
+          type: 'task',
+          createdBy: USER_2, // USER_1 trying to fake USER_2's creation
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastModifiedBy: USER_2,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await batch.commit();
+      }, 'Cross-user batch operation should be denied');
+    });
+  });
+
+  describe('Collection Name Pattern Validation', () => {
+    it('should allow operations on valid collection names', async () => {
+      // Test: cards, cards_pr_123, cards_preview_test-branch should all work
+      const validCollections = ['cards', 'cards_pr_456', 'cards_preview_my-test-branch'];
+
+      for (const collection of validCollections) {
+        const cardRef = await helper.createCardAsUser(
+          USER_1,
+          {
+            title: `Test Card in ${collection}`,
+            type: 'task',
+          },
+          collection
+        );
+
+        assert.ok(cardRef.id, `Card should be created in ${collection}`);
+        console.log(`✓ Created card ${cardRef.id} in ${collection}`);
+      }
+    });
+
+    it('should deny operations on invalid PR collection names', async () => {
+      // Test: cards_pr_abc (non-numeric) should deny
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards_pr_abc').doc().set({
+          title: 'Invalid PR Collection',
+          type: 'task',
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Create in cards_pr_abc (non-numeric suffix) should be denied');
+    });
+
+    it('should deny operations on invalid preview collection names', async () => {
+      // Test: cards_preview_MyBranch (uppercase) should deny
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards_preview_MyBranch').doc().set({
+          title: 'Invalid Preview Collection',
+          type: 'task',
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Create in cards_preview_MyBranch (uppercase) should be denied');
+    });
+
+    it('should deny operations on invalid collection patterns', async () => {
+      // Test: cards_test, cardz should deny
+      const invalidCollections = ['cards_test', 'cardz', 'cards_preview_', 'cards_pr_'];
+
+      for (const collection of invalidCollections) {
+        await helper.assertPermissionDenied(async () => {
+          const userDb = await helper.getFirestoreAsUser(USER_1);
+          await userDb
+            .collection(collection)
+            .doc()
+            .set({
+              title: `Test Card in ${collection}`,
+              type: 'task',
+              createdBy: USER_1,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }, `Create in ${collection} should be denied`);
+      }
     });
   });
 });

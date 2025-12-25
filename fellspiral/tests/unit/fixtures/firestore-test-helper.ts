@@ -44,8 +44,9 @@ export class FirestoreTestHelper {
 
   /**
    * Get singleton Firestore Admin instance (bypasses security rules)
+   * Public method to allow tests to perform admin operations (e.g., simulating legacy data)
    */
-  private getAdminFirestore(): Firestore {
+  getAdminFirestore(): Firestore {
     if (!FirestoreTestHelper.adminFirestore) {
       // CRITICAL: Delete GOOGLE_APPLICATION_CREDENTIALS when using emulator
       if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -237,7 +238,9 @@ export class FirestoreTestHelper {
         try {
           const snapshot = await adminDb.collection(collectionName).get();
           const batch = adminDb.batch();
-          snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+          for (const doc of snapshot.docs) {
+            batch.delete(doc.ref);
+          }
           await batch.commit();
           console.log(`✓ Cleared collection ${collectionName}`);
         } catch (error) {

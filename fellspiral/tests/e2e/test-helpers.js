@@ -323,26 +323,19 @@ export async function deleteTestCards(titlePattern) {
   const snapshot = await cardsCollection.get();
 
   // Filter cards by title pattern
-  const docsToDelete = [];
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    const title = data.title || '';
-
-    // Use ternary for cleaner pattern matching
-    const matches =
-      titlePattern instanceof RegExp ? titlePattern.test(title) : title.startsWith(titlePattern);
-
-    if (matches) {
-      docsToDelete.push(doc.ref);
-    }
+  const docsToDelete = snapshot.docs.filter((doc) => {
+    const title = doc.data().title || '';
+    return titlePattern instanceof RegExp
+      ? titlePattern.test(title)
+      : title.startsWith(titlePattern);
   });
 
   // Batch delete matching cards
   if (docsToDelete.length > 0) {
     const batch = db.batch();
-    docsToDelete.forEach((docRef) => {
-      batch.delete(docRef);
-    });
+    for (const doc of docsToDelete) {
+      batch.delete(doc.ref);
+    }
     await batch.commit();
   }
 
