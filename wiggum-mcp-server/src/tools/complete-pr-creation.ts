@@ -41,7 +41,8 @@ import { getNextStepInstructions } from '../state/router.js';
 import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
 import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, GitHubCliError, StateApiError, NetworkError } from '../utils/errors.js';
+import { buildGitHubErrorMessage } from '../utils/error-remediation.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
@@ -59,14 +60,7 @@ export type CompletePRCreationInput = z.infer<typeof CompletePRCreationInputSche
  * Expected format: "123-feature-name" -> "123"
  */
 function extractIssueNumber(branchName: string): string {
-  const parts = branchName.split('-');
-  if (parts.length === 0) {
-    throw new ValidationError(
-      `Cannot extract issue number from branch name: "${branchName}". Expected format: "123-feature-name"`
-    );
-  }
-
-  const issueNum = parts[0];
+  const issueNum = branchName.split('-')[0];
   if (!/^\d+$/.test(issueNum)) {
     throw new ValidationError(
       `First segment of branch name must be numeric issue number. Got: "${issueNum}" from branch: "${branchName}"`
@@ -119,6 +113,8 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
 
   // Get commit messages for PR body
   let commits: string;
+  let commitsFallback = false;
+
   try {
     commits = await ghCli([
       'api',
@@ -128,10 +124,13 @@ export async function completePRCreation(input: CompletePRCreationInput): Promis
     ]);
     commits = commits.trim();
   } catch (error) {
+    commitsFallback = true;
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to fetch commits from GitHub API for PR body', {
+
+    logger.warn('Failed to fetch commits - using fallback message in PR body', {
       error: errorMsg,
       branch: branchName,
+      willContinue: true,
     });
 
     // Sanitize error message for PR body using security utility
@@ -175,6 +174,7 @@ ${commits}`;
     logger.info('PR creation command executed successfully', {
       outputLength: createOutput.length,
       branch: branchName,
+      commitsFallback,
     });
 
     // Parse PR URL from output (gh pr create outputs the PR URL)
@@ -205,14 +205,24 @@ ${commits}`;
         state: pr.state,
       });
     } catch (verifyError) {
+      const errorMsg = verifyError instanceof Error ? verifyError.message : String(verifyError);
+
       logger.error('Failed to verify PR after creation', {
         prNumber,
-        error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        errorType: verifyError instanceof Error ? verifyError.constructor.name : typeof verifyError,
+        error: errorMsg,
       });
+
+      // Re-throw specific error types with proper context
+      if (verifyError instanceof StateApiError || verifyError instanceof NetworkError) {
+        throw verifyError;
+      }
+
+      // Only treat unknown errors as verification failures
       throw new ValidationError(
         `PR #${prNumber} was created but could not be verified. ` +
           `This may indicate a timing issue with GitHub API. ` +
-          `Error: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`
+          `Error: ${errorMsg}`
       );
     }
 
@@ -224,6 +234,7 @@ ${commits}`;
       phase: 'phase2',
     };
 
+    // TODO(#320): Add diagnostics field to StateApiError for HTTP status, rate limits, etc.
     try {
       await postWiggumStateComment(
         prNumber,
@@ -239,42 +250,34 @@ ${commits}`;
 **Next Action:** Beginning Phase 2 workflow monitoring.`
       );
     } catch (commentError) {
-      // Classify GitHub API errors for better diagnostics
       const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      const isPermissionError = /permission|forbidden|401|403/i.test(errorMsg);
-      const isRateLimitError = /rate limit|429/i.test(errorMsg);
-      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
-      const isTimeoutError = /timeout|timed out|ETIMEDOUT/i.test(errorMsg);
-      const isNotFoundError = /not found|404/i.test(errorMsg);
-
-      let errorClassification = 'Unknown error';
-      if (isPermissionError) {
-        errorClassification = 'Permission denied (check gh auth token scopes)';
-      } else if (isRateLimitError) {
-        errorClassification = 'GitHub API rate limit exceeded';
-      } else if (isTimeoutError) {
-        errorClassification = 'Request timeout (GitHub API not responding)';
-      } else if (isNotFoundError) {
-        errorClassification = 'Resource not found (PR or repository may not exist)';
-      } else if (isNetworkError) {
-        errorClassification = 'Network connectivity issue';
-      }
+      const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
 
       logger.error('Failed to post wiggum state comment after PR creation', {
         prNumber,
         error: errorMsg,
-        errorClassification,
-        isPermissionError,
-        isRateLimitError,
-        isTimeoutError,
-        isNotFoundError,
-        isNetworkError,
+        exitCode,
       });
-      throw new ValidationError(
-        `PR #${prNumber} was created successfully but failed to post state comment. ` +
-          `Error: ${errorClassification} - ${errorMsg}. ` +
-          `The PR exists and can be viewed, but wiggum state tracking failed. ` +
-          `You may need to manually add a wiggum state comment or restart the workflow.`
+
+      const detailedError = buildGitHubErrorMessage(
+        `post state comment to PR #${prNumber}`,
+        errorMsg,
+        exitCode,
+        {
+          prNumber,
+          impact: 'PR created successfully but state tracking failed',
+          prStatus: 'PR exists and can be viewed',
+          nextSteps: 'Call wiggum_init to verify PR state and continue workflow',
+        }
+      );
+
+      throw new StateApiError(
+        `PR #${prNumber} was created successfully but failed to post state comment.\n\n${detailedError}\n\n` +
+          `**Recovery:** Call wiggum_init to verify PR state and get next step instructions.`,
+        'write',
+        'pr',
+        prNumber,
+        commentError instanceof Error ? commentError : undefined
       );
     }
 
