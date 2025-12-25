@@ -24,7 +24,8 @@ service cloud.firestore {
     match /{cardsCollection}/{cardId} {
       // Allow reading public cards (anyone can view cards where isPublic == true)
       // SECURE BY DEFAULT: Documents missing isPublic field are DENIED access
-      // This is enforced by .get('isPublic', false) which returns false for missing fields
+      // Accessing undefined field (resource.data.isPublic when field doesn't exist) returns null,
+      // and null == true evaluates to false, so access is denied for missing fields
       // Migration consideration: Existing cards without isPublic field won't be readable
       // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
       // DEPLOYMENT DECISION TREE:
@@ -34,7 +35,7 @@ service cloud.firestore {
       // Consequence if deployed without migration: Cards without isPublic field become UNREADABLE (users see empty library)
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
-                  && resource.data.get('isPublic', false) == true;
+                  && resource.data.isPublic == true;
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
