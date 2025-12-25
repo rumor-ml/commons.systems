@@ -2,9 +2,9 @@ rules_version = '2';
 
 // TODO(#283): Add tests for isPublic field validation
 // Firestore security rules for cards collection
-// Cards require 'title', 'type', 'subtype', 'isPublic', and 'createdBy' fields
+// REQUIRED fields (enforced in CREATE rule): 'title', 'type', 'subtype', 'isPublic', 'createdBy'
+// Additional fields (optional): 'description', 'tags', 'stat1', 'stat2', 'cost', timestamps
 // See CREATE rule (lines 45-56) for complete validation logic
-// Ensures data integrity and user attribution
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -34,14 +34,14 @@ service cloud.firestore {
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                   && resource.data.get('isPublic', false) == true;
 
-      // TODO(#484): Remove redundant comment - "Cards created will have metadata" is obvious from field validation below
       // Allow create for authenticated users (only in collections starting with "cards")
-      // SECURITY LIMITATION: We cannot validate createdAt == request.time during CREATE
-      // because serverTimestamp() is a sentinel value that only resolves after rule evaluation.
-      // This means clients COULD provide arbitrary createdAt values during document creation.
-      // MITIGATION: Client code uses serverTimestamp() in createCard() (see firebase.js),
-      // but this cannot be enforced by security rules. UPDATE operations validate lastModifiedAt.
-      // TODO(#283): Add tests confirming server timestamps are actually used
+      // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
+      // Root cause: serverTimestamp() is a sentinel that resolves AFTER rule evaluation completes,
+      // so rules cannot compare createdAt == request.time at document creation time.
+      // Impact: Clients could backdate or future-date document creation times.
+      // Mitigation: Client code (firebase.js createCard()) uses serverTimestamp(), but this is
+      // convention, not enforcement. UPDATE operations CAN validate lastModifiedAt == request.time.
+      // TODO(#283): Add E2E test attempting to forge createdAt timestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
@@ -56,10 +56,11 @@ service cloud.firestore {
                     && request.resource.data.createdBy == request.auth.uid;
 
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
-      // SECURITY DESIGN: The OR condition allows ANY authenticated user to update ANY card
-      // by setting lastModifiedBy to their own UID. This is intentional for collaborative editing.
-      // The lastModifiedBy field tracks who made the change, even if they're not the original creator.
-      // Use case: Multiple users can edit public cards, with audit trail via lastModifiedBy.
+      // SECURITY IMPACT: ANY authenticated user can edit ANY card by setting lastModifiedBy to their UID.
+      // This collaborative editing design allows vandalism of public cards by malicious users.
+      // Tradeoff: Enables wiki-style collaboration (audit trail via lastModifiedBy) but sacrifices
+      // ownership protection. If vandalism becomes an issue, consider role-based permissions or
+      // restricting updates to createdBy only.
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))

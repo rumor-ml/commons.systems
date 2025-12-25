@@ -131,7 +131,7 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
+        // TODO(#327, #285): Use error.code instead of msg.includes('already') for emulator detection
         const msg = error.message || '';
 
         // Expected: already connected (happens on HTMX page swaps)
@@ -207,6 +207,27 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
   return Promise.race([promise, timeoutPromise]);
 }
 
+/**
+ * Validate card data for required fields and types
+ * Extracted from createCard and updateCard to eliminate duplication
+ * @param {Object} cardData - Card data to validate
+ * @throws {Error} If validation fails
+ */
+function validateCardData(cardData) {
+  if (!cardData.title?.trim()) {
+    throw new Error('Card title is required');
+  }
+  if (!cardData.type?.trim()) {
+    throw new Error('Card type is required');
+  }
+  if (!cardData.subtype?.trim()) {
+    throw new Error('Card subtype is required');
+  }
+  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
+    throw new Error('isPublic must be a boolean value');
+  }
+}
+
 // Get all cards from Firestore with timeout protection
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
@@ -273,20 +294,8 @@ export async function getCard(cardId) {
 export async function createCard(cardData) {
   await initFirebase();
 
-  // TODO(#481): Extract validation to validateCardData() helper to remove duplication with updateCard
   // Validate required fields before making Firestore call
-  if (!cardData.title?.trim()) {
-    throw new Error('Card title is required');
-  }
-  if (!cardData.type?.trim()) {
-    throw new Error('Card type is required');
-  }
-  if (!cardData.subtype?.trim()) {
-    throw new Error('Card subtype is required');
-  }
-  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
-    throw new Error('isPublic must be a boolean value');
-  }
+  validateCardData(cardData);
 
   // Use getAuthInstance() to get the current auth instance
   // This ensures we get window.__testAuth if it exists (for tests)
@@ -323,18 +332,7 @@ export async function updateCard(cardId, cardData) {
   await initFirebase();
 
   // Validate required fields before making Firestore call
-  if (!cardData.title?.trim()) {
-    throw new Error('Card title is required');
-  }
-  if (!cardData.type?.trim()) {
-    throw new Error('Card type is required');
-  }
-  if (!cardData.subtype?.trim()) {
-    throw new Error('Card subtype is required');
-  }
-  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
-    throw new Error('isPublic must be a boolean value');
-  }
+  validateCardData(cardData);
 
   const authInstance = getAuthInstance();
   try {

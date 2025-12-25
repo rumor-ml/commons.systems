@@ -150,7 +150,7 @@ async function migrateCards() {
         console.error(`  Successfully updated: ${updatedCount} cards (batches 1-${batchNum - 1})`);
         console.error(`  Failed batch: ${batchCards.length} cards (batch ${batchNum})`);
         console.error(
-          `  Not processed: ${needsMigration.length - i - batchCards.length} cards (remaining batches)`
+          `  Not processed: ${cardsNeedingUpdate.length - i - batchCards.length} cards (remaining batches)`
         );
         console.error('\n⚠️  DO NOT DEPLOY security rules until ALL batches succeed!');
         console.error('  Fix the error and re-run this script.');

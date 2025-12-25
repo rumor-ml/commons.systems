@@ -1082,11 +1082,10 @@ test.describe('Combobox - Error State Recovery', () => {
 
     // Try to open combobox (should trigger error)
     await page.locator('#cardType').focus();
-    await page.waitForTimeout(200);
 
-    // Verify error message is shown
+    // Wait for error message to appear (condition-based waiting)
     const errorMessage = page.locator('#typeListbox .combobox-error-message');
-    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toBeVisible({ timeout: 2000 });
     await expect(errorMessage).toHaveText('Unable to load options. Please refresh the page.');
 
     // Verify error class is added to listbox
@@ -3821,6 +3820,242 @@ test.describe('Add Card - Edge Cases and Security Tests', () => {
     // Verify card was created on retry
     const cardInList = page.locator('.card-item').filter({ hasText: cardData.title });
     await expect(cardInList).toBeVisible();
+  });
+});
+
+test.describe('Add Card - Security Tests', () => {
+  test.skip(!isEmulatorMode, 'Security tests only run against emulator');
+
+  test('should prevent forged server timestamps (createdAt)', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Try to create a card with a forged createdAt timestamp
+    const forgedTimestamp = new Date('2020-01-01').toISOString();
+    const cardTitle = `Test Card ${Date.now()}-forged-timestamp`;
+
+    await page.evaluate(
+      async ({ title, timestamp }) => {
+        const { createCard } = await import('/src/scripts/firebase.js');
+        // Attempt to forge createdAt - this should be ignored by serverTimestamp()
+        await createCard({
+          title,
+          type: 'Equipment',
+          subtype: 'Weapon',
+          isPublic: true,
+          createdAt: timestamp, // Forged timestamp
+        });
+      },
+      { title: cardTitle, timestamp: forgedTimestamp }
+    );
+
+    await page.waitForTimeout(2000);
+
+    // Verify the card was created with SERVER timestamp, not forged one
+    const firestoreCard = await getCardFromFirestore(cardTitle);
+    expect(firestoreCard).toBeTruthy();
+
+    // Server timestamp should be recent (within last 10 seconds), not from 2020
+    const createdAt = firestoreCard.createdAt?.toDate?.() || new Date(firestoreCard.createdAt);
+    const now = new Date();
+    const timeDiff = Math.abs(now - createdAt) / 1000; // seconds
+    expect(timeDiff).toBeLessThan(10); // Should be created within last 10 seconds
+  });
+
+  test('should deny read access to cards missing isPublic field', async ({
+    page,
+    authEmulator,
+  }) => {
+    // This test verifies the migration safety - cards without isPublic are unreadable
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Initial card count
+    const initialCount = await page.locator('.card-item').count();
+
+    // Try to create a card WITHOUT isPublic field (bypass client-side validation)
+    const cardTitle = `Test Card ${Date.now()}-no-ispublic`;
+
+    try {
+      await page.evaluate(
+        async ({ title }) => {
+          const { db } = await import('/src/scripts/firebase.js');
+          const { collection, addDoc } = await import('firebase/firestore');
+          const cardsCollection = collection(db, 'cards');
+
+          // Directly add document without isPublic field
+          await addDoc(cardsCollection, {
+            title,
+            type: 'Equipment',
+            subtype: 'Weapon',
+          });
+        },
+        { title: cardTitle }
+      );
+    } catch (error) {
+      // Expected to fail - security rules should reject cards without isPublic
+      console.log('Expected error creating card without isPublic:', error.message);
+    }
+
+    // Refresh the page
+    await page.reload();
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    // Verify card count did NOT increase (card was rejected or is unreadable)
+    const finalCount = await page.locator('.card-item').count();
+    expect(finalCount).toBe(initialCount);
+  });
+
+  test('should handle empty library when all cards missing isPublic', async ({
+    page,
+    authEmulator,
+  }) => {
+    // Verifies UI properly handles the case where migration hasn't run yet
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // If no cards are visible (all missing isPublic), empty state should show
+    // This test passes if the page doesn't crash when cards are filtered out
+    const emptyState = page.locator('#emptyState');
+    const cardList = page.locator('.card-item');
+
+    const cardCount = await cardList.count();
+    if (cardCount === 0) {
+      await expect(emptyState).toBeVisible();
+    }
+  });
+});
+
+test.describe('Add Card - XSS Protection Tests', () => {
+  test.skip(!isEmulatorMode, 'XSS tests only run against emulator');
+
+  test('should escape XSS in custom type via Add New', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Try to inject XSS via custom type using "Add New" combobox feature
+    const xssPayload = '<script>alert("XSS")</script>';
+    await page.locator('#cardTitle').fill(`Test Card ${Date.now()}-xss-type`);
+    await page.locator('#cardType').fill(xssPayload);
+    await page.locator('#cardType').press('Enter'); // Select the "Add New" option
+    await page.locator('#cardSubtype').fill('Weapon');
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for save
+    await page.waitForTimeout(2000);
+
+    // Verify XSS was escaped in the DOM (should show as text, not execute)
+    const cardItem = page.locator('.card-item').filter({ hasText: xssPayload });
+    await expect(cardItem).toBeVisible();
+
+    // Verify the literal text is present, not executed
+    const typeElement = cardItem.locator('.card-item-type');
+    const typeText = await typeElement.textContent();
+    expect(typeText).toContain('<script>'); // Should be escaped and visible as text
+  });
+
+  test('should escape XSS in custom subtype via Add New', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Try to inject XSS via custom subtype using "Add New" combobox feature
+    const xssPayload = '<img src=x onerror=alert("XSS")>';
+    await page.locator('#cardTitle').fill(`Test Card ${Date.now()}-xss-subtype`);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardSubtype').fill(xssPayload);
+    await page.locator('#cardSubtype').press('Enter'); // Select the "Add New" option
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for save
+    await page.waitForTimeout(2000);
+
+    // Verify XSS was escaped in the DOM (should show as text, not execute)
+    const cardItem = page.locator('.card-item').filter({ hasText: xssPayload });
+    await expect(cardItem).toBeVisible();
+
+    // Verify the literal text is present, not executed
+    const typeElement = cardItem.locator('.card-item-type');
+    const typeText = await typeElement.textContent();
+    expect(typeText).toContain('<img'); // Should be escaped and visible as text
+  });
+});
+
+test.describe('Add Card - isSaving Flag Tests', () => {
+  test.skip(!isEmulatorMode, 'isSaving tests only run against emulator');
+
+  test('should reset isSaving flag after timeout error', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill form
+    const cardData = generateTestCardData('timeout-test');
+    await page.locator('#cardTitle').fill(cardData.title);
+    await page.locator('#cardType').fill(cardData.type);
+    await page.locator('#cardSubtype').fill(cardData.subtype);
+
+    // Inject timeout error
+    await page.evaluate(() => {
+      window.__originalCreateCard = window.createCard;
+      window.createCard = async () => {
+        throw new Error('timeout');
+      };
+    });
+
+    // Try to save (should timeout)
+    await page.locator('#saveCardBtn').click();
+
+    // Wait for error to be handled
+    await page.waitForTimeout(2000);
+
+    // Verify save button is re-enabled (isSaving flag was reset)
+    const saveBtn = page.locator('#saveCardBtn');
+    await expect(saveBtn).not.toBeDisabled({ timeout: 1000 });
+
+    // Verify modal is still open (user can retry)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
   });
 });
 

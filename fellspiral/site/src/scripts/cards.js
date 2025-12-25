@@ -138,6 +138,18 @@ function getSubtypesForType(type) {
 // TODO(#475, #511): Add JSDoc typedef for ComboboxConfig with required field validation
 // Type should include: comboboxId, inputId, listboxId, getOptions, onSelect
 function createCombobox(config) {
+  // Validate required config fields
+  const requiredFields = ['comboboxId', 'inputId', 'listboxId', 'getOptions'];
+  const missingFields = requiredFields.filter((field) => !config[field]);
+
+  if (missingFields.length > 0) {
+    throw new Error(`createCombobox: Missing required config fields: ${missingFields.join(', ')}`);
+  }
+
+  if (typeof config.getOptions !== 'function') {
+    throw new Error('createCombobox: getOptions must be a function');
+  }
+
   const { inputId, listboxId, comboboxId, getOptions, onSelect } = config;
 
   const combobox = document.getElementById(comboboxId);
@@ -207,7 +219,9 @@ function createCombobox(config) {
       errorLi.className = 'combobox-option combobox-error-message';
       errorLi.textContent = 'Unable to load options. Please refresh the page.';
       listbox.appendChild(errorLi);
-      return;
+
+      // Re-throw to propagate error to callers
+      throw error;
     }
 
     // Render options - separate try-catch for DOM errors with clearer context
@@ -263,7 +277,8 @@ function createCombobox(config) {
       errorLi.style.cssText = 'font-style: italic; color: var(--color-error);';
       listbox.appendChild(errorLi);
 
-      // Don't re-throw - user can still type and submit manually
+      // Re-throw to propagate error to callers
+      throw error;
     }
   }
 
@@ -272,8 +287,18 @@ function createCombobox(config) {
     input.value = value;
     hide();
     if (onSelect) {
-      // Let callback errors propagate - caller is responsible for error handling
-      onSelect(value);
+      try {
+        onSelect(value);
+      } catch (error) {
+        console.error('[Cards] Error in combobox onSelect callback:', {
+          comboboxId: comboboxId,
+          value: value,
+          message: error.message,
+          stack: error.stack,
+        });
+        // Re-throw to propagate error to callers
+        throw error;
+      }
     }
   }
 
@@ -376,8 +401,17 @@ function destroyCombobox(combobox, name) {
   try {
     combobox.destroy();
   } catch (error) {
-    // TODO(#483): Improve error handling - distinguish between benign cleanup failures and critical errors
-    // Currently treats all destroy() failures as critical and forces page reload
+    // Distinguish between benign cleanup failures and critical errors
+    const isListenerCleanupError =
+      error.message?.includes('removeEventListener') || error.message?.includes('listener');
+
+    if (isListenerCleanupError) {
+      // Benign: event listener cleanup failed, log warning but continue
+      console.warn(`[Cards] Failed to cleanup ${name} combobox listeners (benign):`, error.message);
+      return null;
+    }
+
+    // Critical: unexpected error during destroy
     console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
     showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
       window.location.reload()
@@ -653,6 +687,7 @@ async function loadCards() {
 
     // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
     // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
+    // TODO(#285): Never fall back to demo data - show explicit auth error instead
     if (error.code === 'permission-denied') {
       // Permission denied - expected for anonymous users
       if (!getAuthInstance()?.currentUser) {
@@ -892,6 +927,7 @@ function setupMobileMenu() {
 // Setup auth state listener to show/hide auth-controls
 // TODO(#480): Add E2E test coverage for auth listener retry logic (lines 889-950)
 // Test scenarios: SDK not ready on first attempt, max retries exceeded, recovery after transient failure
+// TODO(#285): Replace string matching with error codes for auth retry logic
 function setupAuthStateListener() {
   try {
     // Reset retry counter on successful setup
@@ -1208,57 +1244,70 @@ function renderCardItem(card) {
 
 // Open card editor modal
 function openCardEditor(card = null) {
-  const modal = document.getElementById('cardEditorModal');
-  const modalTitle = document.getElementById('modalTitle');
-  const deleteBtn = document.getElementById('deleteCardBtn');
-  const form = document.getElementById('cardForm');
+  try {
+    const modal = document.getElementById('cardEditorModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const deleteBtn = document.getElementById('deleteCardBtn');
+    const form = document.getElementById('cardForm');
 
-  // Guard against missing modal elements (can happen during HTMX navigation)
-  if (!modal || !form) {
-    console.error('[Cards] Card editor modal not found:', {
-      modalExists: !!modal,
-      formExists: !!form,
+    // Guard against missing modal elements (can happen during HTMX navigation)
+    if (!modal || !form) {
+      console.error('[Cards] Card editor modal not found:', {
+        modalExists: !!modal,
+        formExists: !!form,
+      });
+      showWarningBanner('Card editor is not available. Please refresh the page to continue.');
+      return;
+    }
+
+    // Reset form
+    form.reset();
+
+    if (card) {
+      // Edit mode
+      modalTitle.textContent = 'Edit Card';
+      deleteBtn.style.display = 'block';
+
+      document.getElementById('cardId').value = card.id;
+      document.getElementById('cardTitle').value = card.title || '';
+      document.getElementById('cardType').value = card.type || '';
+      document.getElementById('cardSubtype').value = card.subtype || '';
+      document.getElementById('cardTags').value = Array.isArray(card.tags)
+        ? card.tags.join(', ')
+        : '';
+      document.getElementById('cardDescription').value = card.description || '';
+      document.getElementById('cardStat1').value = card.stat1 || '';
+      document.getElementById('cardStat2').value = card.stat2 || '';
+      document.getElementById('cardCost').value = card.cost || '';
+    } else {
+      // Add mode
+      modalTitle.textContent = 'Add Card';
+      deleteBtn.style.display = 'none';
+      document.getElementById('cardId').value = '';
+    }
+
+    // Refresh combobox options when modal opens
+    if (typeCombobox) typeCombobox.refresh();
+    if (subtypeCombobox) subtypeCombobox.refresh();
+
+    modal.classList.add('active');
+  } catch (error) {
+    console.error('[Cards] Error in openCardEditor:', {
+      message: error.message,
+      stack: error.stack,
+      cardId: card?.id,
     });
-    showWarningBanner('Card editor is not available. Please refresh the page to continue.');
-    return;
+    showWarningBanner('Failed to open card editor. Please refresh the page and try again.');
   }
-
-  // Reset form
-  form.reset();
-
-  if (card) {
-    // Edit mode
-    modalTitle.textContent = 'Edit Card';
-    deleteBtn.style.display = 'block';
-
-    document.getElementById('cardId').value = card.id;
-    document.getElementById('cardTitle').value = card.title || '';
-    document.getElementById('cardType').value = card.type || '';
-    document.getElementById('cardSubtype').value = card.subtype || '';
-    document.getElementById('cardTags').value = Array.isArray(card.tags)
-      ? card.tags.join(', ')
-      : '';
-    document.getElementById('cardDescription').value = card.description || '';
-    document.getElementById('cardStat1').value = card.stat1 || '';
-    document.getElementById('cardStat2').value = card.stat2 || '';
-    document.getElementById('cardCost').value = card.cost || '';
-  } else {
-    // Add mode
-    modalTitle.textContent = 'Add Card';
-    deleteBtn.style.display = 'none';
-    document.getElementById('cardId').value = '';
-  }
-
-  // Refresh combobox options when modal opens
-  if (typeCombobox) typeCombobox.refresh();
-  if (subtypeCombobox) subtypeCombobox.refresh();
-
-  modal.classList.add('active');
 }
 
 // Close card editor modal
 function closeCardEditor() {
   const modal = document.getElementById('cardEditorModal');
+  if (!modal) {
+    console.warn('[Cards] closeCardEditor called but modal not found');
+    return;
+  }
   modal.classList.remove('active');
 }
 
@@ -1415,26 +1464,17 @@ async function handleCardSave(e) {
     cost: document.getElementById('cardCost').value.trim(),
   };
 
+  // Separate try-catch blocks for Firestore, state updates, and UI operations
+  let newCardId;
   try {
+    // Firestore write operations
     if (id) {
       await updateCardInDB(id, cardData);
-
-      // Update local state
-      const index = state.cards.findIndex((c) => c.id === id);
-      if (index !== -1) {
-        state.cards[index] = { ...state.cards[index], ...cardData };
-      }
     } else {
-      const newCardId = await createCardInDB(cardData);
-      state.cards.push({ id: newCardId, ...cardData });
+      newCardId = await createCardInDB(cardData);
     }
-
-    closeCardEditor();
-    applyFilters();
   } catch (error) {
-    // TODO(#483): Narrow catch block scope - separate try-catch for Firestore vs local state updates
-    // This broad catch hides unrelated errors like local state corruption
-    console.error('[Cards] Error saving card:', {
+    console.error('[Cards] Error saving card to Firestore:', {
       message: error.message,
       code: error.code,
       stack: error.stack,
@@ -1476,6 +1516,46 @@ async function handleCardSave(e) {
     // Show inline error instead of blocking alert
     showFormError(userMessage);
     // Modal stays open - user can retry or fix issues
+
+    // Re-enable Save button and reset submission lock
+    if (saveBtn) {
+      saveBtn.disabled = false;
+    }
+    isSaving = false;
+    return;
+  }
+
+  try {
+    // Local state updates
+    if (id) {
+      const index = state.cards.findIndex((c) => c.id === id);
+      if (index !== -1) {
+        state.cards[index] = { ...state.cards[index], ...cardData };
+      }
+    } else {
+      state.cards.push({ id: newCardId, ...cardData });
+    }
+  } catch (error) {
+    console.error('[Cards] Error updating local state after save:', {
+      message: error.message,
+      stack: error.stack,
+      cardId: id || newCardId,
+    });
+    // Continue to UI updates - don't show user error for state corruption
+    // They can refresh to recover
+  }
+
+  try {
+    // UI operations
+    closeCardEditor();
+    applyFilters();
+  } catch (error) {
+    console.error('[Cards] Error updating UI after save:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    // Card is saved in Firestore, just show warning
+    showFormError('Card saved but UI update failed. Please refresh the page to see your card.');
   } finally {
     // Re-enable Save button and reset submission lock
     if (saveBtn) {
@@ -1485,7 +1565,7 @@ async function handleCardSave(e) {
   }
 }
 
-// TODO(#291): Add E2E tests for delete card functionality (confirm, verify removal from UI and Firestore, error paths)
+// TODO(#291, #536): Add E2E tests for delete card functionality (confirm, verify removal from UI and Firestore, error paths)
 // Delete card
 async function deleteCard() {
   const id = document.getElementById('cardId').value;
