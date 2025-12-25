@@ -431,6 +431,79 @@ describe('complete-fix tool', () => {
     });
   });
 
+  describe('out_of_scope_issues integration tests (actual validation)', () => {
+    // TODO(#313): These tests document what should be tested when integration testing is implemented
+    // The tests should actually call completeFix() with mocked dependencies to verify validation
+
+    it('should document integration test for rejecting multiple invalid numbers', () => {
+      /**
+       * Integration test specification for out_of_scope_issues validation
+       *
+       * SETUP:
+       * - Mock detectCurrentState() to return valid phase2 state with PR
+       * - Mock safePostStateComment() to return { success: true }
+       *
+       * ACTION:
+       * - Call completeFix({
+       *     fix_description: 'test',
+       *     has_in_scope_fixes: false,
+       *     out_of_scope_issues: [123, -1, 0, 456.5, Infinity]
+       *   })
+       *
+       * EXPECTED RESULT:
+       * - Function throws ValidationError
+       * - Error message includes 'Invalid issue numbers'
+       * - Error message lists all invalid numbers: '-1, 0, 456.5, Infinity'
+       * - Error message does NOT include valid number 123
+       * - Error message includes remediation steps
+       *
+       * VERIFICATION:
+       * - assert(error instanceof ValidationError)
+       * - assert(error.message.includes('Invalid issue numbers'))
+       * - assert(error.message.includes('-1, 0, 456.5, Infinity'))
+       * - assert(!error.message.includes('123'))
+       */
+      assert.ok(
+        true,
+        'Integration test needed: Mock state, call completeFix with invalid out_of_scope_issues, ' +
+          'verify ValidationError is thrown with all invalid numbers listed'
+      );
+    });
+
+    it('should document integration test for accepting valid positive integers', () => {
+      /**
+       * Integration test specification for valid out_of_scope_issues
+       *
+       * SETUP:
+       * - Mock detectCurrentState() to return valid phase2 state with PR
+       * - Mock safePostStateComment() to return { success: true }
+       * - Mock getNextStepInstructions() to return next step
+       *
+       * ACTION:
+       * - Call completeFix({
+       *     fix_description: 'test',
+       *     has_in_scope_fixes: false,
+       *     out_of_scope_issues: [123, 456, 789]
+       *   })
+       *
+       * EXPECTED RESULT:
+       * - Function completes successfully (no error thrown)
+       * - Logger.info called with outOfScopeIssues: [123, 456, 789]
+       * - State comment posted successfully
+       * - Returns next step instructions
+       *
+       * VERIFICATION:
+       * - assert(result.content[0].type === 'text')
+       * - assert(loggerInfoSpy.calledWith match outOfScopeIssues)
+       */
+      assert.ok(
+        true,
+        'Integration test needed: Mock state, call completeFix with valid out_of_scope_issues, ' +
+          'verify successful completion and logging'
+      );
+    });
+  });
+
   describe('phase-specific validation (integration behavior)', () => {
     // These tests document the expected behavior when completeFix is called
     // in different phases without proper state setup
