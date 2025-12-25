@@ -75,6 +75,7 @@ type FullStateMessageV2 struct {
 
 // NewFullStateMessage creates a validated FullStateMessage.
 // Alerts and blockedBranches can be nil or empty (represents no active state).
+// TODO(#519): Add validation for empty string keys/values in maps
 func NewFullStateMessage(seqNum uint64, alerts, blockedBranches map[string]string) (*FullStateMessageV2, error) {
 	// Deep copy to prevent external mutation
 	alertsCopy := make(map[string]string, len(alerts))
@@ -131,6 +132,7 @@ type AlertChangeMessageV2 struct {
 
 // NewAlertChangeMessage creates a validated AlertChangeMessage.
 // Returns error if paneID or eventType is empty after trimming.
+// TODO(#522): Add event type constants and validation for recognized event types
 func NewAlertChangeMessage(seqNum uint64, paneID, eventType string, created bool) (*AlertChangeMessageV2, error) {
 	paneID = strings.TrimSpace(paneID)
 	eventType = strings.TrimSpace(eventType)
@@ -477,6 +479,7 @@ type HealthResponseMessageV2 struct {
 }
 
 // NewHealthResponseMessage creates a validated HealthResponseMessage.
+// TODO(#524): Add HealthStatus content validation to ensure valid health metrics
 func NewHealthResponseMessage(seqNum uint64, healthStatus HealthStatus) (*HealthResponseMessageV2, error) {
 	return &HealthResponseMessageV2{seqNum: seqNum, healthStatus: healthStatus}, nil
 }
@@ -638,6 +641,8 @@ func (m *ShowBlockPickerMessageV2) PaneID() string { return m.paneID }
 
 // FromWireFormat converts a v1 Message to a type-safe v2 message.
 // Returns error if the message is invalid or has missing required fields.
+// TODO(#521): Add validation for extraneous fields to catch message construction bugs
+// TODO(#523): Add exhaustiveness test to ensure all message types are handled
 func FromWireFormat(msg Message) (MessageV2, error) {
 	// Validate first
 	if err := ValidateMessage(msg); err != nil {

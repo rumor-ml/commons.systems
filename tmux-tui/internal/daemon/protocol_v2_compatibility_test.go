@@ -234,7 +234,7 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 				if msg.EventType != "event1" {
 					t.Errorf("EventType = %v, want event1", msg.EventType)
 				}
-				if msg.Created != true {
+				if !msg.Created {
 					t.Errorf("Created = %v, want true", msg.Created)
 				}
 			},
@@ -254,7 +254,7 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 				if msg.BlockedBranch != "branch2" {
 					t.Errorf("BlockedBranch = %v, want branch2", msg.BlockedBranch)
 				}
-				if msg.Blocked != true {
+				if !msg.Blocked {
 					t.Errorf("Blocked = %v, want true", msg.Blocked)
 				}
 			},
@@ -275,7 +275,9 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 				if msg.HealthStatus == nil {
 					t.Fatal("HealthStatus is nil")
 				}
-				// Note: Can't access private fields in v1 client, but JSON unmarshaling should work
+				// Note: HealthStatus uses private fields which aren't accessible via the v1 Message struct,
+				// but JSON unmarshaling should properly populate these fields. We verify the status exists
+				// rather than checking individual field values.
 			},
 		},
 	}
@@ -389,7 +391,7 @@ func TestV2ClientCanDeserializeV1Messages(t *testing.T) {
 				if ac.EventType() != "event1" {
 					t.Errorf("EventType = %v, want event1", ac.EventType())
 				}
-				if ac.Created() != true {
+				if !ac.Created() {
 					t.Errorf("Created = %v, want true", ac.Created())
 				}
 			},
@@ -441,7 +443,7 @@ func TestV2ClientCanDeserializeV1Messages(t *testing.T) {
 				if bc.BlockedBranch() != "branch2" {
 					t.Errorf("BlockedBranch = %v, want branch2", bc.BlockedBranch())
 				}
-				if bc.Blocked() != true {
+				if !bc.Blocked() {
 					t.Errorf("Blocked = %v, want true", bc.Blocked())
 				}
 			},
@@ -591,7 +593,9 @@ func TestDeprecatedMessageTypesStillWork(t *testing.T) {
 			}
 
 			// Note: Unknown types are not convertible to v2 (FromWireFormat will return error)
-			// but they should still be deserializable from JSON
+			// but they should still be deserializable from JSON. This preserves backward compatibility
+			// by allowing old clients to receive messages even after the protocol evolves, though they
+			// cannot process them through the v2 type system.
 		})
 	}
 }

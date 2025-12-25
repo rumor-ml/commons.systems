@@ -28,7 +28,8 @@ type queryResponse struct {
 }
 
 // newQueryResponse creates a queryResponse with properly buffered channels.
-// Both channels have buffer size 1 to prevent blocking in the receive loop.
+// Both channels have buffer size 1 to prevent blocking in the DaemonClient receive loop
+// when routing query responses to waiting callers.
 func newQueryResponse() *queryResponse {
 	return &queryResponse{
 		dataCh: make(chan Message, 1),
@@ -84,6 +85,7 @@ func (c *DaemonClient) sendMessage(msg Message) error {
 
 // sendAndWait sends a message and waits a fixed delay to allow the daemon
 // time to process it. This is best-effort timing, not an acknowledgment.
+// WARNING: Callers should not assume message delivery or processing completion after this returns.
 func (c *DaemonClient) sendAndWait(msg Message) error {
 	if err := c.sendMessage(msg); err != nil {
 		return err
@@ -196,6 +198,7 @@ func (c *DaemonClient) receive() {
 		}
 
 		// Gap detection: Check sequence numbers for missed messages
+		// TODO(#520): Add test for sequence number wraparound from MaxUint64 to 0
 		if msg.SeqNum > 0 {
 			lastSeq := c.lastSeq.Load()
 			if lastSeq > 0 && msg.SeqNum > lastSeq+1 {

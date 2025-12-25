@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+// TODO(#518): Add test for HealthStatus field validation with negative values
+// TODO(#519): Add test for FullStateMessage with empty string map keys/values
+// TODO(#520): Add test for sequence number wraparound from MaxUint64 to 0
+// TODO(#521): Add test for FromWireFormat with extraneous fields populated
+// TODO(#523): Add exhaustiveness test for FromWireFormat message type handling
+
 // TestFromWireFormat_MalformedMessages verifies that FromWireFormat returns
 // appropriate errors for malformed input messages.
 func TestFromWireFormat_MalformedMessages(t *testing.T) {
@@ -155,7 +161,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 			wire: Message{
 				Type:   MsgTypePersistenceError,
 				SeqNum: 42,
-				Error:  "", // Error field is optional for these messages
+				Error:  "", // Error field may be empty - FromWireFormat accepts empty strings for persistence/audio errors
 			},
 			expectError: false, // Empty error is allowed
 		},
@@ -243,7 +249,7 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Type:            MsgTypeSyncWarning,
 				SeqNum:          42,
 				OriginalMsgType: "alert_change",
-				Error:           "", // Error is optional
+				Error:           "", // Error field may be empty - FromWireFormat accepts empty strings
 			},
 			expectError: false,
 		},
@@ -283,7 +289,7 @@ func TestConstructor_ExtremeValues(t *testing.T) {
 	})
 
 	t.Run("very_long_string_client_id", func(t *testing.T) {
-		longID := strings.Repeat("x", 100000) // 100KB string
+		longID := strings.Repeat("x", 100000) // 100,000 character string (~100KB UTF-8)
 		msg, err := NewHelloMessage(42, longID)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
@@ -333,7 +339,7 @@ func TestConstructor_ExtremeValues(t *testing.T) {
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
-		// Verify length (maps should be copied)
+		// Verify length matches original (maps should be deep copied by constructor, not referenced)
 		alerts := msg.Alerts()
 		if len(alerts) != len(largeMap) {
 			t.Errorf("Alerts map size = %d, want %d", len(alerts), len(largeMap))
@@ -499,7 +505,7 @@ func TestRoundTripFidelity(t *testing.T) {
 		if bc.BlockedBranch() != "branch2" {
 			t.Errorf("BlockedBranch = %v, want branch2", bc.BlockedBranch())
 		}
-		if bc.Blocked() != true {
+		if !bc.Blocked() {
 			t.Errorf("Blocked = %v, want true", bc.Blocked())
 		}
 	})
@@ -560,12 +566,8 @@ func TestRoundTripFidelity(t *testing.T) {
 	})
 
 	t.Run("health_response_message", func(t *testing.T) {
-		// NewHealthStatus signature:
-		// broadcastFailures int64, lastBroadcastError string,
-		// watcherErrors int64, lastWatcherError string,
-		// connectionCloseErrors int64, lastCloseError string,
-		// audioBroadcastFailures int64, lastAudioBroadcastErr string,
-		// connectedClients int, activeAlerts int, blockedBranches int
+		// Create HealthStatus with: 2 broadcast failures, 1 watcher error, 5 clients, 10 alerts, 3 blocked branches
+		// (Other error fields left empty for this test)
 		status, err := NewHealthStatus(2, "", 1, "", 0, "", 0, "", 5, 10, 3)
 		if err != nil {
 			t.Fatalf("Failed to create health status: %v", err)
