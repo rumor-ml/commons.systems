@@ -179,7 +179,8 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     // Post minimal state comment documenting fast-path completion
     const commentTitle = `${state.wiggum.step} - Complete (No In-Scope Fixes)`;
-    // TODO(#478): Extract markdown formatting to helper function
+    // TODO: Extract markdown formatting to shared helper (duplicated at line 285-286)
+    // Consider: formatOutOfScopeSection(issues?: number[]): string
     const outOfScopeSection = input.out_of_scope_issues?.length
       ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
       : '';
@@ -228,16 +229,26 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
               current_step: STEP_NAMES[state.wiggum.step],
               step_number: state.wiggum.step,
               iteration_count: newState.iteration,
-              instructions:
-                `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
-                `The race condition fix requires state persistence to GitHub.\n\n` +
-                `Common causes:\n` +
-                `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
-                `- Network connectivity issues\n\n` +
-                `Please retry after resolving the issue.`,
+              instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.
+
+**IMPORTANT: Your workflow state has NOT been modified.** The step has NOT been marked complete.
+You are still on: ${STEP_NAMES[state.wiggum.step]}
+
+The race condition fix requires state persistence to GitHub.
+
+Common causes:
+- GitHub API rate limiting: Check \`gh api rate_limit\`
+- Network connectivity issues
+
+To resolve:
+1. Check rate limits: \`gh api rate_limit\`
+2. Verify network connectivity
+3. Retry by calling wiggum_complete_fix again with the same parameters`,
               steps_completed_by_tool: [
-                'Marked step as complete (not persisted)',
-                'Failed to post state comment',
+                'Built new state locally (NOT persisted)',
+                `Attempted to post state comment - FAILED (${stateResult.reason})`,
+                'State NOT modified on GitHub',
+                'Action required: Retry after resolving the issue',
               ],
               context: {
                 pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
@@ -255,6 +266,10 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       phase,
       targetNumber,
       location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+      fixDescription: input.fix_description,
+      outOfScopeIssues: input.out_of_scope_issues,
+      currentStep: state.wiggum.step,
+      iteration: state.wiggum.iteration,
     });
 
     // Reuse newState to avoid race condition with GitHub API (issue #388)
@@ -352,17 +367,27 @@ ${input.fix_description}${outOfScopeSection}
             current_step: STEP_NAMES[state.wiggum.step],
             step_number: state.wiggum.step,
             iteration_count: newState.iteration,
-            instructions:
-              `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
-              `The race condition fix requires state persistence to GitHub.\n\n` +
-              `Common causes:\n` +
-              `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
-              `- Network connectivity issues\n\n` +
-              `Please retry after resolving the issue.`,
+            instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.
+
+**IMPORTANT: Your workflow state has NOT been modified.** The step has NOT been marked complete.
+You are still on: ${STEP_NAMES[state.wiggum.step]}
+
+The race condition fix requires state persistence to GitHub.
+
+Common causes:
+- GitHub API rate limiting: Check \`gh api rate_limit\`
+- Network connectivity issues
+
+To resolve:
+1. Check rate limits: \`gh api rate_limit\`
+2. Verify network connectivity
+3. Retry by calling wiggum_complete_fix again with the same parameters`,
             steps_completed_by_tool: [
-              'Executed PR review fix',
-              'Posted fix description to comment (not persisted)',
-              'Failed to post state comment',
+              'Built new state with filtered completedSteps',
+              `Attempted to post state comment - FAILED (${stateResult.reason})`,
+              'State NOT modified on GitHub',
+              'NO fix description comment posted (state update failed first)',
+              'Action required: Retry wiggum_complete_fix to post both comments',
             ],
             context: {
               pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
