@@ -7,11 +7,11 @@ const __dirname = dirname(__filename);
 
 export default createPlaywrightConfig({
   siteName: 'fellspiral',
-  port: 3000,
+  port: process.env.TEST_PORT ? parseInt(process.env.TEST_PORT) : 3000,
   deployedUrl: 'https://fellspiral.commons.systems',
   webServerCommand: {
     local: 'cd ../site && npm run dev',
-    ci: 'npx http-server ../site/dist -p 3000 -s',
+    ci: `npx http-server ../site/dist -p ${process.env.TEST_PORT || 3000} -s`,
   },
   env: {
     // Backend uses 127.0.0.1 to ensure IPv4 (Node.js admin SDK)
