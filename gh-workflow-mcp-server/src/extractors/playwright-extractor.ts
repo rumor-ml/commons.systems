@@ -932,6 +932,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             `SyntaxError: ${err.message}. Indicates truncated/malformed JSON.`
         );
       }
+      // Re-throw our validation errors as-is
+      if (err instanceof PlaywrightJsonNotFoundError) {
+        throw err;
+      }
       // Unexpected error - add context before re-throwing
       const errorMsg = err instanceof Error ? err.message : String(err);
       throw new Error(
