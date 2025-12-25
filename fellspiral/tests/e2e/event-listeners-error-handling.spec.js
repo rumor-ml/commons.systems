@@ -6,7 +6,7 @@
 // NOTE: Current tests verify console output - assertions will need updating when production code changes
 
 import { test, expect } from '../../../playwright.fixtures.ts';
-import { captureConsoleMessages, waitForConsoleMessage } from './test-helpers.js';
+import { waitForConsoleMessage } from './test-helpers.js';
 
 test.describe('Event Listener Setup - Error Handling', () => {
   test('should log error and continue when toolbar buttons are missing', async ({ page }) => {
@@ -161,30 +161,40 @@ test.describe('Event Listener Setup - Error Handling', () => {
   test('should not create duplicate listeners on re-initialization', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Track number of listeners added
-    const listenerCounts = await page.evaluate(() => {
+    // Track exact number of listeners added before and after re-initialization
+    const { beforeCount, afterCount } = await page.evaluate(() => {
       // Store original addEventListener to count calls
       const originalAddEventListener = EventTarget.prototype.addEventListener;
-      let addCount = 0;
+      let beforeCount = 0;
+      let afterCount = 0;
 
+      // Count listeners added during first call
       EventTarget.prototype.addEventListener = function (...args) {
-        addCount++;
+        beforeCount++;
         return originalAddEventListener.apply(this, args);
       };
 
-      // First initialization happens automatically on page load
+      // First call to setupEventListeners
+      window.__testHelpers?.setupEventListeners();
+
+      // Reset counter for second call
+      beforeCount = 0;
+      EventTarget.prototype.addEventListener = function (...args) {
+        afterCount++;
+        return originalAddEventListener.apply(this, args);
+      };
+
       // Trigger re-initialization
       window.__testHelpers?.setupEventListeners();
 
       // Restore original
       EventTarget.prototype.addEventListener = originalAddEventListener;
 
-      return addCount;
+      return { beforeCount, afterCount };
     });
 
-    // Re-initialization should not add duplicate listeners
-    // (This test verifies that the implementation checks for existing listeners)
-    // If listeners are properly managed, re-init should add 0 or minimal new listeners
-    expect(listenerCounts).toBeLessThan(20); // Sanity check - not hundreds of duplicates
+    // Re-initialization should add exactly 0 new listeners (all should be deduplicated)
+    // The implementation should check for existing listeners before adding new ones
+    expect(afterCount).toBe(0);
   });
 });

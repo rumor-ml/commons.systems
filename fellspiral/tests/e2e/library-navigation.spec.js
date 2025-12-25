@@ -272,12 +272,10 @@ const skipDataReflectionTests = process.env.CI;
   'Library Navigation - Data Reflection',
   () => {
     // Clean up ALL test cards before running data reflection tests
-    // Use a broad pattern to catch any test cards that might have been created
+    // Combined pattern matches "Test Card" prefix OR any title containing "test" (case insensitive)
     test.beforeEach(async () => {
-      // First pass: clean up test cards with standard pattern
-      let deletedCount = await deleteTestCards(/^Test Card/);
-      // Second pass: clean up any cards with "test" in the title (case insensitive)
-      deletedCount += await deleteTestCards(/test/i);
+      const testCardPattern = /^Test Card|test/i;
+      const deletedCount = await deleteTestCards(testCardPattern);
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
         // Wait for Firestore deletion to propagate by verifying cards are gone
@@ -288,7 +286,7 @@ const skipDataReflectionTests = process.env.CI;
           const snapshot = await cardsCollection.get();
           const remainingTestCards = snapshot.docs.filter((doc) => {
             const title = doc.data().title || '';
-            return /^Test Card/.test(title) || /test/i.test(title);
+            return testCardPattern.test(title);
           });
           expect(remainingTestCards.length).toBe(0);
         }).toPass({ timeout: 3000 });

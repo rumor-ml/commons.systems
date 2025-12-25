@@ -346,6 +346,7 @@ function setupEventListeners() {
   } catch (error) {
     // TODO(#560): Re-throw errors after logging to prevent silent failures
     console.error('Error setting up event listeners:', error);
+    throw error;
   }
 }
 
@@ -384,31 +385,33 @@ function setupMobileMenu() {
     });
 
     // Close sidebar when clicking a nav link on mobile
-    // TODO(#561): Add null check before accessing sidebar properties
-    const navItems = sidebar.querySelectorAll('.nav-item');
-    navItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
+    if (sidebar) {
+      const navItems = sidebar.querySelectorAll('.nav-item');
+      navItems.forEach((item) => {
+        item.addEventListener('click', () => {
+          if (window.innerWidth <= 768) {
+            sidebar.classList.remove('active');
+          }
+        });
+      });
+
+      // Close sidebar when clicking outside on mobile
+      document.addEventListener('click', (e) => {
+        if (
+          window.innerWidth <= 768 &&
+          document.body.contains(mobileMenuToggle) &&
+          !sidebar.contains(e.target) &&
+          !mobileMenuToggle?.contains(e.target) &&
+          sidebar.classList.contains('active')
+        ) {
           sidebar.classList.remove('active');
         }
       });
-    });
-
-    // Close sidebar when clicking outside on mobile
-    document.addEventListener('click', (e) => {
-      if (
-        window.innerWidth <= 768 &&
-        document.body.contains(mobileMenuToggle) &&
-        !sidebar.contains(e.target) &&
-        !mobileMenuToggle?.contains(e.target) &&
-        sidebar.classList.contains('active')
-      ) {
-        sidebar.classList.remove('active');
-      }
-    });
+    }
   } catch (error) {
     // TODO(#560): Re-throw errors after logging to prevent silent failures
     console.error('Error setting up mobile menu:', error);
+    throw error;
   }
 }
 

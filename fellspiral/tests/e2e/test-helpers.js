@@ -2,13 +2,24 @@
  * Test Helper Constants and Utilities
  */
 
+// Playwright expect - imported once at module level for use in assertion helpers
+import { expect as playwrightExpect } from '@playwright/test';
+
+// Timing constants for UI interactions
+// Modal animation and form hydration delay
+const MODAL_ANIMATION_DELAY_MS = 100;
+// Combobox dropdown rendering delay after input event
+const DROPDOWN_RENDER_DELAY_MS = 50;
+// Subtype combobox update delay after type selection
+const SUBTYPE_UPDATE_DELAY_MS = 100;
+
 // Standard viewport sizes for responsive testing
-export const VIEWPORTS = {
-  mobile: { width: 375, height: 667 },
-  tablet: { width: 768, height: 1024 },
-  desktop: { width: 1280, height: 720 },
-  desktopLarge: { width: 1920, height: 1080 },
-};
+export const VIEWPORTS = Object.freeze({
+  mobile: Object.freeze({ width: 375, height: 667 }),
+  tablet: Object.freeze({ width: 768, height: 1024 }),
+  desktop: Object.freeze({ width: 1280, height: 720 }),
+  desktopLarge: Object.freeze({ width: 1920, height: 1080 }),
+});
 
 /**
  * Setup mobile viewport
@@ -38,12 +49,17 @@ export async function setupDesktopViewport(page) {
  * Generate unique test card data with timestamp-based title.
  * Uniqueness is guaranteed only within the same millisecond - use suffix parameter
  * when creating multiple cards rapidly to ensure uniqueness.
+ *
+ * **Note**: The returned object is frozen (immutable) to prevent accidental
+ * modifications that could affect other tests. Create a new object if you need
+ * to modify the data: `{ ...generateTestCardData(), title: 'Custom' }`
+ *
  * @param {string} suffix - Optional suffix to add to title for uniqueness
  * @returns {{
  *   title: string, type: string, subtype: string,
  *   tags: string, description: string,
  *   stat1: string, stat2: string, cost: string
- * }} Card data object
+ * }} Frozen card data object
  */
 export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
@@ -81,13 +97,26 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
       }));
       throw new Error(
         `Firebase not initialized after ${timeout}ms: ${JSON.stringify(initState)}. ` +
-          `Check that authEmulator fixture is properly configured and Firebase scripts loaded.`
+          `Check that authEmulator fixture is properly configured and Firebase scripts loaded.`,
+        { cause: error }
       );
     });
 }
 
 /**
  * Capture console messages by type during a test operation
+ *
+ * **Message Accumulation**: Messages are stored in the returned `messages` array.
+ * The array is shared and will continue to accumulate messages while the listener
+ * is active. Clear or create a new capture controller if you need a fresh state.
+ *
+ * **Listener Cleanup**: Always call `stopCapture()` when done to prevent memory
+ * leaks. The listener persists until explicitly removed.
+ *
+ * **Concurrent Usage**: Not thread-safe. Each capture controller maintains its own
+ * message array, but listeners are independent. Be cautious when using multiple
+ * controllers on the same page simultaneously.
+ *
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} messageType - Type of console messages to capture ('error', 'warning', 'log', etc.)
  * @returns {{messages: string[], startCapture: () => void, stopCapture: () => void}} Capture controller
@@ -112,37 +141,32 @@ export function captureConsoleMessages(page, messageType = 'error') {
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {(msg: string) => boolean} predicate - Function to test console messages
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
+ * @returns {Promise<boolean>} True if matching message found within timeout
  */
 export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
   const messages = [];
-  let foundMatch = false;
-  const listener = (msg) => {
-    messages.push(msg.text());
-    // Check if this message matches - allows early return
-    if (predicate(msg.text())) {
-      foundMatch = true;
-    }
-  };
-  page.on('console', listener);
 
-  try {
-    // Poll for matching message with 50ms intervals for early return
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
-      if (foundMatch) {
+  const result = await Promise.race([
+    new Promise((resolve) => {
+      const listener = (msg) => {
+        messages.push(msg.text());
+        if (predicate(msg.text())) {
+          page.off('console', listener);
+          resolve(true);
+        }
+      };
+      page.on('console', listener);
+
+      // Clean up listener after timeout
+      setTimeout(() => {
         page.off('console', listener);
-        return true;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+      }, timeout);
+    }),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeout)),
+  ]);
 
-    page.off('console', listener);
-    // Final check after timeout
-    return messages.some(predicate);
-  } catch (error) {
-    page.off('console', listener);
-    throw new Error(`waitForConsoleMessage failed after ${timeout}ms`, { cause: error });
-  }
+  // If timeout occurred, check collected messages as final fallback
+  return result || messages.some(predicate);
 }
 
 /**
@@ -152,10 +176,10 @@ export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
  * @param {number} timeout - Timeout in milliseconds (default: 1000)
  */
 export async function waitForExpandedState(element, shouldBeExpanded, timeout = 1000) {
-  const { expect } = await import('@playwright/test');
-  await expect(element).toHaveClass(shouldBeExpanded ? /expanded/ : /^(?!.*expanded).*$/, {
-    timeout,
-  });
+  await playwrightExpect(element).toHaveClass(
+    shouldBeExpanded ? /expanded/ : /^(?!.*expanded).*$/,
+    { timeout }
+  );
 }
 
 /**
@@ -164,12 +188,10 @@ export async function waitForExpandedState(element, shouldBeExpanded, timeout = 
  * @param {number} minCount - Minimum expected count
  * @param {number} timeout - Timeout in milliseconds (default: 5000)
  */
-// TODO(#564): Add type validation for page parameter
 export async function waitForCardCount(page, minCount, timeout = 5000) {
-  const { expect } = await import('@playwright/test');
-  await expect(async () => {
+  await playwrightExpect(async () => {
     const count = await page.locator('.card-item').count();
-    expect(count).toBeGreaterThanOrEqual(minCount);
+    playwrightExpect(count).toBeGreaterThanOrEqual(minCount);
   }).toPass({ timeout });
 }
 
@@ -194,10 +216,11 @@ export async function waitForFirestorePropagation(cardTitle, maxRetries = 10, in
  * @param {RegExp} pattern - Pattern to match against URL
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
  */
-// TODO(#565): Add recovery steps to error message
+// TODO(#565): Add custom error message with actual vs expected URL when timeout occurs.
+// Consider adding recovery suggestions like checking navigation timing or verifying
+// hash change event handlers are properly registered.
 export async function waitForUrlHash(page, pattern, timeout = 2000) {
-  const { expect } = await import('@playwright/test');
-  await expect(page).toHaveURL(pattern, { timeout });
+  await playwrightExpect(page).toHaveURL(pattern, { timeout });
 }
 
 /**
@@ -213,7 +236,7 @@ async function selectComboboxOption(page, listboxId, targetValue) {
     throw new Error('selectComboboxOption: listboxId and targetValue are required');
   }
 
-  return await page.evaluate(
+  return page.evaluate(
     ({ listboxId, targetValue }) => {
       const listbox = document.getElementById(listboxId);
       if (!listbox) return false;
@@ -238,6 +261,34 @@ async function selectComboboxOption(page, listboxId, targetValue) {
 }
 
 /**
+ * Fill a combobox field by typing value and selecting from dropdown
+ * Consolidates the common pattern: fill input, dispatch event, wait for dropdown, select option
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} inputId - ID of the combobox input element
+ * @param {string} listboxId - ID of the listbox dropdown element
+ * @param {string} value - Value to fill and select
+ * @param {number} dropdownDelay - Delay in ms for dropdown to render (default: 50)
+ */
+async function fillComboboxField(page, inputId, listboxId, value, dropdownDelay = 50) {
+  // Fill the input field
+  await page.locator(`#${inputId}`).fill(value);
+
+  // Dispatch input event to trigger filtering
+  await page.locator(`#${inputId}`).dispatchEvent('input');
+
+  // Wait for dropdown to render after input event
+  await page.waitForTimeout(dropdownDelay);
+
+  // Try to select matching option using JavaScript evaluation (Firefox-safe)
+  const selected = await selectComboboxOption(page, listboxId, value);
+
+  if (!selected) {
+    // No matching option found - close dropdown and accept custom value
+    await page.locator(`#${inputId}`).press('Escape');
+  }
+}
+
+/**
  * Create a card through the UI
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {Object} cardData - Card data to fill in the form
@@ -251,49 +302,30 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for form elements to be fully ready (not just attached, but visible and enabled)
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
-  // KEEP: 100ms delay for form element hydration after modal animation completes
-  // This ensures combobox dropdowns are properly initialized before interaction
-  // TODO(#567): Expand comment to explain auth ready state and backoff strategy
-  await page.waitForTimeout(100);
+  // KEEP: Modal animation and form element hydration delay
+  // This ensures combobox dropdowns are properly initialized and interactive before
+  // we attempt to fill form fields. Without this delay, combobox options may not be
+  // ready and interactions will fail.
+  await page.waitForTimeout(MODAL_ANIMATION_DELAY_MS);
 
   // Fill form fields
   await page.locator('#cardTitle').fill(cardData.title);
 
   // Set type using combobox (fill input and select from dropdown or accept custom value)
-  await page.locator('#cardType').fill(cardData.type);
-  // Dispatch input event to trigger filtering
-  await page.locator('#cardType').dispatchEvent('input');
-  // KEEP: 50ms delay for dropdown rendering after input event triggers filtering
-  // This allows the combobox's event handler to populate options before selection
-  await page.waitForTimeout(50);
+  await fillComboboxField(page, 'cardType', 'typeListbox', cardData.type, DROPDOWN_RENDER_DELAY_MS);
 
-  // Try to select matching option using JavaScript evaluation (Firefox-safe)
-  const typeSelected = await selectComboboxOption(page, 'typeListbox', cardData.type);
-
-  if (!typeSelected) {
-    // No matching option found - close dropdown and accept custom value
-    await page.locator('#cardType').press('Escape');
-  }
-
-  // KEEP: 100ms delay for subtype combobox to update after type selection
+  // KEEP: Subtype combobox update delay after type selection
   // The subtype options are dynamically filtered based on type, requires DOM update
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(SUBTYPE_UPDATE_DELAY_MS);
 
   // Set subtype using combobox (fill input and select from dropdown or accept custom value)
-  await page.locator('#cardSubtype').fill(cardData.subtype);
-  // Dispatch input event to trigger filtering
-  await page.locator('#cardSubtype').dispatchEvent('input');
-  // KEEP: 50ms delay for dropdown rendering after input event triggers filtering
-  // This allows the combobox's event handler to populate options before selection
-  await page.waitForTimeout(50);
-
-  // Try to select matching option using JavaScript evaluation (Firefox-safe)
-  const subtypeSelected = await selectComboboxOption(page, 'subtypeListbox', cardData.subtype);
-
-  if (!subtypeSelected) {
-    // No matching option found - close dropdown and accept custom value
-    await page.locator('#cardSubtype').press('Escape');
-  }
+  await fillComboboxField(
+    page,
+    'cardSubtype',
+    'subtypeListbox',
+    cardData.subtype,
+    DROPDOWN_RENDER_DELAY_MS
+  );
 
   // Fill optional fields
   const optionalFields = [
@@ -312,7 +344,7 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
   // window.__testAuth is set by authEmulator fixture and used by firebase.js's getAuthInstance()
-  // IMPORTANT: Use != null (not !==) to check for both null AND undefined
+  // Check for both null and undefined using != null
   await page
     .waitForFunction(
       () => {
@@ -330,7 +362,8 @@ export async function createCardViaUI(page, cardData) {
       }));
       throw new Error(
         `Auth not ready after 5s: ${JSON.stringify(authState)}. ` +
-          `Ensure authEmulator.signInTestUser() was called before createCardViaUI().`
+          `Ensure authEmulator.signInTestUser() was called before createCardViaUI().`,
+        { cause: error }
       );
     });
 
@@ -360,8 +393,8 @@ export async function createCardViaUI(page, cardData) {
       throw new Error(
         `Card "${cardData.title}" did not appear in UI after 5s. ` +
           `Current card count: ${cardCount}. ` +
-          `This indicates the card creation may have failed or Firestore write propagation is delayed. ` +
-          `Original error: ${error.message}`
+          `This indicates the card creation may have failed or Firestore write propagation is delayed.`,
+        { cause: error }
       );
     });
 }
@@ -369,14 +402,19 @@ export async function createCardViaUI(page, cardData) {
 // Shared Firebase Admin instance for Firestore operations
 let _adminApp = null;
 let _firestoreDb = null;
+let _firestoreSettingsConfigured = false;
 
 /**
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
+ *
+ * **IMPORTANT**: This function uses module-level state and is NOT thread-safe.
+ * Concurrent calls may race during initialization. Designed for single-threaded
+ * test execution. If you need concurrent test isolation, consider implementing
+ * an initialization lock or separate instances per test.
+ *
  * @returns {Promise<{app: any, db: any}>} Firebase Admin app and Firestore database instances
  */
-// TODO(#486): Use separate module variable to track settings configuration
-// instead of mutating _firestoreDb._settingsConfigured property
 export async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     return { app: _adminApp, db: _firestoreDb };
@@ -408,9 +446,17 @@ export async function getFirestoreAdmin() {
       _firestoreDb = admin.firestore(_adminApp);
 
       // Only configure settings if not already configured
-      if (!_firestoreDb._settingsConfigured) {
+      if (!_firestoreSettingsConfigured) {
         const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
         const [host, port] = firestoreHost.split(':');
+
+        // Validate host/port format before passing to Firestore
+        if (!host || !port || isNaN(parseInt(port, 10))) {
+          throw new Error(
+            `Invalid FIRESTORE_EMULATOR_HOST format: "${firestoreHost}". ` +
+              `Expected format: "host:port" (e.g., "127.0.0.1:11980")`
+          );
+        }
 
         _firestoreDb.settings({
           host: `${host}:${port}`,
@@ -418,7 +464,7 @@ export async function getFirestoreAdmin() {
         });
 
         // Mark as configured to prevent duplicate calls
-        _firestoreDb._settingsConfigured = true;
+        _firestoreSettingsConfigured = true;
       }
     } catch (error) {
       throw new Error(
@@ -429,8 +475,9 @@ export async function getFirestoreAdmin() {
 
     return { app: _adminApp, db: _firestoreDb };
   } catch (error) {
-    if (error.message.includes('Failed to')) {
-      throw error; // Re-throw our detailed errors
+    // Re-throw errors that already have detailed messages (check if error is instance of Error with our message pattern)
+    if (error instanceof Error && error.message.startsWith('Failed to')) {
+      throw error;
     }
     throw new Error(
       `Failed to load firebase-admin module: ${error.message}. ` +
@@ -448,7 +495,6 @@ export async function getFirestoreAdmin() {
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500)
  * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
  */
-// TODO(#491): Add tests for error paths (connection failures, retry logic correctness)
 export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDelayMs = 500) {
   // Input validation
   if (!cardTitle || typeof cardTitle !== 'string') {
@@ -512,8 +558,9 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
 
     return null;
   } catch (error) {
-    if (error.message.includes('Firestore')) {
-      throw error; // Re-throw our detailed errors
+    // Re-throw errors that already have detailed Firestore error messages
+    if (error instanceof Error && error.message.includes('Firestore')) {
+      throw error;
     }
     throw new Error(`getCardFromFirestore failed: ${error.message}`, { cause: error });
   }
@@ -522,14 +569,20 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
 /**
  * Delete test cards from Firestore emulator by title pattern
  * @param {RegExp|string} titlePattern - Pattern to match card titles (regex or string prefix)
- * @returns {Promise<number>} Number of cards deleted
+ * @returns {Promise<{deleted: number, failed: number}>} Object with count of successfully deleted and failed cards
  */
-// TODO(#491): Add tests for batch limit handling (500+ cards), partial failures
 export async function deleteTestCards(titlePattern) {
   // Input validation - reject falsy values and empty strings
   if (!titlePattern || (typeof titlePattern === 'string' && titlePattern.length === 0)) {
     throw new Error(
       'deleteTestCards: titlePattern must be a non-empty string or RegExp (empty pattern would delete all cards)'
+    );
+  }
+
+  // Validate that titlePattern is either a string or RegExp instance
+  if (typeof titlePattern !== 'string' && !(titlePattern instanceof RegExp)) {
+    throw new Error(
+      `deleteTestCards: titlePattern must be a string or RegExp, got ${typeof titlePattern}`
     );
   }
 
@@ -576,6 +629,7 @@ export async function deleteTestCards(titlePattern) {
           batch.delete(docRef);
         }
         await batch.commit();
+        return { deleted: docsToDelete.length, failed: 0 };
       } catch (error) {
         throw new Error(
           `Failed to batch delete ${docsToDelete.length} cards: ${error.message}. ` +
@@ -584,10 +638,14 @@ export async function deleteTestCards(titlePattern) {
       }
     }
 
-    return docsToDelete.length;
+    return { deleted: 0, failed: 0 };
   } catch (error) {
-    if (error.message.includes('Firestore') || error.message.includes('Failed to batch delete')) {
-      throw error; // Re-throw our detailed errors
+    // Re-throw errors that already have detailed Firestore error messages
+    if (
+      error instanceof Error &&
+      (error.message.includes('Firestore') || error.message.includes('Failed to batch delete'))
+    ) {
+      throw error;
     }
     throw new Error(`deleteTestCards failed: ${error.message}`, { cause: error });
   }
