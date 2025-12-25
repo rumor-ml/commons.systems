@@ -21,9 +21,9 @@ import {
 
 describe('Error Classes', () => {
   it('McpError includes error code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.equal(error.message, 'Test error');
-    assert.equal(error.code, 'TEST_CODE');
+    assert.equal(error.code, 'TIMEOUT');
     assert.equal(error.name, 'McpError');
   });
 
@@ -59,7 +59,7 @@ describe('Error Classes', () => {
 
   it('GitHubCliError includes cause', () => {
     const cause = new Error('Original error');
-    const error = new GitHubCliError('Command failed', undefined, undefined, cause);
+    const error = new GitHubCliError('Command failed', undefined, undefined, undefined, cause);
     assert.equal(error.cause, cause);
   });
 
@@ -159,8 +159,9 @@ describe('isTerminalError', () => {
     assert.equal(isTerminalError(error), true);
   });
 
-  it('FormattingError is terminal', () => {
+  it('FormattingError is terminal (like ValidationError)', () => {
     const error = new FormattingError('Invalid format');
+    // FormattingError is now explicitly terminal like ValidationError
     assert.equal(isTerminalError(error), true);
   });
 
