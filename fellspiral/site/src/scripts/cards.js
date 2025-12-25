@@ -270,14 +270,21 @@ function setupEventListeners() {
     const importCardsBtn = document.getElementById('importCardsBtn');
     const exportCardsBtn = document.getElementById('exportCardsBtn');
 
+    // Set up toolbar button listeners (graceful degradation if missing)
     if (!addCardBtn || !importCardsBtn || !exportCardsBtn) {
-      console.error('Missing toolbar buttons');
-      return;
+      // Log specific missing buttons for debugging
+      const missingButtons = [];
+      if (!addCardBtn) missingButtons.push('addCardBtn');
+      if (!importCardsBtn) missingButtons.push('importCardsBtn');
+      if (!exportCardsBtn) missingButtons.push('exportCardsBtn');
+      console.error(`Missing toolbar buttons: ${missingButtons.join(', ')}`);
+      // Don't return - continue setting up other event listeners
+    } else {
+      // All toolbar buttons present, set up listeners
+      addCardBtn.addEventListener('click', () => openCardEditor());
+      importCardsBtn.addEventListener('click', importCards);
+      exportCardsBtn.addEventListener('click', exportCards);
     }
-
-    addCardBtn.addEventListener('click', () => openCardEditor());
-    importCardsBtn.addEventListener('click', importCards);
-    exportCardsBtn.addEventListener('click', exportCards);
 
     // View mode
     document.querySelectorAll('.view-mode-btn').forEach((btn) => {
@@ -287,7 +294,11 @@ function setupEventListeners() {
     // Filters
     const searchCards = document.getElementById('searchCards');
 
-    if (searchCards) searchCards.addEventListener('input', handleFilterChange);
+    if (searchCards) {
+      searchCards.addEventListener('input', handleFilterChange);
+    } else {
+      console.warn('Search input not found, search functionality will be unavailable');
+    }
 
     // Modal
     const closeModalBtn = document.getElementById('closeModalBtn');
@@ -297,12 +308,39 @@ function setupEventListeners() {
     const cardType = document.getElementById('cardType');
     const modalBackdrop = document.querySelector('.modal-backdrop');
 
-    if (closeModalBtn) closeModalBtn.addEventListener('click', closeCardEditor);
-    if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeCardEditor);
-    if (deleteCardBtn) deleteCardBtn.addEventListener('click', deleteCard);
-    if (cardForm) cardForm.addEventListener('submit', handleCardSave);
-    if (cardType) cardType.addEventListener('change', updateSubtypeOptions);
-    if (modalBackdrop) modalBackdrop.addEventListener('click', closeCardEditor);
+    if (closeModalBtn) {
+      closeModalBtn.addEventListener('click', closeCardEditor);
+    } else {
+      console.error('Close modal button not found');
+    }
+
+    if (cancelModalBtn) {
+      cancelModalBtn.addEventListener('click', closeCardEditor);
+    } else {
+      console.error('Cancel modal button not found');
+    }
+
+    if (deleteCardBtn) {
+      deleteCardBtn.addEventListener('click', deleteCard);
+    } else {
+      console.error('Delete card button not found');
+    }
+
+    if (cardForm) {
+      cardForm.addEventListener('submit', handleCardSave);
+    } else {
+      console.error('Card form not found');
+    }
+
+    if (cardType) {
+      cardType.addEventListener('change', updateSubtypeOptions);
+    } else {
+      console.error('Card type select not found');
+    }
+
+    if (modalBackdrop) {
+      modalBackdrop.addEventListener('click', closeCardEditor);
+    }
   } catch (error) {
     console.error('Error setting up event listeners:', error);
   }
@@ -316,18 +354,19 @@ function setupMobileMenu() {
 
     if (!mobileMenuToggle) {
       console.warn('Mobile menu toggle button not found');
-      return;
     }
 
     if (!sidebar) {
       console.warn('Sidebar element not found');
-      return;
     }
 
-    mobileMenuToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('active');
-    });
+    // Only set up listener if both elements exist
+    if (mobileMenuToggle && sidebar) {
+      mobileMenuToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sidebar.classList.toggle('active');
+      });
+    }
 
     // Nav section toggle handlers (for library section expand/collapse)
     const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
@@ -749,6 +788,14 @@ window.editCard = function (cardId) {
     openCardEditor(card);
   }
 };
+
+// Expose setupEventListeners and setupMobileMenu for testing
+if (typeof window !== 'undefined') {
+  window.__testHelpers = {
+    setupEventListeners,
+    setupMobileMenu,
+  };
+}
 
 // Import cards from rules.md
 async function importCards() {

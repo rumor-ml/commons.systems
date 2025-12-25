@@ -77,8 +77,89 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
         testAuthExists: window.__testAuth != null,
         firebaseAppExists: typeof window.firebase !== 'undefined',
       }));
-      throw new Error(`Firebase not initialized after ${timeout}ms: ${JSON.stringify(initState)}`);
+      throw new Error(
+        `Firebase not initialized after ${timeout}ms: ${JSON.stringify(initState)}. ` +
+          `Check that authEmulator fixture is properly configured and Firebase scripts loaded.`
+      );
     });
+}
+
+/**
+ * Wait for console messages matching a pattern
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {(msg: string) => boolean} predicate - Function to test console messages
+ * @param {number} timeout - Timeout in milliseconds (default: 2000)
+ */
+export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
+  const messages = [];
+  const listener = (msg) => messages.push(msg.text());
+  page.on('console', listener);
+
+  try {
+    await page
+      .waitForFunction(
+        () => true, // Just wait for timeout or manual resolution
+        { timeout }
+      )
+      .catch(() => {}); // Ignore timeout, check messages below
+
+    return messages.some(predicate);
+  } finally {
+    page.off('console', listener);
+  }
+}
+
+/**
+ * Wait for element to have expanded class
+ * @param {import('@playwright/test').Locator} element - Element to check
+ * @param {boolean} shouldBeExpanded - Expected state
+ * @param {number} timeout - Timeout in milliseconds (default: 1000)
+ */
+export async function waitForExpandedState(element, shouldBeExpanded, timeout = 1000) {
+  const { expect } = await import('@playwright/test');
+  await expect(element).toHaveClass(shouldBeExpanded ? /expanded/ : /^(?!.*expanded).*$/, {
+    timeout,
+  });
+}
+
+/**
+ * Wait for card count to stabilize
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {number} minCount - Minimum expected count
+ * @param {number} timeout - Timeout in milliseconds (default: 5000)
+ */
+export async function waitForCardCount(page, minCount, timeout = 5000) {
+  const { expect } = await import('@playwright/test');
+  await expect(async () => {
+    const count = await page.locator('.card-item').count();
+    expect(count).toBeGreaterThanOrEqual(minCount);
+  }).toPass({ timeout });
+}
+
+/**
+ * Wait for Firestore write propagation by polling for document existence
+ * @param {string} cardTitle - Title of card to wait for
+ * @param {number} maxRetries - Maximum poll attempts (default: 10)
+ * @param {number} intervalMs - Polling interval in ms (default: 200)
+ */
+export async function waitForFirestorePropagation(cardTitle, maxRetries = 10, intervalMs = 200) {
+  for (let i = 0; i < maxRetries; i++) {
+    const card = await getCardFromFirestore(cardTitle, 0, 100);
+    if (card) return card;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
+}
+
+/**
+ * Wait for URL hash to match pattern
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {RegExp} pattern - Pattern to match against URL
+ * @param {number} timeout - Timeout in milliseconds (default: 2000)
+ */
+export async function waitForUrlHash(page, pattern, timeout = 2000) {
+  const { expect } = await import('@playwright/test');
+  await expect(page).toHaveURL(pattern, { timeout });
 }
 
 /**
@@ -90,16 +171,22 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
  * @returns {Promise<boolean>} True if option was found and clicked, false otherwise
  */
 async function selectComboboxOption(page, listboxId, targetValue) {
-  const optionFound = await page.evaluate(
-    ({ listboxId, targetValue }) => {
-      const listbox = document.getElementById(listboxId);
-      if (!listbox) return false;
+  if (!listboxId || !targetValue) {
+    throw new Error('selectComboboxOption: listboxId and targetValue are required');
+  }
 
-      // Find option by matching dataset.value
-      const options = Array.from(listbox.querySelectorAll('.combobox-option'));
-      const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
+  try {
+    return await page.evaluate(
+      ({ listboxId, targetValue }) => {
+        const listbox = document.getElementById(listboxId);
+        if (!listbox) return false;
 
-      if (matchingOption) {
+        // Find option by matching dataset.value
+        const options = Array.from(listbox.querySelectorAll('.combobox-option'));
+        const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
+
+        if (!matchingOption) return false;
+
         // Dispatch mousedown event (combobox uses mousedown listeners)
         const event = new MouseEvent('mousedown', {
           bubbles: true,
@@ -108,14 +195,14 @@ async function selectComboboxOption(page, listboxId, targetValue) {
         });
         matchingOption.dispatchEvent(event);
         return true;
-      }
-
-      return false;
-    },
-    { listboxId, targetValue }
-  );
-
-  return optionFound;
+      },
+      { listboxId, targetValue }
+    );
+  } catch (error) {
+    throw new Error(
+      `selectComboboxOption failed for listbox "${listboxId}" with value "${targetValue}": ${error.message}`
+    );
+  }
 }
 
 /**
@@ -132,7 +219,7 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for form elements to be fully ready (not just attached, but visible and enabled)
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
-  await page.waitForTimeout(100); // Small delay to ensure form initialization completes
+  await page.waitForTimeout(100); // Micro-delay for form element hydration (acceptable exception)
 
   // Fill form fields
   await page.locator('#cardTitle').fill(cardData.title);
@@ -153,7 +240,7 @@ export async function createCardViaUI(page, cardData) {
   }
 
   // Wait for subtype combobox to be ready after type change
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(100); // Micro-delay for subtype combobox readiness (acceptable exception)
 
   // Set subtype using combobox (fill input and select from dropdown or accept custom value)
   await page.locator('#cardSubtype').fill(cardData.subtype);
@@ -170,24 +257,19 @@ export async function createCardViaUI(page, cardData) {
     await page.locator('#cardSubtype').press('Escape');
   }
 
-  if (cardData.tags) {
-    await page.locator('#cardTags').fill(cardData.tags);
-  }
+  // Fill optional fields
+  const optionalFields = [
+    ['#cardTags', cardData.tags],
+    ['#cardDescription', cardData.description],
+    ['#cardStat1', cardData.stat1],
+    ['#cardStat2', cardData.stat2],
+    ['#cardCost', cardData.cost],
+  ];
 
-  if (cardData.description) {
-    await page.locator('#cardDescription').fill(cardData.description);
-  }
-
-  if (cardData.stat1) {
-    await page.locator('#cardStat1').fill(cardData.stat1);
-  }
-
-  if (cardData.stat2) {
-    await page.locator('#cardStat2').fill(cardData.stat2);
-  }
-
-  if (cardData.cost) {
-    await page.locator('#cardCost').fill(cardData.cost);
+  for (const [selector, value] of optionalFields) {
+    if (value) {
+      await page.locator(selector).fill(value);
+    }
   }
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
@@ -208,7 +290,10 @@ export async function createCardViaUI(page, cardData) {
         currentUser: !!window.__testAuth?.currentUser,
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
-      throw new Error(`Auth not ready after 5s: ${JSON.stringify(authState)}`);
+      throw new Error(
+        `Auth not ready after 5s: ${JSON.stringify(authState)}. ` +
+          `Ensure authEmulator.signInTestUser() was called before createCardViaUI().`
+      );
     });
 
   // Submit form
@@ -248,42 +333,67 @@ let _firestoreDb = null;
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
  */
+// TODO(#486): Track configuration state in module variable instead of mutating _firestoreDb object
 async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     return { app: _adminApp, db: _firestoreDb };
   }
 
-  // Dynamic import to avoid loading firebase-admin in browser context
-  const adminModule = await import('firebase-admin');
-  const admin = adminModule.default;
+  try {
+    // Dynamic import to avoid loading firebase-admin in browser context
+    const adminModule = await import('firebase-admin');
+    const admin = adminModule.default;
 
-  // Get or initialize Firebase Admin
-  if (!admin.apps.length) {
-    _adminApp = admin.initializeApp({
-      projectId: 'demo-test',
-    });
-  } else {
-    _adminApp = admin.app();
+    // Get or initialize Firebase Admin
+    try {
+      if (!admin.apps.length) {
+        _adminApp = admin.initializeApp({
+          projectId: 'demo-test',
+        });
+      } else {
+        _adminApp = admin.app();
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to initialize Firebase Admin: ${error.message}. ` +
+          `Check that firebase-admin is installed and FIRESTORE_EMULATOR_HOST is set.`
+      );
+    }
+
+    // Connect to Firestore emulator (only call settings once)
+    try {
+      _firestoreDb = admin.firestore(_adminApp);
+
+      // Only configure settings if not already configured
+      if (!_firestoreDb._settingsConfigured) {
+        const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+        const [host, port] = firestoreHost.split(':');
+
+        _firestoreDb.settings({
+          host: `${host}:${port}`,
+          ssl: false,
+        });
+
+        // Mark as configured to prevent duplicate calls
+        _firestoreDb._settingsConfigured = true;
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to connect to Firestore emulator: ${error.message}. ` +
+          `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
+      );
+    }
+
+    return { app: _adminApp, db: _firestoreDb };
+  } catch (error) {
+    if (error.message.includes('Failed to')) {
+      throw error; // Re-throw our detailed errors
+    }
+    throw new Error(
+      `Failed to load firebase-admin module: ${error.message}. ` +
+        `Ensure firebase-admin is installed in your project.`
+    );
   }
-
-  // Connect to Firestore emulator (only call settings once)
-  _firestoreDb = admin.firestore(_adminApp);
-
-  // Only configure settings if not already configured
-  if (!_firestoreDb._settingsConfigured) {
-    const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
-    const [host, port] = firestoreHost.split(':');
-
-    _firestoreDb.settings({
-      host: `${host}:${port}`,
-      ssl: false,
-    });
-
-    // Mark as configured to prevent duplicate calls
-    _firestoreDb._settingsConfigured = true;
-  }
-
-  return { app: _adminApp, db: _firestoreDb };
 }
 
 /**
@@ -294,40 +404,75 @@ async function getFirestoreAdmin() {
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
  * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
  */
+// TODO(#491): Add tests for error paths (connection failures, retry logic correctness)
 export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDelayMs = 500) {
-  // Import collection name helper
-  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
-
-  // Get or initialize Firestore Admin (reuses same instance)
-  const { db } = await getFirestoreAdmin();
-
-  const collectionName = getCardsCollectionName();
-  const cardsCollection = db.collection(collectionName);
-
-  // Retry with exponential backoff
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
-
-    if (!snapshot.empty) {
-      // Found the card!
-      const doc = snapshot.docs[0];
-      return {
-        id: doc.id,
-        ...doc.data(),
-      };
-    }
-
-    // If this was the last attempt, return null
-    if (attempt === maxRetries) {
-      return null;
-    }
-
-    // Wait before retrying (exponential backoff)
-    const delayMs = initialDelayMs * Math.pow(2, attempt);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  // Input validation
+  if (!cardTitle || typeof cardTitle !== 'string') {
+    throw new Error('getCardFromFirestore: cardTitle must be a non-empty string');
+  }
+  if (maxRetries < 0) {
+    throw new Error('getCardFromFirestore: maxRetries must be >= 0');
+  }
+  if (initialDelayMs <= 0) {
+    throw new Error('getCardFromFirestore: initialDelayMs must be > 0');
   }
 
-  return null;
+  try {
+    // Import collection name helper
+    const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+
+    // Get or initialize Firestore Admin (reuses same instance)
+    const { db } = await getFirestoreAdmin();
+
+    const collectionName = getCardsCollectionName();
+    const cardsCollection = db.collection(collectionName);
+
+    // Retry with exponential backoff
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
+
+        if (!snapshot.empty) {
+          // Found the card!
+          const doc = snapshot.docs[0];
+          return {
+            id: doc.id,
+            ...doc.data(),
+          };
+        }
+      } catch (error) {
+        // Map Firestore error codes to actionable messages
+        if (error.code === 'unavailable') {
+          throw new Error(
+            `Firestore emulator unavailable: ${error.message}. ` +
+              `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
+          );
+        } else if (error.code === 'permission-denied') {
+          throw new Error(
+            `Firestore permission denied: ${error.message}. ` +
+              `Check Firestore security rules in emulator.`
+          );
+        }
+        throw error; // Re-throw unexpected errors
+      }
+
+      // If this was the last attempt, return null
+      if (attempt === maxRetries) {
+        return null;
+      }
+
+      // Wait before retrying (exponential backoff)
+      const delayMs = initialDelayMs * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    return null;
+  } catch (error) {
+    if (error.message.includes('Firestore')) {
+      throw error; // Re-throw our detailed errors
+    }
+    throw new Error(`getCardFromFirestore failed: ${error.message}`);
+  }
 }
 
 /**
@@ -335,41 +480,74 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
  * @param {RegExp|string} titlePattern - Pattern to match card titles (regex or string prefix)
  * @returns {Promise<number>} Number of cards deleted
  */
+// TODO(#491): Add tests for batch limit handling (500+ cards), partial failures
 export async function deleteTestCards(titlePattern) {
-  // Import collection name helper
-  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
-
-  // Get or initialize Firestore Admin (reuses same instance)
-  const { db } = await getFirestoreAdmin();
-
-  // Query all cards
-  const collectionName = getCardsCollectionName();
-  const cardsCollection = db.collection(collectionName);
-  const snapshot = await cardsCollection.get();
-
-  // Filter cards by title pattern
-  const docsToDelete = [];
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    const title = data.title || '';
-
-    // Use ternary for cleaner pattern matching
-    const matches =
-      titlePattern instanceof RegExp ? titlePattern.test(title) : title.startsWith(titlePattern);
-
-    if (matches) {
-      docsToDelete.push(doc.ref);
-    }
-  });
-
-  // Batch delete matching cards
-  if (docsToDelete.length > 0) {
-    const batch = db.batch();
-    docsToDelete.forEach((docRef) => {
-      batch.delete(docRef);
-    });
-    await batch.commit();
+  // Input validation
+  if (!titlePattern) {
+    throw new Error('deleteTestCards: titlePattern must be provided (string or RegExp)');
+  }
+  if (typeof titlePattern === 'string' && titlePattern.length === 0) {
+    throw new Error(
+      'deleteTestCards: titlePattern string cannot be empty (would delete all cards)'
+    );
   }
 
-  return docsToDelete.length;
+  try {
+    // Import collection name helper
+    const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+
+    // Get or initialize Firestore Admin (reuses same instance)
+    const { db } = await getFirestoreAdmin();
+
+    // Query all cards
+    const collectionName = getCardsCollectionName();
+    const cardsCollection = db.collection(collectionName);
+
+    let snapshot;
+    try {
+      snapshot = await cardsCollection.get();
+    } catch (error) {
+      if (error.code === 'unavailable') {
+        throw new Error(
+          `Firestore emulator unavailable: ${error.message}. ` +
+            `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
+        );
+      }
+      throw error;
+    }
+
+    // Filter cards by title pattern
+    const docsToDelete = snapshot.docs
+      .filter((doc) => {
+        const title = doc.data().title || '';
+        if (titlePattern instanceof RegExp) {
+          return titlePattern.test(title);
+        }
+        return title.startsWith(titlePattern);
+      })
+      .map((doc) => doc.ref);
+
+    // Batch delete matching cards
+    if (docsToDelete.length > 0) {
+      try {
+        const batch = db.batch();
+        for (const docRef of docsToDelete) {
+          batch.delete(docRef);
+        }
+        await batch.commit();
+      } catch (error) {
+        throw new Error(
+          `Failed to batch delete ${docsToDelete.length} cards: ${error.message}. ` +
+            `Partial deletion may have occurred.`
+        );
+      }
+    }
+
+    return docsToDelete.length;
+  } catch (error) {
+    if (error.message.includes('Firestore') || error.message.includes('Failed to batch delete')) {
+      throw error; // Re-throw our detailed errors
+    }
+    throw new Error(`deleteTestCards failed: ${error.message}`);
+  }
 }

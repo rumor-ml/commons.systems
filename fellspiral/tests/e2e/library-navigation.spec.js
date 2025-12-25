@@ -7,7 +7,23 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deleteTestCards } from './test-helpers.js';
+import { deleteTestCards, waitForExpandedState } from './test-helpers.js';
+
+// Dynamic imports needed for Firestore verification
+async function getFirestoreAdmin() {
+  const { default: admin } = await import('firebase-admin');
+  if (!admin.apps.length) {
+    admin.initializeApp({ projectId: 'demo-test' });
+  }
+  const db = admin.firestore();
+  if (!db._settingsConfigured) {
+    const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+    const [host, port] = firestoreHost.split(':');
+    db.settings({ host: `${host}:${port}`, ssl: false });
+    db._settingsConfigured = true;
+  }
+  return db;
+}
 
 // Load cards.json to verify navigation matches actual data
 const __filename = fileURLToPath(import.meta.url);
@@ -67,7 +83,7 @@ test.describe('Library Navigation - Tree Structure', () => {
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
     );
     await equipmentToggle.click();
-    await page.waitForTimeout(300);
+    await waitForExpandedState(equipmentToggle, true);
 
     // Equipment should have Weapon and Armor subtypes
     const equipmentType = page.locator('.library-nav-type[data-type="Equipment"]');
@@ -114,7 +130,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await equipmentToggle.click();
 
     // Wait for animation
-    await page.waitForTimeout(300);
+    await waitForExpandedState(equipmentToggle, true);
 
     // Should be expanded
     await expect(equipmentToggle).toHaveClass(/expanded/);
@@ -139,7 +155,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     await equipmentToggle.click();
 
     // Wait for state to be saved
-    await page.waitForTimeout(300);
+    await waitForExpandedState(equipmentToggle, true);
 
     const storageState = await page.evaluate(() => {
       return localStorage.getItem('fellspiral-library-nav-state');
@@ -167,14 +183,14 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     );
     if (!initiallyExpanded) {
       await equipmentToggle.click();
-      await page.waitForTimeout(300);
+      await waitForExpandedState(equipmentToggle, true);
     }
 
     // Now collapse it
     await equipmentToggle.click();
 
     // Wait for state to save
-    await page.waitForTimeout(300);
+    await waitForExpandedState(equipmentToggle, false);
 
     // Reload page
     await page.reload();
@@ -255,9 +271,6 @@ test.describe('Library Navigation - Navigation Interaction', () => {
     );
     await equipmentToggle.click();
 
-    // Wait for filtering
-    await page.waitForTimeout(500);
-
     // Verify URL hash was updated to equipment
     await expect(page).toHaveURL(/#library-equipment$/);
 
@@ -283,8 +296,18 @@ const skipDataReflectionTests = process.env.CI;
       deletedCount += await deleteTestCards(/test/i);
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
-        // Give Firestore time to propagate deletion
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait for Firestore deletion to propagate by verifying cards are gone
+        const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+        const db = await getFirestoreAdmin();
+        const cardsCollection = db.collection(getCardsCollectionName());
+        await expect(async () => {
+          const snapshot = await cardsCollection.get();
+          const remainingTestCards = snapshot.docs.filter((doc) => {
+            const title = doc.data().title || '';
+            return /^Test Card/.test(title) || /test/i.test(title);
+          });
+          expect(remainingTestCards.length).toBe(0);
+        }).toPass({ timeout: 3000 });
       }
     });
 
@@ -295,7 +318,13 @@ const skipDataReflectionTests = process.env.CI;
       await page.waitForSelector('.library-nav-type', { timeout: 10000 });
 
       // Wait for library nav to finish loading cards and updating counts
-      await page.waitForTimeout(1000);
+      await expect(async () => {
+        const countElement = page.locator(
+          `.library-nav-type[data-type="Equipment"] > .library-nav-toggle .library-nav-count`
+        );
+        const countText = await countElement.textContent();
+        expect(parseInt(countText)).toBeGreaterThan(0);
+      }).toPass({ timeout: 2000 });
 
       // Calculate expected counts from cards.json
       const typeCounts = new Map();
@@ -333,7 +362,7 @@ const skipDataReflectionTests = process.env.CI;
         const isExpanded = await typeToggle.evaluate((el) => el.classList.contains('expanded'));
         if (!isExpanded) {
           await typeToggle.click();
-          await page.waitForTimeout(300);
+          await waitForExpandedState(typeToggle, true);
         }
 
         const countElement = page.locator(
@@ -359,7 +388,7 @@ const skipDataReflectionTests = process.env.CI;
         '.library-nav-type[data-type="Origin"] .library-nav-toggle'
       );
       await originToggle.click();
-      await page.waitForTimeout(300);
+      await waitForExpandedState(originToggle, true);
 
       // Find all Origin subtypes from the data
       const originSubtypes = new Set();
