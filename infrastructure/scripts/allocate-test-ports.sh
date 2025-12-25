@@ -45,9 +45,11 @@ export TEST_PORT="$APP_PORT"
 export PORT="$APP_PORT"  # For Go app
 
 # Export emulator connection strings
-export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
-export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
-export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
+# Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
+# (emulator binds to IPv4 only, but localhost may resolve to IPv6 ::1)
+export FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:${AUTH_PORT}"
+export FIRESTORE_EMULATOR_HOST="127.0.0.1:${FIRESTORE_PORT}"
+export STORAGE_EMULATOR_HOST="127.0.0.1:${STORAGE_PORT}"
 
 # Port availability check function
 # Returns 0 if port is available, 1 if in use
