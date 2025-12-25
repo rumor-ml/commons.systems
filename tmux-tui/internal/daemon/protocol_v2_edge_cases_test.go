@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -370,11 +371,9 @@ func TestMapImmutability(t *testing.T) {
 			t.Fatalf("Failed to create message: %v", err)
 		}
 
-		// Mutate original maps
 		originalAlerts["pane2"] = "alert2"
 		originalBlocked["branch3"] = "branch4"
 
-		// Verify message unchanged
 		alerts := msg.Alerts()
 		if len(alerts) != 1 || alerts["pane1"] != "alert1" {
 			t.Errorf("Message alerts mutated: %v", alerts)
@@ -395,15 +394,12 @@ func TestMapImmutability(t *testing.T) {
 			t.Fatalf("Failed to create message: %v", err)
 		}
 
-		// Get maps
 		alerts := msg.Alerts()
 		blocked := msg.BlockedBranches()
 
-		// Mutate returned maps
 		alerts["pane2"] = "alert2"
 		blocked["branch3"] = "branch4"
 
-		// Verify message unchanged by getting maps again
 		alerts2 := msg.Alerts()
 		blocked2 := msg.BlockedBranches()
 
@@ -422,6 +418,8 @@ func TestConcurrentMessageCreation(t *testing.T) {
 	const iterations = 100
 
 	var wg sync.WaitGroup
+	var messagesMu sync.Mutex
+	messages := make([]MessageV2, 0, goroutines*iterations)
 	errors := make(chan error, goroutines*iterations)
 
 	for g := 0; g < goroutines; g++ {
@@ -429,12 +427,16 @@ func TestConcurrentMessageCreation(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				// Create various message types concurrently
-				_, err := NewHelloMessage(uint64(id*iterations+i), "client")
+				clientID := fmt.Sprintf("client-%d-%d", id, i)
+				msg, err := NewHelloMessage(uint64(id*iterations+i), clientID)
 				if err != nil {
 					errors <- err
 					continue
 				}
+
+				messagesMu.Lock()
+				messages = append(messages, msg)
+				messagesMu.Unlock()
 
 				_, err = NewFullStateMessage(
 					uint64(id*iterations+i),
@@ -471,6 +473,20 @@ func TestConcurrentMessageCreation(t *testing.T) {
 			t.Fatal("Too many errors, stopping")
 		}
 	}
+
+	// Verify each message has correct unique data (detect race conditions in state)
+	seen := make(map[string]bool)
+	messagesMu.Lock()
+	defer messagesMu.Unlock()
+
+	for _, msg := range messages {
+		hello := msg.(*HelloMessageV2)
+		clientID := hello.ClientID()
+		if seen[clientID] {
+			t.Errorf("Duplicate clientID found: %s - indicates race condition", clientID)
+		}
+		seen[clientID] = true
+	}
 }
 
 // TestRoundTripFidelity verifies that complex messages survive wire format
@@ -482,20 +498,17 @@ func TestRoundTripFidelity(t *testing.T) {
 			t.Fatalf("Failed to create message: %v", err)
 		}
 
-		// Convert to wire and back
 		wire := original.ToWireFormat()
 		converted, err := FromWireFormat(wire)
 		if err != nil {
 			t.Fatalf("Failed to convert: %v", err)
 		}
 
-		// Verify type
 		bc, ok := converted.(*BlockChangeMessageV2)
 		if !ok {
 			t.Fatalf("Expected *BlockChangeMessageV2, got %T", converted)
 		}
 
-		// Verify all fields
 		if bc.SeqNumber() != 42 {
 			t.Errorf("SeqNum = %v, want 42", bc.SeqNumber())
 		}
@@ -526,20 +539,17 @@ func TestRoundTripFidelity(t *testing.T) {
 			t.Fatalf("Failed to create message: %v", err)
 		}
 
-		// Convert to wire and back
 		wire := original.ToWireFormat()
 		converted, err := FromWireFormat(wire)
 		if err != nil {
 			t.Fatalf("Failed to convert: %v", err)
 		}
 
-		// Verify type
 		fs, ok := converted.(*FullStateMessageV2)
 		if !ok {
 			t.Fatalf("Expected *FullStateMessageV2, got %T", converted)
 		}
 
-		// Verify all fields
 		if fs.SeqNumber() != 42 {
 			t.Errorf("SeqNum = %v, want 42", fs.SeqNumber())
 		}
@@ -566,8 +576,6 @@ func TestRoundTripFidelity(t *testing.T) {
 	})
 
 	t.Run("health_response_message", func(t *testing.T) {
-		// Create HealthStatus with: 2 broadcast failures, 1 watcher error, 5 clients, 10 alerts, 3 blocked branches
-		// (Other error fields left empty for this test)
 		status, err := NewHealthStatus(2, "", 1, "", 0, "", 0, "", 5, 10, 3)
 		if err != nil {
 			t.Fatalf("Failed to create health status: %v", err)
@@ -578,20 +586,17 @@ func TestRoundTripFidelity(t *testing.T) {
 			t.Fatalf("Failed to create message: %v", err)
 		}
 
-		// Convert to wire and back
 		wire := original.ToWireFormat()
 		converted, err := FromWireFormat(wire)
 		if err != nil {
 			t.Fatalf("Failed to convert: %v", err)
 		}
 
-		// Verify type
 		hr, ok := converted.(*HealthResponseMessageV2)
 		if !ok {
 			t.Fatalf("Expected *HealthResponseMessageV2, got %T", converted)
 		}
 
-		// Verify health status fields via getters
 		hs := hr.HealthStatus()
 		if hs.GetConnectedClients() != 5 {
 			t.Errorf("GetConnectedClients = %v, want 5", hs.GetConnectedClients())
@@ -609,6 +614,29 @@ func TestRoundTripFidelity(t *testing.T) {
 			t.Errorf("GetWatcherErrors = %v, want 1", hs.GetWatcherErrors())
 		}
 	})
+}
+
+// TestFromWireFormat_UnknownMessageType verifies error handling for unknown message types.
+func TestFromWireFormat_UnknownMessageType(t *testing.T) {
+	wire := Message{
+		Type:   "future_message_v3",
+		SeqNum: 42,
+	}
+
+	msg, err := FromWireFormat(wire)
+
+	if err == nil {
+		t.Error("Expected error for unknown message type, got nil")
+	}
+	if msg != nil {
+		t.Errorf("Expected nil message for unknown type, got %T", msg)
+	}
+	if !strings.Contains(err.Error(), "unknown message type") {
+		t.Errorf("Error should mention 'unknown message type', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "future_message_v3") {
+		t.Errorf("Error should include the unknown type name, got: %v", err)
+	}
 }
 
 // TestNilPointerHandling verifies that nil pointers are handled gracefully.

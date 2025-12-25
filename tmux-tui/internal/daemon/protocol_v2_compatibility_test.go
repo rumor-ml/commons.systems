@@ -138,28 +138,23 @@ func TestJSONSerializationPreservesAllFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create v2 message
 			msg, err := tt.creator()
 			if err != nil {
 				t.Fatalf("Failed to create message: %v", err)
 			}
 
-			// Convert to wire format
 			wire := msg.ToWireFormat()
 
-			// Marshal to JSON
 			data, err := json.Marshal(wire)
 			if err != nil {
 				t.Fatalf("Failed to marshal: %v", err)
 			}
 
-			// Unmarshal from JSON
 			var wireBack Message
 			if err := json.Unmarshal(data, &wireBack); err != nil {
 				t.Fatalf("Failed to unmarshal: %v", err)
 			}
 
-			// Verify basic fields preserved
 			if wireBack.Type != wire.Type {
 				t.Errorf("Type mismatch: got %v, want %v", wireBack.Type, wire.Type)
 			}
@@ -275,37 +270,31 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 				if msg.HealthStatus == nil {
 					t.Fatal("HealthStatus is nil")
 				}
-				// Note: HealthStatus uses private fields which aren't accessible via the v1 Message struct,
-				// but JSON unmarshaling should properly populate these fields. We verify the status exists
-				// rather than checking individual field values.
+				// HealthStatus validation relies on JSON unmarshaling of private fields,
+				// so we only verify non-nil rather than field-by-field comparison.
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create v2 message
 			v2msg, err := tt.creator()
 			if err != nil {
 				t.Fatalf("Failed to create v2 message: %v", err)
 			}
 
-			// Convert to wire format
 			wire := v2msg.ToWireFormat()
 
-			// Marshal to JSON (as server would send)
 			data, err := json.Marshal(wire)
 			if err != nil {
 				t.Fatalf("Failed to marshal: %v", err)
 			}
 
-			// Unmarshal as v1 client would (plain Message struct)
 			var v1msg Message
 			if err := json.Unmarshal(data, &v1msg); err != nil {
 				t.Fatalf("Failed to unmarshal: %v", err)
 			}
 
-			// Verify fields
 			tt.verifyFields(t, v1msg)
 		})
 	}
@@ -517,33 +506,27 @@ func TestV2ClientCanDeserializeV1Messages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create v1 message
 			v1msg := tt.createV1Msg()
 
-			// Marshal to JSON (as v1 client/server would send)
 			data, err := json.Marshal(v1msg)
 			if err != nil {
 				t.Fatalf("Failed to marshal v1 message: %v", err)
 			}
 
-			// Unmarshal to plain Message
 			var wire Message
 			if err := json.Unmarshal(data, &wire); err != nil {
 				t.Fatalf("Failed to unmarshal: %v", err)
 			}
 
-			// Convert to v2 message
 			v2msg, err := FromWireFormat(wire)
 			if err != nil {
 				t.Fatalf("Failed to convert to v2: %v", err)
 			}
 
-			// Verify message type
 			if v2msg.MessageType() != tt.expectedType {
 				t.Errorf("MessageType = %v, want %v", v2msg.MessageType(), tt.expectedType)
 			}
 
-			// Verify fields
 			tt.verifyV2Msg(t, v2msg)
 		})
 	}
@@ -575,27 +558,19 @@ func TestDeprecatedMessageTypesStillWork(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := tt.createMsg()
 
-			// Marshal to JSON
 			data, err := json.Marshal(msg)
 			if err != nil {
 				t.Fatalf("Failed to marshal: %v", err)
 			}
 
-			// Unmarshal from JSON
 			var msgBack Message
 			if err := json.Unmarshal(data, &msgBack); err != nil {
 				t.Fatalf("Failed to unmarshal: %v", err)
 			}
 
-			// Verify type preserved
 			if msgBack.Type != tt.msgType {
 				t.Errorf("Type = %v, want %v", msgBack.Type, tt.msgType)
 			}
-
-			// Note: Unknown types are not convertible to v2 (FromWireFormat will return error)
-			// but they should still be deserializable from JSON. This preserves backward compatibility
-			// by allowing old clients to receive messages even after the protocol evolves, though they
-			// cannot process them through the v2 type system.
 		})
 	}
 }

@@ -39,6 +39,12 @@ type MessageV2 interface {
 	ToWireFormat() Message
 }
 
+// Constructor Validation Pattern:
+// All message constructors follow a pattern of preserving the original input value
+// (e.g., originalClientID := clientID) before trimming whitespace. If validation
+// fails, the original value is logged via debug.Log() to aid troubleshooting of
+// caller bugs where unexpected whitespace is passed.
+
 // 1. HelloMessageV2 represents a client connection greeting
 type HelloMessageV2 struct {
 	seqNum   uint64
@@ -78,7 +84,8 @@ type FullStateMessageV2 struct {
 }
 
 // NewFullStateMessage creates a validated FullStateMessage.
-// Alerts and blockedBranches can be nil or empty (represents no active state).
+// Alerts and blockedBranches can be nil or empty maps (represents no active state).
+// Map keys and values are not currently validated (see TODO #519).
 // TODO(#519): Add validation for empty/whitespace-only keys in maps (should reject).
 // Consider whether empty values are semantically valid for alerts/blockedBranches.
 func NewFullStateMessage(seqNum uint64, alerts, blockedBranches map[string]string) (*FullStateMessageV2, error) {
@@ -137,7 +144,9 @@ type AlertChangeMessageV2 struct {
 
 // NewAlertChangeMessage creates a validated AlertChangeMessage.
 // Returns error if paneID or eventType is empty after trimming.
-// TODO(#522): Add event type constants and validation for recognized event types
+// TODO(#522): Add event type constants and validation for recognized event types.
+// Example: Define EventTypeAlert, EventTypeActivity, EventTypeSilence constants
+// and validate against them to catch typos like "ale rt" vs "alert".
 func NewAlertChangeMessage(seqNum uint64, paneID, eventType string, created bool) (*AlertChangeMessageV2, error) {
 	originalPaneID := paneID
 	originalEventType := eventType
@@ -677,8 +686,12 @@ func (m *ShowBlockPickerMessageV2) PaneID() string { return m.paneID }
 
 // FromWireFormat converts a v1 Message to a type-safe v2 message.
 // Returns error if the message is invalid or has missing required fields.
-// TODO(#521): Add validation for extraneous fields to catch message construction bugs
-// TODO(#523): Add exhaustiveness test to ensure all message types are handled
+// TODO(#521): Add validation for extraneous fields to catch message construction bugs.
+// Example: HelloMessage with unexpected 'Alerts' field should be rejected to detect
+// mismatched message type/content.
+// TODO(#523): Add exhaustiveness test to ensure all message types are handled.
+// Test should fail at compile-time or test-time when new message types are added
+// but not handled in FromWireFormat switch.
 func FromWireFormat(msg Message) (MessageV2, error) {
 	// Validate first
 	if err := ValidateMessage(msg); err != nil {
@@ -816,6 +829,10 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 		return v2msg, nil
 
 	default:
-		return nil, fmt.Errorf("unknown message type: %s", msg.Type)
+		// Log with high severity - indicates version skew or corruption
+		debug.Log("MESSAGE_TYPE_UNKNOWN type=%q seq=%d reason=not_in_switch_statement",
+			msg.Type, msg.SeqNum)
+		return nil, fmt.Errorf("unknown message type %q (seq=%d) - may indicate client/server version mismatch or message corruption",
+			msg.Type, msg.SeqNum)
 	}
 }

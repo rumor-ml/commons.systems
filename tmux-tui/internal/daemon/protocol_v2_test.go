@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -471,7 +472,6 @@ func TestBlockedStateResponseMessage(t *testing.T) {
 				return
 			}
 
-			// Test round-trip
 			wire := msg.ToWireFormat()
 			msg2, err := FromWireFormat(wire)
 			if err != nil {
@@ -482,6 +482,29 @@ func TestBlockedStateResponseMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBlockedStateResponseMessage_ConditionalValidation tests conditional validation rules.
+func TestBlockedStateResponseMessage_ConditionalValidation(t *testing.T) {
+	t.Run("blocked_true_requires_blockedBranch", func(t *testing.T) {
+		_, err := NewBlockedStateResponseMessage(42, "branch1", true, "")
+		if err == nil {
+			t.Error("Expected error when blocked=true but blockedBranch empty")
+		}
+		if !strings.Contains(err.Error(), "blocked_branch required") {
+			t.Errorf("Error should mention blocked_branch requirement, got: %v", err)
+		}
+	})
+
+	t.Run("blocked_false_clears_blockedBranch", func(t *testing.T) {
+		msg, err := NewBlockedStateResponseMessage(42, "branch1", false, "unexpected")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if msg.BlockedBranch() != "" {
+			t.Errorf("BlockedBranch should be cleared when blocked=false, got %q", msg.BlockedBranch())
+		}
+	})
 }
 
 // TestPingPongMessages tests simple message types
