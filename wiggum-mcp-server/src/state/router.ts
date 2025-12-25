@@ -175,12 +175,14 @@ export async function safePostStateComment(
     // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
     // TODO(#320): Surface state comment failures to users instead of silent warning
     // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
+    // TODO(#468): Broad catch-all hides programming errors - add early type validation
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
     const stateJson = JSON.stringify(state);
 
     // Classify error type based on error message patterns
+    // TODO(#478): Document expected GitHub API error patterns and add test coverage
     const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
     const isAuth =
       /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -299,6 +301,7 @@ export async function safePostIssueStateComment(
     const stateJson = JSON.stringify(state);
 
     // Classify error type based on error message patterns
+    // TODO(#478): Document expected GitHub API error patterns and add test coverage
     const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
     const isAuth =
       /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -1213,6 +1216,8 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   stepsCompletedSoFar: string[]
 ): Promise<ToolResult> {
   // Fetch code quality bot comments
+  // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
+  // Current: errors propagate as GitHubCliError without wiggum-specific context
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
   const output: WiggumInstructions = {
@@ -1313,10 +1318,25 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 2. If valid issues identified:
    a. Use Task tool with subagent_type="accept-edits" and model="sonnet" to implement fixes
    b. Execute /commit-merge-push slash command using SlashCommand tool
-   c. Call wiggum_complete_fix with fix_description
-3. If all comments are invalid/should be ignored:
-   - Mark step complete and proceed to next step
-   - Call wiggum_complete_fix with fix_description: "All code quality comments evaluated and ignored"`;
+   c. Call wiggum_complete_fix with:
+      - fix_description: "Fixed N code quality issues: <brief summary>"
+      - has_in_scope_fixes: true
+
+3. If NO valid issues (all comments are stale/invalid):
+   a. To identify stale comments, verify the code was already fixed:
+      1. Check commit history: \`git log main..HEAD -- <file>\`
+      2. Read the file and locate the code near the comment's line number
+         IMPORTANT: Line numbers may have shifted due to earlier edits.
+         Read ±5 lines around the referenced line to find the relevant code section.
+      3. Examine the CODE and the COMMENT message (not just the line number).
+         Compare: If the issue mentioned in the comment is already fixed → comment is stale
+         Example: Comment says "missing null check" but current code has null check → stale
+      4. If all comments are stale, no code changes needed → use has_in_scope_fixes: false
+   b. Call wiggum_complete_fix with:
+      - fix_description: "All code quality comments evaluated - N stale (already fixed), M invalid (incorrect suggestions)"
+      - has_in_scope_fixes: false
+
+   CRITICAL: Using has_in_scope_fixes: false marks this step complete and proceeds to next step WITHOUT re-verification.`;
   }
 
   return {
