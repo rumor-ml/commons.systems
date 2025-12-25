@@ -67,7 +67,8 @@ FAIL	github.com/example/pkg	0.012s
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].testName, 'TestFoo');
       // TODO(#510): fileName/lineNumber extraction from Go JSON output requires
-      // parsing structured Output field. Current implementation prioritizes reliability.
+      // parsing structured Output field (regex matching "foo_test.go:42:" in Output strings).
+      // Current implementation prioritizes reliability over completeness.
       // When implemented, uncomment these assertions:
       // assert.strictEqual(result.errors[0].fileName, "foo_test.go");
       // assert.strictEqual(result.errors[0].lineNumber, 42);
@@ -334,7 +335,8 @@ describe('PlaywrightExtractor - JSON', () => {
       };
 
       try {
-        // detect() should return null instead of throwing - detection should never break the pipeline
+        // detect() should return null instead of throwing
+        // Consequence: Pipeline continues with next detector instead of crashing entire extraction
         const result = extractor.detect(maliciousJSON);
         assert.strictEqual(result, null);
       } finally {
@@ -388,7 +390,8 @@ describe('PlaywrightExtractor - JSON', () => {
       assert.strictEqual(result.errors[0].testName, '[chromium] should fail');
       assert.strictEqual(result.errors[0].fileName, 'example.spec.ts');
       assert.strictEqual(result.errors[0].lineNumber, 5);
-      // columnNumber 0 is filtered out by validation (schema requires positive integers)
+      // columnNumber 0 filtered out by validation (schema requires positive integers)
+      // Business context: Playwright suite.column=0 means "unknown/not specified", not a valid column position
       assert.strictEqual(result.errors[0].columnNumber, undefined);
       assert.strictEqual(result.errors[0].message, 'expect(received).toBe(expected)');
       assert.ok(result.errors[0].stack);
@@ -427,7 +430,6 @@ describe('PlaywrightExtractor - JSON', () => {
 
     test('parsePlaywrightJson validation warnings mechanism exists', () => {
       // This test verifies that the parseWarnings field exists in the result
-      // Actual validation warnings are tested in the Validation Infrastructure tests
       const jsonOutput = JSON.stringify({
         suites: [
           {
@@ -660,7 +662,7 @@ describe('PlaywrightExtractor - JSON', () => {
       const result = extractor.extract(jsonOutput);
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.errors[0].message, 'Test failed');
-      assert.ok(result.errors[0].rawOutput.includes('Test failed'));
+      assert.ok(result.errors[0].rawOutput.some((line) => line.includes('Test failed')));
     });
 
     test('handles multiple suites with mixed pass/fail', () => {

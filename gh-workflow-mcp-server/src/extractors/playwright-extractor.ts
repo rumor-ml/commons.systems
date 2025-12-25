@@ -44,7 +44,8 @@ const PlaywrightSpecSchema = z.object({
 });
 
 // Define types first, then schemas with z.lazy() to handle circular references
-// Pattern: interface → schema → z.lazy() allows self-referential PlaywrightSuite.suites
+// WHY: Zod cannot infer types from schemas with circular references (PlaywrightSuite.suites)
+// Pattern: interface → schema → z.lazy() enables self-referential structure validation
 interface PlaywrightSuite {
   title: string;
   file: string;
@@ -74,7 +75,7 @@ interface PlaywrightTestResult {
     message: string;
     stack?: string;
     snippet?: string;
-  } | null; // Playwright sends null when test fails before error object creation (e.g., timeout); undefined when test passes
+  } | null; // null = test failed before error object creation (timeout, crash); undefined = test passed (no error)
 }
 
 interface PlaywrightJsonReport {
@@ -144,7 +145,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
         // detect() only handles expected errors - returns null for non-Playwright:
         // - SyntaxError: malformed JSON
         // - PlaywrightJsonNotFoundError: missing required fields
-        // All other errors propagate (OOM, V8 bugs, etc.)
+        // All other errors caught here but detect() returns null for resilience (never breaks pipeline)
         if (err instanceof SyntaxError || err instanceof PlaywrightJsonNotFoundError) {
           return null; // Not Playwright - try other detectors
         }
@@ -155,7 +156,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             (stack ? `\nStack: ${stack}` : '') +
             `. This is a bug in the Playwright extractor detection logic.`
         );
-        // Return null instead of throwing - detection should never break the pipeline
+        // Return null for resilience - detection failures shouldn't break the pipeline
         return null;
       }
     }
@@ -297,7 +298,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             timeGap = timeResult.seconds;
 
             // Store diagnostic for inclusion in error message
-            // Diagnostic present when: timestamps exist but parsing failed (invalid format, midnight rollover, etc.)
+            // Diagnostic may be present when timestamps exist but parsing failed
+            // (e.g., invalid HH:MM:SS format, NaN values, midnight rollover detected)
             if (timeResult.seconds === null && timeResult.diagnostic) {
               timeDiagnostic = timeResult.diagnostic;
               console.error(
@@ -371,6 +373,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   /**
    * Parse a single HH:MM:SS timestamp string into seconds
    *
+   * Surfaces parsing diagnostics via console.error for observability.
+   * Caller (parseTimeDiff) aggregates individual failures into combined diagnostic.
+   *
    * @param timestamp - Timestamp string in HH:MM:SS format
    * @param label - Descriptive label for error messages (e.g., "time1", "time2")
    * @returns Seconds since midnight, or null if parsing fails
@@ -423,13 +428,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    *
    * FAILURE HANDLING:
    * - Returns structured result with optional diagnostic on failure
-   * - Logs warnings for invalid formats or NaN values
-   * - Caller conditionally includes diagnostic in error messages when available
+   * - Aggregates parseTimestamp() diagnostics (logged to console) into combined diagnostic
+   * - Caller (parsePlaywrightTimeout) conditionally includes diagnostic in error messages when available
    *
    * FAILURE CASES:
    * - Invalid format (not HH:MM:SS)
    * - NaN after parsing (e.g., "12:AB:34")
-   * - Unexpected parsing errors
+   * - Midnight rollover (diff > 12h threshold)
    *
    * @param time1 - First timestamp in HH:MM:SS format
    * @param time2 - Second timestamp in HH:MM:SS format
@@ -469,6 +474,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     // Midnight rollover detection: 12h threshold (43200s)
     // Rationale: CI timeouts typically 2-6h max; 12h provides safety margin while detecting date boundaries
+    // Example: 23:50:00 → 00:10:00 yields diff=86340s (23h 50m) > 12h → likely midnight rollover
     if (diff > 43200) {
       return {
         seconds: null,
@@ -510,6 +516,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
    * @returns ExtractionResult with all failures found in the report
+   *   - On success: { framework: 'playwright', errors: ExtractedError[], summary?, parseWarnings? }
+   *   - On user error (bad JSON): { framework: 'playwright', errors: [fallback error with diagnostic] }
    * @throws {Error} Propagates unexpected errors (OOM, V8 bugs) - never throws for user-facing errors like malformed JSON
    *
    * @example
@@ -582,13 +590,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return { framework: 'playwright', errors: [validatedError] };
     }
 
-    // Phase 2: Parse JSON (narrow catch)
+    // Phase 2: Parse and validate JSON
     let report: PlaywrightJsonReport;
     try {
-      report = JSON.parse(jsonText) as PlaywrightJsonReport;
-
-      // Validate with Zod
-      const validationResult = PlaywrightJsonReportSchema.safeParse(report);
+      const parsed = JSON.parse(jsonText);
+      const validationResult = PlaywrightJsonReportSchema.safeParse(parsed);
       if (!validationResult.success) {
         throw new Error(
           `Parsed JSON does not match Playwright schema. ` +
@@ -599,8 +605,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       }
       report = validationResult.data;
     } catch (parseErr) {
-      // Catch only expected errors: SyntaxError from JSON.parse
-      // Schema validation throws Error, but those are user-facing validation failures
+      // Expected errors from this block:
+      // - SyntaxError: JSON.parse fails on malformed JSON (user error - bad reporter config)
+      // - Error: Zod validation fails (user error - incomplete/wrong JSON structure)
+      // Any other error type is a bug (OOM, V8 internal errors, etc.) and should propagate with context
       if (!(parseErr instanceof SyntaxError || parseErr instanceof Error)) {
         // Unexpected non-Error thrown (extremely rare: OOM, internal V8 errors)
         const errorMsg = String(parseErr);
@@ -631,8 +639,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     // TODO(#504): Add error boundaries to suite traversal for resilience against schema changes
     // Phase 4: Traverse suites (NO catch - bugs should propagate)
-    // Rationale: After Zod validation, structure is guaranteed. Any errors = extractor bugs or schema drift.
-    // Fail-fast reveals issues immediately rather than silently producing bad results.
+    // Rationale: Zod validates JSON structure (shape), not runtime invariants (e.g., array iteration safety).
+    // After validation, traversal errors = extractor bugs or schema drift. Fail-fast for visibility.
     const extractFromSuite = (suite: PlaywrightSuite) => {
       for (const spec of suite.specs || []) {
         if (!spec.ok) {
@@ -647,8 +655,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                 if (error?.snippet) rawOutput.push(error.snippet);
 
                 // Ensure rawOutput has at least one element for schema validation
+                // Provides minimal context when Playwright reports failure without error details
                 if (rawOutput.length === 0) {
-                  rawOutput.push('Test failed');
+                  rawOutput.push('Test failed (no error details from Playwright)');
                 }
 
                 const testName = `[${test.projectName}] ${spec.title}`;
@@ -888,7 +897,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     // Try progressive parsing - keep adding lines until we have valid JSON
     // This handles nested braces in strings correctly
     let parseAttempts = 0;
-    // Start at +10 to skip typical config object header (~5-8 lines), ensuring we include enough JSON structure
+    // Start at +10 to skip typical config object header (~5-8 lines)
+    // Rationale: Provides safety margin to include enough JSON structure for first valid parse attempt
     for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
       try {
         const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
