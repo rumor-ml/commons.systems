@@ -277,6 +277,7 @@ function setupEventListeners() {
       if (!addCardBtn) missingButtons.push('addCardBtn');
       if (!importCardsBtn) missingButtons.push('importCardsBtn');
       if (!exportCardsBtn) missingButtons.push('exportCardsBtn');
+      // TODO(#559): Replace console.error with Sentry logging
       console.error(`Missing toolbar buttons: ${missingButtons.join(', ')}`);
       // Don't return - continue setting up other event listeners
     } else {
@@ -308,6 +309,7 @@ function setupEventListeners() {
     const cardType = document.getElementById('cardType');
     const modalBackdrop = document.querySelector('.modal-backdrop');
 
+    // TODO(#562): Extract repetitive modal button error handling to helper function
     if (closeModalBtn) {
       closeModalBtn.addEventListener('click', closeCardEditor);
     } else {
@@ -342,6 +344,7 @@ function setupEventListeners() {
       modalBackdrop.addEventListener('click', closeCardEditor);
     }
   } catch (error) {
+    // TODO(#560): Re-throw errors after logging to prevent silent failures
     console.error('Error setting up event listeners:', error);
   }
 }
@@ -381,6 +384,7 @@ function setupMobileMenu() {
     });
 
     // Close sidebar when clicking a nav link on mobile
+    // TODO(#561): Add null check before accessing sidebar properties
     const navItems = sidebar.querySelectorAll('.nav-item');
     navItems.forEach((item) => {
       item.addEventListener('click', () => {
@@ -403,6 +407,7 @@ function setupMobileMenu() {
       }
     });
   } catch (error) {
+    // TODO(#560): Re-throw errors after logging to prevent silent failures
     console.error('Error setting up mobile menu:', error);
   }
 }

@@ -6,16 +6,13 @@
 // instead of console.error/console.warn
 
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { captureConsoleMessages } from './test-helpers.js';
 
 test.describe('Event Listener Setup - Error Handling', () => {
   test('should log error and continue when toolbar buttons are missing', async ({ page }) => {
-    // Listen for console errors
-    const consoleErrors = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
-    });
+    // Capture console errors
+    const errorCapture = captureConsoleMessages(page, 'error');
+    errorCapture.startCapture();
 
     // Navigate to page
     await page.goto('/cards.html');
@@ -36,7 +33,9 @@ test.describe('Event Listener Setup - Error Handling', () => {
     await page.waitForTimeout(500);
 
     // Verify error was logged
-    const hasToolbarError = consoleErrors.some((msg) => msg.includes('Missing toolbar buttons'));
+    const hasToolbarError = errorCapture.messages.some((msg) =>
+      msg.includes('Missing toolbar buttons')
+    );
     expect(hasToolbarError).toBeTruthy();
 
     // Verify page doesn't crash - other functionality should still work
@@ -45,13 +44,11 @@ test.describe('Event Listener Setup - Error Handling', () => {
   });
 
   test('should continue initialization when search input is missing', async ({ page }) => {
-    // Listen for console warnings
-    const consoleWarnings = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'warning' || msg.type() === 'error') {
-        consoleWarnings.push(msg.text());
-      }
-    });
+    // Capture console warnings and errors
+    const warningCapture = captureConsoleMessages(page, 'warning');
+    const errorCapture = captureConsoleMessages(page, 'error');
+    warningCapture.startCapture();
+    errorCapture.startCapture();
 
     await page.goto('/cards.html');
 
@@ -73,12 +70,9 @@ test.describe('Event Listener Setup - Error Handling', () => {
   });
 
   test('should log error when modal elements are missing', async ({ page }) => {
-    const consoleErrors = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
-    });
+    // Capture console errors
+    const errorCapture = captureConsoleMessages(page, 'error');
+    errorCapture.startCapture();
 
     await page.goto('/cards.html');
 
@@ -105,12 +99,9 @@ test.describe('Event Listener Setup - Error Handling', () => {
   });
 
   test('should handle missing mobile menu elements gracefully', async ({ page }) => {
-    const consoleWarnings = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'warning') {
-        consoleWarnings.push(msg.text());
-      }
-    });
+    // Capture console warnings
+    const warningCapture = captureConsoleMessages(page, 'warning');
+    warningCapture.startCapture();
 
     await page.goto('/cards.html');
 
@@ -129,7 +120,7 @@ test.describe('Event Listener Setup - Error Handling', () => {
     await page.waitForTimeout(500);
 
     // Verify warnings were logged
-    const hasMobileMenuWarning = consoleWarnings.some(
+    const hasMobileMenuWarning = warningCapture.messages.some(
       (msg) =>
         msg.includes('Mobile menu toggle button not found') ||
         msg.includes('Sidebar element not found')
@@ -138,10 +129,12 @@ test.describe('Event Listener Setup - Error Handling', () => {
   });
 
   test('should identify specific missing elements in error messages', async ({ page }) => {
-    const consoleMessages = [];
-    page.on('console', (msg) => {
-      consoleMessages.push({ type: msg.type(), text: msg.text() });
-    });
+    // Capture all console messages with type information
+    const allMessages = [];
+    const listener = (msg) => {
+      allMessages.push({ type: msg.type(), text: msg.text() });
+    };
+    page.on('console', listener);
 
     await page.goto('/cards.html');
 
@@ -158,12 +151,15 @@ test.describe('Event Listener Setup - Error Handling', () => {
     await page.waitForTimeout(500);
 
     // Check that error message identifies the missing element
-    const relevantErrors = consoleMessages.filter(
+    const relevantErrors = allMessages.filter(
       (msg) => msg.type === 'error' && msg.text.includes('toolbar')
     );
 
     // At minimum, should have logged that toolbar buttons are missing
     expect(relevantErrors.length).toBeGreaterThan(0);
+
+    // Clean up listener
+    page.off('console', listener);
   });
 
   test('should allow partial functionality when some elements are missing', async ({

@@ -7,23 +7,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deleteTestCards, waitForExpandedState } from './test-helpers.js';
-
-// Dynamic imports needed for Firestore verification
-async function getFirestoreAdmin() {
-  const { default: admin } = await import('firebase-admin');
-  if (!admin.apps.length) {
-    admin.initializeApp({ projectId: 'demo-test' });
-  }
-  const db = admin.firestore();
-  if (!db._settingsConfigured) {
-    const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
-    const [host, port] = firestoreHost.split(':');
-    db.settings({ host: `${host}:${port}`, ssl: false });
-    db._settingsConfigured = true;
-  }
-  return db;
-}
+import { deleteTestCards, waitForExpandedState, getFirestoreAdmin } from './test-helpers.js';
 
 // Load cards.json to verify navigation matches actual data
 const __filename = fileURLToPath(import.meta.url);
@@ -298,7 +282,7 @@ const skipDataReflectionTests = process.env.CI;
         console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
         // Wait for Firestore deletion to propagate by verifying cards are gone
         const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
-        const db = await getFirestoreAdmin();
+        const { db } = await getFirestoreAdmin();
         const cardsCollection = db.collection(getCardsCollectionName());
         await expect(async () => {
           const snapshot = await cardsCollection.get();

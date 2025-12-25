@@ -85,6 +85,27 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
 }
 
 /**
+ * Capture console messages by type during a test operation
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} messageType - Type of console messages to capture ('error', 'warning', 'log', etc.)
+ * @returns {{messages: string[], startCapture: () => void, stopCapture: () => void}} Capture controller
+ */
+export function captureConsoleMessages(page, messageType = 'error') {
+  const messages = [];
+  const listener = (msg) => {
+    if (msg.type() === messageType) {
+      messages.push(msg.text());
+    }
+  };
+
+  return {
+    messages,
+    startCapture: () => page.on('console', listener),
+    stopCapture: () => page.off('console', listener),
+  };
+}
+
+/**
  * Wait for console messages matching a pattern
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {(msg: string) => boolean} predicate - Function to test console messages
@@ -92,18 +113,33 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
  */
 export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
   const messages = [];
-  const listener = (msg) => messages.push(msg.text());
+  let foundMatch = false;
+  const listener = (msg) => {
+    messages.push(msg.text());
+    // Check if this message matches - allows early return
+    if (predicate(msg.text())) {
+      foundMatch = true;
+    }
+  };
   page.on('console', listener);
 
   try {
-    await page
-      .waitForFunction(
-        () => true, // Just wait for timeout or manual resolution
-        { timeout }
-      )
-      .catch(() => {}); // Ignore timeout, check messages below
+    // Poll for matching message with 50ms intervals for early return
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      if (foundMatch) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
+    // Final check after timeout
     return messages.some(predicate);
+  } catch (error) {
+    // Log errors instead of silently swallowing them
+    // TODO(#563): Use error chaining with {cause: error} to preserve stack trace
+    console.error(`waitForConsoleMessage failed: ${error.message}`);
+    return false;
   } finally {
     page.off('console', listener);
   }
@@ -128,6 +164,7 @@ export async function waitForExpandedState(element, shouldBeExpanded, timeout = 
  * @param {number} minCount - Minimum expected count
  * @param {number} timeout - Timeout in milliseconds (default: 5000)
  */
+// TODO(#564): Add type validation for page parameter
 export async function waitForCardCount(page, minCount, timeout = 5000) {
   const { expect } = await import('@playwright/test');
   await expect(async () => {
@@ -157,6 +194,7 @@ export async function waitForFirestorePropagation(cardTitle, maxRetries = 10, in
  * @param {RegExp} pattern - Pattern to match against URL
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
  */
+// TODO(#565): Add recovery steps to error message
 export async function waitForUrlHash(page, pattern, timeout = 2000) {
   const { expect } = await import('@playwright/test');
   await expect(page).toHaveURL(pattern, { timeout });
@@ -219,7 +257,10 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for form elements to be fully ready (not just attached, but visible and enabled)
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
-  await page.waitForTimeout(100); // Micro-delay for form element hydration (acceptable exception)
+  // KEEP: 100ms delay for form element hydration after modal animation completes
+  // This ensures combobox dropdowns are properly initialized before interaction
+  // TODO(#567): Expand comment to explain auth ready state and backoff strategy
+  await page.waitForTimeout(100);
 
   // Fill form fields
   await page.locator('#cardTitle').fill(cardData.title);
@@ -228,7 +269,8 @@ export async function createCardViaUI(page, cardData) {
   await page.locator('#cardType').fill(cardData.type);
   // Dispatch input event to trigger filtering
   await page.locator('#cardType').dispatchEvent('input');
-  // Small delay for dropdown to render options
+  // KEEP: 50ms delay for dropdown rendering after input event triggers filtering
+  // This allows the combobox's event handler to populate options before selection
   await page.waitForTimeout(50);
 
   // Try to select matching option using JavaScript evaluation (Firefox-safe)
@@ -239,14 +281,16 @@ export async function createCardViaUI(page, cardData) {
     await page.locator('#cardType').press('Escape');
   }
 
-  // Wait for subtype combobox to be ready after type change
-  await page.waitForTimeout(100); // Micro-delay for subtype combobox readiness (acceptable exception)
+  // KEEP: 100ms delay for subtype combobox to update after type selection
+  // The subtype options are dynamically filtered based on type, requires DOM update
+  await page.waitForTimeout(100);
 
   // Set subtype using combobox (fill input and select from dropdown or accept custom value)
   await page.locator('#cardSubtype').fill(cardData.subtype);
   // Dispatch input event to trigger filtering
   await page.locator('#cardSubtype').dispatchEvent('input');
-  // Small delay for dropdown to render options
+  // KEEP: 50ms delay for dropdown rendering after input event triggers filtering
+  // This allows the combobox's event handler to populate options before selection
   await page.waitForTimeout(50);
 
   // Try to select matching option using JavaScript evaluation (Firefox-safe)
@@ -305,8 +349,8 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for card to appear in UI by checking for the specific card title in the DOM
   // This replaces the fixed 2-second timeout with condition-based waiting
-  try {
-    await page.waitForFunction(
+  await page
+    .waitForFunction(
       (title) => {
         const cardItems = document.querySelectorAll('.card-item');
         return Array.from(cardItems).some(
@@ -315,14 +359,17 @@ export async function createCardViaUI(page, cardData) {
       },
       cardData.title,
       { timeout: 5000 }
-    );
-  } catch (error) {
-    // If card doesn't appear, log warning but don't fail
-    // Some tests may not need to verify card appearance immediately
-    console.warn(
-      `Card "${cardData.title}" did not appear in UI after 5s - may need explicit verification in test`
-    );
-  }
+    )
+    .catch(async (error) => {
+      // If card doesn't appear, throw error with debugging context
+      const cardCount = await page.locator('.card-item').count();
+      throw new Error(
+        `Card "${cardData.title}" did not appear in UI after 5s. ` +
+          `Current card count: ${cardCount}. ` +
+          `This indicates the card creation may have failed or Firestore write propagation is delayed. ` +
+          `Original error: ${error.message}`
+      );
+    });
 }
 
 // Shared Firebase Admin instance for Firestore operations
@@ -332,9 +379,10 @@ let _firestoreDb = null;
 /**
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
+ * @returns {Promise<{app: any, db: any}>} Firebase Admin app and Firestore database instances
  */
 // TODO(#486): Track configuration state in module variable instead of mutating _firestoreDb object
-async function getFirestoreAdmin() {
+export async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     return { app: _adminApp, db: _firestoreDb };
   }
@@ -378,6 +426,7 @@ async function getFirestoreAdmin() {
         _firestoreDb._settingsConfigured = true;
       }
     } catch (error) {
+      // TODO(#566): Log warning when falling back to default FIREBASE_PROJECT_ID
       throw new Error(
         `Failed to connect to Firestore emulator: ${error.message}. ` +
           `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
