@@ -175,12 +175,14 @@ export async function safePostStateComment(
     // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
     // TODO(#320): Surface state comment failures to users instead of silent warning
     // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
+    // TODO(#468): Broad catch-all hides programming errors - add early type validation
     const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
     const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
     const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
     const stateJson = JSON.stringify(state);
 
     // Classify error type based on error message patterns
+    // TODO(#478): Document expected GitHub API error patterns and add test coverage
     const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
     const isAuth =
       /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -299,6 +301,7 @@ export async function safePostIssueStateComment(
     const stateJson = JSON.stringify(state);
 
     // Classify error type based on error message patterns
+    // TODO(#478): Document expected GitHub API error patterns and add test coverage
     const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
     const isAuth =
       /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -1213,6 +1216,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   stepsCompletedSoFar: string[]
 ): Promise<ToolResult> {
   // Fetch code quality bot comments
+  // TODO(#517): Add error handling for GitHub API failures (rate limit, auth, network, etc.)
   const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
 
   const output: WiggumInstructions = {

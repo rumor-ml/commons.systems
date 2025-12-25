@@ -331,6 +331,7 @@ export async function getPRReviewComments(
   const comments: GitHubPRReviewComment[] = [];
 
   // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
+  // TODO(#465): Error swallowing - throws on first malformed comment, discarding valid comments
   // Current: throws on first malformed comment, blocking all remaining valid comments
   for (const line of lines) {
     try {

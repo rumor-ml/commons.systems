@@ -98,7 +98,14 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       valueLength: input.fix_description?.length ?? 0,
     });
     throw new ValidationError(
-      `fix_description is required and cannot be empty. Received: ${JSON.stringify(input.fix_description)} (type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0}). Please provide a meaningful description of what was fixed.`
+      `fix_description is required and cannot be empty.\n\n` +
+        `**Why it's required:**\n` +
+        `Documents what changes were made (or why no changes were needed) for audit trail.\n\n` +
+        `**What to provide:**\n` +
+        `- For in-scope fixes: "Fixed 3 type errors in auth module"\n` +
+        `- For no fixes: "All recommendations out of scope - tracked in #123, #456"\n\n` +
+        `**Technical details:** Received ${JSON.stringify(input.fix_description)} ` +
+        `(type: ${typeof input.fix_description}, length: ${input.fix_description?.length ?? 0})`
     );
   }
 
@@ -210,14 +217,20 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
               iteration_count: newState.iteration,
               instructions:
                 `ERROR: Failed to post state comment due to ${stateResult.reason}.\n\n` +
+                `**IMPORTANT: Your workflow state has NOT been modified.** The step has NOT been marked complete.\n` +
+                `You are still on: ${STEP_NAMES[state.wiggum.step]}\n\n` +
                 `The race condition fix requires state persistence to GitHub.\n\n` +
                 `Common causes:\n` +
                 `- GitHub API rate limiting: Check \`gh api rate_limit\`\n` +
                 `- Network connectivity issues\n\n` +
-                `Please retry after resolving the issue.`,
+                `To resolve:\n` +
+                `1. Check rate limits: \`gh api rate_limit\`\n` +
+                `2. Verify network connectivity\n` +
+                `3. Retry by calling wiggum_complete_fix again with the same parameters`,
               steps_completed_by_tool: [
-                'Marked step as complete (not persisted)',
-                'Failed to post state comment',
+                'Built new state locally (NOT persisted)',
+                'Attempted to post state comment - FAILED',
+                'State NOT modified on GitHub - retry required',
               ],
               context: {
                 pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
