@@ -10,6 +10,17 @@ import (
 
 // TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
 // Protocol v2: Type-safe message structs with internal encapsulation
+
+// copyStringMap creates a shallow copy of a string map to prevent external mutation.
+// Returns an empty (non-nil) map if input is nil.
+func copyStringMap(m map[string]string) map[string]string {
+	result := make(map[string]string, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
+}
+
 //
 // DESIGN RATIONALE:
 //   - Private fields ensure immutability and encapsulation
@@ -51,6 +62,10 @@ type MessageV2 interface {
 //
 // When you see MESSAGE_VALIDATION_FAILED logs, check the original=%q value
 // for unexpected whitespace and fix the caller's string construction logic.
+//
+// Example debug log output:
+//   MESSAGE_VALIDATION_FAILED type=hello reason=empty_client_id original="  \n"
+//   MESSAGE_VALIDATION_FAILED type=alert_change reason=empty_pane_id original=" "
 
 // 1. HelloMessageV2 represents a client connection greeting
 type HelloMessageV2 struct {
@@ -100,20 +115,12 @@ type FullStateMessageV2 struct {
 //
 // Current behavior: Empty values are accepted and preserved in state, which may
 // lead to ambiguous state representation. Define explicit semantics before adding validation.
+// FIXME: This is known-bad behavior that should be addressed before production use.
 func NewFullStateMessage(seqNum uint64, alerts, blockedBranches map[string]string) (*FullStateMessageV2, error) {
-	// Deep copy to prevent external mutation
-	alertsCopy := make(map[string]string, len(alerts))
-	for k, v := range alerts {
-		alertsCopy[k] = v
-	}
-	blockedCopy := make(map[string]string, len(blockedBranches))
-	for k, v := range blockedBranches {
-		blockedCopy[k] = v
-	}
 	return &FullStateMessageV2{
 		seqNum:          seqNum,
-		alerts:          alertsCopy,
-		blockedBranches: blockedCopy,
+		alerts:          copyStringMap(alerts),
+		blockedBranches: copyStringMap(blockedBranches),
 	}, nil
 }
 
@@ -130,20 +137,12 @@ func (m *FullStateMessageV2) ToWireFormat() Message {
 
 // Alerts returns a copy of the alert state to prevent mutation
 func (m *FullStateMessageV2) Alerts() map[string]string {
-	alertsCopy := make(map[string]string, len(m.alerts))
-	for k, v := range m.alerts {
-		alertsCopy[k] = v
-	}
-	return alertsCopy
+	return copyStringMap(m.alerts)
 }
 
 // BlockedBranches returns a copy of the blocked branches state to prevent mutation
 func (m *FullStateMessageV2) BlockedBranches() map[string]string {
-	blockedCopy := make(map[string]string, len(m.blockedBranches))
-	for k, v := range m.blockedBranches {
-		blockedCopy[k] = v
-	}
-	return blockedCopy
+	return copyStringMap(m.blockedBranches)
 }
 
 // 3. AlertChangeMessageV2 represents a single alert state change
@@ -566,19 +565,25 @@ type SyncWarningMessageV2 struct {
 // NewSyncWarningMessage creates a validated SyncWarningMessage.
 // originalMsgType indicates which message type failed to sync (required).
 // errorMsg provides diagnostic context about the sync failure.
-// While errorMsg may be empty (not validated), callers should ALWAYS provide it when:
+// REQUIRED when:
 //   - An error object is available (use err.Error())
 //   - The failure reason is known (e.g., "channel full", "timeout")
 //
-// Only omit errorMsg if the sync warning is for tracking purposes without a specific error.
+// Empty errorMsg is rejected - sync warnings must include diagnostic context.
 func NewSyncWarningMessage(seqNum uint64, originalMsgType, errorMsg string) (*SyncWarningMessageV2, error) {
 	originalOriginalMsgType := originalMsgType
+	originalErrorMsg := errorMsg
 	originalMsgType = strings.TrimSpace(originalMsgType)
 	errorMsg = strings.TrimSpace(errorMsg)
 
 	if originalMsgType == "" {
 		debug.Log("MESSAGE_VALIDATION_FAILED type=sync_warning reason=empty_original_msg_type original=%q", originalOriginalMsgType)
 		return nil, errors.New("original_msg_type required")
+	}
+
+	if errorMsg == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=sync_warning reason=empty_error_msg original=%q", originalErrorMsg)
+		return nil, errors.New("error_msg required - sync warnings must include diagnostic context")
 	}
 
 	return &SyncWarningMessageV2{
@@ -632,6 +637,8 @@ type PersistenceErrorMessageV2 struct {
 
 // NewPersistenceErrorMessage creates a validated PersistenceErrorMessage.
 // Returns error if errorMsg is empty after trimming.
+// NOTE: errorMsg is REQUIRED (changed from optional) because empty error messages
+// provide no diagnostic value and make troubleshooting persistence failures impossible.
 func NewPersistenceErrorMessage(seqNum uint64, errorMsg string) (*PersistenceErrorMessageV2, error) {
 	errorMsg = strings.TrimSpace(errorMsg)
 	if errorMsg == "" {
@@ -650,7 +657,7 @@ func (m *PersistenceErrorMessageV2) ToWireFormat() Message {
 	}
 }
 
-// Error returns the error message (may be empty)
+// Error returns the error message (guaranteed non-empty by constructor)
 func (m *PersistenceErrorMessageV2) Error() string { return m.errorMsg }
 
 // 17. AudioErrorMessageV2 represents a failure to play audio
@@ -679,7 +686,7 @@ func (m *AudioErrorMessageV2) ToWireFormat() Message {
 	}
 }
 
-// Error returns the error message (may be empty)
+// Error returns the error message (guaranteed non-empty by constructor)
 func (m *AudioErrorMessageV2) Error() string { return m.errorMsg }
 
 // 18. ShowBlockPickerMessageV2 represents a request to show branch picker UI

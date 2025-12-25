@@ -578,10 +578,11 @@ func TestSyncWarningMessage(t *testing.T) {
 			wantErr:         false,
 		},
 		{
-			name:            "valid empty error (optional)",
+			name:            "empty error is rejected (required)",
 			originalMsgType: "alert_change",
 			errorMsg:        "",
-			wantErr:         false,
+			wantErr:         true,
+			errSubstr:       "error_msg required",
 		},
 		{
 			name:            "empty original_msg_type",

@@ -252,9 +252,10 @@ func TestFromWireFormat_MalformedMessages(t *testing.T) {
 				Type:            MsgTypeSyncWarning,
 				SeqNum:          42,
 				OriginalMsgType: "alert_change",
-				Error:           "", // Error field may be empty - FromWireFormat accepts empty strings
+				Error:           "", // Empty error is now rejected - sync warnings must include diagnostic context
 			},
-			expectError: false,
+			expectError:   true,
+			errorContains: "error_msg required",
 		},
 	}
 
@@ -350,13 +351,13 @@ func TestConstructor_ExtremeValues(t *testing.T) {
 	})
 
 	t.Run("empty_optional_fields", func(t *testing.T) {
-		// SyncWarning with empty error (optional field)
-		msg, err := NewSyncWarningMessage(42, "alert_change", "")
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
+		// SyncWarning now requires non-empty error message
+		_, err := NewSyncWarningMessage(42, "alert_change", "")
+		if err == nil {
+			t.Error("Expected error for empty errorMsg, got nil")
 		}
-		if msg.Error() != "" {
-			t.Errorf("Error = %q, want empty", msg.Error())
+		if !strings.Contains(err.Error(), "error_msg required") {
+			t.Errorf("Expected error containing 'error_msg required', got %v", err)
 		}
 	})
 }
