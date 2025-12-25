@@ -30,6 +30,7 @@ type queryResponse struct {
 // newQueryResponse creates a queryResponse with properly buffered channels.
 // Both channels have buffer size 1 to prevent blocking in the DaemonClient receive loop
 // when routing query responses to waiting callers.
+// TODO(#534): Clarify mechanism - how buffer size 1 prevents blocking and handles backpressure
 func newQueryResponse() *queryResponse {
 	return &queryResponse{
 		dataCh: make(chan Message, 1),
@@ -86,6 +87,7 @@ func (c *DaemonClient) sendMessage(msg Message) error {
 // sendAndWait sends a message and waits a fixed delay to allow the daemon
 // time to process it. This is best-effort timing, not an acknowledgment.
 // WARNING: Callers should not assume message delivery or processing completion after this returns.
+// TODO(#535): Expand WARNING to explain why (100ms timeout) and suggest alternatives (query/response patterns)
 func (c *DaemonClient) sendAndWait(msg Message) error {
 	if err := c.sendMessage(msg); err != nil {
 		return err
