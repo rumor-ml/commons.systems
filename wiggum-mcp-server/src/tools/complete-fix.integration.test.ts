@@ -54,13 +54,16 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * SPECIFICATION: Fast-path comment title
        *
        * EXPECTED FORMAT:
-       * - Title: "${STEP_NAMES[step]} - Complete (No In-Scope Fixes)"
-       * - Example for p2-3: "Phase 2: Address Code Quality Comments - Complete (No In-Scope Fixes)"
+       * - Title: "${step} - Complete (No In-Scope Fixes)" (uses step ID, not STEP_NAMES)
+       * - Example for p2-3: "p2-3 - Complete (No In-Scope Fixes)"
+       *
+       * NOTE: The title uses the raw step ID (e.g., "p2-3"), not the human-readable
+       * name from STEP_NAMES. This differs from error messages which use STEP_NAMES for readability.
        *
        * EXPECTED VALIDATION:
        * - Title must include "Complete (No In-Scope Fixes)"
        * - Title must NOT start with "Fix Applied" (that's for main path)
-       * - Title must include the step name from STEP_NAMES constant
+       * - Title must include the step ID (not the human-readable name)
        *
        * COMPARISON WITH MAIN PATH:
        * - Main path title: "Fix Applied (Iteration N)" where N is incremented iteration
@@ -260,13 +263,18 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * | Aspect                  | Fast-Path                              | Main Path                              |
        * |-------------------------|----------------------------------------|----------------------------------------|
        * | When used               | No code changes made                   | Code changes made                      |
-       * | Iteration               | UNCHANGED (no increment)               | INCREMENTED (iteration++)              |
+       * | Iteration               | UNCHANGED                              | UNCHANGED (router increments on workflow failures) |
        * | completedSteps          | Current step ADDED to array            | FILTERED (current + subsequent removed)|
        * | Comment title           | "${step} - Complete (No In-Scope...)" | "Fix Applied (Iteration N)"            |
        * | Comment body            | Minimal (description + out-of-scope)   | Detailed (fixes applied, re-verify)    |
        * | Next router call        | getNextStepInstructions(newState)      | getNextStepInstructions(filteredState) |
        * | Router behavior         | Advances to NEXT step                  | Returns to CURRENT step (re-verify)    |
        * | Workflow impact         | Step marked complete, workflow advances| Step cleared, workflow loops back      |
+       *
+       * Note: Iteration is incremented by the ROUTER when workflow/check monitoring
+       * detects failures, NOT by completeFix. Both fast-path and main-path keep
+       * iteration unchanged. The router increments iteration when transitioning
+       * from a successful step to a failure state (e.g., workflow fails → Plan+Fix).
        *
        * FAST-PATH USE CASES:
        * 1. All code quality comments are stale (already fixed in earlier commits)

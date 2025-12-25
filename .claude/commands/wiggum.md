@@ -339,8 +339,8 @@ mcp__wiggum__wiggum_complete_fix({
   - Clears completed steps to re-verify from current step
   - Returns instructions to re-verify the step where issues were found
 - If `has_in_scope_fixes: false`:
-  - Skips PR comment posting
-  - Marks current step as complete
+  - Posts minimal state comment with title "${step} - Complete (No In-Scope Fixes)"
+  - Marks current step as complete (adds to completedSteps array)
   - Advances to next workflow step
 
 **Common Scenarios:**

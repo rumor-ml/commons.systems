@@ -1325,8 +1325,11 @@ IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate criti
 3. If NO valid issues (all comments are stale/invalid):
    a. To identify stale comments, verify the code was already fixed:
       1. Check commit history: \`git log main..HEAD -- <file>\`
-      2. If commits exist for the file, read the file at the comment's line number
-      3. Compare: If the issue mentioned in the comment is already fixed → comment is stale
+      2. Read the file and locate the code near the comment's line number
+         IMPORTANT: Line numbers may have shifted due to earlier edits.
+         Read ±5 lines around the referenced line to find the relevant code section.
+      3. Examine the CODE and the COMMENT message (not just the line number).
+         Compare: If the issue mentioned in the comment is already fixed → comment is stale
          Example: Comment says "missing null check" but current code has null check → stale
       4. If all comments are stale, no code changes needed → use has_in_scope_fixes: false
    b. Call wiggum_complete_fix with:
