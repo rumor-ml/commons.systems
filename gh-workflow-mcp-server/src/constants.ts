@@ -91,4 +91,6 @@ export const CHECK_ICONS: Record<string, string> = {
 } as const;
 
 // Watch defaults (gh CLI native behavior)
+// Note: gh CLI may adjust polling intervals in future versions. This constant
+// documents the observed behavior as of gh CLI v2.40.0 for reference.
 export const DEFAULT_WATCH_INTERVAL = 3; // seconds (gh native polling)

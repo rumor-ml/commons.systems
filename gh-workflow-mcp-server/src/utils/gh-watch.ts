@@ -43,6 +43,10 @@ export interface OverallStatus {
 /**
  * Execute a gh watch command with timeout support using AbortController
  *
+ * Timeout is enforced using AbortController's signal mechanism. When timeout
+ * expires, the controller aborts the execa process, which throws an error with
+ * `isCanceled: true`. This is detected to return a timeout result.
+ *
  * @param args - Command arguments (e.g., ['run', 'watch', '123', '--exit-status'])
  * @param timeoutMs - Timeout in milliseconds
  * @returns Watch result with success status, exit code, and output
@@ -70,7 +74,7 @@ async function createAbortableWatch(args: string[], timeoutMs: number): Promise<
     clearTimeout(timer);
 
     // Check if error was due to abort/timeout
-    if (error.isCanceled || error.message?.includes('aborted')) {
+    if (error.isCanceled) {
       return {
         success: false,
         exitCode: 124, // Standard timeout exit code
@@ -79,7 +83,10 @@ async function createAbortableWatch(args: string[], timeoutMs: number): Promise<
       };
     }
 
-    // Other execution errors
+    // Other execution errors - log details for diagnostics
+    console.error(
+      `[gh-workflow] Watch command execution failed (command: gh ${args.join(' ')}, exitCode: ${error.exitCode || 'none'}, stderr: ${error.stderr || 'none'})`
+    );
     throw new GitHubCliError(
       `Watch command failed: ${error.message}`,
       error.exitCode,
@@ -153,6 +160,9 @@ export async function watchPRChecks(prNumber: number, options: WatchOptions): Pr
  * - success: ✓
  * - failure/timed_out: ✗
  * - cancelled/skipped/null: ○
+ * - unknown: ○ (fallback)
+ *
+ * Used for formatting check status in PR monitoring output.
  *
  * @param conclusion - Check conclusion (success, failure, etc.) or null
  * @returns Icon character for display
@@ -174,10 +184,17 @@ export function getCheckIcon(conclusion: string | null): string {
  * @returns Overall status with success/failure/other counts
  */
 export function determineOverallStatus(checks: Check[]): OverallStatus {
-  const successCount = checks.filter((c) => c.conclusion === 'success').length;
-  const failureCount = checks.filter(
-    (c) => c.conclusion === 'failure' || c.conclusion === 'timed_out'
-  ).length;
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const check of checks) {
+    if (check.conclusion === 'success') {
+      successCount++;
+    } else if (check.conclusion === 'failure' || check.conclusion === 'timed_out') {
+      failureCount++;
+    }
+  }
+
   const otherCount = checks.length - successCount - failureCount;
 
   let status: string;

@@ -75,6 +75,8 @@ interface JobData {
  *
  * Used for fail-fast mode: polls job status in parallel with watch
  * to detect failures quickly without waiting for watch to complete.
+ * Returns immediately when first failure detected, enabling early
+ * termination of the watching race condition.
  *
  * @param runIds - Single run ID or array of run IDs to poll
  * @param pollIntervalMs - Milliseconds between polls
@@ -91,16 +93,25 @@ async function pollJobsForFailure(
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
-    const jobsResults = await Promise.all(ids.map((id) => getWorkflowJobs(id, repo)));
+    try {
+      const jobsResults = await Promise.all(ids.map((id) => getWorkflowJobs(id, repo)));
 
-    for (const jobsData of jobsResults) {
-      const jobs = (jobsData as any).jobs || [];
-      const failedJob = jobs.find(
-        (job: JobData) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
-      );
-      if (failedJob) {
-        return; // Exit early on failure
+      for (const jobsData of jobsResults) {
+        // TODO: See issue #539 - Add runtime validation for gh CLI response structure
+        const jobs = (jobsData as any).jobs || [];
+        const failedJob = jobs.find(
+          (job: JobData) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
+        );
+        if (failedJob) {
+          return; // Exit early on failure
+        }
       }
+    } catch (error) {
+      // Log error but continue polling - fail-fast is an optimization, not critical
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[gh-workflow] pollJobsForFailure: error fetching jobs (runIds: ${ids.join(',')}, error: ${errorMsg}), continuing polling`
+      );
     }
 
     await sleep(pollIntervalMs);
@@ -255,18 +266,20 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     const fetchedRuns = await Promise.all(runIds.map((id) => getWorkflowRun(id, resolvedRepo)));
     const runs: Map<number, WorkflowRunData> = new Map();
     fetchedRuns.forEach((runData, index) => {
+      // TODO: See issue #539 - Add runtime validation for gh CLI response structure
       runs.set(runIds[index], runData as WorkflowRunData);
     });
 
     const jobsResults = await Promise.all(runIds.map((id) => getWorkflowJobs(id, resolvedRepo)));
     const allJobs: Map<number, JobData[]> = new Map();
     jobsResults.forEach((jobsData: any, index) => {
+      // TODO: See issue #539 - Add runtime validation for gh CLI response structure
       allJobs.set(runIds[index], jobsData.jobs || []);
     });
 
     // Check for fail-fast condition to set failedEarly flag
     if (input.fail_fast) {
-      for (const [runId, jobs] of Array.from(allJobs.entries())) {
+      for (const [runId, jobs] of allJobs) {
         const failedJob = jobs.find(
           (job) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
         );
@@ -294,7 +307,7 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
       summaryLines.push('');
 
       // Show each run with its jobs
-      for (const [runId, run] of Array.from(runs.entries())) {
+      for (const [runId, run] of runs) {
         const jobs = allJobs.get(runId) || [];
         const startedAt = new Date(run.createdAt);
         const completedAt = new Date(run.updatedAt);

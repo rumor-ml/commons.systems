@@ -103,6 +103,8 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
     let failedEarly = false;
 
     // Use watch for completion detection with optional fail-fast polling
+    // Hybrid approach: gh pr checks --watch provides completion signal, while
+    // polling JSON API enables fail-fast detection without waiting for all checks
     if (input.fail_fast) {
       // Hybrid: Race between watch and polling for fail-fast detection
       const watchPromise = watchPRChecks(input.pr_number, {
