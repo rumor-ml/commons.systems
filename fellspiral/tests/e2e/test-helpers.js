@@ -35,7 +35,9 @@ export async function setupDesktopViewport(page) {
 }
 
 /**
- * Generate unique test card data
+ * Generate unique test card data with timestamp-based title.
+ * Uniqueness is guaranteed only within the same millisecond - use suffix parameter
+ * when creating multiple cards rapidly to ensure uniqueness.
  * @param {string} suffix - Optional suffix to add to title for uniqueness
  * @returns {{
  *   title: string, type: string, subtype: string,
@@ -47,7 +49,7 @@ export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
   const uniqueSuffix = suffix ? `-${suffix}` : '';
 
-  return {
+  return Object.freeze({
     title: `Test Card ${timestamp}${uniqueSuffix}`,
     type: 'Equipment',
     subtype: 'Weapon',
@@ -56,7 +58,7 @@ export function generateTestCardData(suffix = '') {
     stat1: 'd8',
     stat2: '2 slot',
     cost: '5 pt',
-  };
+  });
 }
 
 /**
@@ -128,20 +130,18 @@ export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
       if (foundMatch) {
+        page.off('console', listener);
         return true;
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
+    page.off('console', listener);
     // Final check after timeout
     return messages.some(predicate);
   } catch (error) {
-    // Log errors instead of silently swallowing them
-    // TODO(#563): Use error chaining with {cause: error} to preserve stack trace
-    console.error(`waitForConsoleMessage failed: ${error.message}`);
-    return false;
-  } finally {
     page.off('console', listener);
+    throw new Error(`waitForConsoleMessage failed after ${timeout}ms`, { cause: error });
   }
 }
 
@@ -213,34 +213,28 @@ async function selectComboboxOption(page, listboxId, targetValue) {
     throw new Error('selectComboboxOption: listboxId and targetValue are required');
   }
 
-  try {
-    return await page.evaluate(
-      ({ listboxId, targetValue }) => {
-        const listbox = document.getElementById(listboxId);
-        if (!listbox) return false;
+  return await page.evaluate(
+    ({ listboxId, targetValue }) => {
+      const listbox = document.getElementById(listboxId);
+      if (!listbox) return false;
 
-        // Find option by matching dataset.value
-        const options = Array.from(listbox.querySelectorAll('.combobox-option'));
-        const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
+      // Find option by matching dataset.value
+      const options = Array.from(listbox.querySelectorAll('.combobox-option'));
+      const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
 
-        if (!matchingOption) return false;
+      if (!matchingOption) return false;
 
-        // Dispatch mousedown event (combobox uses mousedown listeners)
-        const event = new MouseEvent('mousedown', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-        });
-        matchingOption.dispatchEvent(event);
-        return true;
-      },
-      { listboxId, targetValue }
-    );
-  } catch (error) {
-    throw new Error(
-      `selectComboboxOption failed for listbox "${listboxId}" with value "${targetValue}": ${error.message}`
-    );
-  }
+      // Dispatch mousedown event (combobox uses mousedown listeners)
+      const event = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      });
+      matchingOption.dispatchEvent(event);
+      return true;
+    },
+    { listboxId, targetValue }
+  );
 }
 
 /**
@@ -381,7 +375,8 @@ let _firestoreDb = null;
  * Reuses the same instance across multiple calls to avoid settings() errors
  * @returns {Promise<{app: any, db: any}>} Firebase Admin app and Firestore database instances
  */
-// TODO(#486): Track configuration state in module variable instead of mutating _firestoreDb object
+// TODO(#486): Use separate module variable to track settings configuration
+// instead of mutating _firestoreDb._settingsConfigured property
 export async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     return { app: _adminApp, db: _firestoreDb };
@@ -426,7 +421,6 @@ export async function getFirestoreAdmin() {
         _firestoreDb._settingsConfigured = true;
       }
     } catch (error) {
-      // TODO(#566): Log warning when falling back to default FIREBASE_PROJECT_ID
       throw new Error(
         `Failed to connect to Firestore emulator: ${error.message}. ` +
           `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
@@ -440,17 +434,18 @@ export async function getFirestoreAdmin() {
     }
     throw new Error(
       `Failed to load firebase-admin module: ${error.message}. ` +
-        `Ensure firebase-admin is installed in your project.`
+        `Ensure firebase-admin is installed in your project.`,
+      { cause: error }
     );
   }
 }
 
 /**
  * Query Firestore emulator directly to get a card by title
- * Includes retry logic to handle emulator write propagation delays (especially in Firefox)
+ * Includes retry logic to handle emulator write propagation delays
  * @param {string} cardTitle - Title of the card to find
  * @param {number} maxRetries - Maximum number of retries (default: 5)
- * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
+ * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500)
  * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
  */
 // TODO(#491): Add tests for error paths (connection failures, retry logic correctness)
@@ -520,7 +515,7 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
     if (error.message.includes('Firestore')) {
       throw error; // Re-throw our detailed errors
     }
-    throw new Error(`getCardFromFirestore failed: ${error.message}`);
+    throw new Error(`getCardFromFirestore failed: ${error.message}`, { cause: error });
   }
 }
 
@@ -531,13 +526,10 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
  */
 // TODO(#491): Add tests for batch limit handling (500+ cards), partial failures
 export async function deleteTestCards(titlePattern) {
-  // Input validation
-  if (!titlePattern) {
-    throw new Error('deleteTestCards: titlePattern must be provided (string or RegExp)');
-  }
-  if (typeof titlePattern === 'string' && titlePattern.length === 0) {
+  // Input validation - reject falsy values and empty strings
+  if (!titlePattern || (typeof titlePattern === 'string' && titlePattern.length === 0)) {
     throw new Error(
-      'deleteTestCards: titlePattern string cannot be empty (would delete all cards)'
+      'deleteTestCards: titlePattern must be a non-empty string or RegExp (empty pattern would delete all cards)'
     );
   }
 
@@ -597,6 +589,6 @@ export async function deleteTestCards(titlePattern) {
     if (error.message.includes('Firestore') || error.message.includes('Failed to batch delete')) {
       throw error; // Re-throw our detailed errors
     }
-    throw new Error(`deleteTestCards failed: ${error.message}`);
+    throw new Error(`deleteTestCards failed: ${error.message}`, { cause: error });
   }
 }
