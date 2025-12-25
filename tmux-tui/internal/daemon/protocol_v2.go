@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/commons-systems/tmux-tui/internal/debug"
 )
 
 // TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
@@ -37,6 +39,19 @@ type MessageV2 interface {
 	ToWireFormat() Message
 }
 
+// Constructor Validation Pattern:
+// All message constructors follow a pattern of preserving the original input value
+// (e.g., originalClientID := clientID) before trimming whitespace. If validation
+// fails, the original value is logged via debug.Log() to aid troubleshooting.
+//
+// Why this matters: Whitespace in IDs often indicates bugs like:
+// - String concatenation errors: "client-" + " 123" instead of "client-123"
+// - Template rendering issues: reading " {{.ID}} " with extra spaces
+// - File parsing problems: trailing newlines from file reads
+//
+// When you see MESSAGE_VALIDATION_FAILED logs, check the original=%q value
+// for unexpected whitespace and fix the caller's string construction logic.
+
 // 1. HelloMessageV2 represents a client connection greeting
 type HelloMessageV2 struct {
 	seqNum   uint64
@@ -46,8 +61,10 @@ type HelloMessageV2 struct {
 // NewHelloMessage creates a validated HelloMessage.
 // Returns error if clientID is empty after trimming whitespace.
 func NewHelloMessage(seqNum uint64, clientID string) (*HelloMessageV2, error) {
+	originalClientID := clientID
 	clientID = strings.TrimSpace(clientID)
 	if clientID == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=hello reason=empty_client_id original=%q", originalClientID)
 		return nil, errors.New("client_id required")
 	}
 	return &HelloMessageV2{seqNum: seqNum, clientID: clientID}, nil
@@ -74,7 +91,15 @@ type FullStateMessageV2 struct {
 }
 
 // NewFullStateMessage creates a validated FullStateMessage.
-// Alerts and blockedBranches can be nil or empty (represents no active state).
+// Alerts and blockedBranches can be nil or empty maps (represents no active state).
+// Map keys and values are not currently validated (see TODO #519).
+// TODO(#519): Add validation for empty/whitespace-only keys in maps (should reject).
+// TODO(#519): Clarify empty value semantics:
+//   - alerts map: Does empty value mean "alert cleared" or "invalid state"?
+//   - blockedBranches map: Does empty value mean "branch exists but blocks nothing" or error?
+//
+// Current behavior: Empty values are accepted and preserved in state, which may
+// lead to ambiguous state representation. Define explicit semantics before adding validation.
 func NewFullStateMessage(seqNum uint64, alerts, blockedBranches map[string]string) (*FullStateMessageV2, error) {
 	// Deep copy to prevent external mutation
 	alertsCopy := make(map[string]string, len(alerts))
@@ -131,14 +156,29 @@ type AlertChangeMessageV2 struct {
 
 // NewAlertChangeMessage creates a validated AlertChangeMessage.
 // Returns error if paneID or eventType is empty after trimming.
+// TODO(#522): Add event type constants and validation for recognized event types.
+// Currently any non-empty string is accepted as eventType, which allows typos
+// and inconsistent casing to slip through. Define constants like:
+//   - EventTypeAlert = "alert"
+//   - EventTypeActivity = "activity"
+//   - EventTypeSilence = "silence"
+//
+// Then validate eventType against this allowlist to catch bugs like:
+//   - "Alert" vs "alert" (wrong casing)
+//   - "alrt" vs "alert" (typo)
+//   - "custom_event" (unknown type that should be added to constants first)
 func NewAlertChangeMessage(seqNum uint64, paneID, eventType string, created bool) (*AlertChangeMessageV2, error) {
+	originalPaneID := paneID
+	originalEventType := eventType
 	paneID = strings.TrimSpace(paneID)
 	eventType = strings.TrimSpace(eventType)
 
 	if paneID == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=alert_change reason=empty_pane_id original=%q", originalPaneID)
 		return nil, errors.New("pane_id required")
 	}
 	if eventType == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=alert_change reason=empty_event_type original=%q", originalEventType)
 		return nil, errors.New("event_type required")
 	}
 
@@ -180,8 +220,10 @@ type PaneFocusMessageV2 struct {
 // NewPaneFocusMessage creates a validated PaneFocusMessage.
 // Returns error if activePaneID is empty after trimming.
 func NewPaneFocusMessage(seqNum uint64, activePaneID string) (*PaneFocusMessageV2, error) {
+	originalActivePaneID := activePaneID
 	activePaneID = strings.TrimSpace(activePaneID)
 	if activePaneID == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=pane_focus reason=empty_active_pane_id original=%q", originalActivePaneID)
 		return nil, errors.New("active_pane_id required")
 	}
 	return &PaneFocusMessageV2{seqNum: seqNum, activePaneID: activePaneID}, nil
@@ -210,13 +252,17 @@ type BlockBranchMessageV2 struct {
 // NewBlockBranchMessage creates a validated BlockBranchMessage.
 // Returns error if branch or blockedBranch is empty after trimming.
 func NewBlockBranchMessage(seqNum uint64, branch, blockedBranch string) (*BlockBranchMessageV2, error) {
+	originalBranch := branch
+	originalBlockedBranch := blockedBranch
 	branch = strings.TrimSpace(branch)
 	blockedBranch = strings.TrimSpace(blockedBranch)
 
 	if branch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=block_branch reason=empty_branch original=%q", originalBranch)
 		return nil, errors.New("branch required")
 	}
 	if blockedBranch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=block_branch reason=empty_blocked_branch original=%q", originalBlockedBranch)
 		return nil, errors.New("blocked_branch required")
 	}
 
@@ -253,8 +299,10 @@ type UnblockBranchMessageV2 struct {
 // NewUnblockBranchMessage creates a validated UnblockBranchMessage.
 // Returns error if branch is empty after trimming.
 func NewUnblockBranchMessage(seqNum uint64, branch string) (*UnblockBranchMessageV2, error) {
+	originalBranch := branch
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=unblock_branch reason=empty_branch original=%q", originalBranch)
 		return nil, errors.New("branch required")
 	}
 	return &UnblockBranchMessageV2{seqNum: seqNum, branch: branch}, nil
@@ -281,15 +329,18 @@ type BlockChangeMessageV2 struct {
 	blocked       bool
 }
 
-// TODO(#328): Consider extracting conditional validation pattern into helper function
+// TODO(#328): Extract repeated conditional validation pattern (blocked=true requires blockedBranch)
 // NewBlockChangeMessage creates a validated BlockChangeMessage.
 // Returns error if branch is empty after trimming.
 // If blocked is false, blockedBranch should be empty (will be cleared).
 func NewBlockChangeMessage(seqNum uint64, branch, blockedBranch string, blocked bool) (*BlockChangeMessageV2, error) {
+	originalBranch := branch
+	originalBlockedBranch := blockedBranch
 	branch = strings.TrimSpace(branch)
 	blockedBranch = strings.TrimSpace(blockedBranch)
 
 	if branch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=block_change reason=empty_branch original=%q", originalBranch)
 		return nil, errors.New("branch required")
 	}
 
@@ -297,6 +348,7 @@ func NewBlockChangeMessage(seqNum uint64, branch, blockedBranch string, blocked 
 	if !blocked {
 		blockedBranch = ""
 	} else if blockedBranch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=block_change reason=empty_blocked_branch_when_blocked original=%q blocked=%t", originalBlockedBranch, blocked)
 		return nil, errors.New("blocked_branch required when blocked is true")
 	}
 
@@ -338,8 +390,10 @@ type QueryBlockedStateMessageV2 struct {
 // NewQueryBlockedStateMessage creates a validated QueryBlockedStateMessage.
 // Returns error if branch is empty after trimming.
 func NewQueryBlockedStateMessage(seqNum uint64, branch string) (*QueryBlockedStateMessageV2, error) {
+	originalBranch := branch
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=query_blocked_state reason=empty_branch original=%q", originalBranch)
 		return nil, errors.New("branch required")
 	}
 	return &QueryBlockedStateMessageV2{seqNum: seqNum, branch: branch}, nil
@@ -366,14 +420,17 @@ type BlockedStateResponseMessageV2 struct {
 	blockedBranch string
 }
 
-// TODO(#328): Consider extracting conditional validation pattern into helper function
+// TODO(#328): Extract repeated conditional validation pattern (blocked=true requires blockedBranch)
 // NewBlockedStateResponseMessage creates a validated BlockedStateResponseMessage.
 // Returns error if branch is empty or if isBlocked is true but blockedBranch is empty.
 func NewBlockedStateResponseMessage(seqNum uint64, branch string, isBlocked bool, blockedBranch string) (*BlockedStateResponseMessageV2, error) {
+	originalBranch := branch
+	originalBlockedBranch := blockedBranch
 	branch = strings.TrimSpace(branch)
 	blockedBranch = strings.TrimSpace(blockedBranch)
 
 	if branch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=blocked_state_response reason=empty_branch original=%q", originalBranch)
 		return nil, errors.New("branch required")
 	}
 
@@ -381,6 +438,7 @@ func NewBlockedStateResponseMessage(seqNum uint64, branch string, isBlocked bool
 	if !isBlocked {
 		blockedBranch = ""
 	} else if blockedBranch == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=blocked_state_response reason=empty_blocked_branch_when_blocked original=%q is_blocked=%t", originalBlockedBranch, isBlocked)
 		return nil, errors.New("blocked_branch required when is_blocked is true")
 	}
 
@@ -477,6 +535,10 @@ type HealthResponseMessageV2 struct {
 }
 
 // NewHealthResponseMessage creates a validated HealthResponseMessage.
+// TODO(#524): Add HealthStatus content validation:
+// - Reject negative values for counters (activeClients, totalMessages, etc.)
+// - Validate timestamp fields are not in future
+// - Ensure uptime is non-negative
 func NewHealthResponseMessage(seqNum uint64, healthStatus HealthStatus) (*HealthResponseMessageV2, error) {
 	return &HealthResponseMessageV2{seqNum: seqNum, healthStatus: healthStatus}, nil
 }
@@ -502,13 +564,20 @@ type SyncWarningMessageV2 struct {
 }
 
 // NewSyncWarningMessage creates a validated SyncWarningMessage.
-// originalMsgType indicates which message type failed to sync.
-// errorMsg is optional but recommended for debugging.
+// originalMsgType indicates which message type failed to sync (required).
+// errorMsg provides diagnostic context about the sync failure.
+// While errorMsg may be empty (not validated), callers should ALWAYS provide it when:
+//   - An error object is available (use err.Error())
+//   - The failure reason is known (e.g., "channel full", "timeout")
+//
+// Only omit errorMsg if the sync warning is for tracking purposes without a specific error.
 func NewSyncWarningMessage(seqNum uint64, originalMsgType, errorMsg string) (*SyncWarningMessageV2, error) {
+	originalOriginalMsgType := originalMsgType
 	originalMsgType = strings.TrimSpace(originalMsgType)
 	errorMsg = strings.TrimSpace(errorMsg)
 
 	if originalMsgType == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=sync_warning reason=empty_original_msg_type original=%q", originalOriginalMsgType)
 		return nil, errors.New("original_msg_type required")
 	}
 
@@ -562,9 +631,12 @@ type PersistenceErrorMessageV2 struct {
 }
 
 // NewPersistenceErrorMessage creates a validated PersistenceErrorMessage.
-// errorMsg is optional but recommended for debugging.
+// Returns error if errorMsg is empty after trimming.
 func NewPersistenceErrorMessage(seqNum uint64, errorMsg string) (*PersistenceErrorMessageV2, error) {
 	errorMsg = strings.TrimSpace(errorMsg)
+	if errorMsg == "" {
+		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value")
+	}
 	return &PersistenceErrorMessageV2{seqNum: seqNum, errorMsg: errorMsg}, nil
 }
 
@@ -588,9 +660,12 @@ type AudioErrorMessageV2 struct {
 }
 
 // NewAudioErrorMessage creates a validated AudioErrorMessage.
-// errorMsg is optional but recommended for debugging.
+// Returns error if errorMsg is empty after trimming.
 func NewAudioErrorMessage(seqNum uint64, errorMsg string) (*AudioErrorMessageV2, error) {
 	errorMsg = strings.TrimSpace(errorMsg)
+	if errorMsg == "" {
+		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value")
+	}
 	return &AudioErrorMessageV2{seqNum: seqNum, errorMsg: errorMsg}, nil
 }
 
@@ -616,8 +691,10 @@ type ShowBlockPickerMessageV2 struct {
 // NewShowBlockPickerMessage creates a validated ShowBlockPickerMessage.
 // Returns error if paneID is empty after trimming.
 func NewShowBlockPickerMessage(seqNum uint64, paneID string) (*ShowBlockPickerMessageV2, error) {
+	originalPaneID := paneID
 	paneID = strings.TrimSpace(paneID)
 	if paneID == "" {
+		debug.Log("MESSAGE_VALIDATION_FAILED type=show_block_picker reason=empty_pane_id original=%q", originalPaneID)
 		return nil, errors.New("pane_id required")
 	}
 	return &ShowBlockPickerMessageV2{seqNum: seqNum, paneID: paneID}, nil
@@ -638,6 +715,12 @@ func (m *ShowBlockPickerMessageV2) PaneID() string { return m.paneID }
 
 // FromWireFormat converts a v1 Message to a type-safe v2 message.
 // Returns error if the message is invalid or has missing required fields.
+// TODO(#521): Add validation for extraneous fields to catch message construction bugs.
+// Example: HelloMessage with unexpected 'Alerts' field should be rejected to detect
+// mismatched message type/content.
+// TODO(#523): Add exhaustiveness test to ensure all message types are handled.
+// Test should fail at compile-time or test-time when new message types are added
+// but not handled in FromWireFormat switch.
 func FromWireFormat(msg Message) (MessageV2, error) {
 	// Validate first
 	if err := ValidateMessage(msg); err != nil {
@@ -646,63 +729,153 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 
 	switch msg.Type {
 	case MsgTypeHello:
-		return NewHelloMessage(msg.SeqNum, msg.ClientID)
+		v2msg, err := NewHelloMessage(msg.SeqNum, msg.ClientID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, clientID=%q): %w",
+				MsgTypeHello, msg.SeqNum, msg.ClientID, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeFullState:
-		return NewFullStateMessage(msg.SeqNum, msg.Alerts, msg.BlockedBranches)
+		v2msg, err := NewFullStateMessage(msg.SeqNum, msg.Alerts, msg.BlockedBranches)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeFullState, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeAlertChange:
-		return NewAlertChangeMessage(msg.SeqNum, msg.PaneID, msg.EventType, msg.Created)
+		v2msg, err := NewAlertChangeMessage(msg.SeqNum, msg.PaneID, msg.EventType, msg.Created)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, paneID=%q, eventType=%q): %w",
+				MsgTypeAlertChange, msg.SeqNum, msg.PaneID, msg.EventType, err)
+		}
+		return v2msg, nil
 
 	case MsgTypePaneFocus:
-		return NewPaneFocusMessage(msg.SeqNum, msg.ActivePaneID)
+		v2msg, err := NewPaneFocusMessage(msg.SeqNum, msg.ActivePaneID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, activePaneID=%q): %w",
+				MsgTypePaneFocus, msg.SeqNum, msg.ActivePaneID, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeBlockBranch:
-		return NewBlockBranchMessage(msg.SeqNum, msg.Branch, msg.BlockedBranch)
+		v2msg, err := NewBlockBranchMessage(msg.SeqNum, msg.Branch, msg.BlockedBranch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, branch=%q, blockedBranch=%q): %w",
+				MsgTypeBlockBranch, msg.SeqNum, msg.Branch, msg.BlockedBranch, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeUnblockBranch:
-		return NewUnblockBranchMessage(msg.SeqNum, msg.Branch)
+		v2msg, err := NewUnblockBranchMessage(msg.SeqNum, msg.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, branch=%q): %w",
+				MsgTypeUnblockBranch, msg.SeqNum, msg.Branch, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeBlockChange:
-		return NewBlockChangeMessage(msg.SeqNum, msg.Branch, msg.BlockedBranch, msg.Blocked)
+		v2msg, err := NewBlockChangeMessage(msg.SeqNum, msg.Branch, msg.BlockedBranch, msg.Blocked)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, branch=%q, blocked=%t): %w",
+				MsgTypeBlockChange, msg.SeqNum, msg.Branch, msg.Blocked, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeQueryBlockedState:
-		return NewQueryBlockedStateMessage(msg.SeqNum, msg.Branch)
+		v2msg, err := NewQueryBlockedStateMessage(msg.SeqNum, msg.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, branch=%q): %w",
+				MsgTypeQueryBlockedState, msg.SeqNum, msg.Branch, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeBlockedStateResponse:
-		return NewBlockedStateResponseMessage(msg.SeqNum, msg.Branch, msg.IsBlocked, msg.BlockedBranch)
+		v2msg, err := NewBlockedStateResponseMessage(msg.SeqNum, msg.Branch, msg.IsBlocked, msg.BlockedBranch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, branch=%q, isBlocked=%t): %w",
+				MsgTypeBlockedStateResponse, msg.SeqNum, msg.Branch, msg.IsBlocked, err)
+		}
+		return v2msg, nil
 
 	case MsgTypePing:
-		return NewPingMessage(msg.SeqNum)
+		v2msg, err := NewPingMessage(msg.SeqNum)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypePing, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypePong:
-		return NewPongMessage(msg.SeqNum)
+		v2msg, err := NewPongMessage(msg.SeqNum)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypePong, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeHealthQuery:
-		return NewHealthQueryMessage(msg.SeqNum)
+		v2msg, err := NewHealthQueryMessage(msg.SeqNum)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeHealthQuery, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeHealthResponse:
 		if msg.HealthStatus == nil {
-			return nil, errors.New("health_response requires health_status")
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): health_response requires health_status",
+				MsgTypeHealthResponse, msg.SeqNum)
 		}
-		return NewHealthResponseMessage(msg.SeqNum, *msg.HealthStatus)
+		v2msg, err := NewHealthResponseMessage(msg.SeqNum, *msg.HealthStatus)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeHealthResponse, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeSyncWarning:
-		return NewSyncWarningMessage(msg.SeqNum, msg.OriginalMsgType, msg.Error)
+		v2msg, err := NewSyncWarningMessage(msg.SeqNum, msg.OriginalMsgType, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, originalMsgType=%q): %w",
+				MsgTypeSyncWarning, msg.SeqNum, msg.OriginalMsgType, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeResyncRequest:
-		return NewResyncRequestMessage(msg.SeqNum)
+		v2msg, err := NewResyncRequestMessage(msg.SeqNum)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeResyncRequest, msg.SeqNum, err)
+		}
+		return v2msg, nil
 
 	case MsgTypePersistenceError:
-		return NewPersistenceErrorMessage(msg.SeqNum, msg.Error)
+		v2msg, err := NewPersistenceErrorMessage(msg.SeqNum, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, error=%q): %w",
+				MsgTypePersistenceError, msg.SeqNum, msg.Error, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeAudioError:
-		return NewAudioErrorMessage(msg.SeqNum, msg.Error)
+		v2msg, err := NewAudioErrorMessage(msg.SeqNum, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, error=%q): %w",
+				MsgTypeAudioError, msg.SeqNum, msg.Error, err)
+		}
+		return v2msg, nil
 
 	case MsgTypeShowBlockPicker:
-		return NewShowBlockPickerMessage(msg.SeqNum, msg.PaneID)
+		v2msg, err := NewShowBlockPickerMessage(msg.SeqNum, msg.PaneID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, paneID=%q): %w",
+				MsgTypeShowBlockPicker, msg.SeqNum, msg.PaneID, err)
+		}
+		return v2msg, nil
 
 	default:
-		return nil, fmt.Errorf("unknown message type: %s", msg.Type)
+		debug.Log("MESSAGE_TYPE_UNKNOWN type=%q seq=%d reason=not_in_switch_statement",
+			msg.Type, msg.SeqNum)
+		// TODO(#536): Upgrade to high-severity logging with Sentry integration once logError infrastructure exists
+		// Unknown message types indicate version skew or corruption - should be monitored in production
+		return nil, fmt.Errorf("unknown message type %q (seq=%d) - may indicate client/server version mismatch or message corruption",
+			msg.Type, msg.SeqNum)
 	}
 }
