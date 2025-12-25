@@ -25,7 +25,7 @@ echo "  UI: http://localhost:${UI_PORT}"
 echo ""
 
 # Check if THIS worktree's emulators are already running
-if nc -z localhost $AUTH_PORT 2>/dev/null; then
+if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "Emulators already running for this worktree - reusing instance"
   echo "  PID file: $PID_FILE"
   exit 0
@@ -75,12 +75,37 @@ wait_for_emulator() {
   local retry_count=0
 
   echo "Waiting for ${name} emulator on port ${port}..."
-  while ! nc -z localhost ${port} 2>/dev/null; do
+  while ! nc -z 127.0.0.1 ${port} 2>/dev/null; do
     retry_count=$((retry_count + 1))
     if [ $retry_count -ge $MAX_RETRIES ]; then
       echo "ERROR: ${name} emulator failed to start after ${MAX_RETRIES} seconds"
-      echo "Last 20 lines of emulator log:"
-      tail -n 20 "$LOG_FILE"
+      echo "  Port: ${port}"
+      echo "  PID: ${EMULATOR_PID}"
+      echo ""
+      echo "=== EMULATOR STARTUP LOG (last 40 lines) ==="
+      tail -n 40 "$LOG_FILE"
+      echo ""
+      echo "=== CHECKING FOR COMMON ERROR PATTERNS ==="
+
+      # Check for specific failure patterns
+      if grep -q "EADDRINUSE" "$LOG_FILE"; then
+        echo "❌ CAUSE: Port ${port} is already in use"
+        echo "   Action: Run 'lsof -ti :${port}' to find the conflicting process"
+      elif grep -q "Cannot find module" "$LOG_FILE"; then
+        echo "❌ CAUSE: Missing Node.js dependencies"
+        echo "   Action: Run 'pnpm install' in the repository root"
+      elif grep -q -i "java" "$LOG_FILE" 2>/dev/null; then
+        echo "❌ CAUSE: Java/JAR download or execution failure"
+        echo "   Action: Check Java installation with 'java -version'"
+      elif grep -q "SIGTERM" "$LOG_FILE"; then
+        echo "❌ CAUSE: Emulator received shutdown signal during startup"
+        echo "   Action: Check if another emulator failed (see log above)"
+      fi
+
+      echo ""
+      echo "Full log file: $LOG_FILE"
+      echo ""
+
       kill $EMULATOR_PID 2>/dev/null || true
       rm -f "$PID_FILE"
       exit 1
@@ -94,6 +119,40 @@ wait_for_emulator() {
 wait_for_emulator "Auth" "$AUTH_PORT"
 wait_for_emulator "Firestore" "$FIRESTORE_PORT"
 wait_for_emulator "Storage" "$STORAGE_PORT"
+
+# Verify emulators are actually serving requests (not just bound to ports)
+echo ""
+echo "Verifying emulator HTTP endpoints..."
+
+# Wait a moment for services to fully initialize after port binding
+sleep 3
+
+# Check Auth emulator REST API
+if curl -sf "http://127.0.0.1:${AUTH_PORT}/identitytoolkit.googleapis.com/v1/projects/demo-test/accounts" > /dev/null 2>&1; then
+  echo "✓ Auth emulator HTTP API is responding"
+else
+  echo "⚠️  WARNING: Auth emulator port is open but not responding to HTTP requests"
+  echo "   This may indicate the emulator crashed during startup"
+  echo ""
+  echo "=== Last 30 lines of emulator log ==="
+  tail -n 30 "$LOG_FILE"
+  echo ""
+  echo "Full log: $LOG_FILE"
+fi
+
+# Check Firestore emulator
+if curl -sf "http://127.0.0.1:${FIRESTORE_PORT}/" > /dev/null 2>&1; then
+  echo "✓ Firestore emulator HTTP API is responding"
+else
+  echo "⚠️  WARNING: Firestore emulator port is open but not responding to HTTP requests"
+fi
+
+# Check Storage emulator
+if curl -sf "http://127.0.0.1:${STORAGE_PORT}/" > /dev/null 2>&1; then
+  echo "✓ Storage emulator HTTP API is responding"
+else
+  echo "⚠️  WARNING: Storage emulator port is open but not responding to HTTP requests"
+fi
 
 echo ""
 echo "Firebase emulators are ready!"

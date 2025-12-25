@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stop Firebase emulators
-# WARNING: Emulators are SHARED across all worktrees!
-# Stopping them will affect all active worktrees.
+# Stop Firebase emulators for this worktree
+# Each worktree runs isolated emulators with unique ports
 
-SHARED_PID_FILE="/tmp/claude/firebase-emulators.pid"
-SHARED_LOG_FILE="/tmp/claude/firebase-emulators.log"
+# Source port allocation script to get worktree-specific paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
-echo "⚠️  WARNING: Emulators are shared across all worktrees!"
-echo "   Stopping them will affect all active worktrees."
-echo ""
+# Worktree-specific PID and log files (use WORKTREE_TMP_DIR from allocate-test-ports.sh)
+PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
+LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
+TEMP_FIREBASE_JSON="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}/firebase.${WORKTREE_HASH}.json"
 
-if [ ! -f "$SHARED_PID_FILE" ]; then
-  echo "No emulator PID file found at ${SHARED_PID_FILE}"
+echo "Stopping Firebase emulators for this worktree..."
+echo "  PID file: $PID_FILE"
+
+if [ ! -f "$PID_FILE" ]; then
+  echo "No emulator PID file found"
   echo "Emulators may not be running or were started manually."
   exit 0
 fi
 
-EMULATOR_PID=$(cat "$SHARED_PID_FILE")
+EMULATOR_PID=$(cat "$PID_FILE")
 
-echo "Stopping shared Firebase emulators (PID: ${EMULATOR_PID})..."
+echo "Stopping Firebase emulators (PID: ${EMULATOR_PID})..."
 
 # Kill the emulator process
 if kill "$EMULATOR_PID" 2>/dev/null; then
@@ -30,15 +34,20 @@ else
 fi
 
 # Clean up PID file
-rm -f "$SHARED_PID_FILE"
+rm -f "$PID_FILE"
 echo "✓ Cleaned up PID file"
 
 # Clean up log file
-if [ -f "$SHARED_LOG_FILE" ]; then
-  rm -f "$SHARED_LOG_FILE"
+if [ -f "$LOG_FILE" ]; then
+  rm -f "$LOG_FILE"
   echo "✓ Cleaned up log file"
+fi
+
+# Clean up temporary firebase config
+if [ -f "$TEMP_FIREBASE_JSON" ]; then
+  rm -f "$TEMP_FIREBASE_JSON"
+  echo "✓ Cleaned up temporary firebase config"
 fi
 
 echo ""
 echo "✓ Firebase emulators stopped successfully"
-echo "  All worktrees are now disconnected from emulators"
