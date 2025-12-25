@@ -11,7 +11,7 @@ type AuthFixtures = {
 
 export const test = base.extend<AuthFixtures>({
   authEmulator: async ({ page }, use) => {
-    const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+    const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
 
     const createTestUser = async (email: string, password: string = 'testpassword123') => {
