@@ -63,8 +63,7 @@ async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<strin
       return content;
     } catch (error) {
       // Error handling: ValidationError if file unreadable
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error reading file';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error reading file';
       throw new ValidationError(
         `Failed to read verbatim_response_file at "${input.verbatim_response_file}": ${errorMessage}. ` +
           'Ensure the review output was written to the temp file before calling this tool. ' +
