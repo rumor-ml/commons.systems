@@ -31,7 +31,7 @@ import { readFile } from 'fs/promises';
  * @returns The verbatim response content
  * @throws ValidationError if neither parameter provided or file unreadable
  */
-async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
+export async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
   // Validate: at least one must be provided
   if (!input.verbatim_response && !input.verbatim_response_file) {
     throw new ValidationError(

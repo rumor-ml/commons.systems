@@ -17,7 +17,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { writeFile, unlink, chmod } from 'fs/promises';
 import type { ReviewConfig, ReviewCompletionInput } from './review-completion-helper.js';
+import { loadVerbatimResponse } from './review-completion-helper.js';
 import {
   STEP_PHASE1_PR_REVIEW,
   STEP_PHASE1_SECURITY_REVIEW,
@@ -94,6 +96,140 @@ describe('review-completion-helper', () => {
         low_priority_issues: 0,
       };
       assert.strictEqual(input.high_priority_issues, 0);
+    });
+  });
+
+  describe('loadVerbatimResponse', () => {
+    it('should throw ValidationError when neither parameter provided', async () => {
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      await assert.rejects(
+        async () => loadVerbatimResponse(input),
+        {
+          name: 'ValidationError',
+          message: /Either verbatim_response or verbatim_response_file must be provided/,
+        }
+      );
+    });
+
+    it('should throw ValidationError with file pattern when file does not exist', async () => {
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response_file: '/tmp/claude/nonexistent-file-' + Date.now() + '.md',
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      await assert.rejects(
+        async () => loadVerbatimResponse(input),
+        {
+          name: 'ValidationError',
+          message: /Failed to read verbatim_response_file.*File pattern:/,
+        }
+      );
+    });
+
+    it('should successfully read and return file content', async () => {
+      // Create temp file with test content
+      const tempFile = '/tmp/claude/test-review-' + Date.now() + '.md';
+      await writeFile(tempFile, 'Test review output');
+
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response_file: tempFile,
+        high_priority_issues: 1,
+        medium_priority_issues: 2,
+        low_priority_issues: 3,
+      };
+
+      const result = await loadVerbatimResponse(input);
+      assert.strictEqual(result, 'Test review output');
+
+      // Cleanup
+      await unlink(tempFile);
+    });
+
+    it('should prefer file over inline when both provided', async () => {
+      const tempFile = '/tmp/claude/test-review-' + Date.now() + '.md';
+      await writeFile(tempFile, 'File content');
+
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response: 'Inline content',
+        verbatim_response_file: tempFile,
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      const result = await loadVerbatimResponse(input);
+      assert.strictEqual(result, 'File content');
+
+      await unlink(tempFile);
+    });
+
+    it('should return inline content when only verbatim_response provided', async () => {
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response: 'Inline review content',
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      const result = await loadVerbatimResponse(input);
+      assert.strictEqual(result, 'Inline review content');
+    });
+
+    it('should throw ValidationError for permission denied', async () => {
+      // Create temp file with restricted permissions
+      const tempFile = '/tmp/claude/test-restricted-' + Date.now() + '.md';
+      await writeFile(tempFile, 'Test content');
+      await chmod(tempFile, 0o000); // No read permissions
+
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response_file: tempFile,
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      await assert.rejects(
+        async () => loadVerbatimResponse(input),
+        {
+          name: 'ValidationError',
+          message: /Failed to read verbatim_response_file/,
+        }
+      );
+
+      // Cleanup
+      await chmod(tempFile, 0o644);
+      await unlink(tempFile);
+    });
+
+    it('should successfully read empty file (no validation)', async () => {
+      const tempFile = '/tmp/claude/test-empty-' + Date.now() + '.md';
+      await writeFile(tempFile, '');
+
+      const input: ReviewCompletionInput = {
+        command_executed: true,
+        verbatim_response_file: tempFile,
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      const result = await loadVerbatimResponse(input);
+      assert.strictEqual(result, '');
+
+      await unlink(tempFile);
     });
   });
 
