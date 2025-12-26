@@ -22,6 +22,66 @@ import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
+import { readFile } from 'fs/promises';
+
+/**
+ * Load verbatim response from file or inline parameter
+ *
+ * @param input - Review completion input
+ * @returns The verbatim response content
+ * @throws ValidationError if neither parameter provided or file unreadable
+ */
+async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
+  // Validate: at least one must be provided
+  if (!input.verbatim_response && !input.verbatim_response_file) {
+    throw new ValidationError(
+      'Either verbatim_response or verbatim_response_file must be provided. ' +
+        'Preferred: write review output to /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md ' +
+        'and pass the file path via verbatim_response_file parameter.'
+    );
+  }
+
+  // If both provided: prefer file with warning
+  if (input.verbatim_response && input.verbatim_response_file) {
+    logger.warn(
+      'Both verbatim_response and verbatim_response_file provided - using file (verbatim_response_file takes precedence)',
+      {
+        filePath: input.verbatim_response_file,
+        inlineLength: input.verbatim_response.length,
+      }
+    );
+  }
+
+  // If file path provided: read and return content
+  if (input.verbatim_response_file) {
+    try {
+      const content = await readFile(input.verbatim_response_file, 'utf-8');
+      logger.info('Loaded verbatim response from temp file', {
+        filePath: input.verbatim_response_file,
+        contentLength: content.length,
+      });
+      return content;
+    } catch (error) {
+      // Error handling: ValidationError if file unreadable
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error reading file';
+      throw new ValidationError(
+        `Failed to read verbatim_response_file at "${input.verbatim_response_file}": ${errorMessage}. ` +
+          'Ensure the review output was written to the temp file before calling this tool. ' +
+          'File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md'
+      );
+    }
+  }
+
+  // If inline: return (deprecated path)
+  logger.warn(
+    'Using deprecated verbatim_response parameter - consider using verbatim_response_file to reduce token usage',
+    {
+      inlineLength: input.verbatim_response!.length,
+    }
+  );
+  return input.verbatim_response!;
+}
 
 /**
  * Zod schema for ReviewConfig runtime validation
@@ -62,7 +122,8 @@ export interface ReviewConfig {
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
-  verbatim_response: z.string(),
+  verbatim_response: z.string().optional(),
+  verbatim_response_file: z.string().optional(),
   high_priority_issues: z.number(),
   medium_priority_issues: z.number(),
   low_priority_issues: z.number(),
@@ -74,7 +135,8 @@ export const ReviewCompletionInputSchema = z.object({
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
-  verbatim_response: string;
+  verbatim_response?: string;
+  verbatim_response_file?: string;
   high_priority_issues: number;
   medium_priority_issues: number;
   low_priority_issues: number;
@@ -111,9 +173,12 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
  * TODO(#334): Add test for phase-specific command selection
  */
 export function buildCommentContent(
-  input: ReviewCompletionInput,
+  verbatimResponse: string,
   reviewStep: WiggumStep,
   totalIssues: number,
+  highPriorityIssues: number,
+  mediumPriorityIssues: number,
+  lowPriorityIssues: number,
   config: ReviewConfig,
   phase: WiggumPhase
 ): { title: string; body: string } {
@@ -129,15 +194,15 @@ export function buildCommentContent(
       ? `**Command Executed:** \`${commandExecuted}\`
 
 **${config.reviewTypeLabel} Issues Found:**
-- High Priority: ${input.high_priority_issues}
-- Medium Priority: ${input.medium_priority_issues}
-- Low Priority: ${input.low_priority_issues}
+- High Priority: ${highPriorityIssues}
+- Medium Priority: ${mediumPriorityIssues}
+- Low Priority: ${lowPriorityIssues}
 - **Total: ${totalIssues}**
 
 <details>
 <summary>Full ${config.reviewTypeLabel} Review Output</summary>
 
-${input.verbatim_response}
+${verbatimResponse}
 
 </details>
 
@@ -328,6 +393,9 @@ export async function completeReview(
 
   // TODO(#448): Add validation for non-negative integer issue counts
 
+  // Load verbatim response from file or inline parameter
+  const verbatimResponse = await loadVerbatimResponse(input);
+
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
 
@@ -337,9 +405,12 @@ export async function completeReview(
     input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
 
   const { title, body } = buildCommentContent(
-    input,
+    verbatimResponse,
     reviewStep,
     totalIssues,
+    input.high_priority_issues,
+    input.medium_priority_issues,
+    input.low_priority_issues,
     config,
     state.wiggum.phase
   );

@@ -18,7 +18,14 @@ import { completeReview, type ReviewConfig } from './review-completion-helper.js
 
 export const CompletePRReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm PR review command was actually executed'),
-  verbatim_response: z.string().describe('Complete verbatim response from review command'),
+  verbatim_response: z
+    .string()
+    .optional()
+    .describe('DEPRECATED: Complete verbatim response from review command. Use verbatim_response_file instead.'),
+  verbatim_response_file: z
+    .string()
+    .optional()
+    .describe('Path to temp file containing complete verbatim response from review command (preferred method)'),
   high_priority_issues: z.number().describe('Count of high priority issues found'),
   medium_priority_issues: z.number().describe('Count of medium priority issues found'),
   low_priority_issues: z.number().describe('Count of low priority issues found'),

@@ -192,10 +192,21 @@ Call the EnterPlanMode tool to enter planning mode for the triage process.
 
 **Working on Issue:** #${issueNumber}
 
-### 2a. Fetch Issue Context
+### 2a. Locate Review Results
+
+Review output was written to temp file for token efficiency.
+
+**File Pattern:** \`/tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md\`
+
+**To view if needed:**
+\`\`\`bash
+ls -t /tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md | head -1 | xargs cat
+\`\`\`
+
+### 2b. Fetch Issue Context
 Use \`mcp__gh-issue__gh_get_issue_context\` for issue #${issueNumber}.
 
-### 2b. Triage Each Recommendation
+### 2c. Triage Each Recommendation
 
 For EACH recommendation, determine if **IN SCOPE** or **OUT OF SCOPE**:
 
@@ -209,17 +220,17 @@ For EACH recommendation, determine if **IN SCOPE** or **OUT OF SCOPE**:
 - General quality/testing improvements not specific to this implementation
 - Recommendations about code not changed in this PR
 
-### 2c. Handle Ambiguous Scope
+### 2d. Handle Ambiguous Scope
 If scope unclear for any recommendation:
 1. Use AskUserQuestion to clarify scope
 2. Update issue body with scope clarifications using \`gh issue edit\`
 
-### 2d. Check Existing Issues for Out-of-Scope Items
+### 2e. Check Existing Issues for Out-of-Scope Items
 For each OUT OF SCOPE recommendation:
 1. Search existing issues: \`gh issue list -S "search terms" --json number,title,body\`
 2. Note existing issue # OR plan to create new issue
 
-### 2e. Write Plan with These Sections
+### 2f. Write Plan with These Sections
 
 **A. In-Scope Fixes** - All fixes for in-scope recommendations (ALL severities)
 
@@ -228,7 +239,7 @@ For each OUT OF SCOPE recommendation:
 - Existing issue # OR "Create new issue with title: [title]"
 - File/line to add TODO comment
 
-### 2f. Exit Plan Mode
+### 2g. Exit Plan Mode
 Call ExitPlanMode when plan is complete.
 
 ## Step 3: Execute Plan (After Exiting Plan Mode)
