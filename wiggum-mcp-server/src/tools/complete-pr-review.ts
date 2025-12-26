@@ -21,7 +21,9 @@ export const CompletePRReviewInputSchema = z.object({
   verbatim_response: z
     .string()
     .optional()
-    .describe('DEPRECATED: Complete verbatim response from review command. Use verbatim_response_file instead.'),
+    .describe(
+      'DEPRECATED: Complete verbatim response from review command. Use verbatim_response_file instead.'
+    ),
   verbatim_response_file: z
     .string()
     .optional()
