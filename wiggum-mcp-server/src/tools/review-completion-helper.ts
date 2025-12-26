@@ -168,6 +168,13 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
   }
 }
 
+interface IssueCounts {
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}
+
 /**
  * Build comment content based on review results
  * TODO(#334): Add test for phase-specific command selection
@@ -175,29 +182,26 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
 export function buildCommentContent(
   verbatimResponse: string,
   reviewStep: WiggumStep,
-  totalIssues: number,
-  highPriorityIssues: number,
-  mediumPriorityIssues: number,
-  lowPriorityIssues: number,
+  issues: IssueCounts,
   config: ReviewConfig,
   phase: WiggumPhase
 ): { title: string; body: string } {
   const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
 
   const title =
-    totalIssues > 0
+    issues.total > 0
       ? `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) - Issues Found`
       : `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) Complete - No Issues`;
 
   const body =
-    totalIssues > 0
+    issues.total > 0
       ? `**Command Executed:** \`${commandExecuted}\`
 
 **${config.reviewTypeLabel} Issues Found:**
-- High Priority: ${highPriorityIssues}
-- Medium Priority: ${mediumPriorityIssues}
-- Low Priority: ${lowPriorityIssues}
-- **Total: ${totalIssues}**
+- High Priority: ${issues.high}
+- Medium Priority: ${issues.medium}
+- Low Priority: ${issues.low}
+- **Total: ${issues.total}**
 
 <details>
 <summary>Full ${config.reviewTypeLabel} Review Output</summary>
@@ -284,7 +288,7 @@ async function postStateComment(
 function buildIterationLimitResponse(
   state: CurrentState,
   reviewStep: WiggumStep,
-  totalIssues: number,
+  issues: IssueCounts,
   newIteration: number
 ): ToolResult {
   const output = {
@@ -301,7 +305,7 @@ function buildIterationLimitResponse(
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number:
         state.wiggum.phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-      total_issues: totalIssues,
+      total_issues: issues.total,
     },
   };
   return {
@@ -315,7 +319,7 @@ function buildIterationLimitResponse(
 function buildIssuesFoundResponse(
   state: CurrentState,
   reviewStep: WiggumStep,
-  totalIssues: number,
+  issues: IssueCounts,
   newIteration: number,
   config: ReviewConfig
 ): ToolResult {
@@ -335,7 +339,7 @@ function buildIssuesFoundResponse(
     {
       phase: state.wiggum.phase,
       issueNumber,
-      totalIssues,
+      totalIssues: issues.total,
       iteration: newIteration,
     }
   );
@@ -346,7 +350,7 @@ function buildIssuesFoundResponse(
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
     iteration_count: newIteration,
-    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues),
+    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, issues.total),
     steps_completed_by_tool: [
       `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
@@ -355,7 +359,7 @@ function buildIssuesFoundResponse(
     context: {
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number: issueNumber,
-      total_issues: totalIssues,
+      total_issues: issues.total,
     },
   };
 
@@ -401,20 +405,21 @@ export async function completeReview(
 
   validatePhaseRequirements(state, config);
 
-  const totalIssues =
-    input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
+  const issues: IssueCounts = {
+    high: input.high_priority_issues,
+    medium: input.medium_priority_issues,
+    low: input.low_priority_issues,
+    total: input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues,
+  };
 
   const { title, body } = buildCommentContent(
     verbatimResponse,
     reviewStep,
-    totalIssues,
-    input.high_priority_issues,
-    input.medium_priority_issues,
-    input.low_priority_issues,
+    issues,
     config,
     state.wiggum.phase
   );
-  const hasIssues = totalIssues > 0;
+  const hasIssues = issues.total > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
   const result = await postStateComment(state, newState, title, body);
@@ -429,19 +434,14 @@ export async function completeReview(
       phase: state.wiggum.phase,
       prNumber: state.pr.exists ? state.pr.number : undefined,
       issueNumber: state.issue.exists ? state.issue.number : undefined,
-      reviewResults: {
-        high: input.high_priority_issues,
-        medium: input.medium_priority_issues,
-        low: input.low_priority_issues,
-        total: totalIssues,
-      },
+      reviewResults: issues,
     });
 
     const reviewResultsSummary = `**${config.reviewTypeLabel} Review Results (NOT persisted):**
-- High Priority: ${input.high_priority_issues}
-- Medium Priority: ${input.medium_priority_issues}
-- Low Priority: ${input.low_priority_issues}
-- **Total: ${totalIssues}**`;
+- High Priority: ${issues.high}
+- Medium Priority: ${issues.medium}
+- Low Priority: ${issues.low}
+- **Total: ${issues.total}**`;
 
     return {
       content: [
@@ -482,10 +482,7 @@ The workflow will resume from this step once the state comment posts successfull
               pr_number: state.pr.exists ? state.pr.number : undefined,
               issue_number: state.issue.exists ? state.issue.number : undefined,
               review_type: config.reviewTypeLabel,
-              total_issues: totalIssues,
-              high_priority_issues: input.high_priority_issues,
-              medium_priority_issues: input.medium_priority_issues,
-              low_priority_issues: input.low_priority_issues,
+              ...issues,
             },
           }),
         },
@@ -495,11 +492,11 @@ The workflow will resume from this step once the state comment posts successfull
   }
 
   if (newState.iteration >= MAX_ITERATIONS) {
-    return buildIterationLimitResponse(state, reviewStep, totalIssues, newState.iteration);
+    return buildIterationLimitResponse(state, reviewStep, issues, newState.iteration);
   }
 
   if (hasIssues) {
-    return buildIssuesFoundResponse(state, reviewStep, totalIssues, newState.iteration, config);
+    return buildIssuesFoundResponse(state, reviewStep, issues, newState.iteration, config);
   }
 
   // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)

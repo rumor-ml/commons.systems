@@ -37,7 +37,34 @@ describe('complete-pr-review tool', () => {
       assert.strictEqual(result.success, false);
     });
 
-    it('should reject missing verbatim_response', () => {
+    it('should accept verbatim_response_file instead of verbatim_response', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
+        high_priority_issues: 5,
+        medium_priority_issues: 10,
+        low_priority_issues: 3,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response: 'Inline review output',
+        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
+        high_priority_issues: 5,
+        medium_priority_issues: 10,
+        low_priority_issues: 3,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
       const input = {
         command_executed: true,
         high_priority_issues: 5,
@@ -45,8 +72,9 @@ describe('complete-pr-review tool', () => {
         low_priority_issues: 3,
       };
 
+      // Schema accepts it - tool runtime validates at least one is provided
       const result = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.success, true);
     });
 
     it('should reject when command_executed is false', () => {

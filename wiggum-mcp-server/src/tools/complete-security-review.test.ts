@@ -37,7 +37,34 @@ describe('complete-security-review tool', () => {
       assert.strictEqual(result.success, false);
     });
 
-    it('should reject missing verbatim_response field', () => {
+    it('should accept verbatim_response_file instead of verbatim_response', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response_file: '/tmp/claude/wiggum-test-security-review-123.md',
+        high_priority_issues: 3,
+        medium_priority_issues: 5,
+        low_priority_issues: 2,
+      };
+
+      const result = CompleteSecurityReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response: 'Inline security review output',
+        verbatim_response_file: '/tmp/claude/wiggum-test-security-review-123.md',
+        high_priority_issues: 3,
+        medium_priority_issues: 5,
+        low_priority_issues: 2,
+      };
+
+      const result = CompleteSecurityReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
       const input = {
         command_executed: true,
         high_priority_issues: 3,
@@ -45,8 +72,9 @@ describe('complete-security-review tool', () => {
         low_priority_issues: 2,
       };
 
+      // Schema accepts it - tool runtime validates at least one is provided
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.success, true);
     });
 
     it('should reject missing security issue counts', () => {
