@@ -75,7 +75,7 @@ interface PlaywrightTestResult {
     message: string;
     stack?: string;
     snippet?: string;
-  } | null; // null = test failed before error object creation (timeout, crash); undefined = test passed (no error)
+  } | null;
 }
 
 interface PlaywrightJsonReport {
@@ -566,20 +566,27 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           `  Last 10 lines:\n${endSnippet}`
       );
 
+      const message = [
+        'Failed to extract Playwright JSON from logs.',
+        '',
+        `Error: ${errorMsg}`,
+        '',
+        'Log statistics:',
+        `  - Total: ${logStats.totalChars} chars, ${logStats.totalLines} lines`,
+        `  - First: ${logStats.firstLine}`,
+        `  - Last: ${logStats.lastLine}`,
+        '',
+        'Common causes:',
+        '  1. Wrong reporter (use --reporter=json)',
+        '  2. Truncated output',
+        '  3. JSON generation failure',
+        '',
+        `Last 10 lines:\n${endSnippet}`,
+      ].join('\n');
+
       const validatedError = safeValidateExtractedError(
         {
-          message:
-            `Failed to extract Playwright JSON from logs.\n\n` +
-            `Error: ${errorMsg}\n\n` +
-            `Log statistics:\n` +
-            `  - Total: ${logStats.totalChars} chars, ${logStats.totalLines} lines\n` +
-            `  - First: ${logStats.firstLine}\n` +
-            `  - Last: ${logStats.lastLine}\n\n` +
-            `Common causes:\n` +
-            `  1. Wrong reporter (use --reporter=json)\n` +
-            `  2. Truncated output\n` +
-            `  3. JSON generation failure\n\n` +
-            `Last 10 lines:\n${endSnippet}`,
+          message,
           rawOutput: [
             `First 500 chars: ${logText.substring(0, 500)}`,
             `Last 500 chars: ${logText.substring(Math.max(0, logText.length - 500))}`,
@@ -925,31 +932,46 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     try {
       const parsed = JSON.parse(fallbackJson);
       if (!parsed.suites && !parsed.config) {
+        const snippet = fallbackJson.substring(0, 200);
         throw new PlaywrightJsonNotFoundError(
           `Valid JSON found but missing required fields (suites, config). ` +
-            `Parse attempts: ${parseAttempts}. May be incomplete Playwright output.`
+            `Parse attempts: ${parseAttempts}. May be incomplete Playwright output. ` +
+            `JSON preview: ${snippet}${fallbackJson.length > 200 ? '...' : ''}`
         );
       }
       console.error(`[WARN] Fallback JSON parsed after ${parseAttempts} attempts`);
       return fallbackJson;
     } catch (err) {
+      const snippet = fallbackJson.substring(0, 200);
+      const jsonPreview = `${snippet}${fallbackJson.length > 200 ? '...' : ''}`;
+
       if (err instanceof SyntaxError) {
         throw new PlaywrightJsonNotFoundError(
           `Incomplete Playwright JSON after ${parseAttempts} attempts. ` +
             `Found start at line ${jsonStart} but parsing failed. ` +
-            `SyntaxError: ${err.message}. Indicates truncated/malformed JSON.`
+            `SyntaxError: ${err.message}. Indicates truncated/malformed JSON. ` +
+            `JSON preview: ${jsonPreview}`
         );
       }
-      // Re-throw our validation errors as-is
+
       if (err instanceof PlaywrightJsonNotFoundError) {
+        console.error(
+          `[DEBUG] extractJsonFromLogs: Re-throwing PlaywrightJsonNotFoundError. ` +
+            `JSON preview: ${jsonPreview}`
+        );
         throw err;
       }
-      // Unexpected error - add context before re-throwing
+
       const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[ERROR] extractJsonFromLogs: Unexpected error in fallback path. ` +
+          `Error: ${errorMsg}. JSON preview: ${jsonPreview}`
+      );
       throw new Error(
         `Unexpected error during Playwright JSON extraction fallback: ${errorMsg}. ` +
           `Parse attempts: ${parseAttempts}, JSON start line: ${jsonStart}, ` +
           `Fallback JSON size: ${fallbackJson.length} chars. ` +
+          `JSON preview: ${jsonPreview}. ` +
           `This may indicate memory issues or a bug in JSON.parse.`,
         { cause: err }
       );

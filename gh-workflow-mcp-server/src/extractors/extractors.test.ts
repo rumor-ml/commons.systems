@@ -335,8 +335,6 @@ describe('PlaywrightExtractor - JSON', () => {
       };
 
       try {
-        // detect() should throw wrapped error for unexpected errors
-        // Rationale: Bugs in detection logic must be surfaced, not hidden
         let thrownError: any = null;
         try {
           extractor.detect(maliciousJSON);
@@ -443,9 +441,6 @@ describe('PlaywrightExtractor - JSON', () => {
         assert.throws(
           () => extractor.extract(logWithValidStructure),
           (err: any) => {
-            // Error should be wrapped with context and preserve original via cause chain
-            // extract() calls detect() which calls extractJsonFromLogs()
-            // Cause chain: detect() Error -> extractJsonFromLogs() Error -> TypeError
             return (
               err instanceof Error &&
               err.message.includes('Playwright detector encountered unexpected error') &&
