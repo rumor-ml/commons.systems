@@ -138,7 +138,7 @@ describe('review-completion-helper', () => {
 
       await assert.rejects(async () => loadReviewResults([emptyFile], []), {
         name: 'ValidationError',
-        message: /File is empty/,
+        message: /Review file is empty/,
       });
 
       await unlink(emptyFile);
@@ -869,7 +869,7 @@ describe('review-completion-helper', () => {
           },
           {
             name: 'ValidationError',
-            message: /File is empty/,
+            message: /Review file is empty/,
           }
         );
 
