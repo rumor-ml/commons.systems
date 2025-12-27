@@ -15,10 +15,10 @@ describe('complete-security-review tool', () => {
     it('should validate required fields', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Security review output here',
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: [],
+        in_scope_count: 3,
+        out_of_scope_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -27,10 +27,10 @@ describe('complete-security-review tool', () => {
 
     it('should reject missing command_executed field', () => {
       const input = {
-        verbatim_response: 'Security review output',
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: [],
+        in_scope_count: 3,
+        out_of_scope_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -40,10 +40,10 @@ describe('complete-security-review tool', () => {
     it('should accept verbatim_response_file instead of verbatim_response', () => {
       const input = {
         command_executed: true,
-        verbatim_response_file: '/tmp/claude/wiggum-test-security-review-123.md',
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
+        out_of_scope_files: ['/path/to/file3.ts'],
+        in_scope_count: 2,
+        out_of_scope_count: 1,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -53,11 +53,10 @@ describe('complete-security-review tool', () => {
     it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Inline security review output',
-        verbatim_response_file: '/tmp/claude/wiggum-test-security-review-123.md',
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: ['/path/to/file2.ts'],
+        in_scope_count: 1,
+        out_of_scope_count: 1,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -67,9 +66,10 @@ describe('complete-security-review tool', () => {
     it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
       const input = {
         command_executed: true,
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
 
       // Schema accepts it - tool runtime validates at least one is provided
@@ -80,8 +80,9 @@ describe('complete-security-review tool', () => {
     it('should reject missing security issue counts', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Security review output',
-        high_priority_issues: 3,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: [],
+        in_scope_count: 3,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -91,10 +92,10 @@ describe('complete-security-review tool', () => {
     it('should accept zero security issues', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'No security issues found',
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -104,24 +105,24 @@ describe('complete-security-review tool', () => {
     it('should accept negative security issue counts at schema level (validated by tool)', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Security review output',
-        high_priority_issues: -1,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: [],
+        in_scope_count: -1,
+        out_of_scope_count: 2,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
-      // Schema accepts it - tool business logic should validate counts are non-negative
-      assert.strictEqual(result.success, true);
+      // Schema rejects negative counts because of .nonnegative()
+      assert.strictEqual(result.success, false);
     });
 
     it('should accept high priority security issues', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Critical security vulnerabilities found',
-        high_priority_issues: 10,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
+        out_of_scope_files: [],
+        in_scope_count: 10,
+        out_of_scope_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -131,10 +132,10 @@ describe('complete-security-review tool', () => {
     it('should validate that command was actually executed', () => {
       const input = {
         command_executed: false, // This should fail business rule validation
-        verbatim_response: 'Security review output',
-        high_priority_issues: 3,
-        medium_priority_issues: 5,
-        low_priority_issues: 2,
+        in_scope_files: ['/path/to/file1.ts'],
+        out_of_scope_files: [],
+        in_scope_count: 3,
+        out_of_scope_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
