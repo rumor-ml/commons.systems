@@ -56,6 +56,28 @@ You are NOT responsible for:
 - Step sequencing (tools determine what's next)
 - Deciding when steps are complete (tools handle this)
 
+### Unsupervised Implementation Flow
+
+When in-scope issues are found during reviews, wiggum launches the unsupervised-implement agent:
+
+**Standard Flow (no clarification needed):**
+
+1. Agent explores codebase and creates plan
+2. Agent invokes accept-edits to implement fixes
+3. Agent validates with tests
+4. Returns `{status: "complete", fixes_applied: [...], tests_passed: true}`
+5. Proceed to /commit-merge-push
+
+**Clarification Flow:**
+
+1. Agent detects ambiguity during exploration/planning
+2. Returns `{status: "needs_clarification", questions: [...], context: {...}}`
+3. Main thread calls AskUserQuestion with questions
+4. Main thread re-invokes agent with user answers in previous_context
+5. Agent resumes from planning/implementation phase
+6. Returns completion status
+7. Proceed to /commit-merge-push
+
 ## Wiggum Two-Phase Workflow
 
 **CRITICAL: Wiggum operates in TWO distinct phases. Understand which phase you're in to avoid confusion.**

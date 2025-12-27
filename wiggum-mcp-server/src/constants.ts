@@ -358,52 +358,50 @@ export function generateScopeSeparatedFixInstructions(
 The review agents have already separated in-scope (must fix) from out-of-scope (track for future).
 Launch BOTH agents in a single message with multiple Task calls to work in parallel:
 
-### Agent 1: Fix In-Scope Issues
+### Agent 1: Unsupervised Implementation
 
 \`\`\`
 Task({
-  subagent_type: "general-purpose",
+  subagent_type: "unsupervised-implement",
   model: "opus",
-  description: "Plan and fix in-scope ${reviewType.toLowerCase()} review issues",
-  prompt: \`Fix in-scope issues from ${reviewType.toLowerCase()} review.
+  description: "Autonomously implement in-scope ${reviewType} fixes",
+  prompt: \`Implement all in-scope issues from ${reviewType.toLowerCase()} review.
 
-**In-Scope Result Files:**
-${inScopeFileList}
+**Context:**
+- in_scope_files: ${inScopeFileList}
+- issue_number: ${issueNumber}
+- review_type: "${reviewType}"
 
-**Issue Context:** #${issueNumber}
-
-**Your Tasks:**
-1. Read ALL in-scope result files above to understand the issues
-2. Launch Plan agent in background to create implementation plan:
-   \\\`\\\`\\\`
-   Task({
-     subagent_type: "Plan",
-     run_in_background: true,
-     description: "Plan fixes for in-scope issues",
-     prompt: "Create implementation plan for fixing all in-scope ${reviewType.toLowerCase()} review issues from the result files. Group related issues, identify dependencies, and create detailed step-by-step plan."
-   })
-   \\\`\\\`\\\`
-3. Wait for Plan agent to complete, then launch accept-edits agent in background:
-   \\\`\\\`\\\`
-   Task({
-     subagent_type: "accept-edits",
-     run_in_background: true,
-     description: "Implement fixes from plan",
-     prompt: "Implement ALL fixes from the plan created by the Plan agent. Fix ALL in-scope issues (all severities). Run tests to validate: \\\\\\\`make test\\\\\\\` or appropriate test command."
-   })
-   \\\`\\\`\\\`
-4. After accept-edits agent completes, prompt user to restart MCP server to test the fixes
-5. Report completion with summary of what was fixed
-
-**Important:**
-- Use TWO sequential background agents: Plan then accept-edits
-- User review of plan is NOT required
-- Fix ALL in-scope issues (all severities)
-- Validate with tests
-- Do not skip any issues
+Follow your system prompt to explore, plan, and implement fixes autonomously.
+If you need clarification, return structured JSON with questions.
 \`
 })
 \`\`\`
+
+**After Agent Completes:**
+
+1. Parse agent response JSON
+2. **If \`status === "needs_clarification"\`:**
+   - Use AskUserQuestion tool with questions from response
+   - Re-invoke unsupervised-implement agent with user answers:
+     \`\`\`
+     Task({
+       subagent_type: "unsupervised-implement",
+       model: "opus",
+       prompt: \`Resume implementation with user clarifications.
+
+       **Previous Context:** \${JSON.stringify(context)}
+
+       **User Answers:**
+       \${userAnswers}
+       \`
+     })
+     \`\`\`
+3. **If \`status === "complete"\`:**
+   - Proceed to commit workflow
+   - Wait for out-of-scope agent to complete
+   - Execute /commit-merge-push
+   - Call wiggum_complete_fix
 `;
 
   if (outOfScopeCount > 0) {
