@@ -727,6 +727,16 @@ describe('review-completion-helper', () => {
 
       await unlink(existingFile);
     });
+
+    it('should handle EISDIR error when path is a directory', async () => {
+      // /tmp/claude is a directory, not a file
+      const dirPath = '/tmp/claude';
+
+      await assert.rejects(async () => loadReviewResults([dirPath], []), {
+        name: 'ValidationError',
+        message: /Failed to read.*review result file/,
+      });
+    });
   });
 
   describe('ReviewConfigSchema validation', () => {

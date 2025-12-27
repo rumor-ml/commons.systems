@@ -71,6 +71,13 @@ export function extractAgentNameFromPath(filePath: string): string {
  * @param outOfScopeFiles - Array of file paths containing out-of-scope review results
  * @returns Object with formatted in-scope and out-of-scope sections
  * @throws {ValidationError} If any files fail to read, with details of all failures
+ *
+ * @example
+ * // Load results from multiple agent files
+ * const { inScope, outOfScope } = await loadReviewResults(
+ *   ['/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md'],
+ *   ['/tmp/claude/wiggum-625/code-reviewer-out-of-scope-1234.md']
+ * );
  */
 export async function loadReviewResults(
   inScopeFiles: string[] = [],

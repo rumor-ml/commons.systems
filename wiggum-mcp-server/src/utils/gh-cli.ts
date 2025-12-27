@@ -399,7 +399,11 @@ function isRetryableError(error: unknown): boolean {
       msg.includes('socket') ||
       msg.includes('502') ||
       msg.includes('503') ||
-      msg.includes('504')
+      msg.includes('504') ||
+      // Rate limit detection (issue #625)
+      msg.includes('rate limit') ||
+      msg.includes('429') ||
+      msg.includes('api rate limit exceeded')
     );
   }
   return false;

@@ -24,6 +24,7 @@ import {
   generateTriageInstructions,
   generateWorkflowTriageInstructions,
   generateOutOfScopeTrackingInstructions,
+  generateScopeSeparatedFixInstructions,
   SKIP_MECHANISM_GUIDANCE,
   type WiggumStep,
 } from './constants.js';
@@ -875,5 +876,143 @@ describe('SKIP_MECHANISM_GUIDANCE constant', () => {
 
   it('should include TODO comment requirement', () => {
     assert(SKIP_MECHANISM_GUIDANCE.includes('// TODO(#NNN):'));
+  });
+});
+
+describe('generateScopeSeparatedFixInstructions', () => {
+  describe('output format', () => {
+    it('should include issue number in output', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 2, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('#123'));
+      assert(result.includes('issue #123'));
+    });
+
+    it('should include in-scope file list', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        123,
+        'PR',
+        3,
+        ['/tmp/in1.md', '/tmp/in2.md'],
+        0,
+        []
+      );
+      assert(result.includes('/tmp/in1.md'));
+      assert(result.includes('/tmp/in2.md'));
+    });
+
+    it('should include out-of-scope file list when provided', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 3, ['/tmp/in.md'], 2, [
+        '/tmp/out1.md',
+        '/tmp/out2.md',
+      ]);
+      assert(result.includes('/tmp/out1.md'));
+      assert(result.includes('/tmp/out2.md'));
+    });
+
+    it('should include Agent 1 and Agent 2 sections when both counts > 0', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 3, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('### Agent 1:'));
+      assert(result.includes('### Agent 2:'));
+    });
+
+    it('should omit Agent 2 section when outOfScopeCount is 0', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 0, []);
+      assert(result.includes('### Agent 1:'));
+      assert(!result.includes('### Agent 2:'));
+    });
+
+    it('should use correct model for each agent', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('model: "opus"')); // Agent 1
+      assert(result.includes('model: "sonnet"')); // Agent 2
+    });
+
+    it('should include in-scope count in header', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 7, ['/tmp/in.md'], 0, []);
+      assert(result.includes('7 in-scope pr review issue(s) found'));
+    });
+
+    it('should include both counts in header when out-of-scope exists', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 5, ['/tmp/in.md'], 3, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('5 in-scope pr review issue(s) found'));
+      assert(result.includes('3 out-of-scope recommendation(s)'));
+    });
+
+    it('should include parallel agent instructions', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('Launch TWO Agents in PARALLEL'));
+      assert(result.includes('Task({'));
+      assert(result.includes('subagent_type: "general-purpose"'));
+    });
+
+    it('should include wiggum_complete_fix instructions', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('wiggum_complete_fix'));
+      assert(result.includes('fix_description'));
+      assert(result.includes('has_in_scope_fixes'));
+      assert(result.includes('out_of_scope_issues'));
+    });
+
+    it('should include /commit-merge-push instruction', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('/commit-merge-push'));
+    });
+
+    it('should format review type in lowercase', () => {
+      const prResult = generateScopeSeparatedFixInstructions(123, 'PR', 3, ['/tmp/in.md'], 0, []);
+      const secResult = generateScopeSeparatedFixInstructions(
+        456,
+        'Security',
+        2,
+        ['/tmp/in.md'],
+        0,
+        []
+      );
+      assert(prResult.includes('pr review'));
+      assert(secResult.includes('security review'));
+    });
+
+    it('should include EnterPlanMode reference for Agent 1', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('EnterPlanMode'));
+      assert(result.includes('ExitPlanMode'));
+    });
+
+    it('should include test validation step for Agent 1', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('Run tests to validate fixes'));
+      assert(result.includes('make test'));
+    });
+  });
+
+  describe('review type handling', () => {
+    it('should handle PR review type', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 0, []);
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
+
+    it('should handle Security review type', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        456,
+        'Security',
+        3,
+        ['/tmp/in.md'],
+        0,
+        []
+      );
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
   });
 });
