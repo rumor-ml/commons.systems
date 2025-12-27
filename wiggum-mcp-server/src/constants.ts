@@ -373,16 +373,30 @@ ${inScopeFileList}
 
 **Your Tasks:**
 1. Read ALL in-scope result files above to understand the issues
-2. Use EnterPlanMode to plan fixes:
-   - Group related issues for efficient fixing
-   - Identify dependencies between fixes
-   - Create detailed implementation plan
-3. Call ExitPlanMode when plan is ready
-4. After plan approval, implement ALL fixes
-5. Run tests to validate fixes: \\\`make test\\\` or appropriate test command
-6. Report completion with summary of what was fixed
+2. Launch Plan agent in background to create implementation plan:
+   \\\`\\\`\\\`
+   Task({
+     subagent_type: "Plan",
+     run_in_background: true,
+     description: "Plan fixes for in-scope issues",
+     prompt: "Create implementation plan for fixing all in-scope ${reviewType.toLowerCase()} review issues from the result files. Group related issues, identify dependencies, and create detailed step-by-step plan."
+   })
+   \\\`\\\`\\\`
+3. Wait for Plan agent to complete, then launch accept-edits agent in background:
+   \\\`\\\`\\\`
+   Task({
+     subagent_type: "accept-edits",
+     run_in_background: true,
+     description: "Implement fixes from plan",
+     prompt: "Implement ALL fixes from the plan created by the Plan agent. Fix ALL in-scope issues (all severities). Run tests to validate: \\\\\\\`make test\\\\\\\` or appropriate test command."
+   })
+   \\\`\\\`\\\`
+4. After accept-edits agent completes, prompt user to restart MCP server to test the fixes
+5. Report completion with summary of what was fixed
 
 **Important:**
+- Use TWO sequential background agents: Plan then accept-edits
+- User review of plan is NOT required
 - Fix ALL in-scope issues (all severities)
 - Validate with tests
 - Do not skip any issues
