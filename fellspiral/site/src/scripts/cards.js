@@ -593,16 +593,13 @@ async function init() {
     // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
     removeLoadingSpinner();
 
-    // CRITICAL: Validate auth FIRST
+    // Validate auth - log warning if not ready but continue initialization
+    // Cards can still load for viewing even without auth
     const authInstance = getAuthInstance();
     if (!authInstance) {
-      console.error('[Cards] CRITICAL: Cannot initialize - auth not ready');
-      showErrorUI('Authentication not ready. Please refresh.', () => window.location.reload());
-      const addCardBtn = document.getElementById('addCardBtn');
-      if (addCardBtn) {
-        addCardBtn.setAttribute('disabled', 'true');
-      }
-      return;
+      console.warn(
+        '[Cards] Auth not ready yet - initialization will continue, auth-gated features will be disabled'
+      );
     }
 
     // Note: Authentication is initialized globally in main.js DOMContentLoaded
