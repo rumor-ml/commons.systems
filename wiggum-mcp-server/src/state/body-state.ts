@@ -39,8 +39,9 @@ function extractStateFromBody(body: string): WiggumState | null {
     return validateWiggumState(raw, 'PR/issue body');
   } catch (error) {
     // CRITICAL: State parsing failure indicates corrupted state data, malformed JSON,
-    // or serialization bugs. This is logged at ERROR level because callers treating
-    // null as "no state found" may lose user's workflow progress.
+    // or serialization bugs. Logged at ERROR level for visibility. Returns null to
+    // trigger state reset (callers will initialize new state, losing in-progress workflow).
+    // TODO(#485): Consider throwing exception instead to force explicit error handling.
     logger.error('extractStateFromBody: critical state parsing failure', {
       error: error instanceof Error ? error.message : String(error),
       errorType: error instanceof Error ? error.constructor.name : typeof error,
@@ -73,7 +74,7 @@ function injectStateIntoBody(body: string, state: WiggumState): string {
     // Replace existing marker
     return body.replace(regex, stateMarker);
   } else {
-    // Prepend marker to body (invisible HTML comment at top)
+    // Prepend marker to body
     return `${stateMarker}\n\n${body}`;
   }
 }

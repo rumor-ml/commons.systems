@@ -11,8 +11,10 @@ import { createErrorResult, ParsingError } from '../utils/errors.js';
 /**
  * Validate GraphQL response has expected data field
  *
- * Logs a truncated response preview and throws a ParsingError with GitHub error
- * context if the response is missing the 'data' field.
+ * Logs response structure for debugging and throws a ParsingError with GitHub error
+ * context if the response is missing the 'data' field. In development/debug mode,
+ * logs full response preview; in production, logs only structure to avoid leaking
+ * sensitive data.
  *
  * @param result - GraphQL response to validate
  * @param queryName - Name of the query for error context (e.g., 'parent', 'children')
@@ -25,13 +27,24 @@ function validateGraphQLResponse(
   issueNumber: string | number
 ): void {
   if (!result.data) {
-    // Log response preview for debugging (truncated to 1000 chars)
     const responseJson = JSON.stringify(result);
-    const responsePreview =
-      responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
-    console.error(
-      `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-    );
+
+    // Only log detailed response in debug environments
+    // In production, log structure only (keys, error types) not values to avoid leaking sensitive data
+    if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
+      const responsePreview =
+        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+      console.error(
+        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+      );
+    } else {
+      // Production: Log structure only
+      const responseKeys = Object.keys(result ?? {}).join(', ');
+      const errorCount = (result as { errors?: unknown[] }).errors?.length ?? 0;
+      console.error(
+        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, responseKeys: [${responseKeys}], errorCount: ${errorCount})`
+      );
+    }
 
     // Include GitHub error details if available for better debugging
     const resultObj = result as { errors?: Array<{ message: string }> };

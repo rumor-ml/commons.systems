@@ -296,11 +296,14 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        if (depth >= MAX_RECURSION_DEPTH) {
+        // Check depth BEFORE recursing to prevent exceeding limit
+        const newDepth = depth + 1;
+        if (newDepth > MAX_RECURSION_DEPTH) {
           logger.error(
             'detectCurrentState: maximum recursion depth exceeded during PR revalidation',
             {
               depth,
+              newDepth,
               maxDepth: MAX_RECURSION_DEPTH,
               previousPrNumber: pr.number,
               newPrNumber: revalidatedPr.number,
@@ -314,6 +317,7 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
               `Manual intervention required - verify PR state is stable before retrying.`,
             {
               depth,
+              newDepth,
               maxDepth: MAX_RECURSION_DEPTH,
               previousState: `PR #${pr.number}`,
               newState: `PR #${revalidatedPr.number}`,
@@ -324,12 +328,13 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
 
         logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
           depth,
+          newDepth,
           previousPrNumber: pr.number,
           newPrNumber: revalidatedPr.number,
           stateDetectionTime,
         });
         // Retry with incremented depth counter to track recursion
-        return detectCurrentState(repo, depth + 1);
+        return detectCurrentState(repo, newDepth);
       }
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {

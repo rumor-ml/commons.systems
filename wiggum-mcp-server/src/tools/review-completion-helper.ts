@@ -58,15 +58,10 @@ const KNOWN_AGENT_NAMES = [
  *
  * NOTE: Acronyms like 'pr' become 'Pr' not 'PR'. This is intentional.
  *
- * RATIONALE: We use simple word-based capitalization instead of maintaining an
- * acronym whitelist because:
- * 1. Consistency: Every word follows the same rule (first letter uppercase)
- * 2. Predictability: Output is deterministic without hidden exceptions
- * 3. Maintainability: No need to update a whitelist when new acronyms appear
- * 4. Simplicity: Avoids the complexity of matching against PR, API, HTTP, etc.
- *
- * The trade-off is that 'pr-test-analyzer' becomes 'Pr Test Analyzer' instead of
- * 'PR Test Analyzer', but this is acceptable for internal logging/display purposes.
+ * RATIONALE: Simple word-based capitalization (first letter uppercase) provides
+ * consistency and predictability without maintaining an acronym whitelist.
+ * Trade-off: 'pr-test-analyzer' becomes 'Pr Test Analyzer' instead of 'PR Test Analyzer',
+ * but this is acceptable for internal logging/display purposes.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -74,10 +69,6 @@ const KNOWN_AGENT_NAMES = [
  * @example
  * extractAgentNameFromPath('$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md')
  * // Returns: 'Code Reviewer'
- *
- * @example
- * extractAgentNameFromPath('$(pwd)/tmp/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
- * // Returns: 'Pr Test Analyzer' (intentionally 'Pr' not 'PR' - see NOTE above)
  */
 export function extractAgentNameFromPath(filePath: string): string {
   const fileName = filePath.split('/').pop() || '';
@@ -130,6 +121,8 @@ export function extractAgentNameFromPath(filePath: string): string {
  *
  * Common error codes from Node.js fs operations. This is not exhaustive
  * but covers the most common file I/O errors.
+ *
+ * Add new codes here if they appear in production logs and need specific handling.
  */
 type NodeFileErrorCode =
   | 'EACCES' // Permission denied
@@ -212,8 +205,11 @@ function createFileReadError(
 /**
  * Branded type for non-empty strings
  *
- * This ensures at the type level that content strings are non-empty.
+ * Ensures at the type level that content strings are non-empty.
  * The brand is a phantom type that exists only at compile time.
+ *
+ * Use this when you need to guarantee non-emptiness across function boundaries
+ * without repeated runtime checks.
  */
 type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
 
@@ -261,7 +257,7 @@ async function readReviewFile(
     const stats = await stat(filePath);
 
     // CRITICAL: Empty file (size 0) indicates agent crash during write.
-    // Throw immediately with actionable error instead of continuing and failing later
+    // Collect error and return null to allow checking remaining files for comprehensive error reporting.
     if (stats.size === 0) {
       const agentName = extractAgentNameFromPath(filePath);
       logger.error('Review file is empty - agent crashed during write', {
@@ -271,12 +267,12 @@ async function readReviewFile(
         action: 'Check agent logs for crash details',
       });
 
-      // Throw immediately with actionable error
-      throw new Error(
-        `Review file is empty: ${filePath}\n` +
-          `Agent ${agentName} likely crashed during write.\n` +
-          `Action: Check agent logs for crash details and retry the review.`
+      const emptyFileError = new Error(
+        `Review file is empty (agent ${agentName} likely crashed during write)`
       );
+      const fileError = createFileReadError(filePath, emptyFileError, true, 0);
+      errors.push(fileError);
+      return null;
     }
 
     const content = await readFile(filePath, 'utf-8');

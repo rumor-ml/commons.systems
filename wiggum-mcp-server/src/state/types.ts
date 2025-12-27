@@ -123,13 +123,41 @@ const IssueStateSchema = z.object({
   number: z.number().int().positive('Issue number must be positive integer').optional(),
 });
 
-const WiggumStateSchema = z.object({
-  iteration: z.number().int().nonnegative('iteration must be non-negative integer'),
-  step: z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]]),
-  completedSteps: z.array(z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]])).readonly(),
-  phase: z.enum(['phase1', 'phase2']),
-  maxIterations: z.number().int().positive('maxIterations must be positive integer').optional(),
-});
+const WiggumStateSchema = z
+  .object({
+    iteration: z.number().int().nonnegative('iteration must be non-negative integer'),
+    step: z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]]),
+    completedSteps: z
+      .array(z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]]))
+      .readonly(),
+    phase: z.enum(['phase1', 'phase2']),
+    maxIterations: z.number().int().positive('maxIterations must be positive integer').optional(),
+  })
+  .refine(
+    (data) => {
+      // Validate completedSteps only contain steps before current step in STEP_ORDER
+      const currentIndex = STEP_ORDER.indexOf(data.step);
+      return data.completedSteps.every((s) => STEP_ORDER.indexOf(s) < currentIndex);
+    },
+    {
+      message: 'completedSteps must only contain steps before current step in STEP_ORDER',
+    }
+  )
+  .refine(
+    (data) => {
+      // Validate phase-step consistency: phase1 uses p1-* steps, phase2 uses p2-* steps
+      const phasePrefix = data.phase === 'phase1' ? 'p1-' : 'p2-';
+      const stepValid = data.step.startsWith(phasePrefix);
+      // completedSteps in phase2 can include p1-* steps (from previous phase)
+      const completedValid = data.completedSteps.every(
+        (s) => s.startsWith('p1-') || s.startsWith(phasePrefix)
+      );
+      return stepValid && completedValid;
+    },
+    {
+      message: 'phase and step/completedSteps prefixes must be consistent',
+    }
+  );
 
 const CurrentStateSchema = z.object({
   git: GitStateSchema,

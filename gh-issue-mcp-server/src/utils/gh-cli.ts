@@ -20,7 +20,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       reject: false,
     };
 
-    // Add repo flag if provided
     const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
     const result = await execa('gh', fullArgs, execaOptions);
@@ -61,7 +60,6 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
-    // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new ParsingError(
@@ -109,11 +107,6 @@ export async function resolveRepo(repo?: string): Promise<string> {
  *
  * @param ms - Milliseconds to sleep
  * @returns Promise that resolves after the specified delay
- *
- * @example
- * ```typescript
- * await sleep(1000); // Wait 1 second
- * ```
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,8 +138,8 @@ const RETRYABLE_ERROR_CODES = [
  * 2. Node.js error.code (stable API) - checks for network/connection errors
  * 3. Message pattern matching (fallback) - for when structured data is missing
  *
- * Current limitation: gh CLI wraps errors in generic Error objects, losing HTTP
- * status codes and error types. We must parse error messages, which are fragile
+ * When exitCode is unavailable (undefined), gh CLI may wrap errors in generic Error objects,
+ * losing HTTP status codes. In these cases we must parse error messages, which are fragile
  * to GitHub CLI updates. See issue #453 for migration to structured error types.
  *
  * @param error - Error to check for retryability
@@ -165,8 +158,8 @@ const RETRYABLE_ERROR_CODES = [
  * ```
  */
 // TODO: See issue #453 - Replace string matching with structured error types
-// Proposed: Define RetryableError, RateLimitError, NetworkError types
 // Benefits: Type-safe error handling, no fragile message parsing
+// Impact: Eliminate ~40 lines of pattern matching, improve reliability
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
@@ -185,12 +178,8 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
     }
 
     // Priority 3: Message pattern matching (fallback, less reliable)
-    // FRAGILE: gh CLI error message format is not a stable API and can change between versions
-    // If patterns stop matching, check:
-    //   1. gh CLI release notes for error message changes
-    //   2. Whether gh CLI now exposes structured error types (see issue #453)
-    //   3. Add new patterns based on observed error messages in logs
-    // Long-term fix: Migrate to structured error types (issue #453)
+    // FRAGILE: gh CLI error message format is not a stable API.
+    // If patterns fail to match, see issue #453 for troubleshooting steps and migration plan.
     const msg = error.message.toLowerCase();
     const patterns = [
       // Network errors
