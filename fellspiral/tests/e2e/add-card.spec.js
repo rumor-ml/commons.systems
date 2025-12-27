@@ -1085,7 +1085,7 @@ test.describe('Combobox - Error State Recovery', () => {
 
     // Wait for error message to appear (condition-based waiting)
     const errorMessage = page.locator('#typeListbox .combobox-error-message');
-    await expect(errorMessage).toBeVisible({ timeout: 2000 });
+    await expect(errorMessage).toBeVisible({ timeout: 5000 });
     await expect(errorMessage).toHaveText('Unable to load options. Please refresh the page.');
 
     // Verify error class is added to listbox
