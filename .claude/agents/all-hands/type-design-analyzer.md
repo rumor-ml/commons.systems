@@ -193,11 +193,14 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   # Note: -p flag ensures mkdir succeeds even if directory already exists
+   # (multiple review agents run in parallel and may create this concurrently)
    ```
 
 3. Write findings to both files using Write tool
-   - Preserve your agent's native output format in each file
-   - Only difference is the categorization (in-scope vs out-of-scope)
+   - Use the EXACT structure from "Output Format" section above (lines 116-143): Type header, Invariants Identified, Ratings, etc.
+   - The structure (section headings, order) MUST be identical in both files
+   - Only the specific findings differ (in-scope vs out-of-scope)
 
 ### Return JSON Summary
 
@@ -224,4 +227,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** For type-design-analyzer, severity_breakdown uses `{ "concerns": N, "improvements": N, "strengths": N }` to categorize findings by the analysis structure.
+**Note:** The `severity_breakdown` field provides informational context about finding severities. The wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions.
+
+For type-design-analyzer, severity_breakdown uses `{ "concerns": N, "improvements": N, "strengths": N }` to categorize findings by the analysis structure.

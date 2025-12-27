@@ -226,11 +226,14 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   # Note: -p flag ensures mkdir succeeds even if directory already exists
+   # (multiple review agents run in parallel and may create this concurrently)
    ```
 
 3. Write findings to both files using Write tool
-   - Preserve your agent's native output format in each file
-   - Only difference is the categorization (in-scope vs out-of-scope)
+   - Use the EXACT structure from "Your Output Format" section above (lines 177-186): Location, Severity, Issue Description, etc.
+   - The structure (section headings, order) MUST be identical in both files
+   - Only the specific findings differ (in-scope vs out-of-scope)
 
 ### Return JSON Summary
 
@@ -257,4 +260,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** For silent-failure-hunter, severity_breakdown uses `{ "critical": N, "high": N, "medium": N }` based on CRITICAL/HIGH/MEDIUM severity levels.
+**Note:** The `severity_breakdown` field provides informational context about finding severities. The wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions.
+
+For silent-failure-hunter, severity_breakdown uses `{ "critical": N, "high": N, "medium": N }` based on CRITICAL/HIGH/MEDIUM severity levels.

@@ -150,13 +150,14 @@ You operate autonomously and proactively, refining code immediately after it's w
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
-   # Note: mkdir -p will not fail if directory exists
+   # Note: -p flag ensures mkdir succeeds even if directory already exists
+   # (multiple review agents run in parallel and may create this concurrently)
    ```
 
 3. Write findings to both files using Write tool
-   - Use the output format appropriate for simplification findings (changes made, rationale)
-   - The ONLY difference between the two files should be which findings are included (in-scope vs out-of-scope)
-   - Do NOT change the section headings or structure between the two files
+   - Use the EXACT same structure for simplification findings (changes made, rationale)
+   - The structure (section headings, order) MUST be identical in both files
+   - Only the specific findings differ (in-scope vs out-of-scope)
    - If Write tool fails, include an "error" field in the JSON summary
 
 ### Return JSON Summary
@@ -182,6 +183,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** Each agent uses a custom severity_breakdown structure tailored to its review type. The wiggum tool aggregates these by summing total values rather than expecting specific keys.
+**Note:** The `severity_breakdown` field provides informational context about finding severities. The wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions. Each agent uses a custom severity_breakdown structure tailored to its review type.
 
 For code-simplifier, severity_breakdown uses `{ "simplification_opportunities": N }` to count total simplification suggestions.
