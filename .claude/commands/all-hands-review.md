@@ -46,13 +46,19 @@ Extract issue number and fetch context:
    git rev-parse --abbrev-ref HEAD | grep -oE '[0-9]+' | head -1
    ```
 
-2. Fetch full issue context including comments:
+2. Fetch issue context using gh-issue MCP:
 
    ```
    mcp__gh-issue__gh_get_issue_context({ issue_number: <number> })
    ```
 
-3. Store the issue context (number, title, url) for passing to agents in next step
+   **If the response is too large** (>300K characters or truncated), fall back to just the issue body:
+
+   ```bash
+   gh issue view <number> --json number,title,body,url
+   ```
+
+3. Store the issue context (number, title, body/url) for passing to agents in next step
 
 ## Step 2: Launch Parallel Review Agents
 
