@@ -121,6 +121,41 @@ interface FileReadError {
 }
 
 /**
+ * Create a FileReadError with category derived from file path
+ *
+ * Factory function that automatically determines the category (in-scope vs out-of-scope)
+ * based on the file path naming convention, and extracts Node.js error codes.
+ *
+ * @param filePath - Path to the file that failed to read
+ * @param error - The error that occurred
+ * @param fileExists - Whether the file exists (for diagnostics)
+ * @param fileSize - Size of the file if it exists (for diagnostics)
+ * @returns FileReadError with all fields populated
+ */
+function createFileReadError(
+  filePath: string,
+  error: Error,
+  fileExists?: boolean,
+  fileSize?: number
+): FileReadError {
+  // Derive category from file path pattern
+  const category: 'in-scope' | 'out-of-scope' = filePath.includes('-in-scope-')
+    ? 'in-scope'
+    : 'out-of-scope';
+
+  const nodeError = error as NodeJS.ErrnoException;
+
+  return {
+    filePath,
+    error,
+    category,
+    errorCode: nodeError.code,
+    fileExists,
+    fileSize,
+  };
+}
+
+/**
  * Load review results from scope-separated file lists
  *
  * Reads multiple review result files and aggregates them with agent headers.
@@ -170,7 +205,6 @@ export async function loadReviewResults(
       inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
-      const nodeError = errorObj as NodeJS.ErrnoException;
 
       // Try to get file metadata for diagnostics
       let fileExists = false;
@@ -183,19 +217,13 @@ export async function loadReviewResults(
         // Ignore stat errors, we're already in error path
       }
 
-      errors.push({
-        filePath,
-        error: errorObj,
-        category: 'in-scope',
-        errorCode: nodeError.code,
-        fileExists,
-        fileSize,
-      });
+      const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
+      errors.push(fileError);
 
       logger.error('Failed to read in-scope review file', {
         filePath,
         errorMessage: errorObj.message,
-        errorCode: nodeError.code,
+        errorCode: fileError.errorCode,
         errorStack: errorObj.stack,
         fileExists,
         fileSize,
@@ -228,7 +256,6 @@ export async function loadReviewResults(
       outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
-      const nodeError = errorObj as NodeJS.ErrnoException;
 
       // Try to get file metadata for diagnostics
       let fileExists = false;
@@ -241,19 +268,13 @@ export async function loadReviewResults(
         // Ignore stat errors, we're already in error path
       }
 
-      errors.push({
-        filePath,
-        error: errorObj,
-        category: 'out-of-scope',
-        errorCode: nodeError.code,
-        fileExists,
-        fileSize,
-      });
+      const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
+      errors.push(fileError);
 
       logger.error('Failed to read out-of-scope review file', {
         filePath,
         errorMessage: errorObj.message,
-        errorCode: nodeError.code,
+        errorCode: fileError.errorCode,
         errorStack: errorObj.stack,
         fileExists,
         fileSize,
@@ -320,23 +341,24 @@ export const ReviewConfigSchema = z.object({
 
 /**
  * Configuration for a review type (PR or Security)
- * TODO(#333, #363): Add readonly modifiers (runtime validation via ReviewConfigSchema added)
+ *
+ * All fields are readonly since configuration should be immutable once created.
  */
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
-  phase1Step: WiggumStep;
+  readonly phase1Step: WiggumStep;
   /** Step identifier for Phase 2 */
-  phase2Step: WiggumStep;
+  readonly phase2Step: WiggumStep;
   /** Command for Phase 1 */
-  phase1Command: string;
+  readonly phase1Command: string;
   /** Command for Phase 2 */
-  phase2Command: string;
+  readonly phase2Command: string;
   /** Type label for logging and messages (e.g., "PR", "Security") */
-  reviewTypeLabel: string;
+  readonly reviewTypeLabel: string;
   /** Issue type for messages (e.g., "issue(s)", "security issue(s)") */
-  issueTypeLabel: string;
+  readonly issueTypeLabel: string;
   /** Success message for when no issues found */
-  successMessage: string;
+  readonly successMessage: string;
 }
 
 /**

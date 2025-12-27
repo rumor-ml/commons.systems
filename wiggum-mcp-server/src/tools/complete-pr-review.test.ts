@@ -8,17 +8,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { CompletePRReviewInputSchema, completePRReview } from './complete-pr-review.js';
+import { CompletePRReviewInputSchema } from './complete-pr-review.js';
 
 describe('complete-pr-review tool', () => {
   describe('CompletePRReviewInputSchema', () => {
     it('should validate required fields', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Review output here',
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        in_scope_files: ['/tmp/file1.md'],
+        out_of_scope_files: ['/tmp/file2.md'],
+        in_scope_count: 1,
+        out_of_scope_count: 1,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
@@ -27,124 +27,114 @@ describe('complete-pr-review tool', () => {
 
     it('should reject missing command_executed', () => {
       const input = {
-        verbatim_response: 'Review output',
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        in_scope_files: ['/tmp/file1.md'],
+        out_of_scope_files: [],
+        in_scope_count: 1,
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
       assert.strictEqual(result.success, false);
     });
 
-    it('should accept verbatim_response_file instead of verbatim_response', () => {
+    it('should reject missing in_scope_files', () => {
       const input = {
         command_executed: true,
-        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.success, false);
     });
 
-    it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
+    it('should reject missing out_of_scope_files', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Inline review output',
-        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        in_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.success, false);
     });
 
-    it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
+    it('should reject missing in_scope_count', () => {
       const input = {
         command_executed: true,
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
-      };
-
-      // Schema accepts it - tool runtime validates at least one is provided
-      const result = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, true);
-    });
-
-    it('should throw ValidationError when neither verbatim field provided at runtime', async () => {
-      const input = {
-        command_executed: true,
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
-
-      // Schema accepts this (both fields optional)
-      const schemaResult = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(schemaResult.success, true);
-
-      // But runtime should reject it
-      await assert.rejects(async () => completePRReview(input), {
-        name: 'ValidationError',
-        message: /Either verbatim_response or verbatim_response_file must be provided/,
-      });
-    });
-
-    it('should reject when command_executed is false', () => {
-      const input = {
-        command_executed: false,
-        verbatim_response: 'Review output',
-        high_priority_issues: 5,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
-      // This should be rejected based on business rules
-      // (command_executed must be true to indicate actual execution)
-      assert.strictEqual(result.success, true); // schema allows it, but tool should handle validation
+      assert.strictEqual(result.success, false);
+    });
+
+    it('should reject missing out_of_scope_count', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
     });
 
     it('should accept zero issue counts', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'No issues found',
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
       assert.strictEqual(result.success, true);
     });
 
-    it('should accept negative issue counts at schema level (validated by tool)', () => {
+    it('should reject negative in_scope_count', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Review output',
-        high_priority_issues: -1,
-        medium_priority_issues: 10,
-        low_priority_issues: 3,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: -1,
+        out_of_scope_count: 0,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);
-      // Schema accepts it - tool business logic should validate counts are non-negative
-      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.success, false);
+    });
+
+    it('should reject negative out_of_scope_count', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: -1,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
     });
 
     it('should accept large issue counts', () => {
       const input = {
         command_executed: true,
-        verbatim_response: 'Many issues',
-        high_priority_issues: 100,
-        medium_priority_issues: 200,
-        low_priority_issues: 300,
+        in_scope_files: Array(100)
+          .fill(0)
+          .map((_, i) => `/tmp/in-${i}.md`),
+        out_of_scope_files: Array(200)
+          .fill(0)
+          .map((_, i) => `/tmp/out-${i}.md`),
+        in_scope_count: 100,
+        out_of_scope_count: 200,
       };
 
       const result = CompletePRReviewInputSchema.safeParse(input);

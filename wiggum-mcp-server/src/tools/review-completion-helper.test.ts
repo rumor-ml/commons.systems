@@ -17,13 +17,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { writeFile, unlink, chmod } from 'fs/promises';
+import { writeFile, unlink } from 'fs/promises';
 import type { ReviewConfig, ReviewCompletionInput } from './review-completion-helper.js';
-import {
-  loadVerbatimResponse,
-  extractAgentNameFromPath,
-  loadReviewResults,
-} from './review-completion-helper.js';
+import { extractAgentNameFromPath, loadReviewResults } from './review-completion-helper.js';
 import {
   STEP_PHASE1_PR_REVIEW,
   STEP_PHASE1_SECURITY_REVIEW,
@@ -82,149 +78,70 @@ describe('review-completion-helper', () => {
     it('should accept valid input with issues found', () => {
       const input: ReviewCompletionInput = {
         command_executed: true,
-        verbatim_response: 'Review found 5 high priority issues...',
-        high_priority_issues: 5,
-        medium_priority_issues: 3,
-        low_priority_issues: 2,
+        in_scope_files: ['/tmp/file1.md', '/tmp/file2.md'],
+        out_of_scope_files: ['/tmp/file3.md'],
+        in_scope_count: 2,
+        out_of_scope_count: 1,
       };
       assert.strictEqual(input.command_executed, true);
-      assert.strictEqual(input.high_priority_issues, 5);
+      assert.strictEqual(input.in_scope_count, 2);
     });
 
     it('should accept valid input with no issues', () => {
       const input: ReviewCompletionInput = {
         command_executed: true,
-        verbatim_response: 'No issues found',
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
       };
-      assert.strictEqual(input.high_priority_issues, 0);
+      assert.strictEqual(input.in_scope_count, 0);
     });
   });
 
-  describe('loadVerbatimResponse', () => {
-    it('should throw ValidationError when neither parameter provided', async () => {
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
+  describe('loadReviewResults', () => {
+    it('should successfully load multiple in-scope and out-of-scope files', async () => {
+      const inScopeFile1 = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      const inScopeFile2 = '/tmp/claude/silent-failure-hunter-in-scope-' + (Date.now() + 1) + '.md';
+      const outOfScopeFile = '/tmp/claude/code-reviewer-out-of-scope-' + Date.now() + '.md';
 
-      await assert.rejects(async () => loadVerbatimResponse(input), {
-        name: 'ValidationError',
-        message: /Either verbatim_response or verbatim_response_file must be provided/,
-      });
-    });
+      await writeFile(inScopeFile1, 'Issue 1: Fix bug');
+      await writeFile(inScopeFile2, 'Issue 2: Add test');
+      await writeFile(outOfScopeFile, 'Recommendation: Refactor');
 
-    it('should throw ValidationError with file pattern when file does not exist', async () => {
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response_file: '/tmp/claude/nonexistent-file-' + Date.now() + '.md',
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
+      const result = await loadReviewResults([inScopeFile1, inScopeFile2], [outOfScopeFile]);
 
-      await assert.rejects(async () => loadVerbatimResponse(input), {
-        name: 'ValidationError',
-        message: /File not found:.*File pattern:/,
-      });
-    });
-
-    it('should successfully read and return file content', async () => {
-      // Create temp file with test content
-      const tempFile = '/tmp/claude/test-review-' + Date.now() + '.md';
-      await writeFile(tempFile, 'Test review output');
-
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response_file: tempFile,
-        high_priority_issues: 1,
-        medium_priority_issues: 2,
-        low_priority_issues: 3,
-      };
-
-      const result = await loadVerbatimResponse(input);
-      assert.strictEqual(result, 'Test review output');
+      assert.ok(result.inScope.includes('Code Reviewer'));
+      assert.ok(result.inScope.includes('Issue 1: Fix bug'));
+      assert.ok(result.inScope.includes('Silent Failure Hunter'));
+      assert.ok(result.inScope.includes('Issue 2: Add test'));
+      assert.ok(result.outOfScope.includes('Recommendation: Refactor'));
 
       // Cleanup
-      await unlink(tempFile);
+      await unlink(inScopeFile1);
+      await unlink(inScopeFile2);
+      await unlink(outOfScopeFile);
     });
 
-    it('should prefer file over inline when both provided', async () => {
-      const tempFile = '/tmp/claude/test-review-' + Date.now() + '.md';
-      await writeFile(tempFile, 'File content');
+    it('should throw ValidationError when file does not exist', async () => {
+      const nonexistentFile = '/tmp/claude/nonexistent-' + Date.now() + '.md';
 
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response: 'Inline content',
-        verbatim_response_file: tempFile,
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
-
-      const result = await loadVerbatimResponse(input);
-      assert.strictEqual(result, 'File content');
-
-      await unlink(tempFile);
-    });
-
-    it('should return inline content when only verbatim_response provided', async () => {
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response: 'Inline review content',
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
-
-      const result = await loadVerbatimResponse(input);
-      assert.strictEqual(result, 'Inline review content');
-    });
-
-    it('should throw ValidationError for permission denied', async () => {
-      // Create temp file with restricted permissions
-      const tempFile = '/tmp/claude/test-restricted-' + Date.now() + '.md';
-      await writeFile(tempFile, 'Test content');
-      await chmod(tempFile, 0o000); // No read permissions
-
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response_file: tempFile,
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
-
-      await assert.rejects(async () => loadVerbatimResponse(input), {
+      await assert.rejects(async () => loadReviewResults([nonexistentFile], []), {
         name: 'ValidationError',
-        message: /Permission denied reading file:/,
+        message: /Failed to read 1 review result file/,
+      });
+    });
+
+    it('should throw ValidationError for empty files', async () => {
+      const emptyFile = '/tmp/claude/empty-' + Date.now() + '.md';
+      await writeFile(emptyFile, '');
+
+      await assert.rejects(async () => loadReviewResults([emptyFile], []), {
+        name: 'ValidationError',
+        message: /File is empty/,
       });
 
-      // Cleanup
-      await chmod(tempFile, 0o644);
-      await unlink(tempFile);
-    });
-
-    it('should successfully read empty file (no validation)', async () => {
-      const tempFile = '/tmp/claude/test-empty-' + Date.now() + '.md';
-      await writeFile(tempFile, '');
-
-      const input: ReviewCompletionInput = {
-        command_executed: true,
-        verbatim_response_file: tempFile,
-        high_priority_issues: 0,
-        medium_priority_issues: 0,
-        low_priority_issues: 0,
-      };
-
-      const result = await loadVerbatimResponse(input);
-      assert.strictEqual(result, '');
-
-      await unlink(tempFile);
+      await unlink(emptyFile);
     });
   });
 
@@ -696,7 +613,8 @@ describe('review-completion-helper', () => {
     });
 
     it('should include all failure details in error message', async () => {
-      const missingFile = '/tmp/claude/nonexistent-' + Date.now() + '.md';
+      // File path must include '-in-scope-' pattern for correct category detection
+      const missingFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
 
       try {
         await loadReviewResults([missingFile], []);
@@ -736,6 +654,53 @@ describe('review-completion-helper', () => {
         name: 'ValidationError',
         message: /Failed to read.*review result file/,
       });
+    });
+
+    it('should handle empty file after stat() succeeds (possible race condition)', async () => {
+      // Tests the edge case where stat() finds a file with size > 0,
+      // but readFile() returns empty content (race with file truncation)
+      const tempFile = '/tmp/claude/empty-after-stat-' + Date.now() + '.md';
+      await writeFile(tempFile, '   '); // Only whitespace
+
+      await assert.rejects(async () => loadReviewResults([tempFile], []), {
+        name: 'ValidationError',
+        message: /File is empty/,
+      });
+
+      await unlink(tempFile);
+    });
+
+    it('should include error code in error details for ENOENT', async () => {
+      const missingFile = '/tmp/claude/missing-' + Date.now() + '.md';
+
+      try {
+        await loadReviewResults([missingFile], []);
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error);
+        // Error message should include ENOENT error code
+        assert.ok(
+          error.message.includes('[ENOENT]') || error.message.includes('no such file'),
+          'Error should indicate file not found'
+        );
+      }
+    });
+
+    it('should use createFileReadError factory for both in-scope and out-of-scope files', async () => {
+      const missingInScope = '/tmp/claude/missing-in-scope-' + Date.now() + '.md';
+      const missingOutOfScope = '/tmp/claude/missing-out-of-scope-' + Date.now() + '.md';
+
+      try {
+        await loadReviewResults([missingInScope], [missingOutOfScope]);
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error);
+        // Should have errors from both categories
+        assert.ok(error.message.includes('[in-scope]'));
+        assert.ok(error.message.includes('[out-of-scope]'));
+        // Should have 2 failures
+        assert.ok(error.message.includes('Failed to read 2 review result file(s)'));
+      }
     });
   });
 

@@ -8,6 +8,59 @@ import type { ToolResult } from '../types.js';
 import { ghCliJson, resolveRepo } from '../utils/gh-cli.js';
 import { createErrorResult, ParsingError } from '../utils/errors.js';
 
+/**
+ * Validate GraphQL response has expected data field
+ *
+ * Logs a truncated response preview and throws a ParsingError with GitHub error
+ * context if the response is missing the 'data' field.
+ *
+ * @param result - GraphQL response to validate
+ * @param queryName - Name of the query for error context (e.g., 'parent', 'children')
+ * @param issueNumber - Issue number for error context
+ * @throws {ParsingError} If response is missing 'data' field
+ */
+function validateGraphQLResponse(
+  result: { data?: any },
+  queryName: string,
+  issueNumber: string | number
+): void {
+  if (!result.data) {
+    // Log response preview for debugging (truncated to 1000 chars)
+    const responseJson = JSON.stringify(result);
+    const responsePreview =
+      responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+    console.error(
+      `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+    );
+
+    // Include GitHub error details if available for better debugging
+    const resultObj = result as { errors?: Array<{ message: string }> };
+    const errorContext = resultObj?.errors?.[0]?.message
+      ? ` GitHub error: ${resultObj.errors[0].message}`
+      : '';
+
+    throw new ParsingError(
+      `GraphQL response missing 'data' field when fetching ${queryName} for issue #${issueNumber}.${errorContext} ` +
+        `Response keys: [${Object.keys(result ?? {}).join(', ')}]`
+    );
+  }
+}
+
+/**
+ * Normalize issue data from GraphQL response
+ *
+ * Transforms GraphQL issue data to have comments as a flat array instead of
+ * the nested { nodes: [...] } structure.
+ *
+ * @param raw - Raw issue data from GraphQL with comments.nodes structure
+ * @returns Normalized issue data with comments as flat array, or null if raw is null
+ */
+function normalizeIssueData<T extends { comments?: { nodes?: unknown[] } }>(
+  raw: T | null
+): (T & { comments: unknown[] }) | null {
+  return raw ? { ...raw, comments: raw.comments?.nodes || [] } : null;
+}
+
 // Input schema
 export const GetIssueContextInputSchema = z
   .object({
@@ -114,34 +167,10 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
     );
 
     // TODO: See issue #284 - Add integration tests for GraphQL validation error paths
-    if (!parentResult.data) {
-      // Log response preview for debugging (truncated to 1000 chars)
-      const responseJson = JSON.stringify(parentResult);
-      const responsePreview =
-        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
-      console.error(
-        `[gh-issue] GraphQL validation failed (query: parent, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-      );
-
-      // Include GitHub error details if available for better debugging
-      const githubErrors = (parentResult as { errors?: Array<{ message: string }> }).errors;
-      const errorContext = githubErrors?.[0]?.message
-        ? ` GitHub error: ${githubErrors[0].message}`
-        : '';
-
-      throw new ParsingError(
-        `GraphQL response missing 'data' field when fetching parent for issue #${input.issue_number}.${errorContext} ` +
-          `Response keys: [${Object.keys(parentResult).join(', ')}]`
-      );
-    }
+    validateGraphQLResponse(parentResult, 'parent', input.issue_number);
 
     const parentRaw = parentResult.data?.node?.parent || null;
-    const parent = parentRaw
-      ? {
-          ...parentRaw,
-          comments: parentRaw.comments?.nodes || [],
-        }
-      : null;
+    const parent = normalizeIssueData(parentRaw);
 
     // Step 3: Recursively traverse ancestors to root
     const ancestors: IssueData[] = [];
@@ -165,35 +194,10 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         {}
       );
 
-      if (!ancestorParentResult.data) {
-        // Log response preview for debugging (truncated to 1000 chars)
-        const responseJson = JSON.stringify(ancestorParentResult);
-        const responsePreview =
-          responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
-        console.error(
-          `[gh-issue] GraphQL validation failed (query: ancestor-parent, ancestorIssue: #${currentAncestor.number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-        );
-
-        // Include GitHub error details if available for better debugging
-        const githubErrors = (ancestorParentResult as { errors?: Array<{ message: string }> })
-          .errors;
-        const errorContext = githubErrors?.[0]?.message
-          ? ` GitHub error: ${githubErrors[0].message}`
-          : '';
-
-        throw new ParsingError(
-          `GraphQL response missing 'data' field when fetching ancestor parent for issue #${currentAncestor.number}.${errorContext} ` +
-            `Response keys: [${Object.keys(ancestorParentResult).join(', ')}]`
-        );
-      }
+      validateGraphQLResponse(ancestorParentResult, 'ancestor-parent', currentAncestor.number);
 
       const ancestorParentRaw = ancestorParentResult.data?.node?.parent || null;
-      currentAncestor = ancestorParentRaw
-        ? {
-            ...ancestorParentRaw,
-            comments: ancestorParentRaw.comments?.nodes || [],
-          }
-        : null;
+      currentAncestor = normalizeIssueData(ancestorParentRaw);
     }
 
     // Step 4: Fetch children
@@ -238,32 +242,10 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       {}
     );
 
-    if (!childrenResult.data) {
-      // Log response preview for debugging (truncated to 1000 chars)
-      const responseJson = JSON.stringify(childrenResult);
-      const responsePreview =
-        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
-      console.error(
-        `[gh-issue] GraphQL validation failed (query: children, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-      );
-
-      // Include GitHub error details if available for better debugging
-      const githubErrors = (childrenResult as { errors?: Array<{ message: string }> }).errors;
-      const errorContext = githubErrors?.[0]?.message
-        ? ` GitHub error: ${githubErrors[0].message}`
-        : '';
-
-      throw new ParsingError(
-        `GraphQL response missing 'data' field when fetching children for issue #${input.issue_number}.${errorContext} ` +
-          `Response keys: [${Object.keys(childrenResult).join(', ')}]`
-      );
-    }
+    validateGraphQLResponse(childrenResult, 'children', input.issue_number);
 
     const childrenRaw = childrenResult.data?.node?.subIssues?.nodes || [];
-    const children = childrenRaw.map((child: any) => ({
-      ...child,
-      comments: child.comments?.nodes || [],
-    }));
+    const children = childrenRaw.map((child: any) => normalizeIssueData(child)!).filter(Boolean);
 
     // Step 5: Fetch siblings (if parent exists)
     let siblings: IssueData[] = [];
@@ -283,32 +265,12 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         {}
       );
 
-      if (!siblingsResult.data) {
-        // Log response preview for debugging (truncated to 1000 chars)
-        const responseJson = JSON.stringify(siblingsResult);
-        const responsePreview =
-          responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
-        console.error(
-          `[gh-issue] GraphQL validation failed (query: siblings, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-        );
-
-        // Include GitHub error details if available for better debugging
-        const githubErrors = (siblingsResult as { errors?: Array<{ message: string }> }).errors;
-        const errorContext = githubErrors?.[0]?.message
-          ? ` GitHub error: ${githubErrors[0].message}`
-          : '';
-
-        throw new ParsingError(
-          `GraphQL response missing 'data' field when fetching siblings for issue #${input.issue_number}.${errorContext} ` +
-            `Response keys: [${Object.keys(siblingsResult).join(', ')}]`
-        );
-      }
+      validateGraphQLResponse(siblingsResult, 'siblings', input.issue_number);
 
       const allSiblingsRaw = siblingsResult.data?.node?.subIssues?.nodes || [];
-      const allSiblings = allSiblingsRaw.map((sibling: any) => ({
-        ...sibling,
-        comments: sibling.comments?.nodes || [],
-      }));
+      const allSiblings = allSiblingsRaw
+        .map((sibling: any) => normalizeIssueData(sibling)!)
+        .filter(Boolean);
       siblings = allSiblings.filter((s: IssueData) => s.number !== issue.number);
     }
 

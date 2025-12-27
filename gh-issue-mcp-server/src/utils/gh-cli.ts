@@ -213,8 +213,36 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
  * Classify error type for logging and diagnostics
  *
  * Categorizes errors into types for pattern analysis and debugging.
+ * Uses a priority-based approach:
+ * 1. Exit code (most reliable when available)
+ * 2. Node.js error codes (stable API)
+ * 3. Message pattern matching (fallback, less reliable)
+ *
+ * @param error - Error to classify
+ * @param exitCode - Optional exit code for more reliable classification
+ * @returns Error type string (network, timeout, rate_limit, permission, not_found, server_error, unknown)
  */
-function classifyErrorType(error: Error): string {
+function classifyErrorType(error: Error, exitCode?: number): string {
+  // Priority 1: Use exit code for classification (most reliable)
+  if (exitCode !== undefined) {
+    if (exitCode === 429) return 'rate_limit';
+    if ([502, 503, 504].includes(exitCode)) return 'server_error';
+    if ([401, 403].includes(exitCode)) return 'permission';
+    if (exitCode === 404) return 'not_found';
+  }
+
+  // Priority 2: Use Node.js error codes (stable API)
+  const nodeError = error as NodeJS.ErrnoException;
+  if (nodeError.code) {
+    if (['ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'ENOTFOUND'].includes(nodeError.code)) {
+      return 'network';
+    }
+    if (nodeError.code === 'ETIMEDOUT') {
+      return 'timeout';
+    }
+  }
+
+  // Priority 3: Message pattern matching (fallback, less reliable)
   const msg = error.message.toLowerCase();
 
   if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
@@ -266,6 +294,7 @@ export async function ghCliWithRetry(
   let lastError: Error | undefined;
   let firstError: Error | undefined;
   let lastExitCode: number | undefined;
+  let firstExitCode: number | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -274,24 +303,34 @@ export async function ghCliWithRetry(
       // Success after retry - log recovery
       if (attempt > 1 && firstError) {
         console.error(
-          `[gh-issue] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError)}, command: gh ${args.join(' ')})`
+          `[gh-issue] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')})`
         );
       }
 
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      // Extract exit code from GitHubCliError (which has an exitCode property)
+      // or try to parse HTTP status from error message as fallback
       lastExitCode = (error as { exitCode?: number }).exitCode;
+      if (lastExitCode === undefined && lastError.message) {
+        // Fallback: try to extract HTTP status from error message (e.g., "HTTP 429")
+        const statusMatch = lastError.message.match(/HTTP\s+(\d{3})/i);
+        if (statusMatch) {
+          lastExitCode = parseInt(statusMatch[1], 10);
+        }
+      }
 
       // Capture first error for diagnostics
       if (attempt === 1) {
         firstError = lastError;
+        firstExitCode = lastExitCode;
       }
 
       if (!isRetryableError(error, lastExitCode)) {
         // Non-retryable error, fail immediately
         console.error(
-          `[gh-issue] ghCliWithRetry: non-retryable error (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')})`
+          `[gh-issue] ghCliWithRetry: non-retryable error (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError, lastExitCode)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')})`
         );
         throw lastError;
       }
@@ -299,13 +338,13 @@ export async function ghCliWithRetry(
       if (attempt === maxRetries) {
         // Final attempt failed - log all attempts exhausted
         console.error(
-          `[gh-issue] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+          `[gh-issue] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError, lastExitCode)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
         throw lastError;
       }
 
       // Log based on attempt number
-      const errorType = classifyErrorType(lastError);
+      const errorType = classifyErrorType(lastError, lastExitCode);
       if (attempt === 1) {
         // Initial failure - log at INFO level since retry is designed for this
         console.error(

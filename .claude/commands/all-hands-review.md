@@ -64,28 +64,28 @@ Extract issue number and fetch context:
 
 Use the Task tool to launch ALL 6 all-hands agents in PARALLEL (make 6 Task calls in a single response):
 
-1. **all-hands/code-reviewer**
-   - `subagent_type`: "all-hands/code-reviewer"
+1. **code-reviewer**
+   - `subagent_type`: "code-reviewer"
    - Pass context: "Review changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-2. **all-hands/silent-failure-hunter**
-   - `subagent_type`: "all-hands/silent-failure-hunter"
+2. **silent-failure-hunter**
+   - `subagent_type`: "silent-failure-hunter"
    - Pass context: "Hunt for silent failures in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-3. **all-hands/code-simplifier**
-   - `subagent_type`: "all-hands/code-simplifier"
+3. **code-simplifier**
+   - `subagent_type`: "code-simplifier"
    - Pass context: "Find simplification opportunities in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-4. **all-hands/comment-analyzer**
-   - `subagent_type`: "all-hands/comment-analyzer"
+4. **comment-analyzer**
+   - `subagent_type`: "comment-analyzer"
    - Pass context: "Analyze comments in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-5. **all-hands/pr-test-analyzer**
-   - `subagent_type`: "all-hands/pr-test-analyzer"
+5. **pr-test-analyzer**
+   - `subagent_type`: "pr-test-analyzer"
    - Pass context: "Analyze tests in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-6. **all-hands/type-design-analyzer**
-   - `subagent_type`: "all-hands/type-design-analyzer"
+6. **type-design-analyzer**
+   - `subagent_type`: "type-design-analyzer"
    - Pass context: "Analyze type design in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
 **CRITICAL:** Launch all 6 agents in parallel (single response with 6 Task calls). Do NOT launch them sequentially.

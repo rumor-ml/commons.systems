@@ -1015,4 +1015,57 @@ describe('generateScopeSeparatedFixInstructions', () => {
       assert(result.length > 0);
     });
   });
+
+  describe('edge cases', () => {
+    it('should handle empty in-scope files array with non-zero count', () => {
+      // Edge case: count says there are issues, but no files provided
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, [], 0, []);
+      assert(typeof result === 'string');
+      assert(result.includes('5 in-scope'));
+    });
+
+    it('should handle multiple in-scope files correctly', () => {
+      const files = [
+        '/tmp/claude/code-reviewer-in-scope-1.md',
+        '/tmp/claude/silent-failure-hunter-in-scope-2.md',
+        '/tmp/claude/comment-analyzer-in-scope-3.md',
+      ];
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 10, files, 0, []);
+      // All files should be listed
+      files.forEach((file) => {
+        assert(result.includes(file), `Missing file: ${file}`);
+      });
+    });
+
+    it('should handle large issue counts', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        999,
+        'Security',
+        1000,
+        ['/tmp/in.md'],
+        500,
+        ['/tmp/out.md']
+      );
+      assert(result.includes('1000 in-scope'));
+      assert(result.includes('500 out-of-scope'));
+    });
+
+    it('should handle single in-scope issue with no out-of-scope', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('1 in-scope'));
+      assert(!result.includes('Agent 2'));
+    });
+
+    it('should handle zero in-scope but non-zero out-of-scope gracefully', () => {
+      // This is an edge case - normally if in-scope is 0, this function wouldn't be called
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 0, [], 5, ['/tmp/out.md']);
+      assert(typeof result === 'string');
+    });
+
+    it('should include issue number in Agent 1 prompt', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 3, ['/tmp/in.md'], 0, []);
+      // Issue number should appear in Agent 1's instructions
+      assert(result.includes('#456') || result.includes('issue #456'));
+    });
+  });
 });
