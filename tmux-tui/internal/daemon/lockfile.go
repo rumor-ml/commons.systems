@@ -17,8 +17,26 @@ type LockFile struct {
 	file *os.File
 }
 
-// readPIDFromLockFile reads the PID from an existing lock file.
-// Returns the PID and any error encountered. Returns 0 if PID cannot be read.
+// readPIDFromLockFile reads the process ID from an existing lock file for diagnostic purposes.
+//
+// This function is called when lock acquisition fails to provide a more helpful error message
+// indicating which process currently holds the lock. The PID is written by writePIDToLockFile()
+// when a daemon successfully acquires the lock.
+//
+// Return Values:
+//   - (pid, nil): Successfully read a valid PID from the lock file
+//   - (0, error): Failed to read or parse the PID
+//
+// Error Cases:
+//   - File read errors (permission denied, file not found, I/O errors)
+//   - Empty lock file (no PID written)
+//   - Invalid PID string (non-numeric content)
+//
+// Important Notes:
+//   - The PID may be stale if the process terminated without cleaning up the lock file
+//   - The PID may be invalid if it was reused by the OS for a different process
+//   - This function is for diagnostics only - do not use it to determine lock validity
+//   - Lock validity is determined solely by the flock() system call in AcquireLockFile()
 func readPIDFromLockFile(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -80,7 +98,29 @@ func AcquireLockFile(path string) (*LockFile, error) {
 	}, nil
 }
 
-// writePIDToLockFile writes the current process ID to the lock file.
+// writePIDToLockFile writes the current process ID to the lock file for diagnostic identification.
+//
+// This function stores the daemon's PID in the lock file so that readPIDFromLockFile() can provide
+// helpful error messages when lock acquisition fails. The PID helps users identify which daemon
+// instance is running.
+//
+// Process:
+//  1. Truncate the file to 0 bytes (clear any previous content)
+//  2. Seek to the beginning of the file
+//  3. Write the current PID followed by a newline
+//  4. Sync the file to ensure the PID is persisted to disk
+//
+// Error Cases:
+//   - Truncate failure: Unable to clear file contents
+//   - Seek failure: Unable to position file pointer
+//   - Write failure: Unable to write PID string
+//   - Sync failure: Unable to flush to disk
+//
+// Important Notes:
+//   - The PID is for diagnostic purposes only and is not used for lock validation
+//   - Lock validity depends on the flock() system call, not the PID content
+//   - All errors are returned to the caller (AcquireLockFile) which handles cleanup
+//   - If this function fails, the lock is released and the daemon startup is aborted
 func writePIDToLockFile(file *os.File) error {
 	if err := file.Truncate(0); err != nil {
 		return fmt.Errorf("failed to truncate lock file: %w", err)
