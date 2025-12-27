@@ -49,7 +49,7 @@
   }
 
   # Build all MCP servers if needed
-  for server_dir in wiggum-mcp-server gh-workflow-mcp-server gh-issue-mcp-server; do
+  for server_dir in mcp-common wiggum-mcp-server gh-workflow-mcp-server gh-issue-mcp-server; do
     if [ -d "$server_dir" ]; then
       if needs_rebuild "$server_dir"; then
         build_mcp_server "$server_dir"
