@@ -183,6 +183,34 @@ formatting errors. I'll follow the instructions: launch Plan agent to fix...
 ✓ Use the provided error details
 ✓ Follow the instructions directly
 
+## Writing Review Results to Temp Files
+
+**CRITICAL: Review outputs must be written to temp files before calling completion tools.**
+
+### File Naming Pattern
+
+/tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md
+
+### Implementation Pattern
+
+1. Execute review command and capture complete output
+2. Generate temp file path: /tmp/claude/wiggum-$(basename $(pwd))-pr-review-$(date +%s%3N).md
+3. Write output to file
+4. Pass file path (not content) to completion tool
+
+### Example
+
+After /all-hands-review completes:
+
+- Write to: /tmp/claude/wiggum-621-my-branch-pr-review-1735234567890.md
+- Call: wiggum_complete_pr_review({ verbatim_response_file: "...", ... })
+
+### Why Temp Files?
+
+- **Token Efficiency:** Review outputs are 5KB+ and don't need to be in agent context
+- **Backwards Compatible:** Tools still accept verbatim_response parameter (deprecated)
+- **File Location:** /tmp/claude/ is automatically cleaned by OS and used for all debug artifacts
+
 ## Main Loop
 
 **CRITICAL: `wiggum_init` is only called ONCE at the start of the workflow.**
@@ -257,10 +285,12 @@ Call after executing the phase-appropriate review command:
 
 **Returns next step instructions.**
 
+**CRITICAL: Write review output to temp file before calling.**
+
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
   command_executed: true,
-  verbatim_response: 'full review output here',
+  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-pr-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,
@@ -270,10 +300,12 @@ mcp__wiggum__wiggum_complete_pr_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain the COMPLETE formatted output from the review command
+- `verbatim_response_file` must contain path to temp file with complete review output
   - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
-  - For `/review` or `/security-review`: Include the complete review output
+  - For `/review`: Include the complete review output
   - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
+- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
+- See "Writing Review Results to Temp Files" section for file naming
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
@@ -290,10 +322,12 @@ Call after executing `/security-review`.
 
 **Returns next step instructions.**
 
+**CRITICAL: Write review output to temp file before calling.**
+
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  verbatim_response: 'full security review output here',
+  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-security-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,
@@ -303,10 +337,11 @@ mcp__wiggum__wiggum_complete_security_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain the COMPLETE formatted output from the review command
-  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
-  - For `/review` or `/security-review`: Include the complete review output
+- `verbatim_response_file` must contain path to temp file with complete review output
+  - For `/security-review`: Include the complete review output
   - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
+- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
+- See "Writing Review Results to Temp Files" section for file naming
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 

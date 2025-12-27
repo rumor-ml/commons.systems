@@ -63,15 +63,19 @@ func (d *AlertDaemon) handlePersistenceError(err error) {
 	fmt.Fprintf(os.Stderr, "  Changes will be lost on daemon restart!\n")
 
 	// Create type-safe v2 message
-	// TODO(#356): Add fallback notification when message construction fails
-	// Current: Silent no-op when NewPersistenceErrorMessage fails (see PR review #273)
-	msg, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", err))
-	if err != nil {
-		// TODO(#356): Add fallback notification when message construction fails
-		// Current: Returns early with only debug logging, no user visibility
-		// TODO(#281): Log message construction failures to stderr
-		// Current: Only debug logging, operations continue with no message sent
-		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", err)
+	saveErr := err
+	msg, constructErr := NewPersistenceErrorMessage(d.seqCounter.Add(1), fmt.Sprintf("Failed to save blocked state: %v", saveErr))
+	if constructErr != nil {
+		// CRITICAL: Persistence failed AND error notification failed
+		fmt.Fprintf(os.Stderr, "CRITICAL: Persistence failed AND error notification failed: persistence=%v | construction=%v\n", saveErr, constructErr)
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=persistence_error error=%v", constructErr)
+
+		// Fallback to v1 message format to ensure user is notified
+		d.broadcast(Message{
+			Type:   MsgTypePersistenceError,
+			SeqNum: d.seqCounter.Add(1),
+			Error:  fmt.Sprintf("Failed to save blocked state: %v", saveErr),
+		})
 		return
 	}
 	d.broadcast(msg.ToWireFormat())
@@ -169,9 +173,18 @@ func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	fmt.Fprintf(os.Stderr, "ERROR: %s\n", errorMsg)
 
 	// Create type-safe v2 message
-	msg, err := NewAudioErrorMessage(d.seqCounter.Add(1), errorMsg)
-	if err != nil {
-		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=audio_error error=%v", err)
+	msg, constructErr := NewAudioErrorMessage(d.seqCounter.Add(1), errorMsg)
+	if constructErr != nil {
+		// CRITICAL: Audio error occurred AND error notification failed
+		fmt.Fprintf(os.Stderr, "CRITICAL: Audio error occurred AND error notification failed: audio=%v | construction=%v\n", audioErr, constructErr)
+		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=audio_error error=%v", constructErr)
+
+		// Fallback to v1 message format to ensure user is notified
+		d.broadcast(Message{
+			Type:   MsgTypeAudioError,
+			SeqNum: d.seqCounter.Add(1),
+			Error:  errorMsg,
+		})
 		return
 	}
 
@@ -714,11 +727,26 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			if err := ValidateMessage(msg); err != nil {
 				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
 				fmt.Fprintf(os.Stderr, "ERROR: Invalid show_block_picker message: %v\n", err)
-				errorMsg, constructErr := NewPersistenceErrorMessage(
+
+				// Send validation error response - use sync warning for protocol errors
+				errorMsg, constructErr := NewSyncWarningMessage(
 					d.seqCounter.Add(1),
+					msg.Type,
 					fmt.Sprintf("Invalid show_block_picker request: %v", err),
 				)
-				if constructErr == nil {
+				if constructErr != nil {
+					// CRITICAL: Validation error AND error notification failed
+					fmt.Fprintf(os.Stderr, "CRITICAL: Validation failed AND error notification failed: validation=%v | construction=%v\n", err, constructErr)
+					debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", constructErr)
+
+					// Fallback to v1 message format
+					client.sendMessage(Message{
+						Type:            MsgTypeSyncWarning,
+						SeqNum:          d.seqCounter.Add(1),
+						OriginalMsgType: msg.Type,
+						Error:           fmt.Sprintf("Invalid show_block_picker request: %v", err),
+					})
+				} else {
 					client.sendMessage(errorMsg.ToWireFormat())
 				}
 				continue
@@ -739,11 +767,27 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Validate message before processing
 			if err := ValidateMessage(msg); err != nil {
 				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
-				errorMsg, constructErr := NewPersistenceErrorMessage(
+				fmt.Fprintf(os.Stderr, "ERROR: Invalid block_branch message: %v\n", err)
+
+				// Send validation error response - use sync warning for protocol errors
+				errorMsg, constructErr := NewSyncWarningMessage(
 					d.seqCounter.Add(1),
+					msg.Type,
 					fmt.Sprintf("Invalid block request: %v", err),
 				)
-				if constructErr == nil {
+				if constructErr != nil {
+					// CRITICAL: Validation error AND error notification failed
+					fmt.Fprintf(os.Stderr, "CRITICAL: Validation failed AND error notification failed: validation=%v | construction=%v\n", err, constructErr)
+					debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", constructErr)
+
+					// Fallback to v1 message format
+					client.sendMessage(Message{
+						Type:            MsgTypeSyncWarning,
+						SeqNum:          d.seqCounter.Add(1),
+						OriginalMsgType: msg.Type,
+						Error:           fmt.Sprintf("Invalid block request: %v", err),
+					})
+				} else {
 					client.sendMessage(errorMsg.ToWireFormat())
 				}
 				continue
@@ -781,11 +825,27 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			// Validate message before processing
 			if err := ValidateMessage(msg); err != nil {
 				debug.Log("DAEMON_INVALID_MESSAGE type=%s error=%v", msg.Type, err)
-				errorMsg, constructErr := NewPersistenceErrorMessage(
+				fmt.Fprintf(os.Stderr, "ERROR: Invalid unblock_branch message: %v\n", err)
+
+				// Send validation error response - use sync warning for protocol errors
+				errorMsg, constructErr := NewSyncWarningMessage(
 					d.seqCounter.Add(1),
+					msg.Type,
 					fmt.Sprintf("Invalid unblock request: %v", err),
 				)
-				if constructErr == nil {
+				if constructErr != nil {
+					// CRITICAL: Validation error AND error notification failed
+					fmt.Fprintf(os.Stderr, "CRITICAL: Validation failed AND error notification failed: validation=%v | construction=%v\n", err, constructErr)
+					debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", constructErr)
+
+					// Fallback to v1 message format
+					client.sendMessage(Message{
+						Type:            MsgTypeSyncWarning,
+						SeqNum:          d.seqCounter.Add(1),
+						OriginalMsgType: msg.Type,
+						Error:           fmt.Sprintf("Invalid unblock request: %v", err),
+					})
+				} else {
 					client.sendMessage(errorMsg.ToWireFormat())
 				}
 				continue
@@ -848,16 +908,59 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 			if healthErr != nil {
 				// Send error message to client instead of fabricated health status
 				errMsg := fmt.Sprintf("Health status validation failed: %v", healthErr)
-				errorResponse, err := NewPersistenceErrorMessage(d.seqCounter.Add(1), errMsg)
-				if err == nil {
+				fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+
+				// Use sync warning for health validation errors (protocol-level issue)
+				errorResponse, constructErr := NewSyncWarningMessage(
+					d.seqCounter.Add(1),
+					MsgTypeHealthQuery,
+					errMsg,
+				)
+				if constructErr != nil {
+					// CRITICAL: Health validation failed AND error notification failed
+					fmt.Fprintf(os.Stderr, "CRITICAL: Health validation failed AND error notification failed: validation=%v | construction=%v\n", healthErr, constructErr)
+					debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", constructErr)
+
+					// Fallback to v1 message format
+					client.sendMessage(Message{
+						Type:            MsgTypeSyncWarning,
+						SeqNum:          d.seqCounter.Add(1),
+						OriginalMsgType: MsgTypeHealthQuery,
+						Error:           errMsg,
+					})
+				} else {
 					client.sendMessage(errorResponse.ToWireFormat())
 				}
 				debug.Log("DAEMON_HEALTH_VALIDATION_FAILED client=%s error=%v", clientID, healthErr)
 				continue
 			}
-			response, err := NewHealthResponseMessage(d.seqCounter.Add(1), status)
-			if err != nil {
-				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=health_response error=%v", err)
+			response, constructErr := NewHealthResponseMessage(d.seqCounter.Add(1), status)
+			if constructErr != nil {
+				// CRITICAL: Health response construction failed - client will timeout
+				errMsg := fmt.Sprintf("Health response construction failed: %v", constructErr)
+				fmt.Fprintf(os.Stderr, "CRITICAL: %s\n", errMsg)
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=health_response error=%v", constructErr)
+
+				// Send error message instead of leaving client hanging
+				errorResponse, syncConstructErr := NewSyncWarningMessage(
+					d.seqCounter.Add(1),
+					MsgTypeHealthQuery,
+					errMsg,
+				)
+				if syncConstructErr != nil {
+					// CRITICAL: Cannot construct any error message
+					fmt.Fprintf(os.Stderr, "CRITICAL: Health response failed AND error notification failed: response=%v | error=%v\n", constructErr, syncConstructErr)
+
+					// Fallback to v1 message format
+					client.sendMessage(Message{
+						Type:            MsgTypeSyncWarning,
+						SeqNum:          d.seqCounter.Add(1),
+						OriginalMsgType: MsgTypeHealthQuery,
+						Error:           errMsg,
+					})
+				} else {
+					client.sendMessage(errorResponse.ToWireFormat())
+				}
 				continue
 			}
 			if err := client.sendMessage(response.ToWireFormat()); err != nil {
@@ -876,12 +979,28 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		default:
 			// Unknown message type
 			debug.Log("DAEMON_UNKNOWN_MESSAGE_TYPE client=%s type=%s", clientID, msg.Type)
+			errMsg := fmt.Sprintf("Unknown message type: %s", msg.Type)
 			fmt.Fprintf(os.Stderr, "ERROR: Unknown message type from client %s: %s\n", clientID, msg.Type)
-			errorMsg, constructErr := NewPersistenceErrorMessage(
+
+			// Use sync warning for unknown message types (protocol-level issue)
+			errorMsg, constructErr := NewSyncWarningMessage(
 				d.seqCounter.Add(1),
-				fmt.Sprintf("Unknown message type: %s", msg.Type),
+				msg.Type,
+				errMsg,
 			)
-			if constructErr == nil {
+			if constructErr != nil {
+				// CRITICAL: Unknown message type AND error notification failed
+				fmt.Fprintf(os.Stderr, "CRITICAL: Unknown message type AND error notification failed: type=%s | construction=%v\n", msg.Type, constructErr)
+				debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=sync_warning error=%v", constructErr)
+
+				// Fallback to v1 message format
+				client.sendMessage(Message{
+					Type:            MsgTypeSyncWarning,
+					SeqNum:          d.seqCounter.Add(1),
+					OriginalMsgType: msg.Type,
+					Error:           errMsg,
+				})
+			} else {
 				client.sendMessage(errorMsg.ToWireFormat())
 			}
 		}

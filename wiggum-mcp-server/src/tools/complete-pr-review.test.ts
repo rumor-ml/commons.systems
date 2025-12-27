@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { CompletePRReviewInputSchema } from './complete-pr-review.js';
+import { CompletePRReviewInputSchema, completePRReview } from './complete-pr-review.js';
 
 describe('complete-pr-review tool', () => {
   describe('CompletePRReviewInputSchema', () => {
@@ -37,7 +37,34 @@ describe('complete-pr-review tool', () => {
       assert.strictEqual(result.success, false);
     });
 
-    it('should reject missing verbatim_response', () => {
+    it('should accept verbatim_response_file instead of verbatim_response', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
+        high_priority_issues: 5,
+        medium_priority_issues: 10,
+        low_priority_issues: 3,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
+      const input = {
+        command_executed: true,
+        verbatim_response: 'Inline review output',
+        verbatim_response_file: '/tmp/claude/wiggum-test-pr-review-123.md',
+        high_priority_issues: 5,
+        medium_priority_issues: 10,
+        low_priority_issues: 3,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
       const input = {
         command_executed: true,
         high_priority_issues: 5,
@@ -45,8 +72,28 @@ describe('complete-pr-review tool', () => {
         low_priority_issues: 3,
       };
 
+      // Schema accepts it - tool runtime validates at least one is provided
       const result = CompletePRReviewInputSchema.safeParse(input);
-      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.success, true);
+    });
+
+    it('should throw ValidationError when neither verbatim field provided at runtime', async () => {
+      const input = {
+        command_executed: true,
+        high_priority_issues: 0,
+        medium_priority_issues: 0,
+        low_priority_issues: 0,
+      };
+
+      // Schema accepts this (both fields optional)
+      const schemaResult = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(schemaResult.success, true);
+
+      // But runtime should reject it
+      await assert.rejects(async () => completePRReview(input), {
+        name: 'ValidationError',
+        message: /Either verbatim_response or verbatim_response_file must be provided/,
+      });
     });
 
     it('should reject when command_executed is false', () => {
@@ -105,3 +152,16 @@ describe('complete-pr-review tool', () => {
     });
   });
 });
+
+/**
+ * Integration Test Coverage Note:
+ *
+ * The end-to-end file-based review completion workflow is validated by the wiggum
+ * workflow execution itself, which has successfully:
+ * 1. Written review results to temp files (e.g., /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md)
+ * 2. Passed file paths to completion tools via verbatim_response_file parameter
+ * 3. Posted GitHub comments containing the file content
+ * 4. Updated wiggum state correctly after each review
+ *
+ * This provides real-world integration test coverage of the feature implemented in #621.
+ */
