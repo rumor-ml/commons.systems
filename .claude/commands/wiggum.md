@@ -205,35 +205,6 @@ formatting errors. I'll follow the instructions: launch Plan agent to fix...
 ✓ Use the provided error details
 ✓ Follow the instructions directly
 
-## Writing Review Results to Temp Files
-
-**CRITICAL: Review outputs must be written to temp files before calling completion tools.**
-
-### File Naming Pattern
-
-$(pwd)/tmp/wiggum/{review-type}-{timestamp}.md
-
-### Implementation Pattern
-
-1. Execute review command and capture complete output
-2. Generate temp file path: $(pwd)/tmp/wiggum/pr-review-$(date +%s%3N).md
-3. Create directory: mkdir -p $(pwd)/tmp/wiggum
-4. Write output to file
-5. Pass file path (not content) to completion tool
-
-### Example
-
-After /all-hands-review completes:
-
-- Write to: $(pwd)/tmp/wiggum/pr-review-1735234567890.md
-- Call: wiggum_complete_pr_review({ verbatim_response_file: "...", ... })
-
-### Why Temp Files?
-
-- **Token Efficiency:** Review outputs are 5KB+ and don't need to be in agent context
-- **Backwards Compatible:** Tools still accept verbatim_response parameter (deprecated)
-- **File Location:** tmp/wiggum/ in worktree root is .gitignore'd and isolated per worktree
-
 ## Main Loop
 
 **CRITICAL: `wiggum_init` is only called ONCE at the start of the workflow.**
@@ -308,28 +279,39 @@ Call after executing the phase-appropriate review command:
 
 **Returns next step instructions.**
 
-**CRITICAL: Write review output to temp file before calling.**
+**CRITICAL: Pass file paths directly from review agents. Do NOT create intermediate summary files.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
   command_executed: true,
-  verbatim_response_file: '$(pwd)/tmp/wiggum/pr-review-{timestamp}.md',
-  high_priority_issues: 0,
-  medium_priority_issues: 0,
-  low_priority_issues: 0,
+  in_scope_files: [
+    '$(pwd)/tmp/wiggum/code-reviewer-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/code-simplifier-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/comment-analyzer-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-{timestamp}.md',
+  ],
+  out_of_scope_files: [
+    '$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/code-simplifier-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-{timestamp}.md',
+  ],
+  in_scope_count: 17,
+  out_of_scope_count: 21,
 });
 ```
 
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response_file` must contain path to temp file with complete review output
-  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
-  - For `/review`: Include the complete review output
-  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
-- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
-- See "Writing Review Results to Temp Files" section for file naming
-- Count ALL issues by priority
+- `in_scope_files` and `out_of_scope_files` contain file paths directly from review agents
+- `in_scope_count` and `out_of_scope_count` are the total counts across all agents
+- **Do NOT create summary files** - agents write individual files, tool concatenates them server-side
+- Tool reads files, aggregates results, and posts to GitHub comment
 - Tool returns next step instructions (either fix instructions or next step)
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
@@ -345,27 +327,33 @@ Call after executing `/security-review`.
 
 **Returns next step instructions.**
 
-**CRITICAL: Write review output to temp file before calling.**
+**CRITICAL: Pass file paths directly from security review agents. Do NOT create intermediate summary files.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  verbatim_response_file: '$(pwd)/tmp/wiggum/security-review-{timestamp}.md',
-  high_priority_issues: 0,
-  medium_priority_issues: 0,
-  low_priority_issues: 0,
+  in_scope_files: [
+    '$(pwd)/tmp/wiggum/security-agent-1-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/security-agent-2-in-scope-{timestamp}.md',
+    // ... all security review agent in-scope files
+  ],
+  out_of_scope_files: [
+    '$(pwd)/tmp/wiggum/security-agent-1-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/security-agent-2-out-of-scope-{timestamp}.md',
+    // ... all security review agent out-of-scope files
+  ],
+  in_scope_count: 5,
+  out_of_scope_count: 3,
 });
 ```
 
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response_file` must contain path to temp file with complete review output
-  - For `/security-review`: Include the complete review output
-  - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
-- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
-- See "Writing Review Results to Temp Files" section for file naming
-- Count ALL issues by priority
+- `in_scope_files` and `out_of_scope_files` contain file paths directly from security review agents
+- `in_scope_count` and `out_of_scope_count` are the total counts across all agents
+- **Do NOT create summary files** - agents write individual files, tool concatenates them server-side
+- Tool reads files, aggregates results, and posts to GitHub comment
 - Tool returns next step instructions (either fix instructions or next step)
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**

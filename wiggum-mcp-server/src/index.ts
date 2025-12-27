@@ -65,30 +65,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'wiggum_complete_pr_review',
         description:
-          'Complete PR review step after executing /pr-review-toolkit:review-pr. Validates command execution, posts structured PR comment with review results, and returns next step instructions. If issues found, increments iteration and returns Plan+Fix instructions. If no issues, marks step complete and proceeds.',
+          'Complete PR review step after executing the phase-appropriate review command (Phase 1: /all-hands-review, Phase 2: /review). Validates command execution, posts structured PR comment with review results, and returns next step instructions. If issues found, increments iteration and returns Plan+Fix instructions. If no issues, marks step complete and proceeds.',
         inputSchema: {
           type: 'object',
           properties: {
             command_executed: {
               type: 'boolean',
-              description:
-                'Confirm /pr-review-toolkit:review-pr was actually executed (must be true)',
+              description: 'Confirm PR review command was actually executed (must be true)',
             },
-            verbatim_response: {
-              type: 'string',
-              description: 'Complete verbatim response from review command',
+            in_scope_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of in-scope result file paths from review agents',
             },
-            high_priority_issues: {
+            out_of_scope_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of out-of-scope result file paths from review agents',
+            },
+            in_scope_count: {
               type: 'number',
-              description: 'Count of high priority issues found',
+              description: 'Total count of in-scope issues found across all agents',
             },
-            medium_priority_issues: {
+            out_of_scope_count: {
               type: 'number',
-              description: 'Count of medium priority issues found',
-            },
-            low_priority_issues: {
-              type: 'number',
-              description: 'Count of low priority issues found',
+              description: 'Total count of out-of-scope recommendations across all agents',
             },
             maxIterations: {
               type: 'number',
@@ -98,10 +99,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: [
             'command_executed',
-            'verbatim_response',
-            'high_priority_issues',
-            'medium_priority_issues',
-            'low_priority_issues',
+            'in_scope_files',
+            'out_of_scope_files',
+            'in_scope_count',
+            'out_of_scope_count',
           ],
         },
       },
@@ -116,21 +117,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Confirm /security-review was actually executed (must be true)',
             },
-            verbatim_response: {
-              type: 'string',
-              description: 'Complete verbatim response from security review command',
+            in_scope_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of in-scope result file paths from security review agents',
             },
-            high_priority_issues: {
-              type: 'number',
-              description: 'Count of high priority security issues found',
+            out_of_scope_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of out-of-scope result file paths from security review agents',
             },
-            medium_priority_issues: {
+            in_scope_count: {
               type: 'number',
-              description: 'Count of medium priority security issues found',
+              description: 'Total count of in-scope security issues found across all agents',
             },
-            low_priority_issues: {
+            out_of_scope_count: {
               type: 'number',
-              description: 'Count of low priority security issues found',
+              description: 'Total count of out-of-scope security recommendations across all agents',
             },
             maxIterations: {
               type: 'number',
@@ -140,10 +143,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: [
             'command_executed',
-            'verbatim_response',
-            'high_priority_issues',
-            'medium_priority_issues',
-            'low_priority_issues',
+            'in_scope_files',
+            'out_of_scope_files',
+            'in_scope_count',
+            'out_of_scope_count',
           ],
         },
       },
