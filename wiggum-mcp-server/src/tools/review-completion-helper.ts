@@ -15,7 +15,12 @@ import {
   type StateCommentResult,
 } from '../state/router.js';
 import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
-import { MAX_ITERATIONS, STEP_NAMES, generateTriageInstructions } from '../constants.js';
+import {
+  MAX_ITERATIONS,
+  STEP_NAMES,
+  generateTriageInstructions,
+  generateOutOfScopeTrackingInstructions,
+} from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
@@ -25,6 +30,52 @@ import type { CurrentState, WiggumState } from '../state/types.js';
 import { readFile } from 'fs/promises';
 
 /**
+ * Extract agent name from file path
+ * Example: /tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md -> Code Reviewer
+ */
+function extractAgentNameFromPath(filePath: string): string {
+  const fileName = filePath.split('/').pop() || '';
+  const match = fileName.match(/^(.+?)-(in|out)-scope-/);
+  if (match) {
+    return match[1]
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  return 'Unknown Agent';
+}
+
+/**
+ * Load review results from scope-separated file lists
+ */
+async function loadReviewResults(
+  inScopeFiles: string[] = [],
+  outOfScopeFiles: string[] = []
+): Promise<{ inScope: string; outOfScope: string }> {
+  const inScopeResults: string[] = [];
+  for (const filePath of inScopeFiles) {
+    const content = await readFile(filePath, 'utf-8');
+    const agentName = extractAgentNameFromPath(filePath);
+    inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+  }
+
+  const outOfScopeResults: string[] = [];
+  for (const filePath of outOfScopeFiles) {
+    const content = await readFile(filePath, 'utf-8');
+    const agentName = extractAgentNameFromPath(filePath);
+    outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+  }
+
+  return {
+    inScope: inScopeResults.length > 0 ? `## In-Scope Issues\n\n${inScopeResults.join('\n')}` : '',
+    outOfScope:
+      outOfScopeResults.length > 0
+        ? `## Out-of-Scope Recommendations\n\n${outOfScopeResults.join('\n')}`
+        : '',
+  };
+}
+
+/**
  * Load verbatim response from file or inline parameter
  *
  * @param input - Review completion input
@@ -32,6 +83,17 @@ import { readFile } from 'fs/promises';
  * @throws ValidationError if neither parameter provided or file unreadable
  */
 export async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
+  // New format: file-based scope-separated results
+  if (input.in_scope_files || input.out_of_scope_files) {
+    const { inScope, outOfScope } = await loadReviewResults(
+      input.in_scope_files,
+      input.out_of_scope_files
+    );
+    const sections = [inScope, outOfScope].filter(Boolean);
+    return sections.join('\n\n');
+  }
+
+  // Old format: single verbatim response
   if (!input.verbatim_response && !input.verbatim_response_file) {
     throw new ValidationError(
       `Either verbatim_response or verbatim_response_file must be provided. ` +
@@ -119,11 +181,17 @@ export interface ReviewConfig {
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
+  // Old format (deprecated but supported)
   verbatim_response: z.string().optional(),
   verbatim_response_file: z.string().optional(),
-  high_priority_issues: z.number(),
-  medium_priority_issues: z.number(),
-  low_priority_issues: z.number(),
+  high_priority_issues: z.number().optional(),
+  medium_priority_issues: z.number().optional(),
+  low_priority_issues: z.number().optional(),
+  // New format
+  in_scope_files: z.array(z.string()).optional(),
+  out_of_scope_files: z.array(z.string()).optional(),
+  in_scope_count: z.number().optional(),
+  out_of_scope_count: z.number().optional(),
 });
 
 /**
@@ -132,11 +200,17 @@ export const ReviewCompletionInputSchema = z.object({
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
+  // Old format (deprecated but supported)
   verbatim_response?: string;
   verbatim_response_file?: string;
-  high_priority_issues: number;
-  medium_priority_issues: number;
-  low_priority_issues: number;
+  high_priority_issues?: number;
+  medium_priority_issues?: number;
+  low_priority_issues?: number;
+  // New format
+  in_scope_files?: string[];
+  out_of_scope_files?: string[];
+  in_scope_count?: number;
+  out_of_scope_count?: number;
 }
 
 /**
@@ -221,9 +295,10 @@ ${config.successMessage}`;
 function buildNewState(
   currentState: CurrentState,
   reviewStep: WiggumStep,
-  hasIssues: boolean
+  hasInScopeIssues: boolean
 ): WiggumState {
-  if (hasIssues) {
+  // Only increment iteration for in-scope issues
+  if (hasInScopeIssues) {
     return {
       iteration: currentState.wiggum.iteration + 1,
       step: reviewStep,
@@ -232,6 +307,7 @@ function buildNewState(
     };
   }
 
+  // If no in-scope issues (even if out-of-scope exist), mark complete
   return {
     iteration: currentState.wiggum.iteration,
     step: reviewStep,
@@ -402,11 +478,20 @@ export async function completeReview(
 
   validatePhaseRequirements(state, config);
 
+  // Handle both old and new format
+  const inScopeCount = input.in_scope_count ?? 0;
+  const outOfScopeCount = input.out_of_scope_count ?? 0;
+
   const issues: IssueCounts = {
-    high: input.high_priority_issues,
-    medium: input.medium_priority_issues,
-    low: input.low_priority_issues,
-    total: input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues,
+    high: input.high_priority_issues ?? inScopeCount,
+    medium: input.medium_priority_issues ?? 0,
+    low: input.low_priority_issues ?? outOfScopeCount,
+    total:
+      (input.high_priority_issues ?? 0) +
+      (input.medium_priority_issues ?? 0) +
+      (input.low_priority_issues ?? 0) +
+      inScopeCount +
+      outOfScopeCount,
   };
 
   const { title, body } = buildCommentContent(
@@ -416,8 +501,10 @@ export async function completeReview(
     config,
     state.wiggum.phase
   );
-  const hasIssues = issues.total > 0;
-  const newState = buildNewState(state, reviewStep, hasIssues);
+
+  // Only in-scope issues block progression
+  const hasInScopeIssues = inScopeCount > 0 || (input.high_priority_issues ?? 0) > 0;
+  const newState = buildNewState(state, reviewStep, hasInScopeIssues);
 
   const result = await postStateComment(state, newState, title, body);
 
@@ -492,10 +579,55 @@ The workflow will resume from this step once the state comment posts successfull
     return buildIterationLimitResponse(state, reviewStep, issues, newState.iteration);
   }
 
-  if (hasIssues) {
+  // CRITICAL: Only hasInScopeIssues blocks progression
+  if (hasInScopeIssues) {
     return buildIssuesFoundResponse(state, reviewStep, issues, newState.iteration, config);
   }
 
+  // No in-scope issues: step is complete, but check for out-of-scope recommendations
+  const hasOutOfScopeIssues = outOfScopeCount > 0;
+
+  if (hasOutOfScopeIssues) {
+    // Step is marked complete (newState already posted), but we need to track out-of-scope issues
+    const issueNumber = state.issue.exists ? state.issue.number : undefined;
+    const outOfScopeFiles = input.out_of_scope_files ?? [];
+
+    // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
+    const updatedState = applyWiggumState(state, newState);
+
+    // Return instructions to track out-of-scope issues, then proceed to next step
+    const outOfScopeInstructions = generateOutOfScopeTrackingInstructions(
+      issueNumber,
+      config.reviewTypeLabel,
+      outOfScopeCount,
+      outOfScopeFiles
+    );
+
+    const output = {
+      current_step: STEP_NAMES[reviewStep],
+      step_number: reviewStep,
+      iteration_count: newState.iteration,
+      instructions: `${outOfScopeInstructions}\n\nAfter tracking out-of-scope recommendations, the workflow will automatically proceed to the next step.`,
+      steps_completed_by_tool: [
+        `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
+        state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
+        'Marked step as complete (no in-scope issues)',
+      ],
+      context: {
+        pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
+        issue_number: issueNumber,
+        in_scope_issues: inScopeCount,
+        out_of_scope_recommendations: outOfScopeCount,
+      },
+      next_step: await getNextStepInstructions(updatedState),
+    };
+
+    return {
+      content: [{ type: 'text', text: formatWiggumResponse(output) }],
+    };
+  }
+
+  // No in-scope or out-of-scope issues: advance to next step
   // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
   // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
   // state changes have occurred (PR closed, commits added, issue modified). This is safe

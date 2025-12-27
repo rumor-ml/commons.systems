@@ -258,6 +258,63 @@ Call ExitPlanMode when plan is complete.
 }
 
 /**
+ * Generate instructions for tracking out-of-scope recommendations
+ *
+ * When a review completes with only out-of-scope recommendations (no in-scope issues),
+ * the step is marked complete but we still need to track the out-of-scope items.
+ *
+ * @param issueNumber - GitHub issue number (optional - may be undefined)
+ * @param reviewType - Review type label (e.g., "PR", "Security")
+ * @param outOfScopeCount - Number of out-of-scope recommendations
+ * @param outOfScopeFiles - Array of file paths containing out-of-scope results
+ * @returns Instructions for tracking out-of-scope recommendations
+ */
+export function generateOutOfScopeTrackingInstructions(
+  issueNumber: number | undefined,
+  reviewType: string,
+  outOfScopeCount: number,
+  outOfScopeFiles: string[]
+): string {
+  const fileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');
+
+  return `${outOfScopeCount} out-of-scope ${reviewType.toLowerCase()} review recommendation(s) found.
+
+The review step is **complete** (no in-scope issues require fixing), but these out-of-scope recommendations should be tracked for future work.
+
+## Task: Track Out-of-Scope Recommendations
+
+Launch a general-purpose agent to handle out-of-scope tracking:
+
+\`\`\`
+Task({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  prompt: \`Track out-of-scope recommendations in GitHub issues.
+
+**Out-of-Scope Result Files:**
+${fileList}
+
+**Your Tasks:**
+1. Read ALL out-of-scope result files above
+2. For each recommendation:
+   - Search for existing issues: \\\`gh issue list -S "keywords" --json number,title,body\\\`
+   - If matching issue exists: Add comment linking to ${issueNumber ? `issue #${issueNumber}` : 'this work'}
+   - If no match: Create new issue with proper labels and context
+3. Collect all issue numbers (both new and existing)
+4. Report back with list of issue numbers
+
+**Issue Creation Template:**
+- Title: Concise description of recommendation
+- Body: Context from review${issueNumber ? `, link to issue #${issueNumber}` : ''}
+- Labels: "enhancement", "from-review", appropriate area labels
+\`
+})
+\`\`\`
+
+After the agent completes, the workflow will proceed to the next step automatically.`;
+}
+
+/**
  * Generate comprehensive triage instructions for workflow failures
  *
  * Produces a structured multi-step workflow that guides the agent through triaging

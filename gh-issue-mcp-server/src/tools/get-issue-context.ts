@@ -25,6 +25,11 @@ interface IssueData {
   title: string;
   url: string;
   body: string;
+  comments: Array<{
+    author: { login: string };
+    body: string;
+    createdAt: string;
+  }>;
 }
 
 interface IssueContext {
@@ -64,7 +69,7 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
 
     // Step 1: Fetch current issue details
     const issue = await ghCliJson<IssueData>(
-      ['issue', 'view', input.issue_number, '--json', 'id,number,title,body,url'],
+      ['issue', 'view', input.issue_number, '--json', 'id,number,title,body,url,comments'],
       { repo: resolvedRepo }
     );
 
@@ -79,6 +84,15 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
               title
               url
               body
+              comments(first: 100) {
+                nodes {
+                  author {
+                    login
+                  }
+                  body
+                  createdAt
+                }
+              }
             }
           }
         }
@@ -106,7 +120,13 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
     }
 
-    const parent = parentResult.data?.node?.parent || null;
+    const parentRaw = parentResult.data?.node?.parent || null;
+    const parent = parentRaw
+      ? {
+          ...parentRaw,
+          comments: parentRaw.comments?.nodes || [],
+        }
+      : null;
 
     // Step 3: Recursively traverse ancestors to root
     const ancestors: IssueData[] = [];
@@ -136,7 +156,13 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         );
       }
 
-      currentAncestor = ancestorParentResult.data?.node?.parent || null;
+      const ancestorParentRaw = ancestorParentResult.data?.node?.parent || null;
+      currentAncestor = ancestorParentRaw
+        ? {
+            ...ancestorParentRaw,
+            comments: ancestorParentRaw.comments?.nodes || [],
+          }
+        : null;
     }
 
     // Step 4: Fetch children
@@ -151,6 +177,15 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
                 title
                 url
                 body
+                comments(first: 100) {
+                  nodes {
+                    author {
+                      login
+                    }
+                    body
+                    createdAt
+                  }
+                }
               }
             }
           }
@@ -178,7 +213,11 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
     }
 
-    const children = childrenResult.data?.node?.subIssues?.nodes || [];
+    const childrenRaw = childrenResult.data?.node?.subIssues?.nodes || [];
+    const children = childrenRaw.map((child: any) => ({
+      ...child,
+      comments: child.comments?.nodes || [],
+    }));
 
     // Step 5: Fetch siblings (if parent exists)
     let siblings: IssueData[] = [];
@@ -204,7 +243,11 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
         );
       }
 
-      const allSiblings = siblingsResult.data?.node?.subIssues?.nodes || [];
+      const allSiblingsRaw = siblingsResult.data?.node?.subIssues?.nodes || [];
+      const allSiblings = allSiblingsRaw.map((sibling: any) => ({
+        ...sibling,
+        comments: sibling.comments?.nodes || [],
+      }));
       siblings = allSiblings.filter((s: IssueData) => s.number !== issue.number);
     }
 
@@ -262,12 +305,16 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
 function formatIssueContextSummary(context: IssueContext): string {
   const lines: string[] = [];
 
-  lines.push(`Issue Context for #${context.current.number}: ${context.current.title}`);
+  lines.push(
+    `Issue Context for #${context.current.number}: ${context.current.title} (${context.current.comments.length} comments)`
+  );
   lines.push(`URL: ${context.current.url}`);
   lines.push('');
 
   if (context.root) {
-    lines.push(`Root Issue: #${context.root.number} - ${context.root.title}`);
+    lines.push(
+      `Root Issue: #${context.root.number} - ${context.root.title} (${context.root.comments.length} comments)`
+    );
   }
 
   if (context.ancestors.length > 0) {

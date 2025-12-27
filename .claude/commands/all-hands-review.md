@@ -36,33 +36,51 @@ Check that we're in a valid state for review:
 
    - If no changes, return: "No changes to review. Branch is up to date with origin/main."
 
+## Step 1.5: Get Issue Context
+
+Extract issue number and fetch context:
+
+1. Get issue number from branch name:
+
+   ```bash
+   git rev-parse --abbrev-ref HEAD | grep -oE '[0-9]+' | head -1
+   ```
+
+2. Fetch full issue context including comments:
+
+   ```
+   mcp__gh-issue__gh_get_issue_context({ issue_number: <number> })
+   ```
+
+3. Store the issue context (number, title, url) for passing to agents in next step
+
 ## Step 2: Launch Parallel Review Agents
 
-Use the Task tool to launch ALL 6 pr-review-toolkit agents in PARALLEL (make 6 Task calls in a single response):
+Use the Task tool to launch ALL 6 all-hands agents in PARALLEL (make 6 Task calls in a single response):
 
-1. **pr-review-toolkit:code-reviewer**
-   - `subagent_type`: "pr-review-toolkit:code-reviewer"
-   - Pass context: "Review changes from origin/main...HEAD"
+1. **all-hands/code-reviewer**
+   - `subagent_type`: "all-hands/code-reviewer"
+   - Pass context: "Review changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-2. **pr-review-toolkit:silent-failure-hunter**
-   - `subagent_type`: "pr-review-toolkit:silent-failure-hunter"
-   - Pass context: "Hunt for silent failures in changes from origin/main...HEAD"
+2. **all-hands/silent-failure-hunter**
+   - `subagent_type`: "all-hands/silent-failure-hunter"
+   - Pass context: "Hunt for silent failures in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-3. **pr-review-toolkit:code-simplifier**
-   - `subagent_type`: "pr-review-toolkit:code-simplifier"
-   - Pass context: "Find simplification opportunities in changes from origin/main...HEAD"
+3. **all-hands/code-simplifier**
+   - `subagent_type`: "all-hands/code-simplifier"
+   - Pass context: "Find simplification opportunities in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-4. **pr-review-toolkit:comment-analyzer**
-   - `subagent_type`: "pr-review-toolkit:comment-analyzer"
-   - Pass context: "Analyze comments in changes from origin/main...HEAD"
+4. **all-hands/comment-analyzer**
+   - `subagent_type`: "all-hands/comment-analyzer"
+   - Pass context: "Analyze comments in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-5. **pr-review-toolkit:pr-test-analyzer**
-   - `subagent_type`: "pr-review-toolkit:pr-test-analyzer"
-   - Pass context: "Analyze tests in changes from origin/main...HEAD"
+5. **all-hands/pr-test-analyzer**
+   - `subagent_type`: "all-hands/pr-test-analyzer"
+   - Pass context: "Analyze tests in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
-6. **pr-review-toolkit:type-design-analyzer**
-   - `subagent_type`: "pr-review-toolkit:type-design-analyzer"
-   - Pass context: "Analyze type design in changes from origin/main...HEAD"
+6. **all-hands/type-design-analyzer**
+   - `subagent_type`: "all-hands/type-design-analyzer"
+   - Pass context: "Analyze type design in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 1.5]"
 
 **CRITICAL:** Launch all 6 agents in parallel (single response with 6 Task calls). Do NOT launch them sequentially.
 
@@ -70,69 +88,50 @@ Use the Task tool to launch ALL 6 pr-review-toolkit agents in PARALLEL (make 6 T
 
 After all agents complete:
 
-1. Collect the verbatim response from each agent
-2. Parse each response to extract findings and priority levels
-3. Count total issues by priority:
-   - High priority issues
-   - Medium priority issues
-   - Low priority issues
+1. Parse the JSON summary from each agent's response
+2. Extract from each agent:
+   - `in_scope_file` path
+   - `out_of_scope_file` path
+   - `in_scope_count`
+   - `out_of_scope_count`
+3. Build arrays:
+   - `inScopeFiles = [agent1.in_scope_file, agent2.in_scope_file, ...]`
+   - `outOfScopeFiles = [agent1.out_of_scope_file, agent2.out_of_scope_file, ...]`
+4. Sum counts:
+   - `totalInScope = sum(agent.in_scope_count for all agents)`
+   - `totalOutOfScope = sum(agent.out_of_scope_count for all agents)`
 
 ## Step 4: Format Output
 
-**CRITICAL:** The complete formatted output below will be passed as `verbatim_response` to wiggum completion tools. Do NOT summarize - include ALL agent outputs verbatim for the audit trail.
-
-Present results in this format:
+Present results in this concise format:
 
 ```
 ## All-Hands Review Complete
 
-### Summary
-- **High Priority Issues:** [count]
-- **Medium Priority Issues:** [count]
-- **Low Priority Issues:** [count]
-- **Total Issues:** [total]
+**Results:**
+- In-Scope Issues: [totalInScope]
+- Out-of-Scope Recommendations: [totalOutOfScope]
 
-### Agent Results
+**Files Generated:**
+In-Scope: [inScopeFiles.length] files
+Out-of-Scope: [outOfScopeFiles.length] files
 
-#### Code Reviewer
-[verbatim response from code-reviewer agent]
+**File Paths:**
+In-Scope:
+- [list all inScopeFiles paths]
 
----
+Out-of-Scope:
+- [list all outOfScopeFiles paths]
 
-#### Silent Failure Hunter
-[verbatim response from silent-failure-hunter agent]
-
----
-
-#### Code Simplifier
-[verbatim response from code-simplifier agent]
-
----
-
-#### Comment Analyzer
-[verbatim response from comment-analyzer agent]
-
----
-
-#### PR Test Analyzer
-[verbatim response from pr-test-analyzer agent]
-
----
-
-#### Type Design Analyzer
-[verbatim response from type-design-analyzer agent]
-
----
-
-### Review Scope
-Branch changes reviewed: `origin/main...HEAD`
+Next: These file paths will be passed to wiggum_complete_pr_review.
 ```
 
 ## Important Notes
 
-- **You are an orchestrator** - validate git state yourself, then delegate review work to specialized agents
+- **You are an orchestrator** - validate git state yourself, fetch issue context, then delegate review work to specialized agents
 - All agents run in parallel for maximum speed
-- Each agent is smart enough to handle irrelevant changes - run all 6 every time
+- Agents are scope-aware and will categorize findings as in-scope or out-of-scope based on issue context
+- Each agent writes findings to separate files and returns JSON summaries with file paths
 - Use `origin/main...HEAD` (THREE dots) to exclude already-merged commits
-- Collect verbatim responses from all agents for complete audit trail
-- Count issues accurately for wiggum integration
+- Aggregate file paths and counts from all agents for wiggum integration
+- The file paths will be passed to wiggum_complete_pr_review for processing

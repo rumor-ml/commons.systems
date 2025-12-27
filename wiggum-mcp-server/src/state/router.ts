@@ -22,13 +22,11 @@ import {
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
   STEP_PHASE2_CODE_QUALITY,
-  STEP_PHASE2_PR_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
   PHASE1_PR_REVIEW_COMMAND,
-  PHASE2_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
@@ -847,16 +845,8 @@ async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
     return await handlePhase2CodeQuality(stateWithPR);
   }
 
-  // Step p2-4: PR Review (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_PR_REVIEW)) {
-    logger.info('Routing to Phase 2 Step 4: PR Review', {
-      prNumber: stateWithPR.pr.number,
-      iteration: state.wiggum.iteration,
-    });
-    return handlePhase2PRReview(stateWithPR);
-  }
-
   // Step p2-5: Security Review (if not completed)
+  // NOTE: Phase 2 PR review (p2-4) removed - Phase 1 review is comprehensive
   if (!state.wiggum.completedSteps.includes(STEP_PHASE2_SECURITY_REVIEW)) {
     logger.info('Routing to Phase 2 Step 5: Security Review', {
       prNumber: stateWithPR.pr.number,
@@ -1286,24 +1276,10 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       'Marked Step p2-3 complete'
     );
 
-    // Return Step p2-4 (PR Review) instructions
-    output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
-    output.step_number = STEP_PHASE2_PR_REVIEW;
-    // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated PR review instructions to helper function
-    output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline
-
-Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
-
-After all review agents complete:
-1. Capture the complete verbatim response
-2. Count issues by priority (high, medium, low)
-3. Call wiggum_complete_pr_review with:
-   - command_executed: true
-   - verbatim_response: (full output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)`;
+    // Skip to Step p2-5 (Security Review) - p2-4 was removed as Phase 1 review is comprehensive
+    // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
+    const updatedState = applyWiggumState(state, newState);
+    return await getNextStepInstructions(updatedState);
   } else {
     // Comments found - return code quality review instructions
     output.steps_completed_by_tool.push(`Fetched code quality comments - ${comments.length} found`);
@@ -1354,41 +1330,8 @@ async function handlePhase2CodeQuality(state: CurrentStateWithPR): Promise<ToolR
 }
 
 /**
- * Phase 2 Step 4: PR Review
- */
-function handlePhase2PRReview(state: CurrentStateWithPR): ToolResult {
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_PHASE2_PR_REVIEW],
-    step_number: STEP_PHASE2_PR_REVIEW,
-    iteration_count: state.wiggum.iteration,
-    instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline
-
-Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
-
-After all review agents complete:
-1. Capture the complete verbatim response
-2. Count issues by priority (high, medium, low)
-3. Call wiggum_complete_pr_review with:
-   - command_executed: true
-   - verbatim_response: (full output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)`,
-    steps_completed_by_tool: [],
-    context: {
-      pr_number: state.pr.number,
-      current_branch: state.git.currentBranch,
-    },
-  };
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
  * Phase 2 Step 5: Security Review
+ * NOTE: Step 4 (PR Review) was removed as Phase 1 review is comprehensive
  */
 function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
   const output: WiggumInstructions = {

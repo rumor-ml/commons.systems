@@ -18,21 +18,27 @@ import { completeReview, type ReviewConfig } from './review-completion-helper.js
 
 export const CompletePRReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm PR review command was actually executed'),
-  verbatim_response: z
-    .string()
+
+  // DEPRECATED: Keep for backward compatibility during transition
+  verbatim_response: z.string().optional().describe('DEPRECATED'),
+  verbatim_response_file: z.string().optional().describe('DEPRECATED'),
+  high_priority_issues: z.number().optional().describe('DEPRECATED'),
+  medium_priority_issues: z.number().optional().describe('DEPRECATED'),
+  low_priority_issues: z.number().optional().describe('DEPRECATED'),
+
+  // NEW: File-based scope-separated results
+  in_scope_files: z.array(z.string()).optional().describe('Array of in-scope result file paths'),
+  out_of_scope_files: z
+    .array(z.string())
     .optional()
-    .describe(
-      'DEPRECATED: Complete verbatim response from review command. Use verbatim_response_file instead.'
-    ),
-  verbatim_response_file: z
-    .string()
+    .describe('Array of out-of-scope result file paths'),
+  in_scope_count: z.number().int().nonnegative().optional().describe('Total in-scope issues'),
+  out_of_scope_count: z
+    .number()
+    .int()
+    .nonnegative()
     .optional()
-    .describe(
-      'Path to temp file containing complete verbatim response from review command (preferred method)'
-    ),
-  high_priority_issues: z.number().describe('Count of high priority issues found'),
-  medium_priority_issues: z.number().describe('Count of medium priority issues found'),
-  low_priority_issues: z.number().describe('Count of low priority issues found'),
+    .describe('Total out-of-scope issues'),
 });
 
 export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
