@@ -11,8 +11,7 @@ import {
   extractIssueNumberFromBranch,
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
-import { getWiggumState } from './comments.js';
-import { getWiggumStateFromIssue } from './issue-comments.js';
+import { getWiggumStateFromPRBody, getWiggumStateFromIssueBody } from './body-state.js';
 import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
 import { StateDetectionError, StateApiError } from '../utils/errors.js';
@@ -286,9 +285,11 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
 
   let wiggum: WiggumState;
   if (phase === 'phase2' && pr.exists) {
-    // Phase 2: Read state from PR comments
-    const prWiggum = await getWiggumState(pr.number, repo);
-    wiggum = { ...prWiggum, phase: 'phase2' };
+    // Phase 2: Read state from PR body
+    const prWiggum = await getWiggumStateFromPRBody(pr.number, repo);
+    wiggum = prWiggum
+      ? { ...prWiggum, phase: 'phase2' }
+      : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
 
     // If state detection took longer than 5 seconds, re-validate PR state exists
     // This helps detect race conditions where PR might have been closed/modified
@@ -332,9 +333,11 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
       }
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {
-    // Phase 1: Read state from issue comments
-    const issueWiggum = await getWiggumStateFromIssue(issue.number, repo);
-    wiggum = { ...issueWiggum, phase: 'phase1' };
+    // Phase 1: Read state from issue body
+    const issueWiggum = await getWiggumStateFromIssueBody(issue.number, repo);
+    wiggum = issueWiggum
+      ? { ...issueWiggum, phase: 'phase1' }
+      : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase1' };
   } else {
     // No issue or PR, return initial Phase 1 state
     wiggum = {

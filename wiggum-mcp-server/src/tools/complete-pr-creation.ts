@@ -14,7 +14,6 @@
  *    - Invalid branch name format (extractIssueNumber function)
  *    - Failed to parse PR number from gh output (after gh pr create)
  *    - Failed to verify PR after creation (getPR verification)
- *    - Failed to post wiggum state comment (postWiggumStateComment call)
  *    - GitHub API errors during PR creation (gh pr create errors)
  *
  * 2. LOGGED ERRORS (logged but execution continues with fallback):
@@ -27,7 +26,6 @@
  *    - Commit fetch failure (commits fetch catch block)
  *    - PR creation success (after gh pr create)
  *    - PR verification success (after getPR call)
- *    - State comment failure (postWiggumStateComment catch)
  *    - PR creation failure (outer catch block)
  *
  * All ValidationErrors include actionable context for the user.
@@ -36,13 +34,11 @@
 
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
-import { postWiggumStateComment } from '../state/comments.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
-import { STEP_PHASE1_CREATE_PR, STEP_NAMES, NEEDS_REVIEW_LABEL } from '../constants.js';
-import { ValidationError, GitHubCliError, StateApiError, NetworkError } from '../utils/errors.js';
-import { buildGitHubErrorMessage } from '../utils/error-remediation.js';
+import { STEP_PHASE1_CREATE_PR, NEEDS_REVIEW_LABEL } from '../constants.js';
+import { ValidationError, StateApiError, NetworkError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
@@ -228,6 +224,7 @@ ${commits}`;
 
     // Mark Phase 1 Step 4 complete and transition to Phase 2
     // Reset maxIterations to default for the new PR (Phase 2)
+    // State will be persisted to PR body by getNextStepInstructions() via safeUpdatePRBodyState()
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
@@ -235,53 +232,6 @@ ${commits}`;
       phase: 'phase2',
       maxIterations: undefined,
     };
-
-    // TODO(#320): Add diagnostics field to StateApiError for HTTP status, rate limits, etc.
-    try {
-      await postWiggumStateComment(
-        prNumber,
-        newState,
-        `${STEP_NAMES[STEP_PHASE1_CREATE_PR]} - Complete`,
-        `PR created successfully! Phase 1 complete. Transitioning to Phase 2 (PR workflow).
-
-**PR:** #${prNumber}
-**Title:** ${pr.title}
-**Base:** ${pr.baseRefName}
-**Closes:** #${issueNum}
-
-**Next Action:** Beginning Phase 2 workflow monitoring.`
-      );
-    } catch (commentError) {
-      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-      const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
-
-      logger.error('Failed to post wiggum state comment after PR creation', {
-        prNumber,
-        error: errorMsg,
-        exitCode,
-      });
-
-      const detailedError = buildGitHubErrorMessage(
-        `post state comment to PR #${prNumber}`,
-        errorMsg,
-        exitCode,
-        {
-          prNumber,
-          impact: 'PR created successfully but state tracking failed',
-          prStatus: 'PR exists and can be viewed',
-          nextSteps: 'Call wiggum_init to verify PR state and continue workflow',
-        }
-      );
-
-      throw new StateApiError(
-        `PR #${prNumber} was created successfully but failed to post state comment.\n\n${detailedError}\n\n` +
-          `**Recovery:** Call wiggum_init to verify PR state and get next step instructions.`,
-        'write',
-        'pr',
-        prNumber,
-        commentError instanceof Error ? commentError : undefined
-      );
-    }
 
     // Fix stale PR state after PR creation (issue #429)
     // The state captured at line 83 has pr.exists = false since no PR existed yet.

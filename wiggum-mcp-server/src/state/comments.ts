@@ -1,129 +1,13 @@
 /**
- * PR comment state management for Wiggum flow
- */
-
-import { getPRComments, postPRComment } from '../utils/gh-cli.js';
-import {
-  WIGGUM_STATE_MARKER,
-  WIGGUM_COMMENT_PREFIX,
-  STEP_PHASE1_MONITOR_WORKFLOW,
-} from '../constants.js';
-import { logger } from '../utils/logger.js';
-import { safeJsonParse, validateWiggumState } from './utils.js';
-import type { WiggumState } from './types.js';
-import { getWiggumStateFromPRBody } from './body-state.js';
-
-/**
- * Get the most recent wiggum state from PR body or comments (backward compatibility)
+ * PR comment utilities for Wiggum flow
  *
- * First tries reading state from PR description body (new system).
- * Falls back to scanning PR comments for state marker (old system, backward compat).
- * If no state is found in either location, returns initial state.
+ * NOTE: State tracking has been moved to body-state.ts.
+ * This module now only handles comment-based utilities like
+ * review command evidence checking.
  */
-export async function getWiggumState(prNumber: number, repo?: string): Promise<WiggumState> {
-  // Try body first (new system)
-  const bodyState = await getWiggumStateFromPRBody(prNumber, repo);
-  if (bodyState) {
-    logger.debug('getWiggumState: found state in PR body', {
-      prNumber,
-      iteration: bodyState.iteration,
-      step: bodyState.step,
-      phase: bodyState.phase,
-    });
-    return bodyState;
-  }
 
-  // Fall back to comments (old system - backward compatibility)
-  logger.debug('getWiggumState: state not found in PR body, checking comments', { prNumber });
-  const comments = await getPRComments(prNumber, repo);
-
-  // Find most recent wiggum state comment
-  for (let i = comments.length - 1; i >= 0; i--) {
-    const comment = comments[i];
-    const match = comment.body.match(
-      new RegExp(`<!--\\s*${WIGGUM_STATE_MARKER}:(.+?)\\s*-->`, 's')
-    );
-
-    if (match) {
-      try {
-        const raw = safeJsonParse(match[1]);
-        const state = validateWiggumState(raw, 'PR comment');
-        logger.info('getWiggumState: found state in PR comments (legacy)', {
-          prNumber,
-          commentId: comment.id,
-          iteration: state.iteration,
-          step: state.step,
-          phase: state.phase,
-        });
-        return state;
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        // Log prototype pollution attempts at ERROR level for security monitoring
-        const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
-        logger[logLevel]('getWiggumState: failed to parse state JSON from comment', {
-          commentId: comment.id,
-          error: errorMsg,
-          rawJson: match[1].substring(0, 200),
-          isPotentialAttack: errorMsg.includes('Prototype pollution'),
-        });
-        continue;
-      }
-    }
-  }
-
-  // No state found in body or comments, return initial state (Phase 1, Step 1)
-  logger.debug('getWiggumState: no state found, returning initial state', { prNumber });
-  return {
-    iteration: 0,
-    step: STEP_PHASE1_MONITOR_WORKFLOW,
-    completedSteps: [],
-    phase: 'phase1',
-  };
-}
-
-/**
- * Post a new wiggum state comment to PR
- */
-export async function postWiggumStateComment(
-  prNumber: number,
-  state: WiggumState,
-  title: string,
-  body: string,
-  repo?: string
-): Promise<void> {
-  const stateJson = JSON.stringify(state);
-  const comment = `<!-- ${WIGGUM_STATE_MARKER}:${stateJson} -->
-${WIGGUM_COMMENT_PREFIX} ${title}
-
-${body}
-
----
-*Automated via Wiggum*`;
-
-  try {
-    await postPRComment(prNumber, comment, repo);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-
-    logger.error('postWiggumStateComment failed - compliance gap created', {
-      prNumber,
-      stateStep: state.step,
-      iteration: state.iteration,
-      error: errorMsg,
-      complianceImpact: 'PR lacks audit trail for this workflow step',
-    });
-
-    throw new Error(
-      `Failed to post Wiggum state comment to PR #${prNumber}: ${errorMsg}\n\n` +
-        `Compliance Impact: This PR will lack an audit trail for step "${state.step}".\n` +
-        `Troubleshooting:\n` +
-        `  1. Check GitHub API rate limits: gh api rate_limit\n` +
-        `  2. Verify PR exists: gh pr view ${prNumber}\n` +
-        `  3. Check network connectivity: gh auth status\n` +
-        `  4. Review PR comment permissions`
-    );
-  }
-}
+import { getPRComments } from '../utils/gh-cli.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Check if a specific review command was executed (evidence in PR comments)

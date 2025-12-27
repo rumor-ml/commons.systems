@@ -8,8 +8,8 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {
   getNextStepInstructions,
-  safePostStateComment,
-  safePostIssueStateComment,
+  safeUpdatePRBodyState,
+  safeUpdateIssueBodyState,
 } from '../state/router.js';
 import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
@@ -186,43 +186,22 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
     };
 
-    // Post minimal state comment documenting fast-path completion
-    const commentTitle = `${state.wiggum.step} - Complete (No In-Scope Fixes)`;
-    // TODO: Extract markdown formatting to shared helper (duplicated at line 285-286)
-    // Consider: formatOutOfScopeSection(issues?: number[]): string
-    const outOfScopeSection = input.out_of_scope_issues?.length
-      ? `\n\nOut-of-scope recommendations tracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
-      : '';
-    const commentBody = `**Fix Description:** ${input.fix_description}${outOfScopeSection}`;
-
-    logger.info('Posting wiggum state comment (fast-path)', {
+    logger.info('Updating wiggum state (fast-path)', {
       phase,
       targetNumber,
       location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
       newState,
     });
 
-    // Post comment to appropriate location based on phase
+    // Update state in appropriate location based on phase
     const stateResult =
       phase === 'phase1'
-        ? await safePostIssueStateComment(
-            targetNumber,
-            newState,
-            commentTitle,
-            commentBody,
-            state.wiggum.step
-          )
-        : await safePostStateComment(
-            targetNumber,
-            newState,
-            commentTitle,
-            commentBody,
-            state.wiggum.step
-          );
+        ? await safeUpdateIssueBodyState(targetNumber, newState, state.wiggum.step)
+        : await safeUpdatePRBodyState(targetNumber, newState, state.wiggum.step);
 
     if (!stateResult.success) {
       // TODO(#416): Add reason-specific error guidance for different failure types
-      logger.error('Critical: State comment failed to post (fast-path) - halting workflow', {
+      logger.error('Critical: State update failed (fast-path) - halting workflow', {
         targetNumber,
         phase,
         step: state.wiggum.step,
@@ -290,17 +269,6 @@ To resolve:
     return await getNextStepInstructions(updatedState);
   }
 
-  // Post comment documenting the fix (to issue in Phase 1, to PR in Phase 2)
-  const commentTitle = `Fix Applied (Iteration ${state.wiggum.iteration})`;
-  const outOfScopeSection = input.out_of_scope_issues?.length
-    ? `\n\n**Out-of-Scope Recommendations:**\nTracked in: ${input.out_of_scope_issues.map((n) => `#${n}`).join(', ')}`
-    : '';
-  const commentBody = `**Fix Description:**
-
-${input.fix_description}${outOfScopeSection}
-
-**Next Action:** Restarting workflow monitoring to verify fix.`;
-
   // Clear the current step and all subsequent steps from completedSteps
   // This ensures we re-verify from the point where issues were found, preventing
   // the workflow from skipping validation steps after a fix is applied
@@ -342,26 +310,14 @@ ${input.fix_description}${outOfScopeSection}
     newState,
   });
 
-  // Post comment to appropriate location based on phase
+  // Update state in appropriate location based on phase
   const stateResult =
     phase === 'phase1'
-      ? await safePostIssueStateComment(
-          targetNumber,
-          newState,
-          commentTitle,
-          commentBody,
-          state.wiggum.step
-        )
-      : await safePostStateComment(
-          targetNumber,
-          newState,
-          commentTitle,
-          commentBody,
-          state.wiggum.step
-        );
+      ? await safeUpdateIssueBodyState(targetNumber, newState, state.wiggum.step)
+      : await safeUpdatePRBodyState(targetNumber, newState, state.wiggum.step);
 
   if (!stateResult.success) {
-    logger.error('Critical: State comment failed to post (main-path) - halting workflow', {
+    logger.error('Critical: State update failed (main-path) - halting workflow', {
       targetNumber,
       phase,
       step: state.wiggum.step,

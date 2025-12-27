@@ -34,8 +34,8 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * - newState.phase = 'phase2' (unchanged)
        *
        * EXPECTED FUNCTION CALLS:
-       * - safePostStateComment(prNumber, state, title, body, step) - called once
-       * - safePostIssueStateComment(...) - NOT called (Phase 2 uses PR comments)
+       * - safeUpdatePRBodyState(prNumber, state, step) - called once
+       * - safeUpdateIssueBodyState(...) - NOT called (Phase 2 uses PR body)
        * - getNextStepInstructions(updatedState) - called with updated state
        *
        * RATIONALE:
@@ -163,8 +163,8 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * - Input: has_in_scope_fixes=false during p1-2 or p1-3
        *
        * EXPECTED FUNCTION CALLS:
-       * - safePostIssueStateComment(issueNumber, state, title, body, step) - called once
-       * - safePostStateComment(...) - NOT called (no PR exists yet in Phase 1)
+       * - safeUpdateIssueBodyState(issueNumber, state, step) - called once
+       * - safeUpdatePRBodyState(...) - NOT called (no PR exists yet in Phase 1)
        *
        * VALIDATION:
        * - Must use issueNumber from state.issue.number
@@ -185,7 +185,7 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * SPECIFICATION: State comment failure error message
        *
        * FAILURE SCENARIO:
-       * - safePostStateComment returns { success: false, reason: 'rate_limit', isTransient: true }
+       * - safeUpdatePRBodyState returns { success: false, reason: 'rate_limit', isTransient: true }
        *
        * EXPECTED ERROR MESSAGE CONTENT:
        * 1. "ERROR: Failed to post state comment due to ${reason}"
@@ -237,7 +237,7 @@ describe('complete-fix fast-path integration (Documentation)', () => {
        * 4. getNextStepInstructions NOT CALLED <- Workflow does not advance
        *
        * VALIDATION:
-       * - When safePostStateComment returns { success: false, ... }
+       * - When safeUpdatePRBodyState returns { success: false, ... }
        * - getNextStepInstructions should have callCount = 0
        *
        * RATIONALE:
@@ -321,18 +321,18 @@ describe('complete-fix fast-path integration (Actual Tests)', () => {
     /**
      * Integration test for fast-path error handling
      *
-     * This test verifies that when safePostStateComment fails:
+     * This test verifies that when safeUpdatePRBodyState fails:
      * 1. Function returns isError=true
      * 2. Error message includes "NOT modified" warning
      * 3. Error message includes failure reason
      * 4. getNextStepInstructions is NOT called
      *
-     * Test approach: Mock safePostStateComment to return {success: false, reason: 'rate_limit'},
+     * Test approach: Mock safeUpdatePRBodyState to return {success: false, reason: 'rate_limit'},
      * verify error response structure and that workflow doesn't advance.
      */
     assert.ok(
       true,
-      'Integration test needed: Mock safePostStateComment failure, verify error response and that ' +
+      'Integration test needed: Mock safeUpdatePRBodyState failure, verify error response and that ' +
         'getNextStepInstructions is not called'
     );
   });
@@ -341,7 +341,7 @@ describe('complete-fix fast-path integration (Actual Tests)', () => {
 // TODO(#313): Implement actual integration tests with mocked GitHub API calls
 // The tests above serve as specification and documentation.
 // Actual integration tests should be added using mocking framework to verify:
-// - Correct function calls (safePostStateComment vs. safePostIssueStateComment)
+// - Correct function calls (safeUpdatePRBodyState vs. safeUpdateIssueBodyState)
 // - Correct state updates (iteration unchanged, step added to completedSteps)
 // - Correct error handling (state not modified message on failure)
 // - Correct comment formatting (title, body, out-of-scope issues)

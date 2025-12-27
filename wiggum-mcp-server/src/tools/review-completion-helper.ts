@@ -10,9 +10,9 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {
   getNextStepInstructions,
-  safePostStateComment,
-  safePostIssueStateComment,
-  type StateCommentResult,
+  safeUpdatePRBodyState,
+  safeUpdateIssueBodyState,
+  type StateUpdateResult,
 } from '../state/router.js';
 import {
   addToCompletedSteps,
@@ -642,19 +642,17 @@ function buildNewState(
 }
 
 /**
- * Post state comment to issue (phase1) or PR (phase2)
+ * Update state in issue body (phase1) or PR body (phase2)
  */
-async function postStateComment(
+async function updateBodyState(
   state: CurrentState,
   newState: {
     iteration: number;
     step: WiggumStep;
     completedSteps: readonly WiggumStep[];
     phase: WiggumPhase;
-  },
-  title: string,
-  body: string
-): Promise<StateCommentResult> {
+  }
+): Promise<StateUpdateResult> {
   if (state.wiggum.phase === 'phase1') {
     if (!state.issue.exists || !state.issue.number) {
       // TODO(#312): Add Sentry error ID for tracking
@@ -662,13 +660,7 @@ async function postStateComment(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
       );
     }
-    return await safePostIssueStateComment(
-      state.issue.number,
-      newState,
-      title,
-      body,
-      newState.step
-    );
+    return await safeUpdateIssueBodyState(state.issue.number, newState, newState.step);
   } else {
     if (!state.pr.exists || !state.pr.number) {
       // TODO(#312): Add Sentry error ID for tracking
@@ -676,7 +668,7 @@ async function postStateComment(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
       );
     }
-    return await safePostStateComment(state.pr.number, newState, title, body, newState.step);
+    return await safeUpdatePRBodyState(state.pr.number, newState, newState.step);
   }
 }
 
@@ -863,12 +855,7 @@ export async function completeReview(
   }
 
   // Load review results from scope-separated files
-  const { inScope, outOfScope } = await loadReviewResults(
-    input.in_scope_files,
-    input.out_of_scope_files
-  );
-  const sections = [inScope, outOfScope].filter(Boolean);
-  const verbatimResponse = sections.join('\n\n');
+  await loadReviewResults(input.in_scope_files, input.out_of_scope_files);
 
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
@@ -900,23 +887,15 @@ export async function completeReview(
     total: rawTotal,
   };
 
-  const { title, body } = buildCommentContent(
-    verbatimResponse,
-    reviewStep,
-    issues,
-    config,
-    state.wiggum.phase
-  );
-
   // Only in-scope issues block progression
   const hasInScopeIssues = inScopeCount > 0;
   const newState = buildNewState(state, reviewStep, hasInScopeIssues, input.maxIterations);
 
-  const result = await postStateComment(state, newState, title, body);
+  const result = await updateBodyState(state, newState);
 
   // TODO(#415): Add safe discriminated union access with type guards
   if (!result.success) {
-    logger.error('Review state comment failed - halting workflow', {
+    logger.error('Review state update failed - halting workflow', {
       reviewType: config.reviewTypeLabel,
       reviewStep,
       reason: result.reason,
@@ -941,14 +920,14 @@ export async function completeReview(
             current_step: STEP_NAMES[reviewStep],
             step_number: reviewStep,
             iteration_count: newState.iteration,
-            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to post state comment due to ${result.reason}.
+            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to update state in ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body due to ${result.reason}.
 
 ${reviewResultsSummary}
 
 **IMPORTANT:** The review itself succeeded. You do NOT need to re-run the ${config.reviewTypeLabel.toLowerCase()} review.
 
 **Why This Failed:**
-The race condition fix (issue #388) requires posting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} as a state comment. This state persistence failed.
+The race condition fix (issue #388) requires persisting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body. This state persistence failed.
 
 **Common Causes:**
 - GitHub API rate limiting (HTTP 429)
@@ -962,10 +941,10 @@ The race condition fix (issue #388) requires posting review results to the ${sta
 3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : state.pr.exists ? state.pr.number : '<pr-number>'}\`
 4. Once resolved, retry this tool call with the SAME parameters
 
-The workflow will resume from this step once the state comment posts successfully.`,
+The workflow will resume from this step once the state update succeeds.`,
             steps_completed_by_tool: [
               `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
-              'Attempted to post state comment',
+              'Attempted to update state in body',
               'Failed due to transient error - review results NOT persisted',
             ],
             context: {
