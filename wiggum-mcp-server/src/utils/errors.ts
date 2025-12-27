@@ -99,15 +99,18 @@ export class StateDetectionError extends McpError {
  * reads/writes rather than generic GitHubCliError.
  */
 export class StateApiError extends McpError {
+  public readonly cause?: Error;
+
   constructor(
     message: string,
     public readonly operation: 'read' | 'write',
     public readonly resourceType: 'pr' | 'issue',
     public readonly resourceId?: number,
-    public readonly cause?: Error
+    cause?: Error
   ) {
     super(message, 'STATE_API_ERROR');
     this.name = 'StateApiError';
+    this.cause = cause;
   }
 }
 
