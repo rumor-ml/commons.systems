@@ -115,8 +115,15 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
 
     // TODO: See issue #284 - Add integration tests for GraphQL validation error paths
     if (!parentResult.data) {
+      // Include GitHub error details if available for better debugging
+      const githubErrors = (parentResult as { errors?: Array<{ message: string }> }).errors;
+      const errorContext = githubErrors?.[0]?.message
+        ? ` GitHub error: ${githubErrors[0].message}`
+        : '';
+
       throw new ParsingError(
-        `GraphQL response missing 'data' field when fetching parent for issue #${input.issue_number}`
+        `GraphQL response missing 'data' field when fetching parent for issue #${input.issue_number}.${errorContext} ` +
+          `Response keys: [${Object.keys(parentResult).join(', ')}]`
       );
     }
 
@@ -151,8 +158,16 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
 
       if (!ancestorParentResult.data) {
+        // Include GitHub error details if available for better debugging
+        const githubErrors = (ancestorParentResult as { errors?: Array<{ message: string }> })
+          .errors;
+        const errorContext = githubErrors?.[0]?.message
+          ? ` GitHub error: ${githubErrors[0].message}`
+          : '';
+
         throw new ParsingError(
-          `GraphQL response missing 'data' field when fetching ancestor parent for issue #${currentAncestor.number}`
+          `GraphQL response missing 'data' field when fetching ancestor parent for issue #${currentAncestor.number}.${errorContext} ` +
+            `Response keys: [${Object.keys(ancestorParentResult).join(', ')}]`
         );
       }
 
@@ -208,8 +223,15 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
     );
 
     if (!childrenResult.data) {
+      // Include GitHub error details if available for better debugging
+      const githubErrors = (childrenResult as { errors?: Array<{ message: string }> }).errors;
+      const errorContext = githubErrors?.[0]?.message
+        ? ` GitHub error: ${githubErrors[0].message}`
+        : '';
+
       throw new ParsingError(
-        `GraphQL response missing 'data' field when fetching children for issue #${input.issue_number}`
+        `GraphQL response missing 'data' field when fetching children for issue #${input.issue_number}.${errorContext} ` +
+          `Response keys: [${Object.keys(childrenResult).join(', ')}]`
       );
     }
 
@@ -238,8 +260,15 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
 
       if (!siblingsResult.data) {
+        // Include GitHub error details if available for better debugging
+        const githubErrors = (siblingsResult as { errors?: Array<{ message: string }> }).errors;
+        const errorContext = githubErrors?.[0]?.message
+          ? ` GitHub error: ${githubErrors[0].message}`
+          : '';
+
         throw new ParsingError(
-          `GraphQL response missing 'data' field when fetching siblings for issue #${input.issue_number}`
+          `GraphQL response missing 'data' field when fetching siblings for issue #${input.issue_number}.${errorContext} ` +
+            `Response keys: [${Object.keys(siblingsResult).join(', ')}]`
         );
       }
 

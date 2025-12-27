@@ -130,6 +130,8 @@ Be thorough but filter aggressively - quality over quantity. Focus on issues tha
 
    ```bash
    WORKTREE=$(basename $(pwd))
+   # Generate millisecond timestamp to ensure unique filenames when multiple agents
+   # run in parallel during the same second
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/code-reviewer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/code-reviewer-out-of-scope-${TIMESTAMP}.md"
@@ -139,11 +141,14 @@ Be thorough but filter aggressively - quality over quantity. Focus on issues tha
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   # Note: mkdir -p will not fail if directory exists
    ```
 
 3. Write findings to both files using Write tool
-   - Preserve your agent's native output format in each file
-   - Only difference is the categorization (in-scope vs out-of-scope)
+   - Use the output format defined in this agent's "Output Format" section above (Summary, Critical Issues, etc.)
+   - The ONLY difference between the two files should be which findings are included (in-scope vs out-of-scope)
+   - Do NOT change the section headings or structure between the two files
+   - If Write tool fails, include an "error" field in the JSON summary
 
 ### Return JSON Summary
 
@@ -169,4 +174,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** For code-reviewer, severity_breakdown uses `{ "critical": N, "important": N }` where critical=90-100 confidence, important=80-89 confidence.
+**Note:** Each agent uses a custom severity_breakdown structure tailored to its review type. The wiggum tool aggregates these by summing total values rather than expecting specific keys.
+
+For code-reviewer, severity_breakdown uses `{ "critical": N, "important": N }` where critical=90-100 confidence, important=80-89 confidence.

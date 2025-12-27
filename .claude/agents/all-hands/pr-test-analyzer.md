@@ -152,6 +152,8 @@ You are thorough but pragmatic, focusing on tests that provide real value in cat
 
    ```bash
    WORKTREE=$(basename $(pwd))
+   # Generate millisecond timestamp to ensure unique filenames when multiple agents
+   # run in parallel during the same second
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/pr-test-analyzer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/pr-test-analyzer-out-of-scope-${TIMESTAMP}.md"
@@ -161,11 +163,14 @@ You are thorough but pragmatic, focusing on tests that provide real value in cat
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   # Note: mkdir -p will not fail if directory exists
    ```
 
 3. Write findings to both files using Write tool
-   - Preserve your agent's native output format in each file
-   - Only difference is the categorization (in-scope vs out-of-scope)
+   - Use the output format defined in this agent's Output Format section above (Summary, Critical Gaps, etc.)
+   - The ONLY difference between the two files should be which findings are included (in-scope vs out-of-scope)
+   - Do NOT change the section headings or structure between the two files
+   - If Write tool fails, include an "error" field in the JSON summary
 
 ### Return JSON Summary
 
@@ -192,4 +197,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** For pr-test-analyzer, severity_breakdown uses `{ "priority_8_10": N, "priority_5_7": N, "priority_3_4": N }` based on the priority rating scale.
+**Note:** Each agent uses a custom severity_breakdown structure tailored to its review type. The wiggum tool aggregates these by summing total values rather than expecting specific keys.
+
+For pr-test-analyzer, severity_breakdown uses `{ "priority_8_10": N, "priority_5_7": N, "priority_3_4": N }` based on the priority rating scale.

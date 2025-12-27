@@ -315,6 +315,130 @@ After the agent completes, the workflow will proceed to the next step automatica
 }
 
 /**
+ * Generate parallel fix instructions for scope-separated review results
+ *
+ * When using the new file-based scope-separated format (in_scope_files + out_of_scope_files),
+ * triage has already been done by the review agents. We can launch TWO agents in PARALLEL:
+ * 1. One to plan and fix in-scope issues
+ * 2. One to track out-of-scope recommendations
+ *
+ * This is more efficient than the old sequential triage workflow.
+ *
+ * @param issueNumber - GitHub issue number
+ * @param reviewType - Review type label (e.g., "PR", "Security")
+ * @param inScopeCount - Number of in-scope issues
+ * @param inScopeFiles - Array of file paths containing in-scope results
+ * @param outOfScopeCount - Number of out-of-scope recommendations
+ * @param outOfScopeFiles - Array of file paths containing out-of-scope results
+ * @returns Instructions for parallel fix execution
+ */
+export function generateScopeSeparatedFixInstructions(
+  issueNumber: number,
+  reviewType: string,
+  inScopeCount: number,
+  inScopeFiles: string[],
+  outOfScopeCount: number,
+  outOfScopeFiles: string[]
+): string {
+  const inScopeFileList = inScopeFiles.map((f) => `- ${f}`).join('\n');
+  const outOfScopeFileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');
+
+  // Build the instruction text
+  let instructions = `${inScopeCount} in-scope ${reviewType.toLowerCase()} review issue(s) found.`;
+
+  if (outOfScopeCount > 0) {
+    instructions += ` Also found ${outOfScopeCount} out-of-scope recommendation(s) to track.`;
+  }
+
+  instructions += `
+
+## Critical: Launch TWO Agents in PARALLEL
+
+The review agents have already separated in-scope (must fix) from out-of-scope (track for future).
+Launch BOTH agents in a single message with multiple Task calls to work in parallel:
+
+### Agent 1: Fix In-Scope Issues
+
+\`\`\`
+Task({
+  subagent_type: "general-purpose",
+  model: "opus",
+  description: "Plan and fix in-scope ${reviewType.toLowerCase()} review issues",
+  prompt: \`Fix in-scope issues from ${reviewType.toLowerCase()} review.
+
+**In-Scope Result Files:**
+${inScopeFileList}
+
+**Issue Context:** #${issueNumber}
+
+**Your Tasks:**
+1. Read ALL in-scope result files above to understand the issues
+2. Use EnterPlanMode to plan fixes:
+   - Group related issues for efficient fixing
+   - Identify dependencies between fixes
+   - Create detailed implementation plan
+3. Call ExitPlanMode when plan is ready
+4. After plan approval, implement ALL fixes
+5. Run tests to validate fixes: \\\`make test\\\` or appropriate test command
+6. Report completion with summary of what was fixed
+
+**Important:**
+- Fix ALL in-scope issues (all severities)
+- Validate with tests
+- Do not skip any issues
+\`
+})
+\`\`\`
+`;
+
+  if (outOfScopeCount > 0) {
+    instructions += `
+### Agent 2: Track Out-of-Scope Recommendations
+
+\`\`\`
+Task({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  description: "Track out-of-scope ${reviewType.toLowerCase()} review recommendations",
+  prompt: \`Track out-of-scope recommendations in GitHub issues.
+
+**Out-of-Scope Result Files:**
+${outOfScopeFileList}
+
+**Your Tasks:**
+1. Read ALL out-of-scope result files above
+2. For each recommendation:
+   - Search for existing issues: \\\`gh issue list -S "keywords" --json number,title,body\\\`
+   - If matching issue exists: Add comment linking to issue #${issueNumber}
+   - If no match: Create new issue with proper labels and context
+3. Collect all issue numbers (both new and existing)
+4. Report back with list of issue numbers for wiggum_complete_fix
+
+**Issue Creation Template:**
+- Title: Concise description of recommendation
+- Body: Context from review, link to issue #${issueNumber}
+- Labels: "enhancement", "from-review", appropriate area labels
+\`
+})
+\`\`\`
+`;
+  }
+
+  instructions += `
+## After Both Agents Complete
+
+1. Wait for BOTH agents to finish
+2. Run \`/commit-merge-push\` to commit and push ALL fixes
+3. Call \`wiggum_complete_fix\` with:
+   - \`fix_description\`: Summary of in-scope fixes from Agent 1
+   - \`has_in_scope_fixes\`: true (we fixed ${inScopeCount} issue(s))
+   - \`out_of_scope_issues\`: Array of issue numbers from Agent 2${outOfScopeCount === 0 ? ' (empty array if no out-of-scope)' : ''}
+`;
+
+  return instructions;
+}
+
+/**
  * Generate comprehensive triage instructions for workflow failures
  *
  * Produces a structured multi-step workflow that guides the agent through triaging

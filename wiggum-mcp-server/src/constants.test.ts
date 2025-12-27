@@ -23,6 +23,7 @@ import {
   isValidStep,
   generateTriageInstructions,
   generateWorkflowTriageInstructions,
+  generateOutOfScopeTrackingInstructions,
   SKIP_MECHANISM_GUIDANCE,
   type WiggumStep,
 } from './constants.js';
@@ -776,6 +777,77 @@ describe('generateWorkflowTriageInstructions', () => {
       assert(result.includes('Add skip annotations'));
       assert(result.includes('Add conditional'));
     });
+  });
+});
+
+describe('generateOutOfScopeTrackingInstructions', () => {
+  it('should include file list in output', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 3, [
+      '/tmp/claude/file1.md',
+      '/tmp/claude/file2.md',
+    ]);
+    assert(result.includes('/tmp/claude/file1.md'));
+    assert(result.includes('/tmp/claude/file2.md'));
+  });
+
+  it('should include issue number when provided', () => {
+    const result = generateOutOfScopeTrackingInstructions(456, 'Security', 2, [
+      '/tmp/claude/file.md',
+    ]);
+    assert(result.includes('issue #456'));
+  });
+
+  it('should handle undefined issue number', () => {
+    const result = generateOutOfScopeTrackingInstructions(undefined, 'PR', 1, [
+      '/tmp/claude/file.md',
+    ]);
+    assert(result.includes('this work'));
+    assert(!result.includes('issue #undefined'));
+  });
+
+  it('should include review type in lowercase', () => {
+    const prResult = generateOutOfScopeTrackingInstructions(123, 'PR', 5, ['/tmp/f.md']);
+    const secResult = generateOutOfScopeTrackingInstructions(123, 'Security', 3, ['/tmp/f.md']);
+
+    assert(prResult.includes('pr review'));
+    assert(secResult.includes('security review'));
+  });
+
+  it('should include out-of-scope count in header', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 7, ['/tmp/f.md']);
+    assert(result.includes('7 out-of-scope'));
+  });
+
+  it('should mention step is complete', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 3, ['/tmp/f.md']);
+    assert(result.includes('**complete**'));
+  });
+
+  it('should include issue creation template guidance', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 2, ['/tmp/f.md']);
+    assert(result.includes('**Issue Creation Template:**'));
+    assert(result.includes('Title:'));
+    assert(result.includes('Body:'));
+    assert(result.includes('Labels:'));
+  });
+
+  it('should include gh issue list search command', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('gh issue list -S'));
+    assert(result.includes('--json number,title,body'));
+  });
+
+  it('should include Task tool example', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('Task({'));
+    assert(result.includes('subagent_type: "general-purpose"'));
+    assert(result.includes('model: "sonnet"'));
+  });
+
+  it('should include label suggestions', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('"enhancement"'));
+    assert(result.includes('"from-review"'));
   });
 });
 

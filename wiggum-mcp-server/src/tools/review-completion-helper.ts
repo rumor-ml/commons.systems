@@ -20,6 +20,7 @@ import {
   STEP_NAMES,
   generateTriageInstructions,
   generateOutOfScopeTrackingInstructions,
+  generateScopeSeparatedFixInstructions,
 } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -31,11 +32,25 @@ import { readFile } from 'fs/promises';
 
 /**
  * Extract agent name from file path
- * Example: /tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md -> Code Reviewer
+ *
+ * Parses the wiggum output file naming convention to extract a human-readable
+ * agent name. Converts kebab-case to Title Case.
+ *
+ * @param filePath - Full path to the review output file
+ * @returns Human-readable agent name, or 'Unknown Agent' if parsing fails
+ *
+ * @example
+ * extractAgentNameFromPath('/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md')
+ * // Returns: 'Code Reviewer'
+ *
+ * @example
+ * extractAgentNameFromPath('/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
+ * // Returns: 'Pr Test Analyzer'
  */
-function extractAgentNameFromPath(filePath: string): string {
+export function extractAgentNameFromPath(filePath: string): string {
   const fileName = filePath.split('/').pop() || '';
-  const match = fileName.match(/^(.+?)-(in|out)-scope-/);
+  // Match both in-scope and out-of-scope patterns
+  const match = fileName.match(/^(.+?)-(in-scope|out-of-scope)-/);
   if (match) {
     return match[1]
       .split('-')
@@ -47,23 +62,71 @@ function extractAgentNameFromPath(filePath: string): string {
 
 /**
  * Load review results from scope-separated file lists
+ *
+ * Reads multiple review result files and aggregates them with agent headers.
+ * Collects errors from all file reads and provides comprehensive error context
+ * if any files fail to read.
+ *
+ * @param inScopeFiles - Array of file paths containing in-scope review results
+ * @param outOfScopeFiles - Array of file paths containing out-of-scope review results
+ * @returns Object with formatted in-scope and out-of-scope sections
+ * @throws {ValidationError} If any files fail to read, with details of all failures
  */
-async function loadReviewResults(
+export async function loadReviewResults(
   inScopeFiles: string[] = [],
   outOfScopeFiles: string[] = []
 ): Promise<{ inScope: string; outOfScope: string }> {
+  const errors: Array<{ filePath: string; error: Error; category: 'in-scope' | 'out-of-scope' }> =
+    [];
+
   const inScopeResults: string[] = [];
   for (const filePath of inScopeFiles) {
-    const content = await readFile(filePath, 'utf-8');
-    const agentName = extractAgentNameFromPath(filePath);
-    inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const agentName = extractAgentNameFromPath(filePath);
+      inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+    } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      errors.push({ filePath, error: errorObj, category: 'in-scope' });
+
+      logger.error('Failed to read in-scope review file', {
+        filePath,
+        errorMessage: errorObj.message,
+        errorCode: (errorObj as NodeJS.ErrnoException).code,
+      });
+    }
   }
 
   const outOfScopeResults: string[] = [];
   for (const filePath of outOfScopeFiles) {
-    const content = await readFile(filePath, 'utf-8');
-    const agentName = extractAgentNameFromPath(filePath);
-    outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const agentName = extractAgentNameFromPath(filePath);
+      outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
+    } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      errors.push({ filePath, error: errorObj, category: 'out-of-scope' });
+
+      logger.error('Failed to read out-of-scope review file', {
+        filePath,
+        errorMessage: errorObj.message,
+        errorCode: (errorObj as NodeJS.ErrnoException).code,
+      });
+    }
+  }
+
+  // If ANY files failed, throw comprehensive error with all failure details
+  if (errors.length > 0) {
+    const errorDetails = errors
+      .map(({ filePath, error, category }) => `  - [${category}] ${filePath}: ${error.message}`)
+      .join('\n');
+
+    const successCount = inScopeFiles.length + outOfScopeFiles.length - errors.length;
+
+    throw new ValidationError(
+      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}\n\n` +
+        `Check that all review agents completed successfully and wrote their output files.`
+    );
   }
 
   return {
@@ -123,11 +186,54 @@ export async function loadVerbatimResponse(input: ReviewCompletionInput): Promis
       });
       return content;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error reading file';
+      // Handle specific known file system errors explicitly for better user feedback
+      if (error instanceof Error) {
+        const nodeError = error as NodeJS.ErrnoException;
+
+        if (nodeError.code === 'ENOENT') {
+          throw new ValidationError(
+            `File not found: "${input.verbatim_response_file}". ` +
+              `Ensure the review output was written to the temp file before calling this tool. ` +
+              `File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md`
+          );
+        }
+
+        if (nodeError.code === 'EACCES') {
+          throw new ValidationError(
+            `Permission denied reading file: "${input.verbatim_response_file}". ` +
+              `Check file permissions.`
+          );
+        }
+
+        if (nodeError.code === 'EISDIR') {
+          throw new ValidationError(
+            `Path is a directory, not a file: "${input.verbatim_response_file}". ` +
+              `Expected a file path.`
+          );
+        }
+
+        // Log unexpected errors with full context before re-throwing
+        logger.error('Unexpected error reading verbatim response file', {
+          filePath: input.verbatim_response_file,
+          errorCode: nodeError.code,
+          errorMessage: error.message,
+          errorStack: error.stack,
+        });
+
+        throw new ValidationError(
+          `Unexpected error reading file: "${input.verbatim_response_file}": ${error.message}. ` +
+            `This may indicate a system issue. Check logs for details.`
+        );
+      }
+
+      // Non-Error exceptions (very rare, indicates programming error)
+      logger.error('Non-Error exception in file read', {
+        filePath: input.verbatim_response_file,
+        exception: String(error),
+      });
+
       throw new ValidationError(
-        `Failed to read verbatim_response_file at "${input.verbatim_response_file}": ${errorMessage}. ` +
-          `Ensure the review output was written to the temp file before calling this tool. ` +
-          `File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md`
+        `Unexpected exception reading file (programming error): ${String(error)}`
       );
     }
   }
@@ -178,25 +284,32 @@ export interface ReviewConfig {
 
 /**
  * Zod schema for ReviewCompletionInput runtime validation
+ *
+ * All issue counts are validated to be non-negative integers at the schema level.
+ * Additional runtime validation in completeReview() provides more detailed error messages.
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
   // Old format (deprecated but supported)
   verbatim_response: z.string().optional(),
   verbatim_response_file: z.string().optional(),
-  high_priority_issues: z.number().optional(),
-  medium_priority_issues: z.number().optional(),
-  low_priority_issues: z.number().optional(),
+  high_priority_issues: z.number().int().nonnegative().optional(),
+  medium_priority_issues: z.number().int().nonnegative().optional(),
+  low_priority_issues: z.number().int().nonnegative().optional(),
   // New format
   in_scope_files: z.array(z.string()).optional(),
   out_of_scope_files: z.array(z.string()).optional(),
-  in_scope_count: z.number().optional(),
-  out_of_scope_count: z.number().optional(),
+  in_scope_count: z.number().int().nonnegative().optional(),
+  out_of_scope_count: z.number().int().nonnegative().optional(),
 });
 
 /**
  * Input for review completion
- * TODO(#333, #363): Add readonly modifiers and integer validation
+ *
+ * Integer validation is enforced in ReviewCompletionInputSchema via `.int().nonnegative()`.
+ * Additional runtime validation in completeReview() provides detailed error messages.
+ *
+ * @see ReviewCompletionInputSchema for Zod schema validation
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
@@ -394,7 +507,11 @@ function buildIssuesFoundResponse(
   reviewStep: WiggumStep,
   issues: IssueCounts,
   newIteration: number,
-  config: ReviewConfig
+  config: ReviewConfig,
+  inScopeCount: number,
+  outOfScopeCount: number,
+  inScopeFiles?: string[],
+  outOfScopeFiles?: string[]
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
@@ -407,23 +524,46 @@ function buildIssuesFoundResponse(
     );
   }
 
+  // Detect if we're using the new scope-separated format
+  const usingScopeSeparatedFormat = !!inScopeFiles;
+
   logger.info(
-    `Providing triage instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
+    `Providing ${usingScopeSeparatedFormat ? 'parallel fix' : 'triage'} instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
     {
       phase: state.wiggum.phase,
       issueNumber,
       totalIssues: issues.total,
+      inScopeCount,
+      outOfScopeCount,
+      usingScopeSeparatedFormat,
       iteration: newIteration,
     }
   );
 
   const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
 
+  // Choose instructions based on format
+  let instructions: string;
+  if (usingScopeSeparatedFormat) {
+    // New workflow: Launch 2 agents in parallel (triage already done)
+    instructions = generateScopeSeparatedFixInstructions(
+      issueNumber,
+      reviewTypeForTriage,
+      inScopeCount,
+      inScopeFiles!,
+      outOfScopeCount,
+      outOfScopeFiles ?? []
+    );
+  } else {
+    // Old workflow: Enter plan mode, triage, then execute
+    instructions = generateTriageInstructions(issueNumber, reviewTypeForTriage, issues.total);
+  }
+
   const output = {
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
     iteration_count: newIteration,
-    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, issues.total),
+    instructions,
     steps_completed_by_tool: [
       `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
@@ -433,6 +573,8 @@ function buildIssuesFoundResponse(
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number: issueNumber,
       total_issues: issues.total,
+      in_scope_count: inScopeCount,
+      out_of_scope_count: outOfScopeCount,
     },
   };
 
@@ -468,8 +610,6 @@ export async function completeReview(
     );
   }
 
-  // TODO(#448): Add validation for non-negative integer issue counts
-
   // Load verbatim response from file or inline parameter
   const verbatimResponse = await loadVerbatimResponse(input);
 
@@ -482,16 +622,51 @@ export async function completeReview(
   const inScopeCount = input.in_scope_count ?? 0;
   const outOfScopeCount = input.out_of_scope_count ?? 0;
 
+  // Validate all numeric counts are non-negative integers
+  const countFields = [
+    { name: 'high_priority_issues', value: input.high_priority_issues },
+    { name: 'medium_priority_issues', value: input.medium_priority_issues },
+    { name: 'low_priority_issues', value: input.low_priority_issues },
+    { name: 'in_scope_count', value: input.in_scope_count },
+    { name: 'out_of_scope_count', value: input.out_of_scope_count },
+  ];
+
+  for (const { name, value } of countFields) {
+    if (value !== undefined) {
+      if (!Number.isFinite(value)) {
+        throw new ValidationError(`Invalid ${name}: ${value}. Must be a finite number.`);
+      }
+      if (!Number.isInteger(value)) {
+        throw new ValidationError(`Invalid ${name}: ${value}. Must be an integer.`);
+      }
+      if (value < 0) {
+        throw new ValidationError(`Invalid ${name}: ${value}. Must be non-negative.`);
+      }
+    }
+  }
+
+  // Calculate total with validated values
+  const rawTotal =
+    (input.high_priority_issues ?? 0) +
+    (input.medium_priority_issues ?? 0) +
+    (input.low_priority_issues ?? 0) +
+    inScopeCount +
+    outOfScopeCount;
+
+  // Final validation that total is sane (defense against floating point issues)
+  if (!Number.isFinite(rawTotal) || rawTotal < 0) {
+    throw new ValidationError(
+      `Invalid issue count total (${rawTotal}). Individual counts: ` +
+        `high=${input.high_priority_issues}, medium=${input.medium_priority_issues}, ` +
+        `low=${input.low_priority_issues}, inScope=${inScopeCount}, outOfScope=${outOfScopeCount}`
+    );
+  }
+
   const issues: IssueCounts = {
     high: input.high_priority_issues ?? inScopeCount,
     medium: input.medium_priority_issues ?? 0,
     low: input.low_priority_issues ?? outOfScopeCount,
-    total:
-      (input.high_priority_issues ?? 0) +
-      (input.medium_priority_issues ?? 0) +
-      (input.low_priority_issues ?? 0) +
-      inScopeCount +
-      outOfScopeCount,
+    total: rawTotal,
   };
 
   const { title, body } = buildCommentContent(
@@ -581,7 +756,17 @@ The workflow will resume from this step once the state comment posts successfull
 
   // CRITICAL: Only hasInScopeIssues blocks progression
   if (hasInScopeIssues) {
-    return buildIssuesFoundResponse(state, reviewStep, issues, newState.iteration, config);
+    return buildIssuesFoundResponse(
+      state,
+      reviewStep,
+      issues,
+      newState.iteration,
+      config,
+      inScopeCount,
+      outOfScopeCount,
+      input.in_scope_files,
+      input.out_of_scope_files
+    );
   }
 
   // No in-scope issues: step is complete, but check for out-of-scope recommendations

@@ -139,6 +139,8 @@ You operate autonomously and proactively, refining code immediately after it's w
 
    ```bash
    WORKTREE=$(basename $(pwd))
+   # Generate millisecond timestamp to ensure unique filenames when multiple agents
+   # run in parallel during the same second
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/code-simplifier-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/code-simplifier-out-of-scope-${TIMESTAMP}.md"
@@ -148,11 +150,14 @@ You operate autonomously and proactively, refining code immediately after it's w
 
    ```bash
    mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   # Note: mkdir -p will not fail if directory exists
    ```
 
 3. Write findings to both files using Write tool
-   - Preserve your agent's native output format in each file
-   - Only difference is the categorization (in-scope vs out-of-scope)
+   - Use the output format appropriate for simplification findings (changes made, rationale)
+   - The ONLY difference between the two files should be which findings are included (in-scope vs out-of-scope)
+   - Do NOT change the section headings or structure between the two files
+   - If Write tool fails, include an "error" field in the JSON summary
 
 ### Return JSON Summary
 
@@ -177,4 +182,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** For code-simplifier, severity_breakdown uses `{ "simplification_opportunities": N }` to count total simplification suggestions.
+**Note:** Each agent uses a custom severity_breakdown structure tailored to its review type. The wiggum tool aggregates these by summing total values rather than expecting specific keys.
+
+For code-simplifier, severity_breakdown uses `{ "simplification_opportunities": N }` to count total simplification suggestions.

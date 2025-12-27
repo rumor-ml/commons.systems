@@ -19,7 +19,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { writeFile, unlink, chmod } from 'fs/promises';
 import type { ReviewConfig, ReviewCompletionInput } from './review-completion-helper.js';
-import { loadVerbatimResponse } from './review-completion-helper.js';
+import {
+  loadVerbatimResponse,
+  extractAgentNameFromPath,
+  loadReviewResults,
+} from './review-completion-helper.js';
 import {
   STEP_PHASE1_PR_REVIEW,
   STEP_PHASE1_SECURITY_REVIEW,
@@ -125,7 +129,7 @@ describe('review-completion-helper', () => {
 
       await assert.rejects(async () => loadVerbatimResponse(input), {
         name: 'ValidationError',
-        message: /Failed to read verbatim_response_file.*File pattern:/,
+        message: /File not found:.*File pattern:/,
       });
     });
 
@@ -197,7 +201,7 @@ describe('review-completion-helper', () => {
 
       await assert.rejects(async () => loadVerbatimResponse(input), {
         name: 'ValidationError',
-        message: /Failed to read verbatim_response_file/,
+        message: /Permission denied reading file:/,
       });
 
       // Cleanup
@@ -593,6 +597,135 @@ describe('review-completion-helper', () => {
         assert.strictEqual(config.phase2Command, '/review');
         assert.notStrictEqual(config.phase2Command, config.phase1Command);
       });
+    });
+  });
+
+  describe('extractAgentNameFromPath', () => {
+    it('should extract agent name from in-scope file path', () => {
+      const result = extractAgentNameFromPath(
+        '/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md'
+      );
+      assert.strictEqual(result, 'Code Reviewer');
+    });
+
+    it('should extract agent name from out-of-scope file path', () => {
+      const result = extractAgentNameFromPath(
+        '/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md'
+      );
+      assert.strictEqual(result, 'Pr Test Analyzer');
+    });
+
+    it('should handle single-word agent names', () => {
+      const result = extractAgentNameFromPath('/tmp/claude/wiggum-625/linter-in-scope-1234.md');
+      assert.strictEqual(result, 'Linter');
+    });
+
+    it('should return Unknown Agent for non-matching paths', () => {
+      const result = extractAgentNameFromPath('/some/random/path.md');
+      assert.strictEqual(result, 'Unknown Agent');
+    });
+
+    it('should return Unknown Agent for empty path', () => {
+      const result = extractAgentNameFromPath('');
+      assert.strictEqual(result, 'Unknown Agent');
+    });
+
+    it('should handle paths with only filename', () => {
+      const result = extractAgentNameFromPath('comment-analyzer-in-scope-9999.md');
+      assert.strictEqual(result, 'Comment Analyzer');
+    });
+  });
+
+  describe('loadReviewResults', () => {
+    it('should return empty strings for empty file arrays', async () => {
+      const result = await loadReviewResults([], []);
+      assert.strictEqual(result.inScope, '');
+      assert.strictEqual(result.outOfScope, '');
+    });
+
+    it('should read and format single in-scope file', async () => {
+      const tempFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      await writeFile(tempFile, 'Test content');
+
+      const result = await loadReviewResults([tempFile], []);
+      assert.ok(result.inScope.includes('## In-Scope Issues'));
+      assert.ok(result.inScope.includes('#### Code Reviewer'));
+      assert.ok(result.inScope.includes('Test content'));
+      assert.strictEqual(result.outOfScope, '');
+
+      await unlink(tempFile);
+    });
+
+    it('should read and format single out-of-scope file', async () => {
+      const tempFile = '/tmp/claude/pr-test-analyzer-out-of-scope-' + Date.now() + '.md';
+      await writeFile(tempFile, 'Out of scope content');
+
+      const result = await loadReviewResults([], [tempFile]);
+      assert.strictEqual(result.inScope, '');
+      assert.ok(result.outOfScope.includes('## Out-of-Scope Recommendations'));
+      assert.ok(result.outOfScope.includes('#### Pr Test Analyzer'));
+      assert.ok(result.outOfScope.includes('Out of scope content'));
+
+      await unlink(tempFile);
+    });
+
+    it('should read and format multiple files', async () => {
+      const inScope1 = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      const inScope2 = '/tmp/claude/comment-analyzer-in-scope-' + Date.now() + '.md';
+      await writeFile(inScope1, 'Review 1');
+      await writeFile(inScope2, 'Review 2');
+
+      const result = await loadReviewResults([inScope1, inScope2], []);
+      assert.ok(result.inScope.includes('#### Code Reviewer'));
+      assert.ok(result.inScope.includes('#### Comment Analyzer'));
+      assert.ok(result.inScope.includes('Review 1'));
+      assert.ok(result.inScope.includes('Review 2'));
+
+      await unlink(inScope1);
+      await unlink(inScope2);
+    });
+
+    it('should throw ValidationError with details for missing files', async () => {
+      const missingFile1 = '/tmp/claude/missing-file-1-' + Date.now() + '.md';
+      const missingFile2 = '/tmp/claude/missing-file-2-' + Date.now() + '.md';
+
+      await assert.rejects(async () => loadReviewResults([missingFile1], [missingFile2]), {
+        name: 'ValidationError',
+        message: /Failed to read 2 review result file\(s\)/,
+      });
+    });
+
+    it('should include all failure details in error message', async () => {
+      const missingFile = '/tmp/claude/nonexistent-' + Date.now() + '.md';
+
+      try {
+        await loadReviewResults([missingFile], []);
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes('[in-scope]'));
+        assert.ok(error.message.includes(missingFile));
+        assert.ok(error.message.includes('(0 succeeded)'));
+      }
+    });
+
+    it('should aggregate errors when some files exist and some do not', async () => {
+      const existingFile = '/tmp/claude/linter-in-scope-' + Date.now() + '.md';
+      const missingFile = '/tmp/claude/missing-reviewer-in-scope-' + Date.now() + '.md';
+      await writeFile(existingFile, 'Content');
+
+      try {
+        await loadReviewResults([existingFile, missingFile], []);
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes('Failed to read 1 review result file(s)'));
+        assert.ok(error.message.includes('(1 succeeded)'));
+        assert.ok(error.message.includes(missingFile));
+        assert.ok(!error.message.includes(existingFile));
+      }
+
+      await unlink(existingFile);
     });
   });
 
