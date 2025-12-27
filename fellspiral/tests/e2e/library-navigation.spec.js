@@ -275,7 +275,7 @@ const skipDataReflectionTests = process.env.CI;
     // Combined pattern matches "Test Card" prefix OR any title containing "test" (case insensitive)
     test.beforeEach(async () => {
       const testCardPattern = /^Test Card|test/i;
-      const deletedCount = await deleteTestCards(testCardPattern);
+      const { deleted: deletedCount } = await deleteTestCards(testCardPattern);
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} test cards before data reflection test`);
         // Wait for Firestore deletion to propagate by verifying cards are gone

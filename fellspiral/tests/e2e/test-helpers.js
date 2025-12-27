@@ -5,15 +5,24 @@
 // Playwright expect - imported once at module level for use in assertion helpers
 import { expect as playwrightExpect } from '@playwright/test';
 
-// Timing constants for UI interactions
-// Modal animation and form hydration delay
+// Timing constants for UI interactions - these ensure DOM updates complete before test assertions
+// Values chosen through empirical testing to balance reliability and test speed
+
+// Modal animation and form hydration delay - allows modal CSS transitions to complete
+// and combobox dropdown options to be properly initialized before interaction
 const MODAL_ANIMATION_DELAY_MS = 100;
-// Combobox dropdown rendering delay after input event
+
+// Combobox dropdown rendering delay after input event - waits for filtered options
+// to render in the DOM after typing triggers the input event
 const DROPDOWN_RENDER_DELAY_MS = 50;
-// Subtype combobox update delay after type selection
+
+// Subtype combobox update delay after type selection - the subtype options are
+// dynamically filtered based on selected type, requires DOM update to complete
 const SUBTYPE_UPDATE_DELAY_MS = 100;
 
 // Standard viewport sizes for responsive testing
+// Frozen to prevent accidental mutations that could affect test consistency
+// Mobile: iPhone 8 dimensions, Tablet: iPad portrait, Desktop: Common 16:9 resolutions
 export const VIEWPORTS = Object.freeze({
   mobile: Object.freeze({ width: 375, height: 667 }),
   tablet: Object.freeze({ width: 768, height: 1024 }),
@@ -45,16 +54,18 @@ export async function setupDesktopViewport(page) {
   await page.setViewportSize(VIEWPORTS.desktop);
 }
 
+// Counter for ensuring unique card titles even when created in same millisecond
+let _cardCounter = 0;
+
 /**
- * Generate unique test card data with timestamp-based title.
- * Uniqueness is guaranteed only within the same millisecond - use suffix parameter
- * when creating multiple cards rapidly to ensure uniqueness.
+ * Generate unique test card data with timestamp and counter-based title.
+ * Guaranteed unique even when creating multiple cards rapidly within the same millisecond.
  *
  * **Note**: The returned object is frozen (immutable) to prevent accidental
  * modifications that could affect other tests. Create a new object if you need
  * to modify the data: `{ ...generateTestCardData(), title: 'Custom' }`
  *
- * @param {string} suffix - Optional suffix to add to title for uniqueness
+ * @param {string} suffix - Optional suffix to add to title for additional uniqueness
  * @returns {{
  *   title: string, type: string, subtype: string,
  *   tags: string, description: string,
@@ -66,7 +77,7 @@ export function generateTestCardData(suffix = '') {
   const uniqueSuffix = suffix ? `-${suffix}` : '';
 
   return Object.freeze({
-    title: `Test Card ${timestamp}${uniqueSuffix}`,
+    title: `Test Card ${timestamp}-${_cardCounter++}${uniqueSuffix}`,
     type: 'Equipment',
     subtype: 'Weapon',
     tags: 'test, automation, e2e',
@@ -106,12 +117,13 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
 /**
  * Capture console messages by type during a test operation
  *
- * **Message Accumulation**: Messages are stored in the returned `messages` array.
- * The array is shared and will continue to accumulate messages while the listener
- * is active. Clear or create a new capture controller if you need a fresh state.
+ * **Message Accumulation**: Messages are stored in an internal array and accessed
+ * via getMessages() which returns a defensive copy. The internal array accumulates
+ * messages while the listener is active.
  *
  * **Listener Cleanup**: Always call `stopCapture()` when done to prevent memory
- * leaks. The listener persists until explicitly removed.
+ * leaks. The listener persists until explicitly removed. State guards prevent
+ * incorrect usage (e.g., calling startCapture twice without stopCapture).
  *
  * **Concurrent Usage**: Not thread-safe. Each capture controller maintains its own
  * message array, but listeners are independent. Be cautious when using multiple
@@ -119,10 +131,12 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
  *
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} messageType - Type of console messages to capture ('error', 'warning', 'log', etc.)
- * @returns {{messages: string[], startCapture: () => void, stopCapture: () => void}} Capture controller
+ * @returns {{getMessages: () => string[], startCapture: () => void, stopCapture: () => void}} Capture controller
  */
 export function captureConsoleMessages(page, messageType = 'error') {
   const messages = [];
+  let _isCapturing = false;
+
   const listener = (msg) => {
     if (msg.type() === messageType) {
       messages.push(msg.text());
@@ -130,14 +144,27 @@ export function captureConsoleMessages(page, messageType = 'error') {
   };
 
   return {
-    messages,
-    startCapture: () => page.on('console', listener),
-    stopCapture: () => page.off('console', listener),
+    getMessages: () => [...messages], // Return defensive copy
+    startCapture: () => {
+      if (_isCapturing) {
+        throw new Error('captureConsoleMessages: already capturing, call stopCapture() first');
+      }
+      _isCapturing = true;
+      page.on('console', listener);
+    },
+    stopCapture: () => {
+      if (!_isCapturing) {
+        throw new Error('captureConsoleMessages: not capturing, call startCapture() first');
+      }
+      _isCapturing = false;
+      page.off('console', listener);
+    },
   };
 }
 
 /**
  * Wait for console messages matching a pattern
+ * Uses single timeout to avoid race conditions between listener cleanup and timeout resolution
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {(msg: string) => boolean} predicate - Function to test console messages
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
@@ -146,27 +173,26 @@ export function captureConsoleMessages(page, messageType = 'error') {
 export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
   const messages = [];
 
-  const result = await Promise.race([
-    new Promise((resolve) => {
-      const listener = (msg) => {
-        messages.push(msg.text());
-        if (predicate(msg.text())) {
-          page.off('console', listener);
-          resolve(true);
-        }
-      };
-      page.on('console', listener);
-
-      // Clean up listener after timeout
-      setTimeout(() => {
+  return new Promise((resolve) => {
+    const listener = (msg) => {
+      const text = msg.text();
+      messages.push(text);
+      if (predicate(text)) {
+        clearTimeout(timeoutId);
         page.off('console', listener);
-      }, timeout);
-    }),
-    new Promise((resolve) => setTimeout(() => resolve(false), timeout)),
-  ]);
+        resolve(true);
+      }
+    };
 
-  // If timeout occurred, check collected messages as final fallback
-  return result || messages.some(predicate);
+    // Set up single timeout for cleanup and resolution
+    const timeoutId = setTimeout(() => {
+      page.off('console', listener);
+      // Check collected messages as final fallback
+      resolve(messages.some(predicate));
+    }, timeout);
+
+    page.on('console', listener);
+  });
 }
 
 /**
@@ -229,23 +255,31 @@ export async function waitForUrlHash(page, pattern, timeout = 2000) {
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} listboxId - ID of the listbox element (e.g., 'typeListbox')
  * @param {string} targetValue - Value to select from the combobox
- * @returns {Promise<boolean>} True if option was found and clicked, false otherwise
+ * @throws {Error} If listbox or matching option not found
  */
 async function selectComboboxOption(page, listboxId, targetValue) {
   if (!listboxId || !targetValue) {
     throw new Error('selectComboboxOption: listboxId and targetValue are required');
   }
 
-  return page.evaluate(
+  const result = await page.evaluate(
     ({ listboxId, targetValue }) => {
       const listbox = document.getElementById(listboxId);
-      if (!listbox) return false;
+      if (!listbox) {
+        return { success: false, error: `Listbox with id '${listboxId}' not found` };
+      }
 
       // Find option by matching dataset.value
       const options = Array.from(listbox.querySelectorAll('.combobox-option'));
       const matchingOption = options.find((opt) => opt.dataset.value === targetValue);
 
-      if (!matchingOption) return false;
+      if (!matchingOption) {
+        const availableValues = options.map((opt) => opt.dataset.value).join(', ');
+        return {
+          success: false,
+          error: `Option '${targetValue}' not found in listbox '${listboxId}'. Available options: ${availableValues}`,
+        };
+      }
 
       // Dispatch mousedown event (combobox uses mousedown listeners)
       const event = new MouseEvent('mousedown', {
@@ -254,15 +288,20 @@ async function selectComboboxOption(page, listboxId, targetValue) {
         view: window,
       });
       matchingOption.dispatchEvent(event);
-      return true;
+      return { success: true };
     },
     { listboxId, targetValue }
   );
+
+  if (!result.success) {
+    throw new Error(`selectComboboxOption failed: ${result.error}`);
+  }
 }
 
 /**
  * Fill a combobox field by typing value and selecting from dropdown
  * Consolidates the common pattern: fill input, dispatch event, wait for dropdown, select option
+ * If the option is not found in the dropdown, accepts custom value by pressing Escape
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} inputId - ID of the combobox input element
  * @param {string} listboxId - ID of the listbox dropdown element
@@ -280,10 +319,11 @@ async function fillComboboxField(page, inputId, listboxId, value, dropdownDelay 
   await page.waitForTimeout(dropdownDelay);
 
   // Try to select matching option using JavaScript evaluation (Firefox-safe)
-  const selected = await selectComboboxOption(page, listboxId, value);
-
-  if (!selected) {
+  try {
+    await selectComboboxOption(page, listboxId, value);
+  } catch (error) {
     // No matching option found - close dropdown and accept custom value
+    // This is expected behavior for custom values not in the predefined list
     await page.locator(`#${inputId}`).press('Escape');
   }
 }
@@ -302,10 +342,11 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for form elements to be fully ready (not just attached, but visible and enabled)
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
-  // KEEP: Modal animation and form element hydration delay
+  // KEEP: Modal animation and form element hydration delay (100ms)
   // This ensures combobox dropdowns are properly initialized and interactive before
-  // we attempt to fill form fields. Without this delay, combobox options may not be
-  // ready and interactions will fail.
+  // we attempt to fill form fields. Combobox options are populated via JavaScript after
+  // modal opens, and CSS transitions need to complete. Without this delay, combobox
+  // options may not be ready and interactions will fail silently.
   await page.waitForTimeout(MODAL_ANIMATION_DELAY_MS);
 
   // Fill form fields
@@ -314,8 +355,10 @@ export async function createCardViaUI(page, cardData) {
   // Set type using combobox (fill input and select from dropdown or accept custom value)
   await fillComboboxField(page, 'cardType', 'typeListbox', cardData.type, DROPDOWN_RENDER_DELAY_MS);
 
-  // KEEP: Subtype combobox update delay after type selection
-  // The subtype options are dynamically filtered based on type, requires DOM update
+  // KEEP: Subtype combobox update delay after type selection (100ms)
+  // The subtype options are dynamically filtered based on selected type via JavaScript
+  // (e.g., "Equipment" type → "Weapon", "Armor" subtypes). This DOM update requires
+  // time to complete before the subtype field can be reliably filled.
   await page.waitForTimeout(SUBTYPE_UPDATE_DELAY_MS);
 
   // Set subtype using combobox (fill input and select from dropdown or accept custom value)

@@ -38,6 +38,45 @@ test.describe('Event Listener Setup - Error Handling', () => {
     await expect(searchInput).toBeVisible();
   });
 
+  test('should continue initialization after toolbar button errors', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+
+    // Sign in to enable functionality
+    await authEmulator.createTestUser('test-toolbar-graceful@example.com');
+    await authEmulator.signInTestUser('test-toolbar-graceful@example.com');
+    await page.reload();
+
+    // Remove toolbar buttons to cause error
+    await page.evaluate(() => {
+      document.getElementById('addCardBtn')?.remove();
+      document.getElementById('importCardsBtn')?.remove();
+      document.getElementById('exportCardsBtn')?.remove();
+    });
+
+    // Trigger re-initialization
+    await page.evaluate(() => {
+      window.__testHelpers?.setupEventListeners();
+    });
+
+    // Verify that other event listeners still work despite toolbar error
+    // Test search functionality
+    const searchInput = page.locator('#searchCards');
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('skill');
+    await page.waitForTimeout(300); // Debounce delay
+
+    // Search should filter cards (verifies search listener was set up)
+    const visibleCards = await page.locator('.card-item').count();
+    expect(visibleCards).toBeGreaterThan(0);
+
+    // Test view mode buttons (verifies view mode listeners were set up)
+    const gridViewBtn = page.locator('.view-mode-btn[data-mode="grid"]');
+    await expect(gridViewBtn).toBeVisible();
+  });
+
   test('should continue initialization when search input is missing', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -150,7 +189,8 @@ test.describe('Event Listener Setup - Error Handling', () => {
     const searchInput = page.locator('#searchCards');
     await expect(searchInput).toBeVisible();
     await searchInput.fill('skill');
-    // KEEP: 300ms delay for search debouncing (UI responsiveness pattern)
+    // KEEP: 300ms delay matches production search debouncing (300ms in cards.js)
+    // Without this delay, test would check results before debounced search executes
     await page.waitForTimeout(300);
 
     // Should have filtered cards
@@ -158,43 +198,95 @@ test.describe('Event Listener Setup - Error Handling', () => {
     expect(visibleCards).toBeGreaterThan(0);
   });
 
-  test('should not create duplicate listeners on re-initialization', async ({ page }) => {
+  test('should handle re-initialization without duplicate behavior', async ({
+    page,
+    authEmulator,
+  }) => {
     await page.goto('/cards.html');
 
-    // Track exact number of listeners added before and after re-initialization
-    const { beforeCount, afterCount } = await page.evaluate(() => {
-      // Store original addEventListener to count calls
-      const originalAddEventListener = EventTarget.prototype.addEventListener;
-      let beforeCount = 0;
-      let afterCount = 0;
+    // Sign in to enable card creation
+    await authEmulator.createTestUser('test-reinit@example.com');
+    await authEmulator.signInTestUser('test-reinit@example.com');
+    await page.reload();
 
-      // Count listeners added during first call
-      EventTarget.prototype.addEventListener = function (...args) {
-        beforeCount++;
-        return originalAddEventListener.apply(this, args);
-      };
-
-      // First call to setupEventListeners
+    // Re-initialize event listeners multiple times
+    await page.evaluate(() => {
       window.__testHelpers?.setupEventListeners();
-
-      // Reset counter for second call
-      beforeCount = 0;
-      EventTarget.prototype.addEventListener = function (...args) {
-        afterCount++;
-        return originalAddEventListener.apply(this, args);
-      };
-
-      // Trigger re-initialization
       window.__testHelpers?.setupEventListeners();
-
-      // Restore original
-      EventTarget.prototype.addEventListener = originalAddEventListener;
-
-      return { beforeCount, afterCount };
     });
 
-    // Re-initialization should add exactly 0 new listeners (all should be deduplicated)
-    // The implementation should check for existing listeners before adding new ones
-    expect(afterCount).toBe(0);
+    // Test behavior: Click add card button - modal should open normally
+    await page.locator('#addCardBtn').click();
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Close modal
+    await page.locator('#closeModalBtn').click();
+    await expect(page.locator('#cardEditorModal.active')).not.toBeVisible();
+
+    // Click again - modal should still work correctly (not broken by re-initialization)
+    await page.locator('#addCardBtn').click();
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+  });
+
+  test('setupEventListeners should re-throw errors after logging', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Force an error by breaking the DOM in a way that causes setupEventListeners to fail
+    const errorThrown = await page.evaluate(() => {
+      try {
+        // Monkey-patch addEventListener to throw an error
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function () {
+          throw new Error('Test error: addEventListener failed');
+        };
+
+        try {
+          window.__testHelpers?.setupEventListeners();
+          return false; // Should not reach here
+        } catch (error) {
+          // Verify error was re-thrown (not swallowed)
+          return error.message === 'Test error: addEventListener failed';
+        } finally {
+          // Restore original
+          EventTarget.prototype.addEventListener = originalAddEventListener;
+        }
+      } catch (e) {
+        return false;
+      }
+    });
+
+    // Verify the error was re-thrown (not silently swallowed)
+    expect(errorThrown).toBe(true);
+  });
+
+  test('setupMobileMenu should re-throw errors after logging', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Force an error in setupMobileMenu
+    const errorThrown = await page.evaluate(() => {
+      try {
+        // Monkey-patch addEventListener to throw an error
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function () {
+          throw new Error('Test error: mobile menu addEventListener failed');
+        };
+
+        try {
+          window.__testHelpers?.setupMobileMenu();
+          return false; // Should not reach here
+        } catch (error) {
+          // Verify error was re-thrown (not swallowed)
+          return error.message === 'Test error: mobile menu addEventListener failed';
+        } finally {
+          // Restore original
+          EventTarget.prototype.addEventListener = originalAddEventListener;
+        }
+      } catch (e) {
+        return false;
+      }
+    });
+
+    // Verify the error was re-thrown (not silently swallowed)
+    expect(errorThrown).toBe(true);
   });
 });

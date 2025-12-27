@@ -432,4 +432,142 @@ test.describe('deleteTestCards Batch Handling and Edge Cases', () => {
       process.env.FIRESTORE_EMULATOR_HOST = originalHost;
     }
   });
+
+  test('should reject invalid type patterns (number)', async () => {
+    await expect(async () => {
+      await deleteTestCards(123);
+    }).rejects.toThrow('titlePattern must be a string or RegExp');
+  });
+
+  test('should reject invalid type patterns (object)', async () => {
+    await expect(async () => {
+      await deleteTestCards({ title: 'Test' });
+    }).rejects.toThrow('titlePattern must be a string or RegExp');
+  });
+});
+
+test.describe('createCardViaUI Subtype Timing', () => {
+  test('should wait for subtype options to update after type selection', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-subtype-timing@example.com');
+    await authEmulator.signInTestUser('test-subtype-timing@example.com');
+    await page.reload();
+
+    // Create a card that requires subtype update
+    const cardData = generateTestCardData('subtype-test');
+    await createCardViaUI(page, cardData);
+
+    // Verify card was created with correct subtype
+    const card = await getCardFromFirestore(cardData.title, 3, 100);
+    expect(card).not.toBeNull();
+    expect(card.type).toBe('Equipment');
+    expect(card.subtype).toBe('Weapon');
+  });
+
+  test('should handle rapid card creation with different types', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-rapid-create@example.com');
+    await authEmulator.signInTestUser('test-rapid-create@example.com');
+    await page.reload();
+
+    // Create two cards with different types rapidly
+    const card1Data = generateTestCardData('rapid-1');
+    await createCardViaUI(page, card1Data);
+
+    const card2Data = {
+      ...generateTestCardData('rapid-2'),
+      type: 'Skill',
+      subtype: 'Combat',
+    };
+    await createCardViaUI(page, card2Data);
+
+    // Verify both cards were created correctly
+    const card1 = await getCardFromFirestore(card1Data.title, 3, 100);
+    const card2 = await getCardFromFirestore(card2Data.title, 3, 100);
+
+    expect(card1).not.toBeNull();
+    expect(card1.subtype).toBe('Weapon');
+
+    expect(card2).not.toBeNull();
+    expect(card2.subtype).toBe('Combat');
+  });
+});
+
+test.describe('getCardFromFirestore Exponential Backoff Edge Cases', () => {
+  test('should return early when card found before max retries', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-early-return@example.com');
+    await authEmulator.signInTestUser('test-early-return@example.com');
+    await page.reload();
+
+    // Create a card
+    const cardData = generateTestCardData('early-return');
+    await createCardViaUI(page, cardData);
+
+    // Track time taken to find card
+    const startTime = Date.now();
+    const card = await getCardFromFirestore(cardData.title, 10, 500);
+    const elapsed = Date.now() - startTime;
+
+    // Should find card quickly without waiting for all retries
+    expect(card).not.toBeNull();
+    // Should complete much faster than full retry cycle (10 retries = ~256s if all used)
+    expect(elapsed).toBeLessThan(5000);
+  });
+
+  test('should handle maxRetries=0 (single attempt)', async () => {
+    const nonExistentTitle = 'NoRetries-' + Date.now();
+    const startTime = Date.now();
+
+    const result = await getCardFromFirestore(nonExistentTitle, 0, 1000);
+    const elapsed = Date.now() - startTime;
+
+    expect(result).toBeNull();
+    // Should return immediately with no retries (< 100ms)
+    expect(elapsed).toBeLessThan(100);
+  });
+});
+
+test.describe('createCardViaUI Form Hydration', () => {
+  test('should verify form elements are ready before filling', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-form-ready@example.com');
+    await authEmulator.signInTestUser('test-form-ready@example.com');
+    await page.reload();
+
+    // Click add card and immediately verify form readiness
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Verify all form elements are visible and enabled
+    const cardType = page.locator('#cardType');
+    await expect(cardType).toBeVisible();
+    await expect(cardType).toBeEnabled();
+
+    const cardTitle = page.locator('#cardTitle');
+    await expect(cardTitle).toBeVisible();
+    await expect(cardTitle).toBeEnabled();
+
+    // Close modal
+    await page.locator('#closeModalBtn').click();
+  });
+
+  test('should handle delayed form hydration gracefully', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-delayed-hydration@example.com');
+    await authEmulator.signInTestUser('test-delayed-hydration@example.com');
+    await page.reload();
+
+    // Create card normally - createCardViaUI waits for form hydration
+    const cardData = generateTestCardData('delayed-hydration');
+    await createCardViaUI(page, cardData);
+
+    // Verify card was created successfully
+    const card = await getCardFromFirestore(cardData.title, 3, 100);
+    expect(card).not.toBeNull();
+    expect(card.title).toBe(cardData.title);
+  });
 });

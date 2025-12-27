@@ -270,14 +270,16 @@ function setupEventListeners() {
     const importCardsBtn = document.getElementById('importCardsBtn');
     const exportCardsBtn = document.getElementById('exportCardsBtn');
 
-    // Set up toolbar button listeners (graceful degradation if missing)
+    // Set up toolbar button listeners - continues initialization if buttons missing
+    // This allows other page functionality (search, filters, view modes) to work
+    // even if toolbar is broken or removed during testing
     if (!addCardBtn || !importCardsBtn || !exportCardsBtn) {
       // Log specific missing buttons for debugging
       const missingButtons = [];
       if (!addCardBtn) missingButtons.push('addCardBtn');
       if (!importCardsBtn) missingButtons.push('importCardsBtn');
       if (!exportCardsBtn) missingButtons.push('exportCardsBtn');
-      // TODO(#559): Replace console.error with Sentry logging
+      // TODO(#559): Replace console.error with Sentry logging for production error tracking
       console.error(`Missing toolbar buttons: ${missingButtons.join(', ')}`);
       // Don't return - continue setting up other event listeners
     } else {
@@ -344,7 +346,8 @@ function setupEventListeners() {
       modalBackdrop.addEventListener('click', closeCardEditor);
     }
   } catch (error) {
-    // TODO(#560): Re-throw errors after logging to prevent silent failures
+    // Log error before re-throwing to ensure visibility in console
+    // Re-throw prevents silent failures (issue #311)
     console.error('Error setting up event listeners:', error);
     throw error;
   }
@@ -409,7 +412,8 @@ function setupMobileMenu() {
       });
     }
   } catch (error) {
-    // TODO(#560): Re-throw errors after logging to prevent silent failures
+    // Log error before re-throwing to ensure visibility in console
+    // Re-throw prevents silent failures (issue #311)
     console.error('Error setting up mobile menu:', error);
     throw error;
   }
