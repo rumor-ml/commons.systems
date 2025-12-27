@@ -263,7 +263,7 @@ export STORAGE_EMULATOR_HOST=localhost:9199
 
 ### Tests hang or timeout
 
-- Check emulator logs: `tail -f /tmp/claude/emulators.log`
+- Check emulator logs: `tail -f tmp/infrastructure/firebase-emulators.log`
 - Verify emulators are running: `lsof -i :8081` and `lsof -i :9199`
 - Restart emulators if needed
 

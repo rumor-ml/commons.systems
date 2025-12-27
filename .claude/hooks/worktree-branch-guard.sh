@@ -4,9 +4,11 @@
 # Prevents accidental commits/pushes to wrong branch when working across multiple worktrees.
 # Dependencies: jq (JSON processor)
 
-LOG_FILE="/tmp/claude/worktree-branch-guard.log"
-if ! mkdir -p /tmp/claude 2>/dev/null; then
-  echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "ERROR: Cannot create log directory /tmp/claude. Check permissions and disk space."}}'
+# Get project root for worktree-local tmp
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+LOG_FILE="${PROJECT_ROOT}/tmp/hooks/worktree-branch-guard.log"
+if ! mkdir -p "${PROJECT_ROOT}/tmp/hooks" 2>/dev/null; then
+  echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "ERROR: Cannot create log directory tmp/hooks. Check permissions and disk space."}}'
   exit 0
 fi
 

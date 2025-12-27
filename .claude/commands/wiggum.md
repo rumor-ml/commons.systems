@@ -189,27 +189,28 @@ formatting errors. I'll follow the instructions: launch Plan agent to fix...
 
 ### File Naming Pattern
 
-/tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md
+$(pwd)/tmp/wiggum/{review-type}-{timestamp}.md
 
 ### Implementation Pattern
 
 1. Execute review command and capture complete output
-2. Generate temp file path: /tmp/claude/wiggum-$(basename $(pwd))-pr-review-$(date +%s%3N).md
-3. Write output to file
-4. Pass file path (not content) to completion tool
+2. Generate temp file path: $(pwd)/tmp/wiggum/pr-review-$(date +%s%3N).md
+3. Create directory: mkdir -p $(pwd)/tmp/wiggum
+4. Write output to file
+5. Pass file path (not content) to completion tool
 
 ### Example
 
 After /all-hands-review completes:
 
-- Write to: /tmp/claude/wiggum-621-my-branch-pr-review-1735234567890.md
+- Write to: $(pwd)/tmp/wiggum/pr-review-1735234567890.md
 - Call: wiggum_complete_pr_review({ verbatim_response_file: "...", ... })
 
 ### Why Temp Files?
 
 - **Token Efficiency:** Review outputs are 5KB+ and don't need to be in agent context
 - **Backwards Compatible:** Tools still accept verbatim_response parameter (deprecated)
-- **File Location:** /tmp/claude/ is automatically cleaned by OS and used for all debug artifacts
+- **File Location:** tmp/wiggum/ in worktree root is .gitignore'd and isolated per worktree
 
 ## Main Loop
 
@@ -290,7 +291,7 @@ Call after executing the phase-appropriate review command:
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
   command_executed: true,
-  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-pr-review-{timestamp}.md',
+  verbatim_response_file: '$(pwd)/tmp/wiggum/pr-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,
@@ -327,7 +328,7 @@ Call after executing `/security-review`.
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-security-review-{timestamp}.md',
+  verbatim_response_file: '$(pwd)/tmp/wiggum/security-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,

@@ -4,8 +4,8 @@
   # MCP servers automatic rebuild hook
   # Rebuilds MCP servers when source files change (similar to pnpm hook)
 
-  # Create build log directory
-  mkdir -p /tmp/claude
+  # Create build log directory in worktree
+  mkdir -p tmp/infrastructure
 
   # Function to check if rebuild is needed
   needs_rebuild() {
@@ -41,10 +41,10 @@
     local server_name=$(basename "$server_dir")
 
     echo "Building $server_name..."
-    if (cd "$server_dir" && npm run build > /tmp/claude/mcp-build.log 2>&1); then
+    if (cd "$server_dir" && npm run build > tmp/infrastructure/mcp-build.log 2>&1); then
       echo "  ✓ $server_name built successfully"
     else
-      echo "  ⚠ Warning: $server_name build failed (check /tmp/claude/mcp-build.log)"
+      echo "  ⚠ Warning: $server_name build failed (check tmp/infrastructure/mcp-build.log)"
     fi
   }
 

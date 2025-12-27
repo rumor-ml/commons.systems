@@ -138,18 +138,17 @@ You operate autonomously and proactively, refining code immediately after it's w
 1. Determine paths:
 
    ```bash
-   WORKTREE=$(basename $(pwd))
    # Generate millisecond timestamp to ensure unique filenames when multiple agents
    # run in parallel during the same second
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/code-simplifier-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/code-simplifier-out-of-scope-${TIMESTAMP}.md"
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-in-scope-${TIMESTAMP}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-out-of-scope-${TIMESTAMP}.md"
    ```
 
 2. Create directory:
 
    ```bash
-   mkdir -p "$(pwd)/tmp/wiggum-${WORKTREE}"
+   mkdir -p "$(pwd)/tmp/wiggum"
    # Note: -p flag ensures mkdir succeeds even if directory already exists
    # (multiple review agents run in parallel and may create this concurrently)
    ```

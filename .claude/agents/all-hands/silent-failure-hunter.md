@@ -216,16 +216,15 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
 1. Determine paths:
 
    ```bash
-   WORKTREE=$(basename $(pwd))
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"
    ```
 
 2. Create directory:
 
    ```bash
-   mkdir -p "$(pwd)/tmp/wiggum-${WORKTREE}"
+   mkdir -p "$(pwd)/tmp/wiggum"
    # Note: -p flag ensures mkdir succeeds even if directory already exists
    # (multiple review agents run in parallel and may create this concurrently)
    ```

@@ -67,7 +67,7 @@ const KNOWN_AGENT_NAMES = [
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
  *
  * @example
- * extractAgentNameFromPath('$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md')
+ * extractAgentNameFromPath('$(pwd)/tmp/wiggum/code-reviewer-in-scope-1234.md')
  * // Returns: 'Code Reviewer'
  */
 export function extractAgentNameFromPath(filePath: string): string {
