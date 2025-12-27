@@ -18,7 +18,6 @@ import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
 import {
   MAX_ITERATIONS,
   STEP_NAMES,
-  generateTriageInstructions,
   generateOutOfScopeTrackingInstructions,
   generateScopeSeparatedFixInstructions,
 } from '../constants.js';
@@ -307,116 +306,6 @@ export async function loadReviewResults(
 }
 
 /**
- * Load verbatim response from file or inline parameter
- *
- * @param input - Review completion input
- * @returns The verbatim response content
- * @throws ValidationError if neither parameter provided or file unreadable
- */
-export async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
-  // New format: file-based scope-separated results
-  if (input.in_scope_files || input.out_of_scope_files) {
-    const { inScope, outOfScope } = await loadReviewResults(
-      input.in_scope_files,
-      input.out_of_scope_files
-    );
-    const sections = [inScope, outOfScope].filter(Boolean);
-    return sections.join('\n\n');
-  }
-
-  // Old format: single verbatim response
-  if (!input.verbatim_response && !input.verbatim_response_file) {
-    throw new ValidationError(
-      `Either verbatim_response or verbatim_response_file must be provided. ` +
-        `Preferred: write review output to /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md ` +
-        `and pass the file path via verbatim_response_file parameter.`
-    );
-  }
-
-  // If both provided: prefer file with warning
-  if (input.verbatim_response && input.verbatim_response_file) {
-    logger.warn(
-      'Both verbatim_response and verbatim_response_file provided - using file (verbatim_response_file takes precedence)',
-      {
-        filePath: input.verbatim_response_file,
-        inlineLength: input.verbatim_response.length,
-      }
-    );
-  }
-
-  // If file path provided: read and return content
-  if (input.verbatim_response_file) {
-    try {
-      const content = await readFile(input.verbatim_response_file, 'utf-8');
-      logger.info('Loaded verbatim response from temp file', {
-        filePath: input.verbatim_response_file,
-        contentLength: content.length,
-      });
-      return content;
-    } catch (error) {
-      // Handle specific known file system errors explicitly for better user feedback
-      if (error instanceof Error) {
-        const nodeError = error as NodeJS.ErrnoException;
-
-        if (nodeError.code === 'ENOENT') {
-          throw new ValidationError(
-            `File not found: "${input.verbatim_response_file}". ` +
-              `Ensure the review output was written to the temp file before calling this tool. ` +
-              `File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md`
-          );
-        }
-
-        if (nodeError.code === 'EACCES') {
-          throw new ValidationError(
-            `Permission denied reading file: "${input.verbatim_response_file}". ` +
-              `Check file permissions.`
-          );
-        }
-
-        if (nodeError.code === 'EISDIR') {
-          throw new ValidationError(
-            `Path is a directory, not a file: "${input.verbatim_response_file}". ` +
-              `Expected a file path.`
-          );
-        }
-
-        // Log unexpected errors with full context before re-throwing
-        logger.error('Unexpected error reading verbatim response file', {
-          filePath: input.verbatim_response_file,
-          errorCode: nodeError.code,
-          errorMessage: error.message,
-          errorStack: error.stack,
-        });
-
-        throw new ValidationError(
-          `Unexpected error reading file: "${input.verbatim_response_file}": ${error.message}. ` +
-            `This may indicate a system issue. Check logs for details.`
-        );
-      }
-
-      // Non-Error exceptions (very rare, indicates programming error)
-      logger.error('Non-Error exception in file read', {
-        filePath: input.verbatim_response_file,
-        exception: String(error),
-      });
-
-      throw new ValidationError(
-        `Unexpected exception reading file (programming error): ${String(error)}`
-      );
-    }
-  }
-
-  // If inline: return (deprecated path)
-  logger.warn(
-    'Using deprecated verbatim_response parameter - consider using verbatim_response_file to reduce token usage',
-    {
-      inlineLength: input.verbatim_response!.length,
-    }
-  );
-  return input.verbatim_response!;
-}
-
-/**
  * Zod schema for ReviewConfig runtime validation
  */
 export const ReviewConfigSchema = z.object({
@@ -462,17 +351,10 @@ export interface ReviewConfig {
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
-  // Old format (deprecated but supported)
-  verbatim_response: z.string().optional(),
-  verbatim_response_file: z.string().optional(),
-  high_priority_issues: z.number().int().nonnegative().optional(),
-  medium_priority_issues: z.number().int().nonnegative().optional(),
-  low_priority_issues: z.number().int().nonnegative().optional(),
-  // New format
-  in_scope_files: z.array(z.string()).optional(),
-  out_of_scope_files: z.array(z.string()).optional(),
-  in_scope_count: z.number().int().nonnegative().optional(),
-  out_of_scope_count: z.number().int().nonnegative().optional(),
+  in_scope_files: z.array(z.string()),
+  out_of_scope_files: z.array(z.string()),
+  in_scope_count: z.number().int().nonnegative(),
+  out_of_scope_count: z.number().int().nonnegative(),
 });
 
 /**
@@ -487,17 +369,10 @@ export const ReviewCompletionInputSchema = z.object({
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
-  // Old format (deprecated but supported)
-  verbatim_response?: string;
-  verbatim_response_file?: string;
-  high_priority_issues?: number;
-  medium_priority_issues?: number;
-  low_priority_issues?: number;
-  // New format
-  in_scope_files?: string[];
-  out_of_scope_files?: string[];
-  in_scope_count?: number;
-  out_of_scope_count?: number;
+  in_scope_files: string[];
+  out_of_scope_files: string[];
+  in_scope_count: number;
+  out_of_scope_count: number;
 }
 
 /**
@@ -698,40 +573,29 @@ function buildIssuesFoundResponse(
     );
   }
 
-  // Detect if we're using the new scope-separated format
-  const usingScopeSeparatedFormat = !!inScopeFiles;
-
   logger.info(
-    `Providing ${usingScopeSeparatedFormat ? 'parallel fix' : 'triage'} instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
+    `Providing parallel fix instructions for ${config.reviewTypeLabel.toLowerCase()} review issues`,
     {
       phase: state.wiggum.phase,
       issueNumber,
       totalIssues: issues.total,
       inScopeCount,
       outOfScopeCount,
-      usingScopeSeparatedFormat,
       iteration: newIteration,
     }
   );
 
   const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
 
-  // Choose instructions based on format
-  let instructions: string;
-  if (usingScopeSeparatedFormat) {
-    // New workflow: Launch 2 agents in parallel (triage already done)
-    instructions = generateScopeSeparatedFixInstructions(
-      issueNumber,
-      reviewTypeForTriage,
-      inScopeCount,
-      inScopeFiles!,
-      outOfScopeCount,
-      outOfScopeFiles ?? []
-    );
-  } else {
-    // Old workflow: Enter plan mode, triage, then execute
-    instructions = generateTriageInstructions(issueNumber, reviewTypeForTriage, issues.total);
-  }
+  // Launch 2 agents in parallel (triage already done by review agents)
+  const instructions = generateScopeSeparatedFixInstructions(
+    issueNumber,
+    reviewTypeForTriage,
+    inScopeCount,
+    inScopeFiles!,
+    outOfScopeCount,
+    outOfScopeFiles ?? []
+  );
 
   const output = {
     current_step: STEP_NAMES[reviewStep],
@@ -784,89 +648,65 @@ export async function completeReview(
     );
   }
 
-  // Load verbatim response from file or inline parameter
-  const verbatimResponse = await loadVerbatimResponse(input);
+  // Load review results from scope-separated files
+  const { inScope, outOfScope } = await loadReviewResults(
+    input.in_scope_files,
+    input.out_of_scope_files
+  );
+  const sections = [inScope, outOfScope].filter(Boolean);
+  const verbatimResponse = sections.join('\n\n');
 
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
 
   validatePhaseRequirements(state, config);
 
-  // Handle both old and new format
-  const inScopeCount = input.in_scope_count ?? 0;
-  const outOfScopeCount = input.out_of_scope_count ?? 0;
+  const inScopeCount = input.in_scope_count;
+  const outOfScopeCount = input.out_of_scope_count;
 
   // Validate all numeric counts are non-negative safe integers
   const countFields = [
-    { name: 'high_priority_issues', value: input.high_priority_issues },
-    { name: 'medium_priority_issues', value: input.medium_priority_issues },
-    { name: 'low_priority_issues', value: input.low_priority_issues },
     { name: 'in_scope_count', value: input.in_scope_count },
     { name: 'out_of_scope_count', value: input.out_of_scope_count },
   ];
 
   for (const { name, value } of countFields) {
-    if (value !== undefined) {
-      if (!Number.isFinite(value)) {
-        throw new ValidationError(`Invalid ${name}: ${value}. Must be a finite number.`);
-      }
-      if (!Number.isInteger(value)) {
-        throw new ValidationError(`Invalid ${name}: ${value}. Must be an integer.`);
-      }
-      if (value < 0) {
-        throw new ValidationError(`Invalid ${name}: ${value}. Must be non-negative.`);
-      }
-      // Check against MAX_SAFE_INTEGER to prevent precision loss
-      if (!Number.isSafeInteger(value)) {
-        logger.error('Issue count exceeds safe integer range - precision may be lost', {
-          fieldName: name,
-          value,
-          maxSafeInteger: Number.MAX_SAFE_INTEGER,
-        });
-        throw new ValidationError(
-          `Invalid ${name}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
-            `Review agent may have returned corrupted data.`
-        );
-      }
+    if (!Number.isFinite(value)) {
+      throw new ValidationError(`Invalid ${name}: ${value}. Must be a finite number.`);
     }
-  }
-
-  // Validate count vs file array length consistency (new file-based format)
-  if (input.in_scope_files || input.out_of_scope_files) {
-    const inScopeFiles = input.in_scope_files ?? [];
-    const outOfScopeFiles = input.out_of_scope_files ?? [];
-
-    if (input.in_scope_count !== undefined && input.in_scope_count !== inScopeFiles.length) {
-      throw new ValidationError(
-        `in_scope_count (${input.in_scope_count}) does not match in_scope_files length (${inScopeFiles.length}). ` +
-          `Agent may have reported incorrect count or missing files.`
-      );
+    if (!Number.isInteger(value)) {
+      throw new ValidationError(`Invalid ${name}: ${value}. Must be an integer.`);
     }
-    if (
-      input.out_of_scope_count !== undefined &&
-      input.out_of_scope_count !== outOfScopeFiles.length
-    ) {
+    if (value < 0) {
+      throw new ValidationError(`Invalid ${name}: ${value}. Must be non-negative.`);
+    }
+    // Check against MAX_SAFE_INTEGER to prevent precision loss
+    if (!Number.isSafeInteger(value)) {
+      logger.error('Issue count exceeds safe integer range - precision may be lost', {
+        fieldName: name,
+        value,
+        maxSafeInteger: Number.MAX_SAFE_INTEGER,
+      });
       throw new ValidationError(
-        `out_of_scope_count (${input.out_of_scope_count}) does not match out_of_scope_files length (${outOfScopeFiles.length}). ` +
-          `Agent may have reported incorrect count or missing files.`
+        `Invalid ${name}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
+          `Review agent may have returned corrupted data.`
       );
     }
   }
+
+  // NOTE: in_scope_count and out_of_scope_count represent the number of ISSUES,
+  // not the number of FILES. Each file can contain multiple issues from one agent.
+  // We validate that files exist and are readable in loadReviewResults(), but we
+  // do NOT validate that issue counts match file counts.
 
   // Calculate total with validated values
-  const rawTotal =
-    (input.high_priority_issues ?? 0) +
-    (input.medium_priority_issues ?? 0) +
-    (input.low_priority_issues ?? 0) +
-    inScopeCount +
-    outOfScopeCount;
+  const rawTotal = inScopeCount + outOfScopeCount;
 
   // Final validation that total is sane (defense against floating point issues and overflow)
   if (!Number.isFinite(rawTotal) || rawTotal < 0) {
     throw new ValidationError(
       `Invalid issue count total (${rawTotal}). Individual counts: ` +
-        `high=${input.high_priority_issues}, medium=${input.medium_priority_issues}, ` +
-        `low=${input.low_priority_issues}, inScope=${inScopeCount}, outOfScope=${outOfScopeCount}`
+        `inScope=${inScopeCount}, outOfScope=${outOfScopeCount}`
     );
   }
   if (!Number.isSafeInteger(rawTotal)) {
@@ -874,9 +714,6 @@ export async function completeReview(
       rawTotal,
       maxSafeInteger: Number.MAX_SAFE_INTEGER,
       individualCounts: {
-        high: input.high_priority_issues,
-        medium: input.medium_priority_issues,
-        low: input.low_priority_issues,
         inScope: inScopeCount,
         outOfScope: outOfScopeCount,
       },
@@ -888,9 +725,9 @@ export async function completeReview(
   }
 
   const issues: IssueCounts = {
-    high: input.high_priority_issues ?? inScopeCount,
-    medium: input.medium_priority_issues ?? 0,
-    low: input.low_priority_issues ?? outOfScopeCount,
+    high: inScopeCount,
+    medium: 0,
+    low: outOfScopeCount,
     total: rawTotal,
   };
 
@@ -903,7 +740,7 @@ export async function completeReview(
   );
 
   // Only in-scope issues block progression
-  const hasInScopeIssues = inScopeCount > 0 || (input.high_priority_issues ?? 0) > 0;
+  const hasInScopeIssues = inScopeCount > 0;
   const newState = buildNewState(state, reviewStep, hasInScopeIssues);
 
   const result = await postStateComment(state, newState, title, body);
