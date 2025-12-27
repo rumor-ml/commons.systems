@@ -170,7 +170,7 @@ const RETRYABLE_ERROR_CODES = [
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Does not validate range - non-HTTP exit codes will fall through to other checks
+  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -322,10 +322,10 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code from GitHubCliError
-      // Note: GitHubCliError SHOULD have exitCode property, but may be undefined if:
-      //   - Error was wrapped by non-GitHubCliError (e.g., network timeout)
-      //   - gh CLI exited without HTTP status (e.g., subprocess crash)
+      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
+      // Note: exitCode may be undefined if:
+      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
+      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
       // Fallback: Parse HTTP status from error message using multiple patterns
       lastExitCode = (error as { exitCode?: number }).exitCode;
@@ -364,9 +364,19 @@ export async function ghCliWithRetry(
 
         // Log if no valid HTTP status code was extracted from error message
         if (lastExitCode === undefined) {
-          console.error(
-            `[gh-issue] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
-          );
+          // Check if error message suggests this SHOULD have had HTTP status
+          const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+
+          if (likelyHttpError) {
+            // This looks like an HTTP error but we couldn't extract the status code
+            console.error(
+              `[gh-issue] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
+            );
+          } else {
+            console.error(
+              `[gh-issue] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
+            );
+          }
         }
       }
 

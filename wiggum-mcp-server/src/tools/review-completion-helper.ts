@@ -260,15 +260,23 @@ async function readReviewFile(
     // Check file exists and get metadata before reading
     const stats = await stat(filePath);
 
-    // ERROR: Empty file (size 0) indicates agent crash during write.
-    // This is logged at ERROR level because it means review results are incomplete.
+    // CRITICAL: Empty file (size 0) indicates agent crash during write.
+    // Throw immediately with actionable error instead of continuing and failing later
     if (stats.size === 0) {
-      logger.error('Review file is empty - agent likely crashed during write', {
+      const agentName = extractAgentNameFromPath(filePath);
+      logger.error('Review file is empty - agent crashed during write', {
         filePath,
-        agentName: extractAgentNameFromPath(filePath),
+        agentName,
         impact: 'Review results incomplete - missing agent output',
         action: 'Check agent logs for crash details',
       });
+
+      // Throw immediately with actionable error
+      throw new Error(
+        `Review file is empty: ${filePath}\n` +
+          `Agent ${agentName} likely crashed during write.\n` +
+          `Action: Check agent logs for crash details and retry the review.`
+      );
     }
 
     const content = await readFile(filePath, 'utf-8');

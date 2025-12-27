@@ -333,18 +333,22 @@ export async function getPRReviewComments(
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
 
-  // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
-  // TODO(#457, #465): Skip malformed comments, log warning, continue processing valid comments
-  // Current: throws on first malformed comment, blocking all remaining valid comments
+  // Skip malformed comments with warning instead of throwing
+  // This ensures one bad comment doesn't block processing of all remaining valid comments
+  // See issues #272, #319, #457, #465 for history
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
-      // TODO(#319): Skip malformed comments instead of throwing
-      // Current: Single malformed comment blocks all subsequent valid comments
     } catch (error) {
-      throw new GitHubCliError(
-        `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`
-      );
+      // Log warning but continue processing other comments
+      logger.warn('Skipping malformed review comment JSON', {
+        prNumber,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        linePreview: line.substring(0, 100),
+        position: comments.length,
+      });
+      // Continue to next line instead of throwing
+      continue;
     }
   }
 
@@ -430,7 +434,7 @@ const RETRYABLE_ERROR_CODES = [
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Does not validate range - non-HTTP exit codes will fall through to other checks
+  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -567,6 +571,7 @@ export async function ghCliWithRetry(
 
       // Success after retry - log recovery for diagnostics and monitoring
       // Helps identify flaky endpoints or transient GitHub API issues
+      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
         logger.info('ghCliWithRetry: succeeded after retry', {
           attempt,
@@ -579,10 +584,10 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code from GitHubCliError
-      // Note: GitHubCliError SHOULD have exitCode property, but may be undefined if:
-      //   - Error was wrapped by non-GitHubCliError (e.g., network timeout)
-      //   - gh CLI exited without HTTP status (e.g., subprocess crash)
+      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
+      // Note: exitCode may be undefined if:
+      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
+      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
       // Fallback: Parse HTTP status from error message using multiple patterns
       lastExitCode = (error as { exitCode?: number }).exitCode;
@@ -622,9 +627,22 @@ export async function ghCliWithRetry(
 
         // Log if no valid HTTP status code was extracted from error message
         if (lastExitCode === undefined) {
-          logger.debug('No valid HTTP status code found in error message', {
-            errorMessage: lastError.message,
-          });
+          // Check if error message suggests this SHOULD have had HTTP status
+          const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+
+          if (likelyHttpError) {
+            // This looks like an HTTP error but we couldn't extract the status code
+            logger.warn('Failed to extract HTTP status code from error that appears HTTP-related', {
+              errorMessage: lastError.message,
+              matchedPattern: likelyHttpError[0],
+              impact: 'Falling back to message pattern matching for retry logic',
+              action: 'Update status extraction patterns or check for gh CLI version changes',
+            });
+          } else {
+            logger.debug('No valid HTTP status code found in error message', {
+              errorMessage: lastError.message,
+            });
+          }
         }
       }
 
@@ -686,7 +704,7 @@ export async function ghCliWithRetry(
         });
       }
 
-      // Exponential backoff: 2s, 4s, 8s
+      // Exponential backoff: 2^attempt seconds (attempt 1→2s, 2→4s, 3→8s, 4→16s, etc.)
       const delayMs = Math.pow(2, attempt) * 1000;
       logger.debug('ghCliWithRetry: waiting before retry', {
         attempt,

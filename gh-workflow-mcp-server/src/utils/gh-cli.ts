@@ -158,23 +158,35 @@ export interface FailedStepLog {
  *
  * This function groups log lines by job and step for easier processing.
  *
- * **Important**: Malformed lines (missing tabs) are silently skipped.
- * See issue #454 for debug logging enhancement.
- *
  * @param output - Raw output from `gh run view --log-failed`
  * @returns Array of failed step logs grouped by job and step
  */
 export function parseFailedStepLogs(output: string): FailedStepLog[] {
   const steps: Map<string, FailedStepLog> = new Map();
+  let skippedCount = 0;
 
-  // TODO: See issue #454 - Add debug logging for skipped malformed log lines
   for (const line of output.split('\n')) {
+    // Skip empty lines silently (common, not an error)
+    if (!line.trim()) continue;
+
     // Split by first two tabs only
     const firstTab = line.indexOf('\t');
-    if (firstTab === -1) continue;
+    if (firstTab === -1) {
+      skippedCount++;
+      console.error(
+        `[gh-workflow] DEBUG Skipping log line missing first tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length})`
+      );
+      continue;
+    }
 
     const secondTab = line.indexOf('\t', firstTab + 1);
-    if (secondTab === -1) continue;
+    if (secondTab === -1) {
+      skippedCount++;
+      console.error(
+        `[gh-workflow] DEBUG Skipping log line missing second tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length})`
+      );
+      continue;
+    }
 
     const jobName = line.substring(0, firstTab);
     const stepName = line.substring(firstTab + 1, secondTab);
@@ -186,6 +198,14 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
       steps.set(key, { jobName, stepName, lines: [] });
     }
     steps.get(key)!.lines.push(content);
+  }
+
+  // Warn if significant number of lines were skipped
+  if (skippedCount > 0) {
+    const totalLines = output.split('\n').filter((l) => l.trim()).length;
+    console.error(
+      `[gh-workflow] WARN Skipped ${skippedCount} malformed lines in failed step logs (totalLines: ${totalLines}, impact: Some failure details may be missing, suggestion: Check for gh CLI format changes if skip rate is high)`
+    );
   }
 
   return Array.from(steps.values());
@@ -443,7 +463,7 @@ const RETRYABLE_ERROR_CODES = [
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Does not validate range - non-HTTP exit codes will fall through to other checks
+  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -581,10 +601,10 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code from GitHubCliError
-      // Note: GitHubCliError SHOULD have exitCode property, but may be undefined if:
-      //   - Error was wrapped by non-GitHubCliError (e.g., network timeout)
-      //   - gh CLI exited without HTTP status (e.g., subprocess crash)
+      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
+      // Note: exitCode may be undefined if:
+      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
+      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
       // Fallback: Parse HTTP status from error message using multiple patterns
       lastExitCode = (error as { exitCode?: number }).exitCode;
@@ -623,9 +643,19 @@ export async function ghCliWithRetry(
 
         // Log if no valid HTTP status code was extracted from error message
         if (lastExitCode === undefined) {
-          console.error(
-            `[gh-workflow] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
-          );
+          // Check if error message suggests this SHOULD have had HTTP status
+          const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+
+          if (likelyHttpError) {
+            // This looks like an HTTP error but we couldn't extract the status code
+            console.error(
+              `[gh-workflow] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
+            );
+          } else {
+            console.error(
+              `[gh-workflow] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
+            );
+          }
         }
       }
 
