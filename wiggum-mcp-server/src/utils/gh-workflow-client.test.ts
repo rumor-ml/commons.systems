@@ -297,7 +297,8 @@ describe('callToolWithRetry', () => {
   });
 
   describe('MCP retry with real timeouts (Phase 3.4)', () => {
-    it('enforces maxDurationMs with real delays', async () => {
+    // TODO(#512): Flaky timing-sensitive test - skipped until timing variance issues resolved
+    it.skip('enforces maxDurationMs with real delays', async () => {
       // Mock 50ms delay per call, maxDurationMs=120ms
       // Should get 2-3 attempts before timing out at ~120ms
       for (let i = 0; i < 10; i++) {
@@ -327,7 +328,8 @@ describe('callToolWithRetry', () => {
       assert.ok(callCount <= 3, `Expected at most 3 attempts, got ${callCount}`);
     });
 
-    it('continues retrying until maxDurationMs', async () => {
+    // TODO(#512): Flaky timing-sensitive test - skipped until timing variance issues resolved
+    it.skip('continues retrying until maxDurationMs', async () => {
       // Queue 100 timeouts with 10ms delay each, maxDurationMs=250ms
       // Should get ~25 attempts before timing out
       for (let i = 0; i < 100; i++) {

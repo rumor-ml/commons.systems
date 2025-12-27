@@ -11,11 +11,11 @@ import {
   MIN_POLL_INTERVAL,
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
-  IN_PROGRESS_STATUSES,
   FAILURE_CONCLUSIONS,
 } from '../constants.js';
 import { getWorkflowRunsForPR, getPR, resolveRepo, sleep } from '../utils/gh-cli.js';
 import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
+import { watchPRChecks, getCheckIcon, determineOverallStatus } from '../utils/gh-watch.js';
 
 export const MonitorPRChecksInputSchema = z
   .object({
@@ -99,62 +99,72 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       throw new ValidationError(`PR #${input.pr_number} is ${pr.state}, not open`);
     }
 
-    // Poll until all checks complete or timeout
     let checks: CheckData[] = [];
-    let iterationCount = 0;
-    let allComplete = false;
     let failedEarly = false;
 
-    while (Date.now() - startTime < timeoutMs) {
-      iterationCount++;
-      checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
+    // Use watch for completion detection with optional fail-fast polling
+    // Hybrid approach: gh pr checks --watch provides completion signal, while
+    // polling JSON API enables fail-fast detection without waiting for all checks
+    if (input.fail_fast) {
+      // Hybrid: Race between watch and polling for fail-fast detection
+      const watchPromise = watchPRChecks(input.pr_number, {
+        timeout: timeoutMs,
+        repo: resolvedRepo,
+      });
 
-      if (!checks || checks.length === 0) {
-        // No checks yet, keep waiting
-        await sleep(pollIntervalMs);
-        continue;
-      }
+      const failFastPromise = (async () => {
+        while (Date.now() - startTime < timeoutMs) {
+          checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
 
-      // Check for fail-fast condition before checking if all complete
-      if (input.fail_fast) {
-        const failedCheck = checks.find(
-          (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
-        );
+          if (checks && checks.length > 0) {
+            const failedCheck = checks.find(
+              (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
+            );
 
-        if (failedCheck) {
-          failedEarly = true;
-          break;
+            if (failedCheck) {
+              failedEarly = true;
+              return;
+            }
+          }
+
+          await sleep(pollIntervalMs);
         }
+      })();
+
+      await Promise.race([watchPromise, failFastPromise]);
+    } else {
+      // Simple watch until completion
+      const watchResult = await watchPRChecks(input.pr_number, {
+        timeout: timeoutMs,
+        repo: resolvedRepo,
+      });
+
+      if (watchResult.timedOut) {
+        throw new TimeoutError(
+          `PR checks did not complete within ${input.timeout_seconds} seconds`
+        );
       }
-
-      // Check if all checks are complete
-      allComplete = checks.every((check) => !IN_PROGRESS_STATUSES.includes(check.status));
-
-      if (allComplete) {
-        break;
-      }
-
-      await sleep(pollIntervalMs);
     }
 
-    if (!allComplete && !failedEarly) {
-      throw new TimeoutError(`PR checks did not complete within ${input.timeout_seconds} seconds`);
+    // Fetch structured data after watch completes
+    checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
+
+    // Re-check for fail-fast condition to set failedEarly flag (if not already set)
+    if (input.fail_fast && !failedEarly) {
+      const failedCheck = checks.find(
+        (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
+      );
+      if (failedCheck) {
+        failedEarly = true;
+      }
     }
 
-    // Summarize results
-    const successCount = checks.filter((c) => c.conclusion === 'success').length;
-    const failureCount = checks.filter(
-      (c) => c.conclusion === 'failure' || c.conclusion === 'timed_out'
-    ).length;
-    const otherCount = checks.length - successCount - failureCount;
+    // Summarize results using new utilities
+    const overallStatusData = determineOverallStatus(checks);
+    const { successCount, failureCount, otherCount } = overallStatusData;
 
     const checkSummaries = checks.map((check) => {
-      const icon =
-        check.conclusion === 'success'
-          ? '✓'
-          : check.conclusion === 'failure' || check.conclusion === 'timed_out'
-            ? '✗'
-            : '○';
+      const icon = getCheckIcon(check.conclusion);
       return `  ${icon} ${check.name}: ${check.conclusion || check.status}`;
     });
 
@@ -172,13 +182,13 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
         overallStatus = 'MIXED';
       }
     } else {
-      // Standard check-based status
-      overallStatus =
-        failureCount > 0 ? 'FAILED' : successCount === checks.length ? 'SUCCESS' : 'MIXED';
+      // Standard check-based status (from utility)
+      overallStatus = overallStatusData.status;
     }
 
     const headerSuffix = failedEarly ? ' (early exit)' : '';
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
+    const totalDurationSeconds = Math.round((Date.now() - startTime) / 1000);
 
     const summary = [
       `PR #${pr.number} Checks ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix}: ${pr.title}`,
@@ -191,7 +201,7 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       `Checks (${checks.length}):`,
       ...checkSummaries,
       ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
+      `Monitoring completed in ${totalDurationSeconds}s${monitoringSuffix}`,
     ].join('\n');
 
     return {

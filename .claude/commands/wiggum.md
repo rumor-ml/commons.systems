@@ -183,6 +183,34 @@ formatting errors. I'll follow the instructions: launch Plan agent to fix...
 ✓ Use the provided error details
 ✓ Follow the instructions directly
 
+## Writing Review Results to Temp Files
+
+**CRITICAL: Review outputs must be written to temp files before calling completion tools.**
+
+### File Naming Pattern
+
+/tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md
+
+### Implementation Pattern
+
+1. Execute review command and capture complete output
+2. Generate temp file path: /tmp/claude/wiggum-$(basename $(pwd))-pr-review-$(date +%s%3N).md
+3. Write output to file
+4. Pass file path (not content) to completion tool
+
+### Example
+
+After /all-hands-review completes:
+
+- Write to: /tmp/claude/wiggum-621-my-branch-pr-review-1735234567890.md
+- Call: wiggum_complete_pr_review({ verbatim_response_file: "...", ... })
+
+### Why Temp Files?
+
+- **Token Efficiency:** Review outputs are 5KB+ and don't need to be in agent context
+- **Backwards Compatible:** Tools still accept verbatim_response parameter (deprecated)
+- **File Location:** /tmp/claude/ is automatically cleaned by OS and used for all debug artifacts
+
 ## Main Loop
 
 **CRITICAL: `wiggum_init` is only called ONCE at the start of the workflow.**
@@ -257,10 +285,12 @@ Call after executing the phase-appropriate review command:
 
 **Returns next step instructions.**
 
+**CRITICAL: Write review output to temp file before calling.**
+
 ```typescript
 mcp__wiggum__wiggum_complete_pr_review({
   command_executed: true,
-  verbatim_response: 'full review output here',
+  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-pr-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,
@@ -270,10 +300,12 @@ mcp__wiggum__wiggum_complete_pr_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain the COMPLETE formatted output from the review command
+- `verbatim_response_file` must contain path to temp file with complete review output
   - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
-  - For `/review` or `/security-review`: Include the complete review output
+  - For `/review`: Include the complete review output
   - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
+- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
+- See "Writing Review Results to Temp Files" section for file naming
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
@@ -290,10 +322,12 @@ Call after executing `/security-review`.
 
 **Returns next step instructions.**
 
+**CRITICAL: Write review output to temp file before calling.**
+
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  verbatim_response: 'full security review output here',
+  verbatim_response_file: '/tmp/claude/wiggum-{worktree}-security-review-{timestamp}.md',
   high_priority_issues: 0,
   medium_priority_issues: 0,
   low_priority_issues: 0,
@@ -303,10 +337,11 @@ mcp__wiggum__wiggum_complete_security_review({
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain the COMPLETE formatted output from the review command
-  - For `/all-hands-review`: Include the entire formatted output with ALL 6 agent responses
-  - For `/review` or `/security-review`: Include the complete review output
+- `verbatim_response_file` must contain path to temp file with complete review output
+  - For `/security-review`: Include the complete review output
   - Do NOT summarize or truncate - this creates the audit trail in GitHub comments
+- DO NOT pass `verbatim_response` parameter (deprecated, wastes tokens)
+- See "Writing Review Results to Temp Files" section for file naming
 - Count ALL issues by priority
 - Tool returns next step instructions (either fix instructions or next step)
 
@@ -318,15 +353,63 @@ Call after completing any Plan+Fix cycle. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_fix({
-  fix_description: 'Brief description of what was fixed',
+  fix_description: 'Brief description of what was fixed or why no fixes were needed',
+  has_in_scope_fixes: true, // or false
+  out_of_scope_issues: [123, 456], // Optional: issue numbers for out-of-scope recommendations
 });
 ```
 
-The tool:
+**Parameters:**
 
-- Posts fix documentation to PR
-- Clears completed steps to re-verify from current step
-- Returns instructions to re-verify the step where issues were found
+- `fix_description` (required): Brief description of what was fixed or why issues were ignored
+- `has_in_scope_fixes` (required): Boolean indicating if any in-scope code changes were made
+  - `true`: Made code changes — the tool will clear completed steps and return re-verification instructions
+  - `false`: No code changes — the tool will mark step complete and advance to next step
+- `out_of_scope_issues` (optional): Array of issue numbers for recommendations that should be tracked separately
+
+**Tool Behavior:**
+
+- If `has_in_scope_fixes: true`:
+  - Posts fix documentation to PR
+  - Clears completed steps to re-verify from current step
+  - Returns instructions to re-verify the step where issues were found
+- If `has_in_scope_fixes: false`:
+  - Posts minimal state comment with title "${step} - Complete (No In-Scope Fixes)"
+  - Marks current step as complete (adds to completedSteps array)
+  - Advances to next workflow step
+
+**Common Scenarios:**
+
+```typescript
+// Scenario 1: Stale Code Quality Comments (issue #430)
+// All comments reference already-fixed code from earlier commits
+wiggum_complete_fix({
+  fix_description:
+    'All 3 code quality comments evaluated - all reference already-fixed code from earlier commits',
+  has_in_scope_fixes: false,
+});
+
+// Scenario 2: Valid Issues Found and Fixed
+wiggum_complete_fix({
+  fix_description: 'Fixed 2 code quality issues: removed unused imports, fixed type errors',
+  has_in_scope_fixes: true,
+});
+
+// Scenario 3: Mixed Valid and Stale
+// Fixed some issues but others were stale - ANY fixes require re-verification
+wiggum_complete_fix({
+  fix_description: 'Fixed 1 valid issue (type error), ignored 2 stale comments (already fixed)',
+  has_in_scope_fixes: true, // Made fixes - needs re-verification
+});
+
+// Scenario 4: All Out-of-Scope
+// No in-scope fixes, but created issues for broader improvements
+wiggum_complete_fix({
+  fix_description: 'All 5 recommendations are out-of-scope architectural changes',
+  has_in_scope_fixes: false,
+  out_of_scope_issues: [567, 568, 569],
+});
+```
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
 

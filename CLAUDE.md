@@ -4,6 +4,12 @@
 
 **CRITICAL: After exiting plan mode, do NOT make edits directly.** Use the Task tool with `subagent_type="accept-edits"` to execute the plan.
 
+**CRITICAL: NEVER use `--no-verify` flag with git commands.** Pre-commit and pre-push hooks enforce code quality, formatting, and tests. Bypassing them causes CI failures and breaks the codebase. Always let hooks run to catch issues before push.
+
+- ❌ NEVER: `git commit --no-verify`, `git push --no-verify`
+- ✅ ALWAYS: `git commit`, `git push`, or use `/commit-merge-push`
+- See `.claude/settings.json` for auto-approved git commands that respect hooks
+
 Trust user bug reports. Do not assume caching errors or user error while building.
 
 If creating temporary artifacts such as debugging scripts, commit messages, or status/process documentation always write to /tmp/claude directory so that artifacts are not committed.
