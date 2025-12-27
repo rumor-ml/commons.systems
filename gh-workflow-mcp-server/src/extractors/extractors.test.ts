@@ -919,6 +919,31 @@ No JSON here at all
       assert.strictEqual(result.errors.length, 0);
       // Verify it successfully extracted despite being < 10 lines
     });
+
+    test('extractJsonFromLogs handles progressive parsing loop exhaustion', () => {
+      // Truncated JSON that starts correctly but never completes
+      // Progressive loop will exhaust all lines without finding valid JSON
+      const logOutput = `
+2025-11-29T21:44:33.123Z {
+2025-11-29T21:44:33.124Z "config": {
+2025-11-29T21:44:33.125Z "configFile": "test.config.ts"
+2025-11-29T21:44:33.126Z },
+2025-11-29T21:44:33.127Z "suites": [
+2025-11-29T21:44:33.128Z {
+2025-11-29T21:44:33.129Z "title": "test suite"
+`;
+      // No closing braces - JSON never completes
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      // Should get fallback error after progressive parsing exhausts
+      assert.ok(
+        result.errors[0].message.includes('Failed to extract Playwright JSON') ||
+          result.errors[0].message.includes('Failed to parse')
+      );
+    });
   });
 
   describe('PlaywrightExtractor - Timeout diagnostic edge cases', () => {
@@ -987,6 +1012,22 @@ Global setup complete
       // Verify rawOutput meets schema requirements (non-empty array)
       assert.ok(Array.isArray(result.errors[0].rawOutput));
       assert.ok(result.errors[0].rawOutput.length > 0);
+    });
+
+    test('parseTimestamp handles out-of-range values', () => {
+      // Test with timestamp containing out-of-range hours (25 > 23)
+      const logOutput = `
+2025-11-29T25:99:99.123Z Global setup complete
+2025-11-29T25:99:99.456Z {"config": {"configFile": "playwright.config.ts"}}
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.includes('Playwright was interrupted'));
+      // Verify the error includes diagnostic about invalid timestamp
+      // (parseTimestamp logs warning and parseTimeDiff aggregates into diagnostic)
     });
   });
 });

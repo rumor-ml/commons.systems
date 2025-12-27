@@ -142,6 +142,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
+        // Defensive logging: Capture ALL errors first before type checking
+        // This ensures visibility even if error type checking logic has bugs
+        console.error(
+          `[DEBUG] detect() caught error: ${getErrorMessage(err)}` +
+            ` (type: ${err?.constructor?.name || typeof err})`
+        );
+
         // detect() only handles expected errors - returns null for non-Playwright:
         // - SyntaxError: malformed JSON
         // - PlaywrightJsonNotFoundError: missing required fields
@@ -381,7 +388,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * parseTimestamp("invalid", "time1")  // returns null (logs warning)
    */
   private parseTimestamp(timestamp: string, label: string): number | null {
-    // Validate format is HH:MM:SS
+    // Validate format is HH:MM:SS (regex guarantees digits, so Number() never produces NaN)
     if (!/^\d{2}:\d{2}:\d{2}$/.test(timestamp)) {
       console.error(
         `[WARN] parseTimestamp: ${label} has invalid format "${timestamp}" (expected HH:MM:SS)`
@@ -389,22 +396,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return null;
     }
 
-    // Parse without try-catch - let unexpected errors propagate
     const [h, m, s] = timestamp.split(':').map(Number);
-
-    // Check for NaN values (expected error - malformed input)
-    if (isNaN(h) || isNaN(m) || isNaN(s)) {
-      console.error(
-        `[WARN] parseTimestamp: ${label} "${timestamp}" contains non-numeric values (h=${h}, m=${m}, s=${s})`
-      );
-      return null;
-    }
 
     // Validate ranges (hours: 0-23, minutes/seconds: 0-59)
     const rangeErrors: string[] = [];
-    if (h < 0 || h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
-    if (m < 0 || m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
-    if (s < 0 || s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
+    if (h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
+    if (m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
+    if (s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
 
     if (rangeErrors.length > 0) {
       console.error(
@@ -537,7 +535,15 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       // Only catch user-facing errors (PlaywrightJsonNotFoundError)
       // Propagate unexpected errors (wrapped Errors with cause) for fail-fast
       if (!(extractErr instanceof PlaywrightJsonNotFoundError)) {
-        throw extractErr; // Unexpected error - propagate (OOM, V8 bugs with context)
+        // Log unexpected error before propagating
+        const errorMsg = getErrorMessage(extractErr);
+        const errorStack = getErrorStack(extractErr);
+        console.error(
+          `[ERROR] parsePlaywrightJson: extractJsonFromLogs threw unexpected error: ${errorMsg}` +
+            (errorStack ? `\nStack: ${errorStack}` : '') +
+            `. This indicates a bug or resource issue (OOM, V8 internal error).`
+        );
+        throw extractErr; // Propagate with context
       }
       const lines = logText.split('\n');
       const logStats = {
