@@ -11,7 +11,11 @@ import {
   SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { completeReview, type ReviewConfig } from './review-completion-helper.js';
+import {
+  completeReview,
+  validateReviewConfig,
+  type ReviewConfig,
+} from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
@@ -24,7 +28,8 @@ export const CompleteSecurityReviewInputSchema = z.object({
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
 // TODO(#334): Add validation tests for phase-specific fields
-const SECURITY_REVIEW_CONFIG: ReviewConfig = {
+// Validate config at module load time to catch misconfigurations early
+const SECURITY_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
   phase1Step: STEP_PHASE1_SECURITY_REVIEW,
   phase2Step: STEP_PHASE2_SECURITY_REVIEW,
   phase1Command: SECURITY_REVIEW_COMMAND,
@@ -39,7 +44,7 @@ const SECURITY_REVIEW_CONFIG: ReviewConfig = {
 - Secrets management
 - Dependency vulnerabilities
 - Security best practices`,
-};
+});
 
 /**
  * Complete security review and update state

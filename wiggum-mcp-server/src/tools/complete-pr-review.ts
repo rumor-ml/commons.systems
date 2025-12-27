@@ -14,7 +14,11 @@ import {
   PHASE2_PR_REVIEW_COMMAND,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { completeReview, type ReviewConfig } from './review-completion-helper.js';
+import {
+  completeReview,
+  validateReviewConfig,
+  type ReviewConfig,
+} from './review-completion-helper.js';
 
 export const CompletePRReviewInputSchema = z.object({
   command_executed: z.boolean().describe('Confirm PR review command was actually executed'),
@@ -27,7 +31,8 @@ export const CompletePRReviewInputSchema = z.object({
 export type CompletePRReviewInput = z.infer<typeof CompletePRReviewInputSchema>;
 
 // TODO(#334): Add validation tests for phase-specific fields
-const PR_REVIEW_CONFIG: ReviewConfig = {
+// Validate config at module load time to catch misconfigurations early
+const PR_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
   phase1Step: STEP_PHASE1_PR_REVIEW,
   phase2Step: STEP_PHASE2_PR_REVIEW,
   phase1Command: PHASE1_PR_REVIEW_COMMAND,
@@ -43,7 +48,7 @@ const PR_REVIEW_CONFIG: ReviewConfig = {
 - Type Design: Type encapsulation and invariants
 - Documentation: Comment accuracy and completeness
 - Code Clarity: Simplification opportunities`,
-};
+});
 
 /**
  * Complete PR review and update state

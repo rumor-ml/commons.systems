@@ -16,7 +16,8 @@ import { getWiggumStateFromIssue } from './issue-comments.js';
 import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
 import { StateDetectionError, StateApiError } from '../utils/errors.js';
-import type { GitState, PRState, CurrentState, IssueState } from './types.js';
+import type { GitState, PRState, CurrentState, IssueState, WiggumState } from './types.js';
+import { validateCurrentState } from './types.js';
 import type { WiggumPhase } from '../constants.js';
 
 /**
@@ -283,11 +284,11 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
   // Determine phase based on PR existence
   const phase: WiggumPhase = pr.exists ? 'phase2' : 'phase1';
 
-  let wiggum;
+  let wiggum: WiggumState;
   if (phase === 'phase2' && pr.exists) {
     // Phase 2: Read state from PR comments
-    wiggum = await getWiggumState(pr.number, repo);
-    wiggum.phase = 'phase2';
+    const prWiggum = await getWiggumState(pr.number, repo);
+    wiggum = { ...prWiggum, phase: 'phase2' };
 
     // If state detection took longer than 5 seconds, re-validate PR state exists
     // This helps detect race conditions where PR might have been closed/modified
@@ -332,8 +333,8 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {
     // Phase 1: Read state from issue comments
-    wiggum = await getWiggumStateFromIssue(issue.number, repo);
-    wiggum.phase = 'phase1';
+    const issueWiggum = await getWiggumStateFromIssue(issue.number, repo);
+    wiggum = { ...issueWiggum, phase: 'phase1' };
   } else {
     // No issue or PR, return initial Phase 1 state
     wiggum = {
@@ -344,10 +345,30 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     };
   }
 
-  return {
+  // Validate state before returning to catch invalid data from external sources
+  // This ensures state conforms to expected types and constraints
+  const state = {
     git,
     pr,
     issue,
     wiggum,
   };
+
+  try {
+    return validateCurrentState(state);
+  } catch (error) {
+    // Convert Zod validation error to StateDetectionError with detailed context
+    const zodError = error instanceof Error ? error : new Error(String(error));
+    throw new StateDetectionError(
+      `State validation failed: ${zodError.message}. ` +
+        `This indicates invalid data from GitHub API or git CLI. ` +
+        `State: ${JSON.stringify(state)}`,
+      {
+        depth,
+        maxDepth: MAX_RECURSION_DEPTH,
+        previousState: 'validation failed',
+        currentState: 'validation failed',
+      }
+    );
+  }
 }

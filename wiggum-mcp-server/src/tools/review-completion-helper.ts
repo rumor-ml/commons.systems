@@ -49,7 +49,13 @@ const KNOWN_AGENT_NAMES = [
  *
  * Parses the wiggum output file naming convention to extract a human-readable
  * agent name. Converts kebab-case to Title Case by capitalizing the first
- * letter of each word. Note: Acronyms like 'pr' become 'Pr' not 'PR'.
+ * letter of each word.
+ *
+ * NOTE: Acronyms like 'pr' become 'Pr' not 'PR'. This is intentional - we use
+ * simple word-based capitalization without maintaining an acronym whitelist.
+ * The alternative would require hardcoding acronyms (PR, API, HTTP, etc.) which
+ * adds complexity and maintenance burden. Current approach is consistent and
+ * predictable: every word gets first letter capitalized, rest lowercase.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -60,7 +66,7 @@ const KNOWN_AGENT_NAMES = [
  *
  * @example
  * extractAgentNameFromPath('/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
- * // Returns: 'Pr Test Analyzer' (note: 'pr' acronym becomes 'Pr', not 'PR')
+ * // Returns: 'Pr Test Analyzer' (intentionally 'Pr' not 'PR' - see NOTE above)
  */
 export function extractAgentNameFromPath(filePath: string): string {
   const fileName = filePath.split('/').pop() || '';
@@ -109,15 +115,35 @@ export function extractAgentNameFromPath(filePath: string): string {
 }
 
 /**
+ * Node.js file system error codes
+ *
+ * Common error codes from Node.js fs operations. This is not exhaustive
+ * but covers the most common file I/O errors.
+ */
+type NodeFileErrorCode =
+  | 'EACCES' // Permission denied
+  | 'ENOENT' // No such file or directory
+  | 'EISDIR' // Is a directory (expected file)
+  | 'ENOTDIR' // Not a directory (expected directory)
+  | 'EMFILE' // Too many open files (process limit)
+  | 'ENFILE' // Too many open files (system limit)
+  | 'ENOSPC' // No space left on device
+  | 'EROFS'; // Read-only file system
+
+/**
  * Enhanced file read error with diagnostic information
+ *
+ * All fields are readonly since error information is immutable after creation.
+ * The category field uses a string literal union for type-safe discrimination
+ * between in-scope and out-of-scope file errors.
  */
 interface FileReadError {
-  filePath: string;
-  error: Error;
-  category: 'in-scope' | 'out-of-scope';
-  errorCode?: string;
-  fileExists?: boolean;
-  fileSize?: number;
+  readonly filePath: string;
+  readonly error: Error;
+  readonly category: 'in-scope' | 'out-of-scope';
+  readonly errorCode?: NodeFileErrorCode;
+  readonly fileExists?: boolean;
+  readonly fileSize?: number;
 }
 
 /**
@@ -145,14 +171,131 @@ function createFileReadError(
 
   const nodeError = error as NodeJS.ErrnoException;
 
+  // Validate error code against known Node.js file system error codes
+  // Only include errorCode if it's a recognized code, discard unknown codes
+  const knownErrorCodes: readonly NodeFileErrorCode[] = [
+    'EACCES',
+    'ENOENT',
+    'EISDIR',
+    'ENOTDIR',
+    'EMFILE',
+    'ENFILE',
+    'ENOSPC',
+    'EROFS',
+  ];
+  const errorCode: NodeFileErrorCode | undefined =
+    nodeError.code && knownErrorCodes.includes(nodeError.code as NodeFileErrorCode)
+      ? (nodeError.code as NodeFileErrorCode)
+      : undefined;
+
   return {
     filePath,
     error,
     category,
-    errorCode: nodeError.code,
+    errorCode,
     fileExists,
     fileSize,
   };
+}
+
+/**
+ * Branded type for non-empty strings
+ *
+ * This ensures at the type level that content strings are non-empty.
+ * The brand is a phantom type that exists only at compile time.
+ */
+type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
+
+/**
+ * Create a NonEmptyString with runtime validation
+ *
+ * @param value - String value to validate
+ * @returns NonEmptyString if validation passes
+ * @throws {Error} If string is empty or whitespace-only
+ */
+function createNonEmptyString(value: string): NonEmptyString {
+  if (value.trim().length === 0) {
+    throw new Error('File is empty - review agent may not have completed');
+  }
+  return value as NonEmptyString;
+}
+
+/**
+ * Result of reading a single review file
+ */
+interface ReviewFileReadResult {
+  readonly success: true;
+  readonly agentName: string;
+  readonly content: NonEmptyString;
+}
+
+/**
+ * Read a single review file with comprehensive error handling
+ *
+ * Handles file reading, empty file detection, and error metadata collection.
+ * Returns either a success result with content or null (with error pushed to errors array).
+ *
+ * @param filePath - Path to the review file
+ * @param category - Category label for logging ('in-scope' or 'out-of-scope')
+ * @param errors - Array to collect any file read errors
+ * @returns ReviewFileReadResult on success, null on failure
+ */
+async function readReviewFile(
+  filePath: string,
+  category: 'in-scope' | 'out-of-scope',
+  errors: FileReadError[]
+): Promise<ReviewFileReadResult | null> {
+  try {
+    // Check file exists and get metadata before reading
+    const stats = await stat(filePath);
+
+    // Warn if file is empty (possible agent crash during write)
+    if (stats.size === 0) {
+      logger.warn('Review file is empty - possible incomplete write', {
+        filePath,
+        agentName: extractAgentNameFromPath(filePath),
+      });
+    }
+
+    const content = await readFile(filePath, 'utf-8');
+
+    // Validate content is non-empty and create branded NonEmptyString
+    // This ensures type-level guarantee that content is never empty
+    const nonEmptyContent = createNonEmptyString(content);
+
+    return {
+      success: true,
+      agentName: extractAgentNameFromPath(filePath),
+      content: nonEmptyContent,
+    };
+  } catch (error) {
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+
+    // Try to get file metadata for diagnostics
+    let fileExists = false;
+    let fileSize: number | undefined;
+    try {
+      const stats = await stat(filePath);
+      fileExists = true;
+      fileSize = stats.size;
+    } catch {
+      // Ignore stat errors, we're already in error path
+    }
+
+    const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
+    errors.push(fileError);
+
+    logger.error(`Failed to read ${category} review file`, {
+      filePath,
+      errorMessage: errorObj.message,
+      errorCode: fileError.errorCode,
+      errorStack: errorObj.stack,
+      fileExists,
+      fileSize,
+    });
+
+    return null;
+  }
 }
 
 /**
@@ -175,110 +318,26 @@ function createFileReadError(
  * );
  */
 export async function loadReviewResults(
-  inScopeFiles: string[] = [],
-  outOfScopeFiles: string[] = []
+  inScopeFiles: readonly string[] = [],
+  outOfScopeFiles: readonly string[] = []
 ): Promise<{ inScope: string; outOfScope: string }> {
   const errors: FileReadError[] = [];
 
+  // Read all in-scope files
   const inScopeResults: string[] = [];
   for (const filePath of inScopeFiles) {
-    try {
-      // Check file exists and get metadata before reading
-      const stats = await stat(filePath);
-
-      // Warn if file is empty (possible agent crash during write)
-      if (stats.size === 0) {
-        logger.warn('Review file is empty - possible incomplete write', {
-          filePath,
-          agentName: extractAgentNameFromPath(filePath),
-        });
-      }
-
-      const content = await readFile(filePath, 'utf-8');
-
-      // Validate content is non-empty (readFile can succeed on empty file)
-      if (content.trim().length === 0) {
-        throw new Error('File is empty - review agent may not have completed');
-      }
-
-      const agentName = extractAgentNameFromPath(filePath);
-      inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
-    } catch (error) {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
-
-      // Try to get file metadata for diagnostics
-      let fileExists = false;
-      let fileSize: number | undefined;
-      try {
-        const stats = await stat(filePath);
-        fileExists = true;
-        fileSize = stats.size;
-      } catch {
-        // Ignore stat errors, we're already in error path
-      }
-
-      const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
-      errors.push(fileError);
-
-      logger.error('Failed to read in-scope review file', {
-        filePath,
-        errorMessage: errorObj.message,
-        errorCode: fileError.errorCode,
-        errorStack: errorObj.stack,
-        fileExists,
-        fileSize,
-      });
+    const result = await readReviewFile(filePath, 'in-scope', errors);
+    if (result) {
+      inScopeResults.push(`#### ${result.agentName}\n\n${result.content}\n\n---\n`);
     }
   }
 
+  // Read all out-of-scope files
   const outOfScopeResults: string[] = [];
   for (const filePath of outOfScopeFiles) {
-    try {
-      // Check file exists and get metadata before reading
-      const stats = await stat(filePath);
-
-      // Warn if file is empty (possible agent crash during write)
-      if (stats.size === 0) {
-        logger.warn('Review file is empty - possible incomplete write', {
-          filePath,
-          agentName: extractAgentNameFromPath(filePath),
-        });
-      }
-
-      const content = await readFile(filePath, 'utf-8');
-
-      // Validate content is non-empty
-      if (content.trim().length === 0) {
-        throw new Error('File is empty - review agent may not have completed');
-      }
-
-      const agentName = extractAgentNameFromPath(filePath);
-      outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
-    } catch (error) {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
-
-      // Try to get file metadata for diagnostics
-      let fileExists = false;
-      let fileSize: number | undefined;
-      try {
-        const stats = await stat(filePath);
-        fileExists = true;
-        fileSize = stats.size;
-      } catch {
-        // Ignore stat errors, we're already in error path
-      }
-
-      const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
-      errors.push(fileError);
-
-      logger.error('Failed to read out-of-scope review file', {
-        filePath,
-        errorMessage: errorObj.message,
-        errorCode: fileError.errorCode,
-        errorStack: errorObj.stack,
-        fileExists,
-        fileSize,
-      });
+    const result = await readReviewFile(filePath, 'out-of-scope', errors);
+    if (result) {
+      outOfScopeResults.push(`#### ${result.agentName}\n\n${result.content}\n\n---\n`);
     }
   }
 
@@ -328,16 +387,39 @@ export async function loadReviewResults(
 
 /**
  * Zod schema for ReviewConfig runtime validation
+ *
+ * Validates that step identifiers match their expected phases:
+ * - phase1Step must start with 'p1-'
+ * - phase2Step must start with 'p2-'
  */
-export const ReviewConfigSchema = z.object({
-  phase1Step: z.string(),
-  phase2Step: z.string(),
-  phase1Command: z.string(),
-  phase2Command: z.string(),
-  reviewTypeLabel: z.string(),
-  issueTypeLabel: z.string(),
-  successMessage: z.string(),
-});
+export const ReviewConfigSchema = z
+  .object({
+    phase1Step: z.string(),
+    phase2Step: z.string(),
+    phase1Command: z.string(),
+    phase2Command: z.string(),
+    reviewTypeLabel: z.string(),
+    issueTypeLabel: z.string(),
+    successMessage: z.string(),
+  })
+  .refine(
+    (data) => {
+      return data.phase1Step.startsWith('p1-');
+    },
+    {
+      message:
+        "phase1Step must start with 'p1-' prefix (e.g., 'p1-pr-review', 'p1-security-review')",
+    }
+  )
+  .refine(
+    (data) => {
+      return data.phase2Step.startsWith('p2-');
+    },
+    {
+      message:
+        "phase2Step must start with 'p2-' prefix (e.g., 'p2-pr-review', 'p2-security-review')",
+    }
+  );
 
 /**
  * Configuration for a review type (PR or Security)
@@ -362,26 +444,66 @@ export interface ReviewConfig {
 }
 
 /**
+ * Validates ReviewConfig data
+ *
+ * Ensures step identifiers match expected phase prefixes and all required fields are present.
+ *
+ * @throws {z.ZodError} If validation fails with detailed error information
+ */
+export function validateReviewConfig(config: unknown): ReviewConfig {
+  return ReviewConfigSchema.parse(config) as ReviewConfig;
+}
+
+/**
  * Zod schema for ReviewCompletionInput runtime validation
  *
  * Issue counts are validated at schema level to be integers (no decimals) >= 0.
+ * File paths are validated to be non-empty strings to catch empty path errors early.
  * Note: Zod .int().nonnegative() does not validate against Infinity, NaN, or
  * unsafe integers exceeding Number.MAX_SAFE_INTEGER. Additional runtime validation
  * in completeReview() provides comprehensive checks including finite/safe integer validation.
  *
+ * Refinements enforce relationship between counts and file arrays:
+ * - If in_scope_count > 0, then in_scope_files must be non-empty
+ * - If out_of_scope_count > 0, then out_of_scope_files must be non-empty
+ *
  * @see completeReview for complete validation including Infinity/NaN/overflow checks
  */
-export const ReviewCompletionInputSchema = z.object({
-  command_executed: z.boolean(),
-  in_scope_files: z.array(z.string()),
-  out_of_scope_files: z.array(z.string()),
-  in_scope_count: z.number().int().nonnegative(),
-  out_of_scope_count: z.number().int().nonnegative(),
-});
+export const ReviewCompletionInputSchema = z
+  .object({
+    command_executed: z.boolean(),
+    in_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
+    out_of_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
+    in_scope_count: z.number().int().nonnegative(),
+    out_of_scope_count: z.number().int().nonnegative(),
+  })
+  .refine(
+    (data) => {
+      // If in_scope_count > 0, we must have at least one in_scope_files entry
+      return data.in_scope_count === 0 || data.in_scope_files.length > 0;
+    },
+    {
+      message:
+        'in_scope_count is greater than 0 but in_scope_files is empty. ' +
+        'If there are in-scope issues, file paths must be provided.',
+    }
+  )
+  .refine(
+    (data) => {
+      // If out_of_scope_count > 0, we must have at least one out_of_scope_files entry
+      return data.out_of_scope_count === 0 || data.out_of_scope_files.length > 0;
+    },
+    {
+      message:
+        'out_of_scope_count is greater than 0 but out_of_scope_files is empty. ' +
+        'If there are out-of-scope issues, file paths must be provided.',
+    }
+  );
 
 /**
  * Input for review completion
  *
+ * All fields are readonly since this represents immutable input data.
  * Basic integer validation via Zod schema (.int().nonnegative()) catches decimals and negatives.
  * Complete validation in completeReview() adds: Infinity/NaN checks, safe integer validation,
  * count vs file array length consistency, and detailed error messages.
@@ -390,11 +512,11 @@ export const ReviewCompletionInputSchema = z.object({
  * @see completeReview for complete runtime validation
  */
 export interface ReviewCompletionInput {
-  command_executed: boolean;
-  in_scope_files: string[];
-  out_of_scope_files: string[];
-  in_scope_count: number;
-  out_of_scope_count: number;
+  readonly command_executed: boolean;
+  readonly in_scope_files: readonly string[];
+  readonly out_of_scope_files: readonly string[];
+  readonly in_scope_count: number;
+  readonly out_of_scope_count: number;
 }
 
 /**
@@ -508,7 +630,7 @@ async function postStateComment(
   newState: {
     iteration: number;
     step: WiggumStep;
-    completedSteps: WiggumStep[];
+    completedSteps: readonly WiggumStep[];
     phase: WiggumPhase;
   },
   title: string,
@@ -581,8 +703,8 @@ function buildIssuesFoundResponse(
   config: ReviewConfig,
   inScopeCount: number,
   outOfScopeCount: number,
-  inScopeFiles?: string[],
-  outOfScopeFiles?: string[]
+  inScopeFiles?: readonly string[],
+  outOfScopeFiles?: readonly string[]
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
@@ -644,6 +766,43 @@ function buildIssuesFoundResponse(
 }
 
 /**
+ * Validate that a value is a non-negative safe integer
+ *
+ * Performs comprehensive validation for numeric values that must be:
+ * - Finite (not Infinity or -Infinity)
+ * - An integer (no decimal values)
+ * - Non-negative (>= 0)
+ * - Within safe integer range (prevents precision loss)
+ *
+ * @param value - The numeric value to validate
+ * @param fieldName - Name of the field for error messages
+ * @throws {ValidationError} If validation fails with descriptive message
+ */
+function validateSafeNonNegativeInteger(value: number, fieldName: string): void {
+  if (!Number.isFinite(value)) {
+    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be a finite number.`);
+  }
+  if (!Number.isInteger(value)) {
+    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be an integer.`);
+  }
+  if (value < 0) {
+    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be non-negative.`);
+  }
+  // Check against MAX_SAFE_INTEGER to prevent precision loss
+  if (!Number.isSafeInteger(value)) {
+    logger.error('Value exceeds safe integer range - precision may be lost', {
+      fieldName,
+      value,
+      maxSafeInteger: Number.MAX_SAFE_INTEGER,
+    });
+    throw new ValidationError(
+      `Invalid ${fieldName}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
+        `Review agent may have returned corrupted data.`
+    );
+  }
+}
+
+/**
  * Complete a review (PR or Security) and update workflow state
  *
  * This is the shared implementation for both complete-pr-review and
@@ -655,6 +814,10 @@ function buildIssuesFoundResponse(
  * - Iteration limit checking
  * - Triage instructions generation
  *
+ * CRITICAL: Issue counts represent number of ISSUES, not FILES. Each file can contain
+ * multiple issues from one agent. We validate files exist and are readable, but we do
+ * NOT validate that issue counts match file counts. A single file may report 5 issues.
+ *
  * @param input - Review completion input with issue counts and response
  * @param config - Configuration for the specific review type
  * @returns Tool result with next step instructions
@@ -663,6 +826,15 @@ export async function completeReview(
   input: ReviewCompletionInput,
   config: ReviewConfig
 ): Promise<ToolResult> {
+  // Validate input at entry point to catch invalid data early
+  // This enforces count/file array relationships and basic type constraints
+  try {
+    ReviewCompletionInputSchema.parse(input);
+  } catch (error) {
+    const zodError = error instanceof Error ? error : new Error(String(error));
+    throw new ValidationError(`Review completion input validation failed: ${zodError.message}`);
+  }
+
   if (!input.command_executed) {
     // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
@@ -687,34 +859,8 @@ export async function completeReview(
   const outOfScopeCount = input.out_of_scope_count;
 
   // Validate all numeric counts are non-negative safe integers
-  const countFields = [
-    { name: 'in_scope_count', value: input.in_scope_count },
-    { name: 'out_of_scope_count', value: input.out_of_scope_count },
-  ];
-
-  for (const { name, value } of countFields) {
-    if (!Number.isFinite(value)) {
-      throw new ValidationError(`Invalid ${name}: ${value}. Must be a finite number.`);
-    }
-    if (!Number.isInteger(value)) {
-      throw new ValidationError(`Invalid ${name}: ${value}. Must be an integer.`);
-    }
-    if (value < 0) {
-      throw new ValidationError(`Invalid ${name}: ${value}. Must be non-negative.`);
-    }
-    // Check against MAX_SAFE_INTEGER to prevent precision loss
-    if (!Number.isSafeInteger(value)) {
-      logger.error('Issue count exceeds safe integer range - precision may be lost', {
-        fieldName: name,
-        value,
-        maxSafeInteger: Number.MAX_SAFE_INTEGER,
-      });
-      throw new ValidationError(
-        `Invalid ${name}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
-          `Review agent may have returned corrupted data.`
-      );
-    }
-  }
+  validateSafeNonNegativeInteger(inScopeCount, 'in_scope_count');
+  validateSafeNonNegativeInteger(outOfScopeCount, 'out_of_scope_count');
 
   // NOTE: in_scope_count and out_of_scope_count represent the number of ISSUES,
   // not the number of FILES. Each file can contain multiple issues from one agent.
@@ -724,27 +870,8 @@ export async function completeReview(
   // Calculate total with validated values
   const rawTotal = inScopeCount + outOfScopeCount;
 
-  // Final validation that total is sane (defense against floating point issues and overflow)
-  if (!Number.isFinite(rawTotal) || rawTotal < 0) {
-    throw new ValidationError(
-      `Invalid issue count total (${rawTotal}). Individual counts: ` +
-        `inScope=${inScopeCount}, outOfScope=${outOfScopeCount}`
-    );
-  }
-  if (!Number.isSafeInteger(rawTotal)) {
-    logger.error('Total issue count exceeds safe integer range', {
-      rawTotal,
-      maxSafeInteger: Number.MAX_SAFE_INTEGER,
-      individualCounts: {
-        inScope: inScopeCount,
-        outOfScope: outOfScopeCount,
-      },
-    });
-    throw new ValidationError(
-      `Total issue count (${rawTotal}) exceeds maximum safe integer. ` +
-        `Sum of individual counts produced invalid result.`
-    );
-  }
+  // Final validation that total is sane (defense against overflow when summing valid counts)
+  validateSafeNonNegativeInteger(rawTotal, 'total issue count');
 
   const issues: IssueCounts = {
     high: inScopeCount,

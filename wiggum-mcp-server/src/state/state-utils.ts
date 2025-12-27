@@ -17,12 +17,12 @@ import type { WiggumState, CurrentState } from './types.js';
  * Ensures no duplicate entries in the completed steps array.
  * This prevents issues when the same step completion is triggered multiple times.
  *
- * @param existingSteps - Current array of completed steps
+ * @param existingSteps - Current array of completed steps (readonly)
  * @param newStep - Step to add
  * @returns New array with the step added (if not already present)
  */
 export function addToCompletedSteps(
-  existingSteps: WiggumStep[],
+  existingSteps: readonly WiggumStep[],
   newStep: WiggumStep
 ): WiggumStep[] {
   return Array.from(new Set([...existingSteps, newStep]));

@@ -161,7 +161,8 @@ export function generateTriageInstructions(
   }
 
   // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
+  // Note: Infinity is not an integer by definition, so Number.isInteger(Infinity) === false.
+  // This is not a special case - Infinity simply fails the integer test.
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
@@ -273,7 +274,7 @@ export function generateOutOfScopeTrackingInstructions(
   issueNumber: number | undefined,
   reviewType: string,
   outOfScopeCount: number,
-  outOfScopeFiles: string[]
+  outOfScopeFiles: readonly string[]
 ): string {
   const fileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');
 
@@ -336,9 +337,9 @@ export function generateScopeSeparatedFixInstructions(
   issueNumber: number,
   reviewType: string,
   inScopeCount: number,
-  inScopeFiles: string[],
+  inScopeFiles: readonly string[],
   outOfScopeCount: number,
-  outOfScopeFiles: string[]
+  outOfScopeFiles: readonly string[]
 ): string {
   const inScopeFileList = inScopeFiles.map((f) => `- ${f}`).join('\n');
   const outOfScopeFileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');

@@ -394,9 +394,23 @@ const RETRYABLE_ERROR_CODES = [
  * 2. Node.js error.code (stable API) - checks for network/connection errors
  * 3. Message pattern matching (fallback) - for when structured data is missing
  *
- * Current limitation: gh CLI wraps errors in generic Error objects, losing HTTP
- * status codes and error types. We must parse error messages, which are fragile
- * to GitHub CLI updates. See issue #453 for migration to structured error types.
+ * FRAGILITY WARNING - Message Parsing Limitations:
+ * ------------------------------------------------
+ * Why message parsing is fragile:
+ * - gh CLI wraps errors in generic Error objects, losing HTTP status codes and types
+ * - Error message format is not a stable API and changes between gh CLI versions
+ * - We must use string pattern matching as fallback when structured data missing
+ *
+ * What to do when patterns stop matching (error classification fails):
+ * 1. Check gh CLI release notes for error message format changes
+ * 2. Look for new structured error types exposed by gh CLI (issue #453)
+ * 3. Add new patterns based on observed error messages in logs (use logger.warn output)
+ * 4. Test changes against both old and new gh CLI versions if possible
+ *
+ * Long-term fix (issue #453):
+ * - Migrate to structured error types: RetryableError, RateLimitError, NetworkError
+ * - Benefits: Type-safe error handling, no fragile message parsing, version-independent
+ * - Blocked on: gh CLI exposing structured error types instead of wrapped Error objects
  *
  * @param error - Error to check for retryability
  * @param exitCode - Optional exit code from the CLI command
@@ -413,9 +427,10 @@ const RETRYABLE_ERROR_CODES = [
  * }
  * ```
  */
-// TODO: See issue #453 - Use error types instead of string matching for retry logic
 function isRetryableError(error: unknown, exitCode?: number): boolean {
-  // Priority 1: Exit code (most reliable when available)
+  // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
+  // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
+  // Does not validate range - non-HTTP exit codes will fall through to other checks
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -430,7 +445,7 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
     }
 
     // Priority 3: Message pattern matching (fallback, less reliable)
-    // This is fragile - error messages can change with GitHub CLI versions
+    // See comprehensive fragility documentation in function JSDoc above
     const msg = error.message.toLowerCase();
     const patterns = [
       // Network errors
@@ -438,7 +453,8 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
       'timeout',
       'socket',
       'connection',
-      'econnreset', // Fallback if error.code missing
+      // Error codes as text - catches when error.code is missing or gh CLI wraps Node error in Error
+      'econnreset',
       'econnrefused',
       // HTTP status codes (in case exitCode not provided)
       '429',
@@ -549,7 +565,8 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery
+      // Success after retry - log recovery for diagnostics and monitoring
+      // Helps identify flaky endpoints or transient GitHub API issues
       if (attempt > 1 && firstError) {
         logger.info('ghCliWithRetry: succeeded after retry', {
           attempt,
@@ -562,14 +579,52 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code from GitHubCliError (which has an exitCode property)
-      // or try to parse HTTP status from error message as fallback
+      // Extract exit code from GitHubCliError
+      // Note: GitHubCliError SHOULD have exitCode property, but may be undefined if:
+      //   - Error was wrapped by non-GitHubCliError (e.g., network timeout)
+      //   - gh CLI exited without HTTP status (e.g., subprocess crash)
+      //   - Error originated from ghCli() wrapper before CLI invocation
+      // Fallback: Parse HTTP status from error message using multiple patterns
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
-        // Fallback: try to extract HTTP status from error message (e.g., "HTTP 429")
-        const statusMatch = lastError.message.match(/HTTP\s+(\d{3})/i);
-        if (statusMatch) {
-          lastExitCode = parseInt(statusMatch[1], 10);
+        // Try multiple patterns to extract HTTP status from error message
+        // Different gh CLI versions and error contexts may format status differently
+        const statusPatterns = [
+          /HTTP\s+(\d{3})/i, // "HTTP 429"
+          /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
+          /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
+          /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
+        ];
+
+        for (const pattern of statusPatterns) {
+          const statusMatch = lastError.message.match(pattern);
+          if (statusMatch && statusMatch[1]) {
+            const parsed = parseInt(statusMatch[1], 10);
+            // Validate parsed exit code is a valid HTTP status code
+            // - Must be finite (not Infinity or NaN from malformed input)
+            // - Must be safe integer (no precision loss)
+            // - Must be in valid HTTP status range (100-599)
+            if (
+              Number.isFinite(parsed) &&
+              Number.isSafeInteger(parsed) &&
+              parsed >= 100 &&
+              parsed <= 599
+            ) {
+              lastExitCode = parsed;
+              logger.debug('Extracted HTTP status from error message', {
+                pattern: pattern.source,
+                exitCode: parsed,
+              });
+              break;
+            }
+          }
+        }
+
+        // Log if no valid HTTP status code was extracted from error message
+        if (lastExitCode === undefined) {
+          logger.debug('No valid HTTP status code found in error message', {
+            errorMessage: lastError.message,
+          });
         }
       }
 
@@ -598,8 +653,19 @@ export async function ghCliWithRetry(
 
       // Log based on attempt number
       const errorType = classifyErrorType(lastError, lastExitCode);
+
+      // Warn when error cannot be classified and we have no exit code
+      // This indicates error message patterns may have changed or new error type encountered
+      if (errorType === 'unknown' && lastExitCode === undefined) {
+        logger.warn('Error classification unknown and no exit code extracted', {
+          errorMessage: lastError.message,
+          command: `gh ${args.join(' ')}`,
+        });
+      }
+
       if (attempt === 1) {
-        // Initial failure - log at INFO level since retry is designed for this
+        // Initial failure - log at INFO level since retry is designed to handle transient errors
+        // This reduces noise in logs when first attempt fails but retry succeeds
         logger.info('ghCliWithRetry: initial attempt failed, will retry', {
           attempt,
           maxRetries,
