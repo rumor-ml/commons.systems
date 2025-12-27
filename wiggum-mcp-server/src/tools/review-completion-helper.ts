@@ -32,12 +32,11 @@ import { readFile } from 'fs/promises';
  * @throws ValidationError if neither parameter provided or file unreadable
  */
 export async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
-  // Validate: at least one must be provided
   if (!input.verbatim_response && !input.verbatim_response_file) {
     throw new ValidationError(
-      'Either verbatim_response or verbatim_response_file must be provided. ' +
-        'Preferred: write review output to /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md ' +
-        'and pass the file path via verbatim_response_file parameter.'
+      `Either verbatim_response or verbatim_response_file must be provided. ` +
+        `Preferred: write review output to /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md ` +
+        `and pass the file path via verbatim_response_file parameter.`
     );
   }
 
@@ -62,12 +61,11 @@ export async function loadVerbatimResponse(input: ReviewCompletionInput): Promis
       });
       return content;
     } catch (error) {
-      // Error handling: ValidationError if file unreadable
       const errorMessage = error instanceof Error ? error.message : 'Unknown error reading file';
       throw new ValidationError(
         `Failed to read verbatim_response_file at "${input.verbatim_response_file}": ${errorMessage}. ` +
-          'Ensure the review output was written to the temp file before calling this tool. ' +
-          'File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md'
+          `Ensure the review output was written to the temp file before calling this tool. ` +
+          `File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md`
       );
     }
   }
