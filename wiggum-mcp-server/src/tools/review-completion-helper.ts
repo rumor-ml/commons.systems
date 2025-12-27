@@ -14,12 +14,17 @@ import {
   safePostIssueStateComment,
   type StateCommentResult,
 } from '../state/router.js';
-import { addToCompletedSteps, applyWiggumState } from '../state/state-utils.js';
 import {
-  MAX_ITERATIONS,
+  addToCompletedSteps,
+  applyWiggumState,
+  isIterationLimitReached,
+  getEffectiveMaxIterations,
+} from '../state/state-utils.js';
+import {
   STEP_NAMES,
   generateOutOfScopeTrackingInstructions,
   generateScopeSeparatedFixInstructions,
+  generateIterationLimitInstructions,
 } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError } from '../utils/errors.js';
@@ -51,11 +56,17 @@ const KNOWN_AGENT_NAMES = [
  * agent name. Converts kebab-case to Title Case by capitalizing the first
  * letter of each word.
  *
- * NOTE: Acronyms like 'pr' become 'Pr' not 'PR'. This is intentional - we use
- * simple word-based capitalization without maintaining an acronym whitelist.
- * The alternative would require hardcoding acronyms (PR, API, HTTP, etc.) which
- * adds complexity and maintenance burden. Current approach is consistent and
- * predictable: every word gets first letter capitalized, rest lowercase.
+ * NOTE: Acronyms like 'pr' become 'Pr' not 'PR'. This is intentional.
+ *
+ * RATIONALE: We use simple word-based capitalization instead of maintaining an
+ * acronym whitelist because:
+ * 1. Consistency: Every word follows the same rule (first letter uppercase)
+ * 2. Predictability: Output is deterministic without hidden exceptions
+ * 3. Maintainability: No need to update a whitelist when new acronyms appear
+ * 4. Simplicity: Avoids the complexity of matching against PR, API, HTTP, etc.
+ *
+ * The trade-off is that 'pr-test-analyzer' becomes 'Pr Test Analyzer' instead of
+ * 'PR Test Analyzer', but this is acceptable for internal logging/display purposes.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -249,11 +260,14 @@ async function readReviewFile(
     // Check file exists and get metadata before reading
     const stats = await stat(filePath);
 
-    // Warn if file is empty (possible agent crash during write)
+    // ERROR: Empty file (size 0) indicates agent crash during write.
+    // This is logged at ERROR level because it means review results are incomplete.
     if (stats.size === 0) {
-      logger.warn('Review file is empty - possible incomplete write', {
+      logger.error('Review file is empty - agent likely crashed during write', {
         filePath,
         agentName: extractAgentNameFromPath(filePath),
+        impact: 'Review results incomplete - missing agent output',
+        action: 'Check agent logs for crash details',
       });
     }
 
@@ -476,6 +490,7 @@ export const ReviewCompletionInputSchema = z
     out_of_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
     in_scope_count: z.number().int().nonnegative(),
     out_of_scope_count: z.number().int().nonnegative(),
+    maxIterations: z.number().int().positive('maxIterations must be a positive integer').optional(),
   })
   .refine(
     (data) => {
@@ -517,6 +532,7 @@ export interface ReviewCompletionInput {
   readonly out_of_scope_files: readonly string[];
   readonly in_scope_count: number;
   readonly out_of_scope_count: number;
+  readonly maxIterations?: number;
 }
 
 /**
@@ -601,7 +617,8 @@ ${config.successMessage}`;
 function buildNewState(
   currentState: CurrentState,
   reviewStep: WiggumStep,
-  hasInScopeIssues: boolean
+  hasInScopeIssues: boolean,
+  maxIterations?: number
 ): WiggumState {
   // Only increment iteration for in-scope issues
   if (hasInScopeIssues) {
@@ -610,6 +627,7 @@ function buildNewState(
       step: reviewStep,
       completedSteps: currentState.wiggum.completedSteps,
       phase: currentState.wiggum.phase,
+      maxIterations: maxIterations ?? currentState.wiggum.maxIterations,
     };
   }
 
@@ -619,6 +637,7 @@ function buildNewState(
     step: reviewStep,
     completedSteps: addToCompletedSteps(currentState.wiggum.completedSteps, reviewStep),
     phase: currentState.wiggum.phase,
+    maxIterations: maxIterations ?? currentState.wiggum.maxIterations,
   };
 }
 
@@ -668,13 +687,14 @@ function buildIterationLimitResponse(
   state: CurrentState,
   reviewStep: WiggumStep,
   issues: IssueCounts,
-  newIteration: number
+  newState: WiggumState
 ): ToolResult {
+  const effectiveLimit = getEffectiveMaxIterations(newState);
   const output = {
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
-    iteration_count: newIteration,
-    instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached. Manual intervention required.`,
+    iteration_count: newState.iteration,
+    instructions: generateIterationLimitInstructions(newState, effectiveLimit),
     steps_completed_by_tool: [
       'Executed review',
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
@@ -890,7 +910,7 @@ export async function completeReview(
 
   // Only in-scope issues block progression
   const hasInScopeIssues = inScopeCount > 0;
-  const newState = buildNewState(state, reviewStep, hasInScopeIssues);
+  const newState = buildNewState(state, reviewStep, hasInScopeIssues, input.maxIterations);
 
   const result = await postStateComment(state, newState, title, body);
 
@@ -961,8 +981,8 @@ The workflow will resume from this step once the state comment posts successfull
     };
   }
 
-  if (newState.iteration >= MAX_ITERATIONS) {
-    return buildIterationLimitResponse(state, reviewStep, issues, newState.iteration);
+  if (isIterationLimitReached(newState)) {
+    return buildIterationLimitResponse(state, reviewStep, issues, newState);
   }
 
   // CRITICAL: Only hasInScopeIssues blocks progression

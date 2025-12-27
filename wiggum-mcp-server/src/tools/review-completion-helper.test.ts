@@ -291,7 +291,7 @@ describe('review-completion-helper', () => {
     describe('iteration limit behavior', () => {
       it('should document iteration limit check', () => {
         // After posting comment:
-        // - Checks if newState.iteration >= MAX_ITERATIONS
+        // - Checks if newState.iteration >= DEFAULT_MAX_ITERATIONS
         // - If true, returns iteration limit response
         // - If false, continues to triage/next step instructions
         assert.strictEqual(true, true, 'Test documents iteration limit check');

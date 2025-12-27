@@ -83,6 +83,14 @@ export const CompleteFixInputSchema = z.object({
     .array(z.number())
     .optional()
     .describe('List of issue numbers for out-of-scope recommendations (both new and existing)'),
+  maxIterations: z
+    .number()
+    .int()
+    .positive('maxIterations must be a positive integer')
+    .optional()
+    .describe(
+      'Optional custom iteration limit. Use when user approves increasing the limit beyond default.'
+    ),
 });
 
 export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
@@ -175,6 +183,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       step: state.wiggum.step,
       completedSteps: addToCompletedSteps(state.wiggum.completedSteps, state.wiggum.step),
       phase: state.wiggum.phase,
+      maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
     };
 
     // Post minimal state comment documenting fast-path completion
@@ -323,6 +332,7 @@ ${input.fix_description}${outOfScopeSection}
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
     phase: state.wiggum.phase,
+    maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
   };
 
   logger.info('Posting wiggum state comment', {

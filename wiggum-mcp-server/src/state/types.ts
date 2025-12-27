@@ -11,13 +11,14 @@ import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { STEP_ORDER } from '../constants.js';
 
 /**
- * Wiggum state tracked via PR comments
+ * Wiggum state tracked via PR/issue body
  */
 export interface WiggumState {
   readonly iteration: number;
   readonly step: WiggumStep;
   readonly completedSteps: readonly WiggumStep[];
   readonly phase: WiggumPhase;
+  readonly maxIterations?: number;
 }
 
 /**
@@ -127,6 +128,7 @@ const WiggumStateSchema = z.object({
   step: z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]]),
   completedSteps: z.array(z.enum(STEP_ORDER as readonly [WiggumStep, ...WiggumStep[]])).readonly(),
   phase: z.enum(['phase1', 'phase2']),
+  maxIterations: z.number().int().positive('maxIterations must be positive integer').optional(),
 });
 
 const CurrentStateSchema = z.object({

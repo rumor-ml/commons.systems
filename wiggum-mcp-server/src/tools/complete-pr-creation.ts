@@ -227,11 +227,13 @@ ${commits}`;
     }
 
     // Mark Phase 1 Step 4 complete and transition to Phase 2
+    // Reset maxIterations to default for the new PR (Phase 2)
     const newState: WiggumState = {
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
       completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
       phase: 'phase2',
+      maxIterations: undefined,
     };
 
     // TODO(#320): Add diagnostics field to StateApiError for HTTP status, rate limits, etc.

@@ -8,6 +8,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { DEFAULT_MAX_ITERATIONS } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import type { WiggumState, CurrentState } from './types.js';
 
@@ -118,5 +119,33 @@ export function createCompletedStepState(
     step,
     completedSteps: addToCompletedSteps(currentState.completedSteps, step),
     phase: options?.phase ?? currentState.phase,
+    maxIterations: currentState.maxIterations,
   };
+}
+
+/**
+ * Get effective max iterations for a WiggumState
+ *
+ * Returns the custom maxIterations value if set, otherwise returns the default (10).
+ * This allows users to override the default iteration limit on a per-PR/issue basis.
+ *
+ * @param state - WiggumState to check
+ * @returns Effective maximum iterations (custom or default)
+ */
+export function getEffectiveMaxIterations(state: WiggumState): number {
+  return state.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+}
+
+/**
+ * Check if iteration limit has been reached
+ *
+ * Compares current iteration count against the effective max iterations
+ * (which may be custom or default). Used to determine when to halt workflow
+ * and request user approval for limit increase.
+ *
+ * @param state - WiggumState to check
+ * @returns true if iteration limit reached or exceeded, false otherwise
+ */
+export function isIterationLimitReached(state: WiggumState): boolean {
+  return state.iteration >= getEffectiveMaxIterations(state);
 }

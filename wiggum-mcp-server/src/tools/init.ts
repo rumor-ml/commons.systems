@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
-import { MAX_ITERATIONS } from '../constants.js';
+import { generateIterationLimitInstructions } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import {
@@ -18,6 +18,7 @@ import {
   McpError,
   createErrorResult,
 } from '../utils/errors.js';
+import { isIterationLimitReached, getEffectiveMaxIterations } from '../state/state-utils.js';
 
 export const WiggumInitInputSchema = z.object({});
 
@@ -72,23 +73,18 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   });
 
   // Check iteration limit
-  if (state.wiggum.iteration >= MAX_ITERATIONS) {
+  if (isIterationLimitReached(state.wiggum)) {
+    const effectiveLimit = getEffectiveMaxIterations(state.wiggum);
     logger.warn('wiggum_init - max iterations reached', {
       iteration: state.wiggum.iteration,
-      maxIterations: MAX_ITERATIONS,
+      maxIterations: effectiveLimit,
+      isCustomLimit: state.wiggum.maxIterations !== undefined,
     });
     const output = {
       current_step: 'Iteration Limit Reached',
       step_number: 'max',
       iteration_count: state.wiggum.iteration,
-      instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached.
-
-Please:
-1. Summarize all work completed in this PR
-2. List any remaining issues or failures
-3. Notify the user that manual intervention is required
-
-The workflow will not continue automatically beyond this point.`,
+      instructions: generateIterationLimitInstructions(state.wiggum, effectiveLimit),
       steps_completed_by_tool: [],
       context: {
         pr_number: state.pr.exists ? state.pr.number : undefined,

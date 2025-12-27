@@ -11,7 +11,7 @@ export const WORKFLOW_LOG_MAX_CHARS = 50000; // For complete error logs in autom
 export const WORKFLOW_MONITOR_TIMEOUT_MS = 600000; // 10 minutes for workflow/PR check monitoring
 
 // Wiggum flow constants
-export const MAX_ITERATIONS = 10;
+export const DEFAULT_MAX_ITERATIONS = 10;
 export const NEEDS_REVIEW_LABEL = 'needs review';
 export const CODE_QUALITY_BOT_USERNAME = 'github-code-quality[bot]';
 
@@ -614,3 +614,39 @@ export const SKIP_MECHANISM_GUIDANCE = `
 
 **Always add TODO comment at skip location:** \`// TODO(#NNN): [brief reason]\`
 `.trim();
+
+/**
+ * Generate user prompt instructions when iteration limit is reached
+ *
+ * Provides clear instructions and options when the workflow hits the iteration limit.
+ * Allows users to manually approve an increase to continue work.
+ *
+ * @param state - Current WiggumState with iteration and limit information
+ * @param currentLimit - Effective max iterations (custom or default)
+ * @returns Formatted instructions for user with options to increase limit or intervene manually
+ */
+export function generateIterationLimitInstructions(
+  state: import('./state/types.js').WiggumState,
+  currentLimit: number
+): string {
+  return `**Iteration Limit Reached (${state.iteration}/${currentLimit})**
+
+The workflow has reached the ${state.maxIterations ? 'custom' : 'default'} iteration limit.
+
+**Current Situation:**
+- Current iteration: ${state.iteration}
+- Current limit: ${currentLimit}${state.maxIterations ? ' (custom)' : ' (default)'}
+- Current step: ${STEP_NAMES[state.step]}
+- Phase: ${state.phase === 'phase1' ? 'Phase 1 (Pre-PR)' : 'Phase 2 (Post-PR)'}
+
+**Options:**
+
+1. **Increase Iteration Limit** - Respond with new limit:
+   "Increase iteration limit to [NUMBER]" (e.g., "Increase iteration limit to 15")
+
+2. **Manual Intervention** - Fix issues manually and resume with wiggum_init
+
+**If you approve an increase:**
+- The workflow will continue from the current step with the new limit
+- You'll need to call the completion tool with the maxIterations parameter`;
+}

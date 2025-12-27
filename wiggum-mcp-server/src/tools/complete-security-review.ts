@@ -23,6 +23,14 @@ export const CompleteSecurityReviewInputSchema = z.object({
   out_of_scope_files: z.array(z.string()).describe('Array of out-of-scope result file paths'),
   in_scope_count: z.number().int().nonnegative().describe('Total in-scope security issues'),
   out_of_scope_count: z.number().int().nonnegative().describe('Total out-of-scope security issues'),
+  maxIterations: z
+    .number()
+    .int()
+    .positive('maxIterations must be a positive integer')
+    .optional()
+    .describe(
+      'Optional custom iteration limit. Use when user approves increasing the limit beyond default.'
+    ),
 });
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;

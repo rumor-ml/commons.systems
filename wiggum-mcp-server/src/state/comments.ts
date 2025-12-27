@@ -11,12 +11,30 @@ import {
 import { logger } from '../utils/logger.js';
 import { safeJsonParse, validateWiggumState } from './utils.js';
 import type { WiggumState } from './types.js';
+import { getWiggumStateFromPRBody } from './body-state.js';
 
 /**
- * Parse wiggum state from PR comments
- * Looks for comments with <!-- wiggum-state:{...} --> marker
+ * Get the most recent wiggum state from PR body or comments (backward compatibility)
+ *
+ * First tries reading state from PR description body (new system).
+ * Falls back to scanning PR comments for state marker (old system, backward compat).
+ * If no state is found in either location, returns initial state.
  */
 export async function getWiggumState(prNumber: number, repo?: string): Promise<WiggumState> {
+  // Try body first (new system)
+  const bodyState = await getWiggumStateFromPRBody(prNumber, repo);
+  if (bodyState) {
+    logger.debug('getWiggumState: found state in PR body', {
+      prNumber,
+      iteration: bodyState.iteration,
+      step: bodyState.step,
+      phase: bodyState.phase,
+    });
+    return bodyState;
+  }
+
+  // Fall back to comments (old system - backward compatibility)
+  logger.debug('getWiggumState: state not found in PR body, checking comments', { prNumber });
   const comments = await getPRComments(prNumber, repo);
 
   // Find most recent wiggum state comment
@@ -29,7 +47,15 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
     if (match) {
       try {
         const raw = safeJsonParse(match[1]);
-        return validateWiggumState(raw, 'PR comment');
+        const state = validateWiggumState(raw, 'PR comment');
+        logger.info('getWiggumState: found state in PR comments (legacy)', {
+          prNumber,
+          commentId: comment.id,
+          iteration: state.iteration,
+          step: state.step,
+          phase: state.phase,
+        });
+        return state;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         // Log prototype pollution attempts at ERROR level for security monitoring
@@ -45,7 +71,8 @@ export async function getWiggumState(prNumber: number, repo?: string): Promise<W
     }
   }
 
-  // No state found, return initial state (Phase 1, Step 1)
+  // No state found in body or comments, return initial state (Phase 1, Step 1)
+  logger.debug('getWiggumState: no state found, returning initial state', { prNumber });
   return {
     iteration: 0,
     step: STEP_PHASE1_MONITOR_WORKFLOW,

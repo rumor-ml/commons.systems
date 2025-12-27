@@ -66,6 +66,7 @@ export const GetIssueContextInputSchema = z
   .object({
     issue_number: z.union([z.string(), z.number()]).transform(String),
     repo: z.string().optional(),
+    include_comments: z.boolean().optional().default(true),
   })
   .strict();
 
@@ -78,7 +79,7 @@ interface IssueData {
   title: string;
   url: string;
   body: string;
-  comments: Array<{
+  comments?: Array<{
     author: { login: string };
     body: string;
     createdAt: string;
@@ -91,6 +92,33 @@ interface IssueContext {
   current: IssueData;
   children: IssueData[];
   siblings: IssueData[];
+  comments_included: boolean;
+}
+
+/**
+ * Get GraphQL fragment for comments field
+ *
+ * Returns the comments GraphQL fragment if includeComments is true, otherwise
+ * returns an empty string. This allows conditional inclusion of comments in
+ * GraphQL queries for performance optimization.
+ *
+ * @param includeComments - Whether to include comments in the query
+ * @returns GraphQL fragment string or empty string
+ */
+function getCommentsFragment(includeComments: boolean): string {
+  if (!includeComments) {
+    return '';
+  }
+  return `
+    comments(first: 100) {
+      nodes {
+        author {
+          login
+        }
+        body
+        createdAt
+      }
+    }`;
 }
 
 /**
@@ -120,13 +148,20 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
+    // Build fields list conditionally based on include_comments
+    const fields = ['id', 'number', 'title', 'body', 'url'];
+    if (input.include_comments) {
+      fields.push('comments');
+    }
+
     // Step 1: Fetch current issue details
     const issue = await ghCliJson<IssueData>(
-      ['issue', 'view', input.issue_number, '--json', 'id,number,title,body,url,comments'],
+      ['issue', 'view', input.issue_number, '--json', fields.join(',')],
       { repo: resolvedRepo }
     );
 
     // Step 2: Check for parent
+    const commentsFragment = getCommentsFragment(input.include_comments);
     const parentQuery = `
       query($issueId: ID!) {
         node(id: $issueId) {
@@ -137,15 +172,7 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
               title
               url
               body
-              comments(first: 100) {
-                nodes {
-                  author {
-                    login
-                  }
-                  body
-                  createdAt
-                }
-              }
+              ${commentsFragment}
             }
           }
         }
@@ -212,15 +239,7 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
                 title
                 url
                 body
-                comments(first: 100) {
-                  nodes {
-                    author {
-                      login
-                    }
-                    body
-                    createdAt
-                  }
-                }
+                ${commentsFragment}
               }
             }
           }
@@ -281,6 +300,7 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       current: issue,
       children,
       siblings,
+      comments_included: input.include_comments,
     };
 
     // Format as readable text with structured data
@@ -328,15 +348,23 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
 function formatIssueContextSummary(context: IssueContext): string {
   const lines: string[] = [];
 
+  // Helper to format comment count or body-only indicator
+  const formatCommentInfo = (issue: IssueData) => {
+    if (!context.comments_included) {
+      return '(body only)';
+    }
+    return `(${issue.comments?.length || 0} comments)`;
+  };
+
   lines.push(
-    `Issue Context for #${context.current.number}: ${context.current.title} (${context.current.comments.length} comments)`
+    `Issue Context for #${context.current.number}: ${context.current.title} ${formatCommentInfo(context.current)}`
   );
   lines.push(`URL: ${context.current.url}`);
   lines.push('');
 
   if (context.root) {
     lines.push(
-      `Root Issue: #${context.root.number} - ${context.root.title} (${context.root.comments.length} comments)`
+      `Root Issue: #${context.root.number} - ${context.root.title} ${formatCommentInfo(context.root)}`
     );
   }
 
@@ -354,6 +382,11 @@ function formatIssueContextSummary(context: IssueContext): string {
     lines.push(
       `Siblings (${context.siblings.length}): ${context.siblings.map((s) => `#${s.number}`).join(', ')}`
     );
+  }
+
+  if (!context.comments_included) {
+    lines.push('');
+    lines.push('Note: Comments not included (body-only mode)');
   }
 
   return lines.join('\n');

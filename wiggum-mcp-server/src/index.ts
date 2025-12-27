@@ -18,7 +18,7 @@ import {
 import { completeFix, CompleteFixInputSchema } from './tools/complete-fix.js';
 
 import { createErrorResult } from './utils/errors.js';
-import { MAX_ITERATIONS } from './constants.js';
+import { DEFAULT_MAX_ITERATIONS } from './constants.js';
 
 const server = new Server(
   {
@@ -90,6 +90,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'number',
               description: 'Count of low priority issues found',
             },
+            maxIterations: {
+              type: 'number',
+              description:
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
+            },
           },
           required: [
             'command_executed',
@@ -127,6 +132,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'number',
               description: 'Count of low priority security issues found',
             },
+            maxIterations: {
+              type: 'number',
+              description:
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
+            },
           },
           required: [
             'command_executed',
@@ -139,7 +149,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'wiggum_complete_fix',
-        description: `Complete a Plan+Fix cycle. Posts PR comment documenting the fix and returns instructions to restart workflow monitoring (Step 1). Used after fixing any issues found during workflow monitoring, PR checks, code quality review, PR review, or security review. Maximum ${MAX_ITERATIONS} iterations allowed.`,
+        description: `Complete a Plan+Fix cycle. Posts PR comment documenting the fix and returns instructions to restart workflow monitoring (Step 1). Used after fixing any issues found during workflow monitoring, PR checks, code quality review, PR review, or security review. Maximum ${DEFAULT_MAX_ITERATIONS} iterations allowed.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -157,6 +167,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               items: { type: 'number' },
               description:
                 'List of issue numbers for out-of-scope recommendations (both new and existing)',
+            },
+            maxIterations: {
+              type: 'number',
+              description:
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
             },
           },
           required: ['fix_description', 'has_in_scope_fixes'],

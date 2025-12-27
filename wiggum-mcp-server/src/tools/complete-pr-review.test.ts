@@ -140,6 +140,81 @@ describe('complete-pr-review tool', () => {
       const result = CompletePRReviewInputSchema.safeParse(input);
       assert.strictEqual(result.success, true);
     });
+
+    it('should accept optional maxIterations parameter', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: ['/tmp/file1.md'],
+        out_of_scope_files: [],
+        in_scope_count: 1,
+        out_of_scope_count: 0,
+        maxIterations: 15,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.maxIterations, 15);
+      }
+    });
+
+    it('should accept input without maxIterations (optional field)', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.maxIterations, undefined);
+      }
+    });
+
+    it('should reject non-integer maxIterations', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
+        maxIterations: 10.5,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
+    });
+
+    it('should reject zero maxIterations', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
+        maxIterations: 0,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
+    });
+
+    it('should reject negative maxIterations', () => {
+      const input = {
+        command_executed: true,
+        in_scope_files: [],
+        out_of_scope_files: [],
+        in_scope_count: 0,
+        out_of_scope_count: 0,
+        maxIterations: -5,
+      };
+
+      const result = CompletePRReviewInputSchema.safeParse(input);
+      assert.strictEqual(result.success, false);
+    });
   });
 });
 

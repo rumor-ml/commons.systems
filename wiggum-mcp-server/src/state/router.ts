@@ -9,6 +9,7 @@
 import { getPRReviewComments } from '../utils/gh-cli.js';
 import { postWiggumStateComment } from './comments.js';
 import { postWiggumStateIssueComment } from './issue-comments.js';
+import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
@@ -166,6 +167,8 @@ export async function safePostStateComment(
   step: string
 ): Promise<StateCommentResult> {
   try {
+    // Dual-write strategy: Update PR body (source of truth) + post comment (audit trail)
+    await updatePRBodyState(prNumber, state);
     await postWiggumStateComment(prNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
@@ -289,6 +292,8 @@ export async function safePostIssueStateComment(
   step: string
 ): Promise<StateCommentResult> {
   try {
+    // Dual-write strategy: Update issue body (source of truth) + post comment (audit trail)
+    await updateIssueBodyState(issueNumber, state);
     await postWiggumStateIssueComment(issueNumber, state, title, body);
     return { success: true };
   } catch (commentError) {
@@ -683,20 +688,28 @@ Execute comprehensive PR review on the current branch before creating the pull r
    ${PHASE1_PR_REVIEW_COMMAND}
    \`\`\`
 
-2. After the review completes, call the \`wiggum_complete_pr_review\` tool with:
+2. After the review completes, aggregate results from all agents:
+   - Collect in_scope_file paths from each agent's JSON response
+   - Collect out_of_scope_file paths from each agent's JSON response
+   - Sum in_scope_count across all agents
+   - Sum out_of_scope_count across all agents
+
+3. Call the \`wiggum_complete_pr_review\` tool with:
    - command_executed: true
-   - verbatim_response: (full review output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)
+   - in_scope_files: [array of file paths from all agents]
+   - out_of_scope_files: [array of file paths from all agents]
+   - in_scope_count: (total count of in-scope issues, NOT files)
+   - out_of_scope_count: (total count of out-of-scope issues, NOT files)
 
-3. Results will be posted to issue #${issueNumber}
+   **IMPORTANT:** Counts represent ISSUES, not FILES. Each file may contain multiple issues.
 
-4. If issues are found:
+4. Results will be posted to issue #${issueNumber}
+
+5. If issues are found:
    - You will be instructed to fix them (Plan + Fix cycle)
    - After fixes, workflow restarts from Step p1-1
 
-5. If no issues:
+6. If no issues:
    - Proceed to Step p1-3 (Security Review - Pre-PR)`,
     steps_completed_by_tool: [],
     context: {},
@@ -726,20 +739,28 @@ Execute security review on the current branch before creating the pull request.
    ${SECURITY_REVIEW_COMMAND}
    \`\`\`
 
-2. After the review completes, call the \`wiggum_complete_security_review\` tool with:
+2. After the review completes, aggregate results from all agents:
+   - Collect in_scope_file paths from each agent's JSON response
+   - Collect out_of_scope_file paths from each agent's JSON response
+   - Sum in_scope_count across all agents
+   - Sum out_of_scope_count across all agents
+
+3. Call the \`wiggum_complete_security_review\` tool with:
    - command_executed: true
-   - verbatim_response: (full review output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)
+   - in_scope_files: [array of file paths from all agents]
+   - out_of_scope_files: [array of file paths from all agents]
+   - in_scope_count: (total count of in-scope security issues, NOT files)
+   - out_of_scope_count: (total count of out-of-scope security issues, NOT files)
 
-3. Results will be posted to issue #${issueNumber}
+   **IMPORTANT:** Counts represent ISSUES, not FILES. Each file may contain multiple issues.
 
-4. If issues are found:
+4. Results will be posted to issue #${issueNumber}
+
+5. If issues are found:
    - You will be instructed to fix them (Plan + Fix cycle)
    - After fixes, workflow restarts from Step p1-1
 
-5. If no issues:
+6. If no issues:
    - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
     steps_completed_by_tool: [],
     context: {},

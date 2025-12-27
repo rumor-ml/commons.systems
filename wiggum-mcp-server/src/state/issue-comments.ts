@@ -14,6 +14,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { safeJsonParse, validateWiggumState } from './utils.js';
 import type { WiggumState } from './types.js';
+import { getWiggumStateFromIssueBody } from './body-state.js';
 
 /**
  * GitHub issue comment type
@@ -85,13 +86,32 @@ export async function postIssueComment(
 }
 
 /**
- * Parse wiggum state from issue comments
- * Looks for comments with <!-- wiggum-state:{...} --> marker
+ * Get the most recent wiggum state from issue body or comments (backward compatibility)
+ *
+ * First tries reading state from issue description body (new system).
+ * Falls back to scanning issue comments for state marker (old system, backward compat).
+ * If no state is found in either location, returns initial state.
  */
 export async function getWiggumStateFromIssue(
   issueNumber: number,
   repo?: string
 ): Promise<WiggumState> {
+  // Try body first (new system)
+  const bodyState = await getWiggumStateFromIssueBody(issueNumber, repo);
+  if (bodyState) {
+    logger.debug('getWiggumStateFromIssue: found state in issue body', {
+      issueNumber,
+      iteration: bodyState.iteration,
+      step: bodyState.step,
+      phase: bodyState.phase,
+    });
+    return bodyState;
+  }
+
+  // Fall back to comments (old system - backward compatibility)
+  logger.debug('getWiggumStateFromIssue: state not found in issue body, checking comments', {
+    issueNumber,
+  });
   const comments = await getIssueComments(issueNumber, repo);
 
   // Find most recent wiggum state comment
@@ -104,7 +124,15 @@ export async function getWiggumStateFromIssue(
     if (match) {
       try {
         const raw = safeJsonParse(match[1]);
-        return validateWiggumState(raw, 'issue comment');
+        const state = validateWiggumState(raw, 'issue comment');
+        logger.info('getWiggumStateFromIssue: found state in issue comments (legacy)', {
+          issueNumber,
+          commentId: comment.id,
+          iteration: state.iteration,
+          step: state.step,
+          phase: state.phase,
+        });
+        return state;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         // TODO(#272): Add security alerting for prototype pollution detection
@@ -123,7 +151,10 @@ export async function getWiggumStateFromIssue(
     }
   }
 
-  // No state found, return initial state (Phase 1, Step 1)
+  // No state found in body or comments, return initial state (Phase 1, Step 1)
+  logger.debug('getWiggumStateFromIssue: no state found, returning initial state', {
+    issueNumber,
+  });
   return {
     iteration: 0,
     step: STEP_PHASE1_MONITOR_WORKFLOW,
