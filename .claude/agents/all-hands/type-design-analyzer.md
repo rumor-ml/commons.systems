@@ -185,14 +185,14 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
    ```bash
    WORKTREE=$(basename $(pwd))
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/type-design-analyzer-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/type-design-analyzer-out-of-scope-${TIMESTAMP}.md"
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/type-design-analyzer-in-scope-${TIMESTAMP}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/type-design-analyzer-out-of-scope-${TIMESTAMP}.md"
    ```
 
 2. Create directory:
 
    ```bash
-   mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   mkdir -p "$(pwd)/tmp/wiggum-${WORKTREE}"
    # Note: -p flag ensures mkdir succeeds even if directory already exists
    # (multiple review agents run in parallel and may create this concurrently)
    ```
@@ -209,8 +209,8 @@ After writing files, return this EXACT JSON structure:
 ```json
 {
   "agent_name": "type-design-analyzer",
-  "in_scope_file": "/tmp/claude/wiggum-{worktree}/type-design-analyzer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "/tmp/claude/wiggum-{worktree}/type-design-analyzer-out-of-scope-{timestamp}.md",
+  "in_scope_file": "$(pwd)/tmp/wiggum-{worktree}/type-design-analyzer-in-scope-{timestamp}.md",
+  "out_of_scope_file": "$(pwd)/tmp/wiggum-{worktree}/type-design-analyzer-out-of-scope-{timestamp}.md",
   "in_scope_count": <number>,
   "out_of_scope_count": <number>,
   "severity_breakdown": {

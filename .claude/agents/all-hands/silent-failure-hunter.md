@@ -218,14 +218,14 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
    ```bash
    WORKTREE=$(basename $(pwd))
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="/tmp/claude/wiggum-${WORKTREE}/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum-${WORKTREE}/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"
    ```
 
 2. Create directory:
 
    ```bash
-   mkdir -p /tmp/claude/wiggum-${WORKTREE}
+   mkdir -p "$(pwd)/tmp/wiggum-${WORKTREE}"
    # Note: -p flag ensures mkdir succeeds even if directory already exists
    # (multiple review agents run in parallel and may create this concurrently)
    ```
@@ -242,8 +242,8 @@ After writing files, return this EXACT JSON structure:
 ```json
 {
   "agent_name": "silent-failure-hunter",
-  "in_scope_file": "/tmp/claude/wiggum-{worktree}/silent-failure-hunter-in-scope-{timestamp}.md",
-  "out_of_scope_file": "/tmp/claude/wiggum-{worktree}/silent-failure-hunter-out-of-scope-{timestamp}.md",
+  "in_scope_file": "$(pwd)/tmp/wiggum-{worktree}/silent-failure-hunter-in-scope-{timestamp}.md",
+  "out_of_scope_file": "$(pwd)/tmp/wiggum-{worktree}/silent-failure-hunter-out-of-scope-{timestamp}.md",
   "in_scope_count": <number>,
   "out_of_scope_count": <number>,
   "severity_breakdown": {

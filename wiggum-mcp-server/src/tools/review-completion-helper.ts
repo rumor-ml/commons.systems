@@ -72,11 +72,11 @@ const KNOWN_AGENT_NAMES = [
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
  *
  * @example
- * extractAgentNameFromPath('/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md')
+ * extractAgentNameFromPath('$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md')
  * // Returns: 'Code Reviewer'
  *
  * @example
- * extractAgentNameFromPath('/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
+ * extractAgentNameFromPath('$(pwd)/tmp/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
  * // Returns: 'Pr Test Analyzer' (intentionally 'Pr' not 'PR' - see NOTE above)
  */
 export function extractAgentNameFromPath(filePath: string): string {
@@ -327,8 +327,8 @@ async function readReviewFile(
  * @example
  * // Load results from multiple agent files
  * const { inScope, outOfScope } = await loadReviewResults(
- *   ['/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md'],
- *   ['/tmp/claude/wiggum-625/code-reviewer-out-of-scope-1234.md']
+ *   ['$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md'],
+ *   ['$(pwd)/tmp/wiggum-625/code-reviewer-out-of-scope-1234.md']
  * );
  */
 export async function loadReviewResults(

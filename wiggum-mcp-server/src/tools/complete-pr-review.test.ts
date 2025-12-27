@@ -223,7 +223,7 @@ describe('complete-pr-review tool', () => {
  *
  * The end-to-end file-based review completion workflow is validated by the wiggum
  * workflow execution itself, which has successfully:
- * 1. Written review results to temp files (e.g., /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md)
+ * 1. Written review results to temp files (e.g., $(pwd)/tmp/wiggum-{worktree}/{agent-name}-{scope}-{timestamp}.md)
  * 2. Passed file paths to completion tools via verbatim_response_file parameter
  * 3. Posted GitHub comments containing the file content
  * 4. Updated wiggum state correctly after each review

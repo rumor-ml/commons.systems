@@ -197,11 +197,11 @@ Call the EnterPlanMode tool to enter planning mode for the triage process.
 
 Review output was written to temp file for token efficiency.
 
-**File Pattern:** \`/tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md\`
+**File Pattern:** \`$(pwd)/tmp/wiggum-*/{agent-name}-{scope}-*.md\`
 
 **To view if needed:**
 \`\`\`bash
-ls -t /tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md | head -1 | xargs cat
+ls -t $(pwd)/tmp/wiggum-*/*-in-scope-*.md $(pwd)/tmp/wiggum-*/*-out-of-scope-*.md | head -1 | xargs cat
 \`\`\`
 
 ### 2b. Fetch Issue Context
