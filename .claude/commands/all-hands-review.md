@@ -46,13 +46,13 @@ Extract issue number and fetch context:
    git rev-parse --abbrev-ref HEAD | grep -oE '[0-9]+' | head -1
    ```
 
-2. Fetch issue context using gh-issue MCP:
+2. Fetch issue context using gh-issue MCP (body-only mode for performance):
 
    ```
-   mcp__gh-issue__gh_get_issue_context({ issue_number: <number> })
+   mcp__gh-issue__gh_get_issue_context({ issue_number: <number>, include_comments: false })
    ```
 
-   **If the response is too large** (>300K characters or truncated), fall back to just the issue body:
+   **Note:** Using `include_comments: false` for performance. If even the body is too large (>300K characters or truncated), fall back to just the issue body:
 
    ```bash
    gh issue view <number> --json number,title,body,url

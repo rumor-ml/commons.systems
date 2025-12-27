@@ -53,10 +53,10 @@ Before analyzing code:
    git rev-parse --abbrev-ref HEAD | grep -oE '[0-9]+' | head -1
    ```
 
-2. Fetch full context with comments:
+2. Fetch issue context (body only for performance):
 
    ```
-   mcp__gh-issue__gh_get_issue_context({ issue_number: <number> })
+   mcp__gh-issue__gh_get_issue_context({ issue_number: <number>, include_comments: false })
    ```
 
 3. Review the issue body, title, and comments to understand the scope
