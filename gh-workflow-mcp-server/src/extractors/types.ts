@@ -2,33 +2,29 @@
  * Shared types for framework-specific test failure extractors
  */
 
-// TODO(#304): Add readonly modifiers to type definitions
-
 import { z } from 'zod';
 
 export type TestFramework = 'go' | 'playwright' | 'tap' | 'unknown';
 
 export interface DetectionResult {
-  framework: TestFramework;
-  confidence: 'high' | 'medium' | 'low';
-  isJsonOutput: boolean;
-  isTimeout?: boolean;
+  readonly framework: TestFramework;
+  readonly confidence: 'high' | 'medium' | 'low';
+  readonly isJsonOutput: boolean;
+  readonly isTimeout?: boolean;
 }
-// TODO(#357): Improve type safety - add readonly modifiers, use enums, enforce immutability
 
-// TODO(#357, #363): Make readonly and use factory validation
 export interface ExtractedError {
-  testName?: string;
-  fileName?: string;
-  lineNumber?: number;
-  columnNumber?: number;
-  message: string;
-  stack?: string; // Full stack trace
-  codeSnippet?: string; // Code context around failure (Playwright)
-  duration?: number; // Test duration in ms
-  failureType?: string; // e.g., 'testCodeFailure', 'timeout'
-  errorCode?: string; // e.g., 'ERR_ASSERTION'
-  rawOutput: string[]; // All output lines for this test
+  readonly testName?: string;
+  readonly fileName?: string;
+  readonly lineNumber?: number;
+  readonly columnNumber?: number;
+  readonly message: string;
+  readonly stack?: string; // Full stack trace
+  readonly codeSnippet?: string; // Code context around failure (Playwright)
+  readonly duration?: number; // Test duration in ms
+  readonly failureType?: string; // e.g., 'testCodeFailure', 'timeout'
+  readonly errorCode?: string; // e.g., 'ERR_ASSERTION'
+  readonly rawOutput: readonly string[]; // All output lines for this test
 }
 
 /**
@@ -40,17 +36,19 @@ export interface ExtractedError {
  * - duration is non-negative
  * - rawOutput contains at least one line
  */
+const optionalNonEmptyString = z.string().min(1).optional();
+
 export const ExtractedErrorSchema = z.object({
-  testName: z.string().optional(),
-  fileName: z.string().optional(),
+  testName: optionalNonEmptyString,
+  fileName: optionalNonEmptyString,
   lineNumber: z.number().int().positive().optional(),
   columnNumber: z.number().int().positive().optional(),
   message: z.string().min(1),
-  stack: z.string().optional(),
-  codeSnippet: z.string().optional(),
+  stack: optionalNonEmptyString,
+  codeSnippet: optionalNonEmptyString,
   duration: z.number().nonnegative().optional(),
-  failureType: z.string().optional(),
-  errorCode: z.string().optional(),
+  failureType: optionalNonEmptyString,
+  errorCode: optionalNonEmptyString,
   rawOutput: z.array(z.string()).min(1),
 });
 
@@ -95,13 +93,34 @@ export function formatValidationError(error: z.ZodError): string {
  * Used when validation fails - ensures we always return SOMETHING to the user
  * rather than silently dropping test failures.
  *
+ * VALID-BY-CONSTRUCTION GUARANTEE:
+ * This function constructs an ExtractedError that will ALWAYS pass validation
+ * by explicitly handling all schema requirements:
+ *
+ * 1. message: Constructed with validation diagnostics + original message (never empty)
+ * 2. rawOutput: Guaranteed at least one element via getRawOutput helper
+ * 3. lineNumber/columnNumber: Filtered to positive integers via isPositiveInteger
+ * 4. duration: Filtered to non-negative via isNonNegativeNumber
+ * 5. Optional fields: Passed through if valid, otherwise undefined
+ *    TODO(#509): Clarify what "valid" means (type-checked? non-empty? schema-validated?)
+ *
+ * WHY VALIDATION IS NEEDED:
+ * Test framework output can be malformed in many ways:
+ * - Empty error messages
+ * - Missing rawOutput arrays
+ * - Negative line numbers
+ * - Invalid duration values
+ * - Truncated JSON
+ *
+ * Rather than failing silently when we encounter malformed output, we construct
+ * a valid error that includes both the original data AND validation diagnostics,
+ * ensuring users see the failure with helpful debugging context.
+ *
  * @param context - Description of what failed (e.g., "test TestFoo")
  * @param originalData - The data that failed validation (for diagnostics)
  * @param validationError - The Zod error describing what was invalid
  * @returns ExtractedError guaranteed to pass validation
  */
-// TODO(#305): Validate fallback error before returning [was #285: Improve error logging context and messages]
-// TODO(#305): Add context explaining why validation is needed
 export function createFallbackError(
   context: string,
   originalData: unknown,
@@ -112,10 +131,15 @@ export function createFallbackError(
 
   // Construct message with validation diagnostics
   const validationDetails = formatValidationError(validationError);
-  const truncatedDetails =
-    validationDetails.length > 500
-      ? validationDetails.substring(0, 500) + '... (truncated)'
-      : validationDetails;
+  let truncatedDetails = validationDetails;
+  if (validationDetails.length > 500) {
+    console.error(
+      `[WARN] createFallbackError: Truncating validation details for ${context}.\n` +
+        `Full details (${validationDetails.length} chars):\n${validationDetails}`
+    );
+    truncatedDetails =
+      validationDetails.substring(0, 500) + '... (truncated, see logs for full details)';
+  }
 
   let message = `Malformed test output detected for ${context}.\n\n`;
   message += `Validation errors: ${truncatedDetails}\n\n`;
@@ -189,31 +213,46 @@ export class ValidationErrorTracker {
   private validationFailures = 0;
   private warnings: string[] = [];
 
+  private checkInvariants(context: string): void {
+    if (this.validationFailures < 0) {
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corrupted. ` +
+          `validationFailures=${this.validationFailures} (expected >= 0). ` +
+          `Context: ${context}`
+      );
+    }
+
+    if (this.validationFailures !== this.warnings.length) {
+      throw new Error(
+        `INTERNAL BUG: ValidationErrorTracker state corruption. ` +
+          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
+          `Context: ${context}`
+      );
+    }
+  }
+
   /**
    * Record a validation failure
    * @param context - Context about what failed (e.g., "test #5", "Go test event")
    * @param error - The Zod validation error
    */
   recordValidationFailure(context: string, error: z.ZodError): void {
-    // Sanity check: detect count corruption
-    if (this.validationFailures < 0) {
-      console.error(
-        `[BUG] ValidationErrorTracker.recordValidationFailure: validationFailures is negative (${this.validationFailures}). Resetting to 0.`
-      );
-      this.validationFailures = 0;
-    }
+    // Sanity check: detect count corruption - this is a BUG
+    this.checkInvariants(context);
 
     this.validationFailures++;
     const formatted = formatValidationError(error);
     this.warnings.push(`${context}: ${formatted}`);
 
-    // Sanity check: count should match warnings array length
+    // Post-increment validation with recovery
     if (this.validationFailures !== this.warnings.length) {
+      // Attempt to recover by resetting to consistent state
+      const correctCount = this.warnings.length;
       console.error(
-        `[BUG] ValidationErrorTracker.recordValidationFailure: count mismatch after increment. ` +
-          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `This indicates state corruption.`
+        `[BUG] ValidationErrorTracker corruption detected and recovered. ` +
+          `Was: ${this.validationFailures}, corrected to: ${correctCount}. Context: ${context}`
       );
+      this.validationFailures = correctCount;
     }
   }
 
@@ -229,29 +268,8 @@ export class ValidationErrorTracker {
    * Returns undefined if no failures
    */
   getSummaryWarning(): string | undefined {
-    // Sanity check: detect negative count
-    if (this.validationFailures < 0) {
-      console.error(
-        `[BUG] ValidationErrorTracker.getSummaryWarning: validationFailures is negative (${this.validationFailures}). ` +
-          `Returning diagnostic message.`
-      );
-      return `INTERNAL ERROR: Validation failure count corrupted (${this.validationFailures} < 0). Please file bug report.`;
-    }
-
-    // Sanity check: count should match warnings array length
-    if (this.validationFailures !== this.warnings.length) {
-      console.error(
-        `[BUG] ValidationErrorTracker.getSummaryWarning: count mismatch. ` +
-          `validationFailures=${this.validationFailures}, warnings.length=${this.warnings.length}. ` +
-          `Using warnings.length as source of truth.`
-      );
-      // Use warnings.length as source of truth
-      const actualCount = this.warnings.length;
-      if (actualCount === 0) {
-        return undefined;
-      }
-      return `${actualCount} test events failed validation - malformed output detected (count mismatch detected)`;
-    }
+    // Sanity check: detect corruption
+    this.checkInvariants('getSummaryWarning');
 
     if (this.validationFailures === 0) {
       return undefined;
@@ -280,7 +298,9 @@ export class ValidationErrorTracker {
  * @returns Always returns an ExtractedError (validated or fallback)
  * @throws Non-Zod errors (bugs in extraction code)
  */
-// TODO(#332): Ensure all fallback paths in extractors use this validation tracker consistently
+// All extractor fallback paths verified in #332 - using safeValidateExtractedError consistently
+// TODO(#506): Fix inaccurate line number references in historical comments
+// See playwright-extractor.ts methods: parsePlaywrightTimeout, parsePlaywrightJson, parsePlaywrightText
 export function safeValidateExtractedError(
   data: unknown,
   context: string,
