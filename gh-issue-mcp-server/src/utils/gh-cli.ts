@@ -120,12 +120,37 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Node.js error codes that indicate retryable network/connection issues
+ *
+ * These are stable error codes from the Node.js error API, preferred over
+ * string matching on error messages.
+ */
+const RETRYABLE_ERROR_CODES = [
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'ENETDOWN',
+  'EHOSTUNREACH',
+  'EHOSTDOWN',
+  'EPIPE',
+];
+
+/**
  * Check if an error is retryable (network errors, 5xx server errors, rate limits)
  *
- * Determines if an error should be retried based on the error message.
- * Retryable errors include network issues, timeouts, 5xx server errors, and rate limits.
+ * Determines if an error should be retried using a priority-based approach:
+ * 1. Exit code (most reliable) - checks for known HTTP error codes
+ * 2. Node.js error.code (stable API) - checks for network/connection errors
+ * 3. Message pattern matching (fallback) - for when structured data is missing
+ *
+ * Current limitation: gh CLI wraps errors in generic Error objects, losing HTTP
+ * status codes and error types. We must parse error messages, which are fragile
+ * to GitHub CLI updates. See issue #453 for migration to structured error types.
  *
  * @param error - Error to check for retryability
+ * @param exitCode - Optional exit code from the CLI command
  * @returns true if error should be retried, false otherwise
  *
  * @example
@@ -140,22 +165,46 @@ export function sleep(ms: number): Promise<void> {
  * ```
  */
 // TODO: See issue #453 - Use error types instead of string matching for retry logic
-function isRetryableError(error: unknown): boolean {
+function isRetryableError(error: unknown, exitCode?: number): boolean {
+  // Priority 1: Exit code (most reliable when available)
+  if (exitCode !== undefined) {
+    if ([429, 502, 503, 504].includes(exitCode)) {
+      return true;
+    }
+  }
+
   if (error instanceof Error) {
+    // Priority 2: Node.js error codes (stable API)
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code && RETRYABLE_ERROR_CODES.includes(nodeError.code)) {
+      return true;
+    }
+
+    // Priority 3: Message pattern matching (fallback, less reliable)
+    // This is fragile - error messages can change with GitHub CLI versions
     const msg = error.message.toLowerCase();
-    return (
-      msg.includes('network') ||
-      msg.includes('timeout') ||
-      msg.includes('econnreset') ||
-      msg.includes('socket') ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.includes('504') ||
-      // Rate limit detection (issue #625)
-      msg.includes('rate limit') ||
-      msg.includes('429') ||
-      msg.includes('api rate limit exceeded')
-    );
+    const patterns = [
+      // Network errors
+      'network',
+      'timeout',
+      'socket',
+      'connection',
+      'econnreset', // Fallback if error.code missing
+      'econnrefused',
+      // HTTP status codes (in case exitCode not provided)
+      '429',
+      '502',
+      '503',
+      '504',
+      // Rate limit messages (multiple phrasings - fragile to changes)
+      'rate limit',
+      'api rate limit exceeded',
+      'rate_limit_exceeded',
+      'quota exceeded',
+      'too many requests',
+    ];
+
+    return patterns.some((pattern) => msg.includes(pattern));
   }
   return false;
 }
@@ -216,6 +265,7 @@ export async function ghCliWithRetry(
 ): Promise<string> {
   let lastError: Error | undefined;
   let firstError: Error | undefined;
+  let lastExitCode: number | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -231,16 +281,17 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      lastExitCode = (error as { exitCode?: number }).exitCode;
 
       // Capture first error for diagnostics
       if (attempt === 1) {
         firstError = lastError;
       }
 
-      if (!isRetryableError(error)) {
+      if (!isRetryableError(error, lastExitCode)) {
         // Non-retryable error, fail immediately
         console.error(
-          `[gh-issue] ghCliWithRetry: non-retryable error (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')})`
+          `[gh-issue] ghCliWithRetry: non-retryable error (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')})`
         );
         throw lastError;
       }
@@ -248,7 +299,7 @@ export async function ghCliWithRetry(
       if (attempt === maxRetries) {
         // Final attempt failed - log all attempts exhausted
         console.error(
-          `[gh-issue] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+          `[gh-issue] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
         throw lastError;
       }
@@ -258,12 +309,12 @@ export async function ghCliWithRetry(
       if (attempt === 1) {
         // Initial failure - log at INFO level since retry is designed for this
         console.error(
-          `[gh-issue] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+          `[gh-issue] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       } else {
         // Subsequent failures - log at WARN level
         console.error(
-          `[gh-issue] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+          `[gh-issue] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
         );
       }
 

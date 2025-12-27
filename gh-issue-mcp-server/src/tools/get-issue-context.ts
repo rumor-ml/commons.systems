@@ -115,6 +115,14 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
 
     // TODO: See issue #284 - Add integration tests for GraphQL validation error paths
     if (!parentResult.data) {
+      // Log response preview for debugging (truncated to 1000 chars)
+      const responseJson = JSON.stringify(parentResult);
+      const responsePreview =
+        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+      console.error(
+        `[gh-issue] GraphQL validation failed (query: parent, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+      );
+
       // Include GitHub error details if available for better debugging
       const githubErrors = (parentResult as { errors?: Array<{ message: string }> }).errors;
       const errorContext = githubErrors?.[0]?.message
@@ -158,6 +166,14 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
 
       if (!ancestorParentResult.data) {
+        // Log response preview for debugging (truncated to 1000 chars)
+        const responseJson = JSON.stringify(ancestorParentResult);
+        const responsePreview =
+          responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+        console.error(
+          `[gh-issue] GraphQL validation failed (query: ancestor-parent, ancestorIssue: #${currentAncestor.number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+        );
+
         // Include GitHub error details if available for better debugging
         const githubErrors = (ancestorParentResult as { errors?: Array<{ message: string }> })
           .errors;
@@ -223,6 +239,14 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
     );
 
     if (!childrenResult.data) {
+      // Log response preview for debugging (truncated to 1000 chars)
+      const responseJson = JSON.stringify(childrenResult);
+      const responsePreview =
+        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+      console.error(
+        `[gh-issue] GraphQL validation failed (query: children, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+      );
+
       // Include GitHub error details if available for better debugging
       const githubErrors = (childrenResult as { errors?: Array<{ message: string }> }).errors;
       const errorContext = githubErrors?.[0]?.message
@@ -260,6 +284,14 @@ export async function getIssueContext(input: GetIssueContextInput): Promise<Tool
       );
 
       if (!siblingsResult.data) {
+        // Log response preview for debugging (truncated to 1000 chars)
+        const responseJson = JSON.stringify(siblingsResult);
+        const responsePreview =
+          responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+        console.error(
+          `[gh-issue] GraphQL validation failed (query: siblings, issue: #${input.issue_number}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
+        );
+
         // Include GitHub error details if available for better debugging
         const githubErrors = (siblingsResult as { errors?: Array<{ message: string }> }).errors;
         const errorContext = githubErrors?.[0]?.message

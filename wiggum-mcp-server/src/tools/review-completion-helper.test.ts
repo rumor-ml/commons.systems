@@ -620,14 +620,14 @@ describe('review-completion-helper', () => {
       assert.strictEqual(result, 'Linter');
     });
 
-    it('should return Unknown Agent for non-matching paths', () => {
+    it('should return Unknown Agent with filename for non-matching paths', () => {
       const result = extractAgentNameFromPath('/some/random/path.md');
-      assert.strictEqual(result, 'Unknown Agent');
+      assert.strictEqual(result, 'Unknown Agent (path.md)');
     });
 
-    it('should return Unknown Agent for empty path', () => {
+    it('should return Unknown Agent with empty string for empty path', () => {
       const result = extractAgentNameFromPath('');
-      assert.strictEqual(result, 'Unknown Agent');
+      assert.strictEqual(result, 'Unknown Agent ()');
     });
 
     it('should handle paths with only filename', () => {

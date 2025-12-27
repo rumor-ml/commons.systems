@@ -28,16 +28,32 @@ import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
+
+/**
+ * Known agent names for validation and warnings
+ *
+ * These are the expected agent names in the scope-separated review workflow.
+ * Used to warn when an unexpected agent name is extracted from file paths.
+ */
+const KNOWN_AGENT_NAMES = [
+  'code-reviewer',
+  'silent-failure-hunter',
+  'code-simplifier',
+  'comment-analyzer',
+  'pr-test-analyzer',
+  'type-design-analyzer',
+];
 
 /**
  * Extract agent name from file path
  *
  * Parses the wiggum output file naming convention to extract a human-readable
- * agent name. Converts kebab-case to Title Case.
+ * agent name. Converts kebab-case to Title Case by capitalizing the first
+ * letter of each word. Note: Acronyms like 'pr' become 'Pr' not 'PR'.
  *
  * @param filePath - Full path to the review output file
- * @returns Human-readable agent name, or 'Unknown Agent' if parsing fails
+ * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
  *
  * @example
  * extractAgentNameFromPath('/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md')
@@ -45,19 +61,64 @@ import { readFile } from 'fs/promises';
  *
  * @example
  * extractAgentNameFromPath('/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md')
- * // Returns: 'Pr Test Analyzer'
+ * // Returns: 'Pr Test Analyzer' (note: 'pr' acronym becomes 'Pr', not 'PR')
  */
 export function extractAgentNameFromPath(filePath: string): string {
   const fileName = filePath.split('/').pop() || '';
-  // Match both in-scope and out-of-scope patterns
-  const match = fileName.match(/^(.+?)-(in-scope|out-of-scope)-/);
-  if (match) {
-    return match[1]
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+
+  // Match pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md
+  const match = fileName.match(/^(.+?)-(in-scope|out-of-scope)-\d+\.md$/);
+
+  if (!match) {
+    // Pattern didn't match - file name is malformed
+    logger.warn('Failed to extract agent name from file path - unexpected format', {
+      filePath,
+      fileName,
+      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}.md',
+    });
+    return `Unknown Agent (${fileName})`;
   }
-  return 'Unknown Agent';
+
+  const agentSlug = match[1];
+
+  // Validate extracted name is non-empty
+  if (!agentSlug || agentSlug.trim().length === 0) {
+    logger.warn('Extracted empty agent name from file path', {
+      filePath,
+      fileName,
+    });
+    return `Unknown Agent (${fileName})`;
+  }
+
+  // Warn if agent name doesn't match known agents (might be typo or new agent)
+  if (!KNOWN_AGENT_NAMES.includes(agentSlug)) {
+    logger.warn('Extracted agent name not in known agents list', {
+      filePath,
+      extractedName: agentSlug,
+      knownAgents: KNOWN_AGENT_NAMES,
+      suggestion: 'Update KNOWN_AGENT_NAMES if this is a new agent',
+    });
+  }
+
+  // Convert kebab-case to Title Case
+  const agentName = agentSlug
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+  return agentName;
+}
+
+/**
+ * Enhanced file read error with diagnostic information
+ */
+interface FileReadError {
+  filePath: string;
+  error: Error;
+  category: 'in-scope' | 'out-of-scope';
+  errorCode?: string;
+  fileExists?: boolean;
+  fileSize?: number;
 }
 
 /**
@@ -65,12 +126,12 @@ export function extractAgentNameFromPath(filePath: string): string {
  *
  * Reads multiple review result files and aggregates them with agent headers.
  * Collects errors from all file reads and provides comprehensive error context
- * if any files fail to read.
+ * if any files fail to read. Includes error codes and file metadata for diagnostics.
  *
  * @param inScopeFiles - Array of file paths containing in-scope review results
  * @param outOfScopeFiles - Array of file paths containing out-of-scope review results
  * @returns Object with formatted in-scope and out-of-scope sections
- * @throws {ValidationError} If any files fail to read, with details of all failures
+ * @throws {ValidationError} If any files fail to read, with details of all failures including error codes
  *
  * @example
  * // Load results from multiple agent files
@@ -83,23 +144,62 @@ export async function loadReviewResults(
   inScopeFiles: string[] = [],
   outOfScopeFiles: string[] = []
 ): Promise<{ inScope: string; outOfScope: string }> {
-  const errors: Array<{ filePath: string; error: Error; category: 'in-scope' | 'out-of-scope' }> =
-    [];
+  const errors: FileReadError[] = [];
 
   const inScopeResults: string[] = [];
   for (const filePath of inScopeFiles) {
     try {
+      // Check file exists and get metadata before reading
+      const stats = await stat(filePath);
+
+      // Warn if file is empty (possible agent crash during write)
+      if (stats.size === 0) {
+        logger.warn('Review file is empty - possible incomplete write', {
+          filePath,
+          agentName: extractAgentNameFromPath(filePath),
+        });
+      }
+
       const content = await readFile(filePath, 'utf-8');
+
+      // Validate content is non-empty (readFile can succeed on empty file)
+      if (content.trim().length === 0) {
+        throw new Error('File is empty - review agent may not have completed');
+      }
+
       const agentName = extractAgentNameFromPath(filePath);
       inScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
-      errors.push({ filePath, error: errorObj, category: 'in-scope' });
+      const nodeError = errorObj as NodeJS.ErrnoException;
+
+      // Try to get file metadata for diagnostics
+      let fileExists = false;
+      let fileSize: number | undefined;
+      try {
+        const stats = await stat(filePath);
+        fileExists = true;
+        fileSize = stats.size;
+      } catch {
+        // Ignore stat errors, we're already in error path
+      }
+
+      errors.push({
+        filePath,
+        error: errorObj,
+        category: 'in-scope',
+        errorCode: nodeError.code,
+        fileExists,
+        fileSize,
+      });
 
       logger.error('Failed to read in-scope review file', {
         filePath,
         errorMessage: errorObj.message,
-        errorCode: (errorObj as NodeJS.ErrnoException).code,
+        errorCode: nodeError.code,
+        errorStack: errorObj.stack,
+        fileExists,
+        fileSize,
       });
     }
   }
@@ -107,17 +207,57 @@ export async function loadReviewResults(
   const outOfScopeResults: string[] = [];
   for (const filePath of outOfScopeFiles) {
     try {
+      // Check file exists and get metadata before reading
+      const stats = await stat(filePath);
+
+      // Warn if file is empty (possible agent crash during write)
+      if (stats.size === 0) {
+        logger.warn('Review file is empty - possible incomplete write', {
+          filePath,
+          agentName: extractAgentNameFromPath(filePath),
+        });
+      }
+
       const content = await readFile(filePath, 'utf-8');
+
+      // Validate content is non-empty
+      if (content.trim().length === 0) {
+        throw new Error('File is empty - review agent may not have completed');
+      }
+
       const agentName = extractAgentNameFromPath(filePath);
       outOfScopeResults.push(`#### ${agentName}\n\n${content}\n\n---\n`);
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
-      errors.push({ filePath, error: errorObj, category: 'out-of-scope' });
+      const nodeError = errorObj as NodeJS.ErrnoException;
+
+      // Try to get file metadata for diagnostics
+      let fileExists = false;
+      let fileSize: number | undefined;
+      try {
+        const stats = await stat(filePath);
+        fileExists = true;
+        fileSize = stats.size;
+      } catch {
+        // Ignore stat errors, we're already in error path
+      }
+
+      errors.push({
+        filePath,
+        error: errorObj,
+        category: 'out-of-scope',
+        errorCode: nodeError.code,
+        fileExists,
+        fileSize,
+      });
 
       logger.error('Failed to read out-of-scope review file', {
         filePath,
         errorMessage: errorObj.message,
-        errorCode: (errorObj as NodeJS.ErrnoException).code,
+        errorCode: nodeError.code,
+        errorStack: errorObj.stack,
+        fileExists,
+        fileSize,
       });
     }
   }
@@ -125,14 +265,35 @@ export async function loadReviewResults(
   // If ANY files failed, throw comprehensive error with all failure details
   if (errors.length > 0) {
     const errorDetails = errors
-      .map(({ filePath, error, category }) => `  - [${category}] ${filePath}: ${error.message}`)
+      .map(({ filePath, error, category, errorCode, fileExists, fileSize }) => {
+        const code = errorCode ? ` [${errorCode}]` : '';
+        const existence =
+          fileExists !== undefined
+            ? ` (exists: ${fileExists}, size: ${fileSize ?? 'unknown'})`
+            : '';
+        return `  - [${category}] ${filePath}${code}: ${error.message}${existence}`;
+      })
       .join('\n');
 
     const successCount = inScopeFiles.length + outOfScopeFiles.length - errors.length;
 
+    // Classify errors to help user decide action
+    const hasPermissionErrors = errors.some((e) => e.errorCode === 'EACCES');
+    const hasMissingFiles = errors.some((e) => e.errorCode === 'ENOENT');
+    const hasEmptyFiles = errors.some((e) => e.fileExists && e.fileSize === 0);
+
+    let actionHint = '';
+    if (hasMissingFiles) {
+      actionHint =
+        '\nAction: Check that review agents completed successfully before calling this tool.';
+    } else if (hasPermissionErrors) {
+      actionHint = '\nAction: Fix file permissions and retry.';
+    } else if (hasEmptyFiles) {
+      actionHint = '\nAction: Review agents may have crashed during write - check agent logs.';
+    }
+
     throw new ValidationError(
-      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}\n\n` +
-        `Check that all review agents completed successfully and wrote their output files.`
+      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}${actionHint}`
     );
   }
 
@@ -270,7 +431,7 @@ export const ReviewConfigSchema = z.object({
 
 /**
  * Configuration for a review type (PR or Security)
- * TODO(#333, #363): Add readonly modifiers and runtime validation
+ * TODO(#333, #363): Add readonly modifiers (runtime validation via ReviewConfigSchema added)
  */
 export interface ReviewConfig {
   /** Step identifier for Phase 1 */
@@ -292,8 +453,12 @@ export interface ReviewConfig {
 /**
  * Zod schema for ReviewCompletionInput runtime validation
  *
- * All issue counts are validated to be non-negative integers at the schema level.
- * Additional runtime validation in completeReview() provides more detailed error messages.
+ * Issue counts are validated at schema level to be integers (no decimals) >= 0.
+ * Note: Zod .int().nonnegative() does not validate against Infinity, NaN, or
+ * unsafe integers exceeding Number.MAX_SAFE_INTEGER. Additional runtime validation
+ * in completeReview() provides comprehensive checks including finite/safe integer validation.
+ *
+ * @see completeReview for complete validation including Infinity/NaN/overflow checks
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
@@ -313,10 +478,12 @@ export const ReviewCompletionInputSchema = z.object({
 /**
  * Input for review completion
  *
- * Integer validation is enforced in ReviewCompletionInputSchema via `.int().nonnegative()`.
- * Additional runtime validation in completeReview() provides detailed error messages.
+ * Basic integer validation via Zod schema (.int().nonnegative()) catches decimals and negatives.
+ * Complete validation in completeReview() adds: Infinity/NaN checks, safe integer validation,
+ * count vs file array length consistency, and detailed error messages.
  *
  * @see ReviewCompletionInputSchema for Zod schema validation
+ * @see completeReview for complete runtime validation
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
@@ -629,7 +796,7 @@ export async function completeReview(
   const inScopeCount = input.in_scope_count ?? 0;
   const outOfScopeCount = input.out_of_scope_count ?? 0;
 
-  // Validate all numeric counts are non-negative integers
+  // Validate all numeric counts are non-negative safe integers
   const countFields = [
     { name: 'high_priority_issues', value: input.high_priority_issues },
     { name: 'medium_priority_issues', value: input.medium_priority_issues },
@@ -649,6 +816,40 @@ export async function completeReview(
       if (value < 0) {
         throw new ValidationError(`Invalid ${name}: ${value}. Must be non-negative.`);
       }
+      // Check against MAX_SAFE_INTEGER to prevent precision loss
+      if (!Number.isSafeInteger(value)) {
+        logger.error('Issue count exceeds safe integer range - precision may be lost', {
+          fieldName: name,
+          value,
+          maxSafeInteger: Number.MAX_SAFE_INTEGER,
+        });
+        throw new ValidationError(
+          `Invalid ${name}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
+            `Review agent may have returned corrupted data.`
+        );
+      }
+    }
+  }
+
+  // Validate count vs file array length consistency (new file-based format)
+  if (input.in_scope_files || input.out_of_scope_files) {
+    const inScopeFiles = input.in_scope_files ?? [];
+    const outOfScopeFiles = input.out_of_scope_files ?? [];
+
+    if (input.in_scope_count !== undefined && input.in_scope_count !== inScopeFiles.length) {
+      throw new ValidationError(
+        `in_scope_count (${input.in_scope_count}) does not match in_scope_files length (${inScopeFiles.length}). ` +
+          `Agent may have reported incorrect count or missing files.`
+      );
+    }
+    if (
+      input.out_of_scope_count !== undefined &&
+      input.out_of_scope_count !== outOfScopeFiles.length
+    ) {
+      throw new ValidationError(
+        `out_of_scope_count (${input.out_of_scope_count}) does not match out_of_scope_files length (${outOfScopeFiles.length}). ` +
+          `Agent may have reported incorrect count or missing files.`
+      );
     }
   }
 
@@ -660,12 +861,29 @@ export async function completeReview(
     inScopeCount +
     outOfScopeCount;
 
-  // Final validation that total is sane (defense against floating point issues)
+  // Final validation that total is sane (defense against floating point issues and overflow)
   if (!Number.isFinite(rawTotal) || rawTotal < 0) {
     throw new ValidationError(
       `Invalid issue count total (${rawTotal}). Individual counts: ` +
         `high=${input.high_priority_issues}, medium=${input.medium_priority_issues}, ` +
         `low=${input.low_priority_issues}, inScope=${inScopeCount}, outOfScope=${outOfScopeCount}`
+    );
+  }
+  if (!Number.isSafeInteger(rawTotal)) {
+    logger.error('Total issue count exceeds safe integer range', {
+      rawTotal,
+      maxSafeInteger: Number.MAX_SAFE_INTEGER,
+      individualCounts: {
+        high: input.high_priority_issues,
+        medium: input.medium_priority_issues,
+        low: input.low_priority_issues,
+        inScope: inScopeCount,
+        outOfScope: outOfScopeCount,
+      },
+    });
+    throw new ValidationError(
+      `Total issue count (${rawTotal}) exceeds maximum safe integer. ` +
+        `Sum of individual counts produced invalid result.`
     );
   }
 
