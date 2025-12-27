@@ -287,20 +287,36 @@ export interface GitHubPRReviewComment {
 }
 
 /**
+ * Result from getPRReviewComments including parsed comments and skip count
+ */
+export interface PRReviewCommentsResult {
+  /** Successfully parsed review comments */
+  readonly comments: GitHubPRReviewComment[];
+  /** Number of comments that failed to parse and were skipped */
+  readonly skippedCount: number;
+}
+
+/**
  * Get PR review comments from specific user
  *
  * Fetches inline code review comments (not PR comments) from a specific user
  * using GitHub API via gh CLI. These are comments on specific lines of code.
  *
+ * Returns both the parsed comments and a count of any comments that failed to parse.
+ * Callers should check skippedCount and warn users if review data is incomplete.
+ *
  * @param prNumber - PR number to fetch review comments for
  * @param username - GitHub username to filter comments by
  * @param repo - Optional repository in "owner/repo" format
- * @returns Array of review comments from the specified user
+ * @returns Object with parsed comments array and count of skipped malformed comments
  * @throws {GitHubCliError} When API call fails or JSON parsing fails
  *
  * @example
  * ```typescript
- * const comments = await getPRReviewComments(123, "github-code-quality[bot]");
+ * const { comments, skippedCount } = await getPRReviewComments(123, "github-code-quality[bot]");
+ * if (skippedCount > 0) {
+ *   console.warn(`${skippedCount} comments could not be parsed - review data may be incomplete`);
+ * }
  * console.log(`Found ${comments.length} code review comments`);
  * ```
  */
@@ -308,7 +324,7 @@ export async function getPRReviewComments(
   prNumber: number,
   username: string,
   repo?: string
-): Promise<GitHubPRReviewComment[]> {
+): Promise<PRReviewCommentsResult> {
   const resolvedRepo = await resolveRepo(repo);
   // Escape username for safe use in jq filter string context
   const escapedUsername = username.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -323,7 +339,7 @@ export async function getPRReviewComments(
   );
 
   if (!result.trim()) {
-    return [];
+    return { comments: [], skippedCount: 0 };
   }
 
   // Split by newlines and parse each JSON object
@@ -332,27 +348,44 @@ export async function getPRReviewComments(
     .split('\n')
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
+  let skippedCount = 0;
 
-  // Skip malformed comments with warning instead of throwing
+  // Skip malformed comments with error logging instead of throwing
   // This ensures one bad comment doesn't block processing of all remaining valid comments
   // See issues #272, #319, #457, #465 for history
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
     } catch (error) {
-      // Log warning but continue processing other comments
-      logger.warn('Skipping malformed review comment JSON', {
+      skippedCount++;
+      // ERROR level - this is data loss that affects review completeness
+      logger.error('Failed to parse review comment JSON - comment will be skipped', {
         prNumber,
+        username,
         errorMessage: error instanceof Error ? error.message : String(error),
         linePreview: line.substring(0, 100),
         position: comments.length,
+        totalSkipped: skippedCount,
+        impact: 'Review data incomplete - some comments could not be parsed',
       });
-      // Continue to next line instead of throwing
-      continue;
     }
   }
 
-  return comments;
+  // Log summary if any comments were skipped
+  if (skippedCount > 0) {
+    const totalAttempted = comments.length + skippedCount;
+    const skipPercentage = ((skippedCount / totalAttempted) * 100).toFixed(1);
+    logger.error('Some review comments could not be parsed', {
+      prNumber,
+      username,
+      parsedCount: comments.length,
+      skippedCount,
+      skipPercentage: `${skipPercentage}%`,
+      userGuidance: 'Review data may be incomplete. Consider retrying if this persists.',
+    });
+  }
+
+  return { comments, skippedCount };
 }
 
 /**

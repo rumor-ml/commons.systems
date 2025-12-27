@@ -158,8 +158,8 @@ After writing files, return this EXACT JSON structure:
 ```json
 {
   "agent_name": "code-reviewer",
-  "in_scope_file": "$(pwd)/tmp/wiggum-{worktree}/code-reviewer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "$(pwd)/tmp/wiggum-{worktree}/code-reviewer-out-of-scope-{timestamp}.md",
+  "in_scope_file": "$(pwd)/tmp/wiggum/code-reviewer-in-scope-{timestamp}.md",
+  "out_of_scope_file": "$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-{timestamp}.md",
   "in_scope_count": <number>,
   "out_of_scope_count": <number>,
   "severity_breakdown": {

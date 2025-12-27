@@ -1206,7 +1206,20 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   // Fetch code quality bot comments
   // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
   // Current: errors propagate as GitHubCliError without wiggum-specific context
-  const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
+  const { comments, skippedCount } = await getPRReviewComments(
+    state.pr.number,
+    CODE_QUALITY_BOT_USERNAME
+  );
+
+  // Warn if any comments failed to parse - review data may be incomplete
+  if (skippedCount > 0) {
+    logger.warn('Some code quality comments could not be parsed - review may be incomplete', {
+      prNumber: state.pr.number,
+      parsedCount: comments.length,
+      skippedCount,
+      impact: 'Code quality review may miss some findings',
+    });
+  }
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],

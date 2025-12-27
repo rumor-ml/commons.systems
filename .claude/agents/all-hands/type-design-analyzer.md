@@ -209,8 +209,8 @@ After writing files, return this EXACT JSON structure:
 ```json
 {
   "agent_name": "type-design-analyzer",
-  "in_scope_file": "$(pwd)/tmp/wiggum-{worktree}/type-design-analyzer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "$(pwd)/tmp/wiggum-{worktree}/type-design-analyzer-out-of-scope-{timestamp}.md",
+  "in_scope_file": "$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-{timestamp}.md",
+  "out_of_scope_file": "$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-{timestamp}.md",
   "in_scope_count": <number>,
   "out_of_scope_count": <number>,
   "severity_breakdown": {

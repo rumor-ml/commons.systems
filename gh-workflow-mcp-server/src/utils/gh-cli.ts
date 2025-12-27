@@ -200,12 +200,22 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
     steps.get(key)!.lines.push(content);
   }
 
-  // Warn if significant number of lines were skipped
+  // Only warn if skip rate is significant (>5%) or absolute count is high (>10)
+  // This prevents noisy warnings for negligible skip rates (e.g., 1 out of 1000 lines)
   if (skippedCount > 0) {
     const totalLines = output.split('\n').filter((l) => l.trim()).length;
-    console.error(
-      `[gh-workflow] WARN Skipped ${skippedCount} malformed lines in failed step logs (totalLines: ${totalLines}, impact: Some failure details may be missing, suggestion: Check for gh CLI format changes if skip rate is high)`
-    );
+    const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
+
+    if (skipRate > 5 || skippedCount > 10) {
+      console.error(
+        `[gh-workflow] WARN Significant malformed log line rate: ${skippedCount} lines (${skipRate.toFixed(1)}%) could not be parsed (totalLines: ${totalLines}, impact: Some failure details may be missing, suggestion: Check for gh CLI format changes)`
+      );
+    } else {
+      // Low skip rate - debug level for troubleshooting if needed
+      console.error(
+        `[gh-workflow] DEBUG Skipped ${skippedCount} malformed log lines (${skipRate.toFixed(2)}%) - below significance threshold`
+      );
+    }
   }
 
   return Array.from(steps.values());

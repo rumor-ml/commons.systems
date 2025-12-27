@@ -171,7 +171,7 @@ IMPORTANT: You analyze and provide feedback only. Do not modify code or comments
    ```
 
 3. Write findings to both files using Write tool
-   - Use the EXACT structure from "analysis output" section above (lines 123-143): Summary, Critical Issues, etc.
+   - Use the EXACT structure from "analysis output" section above (lines 122-145): Summary, Critical Issues, etc.
    - The structure (section headings, order) MUST be identical in both files
    - Only the specific findings differ (in-scope vs out-of-scope)
    - If Write tool fails, include an "error" field in the JSON summary
@@ -183,8 +183,8 @@ After writing files, return this EXACT JSON structure:
 ```json
 {
   "agent_name": "comment-analyzer",
-  "in_scope_file": "$(pwd)/tmp/wiggum-{worktree}/comment-analyzer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "$(pwd)/tmp/wiggum-{worktree}/comment-analyzer-out-of-scope-{timestamp}.md",
+  "in_scope_file": "$(pwd)/tmp/wiggum/comment-analyzer-in-scope-{timestamp}.md",
+  "out_of_scope_file": "$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-{timestamp}.md",
   "in_scope_count": <number>,
   "out_of_scope_count": <number>,
   "severity_breakdown": {
