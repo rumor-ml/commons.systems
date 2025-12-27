@@ -22,6 +22,63 @@ import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
+import { readFile } from 'fs/promises';
+
+/**
+ * Load verbatim response from file or inline parameter
+ *
+ * @param input - Review completion input
+ * @returns The verbatim response content
+ * @throws ValidationError if neither parameter provided or file unreadable
+ */
+export async function loadVerbatimResponse(input: ReviewCompletionInput): Promise<string> {
+  if (!input.verbatim_response && !input.verbatim_response_file) {
+    throw new ValidationError(
+      `Either verbatim_response or verbatim_response_file must be provided. ` +
+        `Preferred: write review output to /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md ` +
+        `and pass the file path via verbatim_response_file parameter.`
+    );
+  }
+
+  // If both provided: prefer file with warning
+  if (input.verbatim_response && input.verbatim_response_file) {
+    logger.warn(
+      'Both verbatim_response and verbatim_response_file provided - using file (verbatim_response_file takes precedence)',
+      {
+        filePath: input.verbatim_response_file,
+        inlineLength: input.verbatim_response.length,
+      }
+    );
+  }
+
+  // If file path provided: read and return content
+  if (input.verbatim_response_file) {
+    try {
+      const content = await readFile(input.verbatim_response_file, 'utf-8');
+      logger.info('Loaded verbatim response from temp file', {
+        filePath: input.verbatim_response_file,
+        contentLength: content.length,
+      });
+      return content;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error reading file';
+      throw new ValidationError(
+        `Failed to read verbatim_response_file at "${input.verbatim_response_file}": ${errorMessage}. ` +
+          `Ensure the review output was written to the temp file before calling this tool. ` +
+          `File pattern: /tmp/claude/wiggum-{worktree}-{review-type}-{timestamp}.md`
+      );
+    }
+  }
+
+  // If inline: return (deprecated path)
+  logger.warn(
+    'Using deprecated verbatim_response parameter - consider using verbatim_response_file to reduce token usage',
+    {
+      inlineLength: input.verbatim_response!.length,
+    }
+  );
+  return input.verbatim_response!;
+}
 
 /**
  * Zod schema for ReviewConfig runtime validation
@@ -62,7 +119,8 @@ export interface ReviewConfig {
  */
 export const ReviewCompletionInputSchema = z.object({
   command_executed: z.boolean(),
-  verbatim_response: z.string(),
+  verbatim_response: z.string().optional(),
+  verbatim_response_file: z.string().optional(),
   high_priority_issues: z.number(),
   medium_priority_issues: z.number(),
   low_priority_issues: z.number(),
@@ -74,7 +132,8 @@ export const ReviewCompletionInputSchema = z.object({
  */
 export interface ReviewCompletionInput {
   command_executed: boolean;
-  verbatim_response: string;
+  verbatim_response?: string;
+  verbatim_response_file?: string;
   high_priority_issues: number;
   medium_priority_issues: number;
   low_priority_issues: number;
@@ -106,38 +165,45 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
   }
 }
 
+interface IssueCounts {
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}
+
 /**
  * Build comment content based on review results
  * TODO(#334): Add test for phase-specific command selection
  */
 export function buildCommentContent(
-  input: ReviewCompletionInput,
+  verbatimResponse: string,
   reviewStep: WiggumStep,
-  totalIssues: number,
+  issues: IssueCounts,
   config: ReviewConfig,
   phase: WiggumPhase
 ): { title: string; body: string } {
   const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
 
   const title =
-    totalIssues > 0
+    issues.total > 0
       ? `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) - Issues Found`
       : `Step ${reviewStep} (${STEP_NAMES[reviewStep]}) Complete - No Issues`;
 
   const body =
-    totalIssues > 0
+    issues.total > 0
       ? `**Command Executed:** \`${commandExecuted}\`
 
 **${config.reviewTypeLabel} Issues Found:**
-- High Priority: ${input.high_priority_issues}
-- Medium Priority: ${input.medium_priority_issues}
-- Low Priority: ${input.low_priority_issues}
-- **Total: ${totalIssues}**
+- High Priority: ${issues.high}
+- Medium Priority: ${issues.medium}
+- Low Priority: ${issues.low}
+- **Total: ${issues.total}**
 
 <details>
 <summary>Full ${config.reviewTypeLabel} Review Output</summary>
 
-${input.verbatim_response}
+${verbatimResponse}
 
 </details>
 
@@ -219,7 +285,7 @@ async function postStateComment(
 function buildIterationLimitResponse(
   state: CurrentState,
   reviewStep: WiggumStep,
-  totalIssues: number,
+  issues: IssueCounts,
   newIteration: number
 ): ToolResult {
   const output = {
@@ -236,7 +302,7 @@ function buildIterationLimitResponse(
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number:
         state.wiggum.phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-      total_issues: totalIssues,
+      total_issues: issues.total,
     },
   };
   return {
@@ -250,7 +316,7 @@ function buildIterationLimitResponse(
 function buildIssuesFoundResponse(
   state: CurrentState,
   reviewStep: WiggumStep,
-  totalIssues: number,
+  issues: IssueCounts,
   newIteration: number,
   config: ReviewConfig
 ): ToolResult {
@@ -270,7 +336,7 @@ function buildIssuesFoundResponse(
     {
       phase: state.wiggum.phase,
       issueNumber,
-      totalIssues,
+      totalIssues: issues.total,
       iteration: newIteration,
     }
   );
@@ -281,7 +347,7 @@ function buildIssuesFoundResponse(
     current_step: STEP_NAMES[reviewStep],
     step_number: reviewStep,
     iteration_count: newIteration,
-    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, totalIssues),
+    instructions: generateTriageInstructions(issueNumber, reviewTypeForTriage, issues.total),
     steps_completed_by_tool: [
       `Executed ${config.reviewTypeLabel.toLowerCase()} review`,
       state.wiggum.phase === 'phase1' ? 'Posted results to issue' : 'Posted results to PR',
@@ -290,7 +356,7 @@ function buildIssuesFoundResponse(
     context: {
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number: issueNumber,
-      total_issues: totalIssues,
+      total_issues: issues.total,
     },
   };
 
@@ -328,22 +394,29 @@ export async function completeReview(
 
   // TODO(#448): Add validation for non-negative integer issue counts
 
+  // Load verbatim response from file or inline parameter
+  const verbatimResponse = await loadVerbatimResponse(input);
+
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
 
   validatePhaseRequirements(state, config);
 
-  const totalIssues =
-    input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues;
+  const issues: IssueCounts = {
+    high: input.high_priority_issues,
+    medium: input.medium_priority_issues,
+    low: input.low_priority_issues,
+    total: input.high_priority_issues + input.medium_priority_issues + input.low_priority_issues,
+  };
 
   const { title, body } = buildCommentContent(
-    input,
+    verbatimResponse,
     reviewStep,
-    totalIssues,
+    issues,
     config,
     state.wiggum.phase
   );
-  const hasIssues = totalIssues > 0;
+  const hasIssues = issues.total > 0;
   const newState = buildNewState(state, reviewStep, hasIssues);
 
   const result = await postStateComment(state, newState, title, body);
@@ -358,19 +431,14 @@ export async function completeReview(
       phase: state.wiggum.phase,
       prNumber: state.pr.exists ? state.pr.number : undefined,
       issueNumber: state.issue.exists ? state.issue.number : undefined,
-      reviewResults: {
-        high: input.high_priority_issues,
-        medium: input.medium_priority_issues,
-        low: input.low_priority_issues,
-        total: totalIssues,
-      },
+      reviewResults: issues,
     });
 
     const reviewResultsSummary = `**${config.reviewTypeLabel} Review Results (NOT persisted):**
-- High Priority: ${input.high_priority_issues}
-- Medium Priority: ${input.medium_priority_issues}
-- Low Priority: ${input.low_priority_issues}
-- **Total: ${totalIssues}**`;
+- High Priority: ${issues.high}
+- Medium Priority: ${issues.medium}
+- Low Priority: ${issues.low}
+- **Total: ${issues.total}**`;
 
     return {
       content: [
@@ -411,10 +479,7 @@ The workflow will resume from this step once the state comment posts successfull
               pr_number: state.pr.exists ? state.pr.number : undefined,
               issue_number: state.issue.exists ? state.issue.number : undefined,
               review_type: config.reviewTypeLabel,
-              total_issues: totalIssues,
-              high_priority_issues: input.high_priority_issues,
-              medium_priority_issues: input.medium_priority_issues,
-              low_priority_issues: input.low_priority_issues,
+              ...issues,
             },
           }),
         },
@@ -424,11 +489,11 @@ The workflow will resume from this step once the state comment posts successfull
   }
 
   if (newState.iteration >= MAX_ITERATIONS) {
-    return buildIterationLimitResponse(state, reviewStep, totalIssues, newState.iteration);
+    return buildIterationLimitResponse(state, reviewStep, issues, newState.iteration);
   }
 
   if (hasIssues) {
-    return buildIssuesFoundResponse(state, reviewStep, totalIssues, newState.iteration, config);
+    return buildIssuesFoundResponse(state, reviewStep, issues, newState.iteration, config);
   }
 
   // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
