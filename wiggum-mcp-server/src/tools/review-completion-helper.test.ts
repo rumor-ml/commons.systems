@@ -108,13 +108,10 @@ describe('review-completion-helper', () => {
         low_priority_issues: 0,
       };
 
-      await assert.rejects(
-        async () => loadVerbatimResponse(input),
-        {
-          name: 'ValidationError',
-          message: /Either verbatim_response or verbatim_response_file must be provided/,
-        }
-      );
+      await assert.rejects(async () => loadVerbatimResponse(input), {
+        name: 'ValidationError',
+        message: /Either verbatim_response or verbatim_response_file must be provided/,
+      });
     });
 
     it('should throw ValidationError with file pattern when file does not exist', async () => {
@@ -126,13 +123,10 @@ describe('review-completion-helper', () => {
         low_priority_issues: 0,
       };
 
-      await assert.rejects(
-        async () => loadVerbatimResponse(input),
-        {
-          name: 'ValidationError',
-          message: /Failed to read verbatim_response_file.*File pattern:/,
-        }
-      );
+      await assert.rejects(async () => loadVerbatimResponse(input), {
+        name: 'ValidationError',
+        message: /Failed to read verbatim_response_file.*File pattern:/,
+      });
     });
 
     it('should successfully read and return file content', async () => {
@@ -201,13 +195,10 @@ describe('review-completion-helper', () => {
         low_priority_issues: 0,
       };
 
-      await assert.rejects(
-        async () => loadVerbatimResponse(input),
-        {
-          name: 'ValidationError',
-          message: /Failed to read verbatim_response_file/,
-        }
-      );
+      await assert.rejects(async () => loadVerbatimResponse(input), {
+        name: 'ValidationError',
+        message: /Failed to read verbatim_response_file/,
+      });
 
       // Cleanup
       await chmod(tempFile, 0o644);
