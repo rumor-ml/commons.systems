@@ -20,6 +20,7 @@ During PR creation with new types, use the type-design-analyzer to review their 
 </commentary>
 </example>
 model: inherit
+permissionMode: acceptEdits
 color: pink
 ---
 

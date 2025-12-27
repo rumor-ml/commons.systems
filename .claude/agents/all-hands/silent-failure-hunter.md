@@ -23,6 +23,7 @@ Assistant: "Let me proactively use the silent-failure-hunter agent to ensure the
 <Task tool invocation to launch silent-failure-hunter agent>
 </example>
 model: inherit
+permissionMode: acceptEdits
 color: yellow
 ---
 

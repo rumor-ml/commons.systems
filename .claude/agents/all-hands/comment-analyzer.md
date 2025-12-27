@@ -29,6 +29,7 @@ Before finalizing a PR, use the comment-analyzer to review all comment changes.
 </commentary>
 </example>
 model: inherit
+permissionMode: acceptEdits
 color: green
 ---
 

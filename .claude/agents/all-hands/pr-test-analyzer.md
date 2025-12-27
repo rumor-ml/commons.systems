@@ -29,6 +29,7 @@ Daisy wants a final test coverage check before marking PR ready, use the pr-test
 </commentary>
 </example>
 model: inherit
+permissionMode: acceptEdits
 color: cyan
 ---
 

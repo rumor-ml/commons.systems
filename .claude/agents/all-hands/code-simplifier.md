@@ -37,6 +37,7 @@ After completing a performance optimization task, use the code-simplifier agent 
 assistant: "Now I'll use the code-simplifier agent to ensure the optimized code is also clear and follows our coding standards"
 </example>
 model: opus
+permissionMode: acceptEdits
 ---
 
 ## CRITICAL: Issue Context and Scope Awareness

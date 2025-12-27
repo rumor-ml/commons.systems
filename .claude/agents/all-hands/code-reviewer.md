@@ -30,6 +30,7 @@ Proactively review code before PR creation to avoid review comments and iteratio
 </commentary>
 </example>
 model: opus
+permissionMode: acceptEdits
 color: green
 ---
 
