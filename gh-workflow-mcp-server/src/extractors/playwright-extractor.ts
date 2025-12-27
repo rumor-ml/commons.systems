@@ -250,17 +250,8 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return this.parsePlaywrightText(logText, maxErrors);
     }
 
-    // Check if this might be Playwright with missing/invalid JSON
-    // by attempting to extract and parse JSON
-    if (logText.includes('"suites":') || logText.includes('"config":')) {
-      // Has Playwright JSON markers but detection failed - likely extraction/parse error
-      return this.parsePlaywrightJson(logText, maxErrors);
-    }
-
-    // No Playwright detected - but still try parsePlaywrightJson to provide
-    // a helpful error message about missing JSON if that's the issue
-    // This handles cases where someone calls extract() on a Playwright extractor
-    // with text that has no JSON and no Playwright markers
+    // No Playwright detected - try parsePlaywrightJson anyway to provide
+    // a helpful error message (e.g., missing JSON, wrong reporter config)
     return this.parsePlaywrightJson(logText, maxErrors);
   }
 
@@ -329,16 +320,14 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
     } else if (timeGap === null && (setupTimestamp || configTimestamp)) {
-      // Show diagnostic only if timestamps exist but parsing failed
-      message += `\n\nCould not determine time gap between events. `;
-      if (timeDiagnostic) {
-        message += `Diagnostic: ${timeDiagnostic}\n`;
-      } else {
-        message += `Timestamps: ${setupTimestamp || '?'} → ${configTimestamp || '?'}\n`;
-      }
-      message += `This may indicate log format changes or timestamp extraction issues. `;
+      // Timestamps exist but parsing failed - show diagnostic context
+      const diagnosticInfo =
+        timeDiagnostic || `Timestamps: ${setupTimestamp || '?'} → ${configTimestamp || '?'}`;
+      message +=
+        `\n\nCould not determine time gap between events. ` +
+        `Diagnostic: ${diagnosticInfo}\n` +
+        `This may indicate log format changes or timestamp extraction issues. `;
     } else if (timeGap === undefined) {
-      // No timestamps found at all - less critical
       message += `No timestamp information available in logs. `;
     }
 
@@ -612,15 +601,11 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       }
       report = validationResult.data;
     } catch (parseErr) {
-      // Expected errors from this block:
-      // - SyntaxError: JSON.parse fails on malformed JSON (user error - bad reporter config)
-      // - Error: Zod validation fails (user error - incomplete/wrong JSON structure)
-      // Any other error type is a bug (OOM, V8 internal errors, etc.) and should propagate with context
-      if (!(parseErr instanceof SyntaxError || parseErr instanceof Error)) {
-        // Unexpected non-Error thrown (extremely rare: OOM, internal V8 errors)
-        const errorMsg = String(parseErr);
+      // Expected errors: SyntaxError (malformed JSON) or Error (Zod validation)
+      // Non-Error throws are bugs (OOM, V8 internal errors) - propagate with context
+      if (!(parseErr instanceof Error)) {
         throw new Error(
-          `Unexpected non-Error exception during JSON parsing: ${errorMsg}. ` +
+          `Unexpected non-Error exception during JSON parsing: ${String(parseErr)}. ` +
             `This indicates a critical runtime issue.`,
           { cause: parseErr }
         );

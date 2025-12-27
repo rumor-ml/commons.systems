@@ -903,6 +903,22 @@ No JSON here at all
       assert.ok(result.errors[0].message.includes('missing required fields'));
       assert.ok(result.errors[0].message.includes('suites'));
     });
+
+    test('extractJsonFromLogs handles compact JSON shorter than initial offset', () => {
+      // Compact JSON that completes before jsonStart + 10 lines
+      const logOutput = `
+2025-11-29T21:44:33.123Z {
+2025-11-29T21:44:33.124Z "config": {"configFile": "test.config.ts"},
+2025-11-29T21:44:33.125Z "suites": []
+2025-11-29T21:44:33.126Z }
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 0);
+      // Verify it successfully extracted despite being < 10 lines
+    });
   });
 
   describe('PlaywrightExtractor - Timeout diagnostic edge cases', () => {
@@ -954,6 +970,23 @@ Some output
       assert.strictEqual(result.errors.length, 1);
       // Should mention no timestamp information available
       assert.ok(result.errors[0].message.includes('No timestamp information available'));
+    });
+
+    test('parsePlaywrightTimeout handles validation failures gracefully', () => {
+      // Simulate timeout scenario with data that fails validation
+      const logOutput = `
+Global setup complete
+{"config": {"configFile": "playwright.config.ts"}}
+`;
+
+      const result = extractor.extract(logOutput);
+
+      assert.strictEqual(result.framework, 'playwright');
+      assert.strictEqual(result.errors.length, 1);
+      assert.ok(result.errors[0].message.includes('Playwright was interrupted'));
+      // Verify rawOutput meets schema requirements (non-empty array)
+      assert.ok(Array.isArray(result.errors[0].rawOutput));
+      assert.ok(result.errors[0].rawOutput.length > 0);
     });
   });
 });
@@ -1216,10 +1249,10 @@ describe('Validation Infrastructure', async () => {
       ]);
       const fallback = createFallbackError('test #5', { message: 'test' }, validationError);
 
-      assert.ok(fallback.message.includes('... (truncated)'));
+      assert.ok(fallback.message.includes('... (truncated, see logs for full details)'));
       // The total message should be longer than 500 but the validation details part should be truncated
       const validationPart = fallback.message.split('Validation errors: ')[1]?.split('\n\n')[0];
-      assert.ok(validationPart && validationPart.length <= 515); // 500 + "... (truncated)"
+      assert.ok(validationPart && validationPart.length <= 550); // 500 + "... (truncated, see logs for full details)"
     });
   });
 

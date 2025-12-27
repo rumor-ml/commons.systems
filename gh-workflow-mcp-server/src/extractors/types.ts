@@ -133,7 +133,14 @@ export function createFallbackError(
   const validationDetails = formatValidationError(validationError);
   const truncatedDetails =
     validationDetails.length > 500
-      ? validationDetails.substring(0, 500) + '... (truncated)'
+      ? (() => {
+          // Log full details before truncating
+          console.error(
+            `[WARN] createFallbackError: Truncating validation details for ${context}.\n` +
+              `Full details (${validationDetails.length} chars):\n${validationDetails}`
+          );
+          return validationDetails.substring(0, 500) + '... (truncated, see logs for full details)';
+        })()
       : validationDetails;
 
   let message = `Malformed test output detected for ${context}.\n\n`;
