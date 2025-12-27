@@ -21,6 +21,23 @@ const (
 	messagePropagationDelay = 100 * time.Millisecond // Best-effort delay after send (not an ack mechanism)
 )
 
+// queryResponse holds both data and error channels for query responses
+type queryResponse struct {
+	dataCh chan Message // Receives successful responses
+	errCh  chan error   // Receives error notifications (channel full, closed)
+}
+
+// newQueryResponse creates a queryResponse with properly buffered channels.
+// Both channels have buffer size 1 to prevent blocking in the DaemonClient receive loop
+// when routing query responses to waiting callers.
+// TODO(#534): Clarify mechanism - how buffer size 1 prevents blocking and handles backpressure
+func newQueryResponse() *queryResponse {
+	return &queryResponse{
+		dataCh: make(chan Message, 1),
+		errCh:  make(chan error, 1),
+	}
+}
+
 // DaemonClient represents a client connection to the alert daemon.
 type DaemonClient struct {
 	clientID   string
@@ -49,21 +66,6 @@ type DaemonClient struct {
 	queryMu        sync.Mutex                // Protects queryResponses map
 }
 
-// queryResponse holds both data and error channels for query responses
-type queryResponse struct {
-	dataCh chan Message // Receives successful responses
-	errCh  chan error   // Receives error notifications (channel full, closed)
-}
-
-// newQueryResponse creates a queryResponse with properly buffered channels.
-// Both channels have buffer size 1 to prevent blocking in the receive loop.
-func newQueryResponse() *queryResponse {
-	return &queryResponse{
-		dataCh: make(chan Message, 1),
-		errCh:  make(chan error, 1),
-	}
-}
-
 // NewDaemonClient creates a new daemon client.
 func NewDaemonClient() *DaemonClient {
 	return &DaemonClient{
@@ -84,6 +86,8 @@ func (c *DaemonClient) sendMessage(msg Message) error {
 
 // sendAndWait sends a message and waits a fixed delay to allow the daemon
 // time to process it. This is best-effort timing, not an acknowledgment.
+// WARNING: Callers should not assume message delivery or processing completion after this returns.
+// TODO(#535): Expand WARNING to explain why (100ms timeout) and suggest alternatives (query/response patterns)
 func (c *DaemonClient) sendAndWait(msg Message) error {
 	if err := c.sendMessage(msg); err != nil {
 		return err
@@ -196,6 +200,7 @@ func (c *DaemonClient) receive() {
 		}
 
 		// Gap detection: Check sequence numbers for missed messages
+		// TODO(#520): Add test for sequence number wraparound from MaxUint64 to 0
 		if msg.SeqNum > 0 {
 			lastSeq := c.lastSeq.Load()
 			if lastSeq > 0 && msg.SeqNum > lastSeq+1 {
