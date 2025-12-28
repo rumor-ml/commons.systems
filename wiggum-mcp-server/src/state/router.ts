@@ -63,20 +63,20 @@ type CurrentStateWithPR = CurrentState & {
  * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
- * @deprecated (since v1.5.0, removal planned for v2.0.0): The `isTransient` field is
- * redundant - use `success === false` to detect transient failures.
+ * @deprecated The `isTransient` field is structurally redundant in this discriminated union.
  *
- * Migration guide:
- *   // Old code:
- *   if (!result.success && result.isTransient) { retry(); }
+ * When `success === false`, the failure is ALWAYS transient (rate limit or network).
+ * Critical errors (404, auth) throw immediately and never return a failure result.
  *
- *   // New code:
- *   if (!result.success) { retry(); } // failures are transient - reason tells you why
+ * Migration: Replace `result.isTransient` checks with `!result.success`:
+ *   // Before:
+ *   if (!result.success && result.isTransient) { handleTransient(); }
  *
- * In the current design, all StateUpdateResult failures are transient (rate limit or network).
- * Critical errors (404, auth) throw immediately and don't return failure results.
- * Use `reason` field to distinguish failure types for logging/metrics.
- * TODO(#800): Remove isTransient field after migrating all consumers.
+ *   // After:
+ *   if (!result.success) { handleTransient(); }
+ *
+ * Use `result.reason` to distinguish 'rate_limit' vs 'network' failures for logging/metrics.
+ * Removal blocked by: Need to update call sites in router.ts, init.ts (TODO: #800)
  */
 export type StateUpdateResult =
   | { readonly success: true }
@@ -425,16 +425,22 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-  // Defensive: This should be unreachable if loop logic is correct. However, TypeScript's
-  // flow analysis cannot prove the loop always terminates (via return/throw), so it
-  // requires this code path to satisfy exhaustiveness checking.
+  // DEFENSIVE: This code path should be unreachable if retry logic is correct.
   //
-  // The loop executes at least once (maxRetries >= 1 validated above), and each iteration either:
-  //   1. Returns success after updatePRBodyState() succeeds
-  //   2. Throws for critical errors (404, auth)
-  //   3. Returns failure result after all retries exhausted (transient errors)
-  //   4. Throws for unexpected errors (else branch in catch)
-  // If reached at runtime, indicates a programming error in the retry logic above (issue #625).
+  // TypeScript requires this because it cannot statically prove all code paths in the
+  // catch block either return or throw. While we believe all error types are classified,
+  // TypeScript's control flow analysis is conservative and requires exhaustive handling.
+  //
+  // The retry loop SHOULD always exit via one of these paths:
+  //   1. Return { success: true } on successful state update
+  //   2. Throw immediately for critical errors (404, 401/403)
+  //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
+  //   4. Throw for unexpected/unclassified errors
+  //
+  // If this code executes at runtime, it indicates:
+  //   - An error type we failed to classify in the catch block
+  //   - A logic bug in the retry loop structure
+  // This is a programming error and should be investigated (issue #625).
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -677,16 +683,22 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-  // Defensive: This should be unreachable if loop logic is correct. However, TypeScript's
-  // flow analysis cannot prove the loop always terminates (via return/throw), so it
-  // requires this code path to satisfy exhaustiveness checking.
+  // DEFENSIVE: This code path should be unreachable if retry logic is correct.
   //
-  // The loop executes at least once (maxRetries >= 1 validated above), and each iteration either:
-  //   1. Returns success after updateIssueBodyState() succeeds
-  //   2. Throws for critical errors (404, auth)
-  //   3. Returns failure result after all retries exhausted (transient errors)
-  //   4. Throws for unexpected errors (else branch in catch)
-  // If reached at runtime, indicates a programming error in the retry logic above (issue #625).
+  // TypeScript requires this because it cannot statically prove all code paths in the
+  // catch block either return or throw. While we believe all error types are classified,
+  // TypeScript's control flow analysis is conservative and requires exhaustive handling.
+  //
+  // The retry loop SHOULD always exit via one of these paths:
+  //   1. Return { success: true } on successful state update
+  //   2. Throw immediately for critical errors (404, 401/403)
+  //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
+  //   4. Throw for unexpected/unclassified errors
+  //
+  // If this code executes at runtime, it indicates:
+  //   - An error type we failed to classify in the catch block
+  //   - A logic bug in the retry loop structure
+  // This is a programming error and should be investigated (issue #625).
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,

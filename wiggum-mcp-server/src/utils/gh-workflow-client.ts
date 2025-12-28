@@ -46,19 +46,25 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
     throw new Error(`No valid text content in ${toolName} response for ${context}`);
   }
 
-  // Empty text content may indicate various issues - requires diagnosis
-  // IMPORTANT: Empty response does NOT definitively prove upstream failure
-  // Possible causes include: no data found, silent tool crash, rate limit, network issue
+  // Empty text content has two distinct causes:
+  // 1. LEGITIMATE: Tool executed successfully but found no data (e.g., no workflow failures)
+  // 2. FAILURE: Tool malfunction, API issue, or data loss
+  //
+  // Without additional context, we treat empty responses as errors (fail-safe approach).
+  // To diagnose, check gh-workflow-mcp-server logs for:
+  //   - "No failures found" or similar messages (legitimate empty result)
+  //   - Error/exception stack traces (tool crash)
+  //   - Rate limit warnings from GitHub API
+  //   - Network timeout messages
   if (textContent.text.length === 0) {
-    logger.error(`Empty text content in ${toolName} response - check tool logs for cause`, {
+    logger.error(`Empty text content in ${toolName} response - ambiguous failure`, {
       context,
-      possibleCauses: [
-        'Tool found no data to return (e.g., no workflow failures to report)',
-        'Tool crashed silently and returned empty response',
-        'GitHub API rate limiting returned empty content',
-        'Network issue caused truncated response',
+      diagnosticSteps: [
+        '1. Check gh-workflow-mcp-server logs for tool execution details',
+        '2. Verify GitHub API rate limit: gh api rate_limit',
+        '3. Confirm network connectivity: gh auth status',
+        '4. Review tool schema - may return empty string for "no data" case',
       ],
-      action: 'Check gh-workflow-mcp-server logs for diagnostic details',
     });
     throw new Error(
       `Empty content from ${toolName} for ${context}. ` +
@@ -186,12 +192,16 @@ async function callToolWithRetry(
       }
 
       // Check if it's the MCP timeout error (retryable)
-      // Detection priority:
-      // 1. errorCode === -32001 (MCP-specific, most reliable)
-      // 2. error.name === 'TimeoutError' (standard Error subclass)
-      // 3. Message pattern matching (fragile fallback)
-      // NOTE: If timeout detection via message pattern is used (errorCode undefined),
-      // log a WARN as this is fragile and may break if MCP SDK changes error message wording
+      // Detection strategy (in priority order):
+      // 1. errorCode === -32001: MCP spec-defined timeout code (most reliable - part of protocol)
+      // 2. error.name === 'TimeoutError': Standard Error subclass (reliable - JavaScript convention)
+      // 3. Message pattern matching: Regex fallback (brittle - depends on exact error message wording)
+      //
+      // Why pattern matching is brittle:
+      //   - Not part of MCP spec or JavaScript standard
+      //   - Can break if SDK changes error message text
+      //   - Different Node/SDK versions may phrase errors differently
+      // We log a warning when pattern matching is used to track SDK version differences.
       const errorName = error instanceof Error ? error.name : undefined;
       const isTimeout =
         error instanceof Error &&
@@ -200,15 +210,15 @@ async function callToolWithRetry(
           /\b(request|operation) timed? ?out\b/i.test(errorMessage));
 
       if (isTimeout) {
-        // Log when using fragile detection methods (not error code)
+        // Log when using brittle detection methods (pattern matching instead of error code/name)
         if (errorCode !== -32001 && errorName !== 'TimeoutError') {
-          logger.warn('Timeout detected via fragile message pattern', {
+          logger.warn('Timeout detected via brittle message pattern matching', {
             toolName,
             errorMessage,
             errorCode,
             errorName,
-            impact: 'Pattern may break in future MCP SDK versions',
-            action: 'Consider using error.name or structured error types',
+            impact: 'Pattern may break if MCP SDK changes error message wording',
+            action: 'Monitor for SDK updates that expose structured timeout errors',
           });
         }
         // Calculate attempt count estimate (elapsed time / 60s SDK timeout)
@@ -519,7 +529,7 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
 
     logger.error('Failed to parse conclusion from gh_monitor_run response', {
       branch,
-      textSnippet, // Truncated for log safety
+      textSnippet,
       textLength: text.length,
       expectedPattern: 'Conclusion: <value>',
       action: 'Check if gh-workflow-mcp-server output format changed',
