@@ -65,13 +65,13 @@ type CurrentStateWithPR = CurrentState & {
  * transient failures). This field is retained for API stability but is technically redundant.
  */
 export type StateUpdateResult =
-  | { success: true }
+  | { readonly success: true }
   | {
-      success: false;
-      reason: 'rate_limit' | 'network';
-      isTransient: true;
-      lastError: Error;
-      attemptCount: number;
+      readonly success: false;
+      readonly reason: 'rate_limit' | 'network';
+      readonly isTransient: true;
+      readonly lastError: Error;
+      readonly attemptCount: number;
     };
 
 /**
@@ -308,13 +308,16 @@ export async function safeUpdatePRBodyState(
         const reason = isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds (2s, 4s, 8s for maxRetries=3)
-          // Note: No cap on delay - with higher maxRetries, delays can grow large (16s, 32s, etc.)
-          const delayMs = Math.pow(2, attempt) * 1000;
+          // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
+          // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
           logger.info('Transient error updating state - retrying with backoff', {
             ...errorContext,
             reason,
             delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
             remainingAttempts: maxRetries - attempt,
           });
           await sleep(delayMs);
@@ -494,13 +497,16 @@ export async function safeUpdateIssueBodyState(
         const reason = isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds (2s, 4s, 8s for maxRetries=3)
-          // Note: No cap on delay - with higher maxRetries, delays can grow large (16s, 32s, etc.)
-          const delayMs = Math.pow(2, attempt) * 1000;
+          // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
+          // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
           logger.info('Transient error updating state - retrying with backoff', {
             ...errorContext,
             reason,
             delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
             remainingAttempts: maxRetries - attempt,
           });
           await sleep(delayMs);

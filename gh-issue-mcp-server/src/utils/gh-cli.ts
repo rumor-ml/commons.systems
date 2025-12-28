@@ -327,15 +327,8 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code if present (duck-typed from error object)
-      // Note: exitCode may be undefined if:
-      //   - Error object doesn't expose exitCode property (e.g., generic Error, network timeout)
-      //   - Error was thrown before gh CLI invocation (e.g., validation errors in ghCli() wrapper)
-      //   - Error library doesn't set exitCode field (implementation-dependent)
-      // When undefined, we fall back to extracting HTTP status codes from error message text.
-      // Note: exitCode may be a subprocess exit code (e.g., 1, 127) rather than HTTP status (429, 502).
-      // This fallback improves reliability for isRetryableError() by providing exit code
-      // for accurate HTTP status detection (429, 502-504), reducing reliance on fragile string matching.
+      // Extract exit code from error object (may be undefined - see function JSDoc for details)
+      // Fallback: Extract HTTP status from error message text when exitCode unavailable
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message

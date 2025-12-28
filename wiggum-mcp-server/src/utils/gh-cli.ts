@@ -273,17 +273,17 @@ export async function postPRComment(prNumber: number, body: string, repo?: strin
  * Note: This is a subset of the full API response - includes common fields
  */
 export interface GitHubPRReviewComment {
-  id: number;
-  user: {
-    login: string;
+  readonly id: number;
+  readonly user: {
+    readonly login: string;
   };
-  body: string;
-  path: string;
-  position?: number;
-  line?: number;
-  created_at: string;
-  updated_at: string;
-  [key: string]: unknown; // Allow additional fields from GitHub API
+  readonly body: string;
+  readonly path: string;
+  readonly position?: number;
+  readonly line?: number;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly [key: string]: unknown; // Allow additional fields from GitHub API
 }
 
 /**
@@ -291,7 +291,7 @@ export interface GitHubPRReviewComment {
  */
 export interface PRReviewCommentsResult {
   /** Successfully parsed review comments */
-  readonly comments: GitHubPRReviewComment[];
+  readonly comments: readonly GitHubPRReviewComment[];
   /** Number of comments that failed to parse and were skipped */
   readonly skippedCount: number;
   /** User-facing warning when skippedCount > 0, describing data incompleteness */
@@ -649,7 +649,13 @@ export async function ghCliWithRetry(
       //   - Error may come from various error classes (GitHubCliError, execa.Error, or wrapped errors)
       //   - We can't rely on instanceof because error chain may lose type information
       //   - Duck-typing ({ exitCode?: number }) works for any object with exitCode property
-      // Note: exitCode may still be undefined when:
+      // Note: exitCode may be a subprocess exit code (e.g., 1=generic error, 127=command not found)
+      // rather than HTTP status (429, 502). Subprocess codes occur when gh CLI fails before making
+      // HTTP requests (validation errors, missing commands). These don't match retryable HTTP codes
+      // and fall through to Priority 2/3 checks in isRetryableError(), which is correct behavior -
+      // gh CLI failures before HTTP requests aren't transient network issues.
+      //
+      // exitCode may be undefined when:
       //   - Error is generic Error without exitCode (network timeouts, subprocess crashes)
       //   - gh CLI didn't set HTTP status before exiting
       //   - Error originated before CLI invocation (e.g., cwd resolution failure)
