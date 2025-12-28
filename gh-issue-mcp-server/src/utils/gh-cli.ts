@@ -165,7 +165,9 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Instead, we always fall through to Priority 2/3 checks because:
   //   - The error may ALSO have a retryable Node.js error code (ETIMEDOUT, ECONNRESET)
   //   - The error message may contain retryable patterns even with non-retryable HTTP status
-  // This conservative approach ensures we don't miss retryable conditions.
+  // This aggressive retry strategy prioritizes recovering from transient failures even when
+  // HTTP status suggests the error may not be retryable. Trade-off: May retry errors that
+  // should fail fast (like 404 with network timeout during the request).
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -293,6 +295,16 @@ export async function ghCliWithRetry(
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
+  // Validate maxRetries to ensure loop executes at least once
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
+  // resulting in a confusing "Unexpected retry failure" error with no context
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    throw new GitHubCliError(
+      `ghCliWithRetry: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Command: gh ${args.join(' ')}`
+    );
+  }
+
   let lastError: Error | undefined;
   let firstError: Error | undefined;
   let lastExitCode: number | undefined;
@@ -345,9 +357,11 @@ export async function ghCliWithRetry(
             // - classifyErrorType() uses exitCode for detailed logging (rate_limit, permission, not_found, etc.)
             // - A 404 exitCode helps log "not_found" vs generic "unknown" error type
             // Validation criteria:
-            // - Must be finite (rejects Infinity/NaN from malformed input like "status: Infinity")
-            // - Must be safe integer (rejects decimals from "status: 429.5")
+            // - Must be finite (rejects NaN from unparseable input like "status: abc")
+            // - Must be safe integer (ensures parsed value is within JavaScript safe integer range)
             // - Must be in HTTP range (100-599 per RFC 7231)
+            // Note: parseInt("429.5", 10) returns 429 (decimal stripped during parsing, not rejected by validation)
+            // Note: parseInt("Infinity", 10) returns NaN (rejected by isFinite check)
             // Note: parseInt("429abc", 10) returns 429 - this is intentional for robustness
             if (
               Number.isFinite(parsed) &&
@@ -440,5 +454,18 @@ export async function ghCliWithRetry(
     }
   }
 
-  throw lastError || new Error('Unexpected retry failure');
+  // This should be unreachable with maxRetries >= 1 validation above
+  // If reached, provide full diagnostic context for debugging
+  console.error(
+    `[gh-issue] ERROR INTERNAL: ghCliWithRetry loop completed without returning (maxRetries: ${maxRetries}, lastExitCode: ${lastExitCode}, command: gh ${args.join(' ')}, lastError: ${lastError?.message ?? 'none'})`
+  );
+  throw (
+    lastError ||
+    new GitHubCliError(
+      `INTERNAL ERROR: ghCliWithRetry loop completed without returning. ` +
+        `This indicates a programming error in retry logic. ` +
+        `Command: gh ${args.join(' ')}, maxRetries: ${maxRetries}, ` +
+        `lastError: none, lastExitCode: ${lastExitCode ?? 'undefined'}`
+    )
+  );
 }

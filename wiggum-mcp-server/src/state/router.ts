@@ -57,18 +57,18 @@ type CurrentStateWithPR = CurrentState & {
  * Transient errors are logged and cause workflow to halt gracefully with
  * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
  *
- * Failure cases include lastError and attemptCount for debugging (issue #625):
- * - lastError: The actual error from the final retry attempt
- * - attemptCount: Number of retry attempts made before failure
+ * Failure cases REQUIRE lastError and attemptCount for debugging (issue #625):
+ * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
+ * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  */
-type StateUpdateResult =
+export type StateUpdateResult =
   | { success: true }
   | {
       success: false;
       reason: 'rate_limit' | 'network';
       isTransient: true;
-      lastError?: Error;
-      attemptCount?: number;
+      lastError: Error;
+      attemptCount: number;
     };
 
 interface WiggumInstructions {
@@ -172,6 +172,22 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Validate maxRetries to ensure loop executes at least once
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
+      prNumber,
+      step,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
+      phase: state.phase,
+      impact: 'Cannot execute retry loop with invalid parameter',
+    });
+    throw new Error(
+      `safeUpdatePRBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+    );
+  }
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await updatePRBodyState(prNumber, state);
@@ -304,13 +320,22 @@ export async function safeUpdatePRBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // Runtime guarantee: The for loop condition (attempt <= maxRetries) ensures at least one iteration
-  // when maxRetries >= 1 (enforced by default parameter maxRetries=3), making this line unreachable at runtime.
-  // All code paths within the loop return or throw:
-  // - Success: returns { success: true }
-  // - Transient error (retries exhausted): returns { success: false, ... }
-  // - Critical/unexpected error: throws
-  throw new Error('Unreachable: retry loop should always return or throw');
+  // Runtime guarantee: With maxRetries >= 1 validation above, the loop executes at least once,
+  // and all code paths within return or throw. This should be unreachable.
+  logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
+    prNumber,
+    step,
+    maxRetries,
+    phase: state.phase,
+    iteration: state.iteration,
+    stateJson: JSON.stringify(state),
+    impact: 'Programming error in retry logic',
+  });
+  throw new Error(
+    `INTERNAL ERROR: safeUpdatePRBodyState retry loop completed without returning. ` +
+      `PR: #${prNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+      `Phase: ${state.phase}, Iteration: ${state.iteration}`
+  );
 }
 
 /**
@@ -338,6 +363,22 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Validate maxRetries to ensure loop executes at least once
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
+      issueNumber,
+      step,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
+      phase: state.phase,
+      impact: 'Cannot execute retry loop with invalid parameter',
+    });
+    throw new Error(
+      `safeUpdateIssueBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+    );
+  }
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await updateIssueBodyState(issueNumber, state);
@@ -464,13 +505,22 @@ export async function safeUpdateIssueBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // Runtime guarantee: The for loop condition (attempt <= maxRetries) ensures at least one iteration
-  // when maxRetries >= 1 (enforced by default parameter maxRetries=3), making this line unreachable at runtime.
-  // All code paths within the loop return or throw:
-  // - Success: returns { success: true }
-  // - Transient error (retries exhausted): returns { success: false, ... }
-  // - Critical/unexpected error: throws
-  throw new Error('Unreachable: retry loop should always return or throw');
+  // Runtime guarantee: With maxRetries >= 1 validation above, the loop executes at least once,
+  // and all code paths within return or throw. This should be unreachable.
+  logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
+    issueNumber,
+    step,
+    maxRetries,
+    phase: state.phase,
+    iteration: state.iteration,
+    stateJson: JSON.stringify(state),
+    impact: 'Programming error in retry logic',
+  });
+  throw new Error(
+    `INTERNAL ERROR: safeUpdateIssueBodyState retry loop completed without returning. ` +
+      `Issue: #${issueNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+      `Phase: ${state.phase}, Iteration: ${state.iteration}`
+  );
 }
 
 /**
@@ -1570,12 +1620,6 @@ Final actions:
 function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
   return state.pr.exists && state.pr.state === 'OPEN';
 }
-
-/**
- * Export StateUpdateResult type for use by other modules
- * Note: safeUpdatePRBodyState and safeUpdateIssueBodyState are exported at their declarations above
- */
-export type { StateUpdateResult };
 
 /**
  * Export internal functions for testing

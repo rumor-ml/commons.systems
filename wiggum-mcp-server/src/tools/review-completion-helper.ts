@@ -335,13 +335,16 @@ async function readReviewFile(
       fileExists = true;
       fileSize = stats.size;
     } catch (statError) {
-      // Log stat failure for debugging - this helps distinguish permission vs existence issues
-      logger.debug('stat() failed during file read error recovery', {
+      // WARN level - this helps distinguish permission vs existence issues during error recovery
+      // Elevated from DEBUG because this information is critical for diagnosing file read failures
+      logger.warn('stat() failed during file read error recovery', {
         filePath,
+        category,
         originalError: errorObj.message,
         statError: statError instanceof Error ? statError.message : String(statError),
         statErrorCode: (statError as NodeJS.ErrnoException).code,
         impact: 'Cannot determine if file exists or has permission issues',
+        action: 'Check file system permissions and existence manually',
       });
     }
 
@@ -820,8 +823,17 @@ async function retryStateUpdate(
   // Validate maxRetries to ensure loop executes at least once
   // Prevents edge case where maxRetries < 1 would skip the loop entirely
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    logger.error('retryStateUpdate: Invalid maxRetries parameter', {
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
+      phase: state.wiggum.phase,
+      step: newState.step,
+      prNumber: state.pr.exists ? state.pr.number : undefined,
+      issueNumber: state.issue.exists ? state.issue.number : undefined,
+      impact: 'Cannot execute retry loop with invalid parameter',
+    });
     throw new ValidationError(
-      `retryStateUpdate: maxRetries must be a positive integer, got: ${maxRetries}`
+      `retryStateUpdate: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
     );
   }
 

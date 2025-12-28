@@ -665,6 +665,16 @@ export async function ghCliWithRetry(
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
+  // Validate maxRetries to ensure loop executes at least once
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
+  // resulting in a confusing "Unexpected retry failure" error with no context
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    throw new GitHubCliError(
+      `ghCliWithRetry: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Command: gh ${args.join(' ')}`
+    );
+  }
+
   let lastError: Error | undefined;
   let firstError: Error | undefined;
   let lastExitCode: number | undefined;
@@ -803,5 +813,18 @@ export async function ghCliWithRetry(
     }
   }
 
-  throw lastError || new Error('Unexpected retry failure');
+  // This should be unreachable with maxRetries >= 1 validation above
+  // If reached, provide full diagnostic context for debugging
+  console.error(
+    `[gh-workflow] ERROR INTERNAL: ghCliWithRetry loop completed without returning (maxRetries: ${maxRetries}, lastExitCode: ${lastExitCode}, command: gh ${args.join(' ')}, lastError: ${lastError?.message ?? 'none'})`
+  );
+  throw (
+    lastError ||
+    new GitHubCliError(
+      `INTERNAL ERROR: ghCliWithRetry loop completed without returning. ` +
+        `This indicates a programming error in retry logic. ` +
+        `Command: gh ${args.join(' ')}, maxRetries: ${maxRetries}, ` +
+        `lastError: none, lastExitCode: ${lastExitCode ?? 'undefined'}`
+    )
+  );
 }
