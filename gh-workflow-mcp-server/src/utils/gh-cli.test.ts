@@ -8,59 +8,72 @@ import { mapStateToStatus, mapStateToConclusion } from './gh-cli.js';
 
 describe('mapStateToStatus', () => {
   test('maps PENDING to in_progress', () => {
-    assert.strictEqual(mapStateToStatus('PENDING'), 'in_progress');
+    assert.deepStrictEqual(mapStateToStatus('PENDING'), { status: 'in_progress' });
   });
 
   test('maps QUEUED to in_progress', () => {
-    assert.strictEqual(mapStateToStatus('QUEUED'), 'in_progress');
+    assert.deepStrictEqual(mapStateToStatus('QUEUED'), { status: 'in_progress' });
   });
 
   test('maps IN_PROGRESS to in_progress', () => {
-    assert.strictEqual(mapStateToStatus('IN_PROGRESS'), 'in_progress');
+    assert.deepStrictEqual(mapStateToStatus('IN_PROGRESS'), { status: 'in_progress' });
   });
 
   test('maps WAITING to in_progress', () => {
-    assert.strictEqual(mapStateToStatus('WAITING'), 'in_progress');
+    assert.deepStrictEqual(mapStateToStatus('WAITING'), { status: 'in_progress' });
   });
 
   test('maps SUCCESS to completed', () => {
-    assert.strictEqual(mapStateToStatus('SUCCESS'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('SUCCESS'), { status: 'completed' });
   });
 
   test('maps FAILURE to completed', () => {
-    assert.strictEqual(mapStateToStatus('FAILURE'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('FAILURE'), { status: 'completed' });
   });
 
   test('maps ERROR to completed', () => {
-    assert.strictEqual(mapStateToStatus('ERROR'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('ERROR'), { status: 'completed' });
   });
 
   test('maps CANCELLED to completed', () => {
-    assert.strictEqual(mapStateToStatus('CANCELLED'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('CANCELLED'), { status: 'completed' });
   });
 
   test('maps SKIPPED to completed', () => {
-    assert.strictEqual(mapStateToStatus('SKIPPED'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('SKIPPED'), { status: 'completed' });
   });
 
   test('maps STALE to completed', () => {
-    assert.strictEqual(mapStateToStatus('STALE'), 'completed');
+    assert.deepStrictEqual(mapStateToStatus('STALE'), { status: 'completed' });
   });
 
-  test('maps unknown states to in_progress (conservative - avoids premature exit)', () => {
+  test('maps unknown states to in_progress with unknownState (conservative - avoids premature exit)', () => {
     // Unknown states default to in_progress to continue monitoring and avoid incomplete results
-    assert.strictEqual(mapStateToStatus('UNKNOWN'), 'in_progress');
-    assert.strictEqual(mapStateToStatus('CUSTOM_STATE'), 'in_progress');
+    // Also returns the unknown state for surfacing to users
+    assert.deepStrictEqual(mapStateToStatus('UNKNOWN'), {
+      status: 'in_progress',
+      unknownState: 'UNKNOWN',
+    });
+    assert.deepStrictEqual(mapStateToStatus('CUSTOM_STATE'), {
+      status: 'in_progress',
+      unknownState: 'CUSTOM_STATE',
+    });
   });
 
-  test('handles lowercase states (treats as unknown, maps to in_progress)', () => {
+  test('handles lowercase states (treats as unknown, maps to in_progress with unknownState)', () => {
     // Lowercase variants are not in the known state lists, treated as unknown
-    assert.strictEqual(mapStateToStatus('pending'), 'in_progress');
-    assert.strictEqual(mapStateToStatus('success'), 'in_progress');
+    assert.deepStrictEqual(mapStateToStatus('pending'), {
+      status: 'in_progress',
+      unknownState: 'pending',
+    });
+    assert.deepStrictEqual(mapStateToStatus('success'), {
+      status: 'in_progress',
+      unknownState: 'success',
+    });
   });
 
-  test('handles empty string (treats as unknown, maps to in_progress)', () => {
-    assert.strictEqual(mapStateToStatus(''), 'in_progress');
+  test('handles empty string (treats as unknown, maps to in_progress with unknownState)', () => {
+    assert.deepStrictEqual(mapStateToStatus(''), { status: 'in_progress', unknownState: '' });
   });
 });
 
@@ -126,9 +139,14 @@ describe('mapStateToStatus and mapStateToConclusion consistency', () => {
 
     for (const state of inProgressStates) {
       assert.strictEqual(
-        mapStateToStatus(state),
+        mapStateToStatus(state).status,
         'in_progress',
         `${state} should map to in_progress status`
+      );
+      assert.strictEqual(
+        mapStateToStatus(state).unknownState,
+        undefined,
+        `${state} should not have unknownState`
       );
       assert.strictEqual(
         mapStateToConclusion(state),
@@ -150,9 +168,14 @@ describe('mapStateToStatus and mapStateToConclusion consistency', () => {
 
     for (const { state, conclusion } of terminalStates) {
       assert.strictEqual(
-        mapStateToStatus(state),
+        mapStateToStatus(state).status,
         'completed',
         `${state} should map to completed status`
+      );
+      assert.strictEqual(
+        mapStateToStatus(state).unknownState,
+        undefined,
+        `${state} should not have unknownState`
       );
       assert.strictEqual(
         mapStateToConclusion(state),

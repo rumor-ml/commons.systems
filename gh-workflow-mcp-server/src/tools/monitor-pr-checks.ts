@@ -144,7 +144,9 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
     }
 
     // Fetch structured data after watch completes
-    checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
+    const checksResult = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+    checks = checksResult.runs as CheckData[];
+    const unknownStates = checksResult.unknownStates;
 
     // Re-check for fail-fast condition to set failedEarly flag (if not already set)
     if (input.fail_fast && !failedEarly) {
@@ -187,6 +189,17 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
     const totalDurationSeconds = Math.round((Date.now() - startTime) / 1000);
 
+    // Build unknown states warning if any were encountered
+    const unknownStatesWarning =
+      unknownStates.length > 0
+        ? [
+            ``,
+            `Warning: Unknown GitHub check states detected: ${unknownStates.join(', ')}`,
+            `This may indicate a GitHub API change. Monitoring continued conservatively.`,
+            `Action: Add these states to known states in constants.ts if they are valid terminal states.`,
+          ]
+        : [];
+
     const summary = [
       `PR #${pr.number} Checks ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix}: ${pr.title}`,
       `Overall Status: ${overallStatus}`,
@@ -197,6 +210,7 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       ``,
       `Checks (${checks.length}):`,
       ...checkSummaries,
+      ...unknownStatesWarning,
       ``,
       `Monitoring completed in ${totalDurationSeconds}s${monitoringSuffix}`,
     ].join('\n');

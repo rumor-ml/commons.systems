@@ -131,7 +131,8 @@ export async function getDeploymentUrls(input: GetDeploymentUrlsInput): Promise<
     if (input.run_id) {
       runId = input.run_id;
     } else if (input.pr_number) {
-      const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+      const checksResult = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+      const checks = checksResult.runs;
       if (!Array.isArray(checks) || checks.length === 0) {
         throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }

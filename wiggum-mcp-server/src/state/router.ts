@@ -71,10 +71,11 @@ type CurrentStateWithPR = CurrentState & {
  *   if (!result.success && result.isTransient) { retry(); }
  *
  *   // New code:
- *   if (!result.success) { retry(); } // always transient - reason tells you why
+ *   if (!result.success) { retry(); } // failures are transient - reason tells you why
  *
- * All failures in StateUpdateResult are transient by design. Use `reason` field
- * to distinguish between 'rate_limit' vs 'network' for logging/metrics.
+ * In the current design, all StateUpdateResult failures are transient (rate limit or network).
+ * Critical errors (404, auth) throw immediately and don't return failure results.
+ * Use `reason` field to distinguish failure types for logging/metrics.
  * TODO(#800): Remove isTransient field after migrating all consumers.
  */
 export type StateUpdateResult =
@@ -217,14 +218,12 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // Validate maxRetries to ensure loop executes at least once
-  // CRITICAL for issue #625 (GitHub API rate limit optimization): Invalid maxRetries
-  // would cause silent failures or infinite retry loops, defeating the rate limit handling.
-  // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely (no retries attempted)
-  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
-  // Without this validation, the function would reach the unreachable code path at the end
-  // and throw an internal error with no context about the actual cause.
+  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  // This validation ensures the retry loop executes at least once and terminates correctly,
+  // preventing the unreachable code path at the end (which would throw an internal error).
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
       prNumber,
@@ -313,7 +312,7 @@ export async function safeUpdatePRBodyState(
       // State update is CRITICAL for race condition fix (issue #388)
       // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
       //
-      // Known limitations (in priority order):
+      // Known limitations:
       // TODO(#320): Surface state persistence failures to users instead of silent warning (user-facing)
       // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
       // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
@@ -324,9 +323,11 @@ export async function safeUpdatePRBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Note: Network errors use message pattern matching because exitCode values for network
-      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
-      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
+      // Network error classification rationale:
+      //   - We use message pattern matching (ECONNREFUSED, ETIMEDOUT, etc.) because network
+      //     failure exit codes vary by tool and platform (Node.js, gh CLI, OS-specific codes).
+      //   - HTTP errors (404, 429) have reliable exitCode values from gh CLI.
+      //   - This split approach minimizes false positives while correctly classifying both types.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -433,7 +434,7 @@ export async function safeUpdatePRBodyState(
   //   2. Throws for critical errors (404, auth)
   //   3. Returns failure result after all retries exhausted (transient errors)
   //   4. Throws for unexpected errors (else branch in catch)
-  // If reached at runtime, indicates a programming error in the retry logic (lines 263-406).
+  // If reached at runtime, indicates a programming error in the retry logic above (issue #625).
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -475,14 +476,12 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // Validate maxRetries to ensure loop executes at least once
-  // CRITICAL for issue #625 (GitHub API rate limit optimization): Invalid maxRetries
-  // would cause silent failures or infinite retry loops, defeating the rate limit handling.
-  // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely (no retries attempted)
-  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
-  // Without this validation, the function would reach the unreachable code path at the end
-  // and throw an internal error with no context about the actual cause.
+  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  // This validation ensures the retry loop executes at least once and terminates correctly,
+  // preventing the unreachable code path at the end (which would throw an internal error).
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
       issueNumber,
@@ -576,9 +575,11 @@ export async function safeUpdateIssueBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Note: Network errors use message pattern matching because exitCode values for network
-      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
-      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
+      // Network error classification rationale:
+      //   - We use message pattern matching (ECONNREFUSED, ETIMEDOUT, etc.) because network
+      //     failure exit codes vary by tool and platform (Node.js, gh CLI, OS-specific codes).
+      //   - HTTP errors (404, 429) have reliable exitCode values from gh CLI.
+      //   - This split approach minimizes false positives while correctly classifying both types.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -685,7 +686,7 @@ export async function safeUpdateIssueBodyState(
   //   2. Throws for critical errors (404, auth)
   //   3. Returns failure result after all retries exhausted (transient errors)
   //   4. Throws for unexpected errors (else branch in catch)
-  // If reached at runtime, indicates a programming error in the retry logic (lines 497-629).
+  // If reached at runtime, indicates a programming error in the retry logic above (issue #625).
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,
@@ -1299,7 +1300,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
-    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
     const updatedState = applyWiggumState(state, newState);
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
@@ -1392,7 +1393,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     );
 
     // CONTINUE to Step p2-3: Code Quality
-    // Reuse newState2 to avoid race condition (see comment at line 858 for trade-off analysis)
+    // Reuse newState2 to avoid race condition (issue #799: state validation errors)
     const finalState = applyWiggumState(updatedState, newState2);
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
@@ -1504,7 +1505,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-3: Code Quality (Step p2-2 standalone path)
-    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
     const updatedState = applyWiggumState(state, newState);
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
@@ -1637,7 +1638,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     );
 
     // Skip to Step p2-5 (Security Review) - p2-4 removed as Phase 1 review is comprehensive
-    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
     const updatedState = applyWiggumState(state, newState);
     return await getNextStepInstructions(updatedState);
   } else {

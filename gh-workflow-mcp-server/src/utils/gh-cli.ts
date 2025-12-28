@@ -410,6 +410,16 @@ export async function getWorkflowRunsForCommit(
 }
 
 /**
+ * Result of mapping a PR check state to workflow run status
+ */
+export interface StateToStatusResult {
+  /** Normalized workflow run status ("in_progress" or "completed") */
+  status: string;
+  /** The unknown state if one was encountered (for surfacing to users) */
+  unknownState?: string;
+}
+
+/**
  * Map PR check state to workflow run status
  *
  * GitHub's `gh pr checks` API returns check states (PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, etc.)
@@ -428,26 +438,27 @@ export async function getWorkflowRunsForCommit(
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
  *
  * @param state - The PR check state from GitHub API (uppercase format)
- * @returns Normalized workflow run status ("in_progress" or "completed")
+ * @returns Object with normalized status and optional unknownState for surfacing to users
  */
-export function mapStateToStatus(state: string): string {
+export function mapStateToStatus(state: string): StateToStatusResult {
   if (PR_CHECK_IN_PROGRESS_STATES.includes(state)) {
-    return 'in_progress';
+    return { status: 'in_progress' };
   }
 
   if (PR_CHECK_TERMINAL_STATES.includes(state)) {
-    return 'completed';
+    return { status: 'completed' };
   }
 
   // Unknown state - log at ERROR level and default to conservative 'in_progress'
   // This ensures monitoring continues rather than exiting prematurely with incomplete results
+  // Also return the unknown state so callers can surface it to users
   console.error(
     `[gh-workflow] ERROR mapStateToStatus: Unknown GitHub check state encountered: ${state}. ` +
       `Defaulting to 'in_progress' to avoid premature exit. ` +
       `Action: Add '${state}' to known states in constants.ts if this is a valid terminal state.`
   );
 
-  return 'in_progress';
+  return { status: 'in_progress', unknownState: state };
 }
 
 /**
@@ -479,9 +490,24 @@ export function mapStateToConclusion(state: string): string | null {
 }
 
 /**
- * Get workflow runs for a PR
+ * Result of getting workflow runs for a PR, including any warnings about unknown states
  */
-export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Promise<any[]> {
+export interface WorkflowRunsForPRResult {
+  /** Array of workflow runs mapped from PR checks */
+  runs: any[];
+  /** Unknown GitHub check states encountered during mapping (for surfacing to users) */
+  unknownStates: string[];
+}
+
+/**
+ * Get workflow runs for a PR
+ *
+ * @returns Object with runs array and any unknown states encountered for surfacing to users
+ */
+export async function getWorkflowRunsForPR(
+  prNumber: number,
+  repo?: string
+): Promise<WorkflowRunsForPRResult> {
   const resolvedRepo = await resolveRepo(repo);
   const checks = await ghCliJson<any[]>(
     [
@@ -494,16 +520,30 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
     { repo: resolvedRepo }
   );
 
+  // Track unknown states to surface to users
+  const unknownStates = new Set<string>();
+
   // Map gh pr checks format to workflow run format
-  return checks.map((check: any) => ({
-    name: check.name,
-    status: mapStateToStatus(check.state),
-    conclusion: mapStateToConclusion(check.state),
-    detailsUrl: check.link,
-    startedAt: check.startedAt,
-    completedAt: check.completedAt,
-    workflowName: check.workflow,
-  }));
+  const runs = checks.map((check: any) => {
+    const statusResult = mapStateToStatus(check.state);
+    if (statusResult.unknownState) {
+      unknownStates.add(statusResult.unknownState);
+    }
+    return {
+      name: check.name,
+      status: statusResult.status,
+      conclusion: mapStateToConclusion(check.state),
+      detailsUrl: check.link,
+      startedAt: check.startedAt,
+      completedAt: check.completedAt,
+      workflowName: check.workflow,
+    };
+  });
+
+  return {
+    runs,
+    unknownStates: Array.from(unknownStates),
+  };
 }
 
 /**
