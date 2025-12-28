@@ -59,7 +59,8 @@ const KNOWN_AGENT_NAMES = [
  * LIMITATION: Acronyms are not specially handled. 'pr-test-analyzer' becomes
  * 'Pr Test Analyzer' instead of 'PR Test Analyzer'. This trade-off avoids
  * maintaining an acronym whitelist while providing consistent, predictable
- * capitalization for logging and display purposes only (no functional impact).
+ * capitalization. Used in GitHub comment headers and logs (affects presentation
+ * quality but not workflow logic).
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -125,9 +126,14 @@ export function extractAgentNameFromPath(filePath: string): string {
 /**
  * Node.js file system error codes for file operations
  *
- * Covers the most common file I/O errors in production usage. This list is
- * intentionally limited to errors we've observed and handle specifically.
- * Unknown error codes are logged with warnings (see createFileReadError).
+ * Covers file I/O errors that require specific handling or diagnostics in production.
+ * This list is intentionally limited to errors we've observed and handle specifically
+ * (e.g., permission errors get different recovery instructions than missing files).
+ * Unknown error codes are logged with warnings (see createFileReadError line 215).
+ *
+ * **When to extend this enum:**
+ * Add new codes when they require distinct error messages or recovery paths.
+ * If a new error code should be handled the same as an existing one, no change needed.
  */
 type NodeFileErrorCode =
   | 'EACCES' // Permission denied
@@ -823,8 +829,8 @@ async function retryStateUpdate(
   },
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // Validate maxRetries to ensure loop executes at least once
-  // Prevents edge case where maxRetries < 1 would skip the loop entirely
+  // Enforce maxRetries >= 1 to guarantee loop executes at least once
+  // This ensures every code path attempts the state update before failing
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('retryStateUpdate: Invalid maxRetries parameter', {
       maxRetries,
@@ -881,12 +887,12 @@ async function retryStateUpdate(
     await sleepMs(delayMs);
   }
 
-  // TypeScript control flow: This should be unreachable, but throw instead of returning fake error.
-  // Runtime guarantee: maxRetries >= 1 (validated above) ensures the loop executes at least once,
-  // and every iteration either returns or continues. This indicates a programming error if reached.
+  // TypeScript control flow: This should be unreachable. The loop must execute at least once
+  // (maxRetries >= 1 validated above), and every iteration either returns success, returns failure,
+  // or continues. If reached, indicates a logic bug where an iteration neither returned nor continued.
   throw new Error(
     `INTERNAL ERROR: retryStateUpdate loop completed without returning. ` +
-      `This indicates a programming error in retry logic. ` +
+      `This indicates a programming error: loop iteration neither returned nor continued. ` +
       `maxRetries=${maxRetries}, phase=${state.wiggum.phase}, lastResult=${JSON.stringify(result)}`
   );
 }
@@ -1032,10 +1038,6 @@ function buildIssuesFoundResponse(
     content: [{ type: 'text', text: formatWiggumResponse(output) }],
   };
 }
-
-// NOTE: validateSafeNonNegativeInteger was removed since Zod schema (ReviewCompletionInputSchema)
-// now handles all numeric validation for in_scope_count and out_of_scope_count.
-// All callers now use completeReview() which validates input via ReviewCompletionInputSchema.
 
 /**
  * Complete a review (PR or Security) and update workflow state

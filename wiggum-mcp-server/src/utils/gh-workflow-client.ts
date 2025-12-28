@@ -46,18 +46,24 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
     throw new Error(`No valid text content in ${toolName} response for ${context}`);
   }
 
-  // Empty text content indicates upstream tool failure - CRITICAL
-  // This masks tool crashes, rate limiting, or network issues that returned empty responses
+  // Empty text content may indicate various issues - requires diagnosis
+  // IMPORTANT: Empty response does NOT definitively prove upstream failure
+  // Possible causes include: no data found, silent tool crash, rate limit, network issue
   if (textContent.text.length === 0) {
-    logger.error(`Empty text content in ${toolName} response - upstream tool failure`, {
+    logger.error(`Empty text content in ${toolName} response - check tool logs for cause`, {
       context,
-      impact: 'Tool execution completed but produced no output',
-      action: 'Check gh-workflow-mcp-server logs for tool failures',
+      possibleCauses: [
+        'Tool found no data to return (e.g., no workflow failures to report)',
+        'Tool crashed silently and returned empty response',
+        'GitHub API rate limiting returned empty content',
+        'Network issue caused truncated response',
+      ],
+      action: 'Check gh-workflow-mcp-server logs for diagnostic details',
     });
     throw new Error(
-      `Empty content in ${toolName} response for ${context}. ` +
-        `This indicates an upstream tool failure. ` +
-        `Check gh-workflow-mcp-server logs for details.`
+      `Empty content from ${toolName} for ${context}. ` +
+        `Possible causes: (1) No data found, (2) Tool crashed silently, (3) Rate limit/network issue. ` +
+        `Check gh-workflow-mcp-server logs for diagnostic details.`
     );
   }
 
@@ -180,22 +186,29 @@ async function callToolWithRetry(
       }
 
       // Check if it's the MCP timeout error (retryable)
-      // Use strict pattern to avoid false positives from other timeout messages
-      // PATTERN: errorCode === -32001 (MCP-specific) OR message contains "request/operation timed out"
-      // NOTE: If timeout detection via message pattern is used (errorCode undefined), log a warning
-      // as this is fragile and may break if MCP SDK changes error message wording
+      // Detection priority:
+      // 1. errorCode === -32001 (MCP-specific, most reliable)
+      // 2. error.name === 'TimeoutError' (standard Error subclass)
+      // 3. Message pattern matching (fragile fallback)
+      // NOTE: If timeout detection via message pattern is used (errorCode undefined),
+      // log a WARN as this is fragile and may break if MCP SDK changes error message wording
+      const errorName = error instanceof Error ? error.name : undefined;
       const isTimeout =
         error instanceof Error &&
-        (errorCode === -32001 || /\b(request|operation) timed? ?out\b/i.test(errorMessage));
+        (errorCode === -32001 ||
+          errorName === 'TimeoutError' ||
+          /\b(request|operation) timed? ?out\b/i.test(errorMessage));
 
       if (isTimeout) {
-        // Log when using message pattern (fragile) instead of error code
-        if (errorCode !== -32001) {
-          logger.debug('Timeout detected via message pattern (fragile)', {
+        // Log when using fragile detection methods (not error code)
+        if (errorCode !== -32001 && errorName !== 'TimeoutError') {
+          logger.warn('Timeout detected via fragile message pattern', {
             toolName,
             errorMessage,
             errorCode,
-            note: 'MCP SDK may change error message format - prefer error code detection',
+            errorName,
+            impact: 'Pattern may break in future MCP SDK versions',
+            action: 'Consider using error.name or structured error types',
           });
         }
         // Calculate attempt count estimate (elapsed time / 60s SDK timeout)

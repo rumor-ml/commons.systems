@@ -13,12 +13,34 @@ import { validateWiggumState, safeJsonParse } from './utils.js';
 import { GitHubCliError } from '../utils/errors.js';
 
 /**
+ * Error indicating invalid parameters when constructing StateCorruptionError
+ *
+ * This class is thrown when StateCorruptionError constructor receives invalid parameters.
+ * Using a specific error class (instead of generic Error) makes error handling more predictable
+ * and allows callers to distinguish validation failures from corruption errors.
+ */
+export class StateCorruptionValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StateCorruptionValidationError';
+  }
+}
+
+/**
  * Error thrown when workflow state cannot be parsed from PR/issue body
  *
  * This error indicates corrupted state data that requires user intervention.
  * The error message includes actionable recovery instructions.
  *
- * @throws {Error} If bodyLength is negative or matchedJsonPreview exceeds 200 chars
+ * **Constructor validation:**
+ * - bodyLength must be non-negative (throws StateCorruptionValidationError if negative)
+ * - matchedJsonPreview must not exceed 200 chars (throws StateCorruptionValidationError if exceeds)
+ *
+ * **When to use constructor vs factory:**
+ * - Use constructor when parameters are already validated or from trusted source
+ * - Use StateCorruptionError.create() factory when parameters need validation with explicit error handling
+ *
+ * @throws {StateCorruptionValidationError} If bodyLength is negative or matchedJsonPreview exceeds 200 chars
  */
 export class StateCorruptionError extends Error {
   constructor(
@@ -28,14 +50,49 @@ export class StateCorruptionError extends Error {
     public readonly matchedJsonPreview: string
   ) {
     // Validate constructor parameters for fail-fast behavior
+    // Throws StateCorruptionValidationError (not generic Error) for predictable error handling
     if (bodyLength < 0) {
-      throw new Error('StateCorruptionError: bodyLength cannot be negative');
+      throw new StateCorruptionValidationError(
+        'StateCorruptionError: bodyLength cannot be negative'
+      );
     }
     if (matchedJsonPreview.length > 200) {
-      throw new Error('StateCorruptionError: matchedJsonPreview exceeds 200 char limit');
+      throw new StateCorruptionValidationError(
+        'StateCorruptionError: matchedJsonPreview exceeds 200 char limit'
+      );
     }
     super(message);
     this.name = 'StateCorruptionError';
+  }
+
+  /**
+   * Factory function to create StateCorruptionError with validation
+   *
+   * Returns either a StateCorruptionError on success or StateCorruptionValidationError if
+   * parameters are invalid. This avoids throwing from the constructor, making error
+   * construction more predictable for callers who want explicit error handling.
+   *
+   * @param message - Human-readable error description with recovery instructions
+   * @param originalError - Original error message that caused state parsing to fail
+   * @param bodyLength - Length of the PR/issue body (must be non-negative)
+   * @param matchedJsonPreview - Preview of matched JSON (will be truncated to 200 chars)
+   * @returns StateCorruptionError if valid, StateCorruptionValidationError if parameters invalid
+   */
+  static create(
+    message: string,
+    originalError: string,
+    bodyLength: number,
+    matchedJsonPreview: string
+  ): StateCorruptionError | StateCorruptionValidationError {
+    if (bodyLength < 0) {
+      return new StateCorruptionValidationError(
+        'StateCorruptionError: bodyLength cannot be negative'
+      );
+    }
+    // Truncate matchedJsonPreview if needed (permissive approach for factory)
+    const truncatedPreview =
+      matchedJsonPreview.length > 200 ? matchedJsonPreview.substring(0, 200) : matchedJsonPreview;
+    return new StateCorruptionError(message, originalError, bodyLength, truncatedPreview);
   }
 }
 
