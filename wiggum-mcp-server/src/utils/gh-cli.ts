@@ -607,11 +607,16 @@ export async function ghCliWithRetry(
   maxRetries = 3
 ): Promise<string> {
   // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
-  // resulting in a confusing "Unexpected retry failure" error with no context
+  // Prevents edge cases:
+  //   - maxRetries < 1: Would skip the loop entirely
+  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
+  // Without this validation, the function would reach the unreachable code path at the end
+  // and throw an internal error with no context about the actual cause.
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     throw new GitHubCliError(
-      `ghCliWithRetry: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+      `ghCliWithRetry: maxRetries must be a positive integer between 1 and 100, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
         `Command: gh ${args.join(' ')}`
     );
   }

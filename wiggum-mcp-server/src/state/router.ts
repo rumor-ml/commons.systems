@@ -63,10 +63,10 @@ type CurrentStateWithPR = CurrentState & {
  * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
- * @deprecated The `isTransient` field is redundant - use `success === false` to detect
- * transient failures. The `reason` field already distinguishes failure types. This field
- * is retained for backward compatibility with existing consumers. TODO(#800): Remove
- * isTransient field after migrating all consumers to check `reason` instead.
+ * @deprecated (since v1.5.0, removal planned for v2.0.0): The `isTransient` field is
+ * redundant - use `success === false` to detect transient failures. The `reason` field
+ * already distinguishes failure types. New code should check `reason` instead.
+ * TODO(#800): Remove isTransient field after migrating all consumers.
  */
 export type StateUpdateResult =
   | { readonly success: true }
@@ -209,8 +209,11 @@ export async function safeUpdatePRBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
-  // causing the function to reach the unreachable code path and throw an internal error
+  // Prevents edge cases:
+  //   - maxRetries < 1: Would skip the loop entirely
+  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
+  // Without this validation, the function would reach the unreachable code path at the end
+  // and throw an internal error with no context about the actual cause.
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
       prNumber,
@@ -221,7 +224,9 @@ export async function safeUpdatePRBodyState(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `safeUpdatePRBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+      `safeUpdatePRBodyState: maxRetries must be a positive integer between 1 and 100, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky).`
     );
   }
 
@@ -231,15 +236,30 @@ export async function safeUpdatePRBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
+    // Extract detailed validation info from Zod error
+    // Zod errors have an 'issues' array with field-level details
+    let validationDetails = 'Unknown validation error';
+    if (validationError instanceof Error && 'issues' in validationError) {
+      const zodError = validationError as {
+        issues: Array<{ path: (string | number)[]; message: string }>;
+      };
+      validationDetails = zodError.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join('; ');
+    } else if (validationError instanceof Error) {
+      validationDetails = validationError.message;
+    }
+
     logger.error('safeUpdatePRBodyState: State validation failed before posting', {
       prNumber,
       step,
       state,
+      validationDetails,
       error: validationError instanceof Error ? validationError.message : String(validationError),
       impact: 'Invalid state cannot be persisted to GitHub',
     });
     throw new StateApiError(
-      `Invalid state: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+      `Invalid state - validation failed: ${validationDetails}`,
       'write',
       'pr',
       prNumber,
@@ -378,16 +398,16 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-  // Defensive: This should be unreachable if loop logic is correct.
-  // TypeScript requires all code paths to return, so we throw to satisfy the return type
-  // and catch potential programming errors.
+  // Defensive: This should be unreachable if loop logic is correct. However, TypeScript's
+  // flow analysis cannot prove the loop always terminates (via return/throw), so it
+  // requires this code path to satisfy exhaustiveness checking.
   //
   // The loop executes at least once (maxRetries >= 1 validated above), and each iteration either:
   //   1. Returns success after updatePRBodyState() succeeds
   //   2. Throws for critical errors (404, auth)
   //   3. Returns failure result after all retries exhausted (transient errors)
   //   4. Throws for unexpected errors (else branch in catch)
-  // If reached, indicates a programming error in the retry logic above.
+  // If reached at runtime, indicates a programming error in the retry logic (lines 263-406).
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -430,8 +450,11 @@ export async function safeUpdateIssueBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
-  // causing the function to reach the unreachable code path and throw an internal error
+  // Prevents edge cases:
+  //   - maxRetries < 1: Would skip the loop entirely
+  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
+  // Without this validation, the function would reach the unreachable code path at the end
+  // and throw an internal error with no context about the actual cause.
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
       issueNumber,
@@ -442,7 +465,9 @@ export async function safeUpdateIssueBodyState(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `safeUpdateIssueBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+      `safeUpdateIssueBodyState: maxRetries must be a positive integer between 1 and 100, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky).`
     );
   }
 
@@ -452,15 +477,30 @@ export async function safeUpdateIssueBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
+    // Extract detailed validation info from Zod error
+    // Zod errors have an 'issues' array with field-level details
+    let validationDetails = 'Unknown validation error';
+    if (validationError instanceof Error && 'issues' in validationError) {
+      const zodError = validationError as {
+        issues: Array<{ path: (string | number)[]; message: string }>;
+      };
+      validationDetails = zodError.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join('; ');
+    } else if (validationError instanceof Error) {
+      validationDetails = validationError.message;
+    }
+
     logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
       issueNumber,
       step,
       state,
+      validationDetails,
       error: validationError instanceof Error ? validationError.message : String(validationError),
       impact: 'Invalid state cannot be persisted to GitHub',
     });
     throw new StateApiError(
-      `Invalid state: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+      `Invalid state - validation failed: ${validationDetails}`,
       'write',
       'issue',
       issueNumber,
@@ -593,13 +633,16 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-  // Defensive: This should be unreachable if loop logic is correct.
-  // The loop executes at least once (maxRetries >= 1), and each iteration either:
+  // Defensive: This should be unreachable if loop logic is correct. However, TypeScript's
+  // flow analysis cannot prove the loop always terminates (via return/throw), so it
+  // requires this code path to satisfy exhaustiveness checking.
+  //
+  // The loop executes at least once (maxRetries >= 1 validated above), and each iteration either:
   //   1. Returns success after updateIssueBodyState() succeeds
   //   2. Throws for critical errors (404, auth)
   //   3. Returns failure result after all retries exhausted (transient errors)
   //   4. Throws for unexpected errors (else branch in catch)
-  // If reached, indicates a programming error in the retry logic above.
+  // If reached at runtime, indicates a programming error in the retry logic (lines 497-629).
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,
@@ -1213,11 +1256,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
     const updatedState = applyWiggumState(state, newState);
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
@@ -1310,11 +1349,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     );
 
     // CONTINUE to Step p2-3: Code Quality
-    // Reuse newState2 to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState2 to avoid race condition (see comment at line 858 for trade-off analysis)
     const finalState = applyWiggumState(updatedState, newState2);
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
@@ -1426,11 +1461,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     ];
 
     // CONTINUE to Step p2-3: Code Quality (Step p2-2 standalone path)
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
     const updatedState = applyWiggumState(state, newState);
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
@@ -1472,12 +1503,14 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   // Fetch code quality bot comments
   // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
   // Current: errors propagate as GitHubCliError without wiggum-specific context
-  const { comments, skippedCount } = await getPRReviewComments(
+  const { comments, skippedCount, warning } = await getPRReviewComments(
     state.pr.number,
     CODE_QUALITY_BOT_USERNAME
   );
 
   // Warn if any comments failed to parse - review data may be incomplete
+  // Also prepare warning text to surface to user in output
+  let userWarning: string | undefined;
   if (skippedCount > 0) {
     logger.warn('Some code quality comments could not be parsed - review may be incomplete', {
       prNumber: state.pr.number,
@@ -1485,6 +1518,8 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       skippedCount,
       impact: 'Code quality review may miss some findings',
     });
+    // Surface warning to user so they know review data is incomplete
+    userWarning = warning;
   }
 
   const output: WiggumInstructions = {
@@ -1493,6 +1528,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     iteration_count: state.wiggum.iteration,
     instructions: '',
     steps_completed_by_tool: [...stepsCompletedSoFar],
+    warning: userWarning, // Surface parsing warning to user
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -1557,8 +1593,8 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       'Marked Step p2-3 complete'
     );
 
-    // Skip to Step p2-5 (Security Review) - p2-4 was removed as Phase 1 review is comprehensive
-    // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
+    // Skip to Step p2-5 (Security Review) - p2-4 removed as Phase 1 review is comprehensive
+    // Reuse newState to avoid race condition (see comment at line 858 for trade-off analysis)
     const updatedState = applyWiggumState(state, newState);
     return await getNextStepInstructions(updatedState);
   } else {

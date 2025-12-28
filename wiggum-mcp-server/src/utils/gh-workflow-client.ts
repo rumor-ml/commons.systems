@@ -37,12 +37,18 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
   }
 
   const textContent = result.content.find((c: any) => c.type === 'text');
-  if (!textContent || !('text' in textContent)) {
-    logger.error(`Invalid ${toolName} response: no text content`, {
+  if (!textContent || !('text' in textContent) || typeof textContent.text !== 'string') {
+    logger.error(`Invalid ${toolName} response: no valid text content`, {
       contentTypes: result.content.map((c: any) => c.type),
+      textContentType: textContent ? typeof textContent.text : 'undefined',
       context,
     });
-    throw new Error(`No text content in ${toolName} response for ${context}`);
+    throw new Error(`No valid text content in ${toolName} response for ${context}`);
+  }
+
+  // Warn about empty text content (may indicate upstream issue)
+  if (textContent.text.length === 0) {
+    logger.warn(`Empty text content in ${toolName} response`, { context });
   }
 
   return textContent.text;
@@ -51,14 +57,15 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
 /**
  * Call MCP tool with retry logic for timeout errors
  *
- * The MCP TypeScript SDK has a hardcoded 60-second timeout. For long-running
+ * The MCP TypeScript SDK has a hardcoded 60-second timeout (see @modelcontextprotocol/sdk
+ * Client.callTool, not currently configurable as of SDK v0.5.0). For long-running
  * operations (like workflow monitoring), we retry on timeout errors until
  * the operation completes or maxDurationMs is reached.
  *
  * @param client - MCP client instance
  * @param toolName - Name of the tool to call
  * @param args - Tool arguments
- * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes)
+ * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes, max: 1 hour)
  * @returns Promise resolving to tool result
  * @throws Error if operation exceeds maxDurationMs or encounters non-timeout error
  */
@@ -68,9 +75,13 @@ async function callToolWithRetry(
   args: any,
   maxDurationMs: number = 600000 // 10 minutes
 ): Promise<any> {
-  // Validate timeout
-  if (maxDurationMs <= 0) {
-    throw new Error(`Invalid maxDurationMs: ${maxDurationMs}. Must be positive.`);
+  // Validate timeout - must be positive and not exceed 1 hour
+  const MAX_DURATION_LIMIT_MS = 3600000; // 1 hour
+  if (maxDurationMs <= 0 || maxDurationMs > MAX_DURATION_LIMIT_MS) {
+    throw new Error(
+      `Invalid maxDurationMs: ${maxDurationMs}. Must be between 1ms and ${MAX_DURATION_LIMIT_MS}ms (1 hour). ` +
+        `Common values: 60000 (1 min), 300000 (5 min), 600000 (10 min).`
+    );
   }
 
   const startTime = Date.now();
@@ -121,6 +132,15 @@ async function callToolWithRetry(
       const errorCode =
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
+      // MCP JSON-RPC error codes (from MCP specification):
+      // -32700: Parse error - Invalid JSON
+      // -32600: Invalid request - Request object malformed
+      // -32601: Method not found - Tool doesn't exist
+      // -32602: Invalid params - Schema mismatch
+      // -32603: Internal error - Server-side error
+      // -32001: Timeout (MCP-specific extension)
+      // See: https://spec.modelcontextprotocol.io/specification/basic/messages/#error-codes
+
       // Check for known non-retryable MCP errors first (fail fast with clear diagnostics)
       if (errorCode === -32601) {
         // Method not found - tool doesn't exist in gh-workflow-mcp-server
@@ -148,11 +168,23 @@ async function callToolWithRetry(
 
       // Check if it's the MCP timeout error (retryable)
       // Use strict pattern to avoid false positives from other timeout messages
+      // PATTERN: errorCode === -32001 (MCP-specific) OR message contains "request/operation timed out"
+      // NOTE: If timeout detection via message pattern is used (errorCode undefined), log a warning
+      // as this is fragile and may break if MCP SDK changes error message wording
       const isTimeout =
         error instanceof Error &&
         (errorCode === -32001 || /\b(request|operation) timed? ?out\b/i.test(errorMessage));
 
       if (isTimeout) {
+        // Log when using message pattern (fragile) instead of error code
+        if (errorCode !== -32001) {
+          logger.debug('Timeout detected via message pattern (fragile)', {
+            toolName,
+            errorMessage,
+            errorCode,
+            note: 'MCP SDK may change error message format - prefer error code detection',
+          });
+        }
         // Calculate attempt count estimate (elapsed time / 60s SDK timeout)
         const attemptEstimate = Math.floor(elapsed / 60000) + 1;
         logger.info(
@@ -192,6 +224,12 @@ export async function getGhWorkflowClient(): Promise<Client> {
   if (ghWorkflowClient) {
     return ghWorkflowClient;
   }
+
+  // Reset singleton to null before attempting connection
+  // This ensures that if a previous connection attempt failed and left the singleton
+  // in an inconsistent state (e.g., partially initialized), we start fresh
+  // Without this, retry attempts would return the stale singleton at line 192
+  ghWorkflowClient = null;
 
   logger.info('Initializing gh-workflow-mcp-server client');
 
@@ -445,10 +483,17 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
 
   if (!conclusion) {
-    // Log full response for debugging (may be large, but critical for diagnosis)
+    // Log TRUNCATED response for debugging to prevent log overflow and secret exposure
+    // Large workflow outputs (10K+ chars) can flood logs and may contain sensitive data
+    const MAX_LOG_SNIPPET = 1000;
+    const textSnippet =
+      text.length > MAX_LOG_SNIPPET
+        ? `${text.substring(0, MAX_LOG_SNIPPET)}... [truncated, total ${text.length} chars]`
+        : text;
+
     logger.error('Failed to parse conclusion from gh_monitor_run response', {
       branch,
-      fullText: text, // Include complete response for diagnosis
+      textSnippet, // Truncated for log safety
       textLength: text.length,
       expectedPattern: 'Conclusion: <value>',
       action: 'Check if gh-workflow-mcp-server output format changed',
@@ -459,8 +504,7 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
         `This likely indicates a format change in gh-workflow-mcp-server.\n` +
         `Response length: ${text.length} chars\n` +
         `First 500 chars: ${text.substring(0, 500)}\n` +
-        `Last 200 chars: ${text.substring(Math.max(0, text.length - 200))}\n` +
-        `Full response logged at ERROR level for diagnosis.`
+        `Last 200 chars: ${text.substring(Math.max(0, text.length - 200))}`
     );
   }
 
