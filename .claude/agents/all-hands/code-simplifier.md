@@ -140,7 +140,8 @@ You operate autonomously and proactively, refining code immediately after it's w
 
    ```bash
    # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel during the same second
+   # run in parallel. Second-level precision is insufficient since review agents
+   # execute concurrently and may start within the same second.
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-out-of-scope-${TIMESTAMP}.md"
@@ -150,15 +151,14 @@ You operate autonomously and proactively, refining code immediately after it's w
 
    ```bash
    mkdir -p "$(pwd)/tmp/wiggum"
-   # Note: -p flag ensures mkdir succeeds even if directory already exists
-   # (multiple review agents run in parallel and may create this concurrently)
+   # Note: -p flag prevents errors if directory already exists
+   # (useful when multiple review agents run in parallel and may attempt to create this directory)
    ```
 
 3. Write findings to both files using Write tool
    - Use the EXACT same structure for simplification findings (changes made, rationale)
-   - The structure (section headings, order) MUST be identical in both files
+   - The structure (section headings, order) MUST be identical in both files to enable consistent parsing and presentation by the wiggum tool
    - Only the specific findings differ (in-scope vs out-of-scope)
-   - If Write tool fails, include an "error" field in the JSON summary
 
 ### Return JSON Summary
 
@@ -183,6 +183,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** The `severity_breakdown` field provides informational context about finding severities. The wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions. Each agent uses a custom severity_breakdown structure tailored to its review type.
+**Note:** The `severity_breakdown` field provides detailed metrics for PR comments and debugging, while the wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions. Each agent uses a custom severity_breakdown structure tailored to its review type.
 
 For code-simplifier, severity_breakdown uses `{ "simplification_opportunities": N }` to count total simplification suggestions.

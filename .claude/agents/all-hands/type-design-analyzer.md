@@ -184,6 +184,9 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
 1. Determine paths:
 
    ```bash
+   # Generate millisecond timestamp to ensure unique filenames when multiple agents
+   # run in parallel. Second-level precision is insufficient since review agents
+   # execute concurrently and may start within the same second.
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-${TIMESTAMP}.md"
@@ -193,13 +196,13 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
 
    ```bash
    mkdir -p "$(pwd)/tmp/wiggum"
-   # Note: -p flag ensures mkdir succeeds even if directory already exists
-   # (multiple review agents run in parallel and may create this concurrently)
+   # Note: -p flag prevents errors if directory already exists
+   # (useful when multiple review agents run in parallel and may attempt to create this directory)
    ```
 
 3. Write findings to both files using Write tool
-   - Use the EXACT structure from "Output Format" section above (lines 116-143): Type header, Invariants Identified, Ratings, etc.
-   - The structure (section headings, order) MUST be identical in both files
+   - Use the EXACT structure from the "Output Format" section above: Type header, Invariants Identified, Ratings (Encapsulation, Invariant Expression, Invariant Usefulness, Invariant Enforcement), Strengths, Concerns, and Recommended Improvements
+   - The structure (section headings, order) MUST be identical in both files to enable consistent parsing and presentation by the wiggum tool
    - Only the specific findings differ (in-scope vs out-of-scope)
 
 ### Return JSON Summary
@@ -227,6 +230,6 @@ After writing files, return this EXACT JSON structure:
 }
 ```
 
-**Note:** The `severity_breakdown` field provides informational context about finding severities. The wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions.
+**Note:** The `severity_breakdown` field provides detailed metrics for PR comments and debugging, while the wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions.
 
 For type-design-analyzer, severity_breakdown uses `{ "concerns": N, "improvements": N, "strengths": N }` to categorize findings by the analysis structure.
