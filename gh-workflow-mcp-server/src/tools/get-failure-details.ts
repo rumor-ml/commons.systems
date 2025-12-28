@@ -153,7 +153,9 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
-  // TODO(#328): Consider extracting budget calculation pattern into helper function
+  // TODO: Consider extracting budget calculation pattern into helper function
+  // Pattern is duplicated in getFailureDetails() - both calculate warning size, truncation marker,
+  // and summary budget. A shared helper would reduce duplication and risk of bugs.
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {
@@ -213,9 +215,12 @@ function formatJobSummaries(
     output += warningText;
   }
 
-  // TODO(#345,#346): Track budget calculation bugs as tool errors, not silent warnings
-  // Current: Returns success with [BUG] diagnostics when output exceeds max_chars
-  // See PR review #273 for emergency truncation bug details
+  // TODO: Track budget calculation bugs as tool errors, not silent warnings
+  // CURRENT BEHAVIOR: Returns success with [BUG] diagnostics when output exceeds max_chars
+  //   - This hides errors from caller, making debugging harder
+  //   - Should throw error or return structured error result instead
+  // SPECIFIC ISSUE: When summary + warning + truncation marker exceeds max_chars due to
+  // calculation bug, we do "emergency truncation" but still return success status.
   // Final safety check - this should never trigger if our math is correct
   if (output.length > maxChars) {
     const overage = output.length - maxChars;

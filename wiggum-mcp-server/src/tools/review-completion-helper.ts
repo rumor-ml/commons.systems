@@ -924,21 +924,25 @@ async function safePostReviewComment(
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
   //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  //
+  // DESIGN: Return false instead of throwing to maintain the "safe" (non-blocking) contract.
+  // This function is designed to never halt the workflow - state is already persisted in the body,
+  // so comment posting failures are non-fatal. Throwing would violate this contract and cause
+  // callers that expect boolean returns to crash unexpectedly.
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
-    logger.error('safePostReviewComment: Invalid maxRetries parameter', {
+    logger.error('safePostReviewComment: Invalid maxRetries parameter - returning false', {
       issueNumber,
       reviewStep,
       maxRetries,
       maxRetriesType: typeof maxRetries,
-      impact: 'Cannot execute retry loop with invalid parameter',
+      impact: 'Comment posting will fail without retry attempts',
+      action: 'Fix caller to pass valid maxRetries value (1-100, default: 3)',
+      validRange: `1-${MAX_RETRIES_LIMIT}`,
     });
-    throw new ValidationError(
-      `safePostReviewComment: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
-        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
-        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
-        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
-    );
+    // Return false instead of throwing - maintains "safe" (non-blocking) contract
+    // Callers checking `if (!commentPosted)` will handle this gracefully
+    return false;
   }
 
   // Import postIssueComment from issue-comments module
@@ -1098,18 +1102,26 @@ async function retryStateUpdate(
 ): Promise<StateUpdateResult> {
   // Enforce maxRetries >= 1 to guarantee loop executes at least once
   // This ensures every code path attempts the state update before failing
+  //
+  // DESIGN: Throw ValidationError for invalid maxRetries since:
+  // 1. StateUpdateResult type only supports 'rate_limit' | 'network' failure reasons
+  // 2. Invalid maxRetries is a programming error, not an operational failure
+  // 3. Programming errors should fail fast to surface bugs during development
+  // The caller should never pass invalid maxRetries - this guards against bugs.
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
-    logger.error('retryStateUpdate: Invalid maxRetries parameter', {
+    logger.error('retryStateUpdate: Invalid maxRetries parameter - throwing ValidationError', {
       maxRetries,
       maxRetriesType: typeof maxRetries,
       phase: state.wiggum.phase,
       step: newState.step,
       prNumber: state.pr.exists ? state.pr.number : undefined,
       issueNumber: state.issue.exists ? state.issue.number : undefined,
-      impact: 'Cannot execute retry loop with invalid parameter',
+      impact: 'State update will fail - this is a programming error',
+      action: 'Fix caller to pass valid maxRetries value (positive integer, default: 3)',
     });
     throw new ValidationError(
-      `retryStateUpdate: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+      `retryStateUpdate: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `This is a programming error - fix the caller to pass valid maxRetries.`
     );
   }
 

@@ -34,7 +34,9 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
-    // TODO: See issue #443 - Distinguish programming errors from operational errors
+    // TODO: Distinguish programming errors from operational errors
+    //   Programming errors: Invalid arguments, type mismatches (should throw immediately)
+    //   Operational errors: Network failures, rate limits (should retry/handle gracefully)
     if (error instanceof GitHubCliError) {
       throw error;
     }
@@ -79,7 +81,9 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
-    // TODO: See issue #441 - Preserve original error details (currently discards cause chain)
+    // TODO: Preserve original error details (currently discards cause chain)
+    //   Use error.cause parameter (passed below) to preserve full stack trace through error chain
+    //   This allows debugging to trace back to root cause (e.g., network error -> GitHubCliError)
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${error instanceof Error ? error.message : String(error)}`,
       error instanceof GitHubCliError ? error.exitCode : undefined,
@@ -134,13 +138,13 @@ const RETRYABLE_ERROR_CODES = [
  * Check if an error is retryable (network errors, 5xx server errors, rate limits)
  *
  * Determines if an error should be retried using a priority-based approach:
- * 1. Exit code (most reliable) - checks for known HTTP error codes
- * 2. Node.js error.code (stable API) - checks for network/connection errors
- * 3. Message pattern matching (fallback) - for when structured data is missing
+ * 1. Exit code (most reliable) - HTTP status: 429 (rate limit), 502-504 (server errors)
+ * 2. Node.js error.code (stable API) - ECONNRESET, ETIMEDOUT, etc. (see RETRYABLE_ERROR_CODES)
+ * 3. Message pattern matching (fallback) - string matching when structured data unavailable
  *
- * When exitCode is unavailable (undefined), gh CLI may wrap errors in generic Error objects,
- * losing HTTP status codes. In these cases we must parse error messages, which are fragile
- * to GitHub CLI updates. See issue #453 for migration to structured error types.
+ * **FRAGILITY WARNING:** When exitCode is undefined, gh CLI wraps errors in generic Error objects,
+ * requiring message parsing. This is fragile to gh CLI updates.
+ * TODO: Migrate to structured error types to eliminate message parsing dependency.
  *
  * @param error - Error to check for retryability
  * @param exitCode - Optional exit code from the CLI command

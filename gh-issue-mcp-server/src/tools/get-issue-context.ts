@@ -12,8 +12,11 @@ import { createErrorResult, ParsingError } from '../utils/errors.js';
  * Validate GraphQL response has expected data field
  *
  * Logs response structure for debugging and throws a ParsingError with GitHub error
- * context if the response is missing the 'data' field. Never logs full response
- * content to avoid leaking sensitive issue data in logs.
+ * context if the response is missing the 'data' field.
+ *
+ * **Logging behavior:**
+ * - Production: Only logs GitHub API error messages (safe, no sensitive data)
+ * - Debug mode: Logs response structure (keys, size) but NOT content to avoid leaking issue data
  *
  * @param result - GraphQL response to validate
  * @param queryName - Name of the query for error context (e.g., 'parent', 'children')
@@ -83,8 +86,9 @@ function validateGraphQLResponse(
  * the nested { nodes: [...] } structure.
  *
  * RATIONALE: Simplifies downstream consumption. We fetch first 100 comments
- * (see getCommentsFragment) which is sufficient for current use cases.
- * If pagination becomes necessary, this function will need updating.
+ * (hard-coded in getCommentsFragment at `comments(first: 100)`) which is sufficient
+ * for current use cases. If pagination becomes necessary, both getCommentsFragment
+ * and this function will need updating.
  *
  * @param raw - Raw issue data from GraphQL with comments.nodes structure
  * @returns Normalized issue data with comments as flat array, or null if raw is null
@@ -107,12 +111,27 @@ export const GetIssueContextInputSchema = z
 export type GetIssueContextInput = z.infer<typeof GetIssueContextInputSchema>;
 
 // Output types
+
+/**
+ * Issue data from GitHub GraphQL API
+ *
+ * @invariant When comments is undefined, it means comments were not requested
+ *            (include_comments: false). When comments is an empty array, the
+ *            issue has no comments. This distinction is important for callers.
+ *
+ * @remarks Comments are limited to first 100 per issue (hard-coded in GraphQL query).
+ *          If an issue has more than 100 comments, only the first 100 are returned.
+ */
 interface IssueData {
   id: string; // Node ID for GraphQL
   number: number;
   title: string;
   url: string;
   body: string;
+  /**
+   * Comments on this issue (limited to first 100).
+   * Undefined when comments not requested via include_comments parameter.
+   */
   comments?: Array<{
     author: { login: string };
     body: string;
@@ -120,12 +139,24 @@ interface IssueData {
   }>;
 }
 
+/**
+ * Hierarchical context for a GitHub issue
+ *
+ * @invariant When comments_included is false, all IssueData objects in root,
+ *            ancestors, current, children, and siblings will have undefined
+ *            comments fields. When comments_included is true, comments may
+ *            be populated (or empty arrays if no comments exist on an issue).
+ *
+ * @remarks The comments_included flag is set based on the include_comments
+ *          input parameter and accurately reflects whether comments were fetched.
+ */
 interface IssueContext {
   root: IssueData | null;
   ancestors: IssueData[]; // [root, ..., parent] (excluding current)
   current: IssueData;
   children: IssueData[];
   siblings: IssueData[];
+  /** Whether comments were included in the response (reflects include_comments input) */
   comments_included: boolean;
 }
 

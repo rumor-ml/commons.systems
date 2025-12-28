@@ -1,17 +1,8 @@
 /**
  * Unit tests for GitHub CLI retry logic and rate limit handling
  *
- * These tests validate:
- * - Error pattern recognition for retryable vs non-retryable errors
- * - Exponential backoff formula (2^n * 1000ms)
- * - Sleep utility behavior
- * - ghCliWithRetry behavior verification
- *
- * Note: Some tests verify error classification via actual behavior (throwing/returning)
- * rather than just pattern matching. Tests marked with "(behavior)" verify actual
- * function behavior, not just that patterns exist.
- *
- * TODO(#625): Add full integration tests that mock ghCli for complete retry execution testing
+ * Tests marked "(behavior)" verify actual function execution, not just pattern matching.
+ * TODO: Add integration tests that mock ghCli for complete retry execution testing
  */
 
 import { describe, it } from 'node:test';
@@ -42,7 +33,6 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for timer precision
       assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 
@@ -54,11 +44,12 @@ describe('Rate Limit Retry Logic', () => {
 
   describe('exponential backoff formula', () => {
     it('should follow 2^n * 1000 pattern', () => {
+      // Formula: 2^attempt * 1000ms
       const expectedDelays = [
-        { attempt: 1, delay: 2000 }, // 2^1 * 1000
-        { attempt: 2, delay: 4000 }, // 2^2 * 1000
-        { attempt: 3, delay: 8000 }, // 2^3 * 1000
-        { attempt: 4, delay: 16000 }, // 2^4 * 1000
+        { attempt: 1, delay: 2000 },
+        { attempt: 2, delay: 4000 },
+        { attempt: 3, delay: 8000 },
+        { attempt: 4, delay: 16000 },
       ];
 
       for (const { attempt, delay } of expectedDelays) {
@@ -74,8 +65,6 @@ describe('Rate Limit Retry Logic', () => {
     });
 
     it('should accept args, options, and maxRetries parameters', () => {
-      // Verify function signature via length property
-      // ghCliWithRetry has 3 parameters, but only args is required
       assert.ok(ghCliWithRetry.length >= 1);
     });
 
