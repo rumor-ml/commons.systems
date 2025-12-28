@@ -40,7 +40,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       cwd: cwd,
     };
 
-    // Add repo flag if provided
     const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
     const result = await execa('gh', fullArgs, execaOptions);
@@ -287,13 +286,18 @@ export interface GitHubPRReviewComment {
 }
 
 /**
- * Result from getPRReviewComments including parsed comments and skip count
+ * Result from getPRReviewComments including parsed comments and completeness info
+ *
+ * Data completeness is tracked explicitly to help callers warn users when
+ * review data is incomplete due to parsing failures.
  */
 export interface PRReviewCommentsResult {
   /** Successfully parsed review comments */
   readonly comments: readonly GitHubPRReviewComment[];
   /** Number of comments that failed to parse and were skipped */
   readonly skippedCount: number;
+  /** Whether all comments were parsed successfully (skippedCount === 0) */
+  readonly isComplete: boolean;
   /** User-facing warning when skippedCount > 0, describing data incompleteness */
   readonly warning?: string;
 }
@@ -341,7 +345,7 @@ export async function getPRReviewComments(
   );
 
   if (!result.trim()) {
-    return { comments: [], skippedCount: 0 };
+    return { comments: [], skippedCount: 0, isComplete: true };
   }
 
   // Split by newlines and parse each JSON object
@@ -377,13 +381,39 @@ export async function getPRReviewComments(
 
   // Build warning and log summary if any comments were skipped
   let warning: string | undefined;
+  const totalAttempted = comments.length + skippedCount;
+
   if (skippedCount > 0) {
-    const totalAttempted = comments.length + skippedCount;
     const skipPercentage = ((skippedCount / totalAttempted) * 100).toFixed(1);
+    const skipRatio = skippedCount / totalAttempted;
+
+    // Throw if too much data lost (>20% of comments unparseable)
+    // This indicates a GitHub API issue, gh CLI version incompatibility, or severe corruption
+    // that makes the review data too unreliable to use
+    if (skipRatio > 0.2) {
+      logger.error('Too many malformed review comments - data unreliable', {
+        prNumber,
+        username,
+        parsedCount: comments.length,
+        skippedCount,
+        skipPercentage: `${skipPercentage}%`,
+        threshold: '20%',
+        impact: 'Review data too incomplete to proceed safely',
+        action: 'Check GitHub API and gh CLI version compatibility',
+      });
+
+      throw new GitHubCliError(
+        `Too many malformed review comments (${skippedCount}/${totalAttempted}, ${skipPercentage}%). ` +
+          `This indicates a GitHub API issue or gh CLI version incompatibility. ` +
+          `Review data is too incomplete to proceed safely. ` +
+          `Check the comments on GitHub's web UI to see all feedback.`
+      );
+    }
 
     warning =
       `Warning: ${skippedCount} of ${totalAttempted} review comments (${skipPercentage}%) ` +
-      `could not be parsed and were skipped. Review data may be incomplete.`;
+      `could not be parsed and were skipped. Review data may be incomplete. ` +
+      `Check the comments on GitHub's web UI to see all feedback.`;
 
     logger.error('Some review comments could not be parsed', {
       prNumber,
@@ -392,10 +422,16 @@ export async function getPRReviewComments(
       skippedCount,
       skipPercentage: `${skipPercentage}%`,
       userGuidance: warning,
+      action: 'Display warning to user and suggest checking GitHub web UI',
     });
   }
 
-  return { comments, skippedCount, warning };
+  return {
+    comments,
+    skippedCount,
+    isComplete: skippedCount === 0,
+    warning,
+  };
 }
 
 /**

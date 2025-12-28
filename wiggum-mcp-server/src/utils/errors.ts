@@ -14,6 +14,7 @@
  *   - NetworkError: Network-related failures (from mcp-common)
  *   - GitHubCliError: GitHub CLI command failures (from mcp-common)
  *   - GitError: Git command failures (wiggum-specific)
+ *   - FilesystemError: Cascading filesystem failures (wiggum-specific)
  *   - ParsingError: Failed to parse external command output (from mcp-common)
  *   - FormattingError: Failed to format response data (from mcp-common)
  *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
@@ -65,6 +66,33 @@ export class GitError extends McpError {
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
+  }
+}
+
+/**
+ * Error thrown when file system operations fail with cascading errors
+ *
+ * Used when an initial file operation fails and subsequent diagnostic operations
+ * (like stat() to check file existence) also fail. This pattern indicates serious
+ * filesystem issues like:
+ * - NFS mount failures or timeouts
+ * - Filesystem corruption
+ * - Permission cascades (directory permissions prevent stat on files)
+ * - Disk failures
+ *
+ * This is a terminal error - retrying is unlikely to help without fixing the
+ * underlying filesystem issue.
+ */
+export class FilesystemError extends McpError {
+  constructor(
+    message: string,
+    public readonly filePath: string,
+    public readonly originalError: Error,
+    public readonly diagnosticError?: Error,
+    public readonly errorCode?: string
+  ) {
+    super(message, 'FILESYSTEM_ERROR');
+    this.name = 'FilesystemError';
   }
 }
 
@@ -168,6 +196,7 @@ export class StateApiError extends McpError {
  * Retry Strategy:
  * - ValidationError: Terminal (requires user input correction)
  * - StateDetectionError: Terminal (workflow state unreliable, requires manual intervention)
+ * - FilesystemError: Terminal (cascading filesystem failures require manual intervention)
  * - TimeoutError: Potentially retryable (may succeed with more time)
  * - NetworkError: Potentially retryable (transient network issues)
  * - StateApiError: Potentially retryable (may be transient API failure)
@@ -194,6 +223,12 @@ export function isTerminalError(error: unknown): boolean {
     return true;
   }
 
+  // FilesystemError is terminal: cascading filesystem failures indicate serious issues
+  // (NFS mount, corruption, permission cascades) that won't resolve on retry
+  if (error instanceof FilesystemError) {
+    return true;
+  }
+
   // Delegate to base implementation for other error types
   return baseIsTerminalError(error);
 }
@@ -201,8 +236,9 @@ export function isTerminalError(error: unknown): boolean {
 /**
  * Create a standardized error result for MCP tool responses
  *
- * This wiggum-specific wrapper handles StateDetectionError and StateApiError
- * before delegating to the mcp-common createErrorResult for other error types.
+ * This wiggum-specific wrapper handles StateDetectionError, StateApiError,
+ * and FilesystemError before delegating to the mcp-common createErrorResult
+ * for other error types.
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ToolError with error information and type metadata
@@ -219,6 +255,10 @@ export function createErrorResult(error: unknown): ToolError {
 
   if (error instanceof StateApiError) {
     return createToolError(`Error: ${error.message}`, 'StateApiError', 'STATE_API_ERROR');
+  }
+
+  if (error instanceof FilesystemError) {
+    return createToolError(`Error: ${error.message}`, 'FilesystemError', 'FILESYSTEM_ERROR');
   }
 
   // Delegate to mcp-common for all other error types

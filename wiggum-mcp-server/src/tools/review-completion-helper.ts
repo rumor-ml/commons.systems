@@ -27,7 +27,7 @@ import {
   generateIterationLimitInstructions,
 } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, FilesystemError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
@@ -341,20 +341,56 @@ async function readReviewFile(
       fileExists = true;
       fileSize = stats.size;
     } catch (statError) {
-      // ERROR level - stat failure during error recovery indicates serious filesystem issues
-      // (permissions, corruption, NFS timeout) that users need to know about immediately.
-      // Was previously WARN, elevated because these failures affect debugging ability.
-      logger.error('stat() failed during file read error recovery - filesystem issue detected', {
-        filePath,
-        category,
-        originalError: errorObj.message,
-        statError: statError instanceof Error ? statError.message : String(statError),
-        statErrorCode: (statError as NodeJS.ErrnoException).code,
-        impact:
-          'Cannot determine if file exists or has permission issues - may indicate filesystem corruption, NFS timeout, or cascading permission failures',
-        action:
-          'Check file system health with fsck, verify NFS mount status, check file permissions recursively',
-      });
+      const statErrorObj = statError instanceof Error ? statError : new Error(String(statError));
+      const statErrorCode = (statError as NodeJS.ErrnoException).code;
+      const originalErrorCode = (errorObj as NodeJS.ErrnoException).code;
+
+      // Check if this is a simple "file not found" case (both errors are ENOENT)
+      // This is expected behavior, not a cascading filesystem failure
+      if (originalErrorCode === 'ENOENT' && statErrorCode === 'ENOENT') {
+        // File simply doesn't exist - this is expected, continue with normal error handling
+        logger.debug('File does not exist (ENOENT)', {
+          filePath,
+          category,
+        });
+        // fileExists remains false, fileSize remains undefined
+      } else {
+        // CRITICAL: stat() failure during error recovery for non-ENOENT errors
+        // indicates cascading filesystem failures. This is a serious condition:
+        // both the original file operation AND the diagnostic stat() failed for
+        // different reasons than "file not found".
+        // Common causes: NFS mount timeout, filesystem corruption, permission cascades, disk failure.
+        // We must escalate this rather than swallowing it to prevent masking filesystem issues.
+        logger.error('CRITICAL: stat() failed during file read error recovery - escalating', {
+          filePath,
+          category,
+          originalError: errorObj.message,
+          originalErrorCode,
+          statError: statErrorObj.message,
+          statErrorCode,
+          impact: 'Cascading filesystem failure detected - cannot diagnose original error',
+          action:
+            'Check file system health with fsck, verify NFS mount status, check file permissions recursively',
+          escalation: 'Throwing FilesystemError to surface this critical issue',
+        });
+
+        // Escalate cascading filesystem failures instead of silently continuing
+        throw new FilesystemError(
+          `Cascading filesystem failure while reading review file.\n` +
+            `Original error: ${errorObj.message}\n` +
+            `Diagnostic stat() also failed: ${statErrorObj.message}\n\n` +
+            `This indicates a serious filesystem issue (NFS timeout, corruption, permission cascade).\n` +
+            `Actions:\n` +
+            `  1. Check file system health: fsck or equivalent\n` +
+            `  2. Verify NFS mount status if applicable: mount | grep nfs\n` +
+            `  3. Check permissions recursively: ls -la $(dirname "${filePath}")\n` +
+            `  4. Check disk space: df -h`,
+          filePath,
+          errorObj,
+          statErrorObj,
+          statErrorCode
+        );
+      }
     }
 
     const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
