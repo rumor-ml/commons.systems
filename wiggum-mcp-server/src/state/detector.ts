@@ -327,6 +327,26 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
+        // Check if recursion would exceed limit BEFORE making the recursive call
+        // This prevents wasted work when depth=2 and next call would immediately fail at depth=3
+        if (depth + 1 >= MAX_RECURSION_DEPTH) {
+          logger.error('detectCurrentState: would exceed recursion limit on retry - aborting', {
+            currentDepth: depth,
+            maxDepth: MAX_RECURSION_DEPTH,
+            originalPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+            action: 'Aborting before wasting API calls on doomed retry',
+            impact: 'State detection cannot proceed - manual intervention required',
+          });
+          throw new StateDetectionError(
+            `State detection failed: PR state changed during detection (PR #${pr.number} -> #${revalidatedPr.number}) ` +
+              `but retry would exceed maximum recursion depth (${MAX_RECURSION_DEPTH}). ` +
+              `This indicates rapid PR state changes. Manual intervention required.`,
+            { depth: depth + 1, maxDepth: MAX_RECURSION_DEPTH }
+          );
+        }
+
         // ERROR level - this is a race condition that discards work and retries
         // Users need visibility that original state detection was wasted
         logger.error(
@@ -342,7 +362,7 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
             maxDepthRemaining: MAX_RECURSION_DEPTH - depth - 1,
           }
         );
-        // Retry with incremented depth (depth check at function start will catch limit)
+        // Retry with incremented depth
         return detectCurrentState(repo, depth + 1);
       }
     }

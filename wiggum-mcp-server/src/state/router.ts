@@ -282,20 +282,12 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-
-  // Should never reach here - all code paths should return within the retry loop
-  // If this executes, it indicates a programming error (e.g., break/continue misuse,
-  // missing return path, or logic error in retry loop control flow)
-  logger.error('Unreachable code reached in safeUpdatePRBodyState', {
-    prNumber,
-    step,
-    maxRetries,
-    impact: 'Critical programming error - retry loop completed without returning',
-    recommendation: 'Review retry loop logic for missing return paths',
-  });
-  throw new Error(
-    'Internal error: State update retry loop completed without returning. This indicates a programming error.'
-  );
+  // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
+  // All code paths within the loop return or throw - this line is unreachable at runtime:
+  // - Success: returns { success: true }
+  // - Transient error (retries exhausted): returns { success: false, ... }
+  // - Critical/unexpected error: throws
+  throw new Error('Unreachable: retry loop should always return or throw');
 }
 
 /**
@@ -437,20 +429,12 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-
-  // Should never reach here - all code paths should return within the retry loop
-  // If this executes, it indicates a programming error (e.g., break/continue misuse,
-  // missing return path, or logic error in retry loop control flow)
-  logger.error('Unreachable code reached in safeUpdateIssueBodyState', {
-    issueNumber,
-    step,
-    maxRetries,
-    impact: 'Critical programming error - retry loop completed without returning',
-    recommendation: 'Review retry loop logic for missing return paths',
-  });
-  throw new Error(
-    'Internal error: State update retry loop completed without returning. This indicates a programming error.'
-  );
+  // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
+  // All code paths within the loop return or throw - this line is unreachable at runtime:
+  // - Success: returns { success: true }
+  // - Transient error (retries exhausted): returns { success: false, ... }
+  // - Critical/unexpected error: throws
+  throw new Error('Unreachable: retry loop should always return or throw');
 }
 
 /**

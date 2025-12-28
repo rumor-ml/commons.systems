@@ -138,6 +138,22 @@ export async function getWiggumStateFromPRBody(
     const errorMsg = error instanceof Error ? error.message : String(error);
     const exitCode = error instanceof GitHubCliError ? error.exitCode : undefined;
 
+    // StateCorruptionError: Log with PR context before re-throwing
+    // This error indicates corrupted state data that requires user intervention
+    if (error instanceof StateCorruptionError) {
+      logger.error('getWiggumStateFromPRBody: state corruption detected in PR body', {
+        prNumber,
+        repo,
+        error: errorMsg,
+        originalError: error.originalError,
+        bodyLength: error.bodyLength,
+        matchedJsonPreview: error.matchedJsonPreview,
+        impact: 'Workflow state is corrupted and cannot be parsed',
+        action: 'User must manually fix or remove state marker in PR body',
+      });
+      throw error;
+    }
+
     // Critical errors should propagate - these indicate problems that won't self-resolve:
     // - 401: Authentication required (user's gh CLI session may have expired)
     // - 403: Access denied (user doesn't have permission to view this PR)
@@ -188,6 +204,22 @@ export async function getWiggumStateFromIssueBody(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const exitCode = error instanceof GitHubCliError ? error.exitCode : undefined;
+
+    // StateCorruptionError: Log with issue context before re-throwing
+    // This error indicates corrupted state data that requires user intervention
+    if (error instanceof StateCorruptionError) {
+      logger.error('getWiggumStateFromIssueBody: state corruption detected in issue body', {
+        issueNumber,
+        repo,
+        error: errorMsg,
+        originalError: error.originalError,
+        bodyLength: error.bodyLength,
+        matchedJsonPreview: error.matchedJsonPreview,
+        impact: 'Workflow state is corrupted and cannot be parsed',
+        action: 'User must manually fix or remove state marker in issue body',
+      });
+      throw error;
+    }
 
     // Critical errors should propagate - these indicate problems that won't self-resolve:
     // - 401: Authentication required (user's gh CLI session may have expired)
