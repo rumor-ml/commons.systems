@@ -146,5 +146,24 @@ export function validateWiggumState(data: unknown, source = 'unknown'): WiggumSt
     });
   }
 
-  return { iteration, step, completedSteps, phase };
+  // Extract maxIterations (optional field)
+  let maxIterations: number | undefined = undefined;
+  if ('maxIterations' in obj && obj.maxIterations !== undefined) {
+    if (
+      typeof obj.maxIterations === 'number' &&
+      Number.isInteger(obj.maxIterations) &&
+      obj.maxIterations > 0
+    ) {
+      maxIterations = obj.maxIterations;
+    } else {
+      logger.warn('validateWiggumState: invalid maxIterations value', {
+        source,
+        invalidValue: obj.maxIterations,
+        invalidType: typeof obj.maxIterations,
+        defaultingTo: 'undefined',
+      });
+    }
+  }
+
+  return { iteration, step, completedSteps, phase, maxIterations };
 }

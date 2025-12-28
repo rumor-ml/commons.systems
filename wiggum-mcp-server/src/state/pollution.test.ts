@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { hasPrototypePollution, safeJsonParse, validateWiggumState } from './utils.js';
-import { STEP_PHASE1_MONITOR_WORKFLOW, isValidStep } from '../constants.js';
+import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW, isValidStep } from '../constants.js';
 
 describe('hasPrototypePollution', () => {
   describe('basic attack vectors', () => {
@@ -344,6 +344,98 @@ describe('validateWiggumState', () => {
         // If it throws, that's also acceptable
         assert.ok(err instanceof Error);
       }
+    });
+  });
+
+  describe('maxIterations handling', () => {
+    it('should preserve maxIterations when present and valid', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: 40,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, 40);
+    });
+
+    it('should return undefined for maxIterations when not present', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, undefined);
+    });
+
+    it('should ignore invalid maxIterations (non-positive)', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: -5,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, undefined);
+    });
+
+    it('should ignore invalid maxIterations (zero)', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: 0,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, undefined);
+    });
+
+    it('should ignore invalid maxIterations (non-integer)', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: 15.5,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, undefined);
+    });
+
+    it('should ignore invalid maxIterations (string)', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: '40' as unknown as number,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, undefined);
+    });
+
+    it('should preserve large valid maxIterations values', () => {
+      const input = {
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: 100,
+      };
+
+      const result = validateWiggumState(input, 'test');
+      assert.strictEqual(result.maxIterations, 100);
     });
   });
 });
