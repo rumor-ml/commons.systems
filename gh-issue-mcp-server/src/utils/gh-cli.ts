@@ -146,6 +146,11 @@ const RETRYABLE_ERROR_CODES = [
  * @param exitCode - Optional exit code from the CLI command
  * @returns true if error should be retried, false otherwise
  *
+ * Note: When exitCode is defined but not in the retryable list [429, 502-504],
+ * the function continues to check Node.js error codes and message patterns.
+ * This handles edge cases where the error has both an HTTP code AND network-level
+ * issues (e.g., connection refused during a 404 response).
+ *
  * @example
  * ```typescript
  * try {

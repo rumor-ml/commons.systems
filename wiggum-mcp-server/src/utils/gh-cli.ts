@@ -644,11 +644,10 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exitCode using duck-typing instead of instanceof GitHubCliError.
-      // Duck-typing rationale:
-      //   - Error may come from various error classes (GitHubCliError, execa.Error, or wrapped errors)
-      //   - We can't rely on instanceof because error chain may lose type information
-      //   - Duck-typing ({ exitCode?: number }) works for any object with exitCode property
+      // Extract exitCode using duck-typing instead of instanceof GitHubCliError:
+      // - Error may come from various error classes (GitHubCliError, execa.Error, or wrapped errors)
+      // - We can't rely on instanceof because error chain may lose type information
+      // - Duck-typing ({ exitCode?: number }) works for any object with exitCode property
       // Note: exitCode may be a subprocess exit code (e.g., 1=generic error, 127=command not found)
       // rather than HTTP status (429, 502). Subprocess codes occur when gh CLI fails before making
       // HTTP requests (validation errors, missing commands). These don't match retryable HTTP codes

@@ -63,9 +63,10 @@ type CurrentStateWithPR = CurrentState & {
  * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
- * Note: The `isTransient` field is redundant (always `true` when present) but retained for
- * backward compatibility. The `reason` field already distinguishes transient failures.
- * Removing this field would require updating all consumers to check `reason` instead.
+ * @deprecated The `isTransient` field is redundant - use `success === false` to detect
+ * transient failures. The `reason` field already distinguishes failure types. This field
+ * is retained for backward compatibility with existing consumers. TODO(#800): Remove
+ * isTransient field after migrating all consumers to check `reason` instead.
  */
 export type StateUpdateResult =
   | { readonly success: true }

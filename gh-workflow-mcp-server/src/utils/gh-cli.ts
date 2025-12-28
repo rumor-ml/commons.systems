@@ -607,7 +607,7 @@ const RETRYABLE_ERROR_CODES = [
  * @param exitCode - Optional exit code from the CLI command
  * @returns true if error should be retried, false otherwise
  */
-// TODO: See issue #453 - Use structured error types from errors.ts for retry logic
+// TODO(#453): Migrate to structured error types for type-safe error handling
 // Current blocker: gh CLI wraps errors in generic Error objects, losing type information.
 // We must rely on exitCode parameter and message pattern matching until gh CLI preserves error types.
 // When fixed: Replace pattern matching with `instanceof NetworkError`, `instanceof RateLimitError`, etc.
