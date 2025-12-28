@@ -105,6 +105,10 @@ export class StateApiError extends McpError {
   /**
    * Create a StateApiError
    *
+   * Note: Prefer using StateApiError.create() factory function for safer construction.
+   * The constructor throws ValidationError if resourceId is invalid, which may be unexpected
+   * in some code paths.
+   *
    * @param message - Human-readable error description
    * @param operation - Whether this was a 'read' or 'write' operation
    * @param resourceType - The GitHub resource type ('pr' or 'issue')
@@ -127,6 +131,34 @@ export class StateApiError extends McpError {
     }
     super(message, 'STATE_API_ERROR');
     this.name = 'StateApiError';
+  }
+
+  /**
+   * Factory function to create StateApiError with validation
+   *
+   * Returns either a StateApiError on success or a ValidationError if resourceId is invalid.
+   * This avoids throwing from the constructor, making error construction more predictable.
+   *
+   * @param message - Human-readable error description
+   * @param operation - Whether this was a 'read' or 'write' operation
+   * @param resourceType - The GitHub resource type ('pr' or 'issue')
+   * @param resourceId - Optional PR/issue number (must be positive integer if provided)
+   * @param cause - Optional underlying error that caused this failure
+   * @returns StateApiError if valid, ValidationError if resourceId is invalid
+   */
+  static create(
+    message: string,
+    operation: 'read' | 'write',
+    resourceType: 'pr' | 'issue',
+    resourceId?: number,
+    cause?: Error
+  ): StateApiError | ValidationError {
+    if (resourceId !== undefined && (!Number.isInteger(resourceId) || resourceId <= 0)) {
+      return new ValidationError(
+        `StateApiError: resourceId must be a positive integer, got: ${resourceId}`
+      );
+    }
+    return new StateApiError(message, operation, resourceType, resourceId, cause);
   }
 }
 

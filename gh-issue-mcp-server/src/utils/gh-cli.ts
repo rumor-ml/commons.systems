@@ -161,13 +161,11 @@ const RETRYABLE_ERROR_CODES = [
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
   // Check for known retryable HTTP status codes and return true immediately if matched.
-  // For ANY other exitCode value (non-retryable codes like 400, 404, 422), we DO NOT return false.
-  // Instead, we always fall through to Priority 2/3 checks because:
-  //   - The error may ALSO have a retryable Node.js error code (ETIMEDOUT, ECONNRESET)
-  //   - The error message may contain retryable patterns even with non-retryable HTTP status
-  // This aggressive retry strategy prioritizes recovering from transient failures even when
-  // HTTP status suggests the error may not be retryable. Trade-off: May retry errors that
-  // should fail fast (like 404 with network timeout during the request).
+  // For non-retryable HTTP codes (400, 404, 422, etc.), we fall through to check Node.js
+  // error codes because the exitCode may reflect the HTTP response status, but the actual
+  // failure mode could be network-related (e.g., connection dropped mid-request).
+  // However, this may result in retrying requests that should fail fast - consider
+  // returning false for specific non-retryable codes like 404, 400, 422 if this becomes an issue.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -328,12 +326,13 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code if present (error type may vary across libraries)
+      // Extract exit code if present (duck-typed from error object)
       // Note: exitCode may be undefined if:
-      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
-      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
-      //   - Error originated from ghCli() wrapper before CLI invocation
-      // When undefined, we fall back to HTTP status extraction from error message text.
+      //   - Error object doesn't expose exitCode property (e.g., generic Error, network timeout)
+      //   - Error was thrown before gh CLI invocation (e.g., validation errors in ghCli() wrapper)
+      //   - Error library doesn't set exitCode field (implementation-dependent)
+      // When undefined, we fall back to extracting HTTP status codes from error message text.
+      // Note: exitCode may be a subprocess exit code (e.g., 1, 127) rather than HTTP status (429, 502).
       // This fallback improves reliability for isRetryableError() by providing exit code
       // for accurate HTTP status detection (429, 502-504), reducing reliance on fragile string matching.
       lastExitCode = (error as { exitCode?: number }).exitCode;
@@ -358,11 +357,13 @@ export async function ghCliWithRetry(
             // - A 404 exitCode helps log "not_found" vs generic "unknown" error type
             // Validation criteria:
             // - Must be finite (rejects NaN from unparseable input like "status: abc")
-            // - Must be safe integer (ensures parsed value is within JavaScript safe integer range)
+            // - Must be safe integer (ensures value is within JavaScript safe integer range)
             // - Must be in HTTP range (100-599 per RFC 7231)
-            // Note: parseInt("429.5", 10) returns 429 (decimal stripped during parsing, not rejected by validation)
+            // Note: parseInt("429.5", 10) returns 429 (parsing stops at decimal point, returns integer)
             // Note: parseInt("Infinity", 10) returns NaN (rejected by isFinite check)
-            // Note: parseInt("429abc", 10) returns 429 - this is intentional for robustness
+            // Note: parseInt("429abc", 10) returns 429 (parsing stops at first non-digit after number)
+            // The Number.isSafeInteger check is technically redundant since parseInt always returns
+            // an integer, but provides defense against future code changes that might parse differently.
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&

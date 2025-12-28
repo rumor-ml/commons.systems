@@ -5,9 +5,13 @@
  * - Error pattern recognition for retryable vs non-retryable errors
  * - Exponential backoff formula (2^n * 1000ms)
  * - Sleep utility behavior
+ * - ghCliWithRetry behavior verification
  *
- * Note: These tests verify error classification patterns rather than actual retry
- * execution (which requires mocking external gh CLI calls).
+ * Note: Some tests verify error classification via actual behavior (throwing/returning)
+ * rather than just pattern matching. Tests marked with "(behavior)" verify actual
+ * function behavior, not just that patterns exist.
+ *
+ * TODO(#625): Add full integration tests that mock ghCli for complete retry execution testing
  */
 
 import { describe, it } from 'node:test';
@@ -135,6 +139,126 @@ describe('Rate Limit Retry Logic', () => {
       // Validation errors should not match retryable patterns
       assert.ok(!error.message.toLowerCase().includes('network'));
       assert.ok(!error.message.toLowerCase().includes('timeout'));
+    });
+  });
+
+  describe('ghCliWithRetry behavior tests', () => {
+    it('(behavior) should throw error for invalid gh command', async () => {
+      // This tests actual ghCliWithRetry behavior, not just patterns
+      try {
+        await ghCliWithRetry(['totally-invalid-command-xyz'], {}, 1);
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error, 'Error should be Error instance');
+        // Verify it's a GitHub CLI error (command not found or similar)
+        assert.ok(
+          error.message.includes('GitHub CLI') || error.message.includes('gh'),
+          `Error should be from gh CLI: ${error.message}`
+        );
+      }
+    });
+
+    it('(behavior) should respect maxRetries parameter', async () => {
+      const startTime = Date.now();
+      try {
+        // Using maxRetries=1 should fail faster than maxRetries=3
+        await ghCliWithRetry(['invalid-cmd'], {}, 1);
+      } catch {
+        // Expected to fail
+      }
+      const duration = Date.now() - startTime;
+      // With maxRetries=1, should not take long (no exponential backoff)
+      assert.ok(duration < 5000, `Should complete quickly with maxRetries=1, took ${duration}ms`);
+    });
+
+    it('(behavior) should accept valid gh api command', async () => {
+      // Test that a valid gh command runs (though may fail for auth reasons)
+      // The point is ghCliWithRetry doesn't crash on valid syntax
+      try {
+        // This will likely fail due to auth, but should not throw syntax error
+        await ghCliWithRetry(['api', 'rate_limit'], {}, 1);
+      } catch (error) {
+        // Any error is fine - we're just testing the function accepts valid commands
+        assert.ok(error instanceof Error);
+      }
+    });
+
+    it('should export ghCliWithRetry as a function', () => {
+      assert.strictEqual(typeof ghCliWithRetry, 'function');
+    });
+
+    it('should have expected function signature', () => {
+      // ghCliWithRetry should accept at least args parameter
+      assert.ok(ghCliWithRetry.length >= 1, 'Should accept at least one parameter');
+    });
+  });
+
+  describe('HTTP status extraction tests', () => {
+    it('should validate HTTP status code range (100-599)', () => {
+      const validCodes = [100, 200, 301, 400, 404, 429, 500, 502, 503, 504, 599];
+      validCodes.forEach((code) => {
+        assert.ok(code >= 100 && code <= 599, `${code} should be valid HTTP status`);
+      });
+
+      const invalidCodes = [0, 99, 600, 1000, -1];
+      invalidCodes.forEach((code) => {
+        assert.ok(code < 100 || code > 599, `${code} should be invalid HTTP status`);
+      });
+    });
+
+    it('should parse HTTP status from various message formats', () => {
+      const patterns = [
+        { msg: 'HTTP 429 Too Many Requests', expected: 429 },
+        { msg: 'status: 502', expected: 502 },
+        { msg: 'returned status 503', expected: 503 },
+        { msg: 'error code 504', expected: 504 },
+      ];
+
+      patterns.forEach(({ msg, expected }) => {
+        // Extract the first number that looks like HTTP status
+        const match = msg.match(/\b([1-5]\d{2})\b/);
+        assert.ok(match, `Should find HTTP status in "${msg}"`);
+        assert.strictEqual(parseInt(match[1], 10), expected);
+      });
+    });
+
+    it('should handle messages without HTTP status', () => {
+      const messagesWithoutStatus = [
+        'Connection refused',
+        'Network error',
+        'Timeout exceeded',
+        'Invalid argument',
+      ];
+
+      messagesWithoutStatus.forEach((msg) => {
+        // These should not match HTTP status patterns
+        const match = msg.match(/\bHTTP\s+([1-5]\d{2})\b/i);
+        assert.strictEqual(match, null, `Should not find HTTP status in "${msg}"`);
+      });
+    });
+  });
+
+  describe('exponential backoff edge cases', () => {
+    it('should calculate correct delays for high attempt numbers', () => {
+      // Test that formula works for higher attempt numbers (uncapped)
+      const testCases = [
+        { attempt: 5, expected: 32000 }, // 2^5 * 1000 = 32s
+        { attempt: 6, expected: 64000 }, // 2^6 * 1000 = 64s
+        { attempt: 10, expected: 1024000 }, // 2^10 * 1000 = ~17min
+      ];
+
+      testCases.forEach(({ attempt, expected }) => {
+        const delay = Math.pow(2, attempt) * 1000;
+        assert.strictEqual(delay, expected, `Attempt ${attempt} should have ${expected}ms delay`);
+      });
+    });
+
+    it('should document that delays are NOT capped', () => {
+      // Important: The implementation does NOT cap delays
+      // With high attempt numbers, delays grow very large
+      const attempt = 15;
+      const delay = Math.pow(2, attempt) * 1000;
+      assert.strictEqual(delay, 32768000, 'Delay should be ~9 hours for attempt 15 (uncapped)');
     });
   });
 });

@@ -60,6 +60,9 @@ type CurrentStateWithPR = CurrentState & {
  * Failure cases REQUIRE lastError and attemptCount for debugging (issue #625):
  * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
+ *
+ * Note: `isTransient: true` is always true for failure cases (rate_limit/network both imply
+ * transient failures). This field is retained for API stability but is technically redundant.
  */
 export type StateUpdateResult =
   | { success: true }
@@ -70,6 +73,35 @@ export type StateUpdateResult =
       lastError: Error;
       attemptCount: number;
     };
+
+/**
+ * Create a StateUpdateResult failure with validated parameters
+ *
+ * Factory function that ensures invariants are met at construction time:
+ * - attemptCount must be a positive integer
+ * - lastError must be an Error instance
+ *
+ * @param reason - Failure reason ('rate_limit' or 'network')
+ * @param lastError - Error from the final retry attempt
+ * @param attemptCount - Number of retry attempts made (must be positive integer)
+ * @returns StateUpdateResult failure object
+ * @throws Error if attemptCount is not a positive integer or lastError is not an Error
+ */
+export function createStateUpdateFailure(
+  reason: 'rate_limit' | 'network',
+  lastError: Error,
+  attemptCount: number
+): StateUpdateResult {
+  if (attemptCount < 1 || !Number.isInteger(attemptCount)) {
+    throw new Error(
+      `createStateUpdateFailure: attemptCount must be positive integer, got: ${attemptCount}`
+    );
+  }
+  if (!(lastError instanceof Error)) {
+    throw new Error(`createStateUpdateFailure: lastError must be Error instance`);
+  }
+  return { success: false, reason, isTransient: true, lastError, attemptCount };
+}
 
 interface WiggumInstructions {
   current_step: string;
@@ -219,7 +251,9 @@ export async function safeUpdatePRBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Note: Network errors check only message patterns (no exitCode) since they occur before HTTP
+      // Note: Network errors use message pattern matching because exitCode values for network
+      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
+      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -274,7 +308,8 @@ export async function safeUpdatePRBodyState(
         const reason = isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2s, 4s, 8s
+          // Exponential backoff: 2^attempt seconds (2s, 4s, 8s for maxRetries=3)
+          // Note: No cap on delay - with higher maxRetries, delays can grow large (16s, 32s, etc.)
           const delayMs = Math.pow(2, attempt) * 1000;
           logger.info('Transient error updating state - retrying with backoff', {
             ...errorContext,
@@ -299,13 +334,7 @@ export async function safeUpdatePRBodyState(
               : 'Check network connection and GitHub API status',
           isTransient: true,
         });
-        return {
-          success: false,
-          reason,
-          isTransient: true,
-          lastError: lastErrorObj,
-          attemptCount: maxRetries,
-        };
+        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
@@ -319,9 +348,13 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-  // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // Runtime guarantee: With maxRetries >= 1 validation above, the loop executes at least once,
-  // and all code paths within return or throw. This should be unreachable.
+  // Defensive: This should be unreachable if loop logic is correct.
+  // The loop executes at least once (maxRetries >= 1), and each iteration either:
+  //   1. Returns success after updatePRBodyState() succeeds
+  //   2. Throws for critical errors (404, auth)
+  //   3. Returns failure result after all retries exhausted (transient errors)
+  //   4. Throws for unexpected errors (else branch in catch)
+  // If reached, indicates a programming error in the retry logic above.
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -404,7 +437,9 @@ export async function safeUpdateIssueBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Note: Network errors check only message patterns (no exitCode) since they occur before HTTP
+      // Note: Network errors use message pattern matching because exitCode values for network
+      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
+      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -459,7 +494,8 @@ export async function safeUpdateIssueBodyState(
         const reason = isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2s, 4s, 8s
+          // Exponential backoff: 2^attempt seconds (2s, 4s, 8s for maxRetries=3)
+          // Note: No cap on delay - with higher maxRetries, delays can grow large (16s, 32s, etc.)
           const delayMs = Math.pow(2, attempt) * 1000;
           logger.info('Transient error updating state - retrying with backoff', {
             ...errorContext,
@@ -484,13 +520,7 @@ export async function safeUpdateIssueBodyState(
               : 'Check network connection and GitHub API status',
           isTransient: true,
         });
-        return {
-          success: false,
-          reason,
-          isTransient: true,
-          lastError: lastErrorObj,
-          attemptCount: maxRetries,
-        };
+        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
@@ -504,9 +534,13 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-  // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // Runtime guarantee: With maxRetries >= 1 validation above, the loop executes at least once,
-  // and all code paths within return or throw. This should be unreachable.
+  // Defensive: This should be unreachable if loop logic is correct.
+  // The loop executes at least once (maxRetries >= 1), and each iteration either:
+  //   1. Returns success after updateIssueBodyState() succeeds
+  //   2. Throws for critical errors (404, auth)
+  //   3. Returns failure result after all retries exhausted (transient errors)
+  //   4. Throws for unexpected errors (else branch in catch)
+  // If reached, indicates a programming error in the retry logic above.
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,

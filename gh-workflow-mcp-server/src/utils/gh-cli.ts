@@ -182,16 +182,21 @@ export interface FailedStepLogsResult {
 /**
  * Parse tab-delimited output from `gh run view --log-failed`
  *
- * The GitHub CLI outputs failed step logs in a tab-delimited format:
+ * Expected format: Each line contains three tab-separated fields:
  * "job-name\tstep-name\ttimestamp log-line"
  *
  * This function groups log lines by job and step for easier processing.
  * Returns data completeness information to allow callers to warn users
  * when failure diagnosis may be incomplete.
  *
+ * Parsing quality validation:
+ * - Warns (stderr) if ANY lines cannot be parsed (even 1 skipped line)
+ * - Throws ParsingError if success rate < 70% (more than 30% of lines unparseable)
+ * - Empty lines are silently skipped and not counted toward totalLines or skippedLines
+ *
  * @param output - Raw output from `gh run view --log-failed`
  * @returns Result object with parsed steps and completeness metadata
- * @throws {ParsingError} If more than 30% of lines fail to parse (indicates format change)
+ * @throws {ParsingError} If fewer than 70% of non-empty lines parse successfully
  */
 export function parseFailedStepLogs(output: string): FailedStepLogsResult {
   const steps: Map<string, FailedStepLog> = new Map();
@@ -368,8 +373,10 @@ export async function getWorkflowRunsForCommit(
  * Mapping rationale:
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
- * - Unknown states → "completed": Fail-fast default to prevent infinite waiting on new GitHub API states
- *                                 Trade-off: May incorrectly mark incomplete checks as done
+ * - Unknown states → "completed": Conservative default to exit monitoring loop for unrecognized states
+ *                                 Trade-off: May incorrectly mark incomplete checks as completed,
+ *                                 causing monitoring to exit early. Future enhancement: throw error
+ *                                 for unknown states to surface new GitHub API state values.
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
@@ -535,10 +542,11 @@ const RETRYABLE_ERROR_CODES = [
  * @param exitCode - Optional exit code from the CLI command
  * @returns true if error should be retried, false otherwise
  */
-// TODO: See issue #453 - Replace string matching with structured error types
-// Proposed: Define RetryableError, RateLimitError, NetworkError types
-// Benefits: Type-safe HTTP status code handling (currently relies on duck-typing exitCode property),
-//           eliminate fragile message parsing for rate limits and server errors
+// TODO: See issue #453 - Use structured error types from errors.ts for retry logic
+// Current blocker: gh CLI wraps errors in generic Error objects, losing type information.
+// We must rely on exitCode parameter and message pattern matching until gh CLI preserves error types.
+// When fixed: Replace pattern matching with `instanceof NetworkError`, `instanceof RateLimitError`, etc.
+// Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Note: Assumes exitCode is a valid HTTP status code from gh CLI error

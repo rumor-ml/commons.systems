@@ -266,3 +266,89 @@ describe('isTerminalError', () => {
     assert.strictEqual(isTerminalError(error), false);
   });
 });
+
+describe('StateApiError validation', () => {
+  describe('constructor validation', () => {
+    it('should throw ValidationError for zero resourceId', () => {
+      assert.throws(
+        () => new StateApiError('Failed', 'read', 'pr', 0),
+        /resourceId must be a positive integer/
+      );
+    });
+
+    it('should throw ValidationError for negative resourceId', () => {
+      assert.throws(
+        () => new StateApiError('Failed', 'read', 'pr', -1),
+        /resourceId must be a positive integer/
+      );
+    });
+
+    it('should throw ValidationError for non-integer resourceId', () => {
+      assert.throws(
+        () => new StateApiError('Failed', 'read', 'pr', 3.5),
+        /resourceId must be a positive integer/
+      );
+    });
+
+    it('should throw ValidationError for NaN resourceId', () => {
+      assert.throws(
+        () => new StateApiError('Failed', 'read', 'pr', NaN),
+        /resourceId must be a positive integer/
+      );
+    });
+
+    it('should accept positive integer resourceId', () => {
+      const error = new StateApiError('Failed', 'read', 'pr', 42);
+      assert.strictEqual(error.resourceId, 42);
+    });
+
+    it('should accept undefined resourceId', () => {
+      const error = new StateApiError('Failed', 'read', 'pr');
+      assert.strictEqual(error.resourceId, undefined);
+    });
+  });
+
+  describe('create() factory function', () => {
+    it('should return ValidationError for zero resourceId', () => {
+      const result = StateApiError.create('Failed', 'read', 'pr', 0);
+      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
+      assert.ok(result.message.includes('resourceId must be a positive integer'));
+    });
+
+    it('should return ValidationError for negative resourceId', () => {
+      const result = StateApiError.create('Failed', 'read', 'pr', -1);
+      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
+    });
+
+    it('should return ValidationError for non-integer resourceId', () => {
+      const result = StateApiError.create('Failed', 'read', 'pr', 3.5);
+      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
+    });
+
+    it('should return StateApiError for valid resourceId', () => {
+      const result = StateApiError.create('Failed', 'read', 'pr', 42);
+      assert.ok(result instanceof StateApiError, 'Should return StateApiError');
+      assert.strictEqual(result.resourceId, 42);
+    });
+
+    it('should return StateApiError for undefined resourceId', () => {
+      const result = StateApiError.create('Failed', 'read', 'issue');
+      assert.ok(result instanceof StateApiError, 'Should return StateApiError');
+      assert.strictEqual(result.resourceId, undefined);
+    });
+
+    it('should preserve operation and resourceType', () => {
+      const result = StateApiError.create('Failed', 'write', 'issue', 99);
+      assert.ok(result instanceof StateApiError);
+      assert.strictEqual(result.operation, 'write');
+      assert.strictEqual(result.resourceType, 'issue');
+    });
+
+    it('should preserve cause in factory function', () => {
+      const cause = new Error('Network error');
+      const result = StateApiError.create('Failed', 'read', 'pr', 100, cause);
+      assert.ok(result instanceof StateApiError);
+      assert.strictEqual(result.cause, cause);
+    });
+  });
+});

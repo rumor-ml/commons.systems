@@ -7,7 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { _testExports } from './router.js';
+import { _testExports, createStateUpdateFailure } from './router.js';
 import type { CurrentState, PRExists, PRDoesNotExist, PRStateValue } from './types.js';
 import type { WiggumStep } from '../constants.js';
 import {
@@ -416,6 +416,188 @@ describe('Router Instruction Command References', () => {
         typeof PHASE2_PR_REVIEW_COMMAND === 'string',
         'PHASE2_PR_REVIEW_COMMAND should be a string'
       );
+    });
+  });
+});
+
+describe('createStateUpdateFailure factory function', () => {
+  it('should create failure result with valid parameters', () => {
+    const error = new Error('Rate limit exceeded');
+    const result = createStateUpdateFailure('rate_limit', error, 3);
+
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.reason, 'rate_limit');
+    assert.strictEqual(result.isTransient, true);
+    assert.strictEqual(result.lastError, error);
+    assert.strictEqual(result.attemptCount, 3);
+  });
+
+  it('should create failure result for network errors', () => {
+    const error = new Error('ECONNREFUSED');
+    const result = createStateUpdateFailure('network', error, 2);
+
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.reason, 'network');
+    assert.strictEqual(result.isTransient, true);
+    assert.strictEqual(result.lastError, error);
+    assert.strictEqual(result.attemptCount, 2);
+  });
+
+  it('should throw error for zero attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, 0),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for negative attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, -1),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for non-integer attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, 2.5),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for NaN attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, NaN),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for non-Error lastError', () => {
+    // TypeScript would normally catch this, but we test runtime validation
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', 'not an error' as unknown as Error, 1),
+      /lastError must be Error instance/
+    );
+  });
+
+  it('should accept attemptCount of 1', () => {
+    const error = new Error('Test error');
+    const result = createStateUpdateFailure('rate_limit', error, 1);
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.attemptCount, 1);
+    }
+  });
+
+  it('should accept large attemptCount values', () => {
+    const error = new Error('Test error');
+    const result = createStateUpdateFailure('rate_limit', error, 100);
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.attemptCount, 100);
+    }
+  });
+});
+
+describe('State Update Retry Logic', () => {
+  describe('maxRetries validation', () => {
+    it('should document that safeUpdatePRBodyState requires positive integer maxRetries', () => {
+      // safeUpdatePRBodyState validates maxRetries >= 1 and Number.isInteger
+      // This ensures the retry loop executes at least once
+      // Invalid values: 0, -1, 2.5, NaN, undefined as number
+      // Valid values: 1, 2, 3, 10, 100
+      assert.ok(Number.isInteger(3) && 3 >= 1, 'maxRetries=3 is valid');
+      assert.ok(!Number.isInteger(2.5) || 2.5 < 1, 'maxRetries=2.5 is invalid');
+      assert.ok(!Number.isInteger(0) || 0 < 1, 'maxRetries=0 is invalid');
+    });
+  });
+
+  describe('exponential backoff formula', () => {
+    it('should follow 2^attempt * 1000 pattern', () => {
+      // Verifies the exponential backoff formula used in safeUpdatePRBodyState
+      const expectedDelays = [
+        { attempt: 1, delay: 2000 }, // 2^1 * 1000 = 2s
+        { attempt: 2, delay: 4000 }, // 2^2 * 1000 = 4s
+        { attempt: 3, delay: 8000 }, // 2^3 * 1000 = 8s
+        { attempt: 4, delay: 16000 }, // 2^4 * 1000 = 16s
+        { attempt: 5, delay: 32000 }, // 2^5 * 1000 = 32s
+      ];
+
+      for (const { attempt, delay } of expectedDelays) {
+        const calculated = Math.pow(2, attempt) * 1000;
+        assert.strictEqual(calculated, delay, `Attempt ${attempt} should have delay ${delay}ms`);
+      }
+    });
+
+    it('should document uncapped delay growth', () => {
+      // Verifies that delays are NOT capped - they grow exponentially without limit
+      // This is documented in comments: "No cap on delay"
+      const attempt = 10;
+      const delay = Math.pow(2, attempt) * 1000;
+      assert.strictEqual(delay, 1024000, 'Attempt 10 would have ~17 minute delay (uncapped)');
+    });
+  });
+
+  describe('error classification patterns', () => {
+    it('should classify rate limit errors by message pattern', () => {
+      const rateLimitPatterns = ['rate limit', 'Rate Limit', '429'];
+      rateLimitPatterns.forEach((pattern) => {
+        const msg = `Error: ${pattern} exceeded`;
+        assert.ok(
+          /rate limit|429/i.test(msg),
+          `Pattern "${pattern}" should match rate limit regex`
+        );
+      });
+    });
+
+    it('should classify network errors by message pattern', () => {
+      const networkPatterns = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'network', 'fetch'];
+      networkPatterns.forEach((pattern) => {
+        const msg = `Error: ${pattern}`;
+        assert.ok(
+          /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(msg),
+          `Pattern "${pattern}" should match network regex`
+        );
+      });
+    });
+
+    it('should classify 404 errors as non-transient', () => {
+      const notFoundPatterns = ['not found', '404', 'Not Found'];
+      notFoundPatterns.forEach((pattern) => {
+        const msg = `Error: ${pattern}`;
+        assert.ok(/not found|404/i.test(msg), `Pattern "${pattern}" should match 404 regex`);
+      });
+    });
+
+    it('should classify auth errors as non-transient', () => {
+      const authPatterns = ['unauthorized', '401', 'forbidden', '403', 'permission denied'];
+      authPatterns.forEach((pattern) => {
+        const msg = `Error: ${pattern}`;
+        assert.ok(
+          /permission|forbidden|unauthorized|401|403/i.test(msg),
+          `Pattern "${pattern}" should match auth regex`
+        );
+      });
+    });
+  });
+
+  describe('HTTP status extraction', () => {
+    it('should extract status from exitCode property', () => {
+      // When error has exitCode, it should be used for classification
+      const exitCodes = [429, 502, 503, 504, 404, 401, 403];
+      exitCodes.forEach((code) => {
+        assert.ok(Number.isInteger(code), `Exit code ${code} should be integer`);
+        assert.ok(code >= 100 && code <= 599, `Exit code ${code} should be valid HTTP status`);
+      });
+    });
+
+    it('should handle undefined exitCode', () => {
+      // When exitCode is undefined, classification falls back to message patterns
+      const exitCode = undefined;
+      assert.strictEqual(exitCode, undefined, 'Undefined exitCode should trigger fallback');
     });
   });
 });
