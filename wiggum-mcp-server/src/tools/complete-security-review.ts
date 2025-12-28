@@ -43,6 +43,8 @@ export const CompleteSecurityReviewInputSchema = z.object({
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
 // TODO(#334): Add validation tests for phase-specific fields
+// Tests should verify: STEP_PHASE1_SECURITY_REVIEW, STEP_PHASE2_SECURITY_REVIEW match actual workflow steps,
+// phase1Command/phase2Command match command registry, step prefixes match phase (p1-/p2-)
 // Validate config at module load time to catch misconfigurations early
 const SECURITY_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
   phase1Step: STEP_PHASE1_SECURITY_REVIEW,
@@ -64,7 +66,8 @@ const SECURITY_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
 /**
  * Complete security review and update state
  *
- * TODO(#314): Replace silent fallback with ValidationError when issueNumber undefined
+ * Throws ValidationError if issue number is undefined (see review-completion-helper.ts:1279-1282).
+ * TODO(#314): Add more actionable error context to help users diagnose state detection issues.
  */
 export async function completeSecurityReview(
   input: CompleteSecurityReviewInput
