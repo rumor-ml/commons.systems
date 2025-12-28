@@ -174,8 +174,9 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
   // error codes and message patterns. This handles edge cases where the error is
   // network-related (e.g., ECONNREFUSED during request) but gh CLI reports the last HTTP
   // status before connection failure. This is intentionally conservative - only Priority 1
-  // retryable codes (429, 502-504) trigger immediate retry; all other codes proceed through
-  // additional checks to avoid missing retryable network conditions.
+  // retryable codes (429, 502-504) return true immediately; all other exit codes (including
+  // non-retryable ones like 404, 422) fall through to Priority 2/3 checks to avoid missing
+  // retryable network conditions.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -363,7 +364,7 @@ export async function ghCliWithRetry(
             // - Must be safe integer (handles NaN case - parseInt returns NaN for invalid input
             //   like "abc", which fails isSafeInteger; also provides defense against future changes)
             // - Must be in HTTP range (100-599 per RFC 7231)
-            // Note: parseInt("429.5", 10) returns 429 (stops at first non-digit: decimal point)
+            // Note: parseInt("429.5", 10) returns 429 (stops at decimal point, invalid for base-10 integer parsing)
             // Note: parseInt("Infinity", 10) returns NaN (not a number, rejected by isFinite check)
             // Note: parseInt("429abc", 10) returns 429 (stops at first non-digit: 'a')
             if (
