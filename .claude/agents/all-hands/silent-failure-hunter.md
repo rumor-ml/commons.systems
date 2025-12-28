@@ -217,9 +217,10 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
 1. Determine paths:
 
    ```bash
-   # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel during the same second. Without millisecond precision, concurrent
-   # review agents (code-reviewer, code-simplifier, etc.) could overwrite each other's files.
+   # Collision prevention strategy:
+   # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
+   # - Cross-agent isolation: Agent name prefix (e.g., silent-failure-hunter-) in filename
+   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"

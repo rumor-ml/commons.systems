@@ -155,10 +155,10 @@ IMPORTANT: You analyze and provide feedback only. Do not modify code or comments
 1. Determine paths:
 
    ```bash
-   # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel during the same second. This prevents file collisions both between
-   # different agent types (code-reviewer, code-simplifier, etc.) and between multiple
-   # instances of the same agent running in parallel across different worktrees.
+   # Collision prevention strategy:
+   # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
+   # - Cross-agent isolation: Agent name prefix (e.g., comment-analyzer-) in filename
+   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-${TIMESTAMP}.md"

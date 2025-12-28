@@ -139,10 +139,10 @@ You operate autonomously and proactively, refining code immediately after it's w
 1. Determine paths:
 
    ```bash
-   # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel during the same second. This prevents file collisions both between
-   # different agent types (code-reviewer, code-simplifier, etc.) and between multiple
-   # instances of the same agent running in parallel across different worktrees.
+   # Collision prevention strategy:
+   # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
+   # - Cross-agent isolation: Agent name prefix (e.g., code-simplifier-) in filename
+   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-simplifier-out-of-scope-${TIMESTAMP}.md"
