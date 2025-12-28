@@ -162,7 +162,9 @@ export interface FailedStepLog {
  * when failure diagnosis may be incomplete due to parsing issues.
  *
  * Note: totalLines counts only non-empty lines. Empty lines are silently
- * skipped and not included in totalLines or skippedLines counts.
+ * skipped and not included in totalLines or skippedLines counts. Rationale:
+ * Empty lines are common in log output (formatting, separation) and are not
+ * data loss - skipping them prevents false positives in data completeness warnings.
  */
 export interface FailedStepLogsResult {
   /** Parsed failed step logs grouped by job and step */
@@ -373,10 +375,11 @@ export async function getWorkflowRunsForCommit(
  * Mapping rationale:
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
- * - Unknown states → "completed": Conservative default to exit monitoring loop for unrecognized states
- *                                 Trade-off: May incorrectly mark incomplete checks as completed,
- *                                 causing monitoring to exit early. Future enhancement: throw error
- *                                 for unknown states to surface new GitHub API state values.
+ * - Unknown states → "completed": Optimistic default to exit monitoring loop for unrecognized states.
+ *                                 Trade-off: May exit early if GitHub adds new in-progress state values,
+ *                                 causing checks to appear complete prematurely. Alternative: Treat as
+ *                                 "in_progress" (more conservative but risks infinite loops). Future
+ *                                 enhancement: throw error for unknown states to surface new API values.
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
@@ -529,10 +532,11 @@ const RETRYABLE_ERROR_CODES = [
 /**
  * Check if an error is retryable (network errors, 5xx server errors, rate limits)
  *
- * Determines if an error should be retried using a priority-based approach:
- * 1. Exit code (most reliable) - checks for known HTTP error codes
- * 2. Node.js error.code (stable API) - checks for network/connection errors
- * 3. Message pattern matching (fallback) - for when structured data is missing
+ * Determines if an error should be retried using multiple detection methods:
+ * 1. Exit code (most reliable when available) - checks for HTTP codes 429, 502-504
+ * 2. Node.js error.code (stable API) - checks for network error codes (ECONNRESET, etc.)
+ * 3. Message pattern matching (least reliable) - checks error message text
+ * All three methods are checked; if ANY indicate retryable error, returns true.
  *
  * Current limitation: gh CLI wraps errors in generic Error objects, losing HTTP
  * status codes and error types. We must parse error messages, which are fragile

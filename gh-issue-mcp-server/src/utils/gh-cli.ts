@@ -160,17 +160,18 @@ const RETRYABLE_ERROR_CODES = [
 // TODO(#453): Migrate to structured error types for type-safe error handling
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // Check for known retryable HTTP status codes and return true immediately if matched.
+  // Check for known retryable HTTP status codes (429, 502-504) and return true immediately.
   // For non-retryable HTTP codes (400, 404, 422, etc.), we fall through to check Node.js
-  // error codes because the exitCode may reflect the HTTP response status, but the actual
-  // failure mode could be network-related (e.g., connection dropped mid-request).
-  // However, this may result in retrying requests that should fail fast - consider
-  // returning false for specific non-retryable codes like 404, 400, 422 if this becomes an issue.
+  // error codes and message patterns. This handles edge cases where the error is
+  // network-related (e.g., ECONNREFUSED during request) but gh CLI reports the last HTTP
+  // status before connection failure. This is intentionally conservative - only Priority 1
+  // retryable codes (429, 502-504) trigger immediate retry; all other codes proceed through
+  // additional checks to avoid missing retryable network conditions.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
     }
-    // Fall through to Priority 2/3 - non-retryable HTTP codes don't preclude other retryable conditions
+    // Non-retryable HTTP codes fall through to Priority 2/3 checks
   }
 
   if (error instanceof Error) {
@@ -357,13 +358,12 @@ export async function ghCliWithRetry(
             // - A 404 exitCode helps log "not_found" vs generic "unknown" error type
             // Validation criteria:
             // - Must be finite (rejects NaN from unparseable input like "status: abc")
-            // - Must be safe integer (ensures value is within JavaScript safe integer range)
+            // - Must be safe integer (handles NaN case - parseInt returns NaN for invalid input
+            //   like "abc", which fails isSafeInteger; also provides defense against future changes)
             // - Must be in HTTP range (100-599 per RFC 7231)
-            // Note: parseInt("429.5", 10) returns 429 (parsing stops at decimal point, returns integer)
-            // Note: parseInt("Infinity", 10) returns NaN (rejected by isFinite check)
-            // Note: parseInt("429abc", 10) returns 429 (parsing stops at first non-digit after number)
-            // The Number.isSafeInteger check is technically redundant since parseInt always returns
-            // an integer, but provides defense against future code changes that might parse differently.
+            // Note: parseInt("429.5", 10) returns 429 (stops at first non-digit: decimal point)
+            // Note: parseInt("Infinity", 10) returns NaN (not a number, rejected by isFinite check)
+            // Note: parseInt("429abc", 10) returns 429 (stops at first non-digit: 'a')
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&

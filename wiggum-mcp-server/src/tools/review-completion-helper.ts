@@ -963,7 +963,8 @@ function buildIssuesFoundResponse(
   inScopeCount: number,
   outOfScopeCount: number,
   inScopeFiles?: readonly string[],
-  outOfScopeFiles?: readonly string[]
+  outOfScopeFiles?: readonly string[],
+  dataCompletenessWarning?: string
 ): ToolResult {
   const issueNumber = state.issue.exists ? state.issue.number : undefined;
 
@@ -991,7 +992,7 @@ function buildIssuesFoundResponse(
   const reviewTypeForTriage = config.reviewTypeLabel === 'Security' ? 'Security' : 'PR';
 
   // Launch 2 agents in parallel (triage already done by review agents)
-  const instructions = generateScopeSeparatedFixInstructions(
+  const baseInstructions = generateScopeSeparatedFixInstructions(
     issueNumber,
     reviewTypeForTriage,
     inScopeCount,
@@ -999,6 +1000,11 @@ function buildIssuesFoundResponse(
     outOfScopeCount,
     outOfScopeFiles ?? []
   );
+
+  // Prepend data completeness warning if present (surfaces file loading issues to user)
+  const instructions = dataCompletenessWarning
+    ? `${dataCompletenessWarning}${baseInstructions}`
+    : baseInstructions;
 
   const output = {
     current_step: STEP_NAMES[reviewStep],
@@ -1072,6 +1078,8 @@ export async function completeReview(
 
   // Log any warnings from file loading - these indicate potentially incomplete review data
   // (e.g., out-of-scope files that failed to load, empty files, etc.)
+  // IMPORTANT: Surface these warnings in the response so users know data may be incomplete
+  let dataCompletenessWarning: string | undefined;
   if (loadWarnings.length > 0) {
     logger.warn('Review result loading completed with warnings', {
       warningCount: loadWarnings.length,
@@ -1079,6 +1087,10 @@ export async function completeReview(
       reviewType: config.reviewTypeLabel,
       impact: 'Some review data may be incomplete - check warnings for details',
     });
+    // Build user-facing warning to prepend to instructions
+    dataCompletenessWarning =
+      `**Data Completeness Warning:**\n${loadWarnings.join('\n')}\n\n` +
+      `Review data may be incomplete. Some out-of-scope recommendations may not have been loaded.\n\n---\n\n`;
   }
 
   const state = await detectCurrentState();
@@ -1197,7 +1209,8 @@ The workflow will resume from this step once the state update succeeds.`,
       inScopeCount,
       outOfScopeCount,
       input.in_scope_files,
-      input.out_of_scope_files
+      input.out_of_scope_files,
+      dataCompletenessWarning
     );
   }
 
@@ -1213,12 +1226,17 @@ The workflow will resume from this step once the state update succeeds.`,
     const updatedState = applyWiggumState(state, newState);
 
     // Return instructions to track out-of-scope issues, then proceed to next step
-    const outOfScopeInstructions = generateOutOfScopeTrackingInstructions(
+    const baseOutOfScopeInstructions = generateOutOfScopeTrackingInstructions(
       issueNumber,
       config.reviewTypeLabel,
       outOfScopeCount,
       outOfScopeFiles
     );
+
+    // Prepend data completeness warning if present (surfaces file loading issues to user)
+    const outOfScopeInstructions = dataCompletenessWarning
+      ? `${dataCompletenessWarning}${baseOutOfScopeInstructions}`
+      : baseOutOfScopeInstructions;
 
     const output = {
       current_step: STEP_NAMES[reviewStep],
