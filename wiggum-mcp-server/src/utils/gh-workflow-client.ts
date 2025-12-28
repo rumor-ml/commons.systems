@@ -202,21 +202,36 @@ async function callToolWithRetry(
       //   - Can break if SDK changes error message text
       //   - Different Node/SDK versions may phrase errors differently
       // We log a warning when pattern matching is used to track SDK version differences.
+      //
+      // Expanded timeout patterns (issue #625):
+      // Added additional patterns to catch more timeout-related error messages:
+      //   - "deadline exceeded" - common in gRPC/distributed systems
+      //   - "took too long" - human-readable timeout messages
+      //   - "exceeded.*timeout" / "timeout.*exceeded" - variations in phrasing
       const errorName = error instanceof Error ? error.name : undefined;
+      const timeoutPatterns = [
+        /\b(request|operation) timed? ?out\b/i,
+        /\bdeadline exceeded\b/i,
+        /\btook too long\b/i,
+        /\bexceeded.*timeout\b/i,
+        /\btimeout.*exceeded\b/i,
+      ];
       const isTimeout =
         error instanceof Error &&
         (errorCode === -32001 ||
           errorName === 'TimeoutError' ||
-          /\b(request|operation) timed? ?out\b/i.test(errorMessage));
+          timeoutPatterns.some((pattern) => pattern.test(errorMessage)));
 
       if (isTimeout) {
         // Log when using brittle detection methods (pattern matching instead of error code/name)
         if (errorCode !== -32001 && errorName !== 'TimeoutError') {
+          const matchedPattern = timeoutPatterns.find((p) => p.test(errorMessage));
           logger.warn('Timeout detected via brittle message pattern matching', {
             toolName,
             errorMessage,
             errorCode,
             errorName,
+            matchedPattern: matchedPattern?.source,
             impact: 'Pattern may break if MCP SDK changes error message wording',
             action: 'Monitor for SDK updates that expose structured timeout errors',
           });

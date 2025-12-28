@@ -131,8 +131,9 @@ Be thorough but filter aggressively - quality over quantity. Focus on issues tha
 
    ```bash
    # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel during the same second. Without millisecond precision, concurrent
-   # review agents (code-reviewer, code-simplifier, etc.) could overwrite each other's files.
+   # run in parallel during the same second. This prevents file collisions both between
+   # different agent types (code-reviewer, code-simplifier, etc.) and between multiple
+   # instances of the same agent running in parallel across different worktrees.
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-${TIMESTAMP}.md"

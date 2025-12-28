@@ -290,20 +290,34 @@ async function readReviewFile(
 
     if (stats.size === 0) {
       const agentName = extractAgentNameFromPath(filePath);
+      // Calculate file age to help diagnose race conditions vs actual failures
+      const fileAgeMs = Date.now() - stats.mtimeMs;
+      const isRecentlyCreated = fileAgeMs < 5000; // Less than 5 seconds old
+
       // Provide multiple possible causes instead of assuming crash
       // Empty files can result from various conditions
       logger.error('Review file is empty - multiple possible causes', {
         filePath,
         agentName,
+        fileAgeMs,
+        isRecentlyCreated,
         possibleCauses: [
+          isRecentlyCreated
+            ? 'Race condition: File was recently created, agent may still be writing'
+            : null,
           'Agent crashed or was killed during write',
           'Agent found no issues and wrote empty file (check agent logs)',
           'Disk space exhausted during write (check: df -h)',
-          'Race condition: Agent still writing (retry after delay)',
           'Agent validation error prevented write (check agent stderr)',
-        ],
+        ].filter(Boolean),
         impact: 'Review results incomplete - missing agent output',
-        action: 'Check agent logs and file system for root cause',
+        action: isRecentlyCreated
+          ? 'File was recently created - consider retry after short delay'
+          : 'Check agent logs and file system for root cause',
+        diagnosticCommands: {
+          checkAgentLogs: `tail -n 50 /path/to/agent/${agentName}.log`,
+          checkDiskSpace: 'df -h',
+        },
       });
 
       const emptyFileError = new Error(
