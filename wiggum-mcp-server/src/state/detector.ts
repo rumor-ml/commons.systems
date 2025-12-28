@@ -12,7 +12,7 @@ import {
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
 import { getWiggumStateFromPRBody, getWiggumStateFromIssueBody } from './body-state.js';
-import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
+import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
 import { StateDetectionError, StateApiError } from '../utils/errors.js';
 import type { GitState, PRState, CurrentState, IssueState, WiggumState } from './types.js';
@@ -307,19 +307,42 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
+  logger.debug('detectCurrentState: PR detection complete', {
+    prExists: pr.exists,
+    prNumber: pr.exists ? pr.number : undefined,
+    prState: pr.exists ? pr.state : undefined,
+    prTitle: pr.exists ? pr.title : undefined,
+  });
   const issue = detectIssueState(git);
+  logger.debug('detectCurrentState: issue detection complete', {
+    issueExists: issue.exists,
+    issueNumber: issue.exists ? issue.number : undefined,
+  });
   const stateDetectionTime = Date.now() - startTime;
 
   // Determine phase based on PR existence
   const phase: WiggumPhase = pr.exists ? 'phase2' : 'phase1';
+  logger.info('detectCurrentState: phase determined', {
+    phase,
+    reason: pr.exists ? 'PR exists (open)' : 'No open PR',
+  });
 
   let wiggum: WiggumState;
   if (phase === 'phase2' && pr.exists) {
     // Phase 2: Read state from PR body
     const prWiggum = await getWiggumStateFromPRBody(pr.number, repo);
+    logger.info('detectCurrentState: read state from PR body', {
+      prNumber: pr.number,
+      stateFound: prWiggum !== null,
+      stateValue: prWiggum,
+    });
     wiggum = prWiggum
       ? { ...prWiggum, phase: 'phase2' }
-      : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
+      : { iteration: 0, step: STEP_PHASE2_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
+    logger.info('detectCurrentState: wiggum state for phase2', {
+      wiggum,
+      wasInitialized: prWiggum === null,
+    });
 
     // If state detection took longer than 5 seconds, re-validate PR state
     // to detect race conditions where PR might have been closed/modified during the slow API call.
@@ -371,9 +394,18 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
   } else if (phase === 'phase1' && issue.exists && issue.number) {
     // Phase 1: Read state from issue body
     const issueWiggum = await getWiggumStateFromIssueBody(issue.number, repo);
+    logger.info('detectCurrentState: read state from issue body', {
+      issueNumber: issue.number,
+      stateFound: issueWiggum !== null,
+      stateValue: issueWiggum,
+    });
     wiggum = issueWiggum
       ? { ...issueWiggum, phase: 'phase1' }
       : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase1' };
+    logger.info('detectCurrentState: wiggum state for phase1', {
+      wiggum,
+      wasInitialized: issueWiggum === null,
+    });
   } else {
     // No issue or PR, return initial Phase 1 state
     wiggum = {
@@ -396,12 +428,36 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
   try {
     return validateCurrentState(state);
   } catch (error) {
-    // Convert Zod validation error to StateDetectionError with detailed context
     const zodError = error instanceof Error ? error : new Error(String(error));
+
+    // Determine state source for error message
+    const stateSource =
+      phase === 'phase2' && pr.exists
+        ? `PR #${pr.number} body`
+        : issue.exists && issue.number
+          ? `Issue #${issue.number} body`
+          : 'created initial state';
+
+    logger.error('detectCurrentState: STATE VALIDATION FAILED', {
+      phase,
+      stateSource,
+      validationError: zodError.message,
+      invalidState: JSON.stringify(state.wiggum),
+      prExists: pr.exists,
+      prNumber: pr.exists ? pr.number : undefined,
+      issueExists: issue.exists,
+      issueNumber: issue.exists ? issue.number : undefined,
+      userAction: 'Check the state source and manually remove/fix the wiggum-state HTML comment',
+    });
+
     throw new StateDetectionError(
-      `State validation failed: ${zodError.message}. ` +
-        `This indicates invalid data from GitHub API or git CLI. ` +
-        `State: ${JSON.stringify(state)}`,
+      `State validation failed for state from ${stateSource}: ${zodError.message}\n\n` +
+        `Invalid state: ${JSON.stringify(state.wiggum, null, 2)}\n\n` +
+        `This indicates corrupted state data. To fix:\n` +
+        `1. View the ${stateSource}\n` +
+        `2. Locate the HTML comment: <!-- wiggum-state:... -->\n` +
+        `3. Remove the comment entirely to reset the workflow\n` +
+        `4. Or fix the JSON to ensure completedSteps only contains steps before the current step`,
       {
         depth,
         maxDepth: MAX_RECURSION_DEPTH,
