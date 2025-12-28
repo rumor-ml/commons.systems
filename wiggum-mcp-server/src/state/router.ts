@@ -64,7 +64,8 @@ type CurrentStateWithPR = CurrentState & {
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
  * Note: `isTransient: true` is always true for failure cases (rate_limit/network both imply
- * transient failures). This field is retained for API stability but is technically redundant.
+ * transient failures). This field is retained for backward compatibility with existing
+ * call sites that check this field - removing it would require updating all consumers.
  */
 export type StateUpdateResult =
   | { readonly success: true }

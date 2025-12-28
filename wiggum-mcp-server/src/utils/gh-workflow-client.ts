@@ -121,7 +121,32 @@ async function callToolWithRetry(
       const errorCode =
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
-      // Check if it's the MCP timeout error
+      // Check for known non-retryable MCP errors first (fail fast with clear diagnostics)
+      if (errorCode === -32601) {
+        // Method not found - tool doesn't exist in gh-workflow-mcp-server
+        logger.error('MCP tool not found - check gh-workflow-mcp-server version', {
+          toolName,
+          errorCode,
+          errorMessage,
+          action:
+            'Verify gh-workflow-mcp-server is built and up-to-date: cd gh-workflow-mcp-server && npm run build',
+        });
+        throw error;
+      }
+
+      if (errorCode === -32602) {
+        // Invalid params - schema mismatch between caller and tool
+        logger.error('MCP invalid parameters - check tool schema', {
+          toolName,
+          args,
+          errorCode,
+          errorMessage,
+          action: 'Verify tool arguments match expected schema in gh-workflow-mcp-server',
+        });
+        throw error;
+      }
+
+      // Check if it's the MCP timeout error (retryable)
       // Use strict pattern to avoid false positives from other timeout messages
       const isTimeout =
         error instanceof Error &&
@@ -140,13 +165,15 @@ async function callToolWithRetry(
         continue;
       }
 
-      // Non-timeout error - include timing context
-      logger.error(`callToolWithRetry failed with non-timeout error`, {
+      // Unknown error type - log with enhanced diagnostics for pattern analysis
+      logger.error(`callToolWithRetry failed with unexpected error type`, {
         toolName,
         error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
         code: errorCode,
         elapsed,
         remaining: maxDurationMs - elapsed,
+        action: 'Check if this is a new error type that needs explicit handling',
       });
       throw error;
     }
@@ -207,30 +234,25 @@ export async function getGhWorkflowClient(): Promise<Client> {
     } catch (closeError) {
       const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
 
-      const diagnosticLines = [
-        '⚠️  CRITICAL: MCP TRANSPORT CLEANUP FAILED',
-        '',
-        `Connection Error: ${errorMsg}`,
-        `Cleanup Error: ${closeMsg}`,
-        '',
-        'RESOURCE LEAK DETECTED:',
-        '  - Socket/process may remain open',
-        `  - Server path: ${serverPath}`,
-        '',
-        'IMMEDIATE ACTIONS:',
-        '  1. Kill stuck: pkill -f gh-workflow-mcp-server',
-        '  2. Check zombies: ps aux | grep gh-workflow-mcp-server',
-        '  3. Verify limits: ulimit -a',
-        '',
-        'DIAGNOSIS:',
-        `  - Verify server: ls -la ${serverPath}`,
-        '  - Check Node: node --version',
-        '',
-        'If persists, rebuild: cd gh-workflow-mcp-server && npm run build',
-      ].join('\n');
+      // Log detailed diagnostics separately - don't overwhelm the thrown error
+      logger.error('MCP transport cleanup failed after connection failure', {
+        originalError: errorMsg,
+        cleanupError: closeMsg,
+        serverPath,
+        impact: 'Resource leak possible - socket/process may remain open',
+        actions: {
+          immediate: 'pkill -f gh-workflow-mcp-server',
+          diagnosis: `ls -la ${serverPath}; ps aux | grep gh-workflow-mcp-server`,
+          recovery: 'cd gh-workflow-mcp-server && npm run build',
+        },
+      });
 
-      logger.error('MCP transport cleanup failed', { closeError: closeMsg, serverPath });
-      throw new Error(diagnosticLines);
+      // Throw a simpler error that references both issues but isn't overwhelming
+      throw new Error(
+        `Failed to connect to gh-workflow-mcp-server: ${errorMsg}\n` +
+          `Additionally, transport cleanup failed: ${closeMsg}\n` +
+          `This may indicate a resource leak. See logs for diagnostic commands.`
+      );
     }
 
     // Re-throw the original connection error after successful cleanup
@@ -423,16 +445,22 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
 
   if (!conclusion) {
+    // Log full response for debugging (may be large, but critical for diagnosis)
     logger.error('Failed to parse conclusion from gh_monitor_run response', {
       branch,
-      textSnippet: text.substring(0, 500),
-      fullTextLength: text.length,
+      fullText: text, // Include complete response for diagnosis
+      textLength: text.length,
+      expectedPattern: 'Conclusion: <value>',
+      action: 'Check if gh-workflow-mcp-server output format changed',
     });
     throw new ParsingError(
-      `Failed to parse workflow conclusion from gh_monitor_run response for branch ${branch}. ` +
-        `Expected format "Conclusion: <value>" not found in output. ` +
-        `This likely indicates a format change in gh-workflow-mcp-server. ` +
-        `Response snippet: ${text.substring(0, 200)}`
+      `Failed to parse workflow conclusion from gh_monitor_run response for branch ${branch}.\n` +
+        `Expected format: "Conclusion: <value>" not found in output.\n` +
+        `This likely indicates a format change in gh-workflow-mcp-server.\n` +
+        `Response length: ${text.length} chars\n` +
+        `First 500 chars: ${text.substring(0, 500)}\n` +
+        `Last 200 chars: ${text.substring(Math.max(0, text.length - 200))}\n` +
+        `Full response logged at ERROR level for diagnosis.`
     );
   }
 
@@ -528,6 +556,24 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   if (failureCount !== null) {
     // Primary logic: success if no failures, regardless of skipped/other checks
     success = failureCount === 0;
+
+    // Validate consistency when both failureCount and overallStatus are available
+    // This catches data inconsistencies that could hide actual failures
+    if (overallStatus !== null) {
+      const statusSuccess = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
+      if (success !== statusSuccess) {
+        logger.warn('Inconsistent PR checks result: failureCount and status disagree', {
+          failureCount,
+          overallStatus,
+          derivedFromCount: success,
+          derivedFromStatus: statusSuccess,
+          prNumber,
+          impact: 'Using failure count as source of truth, but data may be corrupted',
+          action: 'Check gh-workflow-mcp-server output for format inconsistencies',
+        });
+      }
+    }
+
     logger.info('Determined success from failure count', {
       failureCount,
       success,

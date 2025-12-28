@@ -335,16 +335,19 @@ async function readReviewFile(
       fileExists = true;
       fileSize = stats.size;
     } catch (statError) {
-      // WARN level - this helps distinguish permission vs existence issues during error recovery
-      // Elevated from DEBUG because this information is critical for diagnosing file read failures
-      logger.warn('stat() failed during file read error recovery', {
+      // ERROR level - stat failure during error recovery indicates serious filesystem issues
+      // (permissions, corruption, NFS timeout) that users need to know about immediately.
+      // Was previously WARN, elevated because these failures affect debugging ability.
+      logger.error('stat() failed during file read error recovery - filesystem issue detected', {
         filePath,
         category,
         originalError: errorObj.message,
         statError: statError instanceof Error ? statError.message : String(statError),
         statErrorCode: (statError as NodeJS.ErrnoException).code,
-        impact: 'Cannot determine if file exists or has permission issues',
-        action: 'Check file system permissions and existence manually',
+        impact:
+          'Cannot determine if file exists or has permission issues - may indicate filesystem corruption, NFS timeout, or cascading permission failures',
+        action:
+          'Check file system health with fsck, verify NFS mount status, check file permissions recursively',
       });
     }
 

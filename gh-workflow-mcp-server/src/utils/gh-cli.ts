@@ -36,11 +36,37 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
-    // TODO: See issue #443 - Distinguish programming errors from operational errors
+    // Preserve GitHubCliError instances - already properly wrapped
     if (error instanceof GitHubCliError) {
       throw error;
     }
+
+    // Handle known operational error types from execa
     if (error instanceof Error) {
+      // Check for timeout from execa (timedOut property)
+      if ('timedOut' in error && (error as { timedOut?: boolean }).timedOut) {
+        throw new GitHubCliError(
+          `GitHub CLI command timed out after ${options.timeout}ms: gh ${args.join(' ')}`,
+          undefined,
+          undefined,
+          undefined,
+          error
+        );
+      }
+
+      // Check for signal termination (SIGKILL, SIGTERM, etc.)
+      if ('signal' in error && (error as { signal?: string }).signal) {
+        throw new GitHubCliError(
+          `GitHub CLI command terminated by signal: ${(error as { signal: string }).signal}`,
+          undefined,
+          undefined,
+          undefined,
+          error
+        );
+      }
+
+      // Generic operational error
+      // TODO(#443): Add operational vs programming error classification metadata
       throw new GitHubCliError(
         `Failed to execute gh CLI: ${error.message}`,
         undefined,
@@ -49,6 +75,13 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
         error
       );
     }
+
+    // Unknown error type - likely programming error, log for diagnosis
+    console.error('[gh-workflow] WARN ghCli caught unexpected error type', {
+      error,
+      errorType: typeof error,
+      args,
+    });
     throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
   }
 }
@@ -552,9 +585,10 @@ const RETRYABLE_ERROR_CODES = [
 // When fixed: Replace pattern matching with `instanceof NetworkError`, `instanceof RateLimitError`, etc.
 // Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
-  // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
-  // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
+  // Priority 1: Exit code (most reliable when available)
+  // Note: gh CLI often passes HTTP status codes as process exit codes (e.g., exit code 429 for rate limit).
+  // This is NOT standard Unix behavior (exit codes are normally 0-255), but gh CLI uses this pattern.
+  // We check for known retryable HTTP status codes; all other codes fall through to subsequent checks.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -562,7 +596,8 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
   }
 
   if (error instanceof Error) {
-    // Priority 2: Node.js error codes (stable API)
+    // Priority 2: Node.js error codes (stable API, but less specific than exit codes)
+    // These indicate low-level network/system errors that are usually retryable
     const nodeError = error as NodeJS.ErrnoException;
     if (nodeError.code && RETRYABLE_ERROR_CODES.includes(nodeError.code)) {
       return true;
