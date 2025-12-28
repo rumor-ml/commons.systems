@@ -59,7 +59,7 @@ const KNOWN_AGENT_NAMES = [
  * LIMITATION: Acronyms are not specially handled. 'pr-test-analyzer' becomes
  * 'Pr Test Analyzer' instead of 'PR Test Analyzer'. This trade-off avoids
  * maintaining an acronym whitelist while providing consistent, predictable
- * capitalization for logging and display purposes.
+ * capitalization for logging and display purposes only (no functional impact).
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails

@@ -4,7 +4,11 @@
 
 import { execa } from 'execa';
 import { GitHubCliError, ParsingError } from './errors.js';
-import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from '../constants.js';
+import {
+  PR_CHECK_IN_PROGRESS_STATES,
+  PR_CHECK_TERMINAL_STATES,
+  PR_CHECK_TERMINAL_STATE_MAP,
+} from '../constants.js';
 
 export interface GhCliOptions {
   repo?: string;
@@ -77,12 +81,21 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     }
 
     // Unknown error type - likely programming error, log for diagnosis
+    const errorType = typeof error;
+    const errorStr = String(error);
     console.error('[gh-workflow] WARN ghCli caught unexpected error type', {
       error,
-      errorType: typeof error,
+      errorType,
       args,
     });
-    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
+    // Include full diagnostic context in thrown error for debugging
+    throw new GitHubCliError(
+      `Failed to execute gh CLI (unexpected error type):\n` +
+        `Command: gh ${args.join(' ')}\n` +
+        `Error type: ${errorType}\n` +
+        `Error value: ${errorStr}\n` +
+        `This indicates a programming error (non-Error thrown).`
+    );
   }
 }
 
@@ -408,11 +421,10 @@ export async function getWorkflowRunsForCommit(
  * Mapping rationale:
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
- * - Unknown states → "completed": Optimistic default to exit monitoring loop for unrecognized states.
- *                                 Trade-off: May exit early if GitHub adds new in-progress state values,
- *                                 causing checks to appear complete prematurely. Alternative: Treat as
- *                                 "in_progress" (more conservative but risks infinite loops). Future
- *                                 enhancement: throw error for unknown states to surface new API values.
+ * - Unknown states → "in_progress": Conservative default to continue monitoring. If GitHub adds
+ *                                   new terminal states, monitoring will continue until timeout.
+ *                                   This is safer than the optimistic "completed" default which
+ *                                   could exit monitoring prematurely and report incomplete results.
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
@@ -421,7 +433,23 @@ export async function getWorkflowRunsForCommit(
  * @returns Normalized workflow run status ("in_progress" or "completed")
  */
 export function mapStateToStatus(state: string): string {
-  return PR_CHECK_IN_PROGRESS_STATES.includes(state) ? 'in_progress' : 'completed';
+  if (PR_CHECK_IN_PROGRESS_STATES.includes(state)) {
+    return 'in_progress';
+  }
+
+  if (PR_CHECK_TERMINAL_STATES.includes(state)) {
+    return 'completed';
+  }
+
+  // Unknown state - log at ERROR level and default to conservative 'in_progress'
+  // This ensures monitoring continues rather than exiting prematurely with incomplete results
+  console.error(
+    `[gh-workflow] ERROR mapStateToStatus: Unknown GitHub check state encountered: ${state}. ` +
+      `Defaulting to 'in_progress' to avoid premature exit. ` +
+      `Action: Add '${state}' to known states in constants.ts if this is a valid terminal state.`
+  );
+
+  return 'in_progress';
 }
 
 /**

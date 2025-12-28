@@ -63,9 +63,9 @@ type CurrentStateWithPR = CurrentState & {
  * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
- * Note: `isTransient: true` is always true for failure cases (rate_limit/network both imply
- * transient failures). This field is retained for backward compatibility with existing
- * call sites that check this field - removing it would require updating all consumers.
+ * Note: The `isTransient` field is redundant (always `true` when present) but retained for
+ * backward compatibility. The `reason` field already distinguishes transient failures.
+ * Removing this field would require updating all consumers to check `reason` instead.
  */
 export type StateUpdateResult =
   | { readonly success: true }
@@ -208,7 +208,8 @@ export async function safeUpdatePRBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
+  // causing the function to reach the unreachable code path and throw an internal error
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
       prNumber,
@@ -223,8 +224,9 @@ export async function safeUpdatePRBodyState(
     );
   }
 
-  // Validate state before attempting to post (issue #799)
-  // This catches invalid states early and provides clear error messages
+  // Validate state before attempting to post (issue #799: state validation errors)
+  // This catches invalid states early and provides clear error messages rather than
+  // opaque GitHub API errors when posting malformed state to PR body
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
@@ -333,7 +335,7 @@ export async function safeUpdatePRBodyState(
 
         if (attempt < maxRetries) {
           // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
-          // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
+          // Examples with default maxRetries=3: attempt 1->2s, 2->4s, 3->8s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
@@ -376,7 +378,10 @@ export async function safeUpdatePRBodyState(
     }
   }
   // Defensive: This should be unreachable if loop logic is correct.
-  // The loop executes at least once (maxRetries >= 1), and each iteration either:
+  // TypeScript requires all code paths to return, so we throw to satisfy the return type
+  // and catch potential programming errors.
+  //
+  // The loop executes at least once (maxRetries >= 1 validated above), and each iteration either:
   //   1. Returns success after updatePRBodyState() succeeds
   //   2. Throws for critical errors (404, auth)
   //   3. Returns failure result after all retries exhausted (transient errors)
@@ -424,7 +429,8 @@ export async function safeUpdateIssueBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely
+  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
+  // causing the function to reach the unreachable code path and throw an internal error
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
       issueNumber,
@@ -439,8 +445,9 @@ export async function safeUpdateIssueBodyState(
     );
   }
 
-  // Validate state before attempting to post (issue #799)
-  // This catches invalid states early and provides clear error messages
+  // Validate state before attempting to post (issue #799: state validation errors)
+  // This catches invalid states early and provides clear error messages rather than
+  // opaque GitHub API errors when posting malformed state to issue body
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
@@ -543,7 +550,7 @@ export async function safeUpdateIssueBodyState(
 
         if (attempt < maxRetries) {
           // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
-          // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
+          // Examples with default maxRetries=3: attempt 1->2s, 2->4s, 3->8s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);

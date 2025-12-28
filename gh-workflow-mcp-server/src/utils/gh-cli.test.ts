@@ -47,18 +47,20 @@ describe('mapStateToStatus', () => {
     assert.strictEqual(mapStateToStatus('STALE'), 'completed');
   });
 
-  test('maps unknown states to completed', () => {
-    assert.strictEqual(mapStateToStatus('UNKNOWN'), 'completed');
-    assert.strictEqual(mapStateToStatus('CUSTOM_STATE'), 'completed');
+  test('maps unknown states to in_progress (conservative - avoids premature exit)', () => {
+    // Unknown states default to in_progress to continue monitoring and avoid incomplete results
+    assert.strictEqual(mapStateToStatus('UNKNOWN'), 'in_progress');
+    assert.strictEqual(mapStateToStatus('CUSTOM_STATE'), 'in_progress');
   });
 
-  test('handles lowercase states (treats as unknown, maps to completed)', () => {
-    assert.strictEqual(mapStateToStatus('pending'), 'completed');
-    assert.strictEqual(mapStateToStatus('success'), 'completed');
+  test('handles lowercase states (treats as unknown, maps to in_progress)', () => {
+    // Lowercase variants are not in the known state lists, treated as unknown
+    assert.strictEqual(mapStateToStatus('pending'), 'in_progress');
+    assert.strictEqual(mapStateToStatus('success'), 'in_progress');
   });
 
-  test('handles empty string (treats as unknown, maps to completed)', () => {
-    assert.strictEqual(mapStateToStatus(''), 'completed');
+  test('handles empty string (treats as unknown, maps to in_progress)', () => {
+    assert.strictEqual(mapStateToStatus(''), 'in_progress');
   });
 });
 
