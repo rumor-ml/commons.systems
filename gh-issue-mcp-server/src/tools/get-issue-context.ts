@@ -38,18 +38,25 @@ function validateGraphQLResponse(
         `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
       );
     } else {
-      // Production: Log structure only
+      // Production: Log structure and sanitized preview for diagnostics
+      // Preview is limited to 200 chars and only shows structure indicators (brackets, keys)
       const responseKeys = Object.keys(result ?? {}).join(', ');
       const errorCount = (result as { errors?: unknown[] }).errors?.length ?? 0;
+      // Extract first error message if present (GitHub API error messages are safe to log)
+      const resultObj = result as { errors?: Array<{ message: string; type?: string }> };
+      const firstError = resultObj?.errors?.[0];
+      const errorInfo = firstError
+        ? `, firstErrorType: ${firstError.type ?? 'unknown'}, firstErrorMessage: ${(firstError.message ?? '').substring(0, 100)}`
+        : '';
       console.error(
-        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, responseKeys: [${responseKeys}], errorCount: ${errorCount})`
+        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, responseKeys: [${responseKeys}], errorCount: ${errorCount}${errorInfo})`
       );
     }
 
     // Include GitHub error details if available for better debugging
-    const resultObj = result as { errors?: Array<{ message: string }> };
-    const errorContext = resultObj?.errors?.[0]?.message
-      ? ` GitHub error: ${resultObj.errors[0].message}`
+    const resultWithErrors = result as { errors?: Array<{ message: string }> };
+    const errorContext = resultWithErrors?.errors?.[0]?.message
+      ? ` GitHub error: ${resultWithErrors.errors[0].message}`
       : '';
 
     throw new ParsingError(
@@ -64,6 +71,11 @@ function validateGraphQLResponse(
  *
  * Transforms GraphQL issue data to have comments as a flat array instead of
  * the nested { nodes: [...] } structure.
+ *
+ * RATIONALE: GitHub's GraphQL API returns comments in a Connection format
+ * with { nodes: [...], pageInfo: {...} } structure. We flatten to just the
+ * array since: (1) downstream code expects simple arrays, (2) we don't use
+ * pagination info, and (3) it reduces JSON size in responses.
  *
  * @param raw - Raw issue data from GraphQL with comments.nodes structure
  * @returns Normalized issue data with comments as flat array, or null if raw is null

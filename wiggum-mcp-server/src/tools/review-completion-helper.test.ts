@@ -640,7 +640,9 @@ describe('review-completion-helper', () => {
         assert.ok(error.message.includes('Failed to read 1 review result file(s)'));
         assert.ok(error.message.includes('(1 succeeded)'));
         assert.ok(error.message.includes(missingFile));
-        assert.ok(!error.message.includes(existingFile));
+        // Now also includes successfully read files for complete visibility
+        assert.ok(error.message.includes('Successfully read (1)'));
+        assert.ok(error.message.includes(existingFile));
       }
 
       await unlink(existingFile);

@@ -134,8 +134,14 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       lowerMsg.includes('no pull requests found') ||
       lowerMsg.includes('could not resolve to a pullrequest')
     ) {
-      logger.debug('detectPRState: no PR found for current branch', {
+      // INFO level: This is a normal workflow state (Phase 1 has no PR yet)
+      // Log the matched pattern to aid debugging if expectations change
+      const matchedPattern = lowerMsg.includes('no pull requests found')
+        ? 'no pull requests found'
+        : 'could not resolve to a pullrequest';
+      logger.info('detectPRState: no PR found for current branch', {
         repo: resolvedRepo,
+        matchedPattern,
       });
       return {
         exists: false,
@@ -274,6 +280,21 @@ function detectIssueState(git: GitState): IssueState {
 export async function detectCurrentState(repo?: string, depth = 0): Promise<CurrentState> {
   const MAX_RECURSION_DEPTH = 3;
 
+  // Check depth BEFORE any work to prevent unbounded recursion
+  if (depth > MAX_RECURSION_DEPTH) {
+    logger.error('detectCurrentState: maximum recursion depth exceeded', {
+      depth,
+      maxDepth: MAX_RECURSION_DEPTH,
+      action: 'State is changing too rapidly - manual intervention required',
+    });
+    throw new StateDetectionError(
+      `State detection failed: exceeded maximum recursion depth (${MAX_RECURSION_DEPTH}). ` +
+        `This indicates rapid state changes preventing reliable detection. ` +
+        `Manual intervention required.`,
+      { depth, maxDepth: MAX_RECURSION_DEPTH }
+    );
+  }
+
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
@@ -291,50 +312,20 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
       ? { ...prWiggum, phase: 'phase2' }
       : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
 
-    // If state detection took longer than 5 seconds, re-validate PR state exists
-    // This helps detect race conditions where PR might have been closed/modified
+    // If state detection took longer than 5 seconds, re-validate PR state
+    // to detect race conditions where PR might have been closed/modified
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        // Check depth BEFORE recursing to prevent exceeding limit
-        const newDepth = depth + 1;
-        if (newDepth > MAX_RECURSION_DEPTH) {
-          logger.error(
-            'detectCurrentState: maximum recursion depth exceeded during PR revalidation',
-            {
-              depth,
-              newDepth,
-              maxDepth: MAX_RECURSION_DEPTH,
-              previousPrNumber: pr.number,
-              newPrNumber: revalidatedPr.number,
-              stateDetectionTime,
-            }
-          );
-          throw new StateDetectionError(
-            `State detection failed: PR state changed ${depth} times during detection. ` +
-              `This indicates rapid PR changes that prevent reliable state tracking. ` +
-              `Previous PR: #${pr.number}, New PR: #${revalidatedPr.number}. ` +
-              `Manual intervention required - verify PR state is stable before retrying.`,
-            {
-              depth,
-              newDepth,
-              maxDepth: MAX_RECURSION_DEPTH,
-              previousState: `PR #${pr.number}`,
-              newState: `PR #${revalidatedPr.number}`,
-              stateDetectionTime,
-            }
-          );
-        }
-
         logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
           depth,
-          newDepth,
+          newDepth: depth + 1,
           previousPrNumber: pr.number,
           newPrNumber: revalidatedPr.number,
           stateDetectionTime,
         });
-        // Retry with incremented depth counter to track recursion
-        return detectCurrentState(repo, newDepth);
+        // Retry with incremented depth (depth check at function start will catch limit)
+        return detectCurrentState(repo, depth + 1);
       }
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {

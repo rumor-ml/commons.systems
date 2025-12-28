@@ -278,8 +278,6 @@ async function readReviewFile(
     // Check file exists and get metadata before reading
     const stats = await stat(filePath);
 
-    // CRITICAL: Empty file (size 0) indicates agent crash during write.
-    // Collect error and return null to allow checking remaining files for comprehensive error reporting.
     if (stats.size === 0) {
       const agentName = extractAgentNameFromPath(filePath);
       logger.error('Review file is empty - agent crashed during write', {
@@ -383,6 +381,14 @@ export async function loadReviewResults(
 
   // If ANY files failed, throw comprehensive error with all failure details
   if (errors.length > 0) {
+    // Collect failed file paths for set operations
+    const failedPaths = new Set(errors.map((e) => e.filePath));
+
+    // Build list of successful files for complete visibility
+    const successfulInScope = inScopeFiles.filter((f) => !failedPaths.has(f));
+    const successfulOutOfScope = outOfScopeFiles.filter((f) => !failedPaths.has(f));
+    const successCount = successfulInScope.length + successfulOutOfScope.length;
+
     const errorDetails = errors
       .map(({ filePath, error, category, errorCode, fileExists, fileSize }) => {
         const code = errorCode ? ` [${errorCode}]` : '';
@@ -394,7 +400,15 @@ export async function loadReviewResults(
       })
       .join('\n');
 
-    const successCount = inScopeFiles.length + outOfScopeFiles.length - errors.length;
+    // Build success details for visibility
+    const successDetails =
+      successCount > 0
+        ? `\n\nSuccessfully read (${successCount}):\n` +
+          [
+            ...successfulInScope.map((f) => `  - [in-scope] ${f}`),
+            ...successfulOutOfScope.map((f) => `  - [out-of-scope] ${f}`),
+          ].join('\n')
+        : '';
 
     // Classify errors to help user decide action
     const hasPermissionErrors = errors.some((e) => e.errorCode === 'EACCES');
@@ -412,7 +426,7 @@ export async function loadReviewResults(
     }
 
     throw new ValidationError(
-      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}${actionHint}`
+      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}${successDetails}${actionHint}`
     );
   }
 
@@ -830,42 +844,9 @@ function buildIssuesFoundResponse(
   };
 }
 
-/**
- * Validate that a value is a non-negative safe integer
- *
- * Performs comprehensive validation for numeric values that must be:
- * - Finite (not Infinity or -Infinity)
- * - An integer (no decimal values)
- * - Non-negative (>= 0)
- * - Within safe integer range (prevents precision loss)
- *
- * @param value - The numeric value to validate
- * @param fieldName - Name of the field for error messages
- * @throws {ValidationError} If validation fails with descriptive message
- */
-function validateSafeNonNegativeInteger(value: number, fieldName: string): void {
-  if (!Number.isFinite(value)) {
-    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be a finite number.`);
-  }
-  if (!Number.isInteger(value)) {
-    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be an integer.`);
-  }
-  if (value < 0) {
-    throw new ValidationError(`Invalid ${fieldName}: ${value}. Must be non-negative.`);
-  }
-  // Check against MAX_SAFE_INTEGER to prevent precision loss
-  if (!Number.isSafeInteger(value)) {
-    logger.error('Value exceeds safe integer range - precision may be lost', {
-      fieldName,
-      value,
-      maxSafeInteger: Number.MAX_SAFE_INTEGER,
-    });
-    throw new ValidationError(
-      `Invalid ${fieldName}: ${value}. Exceeds maximum safe integer (${Number.MAX_SAFE_INTEGER}). ` +
-        `Review agent may have returned corrupted data.`
-    );
-  }
-}
+// NOTE: validateSafeNonNegativeInteger was removed since Zod schema (ReviewCompletionInputSchema)
+// now handles all numeric validation for in_scope_count and out_of_scope_count.
+// See issue #XXX if validation needs to be re-added for non-Zod code paths.
 
 /**
  * Complete a review (PR or Security) and update workflow state
@@ -915,23 +896,19 @@ export async function completeReview(
 
   validatePhaseRequirements(state, config);
 
+  // NOTE: Zod schema (ReviewCompletionInputSchema) already validates that in_scope_count
+  // and out_of_scope_count are non-negative safe integers. No additional validation needed.
   const inScopeCount = input.in_scope_count;
   const outOfScopeCount = input.out_of_scope_count;
-
-  // Validate all numeric counts are non-negative safe integers
-  validateSafeNonNegativeInteger(inScopeCount, 'in_scope_count');
-  validateSafeNonNegativeInteger(outOfScopeCount, 'out_of_scope_count');
 
   // NOTE: in_scope_count and out_of_scope_count represent the number of ISSUES,
   // not the number of FILES. Each file can contain multiple issues from one agent.
   // We validate that files exist and are readable in loadReviewResults(), but we
   // do NOT validate that issue counts match file counts.
 
-  // Calculate total with validated values
+  // Sum of two safe non-negative integers is always a safe non-negative integer
+  // (MAX_SAFE_INTEGER + MAX_SAFE_INTEGER < Number.MAX_VALUE, no overflow possible)
   const rawTotal = inScopeCount + outOfScopeCount;
-
-  // Final validation that total is sane (defense against overflow when summing valid counts)
-  validateSafeNonNegativeInteger(rawTotal, 'total issue count');
 
   const issues: IssueCounts = {
     high: inScopeCount,

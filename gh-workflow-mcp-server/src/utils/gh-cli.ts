@@ -78,13 +78,18 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
  * Get the current repository in format "owner/repo"
  */
 export async function getCurrentRepo(): Promise<string> {
-  // TODO(#463): Preserve original error diagnostic information when rethrowing
   try {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // Preserve original error details for debugging while providing user-friendly message
+    const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
+      error instanceof GitHubCliError ? error.exitCode : undefined,
+      error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined,
+      error instanceof Error ? error : undefined
     );
   }
 }

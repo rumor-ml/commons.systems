@@ -161,8 +161,8 @@ export function generateTriageInstructions(
   }
 
   // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // Note: Infinity is not an integer by definition, so Number.isInteger(Infinity) === false.
-  // This is not a special case - Infinity simply fails the integer test.
+  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN.
+  // The subsequent positivity check (> 0) provides additional validation for edge cases.
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
@@ -170,7 +170,8 @@ export function generateTriageInstructions(
   }
 
   // Validate totalIssues: Must be non-negative integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
+  // Note: While Number.isInteger rejects Infinity/NaN, the explicit non-negative check (>= 0)
+  // provides defense-in-depth and documents the edge case handling intent.
   if (!Number.isInteger(totalIssues) || totalIssues < 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
