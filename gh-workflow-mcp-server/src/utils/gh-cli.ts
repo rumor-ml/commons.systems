@@ -554,9 +554,6 @@ export async function getWorkflowRunsForPR(
  */
 export async function getPR(prNumber: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
-  // TODO(#349): Improve JSON parsing resilience - see PR #273 review
-  // Current: Throws on first malformed JSON, blocking all subsequent comments
-  // Recommended: Skip malformed lines with logging instead of throwing
   return ghCliJson(
     [
       'pr',
@@ -927,10 +924,10 @@ export async function ghCliWithRetry(
         );
       }
 
-      // Exponential backoff: 2^(attempt) * 1000 milliseconds, capped at 60s
-      // Attempts are 1-based. Examples: attempt=1->2s, attempt=2->4s, attempt=3->8s,
-      // attempt=4->16s, attempt=5->32s, attempt=6->60s (capped)
-      // Cap prevents impractical delays for high maxRetries values
+      // Exponential backoff: 2^attempt * 1000ms, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Rationale: Reduces API load during outages, gives transient issues time to resolve
+      // Cap at 60s prevents impractical delays for high maxRetries values
       const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;
       const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);

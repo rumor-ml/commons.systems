@@ -34,9 +34,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
-    // TODO: Distinguish programming errors from operational errors
-    //   Programming errors: Invalid arguments, type mismatches (should throw immediately)
-    //   Operational errors: Network failures, rate limits (should retry/handle gracefully)
     if (error instanceof GitHubCliError) {
       throw error;
     }
@@ -150,10 +147,10 @@ const RETRYABLE_ERROR_CODES = [
  * @param exitCode - Optional exit code from the CLI command
  * @returns true if error should be retried, false otherwise
  *
- * Note: When exitCode is defined but not in the retryable list [429, 502-504],
- * the function continues to check Node.js error codes and message patterns.
- * This handles edge cases where the error has both an HTTP code AND network-level
- * issues (e.g., connection refused during a 404 response).
+ * Note: Only known retryable HTTP codes (429, 502-504) return true immediately.
+ * All other exit codes (including non-retryable codes like 404, 422) fall through
+ * to Priority 2/3 checks. This conservative approach ensures network-level issues
+ * are detected even when the error has a non-retryable HTTP status code.
  *
  * @example
  * ```typescript
@@ -364,9 +361,9 @@ export async function ghCliWithRetry(
             // - Must be safe integer (handles NaN case - parseInt returns NaN for invalid input
             //   like "abc", which fails isSafeInteger; also provides defense against future changes)
             // - Must be in HTTP range (100-599 per RFC 7231)
-            // Note: parseInt("429.5", 10) returns 429 (stops at decimal point, invalid for base-10 integer parsing)
-            // Note: parseInt("Infinity", 10) returns NaN (not a number, rejected by isFinite check)
-            // Note: parseInt("429abc", 10) returns 429 (stops at first non-digit: 'a')
+            // Note: parseInt stops at first non-digit: parseInt("429abc", 10) returns 429
+            // Note: parseInt("429.5", 10) returns 429 (stops at '.'), parseInt("Infinity", 10) returns NaN
+            // Validation ensures extracted values are well-formed HTTP status codes (100-599)
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&
@@ -446,11 +443,10 @@ export async function ghCliWithRetry(
         );
       }
 
-      // Exponential backoff: 2^attempt seconds, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
-      // Rationale: Exponential backoff reduces load on GitHub API during outages and
-      // gives transient issues more time to resolve with each retry.
-      // Cap at 60s prevents impractical delays when maxRetries > 5.
+      // Exponential backoff: 2^attempt * 1000ms, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Rationale: Reduces API load during outages, gives transient issues time to resolve
+      // Cap at 60s prevents impractical delays for high maxRetries values
       const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;
       const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);

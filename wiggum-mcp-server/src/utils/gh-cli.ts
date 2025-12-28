@@ -356,11 +356,10 @@ export async function getPRReviewComments(
   const comments: GitHubPRReviewComment[] = [];
   let skippedCount = 0;
 
-  // Skip malformed comments with error logging instead of throwing
-  // This ensures one bad comment doesn't block processing of all remaining valid comments
-  // Design decision based on production incidents:
-  //   - Issues #272, #319, #457, #465: Single malformed JSON blocked all review processing
-  //   - Solution: Continue processing with error tracking to prevent total failure
+  // Design decision: Continue processing when individual comments are malformed
+  // Rationale: Single malformed JSON should not block processing of all remaining valid comments
+  // Historical context: Production incidents showed one bad comment blocking entire review pipeline
+  // Solution: Skip malformed comments with error logging to prevent total failure
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
@@ -816,9 +815,10 @@ export async function ghCliWithRetry(
         });
       }
 
-      // Exponential backoff: 2^attempt seconds, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
-      // Cap prevents impractical delays for high maxRetries values
+      // Exponential backoff: 2^attempt * 1000ms, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Rationale: Reduces API load during outages, gives transient issues time to resolve
+      // Cap at 60s prevents impractical delays for high maxRetries values
       const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;
       const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
