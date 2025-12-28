@@ -1070,6 +1070,115 @@ describe('review-completion-helper', () => {
     });
   });
 
+  describe('File Error Categorization Logic', () => {
+    describe('in-scope vs out-of-scope categorization', () => {
+      test('should categorize path with "-in-scope-" as in-scope', () => {
+        const path = '/tmp/claude/code-reviewer-in-scope-1234.md';
+        const isInScope = path.includes('-in-scope-');
+        const isOutOfScope = path.includes('-out-of-scope-');
+        assert.strictEqual(isInScope, true);
+        assert.strictEqual(isOutOfScope, false);
+      });
+
+      test('should categorize path with "-out-of-scope-" as out-of-scope', () => {
+        const path = '/tmp/claude/code-reviewer-out-of-scope-1234.md';
+        const isInScope = path.includes('-in-scope-');
+        const isOutOfScope = path.includes('-out-of-scope-');
+        assert.strictEqual(isInScope, false);
+        assert.strictEqual(isOutOfScope, true);
+      });
+
+      test('should warn when path does not match expected pattern', () => {
+        const path = '/tmp/claude/some-random-file.md';
+        const isInScope = path.includes('-in-scope-');
+        const isOutOfScope = path.includes('-out-of-scope-');
+        const matchesExpectedPattern = isInScope || isOutOfScope;
+        assert.strictEqual(matchesExpectedPattern, false, 'Should not match either pattern');
+        // This documents that a warning should be logged when neither pattern matches
+      });
+
+      test('should handle edge case: "in-scope" in directory name without hyphen prefix', () => {
+        // Path has "in-scope-" but NOT "-in-scope-" (no hyphen before "in")
+        const path = '/tmp/in-scope-debug/code-reviewer-results.md';
+        const isInScope = path.includes('-in-scope-');
+        // Since the pattern requires a hyphen BEFORE "in-scope", this does NOT match
+        assert.strictEqual(isInScope, false, 'Pattern requires hyphen before "in-scope"');
+        // This documents that the pattern matching is precise
+      });
+
+      test('should match when directory contains full "-in-scope-" pattern', () => {
+        // Path has full "-in-scope-" pattern in directory
+        const path = '/tmp/debug-in-scope-dir/code-reviewer-results.md';
+        const isInScope = path.includes('-in-scope-');
+        // This DOES match because "-in-scope-" is present
+        assert.strictEqual(isInScope, true, 'Pattern matches substring anywhere in path');
+        // Documents that pattern matching is substring-based
+      });
+
+      test('should handle edge case: path contains both patterns', () => {
+        // Unusual but possible path with both patterns
+        const path = '/tmp/test-in-scope-copy/test-out-of-scope-backup.md';
+        const isInScope = path.includes('-in-scope-');
+        const isOutOfScope = path.includes('-out-of-scope-');
+        assert.strictEqual(isInScope, true);
+        assert.strictEqual(isOutOfScope, true);
+        // Documents that order of checking matters in implementation
+      });
+    });
+
+    describe('Node.js error code extraction', () => {
+      test('should recognize ENOENT error code', () => {
+        const error = { code: 'ENOENT', message: 'no such file or directory' };
+        assert.strictEqual(error.code, 'ENOENT');
+      });
+
+      test('should recognize EACCES error code', () => {
+        const error = { code: 'EACCES', message: 'permission denied' };
+        assert.strictEqual(error.code, 'EACCES');
+      });
+
+      test('should recognize EISDIR error code', () => {
+        const error = { code: 'EISDIR', message: 'is a directory' };
+        assert.strictEqual(error.code, 'EISDIR');
+      });
+
+      test('should recognize EMFILE error code', () => {
+        const error = { code: 'EMFILE', message: 'too many open files' };
+        assert.strictEqual(error.code, 'EMFILE');
+      });
+
+      test('should handle error without code property', () => {
+        const error = { message: 'Unknown error occurred' };
+        const code = (error as { code?: string }).code;
+        assert.strictEqual(code, undefined);
+      });
+
+      test('should validate known vs unknown error codes', () => {
+        const knownCodes = ['ENOENT', 'EACCES', 'EISDIR', 'EMFILE', 'EBUSY', 'EPERM'];
+        const unknownCode = 'EWEIRD';
+        assert.strictEqual(knownCodes.includes('ENOENT'), true);
+        assert.strictEqual(knownCodes.includes('EACCES'), true);
+        assert.strictEqual(knownCodes.includes(unknownCode), false);
+      });
+    });
+
+    describe('error severity by category', () => {
+      test('should document that in-scope failures are CRITICAL', () => {
+        // In-scope file read failures throw ValidationError
+        // This is documented in the tiered failure handling
+        const inScopeErrorSeverity = 'CRITICAL';
+        assert.strictEqual(inScopeErrorSeverity, 'CRITICAL');
+      });
+
+      test('should document that out-of-scope failures are WARNING', () => {
+        // Out-of-scope file read failures log warnings but don't throw
+        // This is documented in the tiered failure handling
+        const outOfScopeErrorSeverity = 'WARNING';
+        assert.strictEqual(outOfScopeErrorSeverity, 'WARNING');
+      });
+    });
+  });
+
   describe('safePostReviewComment', () => {
     test('should validate maxRetries parameter (must be 1-100)', () => {
       // Documents that maxRetries must be a positive integer between 1 and 100

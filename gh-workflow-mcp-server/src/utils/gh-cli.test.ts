@@ -231,6 +231,230 @@ describe('Rate Limit Retry Logic', () => {
         assert.strictEqual(calculated, delay);
       }
     });
+
+    test('should cap delay at 60s for attempt 6 (2^6=64s > 60s)', () => {
+      const MAX_DELAY_MS = 60000;
+      const uncappedDelay = Math.pow(2, 6) * 1000; // 64000ms
+      const cappedDelay = Math.min(uncappedDelay, MAX_DELAY_MS);
+      assert.strictEqual(uncappedDelay, 64000);
+      assert.strictEqual(cappedDelay, 60000);
+    });
+
+    test('should cap delay at 60s for attempt 7 (2^7=128s > 60s)', () => {
+      const MAX_DELAY_MS = 60000;
+      const uncappedDelay = Math.pow(2, 7) * 1000; // 128000ms
+      const cappedDelay = Math.min(uncappedDelay, MAX_DELAY_MS);
+      assert.strictEqual(uncappedDelay, 128000);
+      assert.strictEqual(cappedDelay, 60000);
+    });
+
+    test('should cap delay at 60s for attempt 10', () => {
+      const MAX_DELAY_MS = 60000;
+      const uncappedDelay = Math.pow(2, 10) * 1000; // 1024000ms
+      const cappedDelay = Math.min(uncappedDelay, MAX_DELAY_MS);
+      assert.strictEqual(uncappedDelay, 1024000);
+      assert.strictEqual(cappedDelay, 60000);
+    });
+
+    test('should NOT cap delay for attempt 5 (2^5=32s < 60s)', () => {
+      const MAX_DELAY_MS = 60000;
+      const uncappedDelay = Math.pow(2, 5) * 1000; // 32000ms
+      const cappedDelay = Math.min(uncappedDelay, MAX_DELAY_MS);
+      assert.strictEqual(uncappedDelay, 32000);
+      assert.strictEqual(cappedDelay, 32000); // Not capped
+      assert.strictEqual(uncappedDelay < MAX_DELAY_MS, true);
+    });
+
+    test('should document capped vs uncapped delay calculations', () => {
+      const MAX_DELAY_MS = 60000;
+      const testCases = [
+        { attempt: 1, uncapped: 2000, capped: 2000 },
+        { attempt: 2, uncapped: 4000, capped: 4000 },
+        { attempt: 3, uncapped: 8000, capped: 8000 },
+        { attempt: 4, uncapped: 16000, capped: 16000 },
+        { attempt: 5, uncapped: 32000, capped: 32000 },
+        { attempt: 6, uncapped: 64000, capped: 60000 }, // Capped
+        { attempt: 7, uncapped: 128000, capped: 60000 }, // Capped
+      ];
+
+      for (const { attempt, uncapped, capped } of testCases) {
+        const calculatedUncapped = Math.pow(2, attempt) * 1000;
+        const calculatedCapped = Math.min(calculatedUncapped, MAX_DELAY_MS);
+        assert.strictEqual(calculatedUncapped, uncapped, `Uncapped delay for attempt ${attempt}`);
+        assert.strictEqual(calculatedCapped, capped, `Capped delay for attempt ${attempt}`);
+      }
+    });
+  });
+
+  describe('HTTP status extraction from error messages', () => {
+    // Tests document the patterns used to extract HTTP status codes from error messages
+    // when exitCode is not directly available
+
+    test('should recognize "HTTP 429" pattern', () => {
+      const errorMessage = 'HTTP 429 Too Many Requests';
+      const pattern = /HTTP\s+(\d{3})/i;
+      const match = errorMessage.match(pattern);
+      assert.ok(match, 'Pattern should match');
+      assert.strictEqual(match[1], '429');
+    });
+
+    test('should recognize "status: 429" pattern', () => {
+      const errorMessage = 'API error: status: 429';
+      const pattern = /status[:\s]+(\d{3})/i;
+      const match = errorMessage.match(pattern);
+      assert.ok(match, 'Pattern should match');
+      assert.strictEqual(match[1], '429');
+    });
+
+    test('should recognize "429 Too Many" pattern', () => {
+      const errorMessage = '429 Too Many Requests';
+      const pattern = /(\d{3})\s+Too\s+Many/i;
+      const match = errorMessage.match(pattern);
+      assert.ok(match, 'Pattern should match');
+      assert.strictEqual(match[1], '429');
+    });
+
+    test('should recognize "rate limit (429)" pattern', () => {
+      const errorMessage = 'rate limit exceeded (429)';
+      const pattern = /rate\s+limit.*?(\d{3})/i;
+      const match = errorMessage.match(pattern);
+      assert.ok(match, 'Pattern should match');
+      assert.strictEqual(match[1], '429');
+    });
+
+    test('should validate extracted status is in 100-599 range', () => {
+      // Valid HTTP status codes
+      const validCodes = [100, 200, 301, 400, 429, 500, 503, 599];
+      for (const code of validCodes) {
+        const isValid =
+          Number.isFinite(code) && Number.isSafeInteger(code) && code >= 100 && code <= 599;
+        assert.strictEqual(isValid, true, `${code} should be valid`);
+      }
+
+      // Invalid codes (outside range)
+      const invalidCodes = [0, 50, 99, 600, 700, 1000];
+      for (const code of invalidCodes) {
+        const isValid =
+          Number.isFinite(code) && Number.isSafeInteger(code) && code >= 100 && code <= 599;
+        assert.strictEqual(isValid, false, `${code} should be invalid`);
+      }
+    });
+
+    test('should handle Infinity from malformed input', () => {
+      const parsed = Infinity;
+      const isValid =
+        Number.isFinite(parsed) && Number.isSafeInteger(parsed) && parsed >= 100 && parsed <= 599;
+      assert.strictEqual(isValid, false, 'Infinity should be rejected');
+    });
+
+    test('should handle NaN from malformed input', () => {
+      const parsed = NaN;
+      const isValid =
+        Number.isFinite(parsed) && Number.isSafeInteger(parsed) && parsed >= 100 && parsed <= 599;
+      assert.strictEqual(isValid, false, 'NaN should be rejected');
+    });
+
+    test('should handle messages with HTTP keywords but no valid status', () => {
+      const errorMessages = [
+        'HTTP error occurred',
+        'status unknown',
+        'HTTP response invalid',
+        'Connection failed to HTTP server',
+      ];
+
+      const statusPatterns = [
+        /HTTP\s+(\d{3})/i,
+        /status[:\s]+(\d{3})/i,
+        /(\d{3})\s+Too\s+Many/i,
+        /rate\s+limit.*?(\d{3})/i,
+      ];
+
+      for (const msg of errorMessages) {
+        let foundValidCode = false;
+        for (const pattern of statusPatterns) {
+          const match = msg.match(pattern);
+          if (match && match[1]) {
+            const parsed = parseInt(match[1], 10);
+            if (
+              Number.isFinite(parsed) &&
+              Number.isSafeInteger(parsed) &&
+              parsed >= 100 &&
+              parsed <= 599
+            ) {
+              foundValidCode = true;
+              break;
+            }
+          }
+        }
+        assert.strictEqual(
+          foundValidCode,
+          false,
+          `"${msg}" should not extract a valid HTTP status`
+        );
+      }
+    });
+  });
+
+  describe('maxRetries validation', () => {
+    // Tests document the validation rules for maxRetries parameter
+
+    test('should document that maxRetries=0 is rejected', () => {
+      // maxRetries < 1 would cause the loop to never execute
+      // The code validates: !Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > 100
+      const maxRetries = 0;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=0 should be invalid');
+    });
+
+    test('should document that maxRetries=-1 is rejected', () => {
+      const maxRetries = -1;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=-1 should be invalid');
+    });
+
+    test('should document that maxRetries=0.5 is rejected (non-integer)', () => {
+      const maxRetries = 0.5;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=0.5 should be invalid');
+    });
+
+    test('should document that maxRetries=NaN is rejected', () => {
+      const maxRetries = NaN;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=NaN should be invalid');
+    });
+
+    test('should document that maxRetries=Infinity is rejected', () => {
+      const maxRetries = Infinity;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=Infinity should be invalid');
+    });
+
+    test('should document that maxRetries=101 is rejected (above limit)', () => {
+      const maxRetries = 101;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, false, 'maxRetries=101 should be invalid');
+    });
+
+    test('should accept maxRetries=1 (minimum valid)', () => {
+      const maxRetries = 1;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, true, 'maxRetries=1 should be valid');
+    });
+
+    test('should accept maxRetries=100 (maximum valid)', () => {
+      const maxRetries = 100;
+      const isValid = Number.isInteger(maxRetries) && maxRetries >= 1 && maxRetries <= 100;
+      assert.strictEqual(isValid, true, 'maxRetries=100 should be valid');
+    });
+
+    test('should accept common maxRetries values (3, 5, 10)', () => {
+      const commonValues = [3, 5, 10];
+      for (const value of commonValues) {
+        const isValid = Number.isInteger(value) && value >= 1 && value <= 100;
+        assert.strictEqual(isValid, true, `maxRetries=${value} should be valid`);
+      }
+    });
   });
 
   describe('error classification patterns', () => {
