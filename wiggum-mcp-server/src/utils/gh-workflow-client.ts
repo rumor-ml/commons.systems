@@ -92,10 +92,29 @@ async function callToolWithRetry(
     }
 
     try {
-      return await client.callTool({
+      const result = await client.callTool({
         name: toolName,
         arguments: args,
       });
+
+      // Check if result contains "still running" markers (chunked monitoring mode)
+      // These markers indicate the operation is still in progress and should retry
+      if (result.content && Array.isArray(result.content)) {
+        const textContent = result.content.find((c: any) => c.type === 'text');
+        if (textContent && 'text' in textContent) {
+          const text = textContent.text;
+          if (text.includes('WORKFLOW_RUNNING') || text.includes('CHECKS_RUNNING')) {
+            const attemptEstimate = Math.floor(elapsed / 50000) + 1;
+            logger.info(
+              `Workflow/checks still running, continuing to monitor (attempt ~${attemptEstimate}, elapsed ${elapsed}ms, remaining ${maxDurationMs - elapsed}ms)`,
+              { toolName }
+            );
+            continue; // Retry the call
+          }
+        }
+      }
+
+      return result;
     } catch (error: unknown) {
       // Extract error details once
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -313,6 +332,7 @@ export async function monitorRun(params: {
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
+      max_single_call_timeout_seconds: 50, // Enable 50s chunks for wiggum
     },
     (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
   );
@@ -350,6 +370,7 @@ export async function monitorPRChecks(params: {
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
+      max_single_call_timeout_seconds: 50, // Enable 50s chunks for wiggum
     },
     (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
   );
@@ -377,6 +398,10 @@ export async function monitorPRChecks(params: {
 function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_run', `branch ${branch}`);
+
+  // Note: "WORKFLOW_RUNNING" marker is handled by callToolWithRetry
+  // If we reach here, the workflow has completed
+
   logger.info('Parsed workflow monitor result', { textLength: text.length, branch });
 
   // Parse the text to determine success/failure
@@ -444,6 +469,10 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_pr_checks', `PR #${prNumber}`);
+
+  // Note: "CHECKS_RUNNING" marker is handled by callToolWithRetry
+  // If we reach here, the checks have completed
+
   logger.info('Parsed PR checks monitor result', { textLength: text.length, prNumber });
 
   // Parse failure count from summary line: "Success: N, Failed: N, Other: N"

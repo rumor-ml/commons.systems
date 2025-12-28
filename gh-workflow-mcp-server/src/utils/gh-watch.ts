@@ -25,6 +25,8 @@ export interface WatchOptions {
   timeout: number;
   /** Repository in format "owner/repo" (optional) */
   repo?: string;
+  /** Enable fail-fast mode for PR checks (optional) */
+  failFast?: boolean;
 }
 
 export interface Check {
@@ -145,6 +147,10 @@ export async function watchWorkflowRun(runId: number, options: WatchOptions): Pr
  */
 export async function watchPRChecks(prNumber: number, options: WatchOptions): Promise<WatchResult> {
   const args = ['pr', 'checks', prNumber.toString(), '--watch'];
+
+  if (options.failFast) {
+    args.push('--fail-fast');
+  }
 
   if (options.repo) {
     args.unshift('--repo', options.repo);

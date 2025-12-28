@@ -19,7 +19,6 @@ import {
   getBranchHeadSha,
   getWorkflowRunsForCommit,
   resolveRepo,
-  sleep,
   getWorkflowJobs,
 } from '../utils/gh-cli.js';
 import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
@@ -43,6 +42,15 @@ export const MonitorRunInputSchema = z
       .default(true)
       .describe(
         'Exit immediately on first failure detection. Set to false to wait for all checks to complete.'
+      ),
+    max_single_call_timeout_seconds: z
+      .number()
+      .int()
+      .positive()
+      .max(60)
+      .optional()
+      .describe(
+        'Max duration for a single monitoring call. If workflow not complete, returns "still running" for caller to retry. Used by wiggum to avoid MCP SDK 60s timeout.'
       ),
   })
   .strict();
@@ -68,54 +76,6 @@ interface JobData {
   url: string;
   startedAt: string;
   completedAt?: string;
-}
-
-/**
- * Poll jobs for failure detection while watching runs
- *
- * Used for fail-fast mode: polls job status in parallel with watch
- * to detect failures quickly without waiting for watch to complete.
- * Returns immediately when first failure detected, enabling early
- * termination of the watching race condition.
- *
- * @param runIds - Single run ID or array of run IDs to poll
- * @param pollIntervalMs - Milliseconds between polls
- * @param timeoutMs - Maximum time to poll
- * @param repo - Repository in format "owner/repo"
- */
-async function pollJobsForFailure(
-  runIds: number | number[],
-  pollIntervalMs: number,
-  timeoutMs: number,
-  repo: string
-): Promise<void> {
-  const ids = Array.isArray(runIds) ? runIds : [runIds];
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const jobsResults = await Promise.all(ids.map((id) => getWorkflowJobs(id, repo)));
-
-      for (const jobsData of jobsResults) {
-        // TODO: See issue #539 - Add runtime validation for gh CLI response structure
-        const jobs = (jobsData as any).jobs || [];
-        const failedJob = jobs.find(
-          (job: JobData) => job.conclusion && FAILURE_CONCLUSIONS.includes(job.conclusion)
-        );
-        if (failedJob) {
-          return; // Exit early on failure
-        }
-      }
-    } catch (error) {
-      // Log error but continue polling - fail-fast is an optimization, not critical
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[gh-workflow] pollJobsForFailure: error fetching jobs (runIds: ${ids.join(',')}, error: ${errorMsg}), continuing polling`
-      );
-    }
-
-    await sleep(pollIntervalMs);
-  }
 }
 
 /**
@@ -161,9 +121,17 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     }
 
     const resolvedRepo = await resolveRepo(input.repo);
-    const pollIntervalMs = input.poll_interval_seconds * 1000;
-    const timeoutMs = input.timeout_seconds * 1000;
     const startTime = Date.now();
+
+    // Calculate effective timeout
+    let effectiveTimeout = input.timeout_seconds * 1000;
+
+    // If max_single_call_timeout specified, cap the timeout
+    if (input.max_single_call_timeout_seconds) {
+      effectiveTimeout = Math.min(effectiveTimeout, input.max_single_call_timeout_seconds * 1000);
+    }
+
+    const timeoutMs = effectiveTimeout;
 
     let runIds: number[];
     let monitoringMultipleRuns = false;
@@ -208,34 +176,30 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     let failedEarly = false;
     let failedRunId: number | null = null;
 
-    // Single run: Use watch + JSON query
+    // Single run: Use native watch (includes fail-fast via --exit-status)
     if (!monitoringMultipleRuns) {
-      if (input.fail_fast) {
-        // Hybrid: Race between watch and job polling for fail-fast
-        const watchPromise = watchWorkflowRun(runIds[0], {
-          timeout: timeoutMs,
-          repo: resolvedRepo,
-        });
-        const failFastPromise = pollJobsForFailure(
-          runIds[0],
-          pollIntervalMs,
-          timeoutMs,
-          resolvedRepo
+      const watchResult = await watchWorkflowRun(runIds[0], {
+        timeout: timeoutMs,
+        repo: resolvedRepo,
+      });
+
+      // If timed out AND using chunked mode, return "still running"
+      if (watchResult.timedOut && input.max_single_call_timeout_seconds) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'WORKFLOW_RUNNING: Workflow still in progress. Monitoring will continue automatically.',
+            },
+          ],
+        };
+      }
+
+      // If timed out WITHOUT chunked mode, throw timeout error (original behavior)
+      if (watchResult.timedOut) {
+        throw new TimeoutError(
+          `Workflow run did not complete within ${input.timeout_seconds} seconds`
         );
-
-        await Promise.race([watchPromise, failFastPromise]);
-      } else {
-        // Simple watch until completion
-        const watchResult = await watchWorkflowRun(runIds[0], {
-          timeout: timeoutMs,
-          repo: resolvedRepo,
-        });
-
-        if (watchResult.timedOut) {
-          throw new TimeoutError(
-            `Workflow run did not complete within ${input.timeout_seconds} seconds`
-          );
-        }
       }
     }
     // Multiple runs: Watch all in parallel
@@ -244,21 +208,30 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
         watchWorkflowRun(id, { timeout: timeoutMs, repo: resolvedRepo })
       );
 
-      if (input.fail_fast) {
-        const failFastPromise = pollJobsForFailure(runIds, pollIntervalMs, timeoutMs, resolvedRepo);
-        await Promise.race([Promise.allSettled(watchPromises), failFastPromise]);
-      } else {
-        const results = await Promise.allSettled(watchPromises);
+      const results = await Promise.allSettled(watchPromises);
 
-        // Check if any watch timed out
-        const timedOut = results.some(
-          (result) => result.status === 'fulfilled' && result.value.timedOut
+      // Check if any watch timed out
+      const timedOut = results.some(
+        (result) => result.status === 'fulfilled' && result.value.timedOut
+      );
+
+      // If timed out AND using chunked mode, return "still running"
+      if (timedOut && input.max_single_call_timeout_seconds) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'WORKFLOW_RUNNING: Workflow still in progress. Monitoring will continue automatically.',
+            },
+          ],
+        };
+      }
+
+      // If timed out WITHOUT chunked mode, throw timeout error (original behavior)
+      if (timedOut) {
+        throw new TimeoutError(
+          `Workflow runs did not complete within ${input.timeout_seconds} seconds`
         );
-        if (timedOut) {
-          throw new TimeoutError(
-            `Workflow runs did not complete within ${input.timeout_seconds} seconds`
-          );
-        }
       }
     }
 

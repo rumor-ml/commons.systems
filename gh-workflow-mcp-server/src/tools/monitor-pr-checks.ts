@@ -13,7 +13,7 @@ import {
   MAX_TIMEOUT,
   FAILURE_CONCLUSIONS,
 } from '../constants.js';
-import { getWorkflowRunsForPR, getPR, resolveRepo, sleep } from '../utils/gh-cli.js';
+import { getWorkflowRunsForPR, getPR, resolveRepo } from '../utils/gh-cli.js';
 import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
 import { watchPRChecks, getCheckIcon, determineOverallStatus } from '../utils/gh-watch.js';
 
@@ -33,6 +33,15 @@ export const MonitorPRChecksInputSchema = z
       .default(true)
       .describe(
         'Exit immediately on first failure detection. Set to false to wait for all checks to complete.'
+      ),
+    max_single_call_timeout_seconds: z
+      .number()
+      .int()
+      .positive()
+      .max(60)
+      .optional()
+      .describe(
+        'Max duration for a single monitoring call. If checks not complete, returns "still running" for caller to retry. Used by wiggum to avoid MCP SDK 60s timeout.'
       ),
   })
   .strict();
@@ -88,9 +97,17 @@ interface PRData {
 export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
-    const pollIntervalMs = input.poll_interval_seconds * 1000;
-    const timeoutMs = input.timeout_seconds * 1000;
     const startTime = Date.now();
+
+    // Calculate effective timeout
+    let effectiveTimeout = input.timeout_seconds * 1000;
+
+    // If max_single_call_timeout specified, cap the timeout
+    if (input.max_single_call_timeout_seconds) {
+      effectiveTimeout = Math.min(effectiveTimeout, input.max_single_call_timeout_seconds * 1000);
+    }
+
+    const timeoutMs = effectiveTimeout;
 
     // Get PR details first
     const pr = (await getPR(input.pr_number, resolvedRepo)) as PRData;
@@ -102,48 +119,28 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
     let checks: CheckData[] = [];
     let failedEarly = false;
 
-    // Use watch for completion detection with optional fail-fast polling
-    // Hybrid approach: gh pr checks --watch provides completion signal, while
-    // polling JSON API enables fail-fast detection without waiting for all checks
-    if (input.fail_fast) {
-      // Hybrid: Race between watch and polling for fail-fast detection
-      const watchPromise = watchPRChecks(input.pr_number, {
-        timeout: timeoutMs,
-        repo: resolvedRepo,
-      });
+    // Use native watch with fail-fast flag (no redundant polling)
+    const watchResult = await watchPRChecks(input.pr_number, {
+      timeout: timeoutMs,
+      repo: resolvedRepo,
+      failFast: input.fail_fast,
+    });
 
-      const failFastPromise = (async () => {
-        while (Date.now() - startTime < timeoutMs) {
-          checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
+    // If timed out AND using chunked mode, return "still running"
+    if (watchResult.timedOut && input.max_single_call_timeout_seconds) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'CHECKS_RUNNING: PR checks still in progress. Monitoring will continue automatically.',
+          },
+        ],
+      };
+    }
 
-          if (checks && checks.length > 0) {
-            const failedCheck = checks.find(
-              (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
-            );
-
-            if (failedCheck) {
-              failedEarly = true;
-              return;
-            }
-          }
-
-          await sleep(pollIntervalMs);
-        }
-      })();
-
-      await Promise.race([watchPromise, failFastPromise]);
-    } else {
-      // Simple watch until completion
-      const watchResult = await watchPRChecks(input.pr_number, {
-        timeout: timeoutMs,
-        repo: resolvedRepo,
-      });
-
-      if (watchResult.timedOut) {
-        throw new TimeoutError(
-          `PR checks did not complete within ${input.timeout_seconds} seconds`
-        );
-      }
+    // If timed out WITHOUT chunked mode, throw timeout error (original behavior)
+    if (watchResult.timedOut) {
+      throw new TimeoutError(`PR checks did not complete within ${input.timeout_seconds} seconds`);
     }
 
     // Fetch structured data after watch completes
