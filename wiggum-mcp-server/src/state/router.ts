@@ -13,7 +13,8 @@ import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
 import { WiggumStateSchema } from './types.js';
-import { addToCompletedSteps, applyWiggumState } from './state-utils.js';
+import { applyWiggumState } from './state-utils.js';
+import { advanceToNextStep } from './transitions.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
@@ -755,16 +756,9 @@ async function handlePhase1MonitorWorkflow(
   const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (monitorResult.success) {
-    // Mark Step p1-1 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE1_MONITOR_WORKFLOW,
-      completedSteps: addToCompletedSteps(
-        state.wiggum.completedSteps,
-        STEP_PHASE1_MONITOR_WORKFLOW
-      ),
-      phase: 'phase1',
-    };
+    // Mark Step p1-1 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
     const stateResult = await safeUpdateIssueBodyState(
       issueNumber,
@@ -1151,16 +1145,9 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
   const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (monitorResult.success) {
-    // Mark Step p2-1 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_WORKFLOW,
-      completedSteps: addToCompletedSteps(
-        state.wiggum.completedSteps,
-        STEP_PHASE2_MONITOR_WORKFLOW
-      ),
-      phase: 'phase2',
-    };
+    // Mark Step p2-1 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
     const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
@@ -1253,16 +1240,9 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       };
     }
 
-    // PR checks succeeded - mark Step p2-2 complete (with deduplication)
-    const newState2: WiggumState = {
-      iteration: updatedState.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: addToCompletedSteps(
-        updatedState.wiggum.completedSteps,
-        STEP_PHASE2_MONITOR_CHECKS
-      ),
-      phase: 'phase2',
-    };
+    // PR checks succeeded - mark Step p2-2 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState2: WiggumState = advanceToNextStep(updatedState.wiggum);
 
     const stateResult2 = await safeUpdatePRBodyState(
       state.pr.number,
@@ -1376,13 +1356,9 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
   const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (prChecksResult.success) {
-    // Mark Step p2-2 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS),
-      phase: 'phase2',
-    };
+    // Mark Step p2-2 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
     const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
@@ -1515,13 +1491,9 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   };
 
   if (comments.length === 0) {
-    // No comments - mark Step p2-3 complete and return Step p2-4 (PR Review) instructions
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_CODE_QUALITY,
-      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY),
-      phase: 'phase2',
-    };
+    // No comments - mark Step p2-3 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
     const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
