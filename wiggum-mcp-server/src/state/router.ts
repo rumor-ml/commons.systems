@@ -304,11 +304,12 @@ export async function safeUpdatePRBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // All code paths within the loop return or throw - this line is unreachable at runtime (assuming maxRetries >= 1):
+  // Runtime guarantee: The for loop condition (attempt <= maxRetries) ensures at least one iteration
+  // when maxRetries >= 1 (enforced by default parameter maxRetries=3), making this line unreachable at runtime.
+  // All code paths within the loop return or throw:
   // - Success: returns { success: true }
   // - Transient error (retries exhausted): returns { success: false, ... }
   // - Critical/unexpected error: throws
-  // Note: Callers use default maxRetries=3 or explicitly validate positive values
   throw new Error('Unreachable: retry loop should always return or throw');
 }
 
@@ -463,11 +464,12 @@ export async function safeUpdateIssueBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // All code paths within the loop return or throw - this line is unreachable at runtime (assuming maxRetries >= 1):
+  // Runtime guarantee: The for loop condition (attempt <= maxRetries) ensures at least one iteration
+  // when maxRetries >= 1 (enforced by default parameter maxRetries=3), making this line unreachable at runtime.
+  // All code paths within the loop return or throw:
   // - Success: returns { success: true }
   // - Transient error (retries exhausted): returns { success: false, ... }
   // - Critical/unexpected error: throws
-  // Note: Callers use default maxRetries=3 or explicitly validate positive values
   throw new Error('Unreachable: retry loop should always return or throw');
 }
 
@@ -644,9 +646,19 @@ async function handlePhase1MonitorWorkflow(
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -656,10 +668,10 @@ async function handlePhase1MonitorWorkflow(
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: {},
             }),
@@ -700,9 +712,19 @@ async function handlePhase1MonitorWorkflow(
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -712,10 +734,10 @@ async function handlePhase1MonitorWorkflow(
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: {},
             }),
@@ -1020,9 +1042,19 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1032,10 +1064,10 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
               step_number: STEP_PHASE2_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1112,9 +1144,19 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         iteration: newState2.iteration,
         phase: newState2.phase,
         reason: stateResult2.reason,
+        lastError: stateResult2.lastError?.message,
+        attemptCount: stateResult2.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult2.lastError
+        ? `\n\nActual error: ${stateResult2.lastError.message}`
+        : '';
+      const retryInfo = stateResult2.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult2.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1124,10 +1166,10 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
               step_number: STEP_PHASE2_MONITOR_CHECKS,
               iteration_count: newState2.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult2.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult2.reason} after ${stateResult2.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1222,9 +1264,19 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1234,10 +1286,10 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
               step_number: STEP_PHASE2_MONITOR_CHECKS,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1351,9 +1403,19 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1363,10 +1425,10 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
               current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
               step_number: STEP_PHASE2_CODE_QUALITY,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
                 'Attempted to update state in body',
-                'Failed due to transient error',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),

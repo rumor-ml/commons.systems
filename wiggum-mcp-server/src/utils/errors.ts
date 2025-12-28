@@ -98,9 +98,20 @@ export class StateDetectionError extends McpError {
  * the specific state operation that failed. Use this for failures during state
  * reads/writes rather than generic GitHubCliError.
  *
- * @throws {ValidationError} If resourceId is provided but is not a positive integer
+ * Note: Constructor validates resourceId if provided (must be positive integer).
+ * Invalid resourceId throws ValidationError during construction.
  */
 export class StateApiError extends McpError {
+  /**
+   * Create a StateApiError
+   *
+   * @param message - Human-readable error description
+   * @param operation - Whether this was a 'read' or 'write' operation
+   * @param resourceType - The GitHub resource type ('pr' or 'issue')
+   * @param resourceId - Optional PR/issue number (must be positive integer if provided)
+   * @param cause - Optional underlying error that caused this failure
+   * @throws {ValidationError} If resourceId is provided but is not a positive integer
+   */
   constructor(
     message: string,
     public readonly operation: 'read' | 'write',
@@ -144,7 +155,9 @@ export function isTerminalError(error: unknown): boolean {
     return false; // Wiggum treats FormattingError as retryable
   }
 
-  // StateDetectionError is always terminal
+  // StateDetectionError is terminal: workflow state could not be reliably determined
+  // Retrying would likely hit the same detection issue (recursion limit, rapid PR changes)
+  // Manual intervention is required to stabilize the PR/issue state before retry
   if (error instanceof StateDetectionError) {
     return true;
   }

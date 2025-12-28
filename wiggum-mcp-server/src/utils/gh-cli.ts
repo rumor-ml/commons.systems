@@ -634,14 +634,16 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
-      // Note: exitCode may be undefined if:
-      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
-      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
-      //   - Error originated from ghCli() wrapper before CLI invocation
-      // When undefined, we fall back to HTTP status extraction from error message text.
-      // This fallback is necessary because isRetryableError() needs the exit code to
-      // determine if errors are retryable (429, 502-504) without relying solely on fragile string matching.
+      // Extract exitCode using duck-typing instead of instanceof GitHubCliError.
+      // Duck-typing rationale:
+      //   - Error may come from various error classes (GitHubCliError, execa.Error, or wrapped errors)
+      //   - We can't rely on instanceof because error chain may lose type information
+      //   - Duck-typing ({ exitCode?: number }) works for any object with exitCode property
+      // Note: exitCode may still be undefined when:
+      //   - Error is generic Error without exitCode (network timeouts, subprocess crashes)
+      //   - gh CLI didn't set HTTP status before exiting
+      //   - Error originated before CLI invocation (e.g., cwd resolution failure)
+      // When undefined, we extract HTTP status from error message text as fallback.
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message
@@ -757,7 +759,7 @@ export async function ghCliWithRetry(
       }
 
       // Exponential backoff: 2^attempt seconds, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
       // Cap prevents impractical delays for high maxRetries values
       const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;

@@ -160,12 +160,12 @@ const RETRYABLE_ERROR_CODES = [
 // TODO(#453): Migrate to structured error types for type-safe error handling
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // If exitCode matches retryable HTTP codes (429, 502-504), return true immediately.
-  // Otherwise, ALWAYS fall through to Priority 2/3 checks because:
-  //   - exitCode may be a non-retryable HTTP status (e.g., 400, 404) but the error might
-  //     also have a retryable Node.js error code (ETIMEDOUT, ECONNRESET)
-  //   - Error may have no exitCode but still match retryable patterns in message text
-  // NOTE: We never return false based on exitCode alone - only return true for known retryable codes
+  // Check for known retryable HTTP status codes and return true immediately if matched.
+  // For ANY other exitCode value (non-retryable codes like 400, 404, 422), we DO NOT return false.
+  // Instead, we always fall through to Priority 2/3 checks because:
+  //   - The error may ALSO have a retryable Node.js error code (ETIMEDOUT, ECONNRESET)
+  //   - The error message may contain retryable patterns even with non-retryable HTTP status
+  // This conservative approach ensures we don't miss retryable conditions.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -339,14 +339,16 @@ export async function ghCliWithRetry(
           const statusMatch = lastError.message.match(pattern);
           if (statusMatch && statusMatch[1]) {
             const parsed = parseInt(statusMatch[1], 10);
-            // Validate parsed exit code is a well-formed HTTP status code (100-599)
-            // - Must be finite (not Infinity or NaN from malformed input like "status: Infinity")
-            // - Must be safe integer (rejects decimals from malformed input like "status: 429.5")
-            // - Must be in standard HTTP status range (100-599 per RFC 7231)
-            // Note: parseInt extracts leading digits, so "429abc" becomes 429 (intended behavior)
-            // We accept ALL valid HTTP codes here (not just retryable 429/502-504)
-            // because isRetryableError() and classifyErrorType() need the code for accurate
-            // error classification and logging, even for non-retryable errors.
+            // Validate extracted value is a well-formed HTTP status code (100-599)
+            // Why we accept ALL HTTP codes, not just retryable ones (429/502-504):
+            // - isRetryableError() uses exitCode for accurate retry decisions
+            // - classifyErrorType() uses exitCode for detailed logging (rate_limit, permission, not_found, etc.)
+            // - A 404 exitCode helps log "not_found" vs generic "unknown" error type
+            // Validation criteria:
+            // - Must be finite (rejects Infinity/NaN from malformed input like "status: Infinity")
+            // - Must be safe integer (rejects decimals from "status: 429.5")
+            // - Must be in HTTP range (100-599 per RFC 7231)
+            // Note: parseInt("429abc", 10) returns 429 - this is intentional for robustness
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&
@@ -427,7 +429,7 @@ export async function ghCliWithRetry(
       }
 
       // Exponential backoff: 2^attempt seconds, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6+->60s (capped)
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->64s (capped to 60s)
       // Rationale: Exponential backoff reduces load on GitHub API during outages and
       // gives transient issues more time to resolve with each retry.
       // Cap at 60s prevents impractical delays when maxRetries > 5.

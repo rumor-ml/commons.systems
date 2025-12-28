@@ -825,8 +825,10 @@ async function retryStateUpdate(
     );
   }
 
-  // Initialize with a placeholder failure that will be overwritten on first attempt
-  let result: StateUpdateResult = { success: false, reason: 'network', isTransient: true };
+  // DO NOT initialize result here - force every code path to set it
+  // This prevents returning a misleading placeholder error that says "network failure"
+  // when no network call was actually attempted.
+  let result: StateUpdateResult | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     result = await updateBodyState(state, newState);
@@ -864,7 +866,14 @@ async function retryStateUpdate(
     await sleepMs(delayMs);
   }
 
-  return result;
+  // TypeScript control flow: This should be unreachable, but throw instead of returning fake error.
+  // Runtime guarantee: maxRetries >= 1 (validated above) ensures the loop executes at least once,
+  // and every iteration either returns or continues. This indicates a programming error if reached.
+  throw new Error(
+    `INTERNAL ERROR: retryStateUpdate loop completed without returning. ` +
+      `This indicates a programming error in retry logic. ` +
+      `maxRetries=${maxRetries}, phase=${state.wiggum.phase}, lastResult=${JSON.stringify(result)}`
+  );
 }
 
 /**
@@ -1043,7 +1052,22 @@ export async function completeReview(
   // command_executed is validated by schema to be literal true - no additional check needed
 
   // Load review results from scope-separated files
-  await loadReviewResults(input.in_scope_files, input.out_of_scope_files);
+  // Capture warnings to surface data completeness issues to users (e.g., out-of-scope file failures)
+  const { warnings: loadWarnings } = await loadReviewResults(
+    input.in_scope_files,
+    input.out_of_scope_files
+  );
+
+  // Log any warnings from file loading - these indicate potentially incomplete review data
+  // (e.g., out-of-scope files that failed to load, empty files, etc.)
+  if (loadWarnings.length > 0) {
+    logger.warn('Review result loading completed with warnings', {
+      warningCount: loadWarnings.length,
+      warnings: loadWarnings,
+      reviewType: config.reviewTypeLabel,
+      impact: 'Some review data may be incomplete - check warnings for details',
+    });
+  }
 
   const state = await detectCurrentState();
   const reviewStep = getReviewStep(state.wiggum.phase, config);
