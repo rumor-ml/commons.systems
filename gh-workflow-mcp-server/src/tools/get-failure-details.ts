@@ -427,19 +427,27 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Format and return results using the new helper
         return formatJobSummaries(run, result.summaries, input.max_chars, result.parseWarnings);
       } catch (error) {
-        // TODO: See issue #319 - Only catch GitHubCliError for --log-failed, let validation/timeout/parsing errors propagate
-        // Fall through to job-based approach if --log-failed fails
+        // Only catch GitHubCliError for --log-failed fallback
+        // Let validation, timeout, and parsing errors propagate since they indicate
+        // programming issues or user errors that should be surfaced immediately
+        if (!(error instanceof GitHubCliError)) {
+          // Log the programming/validation error for debugging
+          console.error(
+            `[gh-workflow] ERROR Non-retryable error in getFailureDetailsFromLogFailed: ` +
+              `errorType=${error instanceof Error ? error.constructor.name : typeof error}, ` +
+              `message=${error instanceof Error ? error.message : String(error)}, ` +
+              `impact=Programming or validation error should not fall back to API approach`
+          );
+          throw error; // Propagate - don't hide validation/parsing errors
+        }
+
+        // GitHub CLI errors trigger fallback to job-based approach
         // This can happen if:
         // - No failed steps in the run (edge case)
         // - GitHub CLI version doesn't support --log-failed
         // - Other GitHub API issues
         const errorDetails = formatErrorMessage(error);
-
-        // Extract exit code for warning prefix
-        let errorTypeInfo = '';
-        if (error instanceof GitHubCliError) {
-          errorTypeInfo = error.exitCode ? ` (exit code ${error.exitCode})` : '';
-        }
+        const errorTypeInfo = error.exitCode ? ` (exit code ${error.exitCode})` : '';
 
         // Create comprehensive warning to prepend to output
         fallbackWarningPrefix = [

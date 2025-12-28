@@ -160,6 +160,9 @@ export interface FailedStepLog {
  *
  * Includes data completeness information to allow callers to warn users
  * when failure diagnosis may be incomplete due to parsing issues.
+ *
+ * Note: totalLines counts only non-empty lines. Empty lines are silently
+ * skipped and not included in totalLines or skippedLines counts.
  */
 export interface FailedStepLogsResult {
   /** Parsed failed step logs grouped by job and step */
@@ -233,10 +236,11 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
   const totalLines = output.split('\n').filter((l) => l.trim()).length;
   const successCount = totalLines - skippedCount;
   const successRate = totalLines > 0 ? successCount / totalLines : 1;
-  const MIN_SUCCESS_RATE = 0.7; // 70% of lines must parse successfully
+  const MIN_SUCCESS_RATE = 0.7; // At least 70% of lines must parse successfully
 
   // ALWAYS warn if ANY lines were skipped to prevent hidden data loss
   // Even a single skipped line could omit critical failure details needed for debugging
+  // Failure logs are the primary debugging tool - incomplete logs can block issue resolution
   // Users must be informed when failure diagnosis may be incomplete
   if (skippedCount > 0) {
     const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
@@ -364,8 +368,8 @@ export async function getWorkflowRunsForCommit(
  * Mapping rationale:
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
- * - Unknown states → "completed": Conservative default (treats unrecognized states as terminal)
- *                                 to prevent infinite waiting on new GitHub API states
+ * - Unknown states → "completed": Fail-fast default to prevent infinite waiting on new GitHub API states
+ *                                 Trade-off: May incorrectly mark incomplete checks as done
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE

@@ -159,17 +159,17 @@ const RETRYABLE_ERROR_CODES = [
  */
 // TODO(#453): Migrate to structured error types for type-safe error handling
 function isRetryableError(error: unknown, exitCode?: number): boolean {
-  // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
-  // Checks for retryable HTTP codes (429, 502-504). If exitCode is defined but not retryable,
-  // we continue to Priority 2/3 checks since the error may still be retryable based on
-  // Node.js error codes (e.g., ETIMEDOUT) or message patterns (e.g., network errors).
-  // NOTE: We do NOT return false for non-retryable HTTP codes - network errors may occur
-  // alongside HTTP errors and should still be retried.
+  // Priority 1: Exit code (most reliable when available)
+  // If exitCode matches retryable HTTP codes (429, 502-504), return true immediately.
+  // Otherwise, ALWAYS fall through to Priority 2/3 checks because:
+  //   - Network errors (ETIMEDOUT) may have HTTP codes but still be retryable
+  //   - Error may have no exitCode but still match retryable patterns
+  // NOTE: We never return false based on exitCode alone - only return true for known retryable codes
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
     }
-    // Continue to Priority 2/3 checks - don't short-circuit on non-retryable HTTP codes
+    // Fall through to Priority 2/3 - non-retryable HTTP codes don't preclude other retryable conditions
   }
 
   if (error instanceof Error) {
@@ -316,6 +316,7 @@ export async function ghCliWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
+      // Duck typing is used because error may be thrown from external libraries with different Error subclasses
       // Note: exitCode may be undefined if:
       //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
       //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
@@ -340,9 +341,10 @@ export async function ghCliWithRetry(
             const parsed = parseInt(statusMatch[1], 10);
             // Validate parsed exit code is a well-formed HTTP status code (100-599)
             // - Must be finite (not Infinity or NaN from malformed input)
-            // - Must be safe integer (no precision loss from parseInt)
+            // - Must be safe integer (defensive check, always true for 100-599 range)
             // - Must be in standard HTTP status range (100-599 per RFC 7231)
-            // Note: We accept ALL valid HTTP codes here (not just retryable 429/502-504)
+            // Note: parseInt extracts leading digits, so "429abc" becomes 429 (intended behavior)
+            // We accept ALL valid HTTP codes here (not just retryable 429/502-504)
             // because isRetryableError() and classifyErrorType() need the code for accurate
             // error classification and logging, even for non-retryable errors.
             if (
@@ -425,10 +427,10 @@ export async function ghCliWithRetry(
       }
 
       // Exponential backoff: 2^attempt seconds, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6+->60s (capped)
       // Rationale: Exponential backoff reduces load on GitHub API during outages and
       // gives transient issues more time to resolve with each retry.
-      // Cap prevents impractical delays for high maxRetries values.
+      // Cap at 60s prevents impractical delays when maxRetries > 5.
       const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;
       const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);

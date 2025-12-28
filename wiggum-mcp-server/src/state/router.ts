@@ -181,9 +181,11 @@ export async function safeUpdatePRBodyState(
     } catch (updateError) {
       // State update is CRITICAL for race condition fix (issue #388)
       // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
-      // TODO(#320): Surface state persistence failures to users instead of silent warning
-      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-      // TODO(#468): Broad catch-all hides programming errors - add early type validation
+      //
+      // Known limitations (in priority order):
+      // TODO(#320): Surface state persistence failures to users instead of silent warning (user-facing)
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
+      // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
       const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
       const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
@@ -281,8 +283,19 @@ export async function safeUpdatePRBodyState(
     }
   }
 
-  // Should never reach here, but TypeScript needs it
-  return { success: false, reason: 'network', isTransient: true };
+  // Should never reach here - all code paths should return within the retry loop
+  // If this executes, it indicates a programming error (e.g., break/continue misuse,
+  // missing return path, or logic error in retry loop control flow)
+  logger.error('Unreachable code reached in safeUpdatePRBodyState', {
+    prNumber,
+    step,
+    maxRetries,
+    impact: 'Critical programming error - retry loop completed without returning',
+    recommendation: 'Review retry loop logic for missing return paths',
+  });
+  throw new Error(
+    'Internal error: State update retry loop completed without returning. This indicates a programming error.'
+  );
 }
 
 /**
@@ -425,8 +438,19 @@ export async function safeUpdateIssueBodyState(
     }
   }
 
-  // Should never reach here, but TypeScript needs it
-  return { success: false, reason: 'network', isTransient: true };
+  // Should never reach here - all code paths should return within the retry loop
+  // If this executes, it indicates a programming error (e.g., break/continue misuse,
+  // missing return path, or logic error in retry loop control flow)
+  logger.error('Unreachable code reached in safeUpdateIssueBodyState', {
+    issueNumber,
+    step,
+    maxRetries,
+    impact: 'Critical programming error - retry loop completed without returning',
+    recommendation: 'Review retry loop logic for missing return paths',
+  });
+  throw new Error(
+    'Internal error: State update retry loop completed without returning. This indicates a programming error.'
+  );
 }
 
 /**
