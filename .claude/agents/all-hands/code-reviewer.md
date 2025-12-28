@@ -146,7 +146,7 @@ Be thorough but filter aggressively - quality over quantity. Focus on issues tha
    ```
 
 3. Write findings to both files using Write tool
-   - Use the EXACT structure from "Output Format" section above (lines 108-121): Summary, Critical Issues, etc.
+   - Use the EXACT structure from "Output Format" section (lines 109-122): start with summary of what's being reviewed, then group by severity (Critical: 90-100, Important: 80-89), with file path, line number, confidence score, CLAUDE.md rule citation, and concrete fix suggestion for each issue.
    - The structure (section headings, order) MUST be identical in both files
    - Only the specific findings differ (in-scope vs out-of-scope)
    - If Write tool fails, include an "error" field in the JSON summary

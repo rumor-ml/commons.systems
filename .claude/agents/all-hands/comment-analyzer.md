@@ -171,7 +171,7 @@ IMPORTANT: You analyze and provide feedback only. Do not modify code or comments
    ```
 
 3. Write findings to both files using Write tool
-   - Use the EXACT structure from "Your analysis output should be structured as:" section above: Summary, Critical Issues, etc.
+   - Use the EXACT structure from lines 122-143 ("Your analysis output should be structured as:" section): Summary, Critical Issues (with Location/Issue/Suggestion), Improvement Opportunities (with Location/Current state/Suggestion), Recommended Removals (with Location/Rationale), and Positive Findings.
    - The structure (section headings, order) MUST be identical in both files
    - Only the specific findings differ (in-scope vs out-of-scope)
    - If Write tool fails, include an "error" field in the JSON summary

@@ -368,11 +368,17 @@ async function readReviewFile(
           originalErrorCode,
           statError: statErrorObj.message,
           statErrorCode,
+          accumulatedErrorCount: errors.length,
           impact: 'Cascading filesystem failure detected - cannot diagnose original error',
           action:
             'Check file system health with fsck, verify NFS mount status, check file permissions recursively',
           escalation: 'Throwing FilesystemError to surface this critical issue',
         });
+
+        // Add error to errors array BEFORE throwing so diagnostic information is preserved
+        // This allows callers to see the full context of failures even when we escalate
+        const cascadeFileError = createFileReadError(filePath, errorObj, false, undefined);
+        errors.push(cascadeFileError);
 
         // Escalate cascading filesystem failures instead of silently continuing
         throw new FilesystemError(
@@ -531,23 +537,67 @@ export async function loadReviewResults(
     // Add warning to return value so callers can surface it to users
     if (outOfScopeErrors.length > 0) {
       const failedFileNames = outOfScopeErrors.map((e) => e.filePath.split('/').pop()).join(', ');
-      const warningMsg =
-        `Warning: ${outOfScopeErrors.length} out-of-scope review file(s) failed to load. ` +
-        `Out-of-scope recommendations may be incomplete. ` +
-        `Failed files: ${failedFileNames}`;
+      const totalOutOfScope = outOfScopeFiles.length;
+
+      // Check if ALL out-of-scope files failed (indicates systemic issue)
+      const allFailed = outOfScopeErrors.length === totalOutOfScope && totalOutOfScope > 0;
+
+      if (allFailed) {
+        // Systemic failure - escalate to error level logging but still allow workflow to proceed
+        // since out-of-scope is not blocking
+        logger.error('ALL out-of-scope files failed to load - systemic issue detected', {
+          totalFiles: totalOutOfScope,
+          failedFiles: outOfScopeErrors.map((e) => ({
+            path: e.filePath,
+            code: e.errorCode,
+            reason: e.error.message,
+          })),
+          impact: 'ALL out-of-scope recommendations lost - likely systemic issue',
+          possibleCauses: [
+            'File permissions issue affecting all files',
+            'Disk/NFS mount failure',
+            'Agent output directory not created',
+            'All agents crashed before writing output',
+          ],
+          action: 'Check filesystem health and agent logs',
+        });
+      }
+
+      // Calculate data loss percentage for user warning
+      const dataLossPercentage =
+        totalOutOfScope > 0
+          ? ((outOfScopeErrors.length / totalOutOfScope) * 100).toFixed(0)
+          : '100';
+
+      const warningMsg = allFailed
+        ? `**CRITICAL WARNING**: ALL ${totalOutOfScope} out-of-scope review file(s) failed to load. ` +
+          `Out-of-scope recommendations are COMPLETELY UNAVAILABLE. ` +
+          `This indicates a systemic issue (permissions, disk, NFS). ` +
+          `Failed files: ${failedFileNames}`
+        : `Warning: ${outOfScopeErrors.length} of ${totalOutOfScope} out-of-scope review file(s) failed to load ` +
+          `(${dataLossPercentage}% data loss). ` +
+          `Out-of-scope recommendations may be incomplete. ` +
+          `Failed files: ${failedFileNames}`;
 
       warnings.push(warningMsg);
-      logger.warn('Out-of-scope review files failed to load - proceeding with degraded tracking', {
-        outOfScopeErrorCount: outOfScopeErrors.length,
-        totalOutOfScopeFiles: outOfScopeFiles.length,
-        successfulOutOfScope: outOfScopeResults.length,
-        impact: 'Out-of-scope recommendations may be incomplete',
-        failedFiles: outOfScopeErrors.map((e) => ({
-          path: e.filePath,
-          code: e.errorCode,
-          reason: e.error.message,
-        })),
-      });
+
+      if (!allFailed) {
+        logger.warn(
+          'Out-of-scope review files failed to load - proceeding with degraded tracking',
+          {
+            outOfScopeErrorCount: outOfScopeErrors.length,
+            totalOutOfScopeFiles: outOfScopeFiles.length,
+            successfulOutOfScope: outOfScopeResults.length,
+            dataLossPercentage: `${dataLossPercentage}%`,
+            impact: 'Out-of-scope recommendations may be incomplete',
+            failedFiles: outOfScopeErrors.map((e) => ({
+              path: e.filePath,
+              code: e.errorCode,
+              reason: e.error.message,
+            })),
+          }
+        );
+      }
       // Continue execution with whatever out-of-scope data we successfully loaded
     }
   }
@@ -1107,6 +1157,23 @@ async function retryStateUpdate(
   // TypeScript control flow: This should be unreachable. The loop must execute at least once
   // (maxRetries >= 1 validated above), and every iteration either returns success, returns failure,
   // or continues. If reached, indicates a logic bug where an iteration neither returned nor continued.
+
+  // Defensive: Verify result was set before using it in error message
+  // This prevents a secondary error from JSON.stringify(undefined)
+  if (result === undefined) {
+    logger.error('CRITICAL: retryStateUpdate loop completed without setting result', {
+      maxRetries,
+      phase: state.wiggum.phase,
+      step: newState.step,
+      impact: 'Loop executed but never assigned result variable',
+    });
+    throw new Error(
+      `INTERNAL ERROR: retryStateUpdate loop completed without setting result variable. ` +
+        `This indicates a severe programming error: loop executed ${maxRetries} times but result was never assigned. ` +
+        `maxRetries=${maxRetries}, phase=${state.wiggum.phase}`
+    );
+  }
+
   throw new Error(
     `INTERNAL ERROR: retryStateUpdate loop completed without returning. ` +
       `This indicates a programming error: loop iteration neither returned nor continued. ` +
@@ -1422,6 +1489,9 @@ The workflow will resume from this step once the state update succeeds.`,
 
   // Post review comment to issue (non-blocking)
   // State update succeeded, now post detailed review results as a comment to the linked issue
+  // Track posting status to surface to user if it fails
+  let commentPostingFailureNote = '';
+
   if (state.issue.exists && state.issue.number) {
     const issueNumber = state.issue.number;
 
@@ -1445,6 +1515,15 @@ The workflow will resume from this step once the state update succeeds.`,
         phase: state.wiggum.phase,
         impact: 'Review results not visible in issue, but state persisted in body',
       });
+
+      // Build user-facing note about comment posting failure
+      // This ensures users know to check the issue/PR body for state rather than comments
+      commentPostingFailureNote =
+        `\n\n**Note: Comment Posting Failed**\n` +
+        `Review results could not be posted as a comment to issue #${issueNumber}. ` +
+        `This is a non-fatal error - the workflow state has been persisted successfully in the ` +
+        `${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body. ` +
+        `Check the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body for current state, not comments.\n`;
     }
   } else {
     // Defensive: Should be unreachable (validatePhaseRequirements ensures issue exists)
@@ -1456,6 +1535,11 @@ The workflow will resume from this step once the state update succeeds.`,
       action: 'Continuing workflow without comment',
     });
   }
+
+  // Combine all warnings for response (data completeness + comment posting failure)
+  const combinedWarning = dataCompletenessWarning
+    ? `${dataCompletenessWarning}${commentPostingFailureNote}`
+    : commentPostingFailureNote || undefined;
 
   if (isIterationLimitReached(newState)) {
     return buildIterationLimitResponse(state, reviewStep, issues, newState);
@@ -1473,7 +1557,7 @@ The workflow will resume from this step once the state update succeeds.`,
       outOfScopeCount,
       input.in_scope_files,
       input.out_of_scope_files,
-      dataCompletenessWarning
+      combinedWarning
     );
   }
 
@@ -1496,9 +1580,9 @@ The workflow will resume from this step once the state update succeeds.`,
       outOfScopeFiles
     );
 
-    // Prepend data completeness warning if present (surfaces file loading issues to user)
-    const outOfScopeInstructions = dataCompletenessWarning
-      ? `${dataCompletenessWarning}${baseOutOfScopeInstructions}`
+    // Prepend combined warning if present (surfaces file loading issues + comment posting failures to user)
+    const outOfScopeInstructions = combinedWarning
+      ? `${combinedWarning}${baseOutOfScopeInstructions}`
       : baseOutOfScopeInstructions;
 
     const output = {

@@ -837,16 +837,22 @@ export async function ghCliWithRetry(
     maxRetries,
     lastExitCode,
     command: `gh ${args.join(' ')}`,
+    lastErrorExists: !!lastError,
     lastError: lastError?.message ?? 'none',
     impact: 'Programming error in retry logic',
   });
-  throw (
-    lastError ||
-    new GitHubCliError(
-      `INTERNAL ERROR: ghCliWithRetry loop completed without returning. ` +
-        `This indicates a programming error in retry logic. ` +
+
+  // Defensive: Check if lastError is defined before throwing it
+  // If undefined, provide a detailed error message explaining the internal error
+  if (!lastError) {
+    throw new GitHubCliError(
+      `INTERNAL ERROR: ghCliWithRetry loop completed without returning and lastError is undefined. ` +
+        `This indicates a severe programming error in retry logic where the loop executed ` +
+        `but never set lastError. ` +
         `Command: gh ${args.join(' ')}, maxRetries: ${maxRetries}, ` +
-        `lastError: none, lastExitCode: ${lastExitCode ?? 'undefined'}`
-    )
-  );
+        `lastExitCode: ${lastExitCode ?? 'undefined'}`
+    );
+  }
+
+  throw lastError;
 }
