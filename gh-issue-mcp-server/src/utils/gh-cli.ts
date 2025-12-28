@@ -323,8 +323,9 @@ export async function ghCliWithRetry(
       //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
       //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
-      // When undefined, we attempt to extract HTTP status from error message using regex patterns
-      // (lines 328-374 below) since gh CLI error format varies by version and context.
+      // When undefined, we fall back to HTTP status extraction from error message text.
+      // This fallback is necessary because isRetryableError() needs the exit code to
+      // determine if errors are retryable (429, 502-504) without relying solely on fragile string matching.
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message
@@ -340,12 +341,13 @@ export async function ghCliWithRetry(
           const statusMatch = lastError.message.match(pattern);
           if (statusMatch && statusMatch[1]) {
             const parsed = parseInt(statusMatch[1], 10);
-            // Validate parsed exit code is a valid HTTP status code
+            // Validate parsed exit code is a well-formed HTTP status code (100-599)
             // - Must be finite (not Infinity or NaN from malformed input)
-            // - Must be safe integer (no precision loss)
-            // - Must be in valid HTTP status range (100-599)
-            // Note: We validate for ANY valid HTTP status, not just retryable ones (429, 502-504),
-            // because the extracted code is also used for error classification and logging
+            // - Must be safe integer (no precision loss from parseInt)
+            // - Must be in standard HTTP status range (100-599 per RFC 7231)
+            // Note: We accept ALL valid HTTP codes here (not just retryable 429/502-504)
+            // because isRetryableError() and classifyErrorType() need the code for accurate
+            // error classification and logging, even for non-retryable errors.
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&

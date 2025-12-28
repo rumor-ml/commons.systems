@@ -631,7 +631,9 @@ export async function ghCliWithRetry(
       //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
       //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
-      // Fallback: Parse HTTP status from error message using multiple patterns
+      // When undefined, we fall back to HTTP status extraction from error message text.
+      // This fallback is necessary because isRetryableError() needs the exit code to
+      // determine if errors are retryable (429, 502-504) without relying solely on fragile string matching.
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message

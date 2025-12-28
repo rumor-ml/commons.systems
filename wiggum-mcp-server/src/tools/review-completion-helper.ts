@@ -408,75 +408,76 @@ export async function loadReviewResults(
     }
   }
 
-  // If ANY files failed, throw comprehensive error with all failure details
+  // Tiered failure handling: in-scope failures are fatal, out-of-scope are warnings
   if (errors.length > 0) {
-    // Collect failed file paths for set operations
-    const failedPaths = new Set(errors.map((e) => e.filePath));
+    const inScopeErrors = errors.filter((e) => e.category === 'in-scope');
+    const outOfScopeErrors = errors.filter((e) => e.category === 'out-of-scope');
 
-    // Build list of successful files for complete visibility
-    const successfulInScope = inScopeFiles.filter((f) => !failedPaths.has(f));
-    const successfulOutOfScope = outOfScopeFiles.filter((f) => !failedPaths.has(f));
-    const successCount = successfulInScope.length + successfulOutOfScope.length;
+    // CRITICAL: Any in-scope file failure is fatal - these are required for the workflow
+    if (inScopeErrors.length > 0) {
+      const errorDetails = inScopeErrors
+        .map(({ filePath, error, category, errorCode, fileExists, fileSize }) => {
+          const code = errorCode ? ` [${errorCode}]` : '';
+          const existence =
+            fileExists !== undefined
+              ? ` (exists: ${fileExists}, size: ${fileSize ?? 'unknown'})`
+              : '';
+          return `  - [${category}] ${filePath}${code}: ${error.message}${existence}`;
+        })
+        .join('\n');
 
-    const errorDetails = errors
-      .map(({ filePath, error, category, errorCode, fileExists, fileSize }) => {
-        const code = errorCode ? ` [${errorCode}]` : '';
-        const existence =
-          fileExists !== undefined
-            ? ` (exists: ${fileExists}, size: ${fileSize ?? 'unknown'})`
-            : '';
-        return `  - [${category}] ${filePath}${code}: ${error.message}${existence}`;
-      })
-      .join('\n');
+      // Collect failed file paths for set operations
+      const failedPaths = new Set(inScopeErrors.map((e) => e.filePath));
+      const successfulInScope = inScopeFiles.filter((f) => !failedPaths.has(f));
 
-    // Build success details for visibility
-    const successDetails =
-      successCount > 0
-        ? `\n\nSuccessfully read (${successCount}):\n` +
-          [
-            ...successfulInScope.map((f) => `  - [in-scope] ${f}`),
-            ...successfulOutOfScope.map((f) => `  - [out-of-scope] ${f}`),
-          ].join('\n')
-        : '';
+      // Classify errors to help user decide action
+      const hasPermissionErrors = inScopeErrors.some((e) => e.errorCode === 'EACCES');
+      const hasMissingFiles = inScopeErrors.some((e) => e.errorCode === 'ENOENT');
+      const hasEmptyFiles = inScopeErrors.some((e) => e.fileExists && e.fileSize === 0);
 
-    // Classify errors to help user decide action
-    const hasPermissionErrors = errors.some((e) => e.errorCode === 'EACCES');
-    const hasMissingFiles = errors.some((e) => e.errorCode === 'ENOENT');
-    const hasEmptyFiles = errors.some((e) => e.fileExists && e.fileSize === 0);
+      let actionHint = '';
+      if (hasMissingFiles) {
+        actionHint =
+          '\nAction: Check that review agents completed successfully before calling this tool.';
+      } else if (hasPermissionErrors) {
+        actionHint = '\nAction: Fix file permissions and retry.';
+      } else if (hasEmptyFiles) {
+        actionHint = '\nAction: Review agents may have crashed during write - check agent logs.';
+      }
 
-    let actionHint = '';
-    if (hasMissingFiles) {
-      actionHint =
-        '\nAction: Check that review agents completed successfully before calling this tool.';
-    } else if (hasPermissionErrors) {
-      actionHint = '\nAction: Fix file permissions and retry.';
-    } else if (hasEmptyFiles) {
-      actionHint = '\nAction: Review agents may have crashed during write - check agent logs.';
+      logger.error('Critical: In-scope review file loading failed', {
+        inScopeErrorCount: inScopeErrors.length,
+        totalInScopeFiles: inScopeFiles.length,
+        successfulInScopeCount: successfulInScope.length,
+        failedFiles: inScopeErrors.map((e) => ({
+          path: e.filePath,
+          code: e.errorCode,
+        })),
+        hasPermissionErrors,
+        hasMissingFiles,
+        hasEmptyFiles,
+      });
+
+      throw new ValidationError(
+        `Failed to read ${inScopeErrors.length} in-scope review file(s) (CRITICAL):\n${errorDetails}${actionHint}`
+      );
     }
 
-    // Log comprehensive failure before throwing to ensure visibility
-    // This ensures the error is captured in logs even if callers don't log the exception
-    logger.error('Review file loading failed - throwing ValidationError', {
-      totalFiles: inScopeFiles.length + outOfScopeFiles.length,
-      failedCount: errors.length,
-      successCount,
-      failedFiles: errors.map((e) => ({
-        path: e.filePath,
-        category: e.category,
-        code: e.errorCode,
-      })),
-      successfulFiles: {
-        inScope: successfulInScope,
-        outOfScope: successfulOutOfScope,
-      },
-      hasPermissionErrors,
-      hasMissingFiles,
-      hasEmptyFiles,
-    });
-
-    throw new ValidationError(
-      `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}${successDetails}${actionHint}`
-    );
+    // WARN: Out-of-scope failures are non-fatal - workflow can proceed with degraded tracking
+    if (outOfScopeErrors.length > 0) {
+      logger.warn('Out-of-scope review files failed to load - proceeding with degraded tracking', {
+        outOfScopeErrorCount: outOfScopeErrors.length,
+        totalOutOfScopeFiles: outOfScopeFiles.length,
+        successfulOutOfScope: outOfScopeResults.length,
+        impact: 'Out-of-scope recommendations may be incomplete',
+        failedFiles: outOfScopeErrors.map((e) => ({
+          path: e.filePath,
+          code: e.errorCode,
+          reason: e.error.message,
+        })),
+      });
+      // Continue execution with whatever out-of-scope data we successfully loaded
+    }
   }
 
   return {
@@ -758,6 +759,77 @@ function buildNewState(
 }
 
 /**
+ * Sleep helper for retry delays
+ */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry state update with exponential backoff for transient failures
+ *
+ * Automatically retries state updates that fail due to transient issues like
+ * rate limits or network hiccups. Uses exponential backoff (2s, 4s, 8s) to
+ * reduce load during outages while giving issues time to resolve.
+ *
+ * @param state - Current state object
+ * @param newState - New state to update
+ * @param maxRetries - Maximum retry attempts (default: 3)
+ * @returns StateUpdateResult after retries exhausted or success
+ */
+async function retryStateUpdate(
+  state: CurrentState,
+  newState: {
+    iteration: number;
+    step: WiggumStep;
+    completedSteps: readonly WiggumStep[];
+    phase: WiggumPhase;
+  },
+  maxRetries = 3
+): Promise<StateUpdateResult> {
+  // Initialize with a placeholder failure that will be overwritten on first attempt
+  let result: StateUpdateResult = { success: false, reason: 'network', isTransient: true };
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    result = await updateBodyState(state, newState);
+
+    if (result.success) {
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          attempt,
+          maxRetries,
+          phase: state.wiggum.phase,
+        });
+      }
+      return result;
+    }
+
+    // Only retry for transient failures
+    if (!result.isTransient || attempt === maxRetries) {
+      logger.warn('State update failed - not retrying', {
+        attempt,
+        maxRetries,
+        reason: result.reason,
+        isTransient: result.isTransient,
+      });
+      return result;
+    }
+
+    // Exponential backoff: 2s, 4s, 8s
+    const delayMs = Math.pow(2, attempt) * 1000;
+    logger.info('State update failed (transient), retrying', {
+      attempt,
+      maxRetries,
+      delayMs,
+      reason: result.reason,
+    });
+    await sleepMs(delayMs);
+  }
+
+  return result;
+}
+
+/**
  * Update state in issue body (phase1) or PR body (phase2)
  */
 async function updateBodyState(
@@ -970,11 +1042,12 @@ export async function completeReview(
   const hasInScopeIssues = inScopeCount > 0;
   const newState = buildNewState(state, reviewStep, hasInScopeIssues, input.maxIterations);
 
-  const result = await updateBodyState(state, newState);
+  // Use retry logic with exponential backoff for transient failures
+  const result = await retryStateUpdate(state, newState);
 
   // TODO(#415): Add safe discriminated union access with type guards
   if (!result.success) {
-    logger.error('Review state update failed - halting workflow', {
+    logger.error('Review state update failed after retries - halting workflow', {
       reviewType: config.reviewTypeLabel,
       reviewStep,
       reason: result.reason,
@@ -999,32 +1072,33 @@ export async function completeReview(
             current_step: STEP_NAMES[reviewStep],
             step_number: reviewStep,
             iteration_count: newState.iteration,
-            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to update state in ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body due to ${result.reason}.
+            instructions: `ERROR: ${config.reviewTypeLabel} review completed successfully, but failed to update state in ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body after automatic retries. Reason: ${result.reason}.
 
 ${reviewResultsSummary}
 
 **IMPORTANT:** The review itself succeeded. You do NOT need to re-run the ${config.reviewTypeLabel.toLowerCase()} review.
 
 **Why This Failed:**
-The race condition fix (issue #388) requires persisting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body. This state persistence failed.
+The race condition fix (issue #388) requires persisting review results to the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body. This state persistence failed even after automatic retry attempts with exponential backoff.
 
 **Common Causes:**
-- GitHub API rate limiting (HTTP 429)
+- GitHub API rate limiting (HTTP 429) - persistent or severe
 - Network connectivity issues
-- Temporary GitHub API unavailability
+- Extended GitHub API unavailability
 - ${state.wiggum.phase === 'phase1' ? 'Issue' : 'PR'} does not exist or was closed
 
-**Retry Instructions:**
+**Manual Retry Instructions:**
 1. Check rate limits: \`gh api rate_limit\`
 2. Verify network connectivity: \`curl -I https://api.github.com\`
 3. Confirm the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} exists: \`gh ${state.wiggum.phase === 'phase1' ? 'issue' : 'pr'} view ${state.wiggum.phase === 'phase1' ? (state.issue.exists ? state.issue.number : '<issue-number>') : state.pr.exists ? state.pr.number : '<pr-number>'}\`
-4. Once resolved, retry this tool call with the SAME parameters
+4. Wait a few minutes for transient issues to resolve
+5. Retry this tool call with the SAME parameters
 
 The workflow will resume from this step once the state update succeeds.`,
             steps_completed_by_tool: [
               `Executed ${config.reviewTypeLabel.toLowerCase()} review successfully`,
-              'Attempted to update state in body',
-              'Failed due to transient error - review results NOT persisted',
+              'Attempted to update state in body (with automatic retries)',
+              'Failed after all retry attempts - review results NOT persisted',
             ],
             context: {
               pr_number: state.pr.exists ? state.pr.number : undefined,

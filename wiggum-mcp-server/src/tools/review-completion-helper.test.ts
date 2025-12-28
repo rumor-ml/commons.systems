@@ -123,12 +123,13 @@ describe('review-completion-helper', () => {
       await unlink(outOfScopeFile);
     });
 
-    it('should throw ValidationError when file does not exist', async () => {
-      const nonexistentFile = '/tmp/claude/nonexistent-' + Date.now() + '.md';
+    it('should throw ValidationError when in-scope file does not exist', async () => {
+      // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
+      const nonexistentFile = '/tmp/claude/nonexistent-in-scope-' + Date.now() + '.md';
 
       await assert.rejects(async () => loadReviewResults([nonexistentFile], []), {
         name: 'ValidationError',
-        message: /Failed to read 1 review result file/,
+        message: /Failed to read 1 in-scope review file/,
       });
     });
 
@@ -611,13 +612,13 @@ describe('review-completion-helper', () => {
       await unlink(inScope2);
     });
 
-    it('should throw ValidationError with details for missing files', async () => {
-      const missingFile1 = '/tmp/claude/missing-file-1-' + Date.now() + '.md';
-      const missingFile2 = '/tmp/claude/missing-file-2-' + Date.now() + '.md';
+    it('should throw ValidationError with details for missing in-scope files', async () => {
+      // Only in-scope failures are fatal - out-of-scope failures just log warnings
+      const missingInScopeFile = '/tmp/claude/missing-file-in-scope-' + Date.now() + '.md';
 
-      await assert.rejects(async () => loadReviewResults([missingFile1], [missingFile2]), {
+      await assert.rejects(async () => loadReviewResults([missingInScopeFile], []), {
         name: 'ValidationError',
-        message: /Failed to read 2 review result file\(s\)/,
+        message: /Failed to read 1 in-scope review file\(s\)/,
       });
     });
 
@@ -632,11 +633,16 @@ describe('review-completion-helper', () => {
         assert.ok(error instanceof Error);
         assert.ok(error.message.includes('[in-scope]'));
         assert.ok(error.message.includes(missingFile));
-        assert.ok(error.message.includes('(0 succeeded)'));
+        // Changed: tiered failure handling only throws for in-scope failures
+        // and error message format changed to be more specific
+        assert.ok(
+          error.message.includes('CRITICAL'),
+          'Error should indicate in-scope failure is critical'
+        );
       }
     });
 
-    it('should aggregate errors when some files exist and some do not', async () => {
+    it('should aggregate errors when some in-scope files exist and some do not', async () => {
       const existingFile = '/tmp/claude/linter-in-scope-' + Date.now() + '.md';
       const missingFile = '/tmp/claude/missing-reviewer-in-scope-' + Date.now() + '.md';
       await writeFile(existingFile, 'Content');
@@ -646,31 +652,36 @@ describe('review-completion-helper', () => {
         assert.fail('Should have thrown');
       } catch (error) {
         assert.ok(error instanceof Error);
-        assert.ok(error.message.includes('Failed to read 1 review result file(s)'));
-        assert.ok(error.message.includes('(1 succeeded)'));
+        // Changed: tiered failure handling only throws for in-scope failures
+        assert.ok(error.message.includes('Failed to read 1 in-scope review file(s)'));
         assert.ok(error.message.includes(missingFile));
-        // Now also includes successfully read files for complete visibility
-        assert.ok(error.message.includes('Successfully read (1)'));
-        assert.ok(error.message.includes(existingFile));
+        assert.ok(error.message.includes('CRITICAL'));
       }
 
       await unlink(existingFile);
     });
 
-    it('should handle EISDIR error when path is a directory', async () => {
-      // /tmp/claude is a directory, not a file
-      const dirPath = '/tmp/claude';
+    it('should handle EISDIR error when path is a directory (in-scope)', async () => {
+      // Create a directory with in-scope naming pattern to test EISDIR error
+      // Path must contain '-in-scope-' to be categorized as in-scope
+      const dirPath = '/tmp/claude/test-in-scope-dir-' + Date.now();
+      await mkdir(dirPath, { recursive: true });
 
-      await assert.rejects(async () => loadReviewResults([dirPath], []), {
-        name: 'ValidationError',
-        message: /Failed to read.*review result file/,
-      });
+      try {
+        await assert.rejects(async () => loadReviewResults([dirPath], []), {
+          name: 'ValidationError',
+          message: /Failed to read.*in-scope review file/,
+        });
+      } finally {
+        await rmdir(dirPath);
+      }
     });
 
     it('should handle empty file after stat() succeeds (possible race condition)', async () => {
       // Tests the edge case where stat() finds a file with size > 0,
       // but readFile() returns empty content (race with file truncation)
-      const tempFile = '/tmp/claude/empty-after-stat-' + Date.now() + '.md';
+      // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
+      const tempFile = '/tmp/claude/empty-after-stat-in-scope-' + Date.now() + '.md';
       await writeFile(tempFile, '   '); // Only whitespace
 
       await assert.rejects(async () => loadReviewResults([tempFile], []), {
@@ -681,8 +692,9 @@ describe('review-completion-helper', () => {
       await unlink(tempFile);
     });
 
-    it('should include error code in error details for ENOENT', async () => {
-      const missingFile = '/tmp/claude/missing-' + Date.now() + '.md';
+    it('should include error code in error details for ENOENT (in-scope)', async () => {
+      // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
+      const missingFile = '/tmp/claude/missing-in-scope-' + Date.now() + '.md';
 
       try {
         await loadReviewResults([missingFile], []);
@@ -697,21 +709,38 @@ describe('review-completion-helper', () => {
       }
     });
 
-    it('should use createFileReadError factory for both in-scope and out-of-scope files', async () => {
+    it('should throw for in-scope failures but only warn for out-of-scope failures', async () => {
+      // With tiered failure handling:
+      // - in-scope failures are CRITICAL and throw
+      // - out-of-scope failures just log warnings and continue
       const missingInScope = '/tmp/claude/missing-in-scope-' + Date.now() + '.md';
       const missingOutOfScope = '/tmp/claude/missing-out-of-scope-' + Date.now() + '.md';
 
       try {
         await loadReviewResults([missingInScope], [missingOutOfScope]);
-        assert.fail('Should have thrown');
+        assert.fail('Should have thrown due to in-scope failure');
       } catch (error) {
         assert.ok(error instanceof Error);
-        // Should have errors from both categories
+        // Should only mention in-scope errors (out-of-scope are warnings, not errors)
         assert.ok(error.message.includes('[in-scope]'));
-        assert.ok(error.message.includes('[out-of-scope]'));
-        // Should have 2 failures
-        assert.ok(error.message.includes('Failed to read 2 review result file(s)'));
+        assert.ok(error.message.includes('CRITICAL'));
+        // Should only show in-scope failure count
+        assert.ok(error.message.includes('Failed to read 1 in-scope review file(s)'));
+        // Out-of-scope failures are logged as warnings, not included in thrown error
+        assert.ok(!error.message.includes('[out-of-scope]'));
       }
+    });
+
+    it('should succeed when only out-of-scope files fail', async () => {
+      // With tiered failure handling, out-of-scope failures are non-fatal
+      const missingOutOfScope = '/tmp/claude/missing-out-of-scope-' + Date.now() + '.md';
+
+      // This should NOT throw - out-of-scope failures are warnings only
+      const result = await loadReviewResults([], [missingOutOfScope]);
+
+      // Should return empty results since file failed to load
+      assert.strictEqual(result.inScope, '');
+      assert.strictEqual(result.outOfScope, '');
     });
   });
 
@@ -771,8 +800,8 @@ describe('review-completion-helper', () => {
   });
 
   describe('File I/O Partial Failures', () => {
-    describe('Partial success scenarios', () => {
-      test('should handle partial success: some files succeed, some fail', async () => {
+    describe('Partial success scenarios (tiered failure handling)', () => {
+      test('should handle partial success: some in-scope files succeed, some fail', async () => {
         // Create test files: 1 success, 1 failure
         const successFile = `/tmp/claude/success-in-scope-${Date.now()}.md`;
         const failFile = `/tmp/claude/fail-in-scope-${Date.now()}.md`;
@@ -786,35 +815,32 @@ describe('review-completion-helper', () => {
           },
           {
             name: 'ValidationError',
-            message: /Failed to read 1 review result file.*1 succeeded/,
+            // Changed: tiered failure handling only mentions in-scope failures
+            message: /Failed to read 1 in-scope review file.*CRITICAL/,
           }
         );
 
         await unlink(successFile);
       });
 
-      test('should handle mixed category failures', async () => {
-        // Create test files: in-scope success, out-of-scope failure
+      test('should succeed when only out-of-scope files fail (non-fatal)', async () => {
+        // With tiered failure handling, out-of-scope failures are warnings only
         const inScopeSuccess = `/tmp/claude/success-in-scope-${Date.now()}.md`;
         const outOfScopeFail = `/tmp/claude/fail-out-of-scope-${Date.now()}.md`;
 
         await writeFile(inScopeSuccess, '# In-scope content');
-        // Don't create outOfScopeFail
+        // Don't create outOfScopeFail - but this should NOT cause a throw
 
-        await assert.rejects(
-          async () => {
-            await loadReviewResults([inScopeSuccess], [outOfScopeFail]);
-          },
-          {
-            name: 'ValidationError',
-            message: /Failed to read 1 review result file/,
-          }
-        );
+        // This should succeed - out-of-scope failures are non-fatal warnings
+        const result = await loadReviewResults([inScopeSuccess], [outOfScopeFail]);
+        assert.ok(result.inScope.includes('In-scope content'));
+        assert.strictEqual(result.outOfScope, ''); // Failed file not included
 
         await unlink(inScopeSuccess);
       });
 
-      test('should reject when all files fail', async () => {
+      test('should reject when in-scope file fails even if out-of-scope also fails', async () => {
+        // In-scope failures are always fatal
         const fail1 = `/tmp/claude/fail1-in-scope-${Date.now()}.md`;
         const fail2 = `/tmp/claude/fail2-out-of-scope-${Date.now()}.md`;
 
@@ -824,7 +850,8 @@ describe('review-completion-helper', () => {
           },
           {
             name: 'ValidationError',
-            message: /Failed to read 2 review result file.*0 succeeded/,
+            // Changed: tiered failure handling - only in-scope failure is reported
+            message: /Failed to read 1 in-scope review file.*CRITICAL/,
           }
         );
       });
@@ -935,21 +962,25 @@ describe('review-completion-helper', () => {
         await unlink(file);
       });
 
-      test('should handle EISDIR error when path is directory', async () => {
-        const dir = `/tmp/claude/dir-test-${Date.now()}`;
+      test('should handle EISDIR error when path is directory (in-scope naming)', async () => {
+        // Create a directory with in-scope naming pattern
+        const dir = `/tmp/claude/dir-in-scope-test-${Date.now()}`;
 
         await mkdir(dir);
 
-        await assert.rejects(
-          async () => {
-            await loadReviewResults([`${dir}/in-scope-file.md`], []);
-          },
-          {
-            name: 'ValidationError',
-          }
-        );
-
-        await rmdir(dir);
+        try {
+          await assert.rejects(
+            async () => {
+              await loadReviewResults([dir], []);
+            },
+            {
+              name: 'ValidationError',
+              message: /Failed to read.*in-scope review file/,
+            }
+          );
+        } finally {
+          await rmdir(dir);
+        }
       });
 
       test('should include error codes in error message', async () => {

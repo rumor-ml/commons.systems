@@ -205,16 +205,40 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
     steps.get(key)!.lines.push(content);
   }
 
+  // Calculate parsing statistics for threshold validation
+  const totalLines = output.split('\n').filter((l) => l.trim()).length;
+  const successCount = totalLines - skippedCount;
+  const successRate = totalLines > 0 ? successCount / totalLines : 1;
+  const MIN_SUCCESS_RATE = 0.7; // 70% of lines must parse successfully
+
   // ALWAYS warn if ANY lines were skipped to prevent hidden data loss
   // Even a single skipped line could omit critical failure details needed for debugging
   // Users must be informed when failure diagnosis may be incomplete
   if (skippedCount > 0) {
-    const totalLines = output.split('\n').filter((l) => l.trim()).length;
     const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
 
     // Always use WARN level - any data loss affects failure diagnosis
     console.error(
       `[gh-workflow] WARN Log parsing incomplete: ${skippedCount}/${totalLines} lines (${skipRate.toFixed(1)}%) could not be parsed (impact: Some failure details may be missing, action: Check stderr for individual malformed line details, suggestion: If this persists check for gh CLI format changes)`
+    );
+  }
+
+  // Threshold-based validation: fail if too many lines could not be parsed
+  // This catches gh CLI format changes or log corruption that would result in
+  // incomplete failure diagnosis being silently returned to users
+  if (totalLines > 0 && successRate < MIN_SUCCESS_RATE) {
+    console.error(
+      `[gh-workflow] ERROR Log parsing failed below threshold (successRate: ${(successRate * 100).toFixed(1)}%, threshold: ${(MIN_SUCCESS_RATE * 100).toFixed(1)}%, skipped: ${skippedCount}/${totalLines})`
+    );
+
+    throw new ParsingError(
+      `Failed to parse workflow logs: ${((1 - successRate) * 100).toFixed(1)}% of lines could not be parsed.\n` +
+        `This indicates a format change in GitHub CLI output or log corruption.\n` +
+        `Parsed ${steps.size} steps from ${successCount} lines.\n` +
+        `Check for:\n` +
+        `  1. Recent gh CLI version updates (run: gh --version)\n` +
+        `  2. Workflow log corruption (check: gh run view --log-failed manually)\n` +
+        `  3. Non-standard workflow step output (custom actions, binary data)`
     );
   }
 
