@@ -12,9 +12,8 @@ import { createErrorResult, ParsingError } from '../utils/errors.js';
  * Validate GraphQL response has expected data field
  *
  * Logs response structure for debugging and throws a ParsingError with GitHub error
- * context if the response is missing the 'data' field. In development/debug mode,
- * logs full response preview; in production, logs only structure to avoid leaking
- * sensitive data.
+ * context if the response is missing the 'data' field. Never logs full response
+ * content to avoid leaking sensitive issue data in logs.
  *
  * @param result - GraphQL response to validate
  * @param queryName - Name of the query for error context (e.g., 'parent', 'children')
@@ -83,10 +82,9 @@ function validateGraphQLResponse(
  * Transforms GraphQL issue data to have comments as a flat array instead of
  * the nested { nodes: [...] } structure.
  *
- * RATIONALE: GitHub's GraphQL API returns comments in a Connection format
- * with { nodes: [...], pageInfo: {...} } structure. We flatten to just the
- * array since: (1) downstream code expects simple arrays, (2) we don't use
- * pagination info, and (3) it reduces JSON size in responses.
+ * RATIONALE: Simplifies downstream consumption. We fetch first 100 comments
+ * (see getCommentsFragment) which is sufficient for current use cases.
+ * If pagination becomes necessary, this function will need updating.
  *
  * @param raw - Raw issue data from GraphQL with comments.nodes structure
  * @returns Normalized issue data with comments as flat array, or null if raw is null

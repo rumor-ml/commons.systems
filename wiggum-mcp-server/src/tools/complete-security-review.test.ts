@@ -129,9 +129,9 @@ describe('complete-security-review tool', () => {
       assert.strictEqual(result.success, true);
     });
 
-    it('should validate that command was actually executed', () => {
+    it('should reject command_executed: false at schema level', () => {
       const input = {
-        command_executed: false, // This should fail business rule validation
+        command_executed: false, // Schema now rejects false values
         in_scope_files: ['/path/to/file1.ts'],
         out_of_scope_files: [],
         in_scope_count: 3,
@@ -139,8 +139,14 @@ describe('complete-security-review tool', () => {
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
-      // Schema allows it, but tool should validate it was actually executed
-      assert.strictEqual(result.success, true);
+      // Schema rejects false - command must be executed before calling tool
+      assert.strictEqual(result.success, false);
+      if (!result.success) {
+        assert.ok(
+          result.error.issues[0].message.includes('must be true'),
+          'Error should indicate command_executed must be true'
+        );
+      }
     });
 
     it('should accept optional maxIterations parameter', () => {

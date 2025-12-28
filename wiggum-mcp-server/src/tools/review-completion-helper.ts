@@ -56,12 +56,10 @@ const KNOWN_AGENT_NAMES = [
  * agent name. Converts kebab-case to Title Case by capitalizing the first
  * letter of each word.
  *
- * NOTE: Acronyms like 'pr' become 'Pr' not 'PR'. This is intentional.
- *
- * RATIONALE: Simple word-based capitalization (first letter uppercase) provides
- * consistency and predictability without maintaining an acronym whitelist.
- * Trade-off: 'pr-test-analyzer' becomes 'Pr Test Analyzer' instead of 'PR Test Analyzer',
- * but this is acceptable for internal logging/display purposes.
+ * LIMITATION: Acronyms are not specially handled. 'pr-test-analyzer' becomes
+ * 'Pr Test Analyzer' instead of 'PR Test Analyzer'. This trade-off avoids
+ * maintaining an acronym whitelist while providing consistent, predictable
+ * capitalization for logging and display purposes.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -125,12 +123,11 @@ export function extractAgentNameFromPath(filePath: string): string {
 }
 
 /**
- * Node.js file system error codes
+ * Node.js file system error codes for file operations
  *
- * Common error codes from Node.js fs operations. This is not exhaustive
- * but covers the most common file I/O errors.
- *
- * Add new codes here if they appear in production logs and need specific handling.
+ * Covers the most common file I/O errors in production usage. This list is
+ * intentionally limited to errors we've observed and handle specifically.
+ * Unknown error codes are logged with warnings (see createFileReadError).
  */
 type NodeFileErrorCode =
   | 'EACCES' // Permission denied
@@ -145,9 +142,10 @@ type NodeFileErrorCode =
 /**
  * Enhanced file read error with diagnostic information
  *
- * All fields are readonly since error information is immutable after creation.
- * The category field uses a string literal union for type-safe discrimination
- * between in-scope and out-of-scope file errors.
+ * Immutable error object with readonly fields to prevent accidental modification
+ * during error propagation and multi-step error handling. The category field
+ * uses a string literal union for type-safe discrimination between in-scope
+ * and out-of-scope file errors.
  */
 interface FileReadError {
   readonly filePath: string;
@@ -235,11 +233,9 @@ function createFileReadError(
 /**
  * Branded type for non-empty strings
  *
- * Ensures at the type level that content strings are non-empty.
- * The brand is a phantom type that exists only at compile time.
- *
- * Use this when you need to guarantee non-emptiness across function boundaries
- * without repeated runtime checks.
+ * Provides compile-time type safety to prevent passing empty strings.
+ * Runtime validation via createNonEmptyString() is still required at
+ * boundaries where untrusted data enters the system.
  */
 type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
 
@@ -366,28 +362,46 @@ async function readReviewFile(
 }
 
 /**
+ * Result from loadReviewResults including formatted content and warnings
+ */
+export interface LoadReviewResultsOutput {
+  /** Formatted in-scope review results with agent headers */
+  readonly inScope: string;
+  /** Formatted out-of-scope review results with agent headers */
+  readonly outOfScope: string;
+  /** Warnings about data completeness (e.g., out-of-scope file failures) */
+  readonly warnings: readonly string[];
+}
+
+/**
  * Load review results from scope-separated file lists
  *
  * Reads multiple review result files and aggregates them with agent headers.
  * Collects errors from all file reads and provides comprehensive error context
  * if any files fail to read. Includes error codes and file metadata for diagnostics.
  *
+ * In-scope file failures are fatal (throw ValidationError).
+ * Out-of-scope file failures are non-fatal but return warnings to inform users.
+ *
  * @param inScopeFiles - Array of file paths containing in-scope review results
  * @param outOfScopeFiles - Array of file paths containing out-of-scope review results
- * @returns Object with formatted in-scope and out-of-scope sections
- * @throws {ValidationError} If any files fail to read, with details of all failures including error codes
+ * @returns Object with formatted in-scope/out-of-scope sections and any warnings
+ * @throws {ValidationError} If in-scope files fail to read, with details of all failures
  *
  * @example
  * // Load results from multiple agent files
- * const { inScope, outOfScope } = await loadReviewResults(
+ * const { inScope, outOfScope, warnings } = await loadReviewResults(
  *   ['$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md'],
  *   ['$(pwd)/tmp/wiggum-625/code-reviewer-out-of-scope-1234.md']
  * );
+ * if (warnings.length > 0) {
+ *   console.warn('Review data incomplete:', warnings.join('\n'));
+ * }
  */
 export async function loadReviewResults(
   inScopeFiles: readonly string[] = [],
   outOfScopeFiles: readonly string[] = []
-): Promise<{ inScope: string; outOfScope: string }> {
+): Promise<LoadReviewResultsOutput> {
   const errors: FileReadError[] = [];
 
   // Read all in-scope files
@@ -409,6 +423,8 @@ export async function loadReviewResults(
   }
 
   // Tiered failure handling: in-scope failures are fatal, out-of-scope are warnings
+  const warnings: string[] = [];
+
   if (errors.length > 0) {
     const inScopeErrors = errors.filter((e) => e.category === 'in-scope');
     const outOfScopeErrors = errors.filter((e) => e.category === 'out-of-scope');
@@ -464,7 +480,15 @@ export async function loadReviewResults(
     }
 
     // WARN: Out-of-scope failures are non-fatal - workflow can proceed with degraded tracking
+    // Add warning to return value so callers can surface it to users
     if (outOfScopeErrors.length > 0) {
+      const failedFileNames = outOfScopeErrors.map((e) => e.filePath.split('/').pop()).join(', ');
+      const warningMsg =
+        `Warning: ${outOfScopeErrors.length} out-of-scope review file(s) failed to load. ` +
+        `Out-of-scope recommendations may be incomplete. ` +
+        `Failed files: ${failedFileNames}`;
+
+      warnings.push(warningMsg);
       logger.warn('Out-of-scope review files failed to load - proceeding with degraded tracking', {
         outOfScopeErrorCount: outOfScopeErrors.length,
         totalOutOfScopeFiles: outOfScopeFiles.length,
@@ -486,6 +510,7 @@ export async function loadReviewResults(
       outOfScopeResults.length > 0
         ? `## Out-of-Scope Recommendations\n\n${outOfScopeResults.join('\n')}`
         : '',
+    warnings,
   };
 }
 
@@ -561,24 +586,29 @@ export function validateReviewConfig(config: unknown): ReviewConfig {
 /**
  * Zod schema for ReviewCompletionInput runtime validation
  *
- * Issue counts are validated at schema level to be:
- * - Integers (no decimals)
- * - Non-negative (>= 0)
- * - Finite (not Infinity or NaN)
- * - Safe integers (within MAX_SAFE_INTEGER to prevent precision loss)
+ * **IMPORTANT: Issue counts vs file counts**
+ * in_scope_count and out_of_scope_count represent the number of ISSUES found,
+ * not the number of FILES. Each file may contain multiple issues from one agent.
+ * We validate file array non-emptiness when counts > 0, but do NOT validate
+ * that issue counts equal file counts.
  *
- * File paths are validated to be non-empty strings to catch empty path errors early.
+ * **Numeric validation:**
+ * Counts are validated as safe non-negative integers to prevent overflow and
+ * precision loss in downstream arithmetic operations.
  *
- * Refinements enforce relationship between counts and file arrays:
- * - If in_scope_count > 0, then in_scope_files must be non-empty
- * - If out_of_scope_count > 0, then out_of_scope_files must be non-empty
- *
- * Note: completeReview() performs additional validation for count/file array
- * consistency and provides detailed error messages for debugging.
+ * **command_executed constraint:**
+ * Must be true (literal) to prevent agents from skipping the review process.
+ * Schema rejects false values with an actionable error message.
  */
 export const ReviewCompletionInputSchema = z
   .object({
-    command_executed: z.boolean(),
+    command_executed: z.literal(true, {
+      errorMap: () => ({
+        message:
+          'command_executed must be true. The review command must be executed before calling this tool. ' +
+          'Do not shortcut the review process.',
+      }),
+    }),
     in_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
     out_of_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
     in_scope_count: z
@@ -635,16 +665,15 @@ export const ReviewCompletionInputSchema = z
 /**
  * Input for review completion
  *
- * All fields are readonly since this represents immutable input data.
- * The Zod schema provides comprehensive validation including:
- * - Integer, non-negative, finite, and safe integer checks for counts
- * - Non-empty file path validation
- * - Count/file array consistency (if count > 0, files must be non-empty)
+ * **IMPORTANT: Issue counts vs file counts**
+ * in_scope_count and out_of_scope_count represent the number of ISSUES,
+ * not FILES. A single file may contain multiple issues from one agent.
  *
- * @see ReviewCompletionInputSchema for Zod schema validation
+ * @see ReviewCompletionInputSchema for complete validation rules
  */
 export interface ReviewCompletionInput {
-  readonly command_executed: boolean;
+  /** Must be true - enforced by schema to prevent skipping review */
+  readonly command_executed: true;
   readonly in_scope_files: readonly string[];
   readonly out_of_scope_files: readonly string[];
   readonly in_scope_count: number;
@@ -994,7 +1023,7 @@ export async function completeReview(
   config: ReviewConfig
 ): Promise<ToolResult> {
   // Validate input at entry point to catch invalid data early
-  // This enforces count/file array relationships and basic type constraints
+  // Schema validates command_executed === true, count/file relationships, and numeric constraints
   try {
     ReviewCompletionInputSchema.parse(input);
   } catch (error) {
@@ -1002,12 +1031,7 @@ export async function completeReview(
     throw new ValidationError(`Review completion input validation failed: ${zodError.message}`);
   }
 
-  if (!input.command_executed) {
-    // TODO(#312): Add Sentry error ID for tracking
-    throw new ValidationError(
-      `command_executed must be true. Do not shortcut the ${config.reviewTypeLabel.toLowerCase()} review process.`
-    );
-  }
+  // command_executed is validated by schema to be literal true - no additional check needed
 
   // Load review results from scope-separated files
   await loadReviewResults(input.in_scope_files, input.out_of_scope_files);

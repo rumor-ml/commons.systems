@@ -21,7 +21,14 @@ import {
 } from './review-completion-helper.js';
 
 export const CompletePRReviewInputSchema = z.object({
-  command_executed: z.boolean().describe('Confirm PR review command was actually executed'),
+  command_executed: z
+    .literal(true, {
+      errorMap: () => ({
+        message:
+          'command_executed must be true. Execute the review command before calling this tool.',
+      }),
+    })
+    .describe('Confirm PR review command was actually executed (must be true)'),
   in_scope_files: z.array(z.string()).describe('Array of in-scope result file paths'),
   out_of_scope_files: z.array(z.string()).describe('Array of out-of-scope result file paths'),
   in_scope_count: z.number().int().nonnegative().describe('Total in-scope issues'),

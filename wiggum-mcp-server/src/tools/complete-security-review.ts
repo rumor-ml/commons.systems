@@ -18,7 +18,14 @@ import {
 } from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
-  command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
+  command_executed: z
+    .literal(true, {
+      errorMap: () => ({
+        message:
+          'command_executed must be true. Execute /security-review before calling this tool.',
+      }),
+    })
+    .describe('Confirm /security-review was actually executed (must be true)'),
   in_scope_files: z.array(z.string()).describe('Array of in-scope result file paths'),
   out_of_scope_files: z.array(z.string()).describe('Array of out-of-scope result file paths'),
   in_scope_count: z.number().int().nonnegative().describe('Total in-scope security issues'),

@@ -160,18 +160,15 @@ export function generateTriageInstructions(
     );
   }
 
-  // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN.
-  // The subsequent positivity check (> 0) provides additional validation for edge cases.
+  // Validate issueNumber: Must be positive integer
+  // Note: Number.isInteger rejects Infinity, -Infinity, NaN, and decimals
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
     );
   }
 
-  // Validate totalIssues: Must be non-negative integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Note: While Number.isInteger rejects Infinity/NaN, the explicit non-negative check (>= 0)
-  // provides defense-in-depth and documents the edge case handling intent.
+  // Validate totalIssues: Must be non-negative integer (0, 5, 42, etc.)
   if (!Number.isInteger(totalIssues) || totalIssues < 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`

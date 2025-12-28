@@ -294,6 +294,8 @@ export interface PRReviewCommentsResult {
   readonly comments: GitHubPRReviewComment[];
   /** Number of comments that failed to parse and were skipped */
   readonly skippedCount: number;
+  /** User-facing warning when skippedCount > 0, describing data incompleteness */
+  readonly warning?: string;
 }
 
 /**
@@ -373,21 +375,27 @@ export async function getPRReviewComments(
     }
   }
 
-  // Log summary if any comments were skipped
+  // Build warning and log summary if any comments were skipped
+  let warning: string | undefined;
   if (skippedCount > 0) {
     const totalAttempted = comments.length + skippedCount;
     const skipPercentage = ((skippedCount / totalAttempted) * 100).toFixed(1);
+
+    warning =
+      `Warning: ${skippedCount} of ${totalAttempted} review comments (${skipPercentage}%) ` +
+      `could not be parsed and were skipped. Review data may be incomplete.`;
+
     logger.error('Some review comments could not be parsed', {
       prNumber,
       username,
       parsedCount: comments.length,
       skippedCount,
       skipPercentage: `${skipPercentage}%`,
-      userGuidance: 'Review data may be incomplete. Consider retrying if this persists.',
+      userGuidance: warning,
     });
   }
 
-  return { comments, skippedCount };
+  return { comments, skippedCount, warning };
 }
 
 /**

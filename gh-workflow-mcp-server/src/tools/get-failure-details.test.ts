@@ -29,7 +29,13 @@ describe('GetFailureDetails - Fallback Warning', () => {
     });
 
     // Mock parseFailedStepLogs (not called when getFailedStepLogs fails)
-    mock.method(ghCli, 'parseFailedStepLogs', () => ({ failedSteps: [] }));
+    mock.method(ghCli, 'parseFailedStepLogs', () => ({
+      steps: [],
+      totalLines: 0,
+      skippedLines: 0,
+      successRate: 1,
+      isComplete: true,
+    }));
 
     // Mock getWorkflowJobs to return failed jobs (fallback path)
     mock.method(ghCli, 'getWorkflowJobs', () =>
@@ -86,16 +92,19 @@ describe('GetFailureDetails - Fallback Warning', () => {
       Promise.resolve('Test failure output from --log-failed')
     );
 
-    // Mock parseFailedStepLogs to return parsed failures
+    // Mock parseFailedStepLogs to return parsed failures with completeness info
     mock.method(ghCli, 'parseFailedStepLogs', () => ({
-      failedSteps: [
+      steps: [
         {
           jobName: 'Test Job',
           stepName: 'Test Step',
-          stepNumber: 1,
-          logText: 'Test failure output',
+          lines: ['Test failure output'],
         },
       ],
+      totalLines: 1,
+      skippedLines: 0,
+      successRate: 1,
+      isComplete: true,
     }));
 
     const result = await getFailureDetails({ run_id: 123, max_chars: 10000 });

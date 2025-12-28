@@ -13,12 +13,31 @@ import { validateWiggumState, safeJsonParse } from './utils.js';
 import { GitHubCliError } from '../utils/errors.js';
 
 /**
+ * Error thrown when workflow state cannot be parsed from PR/issue body
+ *
+ * This error indicates corrupted state data that requires user intervention.
+ * The error message includes actionable recovery instructions.
+ */
+export class StateCorruptionError extends Error {
+  constructor(
+    message: string,
+    public readonly originalError: string,
+    public readonly bodyLength: number,
+    public readonly matchedJsonPreview: string
+  ) {
+    super(message);
+    this.name = 'StateCorruptionError';
+  }
+}
+
+/**
  * Extract WiggumState from PR/issue body text
  *
  * Searches for wiggum-state HTML comment marker and parses JSON state.
  *
  * @param body - PR or issue description body text
- * @returns Parsed WiggumState if found, null if not found
+ * @returns Parsed WiggumState if found, null if no state marker found
+ * @throws {StateCorruptionError} When state marker exists but JSON is malformed/invalid
  */
 function extractStateFromBody(body: string): WiggumState | null {
   if (!body) {
@@ -38,18 +57,35 @@ function extractStateFromBody(body: string): WiggumState | null {
     const raw = safeJsonParse(match[1]);
     return validateWiggumState(raw, 'PR/issue body');
   } catch (error) {
-    // CRITICAL: State parsing failure indicates corrupted state data, malformed JSON,
-    // or serialization bugs. Logged at ERROR level for visibility. Returns null to
-    // trigger state reset (callers will initialize new state, losing in-progress workflow).
-    // TODO(#485): Consider throwing exception instead to force explicit error handling.
+    // CRITICAL: State parsing failure indicates corrupted state data.
+    // Throwing here forces callers to handle the error explicitly and inform the user.
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const matchedJsonPreview = match[1].substring(0, 200);
+
     logger.error('extractStateFromBody: critical state parsing failure', {
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMsg,
       errorType: error instanceof Error ? error.constructor.name : typeof error,
       bodyLength: body.length,
-      matchedJson: match[1].substring(0, 200), // Log first 200 chars for debugging
-      impact: 'Workflow state will reset to defaults - user may lose progress',
+      matchedJson: matchedJsonPreview,
+      impact: 'Workflow state is corrupted and cannot be parsed',
     });
-    return null;
+
+    // Throw with actionable error message for user
+    throw new StateCorruptionError(
+      `Wiggum workflow state is corrupted and cannot be parsed.\n\n` +
+        `Error: ${errorMsg}\n\n` +
+        `The state data in the PR/issue body is malformed. This may be due to:\n` +
+        `  1. Manual editing of the PR/issue body that broke the JSON\n` +
+        `  2. Concurrent state updates causing corruption\n` +
+        `  3. A bug in the state serialization logic\n\n` +
+        `Action required:\n` +
+        `  1. View the PR/issue body and locate the HTML comment with 'wiggum-state:'\n` +
+        `  2. Either fix the JSON manually or remove the comment to reset the workflow\n` +
+        `  3. If corruption persists, file a bug with the error details above`,
+      errorMsg,
+      body.length,
+      matchedJsonPreview
+    );
   }
 }
 

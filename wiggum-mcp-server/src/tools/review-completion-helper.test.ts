@@ -152,11 +152,11 @@ describe('review-completion-helper', () => {
     // These tests document the expected behavior of completeReview() in different scenarios
 
     describe('command_executed validation', () => {
-      it('should document that command_executed: false throws ValidationError', () => {
+      it('should document that command_executed: false is rejected by schema', () => {
         // When command_executed is false:
-        // - completeReview() throws ValidationError
-        // - Error message: "command_executed must be true. Do not shortcut the {review type} review process."
-        // - This prevents skipping the actual review execution
+        // - Schema validation (z.literal(true)) rejects the input
+        // - Error message: "command_executed must be true. Execute the review command before calling this tool."
+        // - This prevents skipping the actual review execution at the schema level
         assert.strictEqual(true, true, 'Test documents validation requirement');
       });
     });
@@ -381,8 +381,8 @@ describe('review-completion-helper', () => {
 
     describe('error handling paths', () => {
       it('should document command_executed validation error', () => {
-        // Thrown immediately if command_executed is false
-        // Before any state detection or processing
+        // Rejected at schema level (z.literal(true)) before completeReview() is called
+        // Schema validation occurs before function invocation in MCP flow
         assert.strictEqual(true, true, 'Test documents early validation');
       });
 

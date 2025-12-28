@@ -157,10 +157,7 @@ const RETRYABLE_ERROR_CODES = [
  * }
  * ```
  */
-// TODO: See issue #453 - Migrate to structured error types (RetryableError, RateLimitError, NetworkError)
-// Benefits: Type-safe error handling, eliminate ~40 lines of fragile message pattern matching
-// Blocked on: gh CLI exposing structured error API (currently wraps all errors in generic Error objects)
-//             OR implementing custom error parser to extract structure from stderr
+// TODO(#453): Migrate to structured error types for type-safe error handling
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
   // Checks for retryable HTTP codes (429, 502-504). If exitCode is defined but not retryable,

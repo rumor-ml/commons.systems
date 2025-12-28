@@ -156,17 +156,41 @@ export interface FailedStepLog {
 }
 
 /**
+ * Result of parsing failed step logs
+ *
+ * Includes data completeness information to allow callers to warn users
+ * when failure diagnosis may be incomplete due to parsing issues.
+ */
+export interface FailedStepLogsResult {
+  /** Parsed failed step logs grouped by job and step */
+  readonly steps: FailedStepLog[];
+  /** Total number of non-empty lines in the log output */
+  readonly totalLines: number;
+  /** Number of lines that could not be parsed */
+  readonly skippedLines: number;
+  /** Ratio of successfully parsed lines (0.0 to 1.0) */
+  readonly successRate: number;
+  /** Whether all lines were parsed successfully (skippedLines === 0) */
+  readonly isComplete: boolean;
+  /** User-facing warning when data is incomplete (undefined if complete) */
+  readonly warning?: string;
+}
+
+/**
  * Parse tab-delimited output from `gh run view --log-failed`
  *
  * The GitHub CLI outputs failed step logs in a tab-delimited format:
  * "job-name\tstep-name\ttimestamp log-line"
  *
  * This function groups log lines by job and step for easier processing.
+ * Returns data completeness information to allow callers to warn users
+ * when failure diagnosis may be incomplete.
  *
  * @param output - Raw output from `gh run view --log-failed`
- * @returns Array of failed step logs grouped by job and step
+ * @returns Result object with parsed steps and completeness metadata
+ * @throws {ParsingError} If more than 30% of lines fail to parse (indicates format change)
  */
-export function parseFailedStepLogs(output: string): FailedStepLog[] {
+export function parseFailedStepLogs(output: string): FailedStepLogsResult {
   const steps: Map<string, FailedStepLog> = new Map();
   let skippedCount = 0;
 
@@ -242,7 +266,22 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
     );
   }
 
-  return Array.from(steps.values());
+  // Build result with completeness metadata
+  const isComplete = skippedCount === 0;
+  const warning =
+    skippedCount > 0
+      ? `Warning: ${skippedCount}/${totalLines} log lines could not be parsed. ` +
+        `Failure diagnosis may be incomplete. Review stderr for details.`
+      : undefined;
+
+  return {
+    steps: Array.from(steps.values()),
+    totalLines,
+    skippedLines: skippedCount,
+    successRate,
+    isComplete,
+    warning,
+  };
 }
 
 /**

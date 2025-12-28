@@ -263,12 +263,17 @@ async function getFailureDetailsFromLogFailed(
   repo: string
 ): Promise<{ summaries: FailedJobSummary[]; parseWarnings: string[] }> {
   const output = await getFailedStepLogs(runId, repo);
-  const parsedSteps = parseFailedStepLogs(output);
+  const parseResult = parseFailedStepLogs(output);
 
   const jobSummaries: Map<string, FailedJobSummary> = new Map();
   const parseWarnings: string[] = [];
 
-  for (const step of parsedSteps) {
+  // Surface log parsing completeness warning if any lines were skipped
+  if (parseResult.warning) {
+    parseWarnings.push(parseResult.warning);
+  }
+
+  for (const step of parseResult.steps) {
     // Create job summary if it doesn't exist
     if (!jobSummaries.has(step.jobName)) {
       jobSummaries.set(step.jobName, {
