@@ -6,7 +6,7 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
-import { getPRReviewComments } from '../utils/gh-cli.js';
+import { getPRReviewComments, sleep } from '../utils/gh-cli.js';
 import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
@@ -136,7 +136,7 @@ function checkBranchPushed(
 }
 
 /**
- * Safely update wiggum state in PR body with error handling
+ * Safely update wiggum state in PR body with error handling and retry logic
  *
  * State persistence is CRITICAL for race condition fix (issue #388). Without
  * successful state updates, workflow state may become inconsistent when tools
@@ -144,235 +144,289 @@ function checkBranchPushed(
  * classifies errors to distinguish between transient failures (safe to retry)
  * and critical failures (require immediate intervention).
  *
- * Error handling strategy:
- * - Critical errors (404, 401/403): Throw - require immediate intervention
- * - Transient errors (429, network): Return failure Result - may self-resolve
+ * Retry strategy (issue #799):
+ * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
  * @param prNumber - PR number to update
  * @param state - New wiggum state to save
  * @param step - Step identifier for logging context
+ * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
 export async function safeUpdatePRBodyState(
   prNumber: number,
   state: WiggumState,
-  step: string
+  step: string,
+  maxRetries = 3
 ): Promise<StateUpdateResult> {
-  try {
-    await updatePRBodyState(prNumber, state);
-    return { success: true };
-  } catch (updateError) {
-    // State update is CRITICAL for race condition fix (issue #388)
-    // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
-    // TODO(#320): Surface state persistence failures to users instead of silent warning
-    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-    // TODO(#468): Broad catch-all hides programming errors - add early type validation
-    const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
-    const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
-    const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
-    const stateJson = JSON.stringify(state);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await updatePRBodyState(prNumber, state);
 
-    // Classify error type based on error message patterns
-    // TODO(#478): Document expected GitHub API error patterns and add test coverage
-    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-    const isAuth =
-      /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-      exitCode === 401 ||
-      exitCode === 403;
-    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      // Log recovery on retry success
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          prNumber,
+          step,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      }
 
-    // Build comprehensive error context
-    const errorContext = {
-      prNumber,
-      step,
-      iteration: state.iteration,
-      phase: state.phase,
-      completedSteps: state.completedSteps,
-      stateJson,
-      error: errorMsg,
-      errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
-      exitCode,
-      stderr,
-    };
+      return { success: true };
+    } catch (updateError) {
+      // State update is CRITICAL for race condition fix (issue #388)
+      // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
+      // TODO(#320): Surface state persistence failures to users instead of silent warning
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
+      // TODO(#468): Broad catch-all hides programming errors - add early type validation
+      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
+      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      const stateJson = JSON.stringify(state);
 
-    // Critical errors: PR not found or authentication failures
-    if (is404) {
-      logger.error('Critical: PR not found - cannot update state in body', {
+      // Classify error type based on error message patterns
+      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+      const isAuth =
+        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+        exitCode === 401 ||
+        exitCode === 403;
+      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+      // Build comprehensive error context
+      const errorContext = {
+        prNumber,
+        step,
+        attempt,
+        maxRetries,
+        iteration: state.iteration,
+        phase: state.phase,
+        completedSteps: state.completedSteps,
+        stateJson,
+        error: errorMsg,
+        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
+        exitCode,
+        stderr,
+      };
+
+      // Critical errors: PR not found or authentication failures - throw immediately (no retry)
+      if (is404) {
+        logger.error('Critical: PR not found - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed',
+          recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
+          nextSteps: 'Workflow cannot continue without valid PR',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      if (isAuth) {
+        logger.error('Critical: Authentication failed - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed - insufficient permissions',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          nextSteps: 'Re-authenticate or update token permissions',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (isRateLimit || isNetwork) {
+        const reason = isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2s, 4s, 8s
+          const delayMs = Math.pow(2, attempt) * 1000;
+          logger.info('Transient error updating state - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            remainingAttempts: maxRetries - attempt,
+          });
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - return failure result
+        logger.warn('State update failed after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Workflow halted - manual retry required',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return { success: false, reason, isTransient: true };
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - throw immediately
+      logger.error('Unexpected error updating state in PR body - re-throwing', {
         ...errorContext,
-        impact: 'Workflow state persistence failed',
-        recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
-        nextSteps: 'Workflow cannot continue without valid PR',
+        impact: 'Unknown failure type - may indicate programming error',
+        recommendation: 'Review error message and stack trace',
+        nextSteps: 'Workflow halted - manual investigation required',
         isTransient: false,
       });
       throw updateError;
     }
-
-    if (isAuth) {
-      logger.error('Critical: Authentication failed - cannot update state in body', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - insufficient permissions',
-        recommendation: 'Check gh auth status and token scopes: gh auth status',
-        nextSteps: 'Re-authenticate or update token permissions',
-        isTransient: false,
-      });
-      throw updateError;
-    }
-
-    // Transient errors: Rate limits or network issues
-    if (isRateLimit) {
-      logger.warn('Transient: Rate limit exceeded - state not updated in body', {
-        ...errorContext,
-        impact: 'State update skipped - will retry on next state update',
-        recommendation: 'Check rate limit status: gh api rate_limit',
-        nextSteps: 'Workflow continues - rate limit may resolve',
-        isTransient: true,
-        recoveryNote: 'Missing state update is recoverable on next update',
-      });
-      return { success: false, reason: 'rate_limit', isTransient: true };
-    }
-
-    if (isNetwork) {
-      logger.warn('Transient: Network error - state not updated in body', {
-        ...errorContext,
-        impact: 'State update skipped - network connectivity issue',
-        recommendation: 'Check network connection and GitHub API status',
-        nextSteps: 'Workflow continues - network may recover',
-        isTransient: true,
-        recoveryNote: 'Missing state update is recoverable on next update',
-      });
-      return { success: false, reason: 'network', isTransient: true };
-    }
-
-    // Unexpected errors: Programming errors or unknown failures
-    logger.error('Unexpected error updating state in PR body - re-throwing', {
-      ...errorContext,
-      impact: 'Unknown failure type - may indicate programming error',
-      recommendation: 'Review error message and stack trace',
-      nextSteps: 'Workflow halted - manual investigation required',
-      isTransient: false,
-    });
-    throw updateError;
   }
+
+  // Should never reach here, but TypeScript needs it
+  return { success: false, reason: 'network', isTransient: true };
 }
 
 /**
- * Safely update wiggum state in issue body with error handling
+ * Safely update wiggum state in issue body with error handling and retry logic
  *
  * State persistence is CRITICAL for race condition fix (issue #388). Without
  * successful state updates, workflow state may become inconsistent when tools
  * are called out-of-order or GitHub API returns stale data.
  *
- * Error handling strategy:
- * - Critical errors (404, 401/403): Throw - require immediate intervention
- * - Transient errors (429, network): Return failure Result - may self-resolve
+ * Retry strategy (issue #799):
+ * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
  * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
  * @param step - Step identifier for logging context
+ * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
 export async function safeUpdateIssueBodyState(
   issueNumber: number,
   state: WiggumState,
-  step: string
+  step: string,
+  maxRetries = 3
 ): Promise<StateUpdateResult> {
-  try {
-    await updateIssueBodyState(issueNumber, state);
-    return { success: true };
-  } catch (updateError) {
-    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-    const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
-    const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
-    const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
-    const stateJson = JSON.stringify(state);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await updateIssueBodyState(issueNumber, state);
 
-    // Classify error type based on error message patterns
-    // TODO(#478): Document expected GitHub API error patterns and add test coverage
-    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-    const isAuth =
-      /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-      exitCode === 401 ||
-      exitCode === 403;
-    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      // Log recovery on retry success
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          issueNumber,
+          step,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      }
 
-    // Build comprehensive error context
-    const errorContext = {
-      issueNumber,
-      step,
-      iteration: state.iteration,
-      phase: state.phase,
-      completedSteps: state.completedSteps,
-      stateJson,
-      error: errorMsg,
-      errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
-      exitCode,
-      stderr,
-    };
+      return { success: true };
+    } catch (updateError) {
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
+      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
+      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      const stateJson = JSON.stringify(state);
 
-    // Critical errors: Issue not found or authentication failures
-    if (is404) {
-      logger.error('Critical: Issue not found - cannot update state in body', {
+      // Classify error type based on error message patterns
+      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+      const isAuth =
+        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+        exitCode === 401 ||
+        exitCode === 403;
+      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+      // Build comprehensive error context
+      const errorContext = {
+        issueNumber,
+        step,
+        attempt,
+        maxRetries,
+        iteration: state.iteration,
+        phase: state.phase,
+        completedSteps: state.completedSteps,
+        stateJson,
+        error: errorMsg,
+        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
+        exitCode,
+        stderr,
+      };
+
+      // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
+      if (is404) {
+        logger.error('Critical: Issue not found - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed',
+          recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
+          nextSteps: 'Workflow cannot continue without valid issue',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      if (isAuth) {
+        logger.error('Critical: Authentication failed - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed - insufficient permissions',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          nextSteps: 'Re-authenticate or update token permissions',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (isRateLimit || isNetwork) {
+        const reason = isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2s, 4s, 8s
+          const delayMs = Math.pow(2, attempt) * 1000;
+          logger.info('Transient error updating state - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            remainingAttempts: maxRetries - attempt,
+          });
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - return failure result
+        logger.warn('State update failed after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Workflow halted - manual retry required',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return { success: false, reason, isTransient: true };
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - throw immediately
+      logger.error('Unexpected error updating state in issue body - re-throwing', {
         ...errorContext,
-        impact: 'Workflow state persistence failed',
-        recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
-        nextSteps: 'Workflow cannot continue without valid issue',
+        impact: 'Unknown failure type - may indicate programming error',
+        recommendation: 'Review error message and stack trace',
+        nextSteps: 'Workflow halted - manual investigation required',
         isTransient: false,
       });
       throw updateError;
     }
-
-    if (isAuth) {
-      logger.error('Critical: Authentication failed - cannot update state in body', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - insufficient permissions',
-        recommendation: 'Check gh auth status and token scopes: gh auth status',
-        nextSteps: 'Re-authenticate or update token permissions',
-        isTransient: false,
-      });
-      throw updateError;
-    }
-
-    // Transient errors: Rate limits or network issues
-    if (isRateLimit) {
-      logger.warn('Transient: Rate limit exceeded - state not updated in body', {
-        ...errorContext,
-        impact: 'State update skipped - will retry on next state update',
-        recommendation: 'Check rate limit status: gh api rate_limit',
-        nextSteps: 'Workflow continues - rate limit may resolve',
-        isTransient: true,
-        recoveryNote: 'Missing state update is recoverable on next update',
-      });
-      return { success: false, reason: 'rate_limit', isTransient: true };
-    }
-
-    if (isNetwork) {
-      logger.warn('Transient: Network error - state not updated in body', {
-        ...errorContext,
-        impact: 'State update skipped - network connectivity issue',
-        recommendation: 'Check network connection and GitHub API status',
-        nextSteps: 'Workflow continues - network may recover',
-        isTransient: true,
-        recoveryNote: 'Missing state update is recoverable on next update',
-      });
-      return { success: false, reason: 'network', isTransient: true };
-    }
-
-    // Unexpected errors: Programming errors or unknown failures
-    logger.error('Unexpected error updating state in issue body - re-throwing', {
-      ...errorContext,
-      impact: 'Unknown failure type - may indicate programming error',
-      recommendation: 'Review error message and stack trace',
-      nextSteps: 'Workflow halted - manual investigation required',
-      isTransient: false,
-    });
-    throw updateError;
   }
+
+  // Should never reach here, but TypeScript needs it
+  return { success: false, reason: 'network', isTransient: true };
 }
 
 /**
