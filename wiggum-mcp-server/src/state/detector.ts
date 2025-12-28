@@ -327,13 +327,21 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
-          depth,
-          newDepth: depth + 1,
-          previousPrNumber: pr.number,
-          newPrNumber: revalidatedPr.number,
-          stateDetectionTime,
-        });
+        // ERROR level - this is a race condition that discards work and retries
+        // Users need visibility that original state detection was wasted
+        logger.error(
+          'detectCurrentState: PR state race condition detected - discarding original state',
+          {
+            depth,
+            newDepth: depth + 1,
+            originalPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+            action: 'Recursively redetecting entire state',
+            impact: 'Original state detection wasted - all API calls will be repeated',
+            maxDepthRemaining: MAX_RECURSION_DEPTH - depth - 1,
+          }
+        );
         // Retry with incremented depth (depth check at function start will catch limit)
         return detectCurrentState(repo, depth + 1);
       }

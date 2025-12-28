@@ -99,6 +99,10 @@ export class StateDetectionError extends McpError {
  * reads/writes rather than generic GitHubCliError.
  */
 export class StateApiError extends McpError {
+  /**
+   * The original error that caused this StateApiError.
+   * Marked readonly to enforce immutability pattern consistent with other error types.
+   */
   public readonly cause?: Error;
 
   constructor(

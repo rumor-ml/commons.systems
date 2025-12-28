@@ -78,12 +78,20 @@ export function extractAgentNameFromPath(filePath: string): string {
 
   if (!match) {
     // Pattern didn't match - file name is malformed
-    logger.warn('Failed to extract agent name from file path - unexpected format', {
+    // Log at ERROR level and throw to prevent masking file naming violations
+    logger.error('Failed to extract agent name from file path - file naming convention violated', {
       filePath,
       fileName,
       expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}.md',
+      impact: 'Cannot attribute review findings to specific agent',
+      action: 'Fix agent file naming to match convention',
     });
-    return `Unknown Agent (${fileName})`;
+    throw new ValidationError(
+      `Invalid review result filename: ${fileName}\n` +
+        `Expected pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md\n` +
+        `File path: ${filePath}\n\n` +
+        `This indicates a bug in the review agent file naming logic.`
+    );
   }
 
   const agentSlug = match[1];
@@ -445,6 +453,26 @@ export async function loadReviewResults(
     } else if (hasEmptyFiles) {
       actionHint = '\nAction: Review agents may have crashed during write - check agent logs.';
     }
+
+    // Log comprehensive failure before throwing to ensure visibility
+    // This ensures the error is captured in logs even if callers don't log the exception
+    logger.error('Review file loading failed - throwing ValidationError', {
+      totalFiles: inScopeFiles.length + outOfScopeFiles.length,
+      failedCount: errors.length,
+      successCount,
+      failedFiles: errors.map((e) => ({
+        path: e.filePath,
+        category: e.category,
+        code: e.errorCode,
+      })),
+      successfulFiles: {
+        inScope: successfulInScope,
+        outOfScope: successfulOutOfScope,
+      },
+      hasPermissionErrors,
+      hasMissingFiles,
+      hasEmptyFiles,
+    });
 
     throw new ValidationError(
       `Failed to read ${errors.length} review result file(s) (${successCount} succeeded):\n${errorDetails}${successDetails}${actionHint}`
@@ -867,7 +895,7 @@ function buildIssuesFoundResponse(
 
 // NOTE: validateSafeNonNegativeInteger was removed since Zod schema (ReviewCompletionInputSchema)
 // now handles all numeric validation for in_scope_count and out_of_scope_count.
-// See issue #XXX if validation needs to be re-added for non-Zod code paths.
+// All callers now use completeReview() which validates input via ReviewCompletionInputSchema.
 
 /**
  * Complete a review (PR or Security) and update workflow state

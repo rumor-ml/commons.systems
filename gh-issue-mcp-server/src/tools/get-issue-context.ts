@@ -44,11 +44,16 @@ function validateGraphQLResponse(
     }
 
     // Log additional debug info in debug environments
+    // Note: Only log response structure, not raw content, to avoid leaking sensitive issue data
     if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
-      const responsePreview =
-        responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
+      const safeStructure = {
+        hasData: !!result.data,
+        dataKeys: result.data ? Object.keys(result.data) : [],
+        errorCount: errors.length,
+        responseSize: responseJson.length,
+      };
       console.error(
-        `[gh-issue] DEBUG GraphQL response preview (responseSize: ${responseJson.length}, preview: ${responsePreview})`
+        `[gh-issue] DEBUG GraphQL response structure: ${JSON.stringify(safeStructure)}`
       );
     }
 

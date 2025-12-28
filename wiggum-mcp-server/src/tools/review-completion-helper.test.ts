@@ -133,7 +133,9 @@ describe('review-completion-helper', () => {
     });
 
     it('should throw ValidationError for empty files', async () => {
-      const emptyFile = '/tmp/claude/empty-' + Date.now() + '.md';
+      // Use proper agent naming pattern so extractAgentNameFromPath succeeds
+      // and we can test the actual empty file handling
+      const emptyFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
       await writeFile(emptyFile, '');
 
       await assert.rejects(async () => loadReviewResults([emptyFile], []), {
@@ -537,14 +539,21 @@ describe('review-completion-helper', () => {
       assert.strictEqual(result, 'Linter');
     });
 
-    it('should return Unknown Agent with filename for non-matching paths', () => {
-      const result = extractAgentNameFromPath('/some/random/path.md');
-      assert.strictEqual(result, 'Unknown Agent (path.md)');
+    it('should throw ValidationError for non-matching paths', () => {
+      // Non-matching file names indicate a bug in agent file naming logic
+      // Throwing prevents masking these issues with placeholder values
+      assert.throws(() => extractAgentNameFromPath('/some/random/path.md'), {
+        name: 'ValidationError',
+        message: /Invalid review result filename: path\.md/,
+      });
     });
 
-    it('should return Unknown Agent with empty string for empty path', () => {
-      const result = extractAgentNameFromPath('');
-      assert.strictEqual(result, 'Unknown Agent ()');
+    it('should throw ValidationError for empty path', () => {
+      // Empty paths are invalid and indicate a programming error
+      assert.throws(() => extractAgentNameFromPath(''), {
+        name: 'ValidationError',
+        message: /Invalid review result filename:/,
+      });
     });
 
     it('should handle paths with only filename', () => {

@@ -352,7 +352,9 @@ export async function getPRReviewComments(
 
   // Skip malformed comments with error logging instead of throwing
   // This ensures one bad comment doesn't block processing of all remaining valid comments
-  // See issues #272, #319, #457, #465 for history
+  // Design decision based on production incidents:
+  //   - Issues #272, #319, #457, #465: Single malformed JSON blocked all review processing
+  //   - Solution: Continue processing with error tracking to prevent total failure
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
@@ -433,10 +435,11 @@ const RETRYABLE_ERROR_CODES = [
  *
  * FRAGILITY WARNING - Message Parsing Limitations:
  * ------------------------------------------------
- * Why message parsing is fragile:
- * - gh CLI wraps errors in generic Error objects, losing HTTP status codes and types
+ * Why message parsing is needed:
+ * - gh CLI sometimes wraps errors in generic Error objects where exitCode is undefined
+ * - When structured exitCode is missing, HTTP status may still be embedded in error.message
  * - Error message format is not a stable API and changes between gh CLI versions
- * - We must use string pattern matching as fallback when structured data missing
+ * - We use string pattern matching as fallback when structured data is missing
  *
  * What to do when patterns stop matching (error classification fails):
  * 1. Check gh CLI release notes for error message format changes
@@ -466,8 +469,10 @@ const RETRYABLE_ERROR_CODES = [
  */
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
-  // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
+  // Checks for retryable HTTP codes (429, 502-504). When exitCode is defined:
+  //   - If in retryable list -> returns true immediately
+  //   - If NOT in retryable list -> continues to Priority 2/3 checks (does not assume non-retryable)
+  // This allows network errors with non-retryable HTTP codes to still be retried.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -602,15 +607,19 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery for diagnostics and monitoring
+      // Success after retry - log recovery at WARN level for production visibility
+      // INFO may be filtered in production, hiding important recovery patterns
       // Helps identify flaky endpoints or transient GitHub API issues
       // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
-        logger.info('ghCliWithRetry: succeeded after retry', {
+        logger.warn('ghCliWithRetry: succeeded after retry - transient failure recovered', {
           attempt,
+          totalAttempts: maxRetries,
           command: `gh ${args.join(' ')}`,
           initialErrorType: classifyErrorType(firstError, firstExitCode),
           initialErrorMessage: firstError.message,
+          impact: 'Operation succeeded but was delayed by retry',
+          action: 'Monitor this endpoint for consistent retry patterns',
         });
       }
 
@@ -737,13 +746,16 @@ export async function ghCliWithRetry(
         });
       }
 
-      // Exponential backoff: 2^attempt seconds
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, etc.
-      // Note: Unbounded growth - consider capping for very long retry sequences
-      const delayMs = Math.pow(2, attempt) * 1000;
+      // Exponential backoff: 2^attempt seconds, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Cap prevents impractical delays for high maxRetries values
+      const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
+      const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+      const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
       logger.debug('ghCliWithRetry: waiting before retry', {
         attempt,
         retryDelayMs: delayMs,
+        wasCapped: uncappedDelayMs > MAX_DELAY_MS,
       });
       await sleep(delayMs);
     }

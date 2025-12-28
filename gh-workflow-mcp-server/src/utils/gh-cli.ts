@@ -205,9 +205,9 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
     steps.get(key)!.lines.push(content);
   }
 
-  // ALWAYS warn if ANY lines were skipped - silent data loss is unacceptable
-  // Users need to know if failure details may be incomplete, regardless of skip rate
-  // This prevents hidden data loss that could cause incomplete failure diagnosis
+  // ALWAYS warn if ANY lines were skipped to prevent hidden data loss
+  // Even a single skipped line could omit critical failure details needed for debugging
+  // Users must be informed when failure diagnosis may be incomplete
   if (skippedCount > 0) {
     const totalLines = output.split('\n').filter((l) => l.trim()).length;
     const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
@@ -302,6 +302,7 @@ export async function getWorkflowRunsForCommit(
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
  * - Unknown states → "completed": Conservative default (treats unrecognized states as terminal)
+ *                                 to prevent infinite waiting on new GitHub API states
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
@@ -583,6 +584,13 @@ function classifyErrorType(error: Error, exitCode?: number): string {
 // TODO(#389): Replace console.error with structured logger for retry monitoring
 /**
  * Execute gh CLI command with retry logic
+ *
+ * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
+ * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
+ * Non-retryable errors (like validation errors) fail immediately.
+ *
+ * Note: All logging uses console.error() to ensure visibility in MCP stderr streams.
+ * The INFO/WARN/DEBUG prefixes in messages indicate severity for human readers.
  */
 export async function ghCliWithRetry(
   args: string[],
@@ -598,13 +606,14 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery for diagnostics and monitoring
+      // Success after retry - log recovery at WARN level for production visibility
+      // INFO may be filtered in production, hiding important recovery patterns
       // Helps identify flaky endpoints or transient GitHub API issues
       // Uses console.error to ensure visibility even when stdout is redirected
       // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
         console.error(
-          `[gh-workflow] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')})`
+          `[gh-workflow] WARN ghCliWithRetry: succeeded after retry - transient failure recovered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')}, impact: Operation delayed by retry, action: Monitor for consistent retry patterns)`
         );
       }
 
@@ -676,7 +685,8 @@ export async function ghCliWithRetry(
       }
 
       if (!isRetryableError(error, lastExitCode)) {
-        // Non-retryable error, fail immediately with context
+        // Non-retryable error, fail immediately
+        // Note: Error context already logged to stderr in the console.error call below
         console.error(
           `[gh-workflow] ghCliWithRetry: non-retryable error encountered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError, lastExitCode)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')})`
         );
@@ -692,8 +702,6 @@ export async function ghCliWithRetry(
       }
 
       // Log retry attempts with consistent formatting and full context
-      // Note: Using console.error() for all logs to ensure visibility in MCP stderr streams
-      // The INFO/WARN prefixes in the message indicate severity for human readers
       const errorType = classifyErrorType(lastError, lastExitCode);
 
       // Warn when error cannot be classified and we have no exit code
@@ -717,10 +725,12 @@ export async function ghCliWithRetry(
         );
       }
 
-      // Exponential backoff: 2^attempt seconds
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, etc.
-      // Note: Unbounded growth - consider capping for very long retry sequences
-      const delayMs = Math.pow(2, attempt) * 1000;
+      // Exponential backoff: 2^attempt seconds, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Cap prevents impractical delays for high maxRetries values
+      const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
+      const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+      const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
       await sleep(delayMs);
     }
   }

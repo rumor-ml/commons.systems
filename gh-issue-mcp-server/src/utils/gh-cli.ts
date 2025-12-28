@@ -157,17 +157,22 @@ const RETRYABLE_ERROR_CODES = [
  * }
  * ```
  */
-// TODO: See issue #453 - Replace string matching with structured error types
-// Benefits: Type-safe error handling, no fragile message parsing
-// Impact: Eliminate ~40 lines of pattern matching, improve reliability
+// TODO: See issue #453 - Migrate to structured error types (RetryableError, RateLimitError, NetworkError)
+// Benefits: Type-safe error handling, eliminate ~40 lines of fragile message pattern matching
+// Blocked on: gh CLI exposing structured error API (currently wraps all errors in generic Error objects)
+//             OR implementing custom error parser to extract structure from stderr
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
-  // Note: Assumes exitCode is a valid HTTP status code from gh CLI error
-  // Only checks for specific retryable HTTP codes (429, 502-504) - all other codes fall through to subsequent checks
+  // Checks for retryable HTTP codes (429, 502-504). If exitCode is defined but not retryable,
+  // we continue to Priority 2/3 checks since the error may still be retryable based on
+  // Node.js error codes (e.g., ETIMEDOUT) or message patterns (e.g., network errors).
+  // NOTE: We do NOT return false for non-retryable HTTP codes - network errors may occur
+  // alongside HTTP errors and should still be retried.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
     }
+    // Continue to Priority 2/3 checks - don't short-circuit on non-retryable HTTP codes
   }
 
   if (error instanceof Error) {
@@ -299,13 +304,14 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery for diagnostics and monitoring
+      // Success after retry - log recovery at WARN level for production visibility
+      // INFO may be filtered in production, hiding important recovery patterns
       // Helps identify flaky endpoints or transient GitHub API issues
       // Uses console.error to ensure visibility even when stdout is redirected
       // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
         console.error(
-          `[gh-issue] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')})`
+          `[gh-issue] WARN ghCliWithRetry: succeeded after retry - transient failure recovered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')}, impact: Operation delayed by retry, action: Monitor for consistent retry patterns)`
         );
       }
 
@@ -317,7 +323,8 @@ export async function ghCliWithRetry(
       //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
       //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
-      // Fallback: Parse HTTP status from error message using multiple patterns
+      // When undefined, we attempt to extract HTTP status from error message using regex patterns
+      // (lines 328-374 below) since gh CLI error format varies by version and context.
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message
@@ -337,6 +344,8 @@ export async function ghCliWithRetry(
             // - Must be finite (not Infinity or NaN from malformed input)
             // - Must be safe integer (no precision loss)
             // - Must be in valid HTTP status range (100-599)
+            // Note: We validate for ANY valid HTTP status, not just retryable ones (429, 502-504),
+            // because the extracted code is also used for error classification and logging
             if (
               Number.isFinite(parsed) &&
               Number.isSafeInteger(parsed) &&
@@ -416,10 +425,14 @@ export async function ghCliWithRetry(
         );
       }
 
-      // Exponential backoff: 2^attempt seconds
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, etc.
-      // Note: Unbounded growth - consider capping for very long retry sequences
-      const delayMs = Math.pow(2, attempt) * 1000;
+      // Exponential backoff: 2^attempt seconds, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Rationale: Exponential backoff reduces load on GitHub API during outages and
+      // gives transient issues more time to resolve with each retry.
+      // Cap prevents impractical delays for high maxRetries values.
+      const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
+      const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+      const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
       await sleep(delayMs);
     }
   }
