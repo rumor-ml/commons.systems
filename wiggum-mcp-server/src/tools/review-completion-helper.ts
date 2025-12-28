@@ -294,22 +294,32 @@ async function readReviewFile(
       const fileAgeMs = Date.now() - stats.mtimeMs;
       const isRecentlyCreated = fileAgeMs < 5000; // Less than 5 seconds old
 
-      // Provide multiple possible causes instead of assuming crash
-      // Empty files can result from various conditions
-      logger.error('Review file is empty - multiple possible causes', {
+      // Build prioritized list of possible causes based on observable evidence
+      // Most likely cause is listed first to reduce debugging time
+      const prioritizedCauses: string[] = [];
+
+      if (isRecentlyCreated) {
+        // Race condition is most likely for recently created files
+        prioritizedCauses.push(
+          'MOST LIKELY: Race condition - File was recently created, agent may still be writing'
+        );
+        prioritizedCauses.push('Agent crashed or was killed during write');
+      } else {
+        // For older files, crash is most likely
+        prioritizedCauses.push('MOST LIKELY: Agent crashed or was killed during write');
+        prioritizedCauses.push('Agent found no issues and wrote empty file (check agent logs)');
+      }
+
+      // Common secondary causes
+      prioritizedCauses.push('Disk space exhausted during write (check: df -h)');
+      prioritizedCauses.push('Agent validation error prevented write (check agent stderr)');
+
+      logger.error('Review file is empty - prioritized possible causes', {
         filePath,
         agentName,
         fileAgeMs,
         isRecentlyCreated,
-        possibleCauses: [
-          isRecentlyCreated
-            ? 'Race condition: File was recently created, agent may still be writing'
-            : null,
-          'Agent crashed or was killed during write',
-          'Agent found no issues and wrote empty file (check agent logs)',
-          'Disk space exhausted during write (check: df -h)',
-          'Agent validation error prevented write (check agent stderr)',
-        ].filter(Boolean),
+        possibleCauses: prioritizedCauses,
         impact: 'Review results incomplete - missing agent output',
         action: isRecentlyCreated
           ? 'File was recently created - consider retry after short delay'
@@ -981,24 +991,30 @@ async function safePostReviewComment(
   //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   //
-  // DESIGN: Return false instead of throwing to maintain the "safe" (non-blocking) contract.
-  // This function is designed to never halt the workflow - state is already persisted in the body,
-  // so comment posting failures are non-fatal. Throwing would violate this contract and cause
-  // callers that expect boolean returns to crash unexpectedly.
+  // DESIGN: Throw ValidationError for invalid maxRetries because:
+  //   1. This is a programming error in the caller, not an operational failure
+  //   2. Programming errors should fail fast to surface bugs during development
+  //   3. Returning false would hide the root cause (bad parameter) behind a generic "comment failed" message
+  //   4. Tests that should catch invalid maxRetries would silently pass instead of failing
+  //   5. Developers debugging retry failures would be led down wrong debugging paths
+  // The "safe" contract means we don't halt on OPERATIONAL failures (API errors, rate limits),
+  // not that we tolerate PROGRAMMING errors in caller code.
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
-    logger.error('safePostReviewComment: Invalid maxRetries parameter - returning false', {
+    logger.error('safePostReviewComment: Invalid maxRetries parameter - throwing ValidationError', {
       issueNumber,
       reviewStep,
       maxRetries,
       maxRetriesType: typeof maxRetries,
-      impact: 'Comment posting will fail without retry attempts',
+      impact: 'Programming error - caller passed invalid maxRetries',
       action: 'Fix caller to pass valid maxRetries value (1-100, default: 3)',
       validRange: `1-${MAX_RETRIES_LIMIT}`,
     });
-    // Return false instead of throwing - maintains "safe" (non-blocking) contract
-    // Callers checking `if (!commentPosted)` will handle this gracefully
-    return false;
+    throw new ValidationError(
+      `safePostReviewComment: maxRetries must be a positive integer (1-${MAX_RETRIES_LIMIT}), ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `This is a programming error - fix the caller to pass valid maxRetries.`
+    );
   }
 
   // Import postIssueComment from issue-comments module
@@ -1225,27 +1241,38 @@ async function retryStateUpdate(
   // TypeScript control flow: This should be unreachable. The loop must execute at least once
   // (maxRetries >= 1 validated above), and every iteration either returns success, returns failure,
   // or continues. If reached, indicates a logic bug where an iteration neither returned nor continued.
+  //
+  // Consolidated error handling provides consistent diagnostics regardless of whether result was set:
+  // - Both error paths log the same context (maxRetries, phase, step)
+  // - Error messages clearly indicate this is an internal programming error
+  // - Logs provide debugging context for root cause analysis
+
+  // Build common diagnostic context for error handling
+  const diagnosticContext = {
+    maxRetries,
+    phase: state.wiggum.phase,
+    step: newState.step,
+    resultDefined: result !== undefined,
+    lastResult: result !== undefined ? JSON.stringify(result) : 'undefined',
+  };
+
+  logger.error('CRITICAL: retryStateUpdate unreachable code path reached', diagnosticContext);
 
   // Defensive: Verify result was set before using it in error message
   // This prevents a secondary error from JSON.stringify(undefined)
   if (result === undefined) {
-    logger.error('CRITICAL: retryStateUpdate loop completed without setting result', {
-      maxRetries,
-      phase: state.wiggum.phase,
-      step: newState.step,
-      impact: 'Loop executed but never assigned result variable',
-    });
     throw new Error(
       `INTERNAL ERROR: retryStateUpdate loop completed without setting result variable. ` +
-        `This indicates a severe programming error: loop executed ${maxRetries} times but result was never assigned. ` +
-        `maxRetries=${maxRetries}, phase=${state.wiggum.phase}`
+        `This indicates a severe programming error: loop should execute at least once (maxRetries=${maxRetries}) ` +
+        `but result was never assigned. phase=${state.wiggum.phase}, step=${newState.step}`
     );
   }
 
   throw new Error(
     `INTERNAL ERROR: retryStateUpdate loop completed without returning. ` +
       `This indicates a programming error: loop iteration neither returned nor continued. ` +
-      `maxRetries=${maxRetries}, phase=${state.wiggum.phase}, lastResult=${JSON.stringify(result)}`
+      `maxRetries=${maxRetries}, phase=${state.wiggum.phase}, step=${newState.step}, ` +
+      `lastResult=${JSON.stringify(result)}`
   );
 }
 

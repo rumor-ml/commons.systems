@@ -16,17 +16,37 @@ import type { MonitorResult } from './gh-workflow.js';
 let ghWorkflowClient: Client | null = null;
 
 /**
+ * Options for extractTextFromMCPResult
+ */
+interface ExtractTextOptions {
+  /**
+   * If true, allow empty text content without throwing an error.
+   * Use this for tools where empty results are legitimate (e.g., no failures found).
+   * Default: false (empty results throw an error)
+   */
+  allowEmpty?: boolean;
+}
+
+/**
  * Extract text content from MCP tool result
  *
- * Provides consistent extraction and validation of text content from MCP responses
+ * Provides consistent extraction and validation of text content from MCP responses.
+ * By default, empty text content throws an error (fail-safe approach). Use the
+ * `allowEmpty` option for tools where empty results are legitimate.
  *
  * @param result - MCP tool result
  * @param toolName - Name of tool for error messages
  * @param context - Context string (e.g., branch name, PR number) for error messages
+ * @param options - Optional extraction options (e.g., allowEmpty)
  * @returns Extracted text content
- * @throws Error if result format is invalid
+ * @throws Error if result format is invalid or empty (unless allowEmpty is true)
  */
-function extractTextFromMCPResult(result: any, toolName: string, context: string): string {
+function extractTextFromMCPResult(
+  result: any,
+  toolName: string,
+  context: string,
+  options: ExtractTextOptions = {}
+): string {
   if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
     logger.error(`Invalid ${toolName} response: no content array`, {
       hasContent: !!result.content,
@@ -50,20 +70,23 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
   // 1. LEGITIMATE: Tool executed successfully but found no data (e.g., no workflow failures)
   // 2. FAILURE: Tool malfunction, API issue, or data loss
   //
-  // Without additional context, we treat empty responses as errors (fail-safe approach).
-  // To diagnose, check gh-workflow-mcp-server logs for:
+  // By default, we treat empty responses as errors (fail-safe approach).
+  // Callers can use options.allowEmpty for tools where empty is valid.
+  // To diagnose ambiguous cases, check gh-workflow-mcp-server logs for:
   //   - "No failures found" or similar messages (legitimate empty result)
   //   - Error/exception stack traces (tool crash)
   //   - Rate limit warnings from GitHub API
   //   - Network timeout messages
-  if (textContent.text.length === 0) {
+  if (textContent.text.length === 0 && !options.allowEmpty) {
     logger.error(`Empty text content in ${toolName} response - ambiguous failure`, {
       context,
+      allowEmpty: options.allowEmpty,
       diagnosticSteps: [
         '1. Check gh-workflow-mcp-server logs for tool execution details',
         '2. Verify GitHub API rate limit: gh api rate_limit',
         '3. Confirm network connectivity: gh auth status',
         '4. Review tool schema - may return empty string for "no data" case',
+        '5. If empty is valid for this tool, set options.allowEmpty = true',
       ],
     });
     throw new Error(
@@ -108,7 +131,43 @@ async function callToolWithRetry(
 
   const startTime = Date.now();
 
+  // Circuit breaker: Maximum iterations to prevent infinite loops
+  // At 60s per iteration (SDK timeout), 1000 iterations = ~16.7 hours
+  // This protects against bugs in retry logic or unexpected edge cases
+  const MAX_ITERATIONS = 1000;
+  let iteration = 0;
+
   while (true) {
+    iteration++;
+
+    // Log warning if too many iterations (possible stuck operation)
+    if (iteration > 10 && iteration % 10 === 0) {
+      logger.warn('callToolWithRetry: high iteration count detected', {
+        toolName,
+        iteration,
+        elapsed: Date.now() - startTime,
+        maxDurationMs,
+        impact: 'Possible stuck operation or retry logic issue',
+        action: 'Monitor for completion or timeout',
+      });
+    }
+
+    // Circuit breaker: fail if maximum iterations exceeded
+    if (iteration > MAX_ITERATIONS) {
+      const errorMsg =
+        `callToolWithRetry: Circuit breaker triggered - exceeded maximum iterations (${MAX_ITERATIONS}). ` +
+        `This indicates a bug in retry logic or an operation that never completes. ` +
+        `Tool: ${toolName}, Elapsed: ${Date.now() - startTime}ms, MaxDuration: ${maxDurationMs}ms`;
+      logger.error('callToolWithRetry: circuit breaker triggered', {
+        toolName,
+        iteration,
+        elapsed: Date.now() - startTime,
+        maxDurationMs,
+        impact: 'Operation terminated to prevent infinite loop',
+      });
+      throw new Error(errorMsg);
+    }
+
     const elapsed = Date.now() - startTime;
 
     if (elapsed >= maxDurationMs) {
@@ -246,6 +305,23 @@ async function callToolWithRetry(
           }
         );
         continue;
+      }
+
+      // Check if error message suggests a timeout that our patterns didn't catch
+      // This helps identify new timeout phrasings that should be added to timeoutPatterns
+      if (error instanceof Error) {
+        const likelyTimeoutPattern = /timeout|deadline|duration|took.*long|timed?\s*out/i;
+        if (likelyTimeoutPattern.test(errorMessage)) {
+          logger.warn('Possible timeout not detected by current patterns', {
+            toolName,
+            errorMessage,
+            errorCode,
+            errorName,
+            impact: 'Operation may fail instead of retrying - potential false negative',
+            action: 'Consider adding this error pattern to timeoutPatterns array',
+            currentPatterns: timeoutPatterns.map((p) => p.source),
+          });
+        }
       }
 
       // Unknown error type - log with enhanced diagnostics for pattern analysis

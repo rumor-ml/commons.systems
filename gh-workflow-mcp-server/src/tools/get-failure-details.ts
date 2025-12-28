@@ -153,9 +153,14 @@ function formatJobSummaries(
   maxChars: number,
   parseWarnings?: string[]
 ): ToolResult {
-  // TODO: Consider extracting budget calculation pattern into helper function
-  // Pattern is duplicated in getFailureDetails() - both calculate warning size, truncation marker,
-  // and summary budget. A shared helper would reduce duplication and risk of bugs.
+  // TODO: Extract budget calculation into shared helper (budgetCalculator)
+  // EXACT duplication between formatJobSummaries() (lines 156-179) and
+  // getFailureDetails() (lines 681-704). Both calculate:
+  //   1. warningText from parseWarnings array
+  //   2. truncationMarker constant
+  //   3. summaryBudget using Math.max(100, maxChars - warningSize - truncationMarkerSize)
+  // A shared helper would prevent bugs if formula changes (e.g., different minimum budget)
+  // and eliminate the risk of the two implementations drifting apart.
   // Calculate warning text size FIRST to reserve space in budget
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {

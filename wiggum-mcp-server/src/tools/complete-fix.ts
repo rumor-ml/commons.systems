@@ -123,7 +123,11 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
   // Validate out_of_scope_issues array contents if provided
   if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
-    // Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
+    // Number.isInteger validates both integrality and finiteness:
+    // - Returns false for NaN (not a number)
+    // - Returns false for Infinity and -Infinity (infinite values are not integers)
+    // - Returns false for floats like 1.5 (decimal numbers are not integers)
+    // Combined with num <= 0, this ensures only positive integers pass validation.
     const invalidNumbers = input.out_of_scope_issues.filter(
       (num) => !Number.isInteger(num) || num <= 0
     );
