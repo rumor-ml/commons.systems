@@ -221,10 +221,12 @@ export async function safeUpdatePRBodyState(
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   // This validation ensures the retry loop executes at least once and terminates correctly,
   // preventing the unreachable code path at the end (which would throw an internal error).
-  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
       prNumber,
       step,
@@ -234,9 +236,10 @@ export async function safeUpdatePRBodyState(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `safeUpdatePRBodyState: maxRetries must be a positive integer between 1 and 100, ` +
+      `safeUpdatePRBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
         `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
-        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky).`
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
     );
   }
 
@@ -485,10 +488,12 @@ export async function safeUpdateIssueBodyState(
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   // This validation ensures the retry loop executes at least once and terminates correctly,
   // preventing the unreachable code path at the end (which would throw an internal error).
-  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
       issueNumber,
       step,
@@ -498,9 +503,10 @@ export async function safeUpdateIssueBodyState(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `safeUpdateIssueBodyState: maxRetries must be a positive integer between 1 and 100, ` +
+      `safeUpdateIssueBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
         `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
-        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky).`
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
     );
   }
 
