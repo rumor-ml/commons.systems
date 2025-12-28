@@ -168,6 +168,18 @@ function createFileReadError(
   fileExists?: boolean,
   fileSize?: number
 ): FileReadError {
+  // Validate path follows expected pattern before deriving category
+  // Pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md
+  const pathPattern = /-(?:in-scope|out-of-scope)-\d+\.md$/;
+  if (!pathPattern.test(filePath)) {
+    logger.warn('createFileReadError: filePath does not match expected pattern', {
+      filePath,
+      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}.md',
+      impact: 'Category derivation may be incorrect',
+      action: 'Verify file naming convention is correct',
+    });
+  }
+
   // Derive category from file path pattern
   const category: 'in-scope' | 'out-of-scope' = filePath.includes('-in-scope-')
     ? 'in-scope'
@@ -176,7 +188,7 @@ function createFileReadError(
   const nodeError = error as NodeJS.ErrnoException;
 
   // Validate error code against known Node.js file system error codes
-  // Only include errorCode if it's a recognized code, discard unknown codes
+  // Only include errorCode if it's a recognized code
   const knownErrorCodes: readonly NodeFileErrorCode[] = [
     'EACCES',
     'ENOENT',
@@ -187,10 +199,20 @@ function createFileReadError(
     'ENOSPC',
     'EROFS',
   ];
-  const errorCode: NodeFileErrorCode | undefined =
-    nodeError.code && knownErrorCodes.includes(nodeError.code as NodeFileErrorCode)
-      ? (nodeError.code as NodeFileErrorCode)
-      : undefined;
+
+  let errorCode: NodeFileErrorCode | undefined;
+  if (nodeError.code) {
+    if (knownErrorCodes.includes(nodeError.code as NodeFileErrorCode)) {
+      errorCode = nodeError.code as NodeFileErrorCode;
+    } else {
+      // Unknown error code - log for future enumeration expansion
+      logger.warn('createFileReadError: unknown error code encountered', {
+        code: nodeError.code,
+        filePath,
+        action: 'Consider adding to NodeFileErrorCode enum if this error is common',
+      });
+    }
+  }
 
   return {
     filePath,
@@ -475,26 +497,53 @@ export function validateReviewConfig(config: unknown): ReviewConfig {
 /**
  * Zod schema for ReviewCompletionInput runtime validation
  *
- * Issue counts are validated at schema level to be integers (no decimals) >= 0.
+ * Issue counts are validated at schema level to be:
+ * - Integers (no decimals)
+ * - Non-negative (>= 0)
+ * - Finite (not Infinity or NaN)
+ * - Safe integers (within MAX_SAFE_INTEGER to prevent precision loss)
+ *
  * File paths are validated to be non-empty strings to catch empty path errors early.
- * Note: Zod .int().nonnegative() does not validate against Infinity, NaN, or
- * unsafe integers exceeding Number.MAX_SAFE_INTEGER. Additional runtime validation
- * in completeReview() provides comprehensive checks including finite/safe integer validation.
  *
  * Refinements enforce relationship between counts and file arrays:
  * - If in_scope_count > 0, then in_scope_files must be non-empty
  * - If out_of_scope_count > 0, then out_of_scope_files must be non-empty
  *
- * @see completeReview for complete validation including Infinity/NaN/overflow checks
+ * Note: completeReview() performs additional validation for count/file array
+ * consistency and provides detailed error messages for debugging.
  */
 export const ReviewCompletionInputSchema = z
   .object({
     command_executed: z.boolean(),
     in_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
     out_of_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
-    in_scope_count: z.number().int().nonnegative(),
-    out_of_scope_count: z.number().int().nonnegative(),
-    maxIterations: z.number().int().positive('maxIterations must be a positive integer').optional(),
+    in_scope_count: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine(Number.isFinite, { message: 'in_scope_count must be finite (not Infinity or NaN)' })
+      .refine(Number.isSafeInteger, {
+        message: 'in_scope_count must be a safe integer (within MAX_SAFE_INTEGER)',
+      }),
+    out_of_scope_count: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine(Number.isFinite, {
+        message: 'out_of_scope_count must be finite (not Infinity or NaN)',
+      })
+      .refine(Number.isSafeInteger, {
+        message: 'out_of_scope_count must be a safe integer (within MAX_SAFE_INTEGER)',
+      }),
+    maxIterations: z
+      .number()
+      .int()
+      .positive('maxIterations must be a positive integer')
+      .refine(Number.isFinite, { message: 'maxIterations must be finite (not Infinity or NaN)' })
+      .refine(Number.isSafeInteger, {
+        message: 'maxIterations must be a safe integer (within MAX_SAFE_INTEGER)',
+      })
+      .optional(),
   })
   .refine(
     (data) => {
@@ -523,12 +572,12 @@ export const ReviewCompletionInputSchema = z
  * Input for review completion
  *
  * All fields are readonly since this represents immutable input data.
- * Basic integer validation via Zod schema (.int().nonnegative()) catches decimals and negatives.
- * Complete validation in completeReview() adds: Infinity/NaN checks, safe integer validation,
- * count vs file array length consistency, and detailed error messages.
+ * The Zod schema provides comprehensive validation including:
+ * - Integer, non-negative, finite, and safe integer checks for counts
+ * - Non-empty file path validation
+ * - Count/file array consistency (if count > 0, files must be non-empty)
  *
  * @see ReviewCompletionInputSchema for Zod schema validation
- * @see completeReview for complete runtime validation
  */
 export interface ReviewCompletionInput {
   readonly command_executed: boolean;

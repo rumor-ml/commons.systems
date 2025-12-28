@@ -302,6 +302,7 @@ export async function ghCliWithRetry(
       // Success after retry - log recovery for diagnostics and monitoring
       // Helps identify flaky endpoints or transient GitHub API issues
       // Uses console.error to ensure visibility even when stdout is redirected
+      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
       if (attempt > 1 && firstError) {
         console.error(
           `[gh-issue] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')})`
