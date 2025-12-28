@@ -11,7 +11,8 @@ import {
   safeUpdatePRBodyState,
   safeUpdateIssueBodyState,
 } from '../state/router.js';
-import { applyWiggumState, addToCompletedSteps } from '../state/state-utils.js';
+import { applyWiggumState } from '../state/state-utils.js';
+import { advanceToNextStep } from '../state/transitions.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
 import { buildValidationErrorMessage } from '../utils/error-messages.js';
@@ -176,15 +177,14 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
       currentStep: state.wiggum.step,
     });
 
-    // Mark current step as complete (without incrementing iteration)
-    // This allows the router to advance to the next step
-    const newState = {
-      iteration: state.wiggum.iteration, // Keep iteration unchanged
-      step: state.wiggum.step,
-      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, state.wiggum.step),
-      phase: state.wiggum.phase,
-      maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
-    };
+    // Mark current step as complete and advance to next step
+    // Use transition helper to ensure valid state (issue #799)
+    let newState = advanceToNextStep(state.wiggum);
+
+    // Override maxIterations if provided (create new object to avoid mutating readonly)
+    if (input.maxIterations !== undefined) {
+      newState = { ...newState, maxIterations: input.maxIterations };
+    }
 
     logger.info('Updating wiggum state (fast-path)', {
       phase,

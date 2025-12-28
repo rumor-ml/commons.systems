@@ -12,6 +12,7 @@ import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
+import { WiggumStateSchema } from './types.js';
 import { addToCompletedSteps, applyWiggumState } from './state-utils.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
@@ -32,7 +33,7 @@ import {
   generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { GitHubCliError } from '../utils/errors.js';
+import { GitHubCliError, StateApiError } from '../utils/errors.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 
 /**
@@ -217,6 +218,27 @@ export async function safeUpdatePRBodyState(
     });
     throw new Error(
       `safeUpdatePRBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+    );
+  }
+
+  // Validate state before attempting to post (issue #799)
+  // This catches invalid states early and provides clear error messages
+  try {
+    WiggumStateSchema.parse(state);
+  } catch (validationError) {
+    logger.error('safeUpdatePRBodyState: State validation failed before posting', {
+      prNumber,
+      step,
+      state,
+      error: validationError instanceof Error ? validationError.message : String(validationError),
+      impact: 'Invalid state cannot be persisted to GitHub',
+    });
+    throw new StateApiError(
+      `Invalid state: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+      'write',
+      'pr',
+      prNumber,
+      validationError instanceof Error ? validationError : new Error(String(validationError))
     );
   }
 
@@ -412,6 +434,27 @@ export async function safeUpdateIssueBodyState(
     });
     throw new Error(
       `safeUpdateIssueBodyState: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries})`
+    );
+  }
+
+  // Validate state before attempting to post (issue #799)
+  // This catches invalid states early and provides clear error messages
+  try {
+    WiggumStateSchema.parse(state);
+  } catch (validationError) {
+    logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
+      issueNumber,
+      step,
+      state,
+      error: validationError instanceof Error ? validationError.message : String(validationError),
+      impact: 'Invalid state cannot be persisted to GitHub',
+    });
+    throw new StateApiError(
+      `Invalid state: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+      'write',
+      'issue',
+      issueNumber,
+      validationError instanceof Error ? validationError : new Error(String(validationError))
     );
   }
 

@@ -159,6 +159,9 @@ const WiggumStateSchema = z
     }
   );
 
+// Export schema for validation in other modules (e.g., state update validation)
+export { WiggumStateSchema };
+
 const CurrentStateSchema = z.object({
   git: GitStateSchema,
   pr: PRStateSchema,
