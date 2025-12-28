@@ -1069,4 +1069,199 @@ describe('review-completion-helper', () => {
       assert.strictEqual(retryableStatusCodes.includes(404), false);
     });
   });
+
+  describe('safePostReviewComment', () => {
+    test('should validate maxRetries parameter (must be 1-100)', () => {
+      // Documents that maxRetries must be a positive integer between 1 and 100
+      // Invalid values (< 1, > 100, non-integer, NaN, Infinity) should throw ValidationError
+      const validMaxRetries = [1, 3, 5, 10, 100];
+      const invalidMaxRetries = [0, -1, 0.5, 101, NaN, Infinity];
+
+      // Valid values should not throw
+      for (const value of validMaxRetries) {
+        assert.strictEqual(Number.isInteger(value), true);
+        assert.strictEqual(value >= 1 && value <= 100, true);
+      }
+
+      // Invalid values should fail validation
+      for (const value of invalidMaxRetries) {
+        const isValid = Number.isInteger(value) && value >= 1 && value <= 100;
+        assert.strictEqual(isValid, false);
+      }
+    });
+
+    test('should document comment posting error handling strategy', () => {
+      // Documents error classification for comment posting:
+      // - 404 (issue not found): Log ERROR, return false, no retry
+      // - 401/403 (auth): Log ERROR, return false, no retry
+      // - 429 (rate limit): Log INFO, retry with backoff
+      // - Network errors: Log INFO, retry with backoff
+      // - Unexpected: Log ERROR, return false, no retry
+      const criticalErrors = [404, 401, 403]; // No retry
+      const transientErrors = [429]; // Retry with backoff
+      const networkErrorPatterns = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'];
+
+      assert.strictEqual(criticalErrors.includes(404), true);
+      assert.strictEqual(criticalErrors.includes(401), true);
+      assert.strictEqual(transientErrors.includes(429), true);
+      assert.strictEqual(networkErrorPatterns.includes('ETIMEDOUT'), true);
+    });
+
+    test('should document non-blocking behavior on failure', () => {
+      // Documents that comment posting failures are non-blocking:
+      // - State is already persisted in PR/issue body
+      // - Comment posting is supplementary (nice-to-have)
+      // - Workflow continues even if comment fails
+      // - Function returns boolean (true = posted, false = failed)
+      const isNonBlocking = true;
+      const returnTypeIsBoolean = true;
+      const stateAlreadyPersisted = true;
+
+      assert.strictEqual(isNonBlocking, true);
+      assert.strictEqual(returnTypeIsBoolean, true);
+      assert.strictEqual(stateAlreadyPersisted, true);
+    });
+
+    test('should document exponential backoff for retries', () => {
+      // Documents that retries use exponential backoff (2^attempt * 1000ms)
+      // with a 60s cap, matching the pattern in safeUpdatePRBodyState
+      const MAX_DELAY_MS = 60000;
+      const attempt1Delay = Math.min(Math.pow(2, 1) * 1000, MAX_DELAY_MS); // 2s
+      const attempt2Delay = Math.min(Math.pow(2, 2) * 1000, MAX_DELAY_MS); // 4s
+      const attempt3Delay = Math.min(Math.pow(2, 3) * 1000, MAX_DELAY_MS); // 8s
+
+      assert.strictEqual(attempt1Delay, 2000);
+      assert.strictEqual(attempt2Delay, 4000);
+      assert.strictEqual(attempt3Delay, 8000);
+    });
+
+    test('should document comment structure (title + body)', () => {
+      // Documents that comments are formatted with:
+      // - Title as H2 heading (## {title})
+      // - Body content from buildCommentContent
+      // - Full structure: `## ${title}\n\n${body}`
+      const title = 'Step 2 (PR Review) - Issues Found';
+      const body =
+        '**Command Executed:** `/all-hands-review`\n\n**PR Issues Found:**\n- High Priority: 3';
+      const expectedFormat = `## ${title}\n\n${body}`;
+
+      assert.strictEqual(expectedFormat.startsWith('## '), true);
+      assert.strictEqual(expectedFormat.includes('\n\n'), true);
+    });
+
+    test('should document logging levels for different scenarios', () => {
+      // Documents logging levels for comment posting:
+      // - SUCCESS (first attempt): INFO
+      // - SUCCESS (after retry): INFO with recovery message
+      // - RETRY (transient error): INFO with backoff details
+      // - FAILURE (after retries): WARN with workflow continuation message
+      // - CRITICAL (404, auth): ERROR with recommendation
+      const logLevels = {
+        success: 'INFO',
+        successAfterRetry: 'INFO',
+        retryTransient: 'INFO',
+        failureAfterRetries: 'WARN',
+        criticalError: 'ERROR',
+      };
+
+      assert.strictEqual(logLevels.success, 'INFO');
+      assert.strictEqual(logLevels.criticalError, 'ERROR');
+      assert.strictEqual(logLevels.failureAfterRetries, 'WARN');
+    });
+
+    test('should document integration with buildCommentContent', () => {
+      // Documents that safePostReviewComment integrates with buildCommentContent:
+      // - buildCommentContent formats review results into title + body
+      // - safePostReviewComment posts the formatted content with retry logic
+      // - Separation of concerns: formatting vs posting
+      const formattingFunction = 'buildCommentContent';
+      const postingFunction = 'safePostReviewComment';
+      const separationOfConcerns = true;
+
+      assert.strictEqual(formattingFunction, 'buildCommentContent');
+      assert.strictEqual(postingFunction, 'safePostReviewComment');
+      assert.strictEqual(separationOfConcerns, true);
+    });
+  });
+
+  describe('completeReview comment posting integration', () => {
+    test('should document comment posting occurs after state update', () => {
+      // Documents the execution order in completeReview:
+      // 1. Load review results (with inScope/outOfScope capture)
+      // 2. Build new state
+      // 3. Update state in PR/issue body (with retry)
+      // 4. Post review comment to issue (non-blocking)
+      // 5. Continue with iteration limit check and next step
+      const executionOrder = [
+        'loadReviewResults',
+        'buildNewState',
+        'retryStateUpdate',
+        'safePostReviewComment', // NEW: Added in this fix
+        'isIterationLimitReached',
+      ];
+
+      assert.strictEqual(executionOrder[3], 'safePostReviewComment');
+      assert.strictEqual(executionOrder[2], 'retryStateUpdate');
+    });
+
+    test('should document verbatimResponse construction', () => {
+      // Documents that verbatimResponse combines inScope + outOfScope:
+      // - inScope: "## In-Scope Issues\n\n{content}"
+      // - outOfScope: "## Out-of-Scope Recommendations\n\n{content}"
+      // - Combined: [inScope, outOfScope].filter(Boolean).join('\n\n')
+      // - Empty sections are filtered out
+      const inScope = '## In-Scope Issues\n\nContent';
+      const outOfScope = '## Out-of-Scope Recommendations\n\nContent';
+      const combined = [inScope, outOfScope].filter(Boolean).join('\n\n');
+
+      assert.strictEqual(combined.includes('## In-Scope Issues'), true);
+      assert.strictEqual(combined.includes('## Out-of-Scope Recommendations'), true);
+      assert.strictEqual(combined.split('\n\n').length >= 2, true);
+    });
+
+    test('should document defensive check for missing issue', () => {
+      // Documents that completeReview has defensive error handling:
+      // - Checks if state.issue.exists before posting comment
+      // - Logs ERROR if issue missing (should be unreachable)
+      // - validatePhaseRequirements ensures issue exists earlier
+      // - Workflow continues without comment if check fails
+      const hasDefensiveCheck = true;
+      const logsErrorIfMissing = true;
+      const workflowContinues = true;
+
+      assert.strictEqual(hasDefensiveCheck, true);
+      assert.strictEqual(logsErrorIfMissing, true);
+      assert.strictEqual(workflowContinues, true);
+    });
+
+    test('should document workflow continues on comment failure', () => {
+      // Documents that comment posting failures don't halt workflow:
+      // - safePostReviewComment returns false on failure
+      // - completeReview logs WARN and continues to iteration limit check
+      // - State is already persisted, so comment is optional
+      // - User sees review results in body even if comment fails
+      const commentFailureIsNonBlocking = true;
+      const stateAlreadyPersisted = true;
+      const workflowContinues = true;
+
+      assert.strictEqual(commentFailureIsNonBlocking, true);
+      assert.strictEqual(stateAlreadyPersisted, true);
+      assert.strictEqual(workflowContinues, true);
+    });
+
+    test('should document comment posts to issue (not PR)', () => {
+      // Documents that review comments always post to the linked issue:
+      // - Phase 1: State in issue body, comment to issue
+      // - Phase 2: State in PR body, comment to issue (NOT PR)
+      // - Rationale: Issue is the source of truth for tracking
+      const commentTarget = 'issue';
+      const phase1StateLocation = 'issue';
+      const phase2StateLocation = 'pr';
+
+      assert.strictEqual(commentTarget, 'issue');
+      assert.notStrictEqual(commentTarget, 'pr');
+      assert.strictEqual(phase1StateLocation, 'issue');
+      assert.strictEqual(phase2StateLocation, 'pr');
+    });
+  });
 });

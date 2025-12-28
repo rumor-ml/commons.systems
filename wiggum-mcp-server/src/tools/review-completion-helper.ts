@@ -27,7 +27,7 @@ import {
   generateIterationLimitInstructions,
 } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
-import { ValidationError, FilesystemError } from '../utils/errors.js';
+import { ValidationError, FilesystemError, GitHubCliError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
@@ -843,6 +843,187 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 /**
+ * Post review comment to GitHub issue with retry logic for transient failures
+ *
+ * This function posts detailed review results as a comment to the linked GitHub issue.
+ * It's non-blocking: failures don't halt the workflow since state is already persisted
+ * in the PR/issue body.
+ *
+ * Error handling strategy:
+ * - Critical errors (404, 401/403): Log error, return false, continue workflow (no retry)
+ * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Unexpected errors: Log error, return false, continue workflow (no retry)
+ *
+ * @param issueNumber - GitHub issue number to post comment to
+ * @param commentTitle - Title/heading for the comment
+ * @param commentBody - Full comment body with review details
+ * @param reviewStep - Current review step for logging context
+ * @param maxRetries - Maximum retry attempts (default: 3, range: 1-100)
+ * @returns Promise<boolean> - true if comment posted successfully, false if failed
+ * @throws {ValidationError} If maxRetries is not a positive integer in range 1-100
+ */
+async function safePostReviewComment(
+  issueNumber: number,
+  commentTitle: string,
+  commentBody: string,
+  reviewStep: WiggumStep,
+  maxRetries = 3
+): Promise<boolean> {
+  // Validate maxRetries to ensure retry loop executes correctly
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
+    logger.error('safePostReviewComment: Invalid maxRetries parameter', {
+      issueNumber,
+      reviewStep,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
+      impact: 'Cannot execute retry loop with invalid parameter',
+    });
+    throw new ValidationError(
+      `safePostReviewComment: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
+    );
+  }
+
+  // Import postIssueComment from issue-comments module
+  const { postIssueComment } = await import('../state/issue-comments.js');
+
+  const fullCommentBody = `## ${commentTitle}\n\n${commentBody}`;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await postIssueComment(issueNumber, fullCommentBody);
+
+      // Log success (or recovery on retry)
+      if (attempt > 1) {
+        logger.info('Posted review comment to issue after retry', {
+          issueNumber,
+          reviewStep,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      } else {
+        logger.info('Posted review comment to issue', {
+          issueNumber,
+          reviewStep,
+          commentLength: fullCommentBody.length,
+        });
+      }
+
+      return true;
+    } catch (commentError) {
+      // Comment posting is NON-BLOCKING - state already persisted in body
+      // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
+      const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
+      const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
+      const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
+
+      // Build error context for logging
+      const errorContext = {
+        issueNumber,
+        reviewStep,
+        attempt,
+        maxRetries,
+        error: errorMsg,
+        errorType: commentError instanceof GitHubCliError ? 'GitHubCliError' : typeof commentError,
+        exitCode,
+        stderr,
+      };
+
+      // Classify error type based on error message patterns and exit codes
+      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+      const isAuth =
+        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+        exitCode === 401 ||
+        exitCode === 403;
+      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+      // Critical errors: Issue not found or authentication failures - log and return false (no retry)
+      if (is404) {
+        logger.error('Cannot post review comment - issue not found', {
+          ...errorContext,
+          impact: 'Review results not visible in issue, but state persisted in body',
+          recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
+          isTransient: false,
+        });
+        return false;
+      }
+
+      if (isAuth) {
+        logger.error('Cannot post review comment - authentication failed', {
+          ...errorContext,
+          impact: 'Review results not visible in issue, but state persisted in body',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          isTransient: false,
+        });
+        return false;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (isRateLimit || isNetwork) {
+        const reason = isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2^attempt seconds, capped at 60s
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          logger.info('Transient error posting review comment - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
+            remainingAttempts: maxRetries - attempt,
+          });
+          await sleepMs(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - log warning and return false
+        logger.warn('Failed to post review comment after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Review results not visible in issue, but state persisted in body',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return false;
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - log and return false (no retry)
+      logger.error('Unexpected error posting review comment', {
+        ...errorContext,
+        impact: 'Review results not visible in issue, but state persisted in body',
+        recommendation: 'Check error details and consider manual comment posting',
+        isTransient: false,
+      });
+      return false;
+    }
+  }
+
+  // This code path should be unreachable due to loop logic, but TypeScript requires a return
+  // If we reach here, it indicates a programming error in the retry loop
+  logger.error('CRITICAL: Unreachable code path in safePostReviewComment', {
+    issueNumber,
+    reviewStep,
+    maxRetries,
+    impact: 'Internal error - retry loop logic violation',
+  });
+  return false;
+}
+
+/**
  * Retry state update with exponential backoff for transient failures
  *
  * Automatically retries state updates that fail due to transient issues like
@@ -1112,10 +1293,14 @@ export async function completeReview(
 
   // Load review results from scope-separated files
   // Capture warnings to surface data completeness issues to users (e.g., out-of-scope file failures)
-  const { warnings: loadWarnings } = await loadReviewResults(
-    input.in_scope_files,
-    input.out_of_scope_files
-  );
+  const {
+    inScope,
+    outOfScope,
+    warnings: loadWarnings,
+  } = await loadReviewResults(input.in_scope_files, input.out_of_scope_files);
+
+  // Combine formatted sections for comment
+  const verbatimResponse = [inScope, outOfScope].filter(Boolean).join('\n\n');
 
   // Log any warnings from file loading - these indicate potentially incomplete review data
   // (e.g., out-of-scope files that failed to load, empty files, etc.)
@@ -1233,6 +1418,43 @@ The workflow will resume from this step once the state update succeeds.`,
       ],
       isError: true,
     };
+  }
+
+  // Post review comment to issue (non-blocking)
+  // State update succeeded, now post detailed review results as a comment to the linked issue
+  if (state.issue.exists && state.issue.number) {
+    const issueNumber = state.issue.number;
+
+    // Build comment using existing buildCommentContent function
+    const { title, body } = buildCommentContent(
+      verbatimResponse,
+      reviewStep,
+      issues,
+      config,
+      state.wiggum.phase
+    );
+
+    // Post comment with retry logic (non-blocking)
+    const commentPosted = await safePostReviewComment(issueNumber, title, body, reviewStep);
+
+    if (!commentPosted) {
+      logger.warn('Review comment not posted - workflow continuing normally', {
+        issueNumber,
+        reviewStep,
+        reviewType: config.reviewTypeLabel,
+        phase: state.wiggum.phase,
+        impact: 'Review results not visible in issue, but state persisted in body',
+      });
+    }
+  } else {
+    // Defensive: Should be unreachable (validatePhaseRequirements ensures issue exists)
+    logger.error('Missing issue for comment posting - skipping comment', {
+      phase: state.wiggum.phase,
+      reviewStep,
+      issueExists: state.issue.exists,
+      issueNumber: state.issue.number,
+      action: 'Continuing workflow without comment',
+    });
   }
 
   if (isIterationLimitReached(newState)) {
