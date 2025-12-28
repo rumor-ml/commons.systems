@@ -11,12 +11,12 @@ import { createErrorResult, ParsingError } from '../utils/errors.js';
 /**
  * Validate GraphQL response has expected data field
  *
- * Logs response structure for debugging and throws a ParsingError with GitHub error
+ * Validates response structure and throws a ParsingError with GitHub error
  * context if the response is missing the 'data' field.
  *
  * **Logging behavior:**
  * - Production: Only logs GitHub API error messages (safe, no sensitive data)
- * - Debug mode: Logs response structure (keys, size) but NOT content to avoid leaking issue data
+ * - Debug mode: Also logs response structure (keys, size) but NOT content to avoid leaking issue data
  *
  * @param result - GraphQL response to validate
  * @param queryName - Name of the query for error context (e.g., 'parent', 'children')

@@ -185,8 +185,8 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
 
    ```bash
    # Generate millisecond timestamp to ensure unique filenames when multiple agents
-   # run in parallel. Second-level precision is insufficient since review agents
-   # execute concurrently and may start within the same second.
+   # run in parallel during the same second. Without millisecond precision, concurrent
+   # review agents (code-reviewer, code-simplifier, etc.) could overwrite each other's files.
    TIMESTAMP=$(date +%s%3N)
    IN_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-${TIMESTAMP}.md"
    OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-${TIMESTAMP}.md"
@@ -196,13 +196,13 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
 
    ```bash
    mkdir -p "$(pwd)/tmp/wiggum"
-   # Note: -p flag prevents errors if directory already exists
-   # (useful when multiple review agents run in parallel and may attempt to create this directory)
+   # Note: -p flag ensures mkdir succeeds even if directory already exists
+   # (multiple review agents may create this concurrently)
    ```
 
 3. Write findings to both files using Write tool
    - Use the EXACT structure from the "Output Format" section above: Type header, Invariants Identified, Ratings (Encapsulation, Invariant Expression, Invariant Usefulness, Invariant Enforcement), Strengths, Concerns, and Recommended Improvements
-   - The structure (section headings, order) MUST be identical in both files to enable consistent parsing and presentation by the wiggum tool
+   - The structure (section headings, order) MUST be identical in both files
    - Only the specific findings differ (in-scope vs out-of-scope)
 
 ### Return JSON Summary
