@@ -161,7 +161,7 @@ export function generateTriageInstructions(
   }
 
   // Validate issueNumber: Must be positive integer
-  // Note: Number.isInteger rejects Infinity, -Infinity, NaN, and decimals
+  // Note: Number.isInteger rejects Infinity, -Infinity, NaN, and decimals (no need for separate Number.isFinite check)
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`

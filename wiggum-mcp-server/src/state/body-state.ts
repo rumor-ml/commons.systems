@@ -17,6 +17,8 @@ import { GitHubCliError } from '../utils/errors.js';
  *
  * This error indicates corrupted state data that requires user intervention.
  * The error message includes actionable recovery instructions.
+ *
+ * @throws {Error} If bodyLength is negative or matchedJsonPreview exceeds 200 chars
  */
 export class StateCorruptionError extends Error {
   constructor(
@@ -25,6 +27,13 @@ export class StateCorruptionError extends Error {
     public readonly bodyLength: number,
     public readonly matchedJsonPreview: string
   ) {
+    // Validate constructor parameters for fail-fast behavior
+    if (bodyLength < 0) {
+      throw new Error('StateCorruptionError: bodyLength cannot be negative');
+    }
+    if (matchedJsonPreview.length > 200) {
+      throw new Error('StateCorruptionError: matchedJsonPreview exceeds 200 char limit');
+    }
     super(message);
     this.name = 'StateCorruptionError';
   }

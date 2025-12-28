@@ -803,8 +803,9 @@ function sleepMs(ms: number): Promise<void> {
  *
  * @param state - Current state object
  * @param newState - New state to update
- * @param maxRetries - Maximum retry attempts (default: 3)
+ * @param maxRetries - Maximum retry attempts (default: 3, must be >= 1)
  * @returns StateUpdateResult after retries exhausted or success
+ * @throws {ValidationError} If maxRetries is not a positive integer
  */
 async function retryStateUpdate(
   state: CurrentState,
@@ -816,6 +817,14 @@ async function retryStateUpdate(
   },
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Validate maxRetries to ensure loop executes at least once
+  // Prevents edge case where maxRetries < 1 would skip the loop entirely
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    throw new ValidationError(
+      `retryStateUpdate: maxRetries must be a positive integer, got: ${maxRetries}`
+    );
+  }
+
   // Initialize with a placeholder failure that will be overwritten on first attempt
   let result: StateUpdateResult = { success: false, reason: 'network', isTransient: true };
 

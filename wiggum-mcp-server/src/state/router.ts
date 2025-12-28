@@ -56,10 +56,20 @@ type CurrentStateWithPR = CurrentState & {
  *
  * Transient errors are logged and cause workflow to halt gracefully with
  * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
+ *
+ * Failure cases include lastError and attemptCount for debugging (issue #625):
+ * - lastError: The actual error from the final retry attempt
+ * - attemptCount: Number of retry attempts made before failure
  */
 type StateUpdateResult =
   | { success: true }
-  | { success: false; reason: 'rate_limit' | 'network'; isTransient: true };
+  | {
+      success: false;
+      reason: 'rate_limit' | 'network';
+      isTransient: true;
+      lastError?: Error;
+      attemptCount?: number;
+    };
 
 interface WiggumInstructions {
   current_step: string;
@@ -191,8 +201,9 @@ export async function safeUpdatePRBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type based on error message patterns
+      // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      // Note: Network errors check only message patterns (no exitCode) since they occur before HTTP
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -201,7 +212,7 @@ export async function safeUpdatePRBodyState(
       const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
       const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
 
-      // Build comprehensive error context
+      // Build error context including classification results for debugging
       const errorContext = {
         prNumber,
         step,
@@ -215,6 +226,8 @@ export async function safeUpdatePRBodyState(
         errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
         exitCode,
         stderr,
+        // Include classification results for debugging
+        classification: { is404, isAuth, isRateLimit, isNetwork },
       };
 
       // Critical errors: PR not found or authentication failures - throw immediately (no retry)
@@ -257,7 +270,9 @@ export async function safeUpdatePRBodyState(
           continue; // Retry
         }
 
-        // All retries exhausted - return failure result
+        // All retries exhausted - return failure result with error context for debugging
+        const lastErrorObj =
+          updateError instanceof Error ? updateError : new Error(String(updateError));
         logger.warn('State update failed after all retries', {
           ...errorContext,
           reason,
@@ -268,7 +283,13 @@ export async function safeUpdatePRBodyState(
               : 'Check network connection and GitHub API status',
           isTransient: true,
         });
-        return { success: false, reason, isTransient: true };
+        return {
+          success: false,
+          reason,
+          isTransient: true,
+          lastError: lastErrorObj,
+          attemptCount: maxRetries,
+        };
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
@@ -283,10 +304,11 @@ export async function safeUpdatePRBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // All code paths within the loop return or throw - this line is unreachable at runtime:
+  // All code paths within the loop return or throw - this line is unreachable at runtime (assuming maxRetries >= 1):
   // - Success: returns { success: true }
   // - Transient error (retries exhausted): returns { success: false, ... }
   // - Critical/unexpected error: throws
+  // Note: Callers use default maxRetries=3 or explicitly validate positive values
   throw new Error('Unreachable: retry loop should always return or throw');
 }
 
@@ -338,8 +360,9 @@ export async function safeUpdateIssueBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type based on error message patterns
+      // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      // Note: Network errors check only message patterns (no exitCode) since they occur before HTTP
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -348,7 +371,7 @@ export async function safeUpdateIssueBodyState(
       const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
       const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
 
-      // Build comprehensive error context
+      // Build error context including classification results for debugging
       const errorContext = {
         issueNumber,
         step,
@@ -362,6 +385,8 @@ export async function safeUpdateIssueBodyState(
         errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
         exitCode,
         stderr,
+        // Include classification results for debugging
+        classification: { is404, isAuth, isRateLimit, isNetwork },
       };
 
       // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
@@ -404,7 +429,9 @@ export async function safeUpdateIssueBodyState(
           continue; // Retry
         }
 
-        // All retries exhausted - return failure result
+        // All retries exhausted - return failure result with error context for debugging
+        const lastErrorObj =
+          updateError instanceof Error ? updateError : new Error(String(updateError));
         logger.warn('State update failed after all retries', {
           ...errorContext,
           reason,
@@ -415,7 +442,13 @@ export async function safeUpdateIssueBodyState(
               : 'Check network connection and GitHub API status',
           isTransient: true,
         });
-        return { success: false, reason, isTransient: true };
+        return {
+          success: false,
+          reason,
+          isTransient: true,
+          lastError: lastErrorObj,
+          attemptCount: maxRetries,
+        };
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
@@ -430,10 +463,11 @@ export async function safeUpdateIssueBodyState(
     }
   }
   // TypeScript control flow: Required for type-checker since it can't verify loop exhaustiveness.
-  // All code paths within the loop return or throw - this line is unreachable at runtime:
+  // All code paths within the loop return or throw - this line is unreachable at runtime (assuming maxRetries >= 1):
   // - Success: returns { success: true }
   // - Transient error (retries exhausted): returns { success: false, ... }
   // - Critical/unexpected error: throws
+  // Note: Callers use default maxRetries=3 or explicitly validate positive values
   throw new Error('Unreachable: retry loop should always return or throw');
 }
 

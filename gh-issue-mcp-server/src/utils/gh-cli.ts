@@ -162,8 +162,9 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
   // If exitCode matches retryable HTTP codes (429, 502-504), return true immediately.
   // Otherwise, ALWAYS fall through to Priority 2/3 checks because:
-  //   - Network errors (ETIMEDOUT) may have HTTP codes but still be retryable
-  //   - Error may have no exitCode but still match retryable patterns
+  //   - exitCode may be a non-retryable HTTP status (e.g., 400, 404) but the error might
+  //     also have a retryable Node.js error code (ETIMEDOUT, ECONNRESET)
+  //   - Error may have no exitCode but still match retryable patterns in message text
   // NOTE: We never return false based on exitCode alone - only return true for known retryable codes
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
@@ -315,15 +316,14 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
-      // Duck typing is used because error may be thrown from external libraries with different Error subclasses
+      // Extract exit code if present (error type may vary across libraries)
       // Note: exitCode may be undefined if:
       //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
       //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
       //   - Error originated from ghCli() wrapper before CLI invocation
       // When undefined, we fall back to HTTP status extraction from error message text.
-      // This fallback is necessary because isRetryableError() needs the exit code to
-      // determine if errors are retryable (429, 502-504) without relying solely on fragile string matching.
+      // This fallback improves reliability for isRetryableError() by providing exit code
+      // for accurate HTTP status detection (429, 502-504), reducing reliance on fragile string matching.
       lastExitCode = (error as { exitCode?: number }).exitCode;
       if (lastExitCode === undefined && lastError.message) {
         // Try multiple patterns to extract HTTP status from error message
@@ -340,8 +340,8 @@ export async function ghCliWithRetry(
           if (statusMatch && statusMatch[1]) {
             const parsed = parseInt(statusMatch[1], 10);
             // Validate parsed exit code is a well-formed HTTP status code (100-599)
-            // - Must be finite (not Infinity or NaN from malformed input)
-            // - Must be safe integer (defensive check, always true for 100-599 range)
+            // - Must be finite (not Infinity or NaN from malformed input like "status: Infinity")
+            // - Must be safe integer (rejects decimals from malformed input like "status: 429.5")
             // - Must be in standard HTTP status range (100-599 per RFC 7231)
             // Note: parseInt extracts leading digits, so "429abc" becomes 429 (intended behavior)
             // We accept ALL valid HTTP codes here (not just retryable 429/502-504)

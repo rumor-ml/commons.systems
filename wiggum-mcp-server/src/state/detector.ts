@@ -289,7 +289,7 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
 
   const MAX_RECURSION_DEPTH = 3;
 
-  // Check depth limit with >= for clarity (0, 1, 2 allowed; 3+ rejected)
+  // Check depth limit: MAX_RECURSION_DEPTH=3 means depths 0,1,2 allowed; 3+ rejected
   if (depth >= MAX_RECURSION_DEPTH) {
     logger.error('detectCurrentState: maximum recursion depth exceeded', {
       depth,
@@ -323,9 +323,11 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
 
     // If state detection took longer than 5 seconds, re-validate PR state
     // to detect race conditions where PR might have been closed/modified during the slow API call.
-    // Note: This is a single recursive call with depth limit, not a loop.
+    // Note: This is at most one recursive call per invocation (not a loop), with overall depth limit enforced above.
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
+      // Only retry if a DIFFERENT PR is now current - indicates race condition
+      // If revalidatedPr matches original pr.number, or PR no longer exists, original state is valid
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
         // Check if recursion would exceed limit BEFORE making the recursive call
         // This prevents wasted work when depth=2 and next call would immediately fail at depth=3

@@ -98,7 +98,7 @@ export class StateDetectionError extends McpError {
  * the specific state operation that failed. Use this for failures during state
  * reads/writes rather than generic GitHubCliError.
  *
- * @throws {Error} If resourceId is provided but is not a positive integer
+ * @throws {ValidationError} If resourceId is provided but is not a positive integer
  */
 export class StateApiError extends McpError {
   constructor(
@@ -110,7 +110,9 @@ export class StateApiError extends McpError {
   ) {
     // Validate resourceId if provided - must be positive integer (valid PR/issue number)
     if (resourceId !== undefined && (!Number.isInteger(resourceId) || resourceId <= 0)) {
-      throw new Error(`StateApiError: resourceId must be a positive integer, got: ${resourceId}`);
+      throw new ValidationError(
+        `StateApiError: resourceId must be a positive integer, got: ${resourceId}`
+      );
     }
     super(message, 'STATE_API_ERROR');
     this.name = 'StateApiError';
