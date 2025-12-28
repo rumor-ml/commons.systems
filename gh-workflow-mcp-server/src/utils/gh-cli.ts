@@ -80,12 +80,15 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     }
 
     // Unknown error type - likely programming error, log for diagnosis
+    // Capture stack trace at the catch point for debugging since non-Error values don't have stacks
+    const capturedStack = new Error('Stack trace for unknown error type').stack;
     const errorType = typeof error;
     const errorStr = String(error);
     console.error('[gh-workflow] WARN ghCli caught unexpected error type', {
       error,
       errorType,
       args,
+      capturedStack, // Include stack trace for debugging
     });
     // Include full diagnostic context in thrown error for debugging
     throw new GitHubCliError(
@@ -93,7 +96,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
         `Command: gh ${args.join(' ')}\n` +
         `Error type: ${errorType}\n` +
         `Error value: ${errorStr}\n` +
-        `This indicates a programming error (non-Error thrown).`
+        `This indicates a programming error (non-Error thrown).\n` +
+        `Stack trace at catch point:\n${capturedStack}`
     );
   }
 }

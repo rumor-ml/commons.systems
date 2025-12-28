@@ -336,14 +336,56 @@ async function readReviewFile(
     // Try to get file metadata for diagnostics
     let fileExists = false;
     let fileSize: number | undefined;
+    // Serious filesystem error codes that should be escalated even if stat() succeeds
+    // These indicate permission/resource issues that require immediate attention
+    const SERIOUS_FILESYSTEM_ERRORS = ['EACCES', 'EROFS', 'ENOSPC', 'EMFILE', 'ENFILE'];
+    const originalErrorCode = (errorObj as NodeJS.ErrnoException).code;
+
     try {
       const stats = await stat(filePath);
       fileExists = true;
       fileSize = stats.size;
+
+      // CRITICAL: If original error is a serious filesystem error but stat() succeeded,
+      // we have an inconsistent state (file is stat-able but operation failed).
+      // This indicates permission/resource issues that need escalation.
+      // Example: EACCES on read but stat succeeds means we can see the file but can't read it.
+      if (originalErrorCode && SERIOUS_FILESYSTEM_ERRORS.includes(originalErrorCode)) {
+        logger.error('Serious filesystem error with accessible file - escalating', {
+          filePath,
+          category,
+          errorCode: originalErrorCode,
+          fileExists: true,
+          fileSize: stats.size,
+          impact: 'File exists and is stat-able but operation failed',
+          action: 'Check file permissions, disk space, and open file limits',
+        });
+
+        const fileError = createFileReadError(filePath, errorObj, true, stats.size);
+        errors.push(fileError);
+
+        throw new FilesystemError(
+          `Serious filesystem error reading review file: ${errorObj.message}\n` +
+            `File exists and is stat-able (size: ${stats.size} bytes), indicating permission or resource issue.\n` +
+            `Error code: ${originalErrorCode}\n\n` +
+            `Actions:\n` +
+            `  1. Check file permissions: ls -la "${filePath}"\n` +
+            `  2. Check disk space: df -h\n` +
+            `  3. Check open file limits: ulimit -n\n` +
+            `  4. Verify file is not locked by another process`,
+          filePath,
+          errorObj,
+          undefined,
+          originalErrorCode
+        );
+      }
     } catch (statError) {
+      // Re-throw FilesystemError from the serious error check above
+      if (statError instanceof FilesystemError) {
+        throw statError;
+      }
       const statErrorObj = statError instanceof Error ? statError : new Error(String(statError));
       const statErrorCode = (statError as NodeJS.ErrnoException).code;
-      const originalErrorCode = (errorObj as NodeJS.ErrnoException).code;
 
       // Check if this is a simple "file not found" case (both errors are ENOENT)
       // This is expected behavior, not a cascading filesystem failure
