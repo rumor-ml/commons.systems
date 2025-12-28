@@ -64,8 +64,17 @@ type CurrentStateWithPR = CurrentState & {
  * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
  *
  * @deprecated (since v1.5.0, removal planned for v2.0.0): The `isTransient` field is
- * redundant - use `success === false` to detect transient failures. The `reason` field
- * already distinguishes failure types. New code should check `reason` instead.
+ * redundant - use `success === false` to detect transient failures.
+ *
+ * Migration guide:
+ *   // Old code:
+ *   if (!result.success && result.isTransient) { retry(); }
+ *
+ *   // New code:
+ *   if (!result.success) { retry(); } // always transient - reason tells you why
+ *
+ * All failures in StateUpdateResult are transient by design. Use `reason` field
+ * to distinguish between 'rate_limit' vs 'network' for logging/metrics.
  * TODO(#800): Remove isTransient field after migrating all consumers.
  */
 export type StateUpdateResult =
@@ -124,107 +133,13 @@ interface WiggumInstructions {
 }
 
 /**
- * Error classification result for GitHub API errors
- *
- * Used by safeUpdatePRBodyState and safeUpdateIssueBodyState to distinguish
- * between critical errors (no retry) and transient errors (retry with backoff).
- */
-interface GitHubErrorClassification {
-  /** PR/issue not found (404) - critical, no retry */
-  readonly is404: boolean;
-  /** Authentication/authorization failure (401, 403) - critical, no retry */
-  readonly isAuth: boolean;
-  /** Rate limit exceeded (429) - transient, retry with backoff */
-  readonly isRateLimit: boolean;
-  /** Network failure (ECONNREFUSED, ETIMEDOUT, etc.) - transient, retry with backoff */
-  readonly isNetwork: boolean;
-}
-
-/**
- * Classify a GitHub CLI error for retry decision
- *
- * Extracts common error classification logic used by state update functions.
- * Uses message pattern matching for network errors (exit codes vary by platform)
- * and exit codes for HTTP-related errors (reliable from gh CLI).
- *
- * @param errorMsg - Error message string
- * @param exitCode - Optional exit code from GitHubCliError
- * @returns Classification object indicating error type
- */
-function classifyGitHubError(errorMsg: string, exitCode?: number): GitHubErrorClassification {
-  return {
-    is404: /not found|404/i.test(errorMsg) || exitCode === 404,
-    isAuth:
-      /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-      exitCode === 401 ||
-      exitCode === 403,
-    isRateLimit: /rate limit|429/i.test(errorMsg) || exitCode === 429,
-    isNetwork: /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg),
-  };
-}
-
-/**
- * Build a standardized error response for state update failures
- *
- * Extracts common error response pattern used across workflow handlers when
- * state persistence fails after automatic retries. Provides consistent user-facing
- * error messages with actionable recovery instructions.
- *
- * @param stepName - Human-readable step name from STEP_NAMES
- * @param stepNumber - Step identifier (e.g., 'p1-1', 'p2-1')
- * @param iteration - Current iteration count
- * @param resourceType - 'issue' for phase1, 'PR' for phase2
- * @param resourceNumber - Issue or PR number
- * @param stateResult - The failed StateUpdateResult (success: false)
- * @returns ToolResult with isError: true and formatted instructions
- */
-function buildStateUpdateErrorResponse(
-  stepName: string,
-  stepNumber: string,
-  iteration: number,
-  resourceType: 'issue' | 'PR',
-  resourceNumber: number,
-  stateResult: Extract<StateUpdateResult, { success: false }>
-): ToolResult {
-  // Build detailed error context for user-facing message
-  const errorDetails = stateResult.lastError
-    ? `\n\nActual error: ${stateResult.lastError.message}`
-    : '';
-  const retryInfo = stateResult.attemptCount
-    ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-    : '';
-
-  const viewCommand = resourceType === 'issue' ? 'issue view' : 'pr view';
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: formatWiggumResponse({
-          current_step: stepName,
-          step_number: stepNumber,
-          iteration_count: iteration,
-          instructions: `ERROR: Failed to update state in ${resourceType} #${resourceNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming ${resourceType} #${resourceNumber} exists: \`gh ${viewCommand} ${resourceNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-          steps_completed_by_tool: [
-            'Attempted to update state in body',
-            `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-          ],
-          context: resourceType === 'PR' ? { pr_number: resourceNumber } : {},
-        }),
-      },
-    ],
-    isError: true,
-  };
-}
-
-/**
  * Internal helper: Check for uncommitted changes and return early exit if found
  *
  * This is an internal utility function used by multiple step handlers
  * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
  * git state before proceeding with monitoring operations.
  *
- * @internal
+ * @internal - Not part of public API. Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -253,7 +168,7 @@ function checkUncommittedChanges(
  * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
  * git state before proceeding with monitoring operations.
  *
- * @internal
+ * @internal - Not part of public API. Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -303,8 +218,10 @@ export async function safeUpdatePRBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
+  // CRITICAL for issue #625 (GitHub API rate limit optimization): Invalid maxRetries
+  // would cause silent failures or infinite retry loops, defeating the rate limit handling.
   // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely
+  //   - maxRetries < 1: Would skip the loop entirely (no retries attempted)
   //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
   // Without this validation, the function would reach the unreachable code path at the end
   // and throw an internal error with no context about the actual cause.
@@ -390,10 +307,18 @@ export async function safeUpdatePRBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type using shared helper
+      // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      const classification = classifyGitHubError(errorMsg, exitCode);
-      const { is404, isAuth, isRateLimit, isNetwork } = classification;
+      // Note: Network errors use message pattern matching because exitCode values for network
+      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
+      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
+      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+      const isAuth =
+        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+        exitCode === 401 ||
+        exitCode === 403;
+      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -410,7 +335,7 @@ export async function safeUpdatePRBodyState(
         exitCode,
         stderr,
         // Include classification results for debugging
-        classification,
+        classification: { is404, isAuth, isRateLimit, isNetwork },
       };
 
       // Critical errors: PR not found or authentication failures - throw immediately (no retry)
@@ -536,8 +461,10 @@ export async function safeUpdateIssueBodyState(
   maxRetries = 3
 ): Promise<StateUpdateResult> {
   // Validate maxRetries to ensure loop executes at least once
+  // CRITICAL for issue #625 (GitHub API rate limit optimization): Invalid maxRetries
+  // would cause silent failures or infinite retry loops, defeating the rate limit handling.
   // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely
+  //   - maxRetries < 1: Would skip the loop entirely (no retries attempted)
   //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
   // Without this validation, the function would reach the unreachable code path at the end
   // and throw an internal error with no context about the actual cause.
@@ -617,10 +544,18 @@ export async function safeUpdateIssueBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type using shared helper
+      // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      const classification = classifyGitHubError(errorMsg, exitCode);
-      const { is404, isAuth, isRateLimit, isNetwork } = classification;
+      // Note: Network errors use message pattern matching because exitCode values for network
+      // failures (ECONNREFUSED, ETIMEDOUT, etc.) are not standardized and vary by tool/platform.
+      // HTTP-related errors (404, 429, etc.) have reliable exitCode values from gh CLI.
+      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+      const isAuth =
+        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+        exitCode === 401 ||
+        exitCode === 403;
+      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -637,7 +572,7 @@ export async function safeUpdateIssueBodyState(
         exitCode,
         stderr,
         // Include classification results for debugging
-        classification,
+        classification: { is404, isAuth, isRateLimit, isNetwork },
       };
 
       // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
@@ -909,14 +844,33 @@ async function handlePhase1MonitorWorkflow(
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
-        STEP_PHASE1_MONITOR_WORKFLOW,
-        newState.iteration,
-        'issue',
-        issueNumber,
-        stateResult
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
+              step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+              iteration_count: newState.iteration,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: {},
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     // Reuse newState to avoid race condition with GitHub API (issue #388)
@@ -956,14 +910,33 @@ async function handlePhase1MonitorWorkflow(
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
-        STEP_PHASE1_MONITOR_WORKFLOW,
-        newState.iteration,
-        'issue',
-        issueNumber,
-        stateResult
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
+              step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+              iteration_count: newState.iteration,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: {},
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     output.iteration_count = newState.iteration;
@@ -1260,14 +1233,33 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
-        STEP_PHASE2_MONITOR_WORKFLOW,
-        newState.iteration,
-        'PR',
-        state.pr.number,
-        stateResult
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
+              step_number: STEP_PHASE2_MONITOR_WORKFLOW,
+              iteration_count: newState.iteration,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: { pr_number: state.pr.number },
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     const stepsCompleted = [
@@ -1332,14 +1324,33 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
-        STEP_PHASE2_MONITOR_CHECKS,
-        newState2.iteration,
-        'PR',
-        state.pr.number,
-        stateResult2
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult2.lastError
+        ? `\n\nActual error: ${stateResult2.lastError.message}`
+        : '';
+      const retryInfo = stateResult2.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult2.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
+              step_number: STEP_PHASE2_MONITOR_CHECKS,
+              iteration_count: newState2.iteration,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult2.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult2.reason} after ${stateResult2.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: { pr_number: state.pr.number },
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     stepsCompleted.push(
@@ -1425,14 +1436,33 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
-        STEP_PHASE2_MONITOR_CHECKS,
-        newState.iteration,
-        'PR',
-        state.pr.number,
-        stateResult
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
+              step_number: STEP_PHASE2_MONITOR_CHECKS,
+              iteration_count: newState.iteration,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: { pr_number: state.pr.number },
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     const stepsCompleted = [
@@ -1542,14 +1572,33 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
         recommendation: 'Retry after resolving rate limit/network issues',
       });
 
-      return buildStateUpdateErrorResponse(
-        STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
-        STEP_PHASE2_CODE_QUALITY,
-        newState.iteration,
-        'PR',
-        state.pr.number,
-        stateResult
-      );
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatWiggumResponse({
+              current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
+              step_number: STEP_PHASE2_CODE_QUALITY,
+              iteration_count: newState.iteration,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              steps_completed_by_tool: [
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+              ],
+              context: { pr_number: state.pr.number },
+            }),
+          },
+        ],
+        isError: true,
+      };
     }
 
     output.steps_completed_by_tool.push(

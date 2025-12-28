@@ -57,10 +57,10 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
 /**
  * Call MCP tool with retry logic for timeout errors
  *
- * The MCP TypeScript SDK has a hardcoded 60-second timeout (see @modelcontextprotocol/sdk
- * Client.callTool, not currently configurable as of SDK v0.5.0). For long-running
- * operations (like workflow monitoring), we retry on timeout errors until
- * the operation completes or maxDurationMs is reached.
+ * The MCP TypeScript SDK has a hardcoded 60-second timeout in Client.callTool
+ * (not configurable as of SDK v0.5.0). For long-running operations (like workflow
+ * monitoring in issue #625), we retry on timeout errors until the operation
+ * completes or maxDurationMs is reached.
  *
  * @param client - MCP client instance
  * @param toolName - Name of the tool to call
@@ -133,12 +133,15 @@ async function callToolWithRetry(
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
       // MCP JSON-RPC error codes (from MCP specification):
-      // -32700: Parse error - Invalid JSON
-      // -32600: Invalid request - Request object malformed
-      // -32601: Method not found - Tool doesn't exist
-      // -32602: Invalid params - Schema mismatch
-      // -32603: Internal error - Server-side error
-      // -32001: Timeout (MCP-specific extension)
+      // Fatal errors (fail fast):
+      //   -32601: Method not found - Tool doesn't exist (version mismatch)
+      //   -32602: Invalid params - Schema mismatch (programming error)
+      // Retryable errors:
+      //   -32001: Timeout (MCP-specific extension) - retry until maxDurationMs
+      // Unexpected errors (log and propagate):
+      //   -32700: Parse error - Invalid JSON
+      //   -32600: Invalid request - Request object malformed
+      //   -32603: Internal error - Server-side error
       // See: https://spec.modelcontextprotocol.io/specification/basic/messages/#error-codes
 
       // Check for known non-retryable MCP errors first (fail fast with clear diagnostics)

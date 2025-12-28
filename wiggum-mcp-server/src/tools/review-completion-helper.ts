@@ -326,11 +326,6 @@ async function readReviewFile(
     };
   } catch (error) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
-    const nodeError = errorObj as NodeJS.ErrnoException;
-
-    // Expected error codes that should be handled gracefully
-    // These are common file operation failures with well-understood causes
-    const expectedErrorCodes = ['ENOENT', 'EACCES', 'EISDIR'];
 
     // Try to get file metadata for diagnostics
     let fileExists = false;
@@ -359,46 +354,14 @@ async function readReviewFile(
     const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);
     errors.push(fileError);
 
-    // Distinguish between expected and unexpected errors for appropriate logging
-    if (nodeError.code && !expectedErrorCodes.includes(nodeError.code)) {
-      // UNEXPECTED error - log at CRITICAL level to ensure visibility
-      // These errors (ESTALE, EIO, EMLINK, ELOOP, ENXIO, EBADF, etc.) may indicate
-      // serious filesystem issues, NFS problems, or programming errors
-      logger.error(`UNEXPECTED error reading ${category} review file - investigate immediately`, {
-        filePath,
-        category,
-        errorCode: nodeError.code,
-        errorMessage: errorObj.message,
-        errorStack: errorObj.stack,
-        fileExists,
-        fileSize,
-        impact: 'This may indicate a serious file system or programming error',
-        action: 'Investigate immediately - this is not a normal failure',
-        possibleCauses: [
-          'Stale NFS file handle (ESTALE)',
-          'Disk I/O error (EIO)',
-          'Too many symbolic links (ELOOP)',
-          'Device not found (ENXIO)',
-          'Bad file descriptor (EBADF)',
-          'Disk quota exceeded (EDQUOT)',
-        ],
-      });
-    } else {
-      // Expected error - log at ERROR level with standard diagnostics
-      logger.error(`Failed to read ${category} review file`, {
-        filePath,
-        category,
-        errorMessage: errorObj.message,
-        errorCode: fileError.errorCode,
-        errorStack: errorObj.stack,
-        fileExists,
-        fileSize,
-        impact:
-          category === 'in-scope'
-            ? 'Review cannot proceed - in-scope data missing'
-            : 'Out-of-scope recommendations may be incomplete',
-      });
-    }
+    logger.error(`Failed to read ${category} review file`, {
+      filePath,
+      errorMessage: errorObj.message,
+      errorCode: fileError.errorCode,
+      errorStack: errorObj.stack,
+      fileExists,
+      fileSize,
+    });
 
     return null;
   }
