@@ -280,15 +280,29 @@ async function readReviewFile(
 
     if (stats.size === 0) {
       const agentName = extractAgentNameFromPath(filePath);
-      logger.error('Review file is empty - agent crashed during write', {
+      // Provide multiple possible causes instead of assuming crash
+      // Empty files can result from various conditions
+      logger.error('Review file is empty - multiple possible causes', {
         filePath,
         agentName,
+        possibleCauses: [
+          'Agent crashed or was killed during write',
+          'Agent found no issues and wrote empty file (check agent logs)',
+          'Disk space exhausted during write (check: df -h)',
+          'Race condition: Agent still writing (retry after delay)',
+          'Agent validation error prevented write (check agent stderr)',
+        ],
         impact: 'Review results incomplete - missing agent output',
-        action: 'Check agent logs for crash details',
+        action: 'Check agent logs and file system for root cause',
       });
 
       const emptyFileError = new Error(
-        `Review file is empty (agent ${agentName} likely crashed during write)`
+        `Review file is empty. Possible causes: ` +
+          `(1) Agent ${agentName} crashed during write, ` +
+          `(2) No issues found (check agent logs), ` +
+          `(3) Disk space exhausted, ` +
+          `(4) Still writing (retry). ` +
+          `Check agent logs and 'df -h' to diagnose.`
       );
       const fileError = createFileReadError(filePath, emptyFileError, true, 0);
       errors.push(fileError);
@@ -316,8 +330,15 @@ async function readReviewFile(
       const stats = await stat(filePath);
       fileExists = true;
       fileSize = stats.size;
-    } catch {
-      // Ignore stat errors, we're already in error path
+    } catch (statError) {
+      // Log stat failure for debugging - this helps distinguish permission vs existence issues
+      logger.debug('stat() failed during file read error recovery', {
+        filePath,
+        originalError: errorObj.message,
+        statError: statError instanceof Error ? statError.message : String(statError),
+        statErrorCode: (statError as NodeJS.ErrnoException).code,
+        impact: 'Cannot determine if file exists or has permission issues',
+      });
     }
 
     const fileError = createFileReadError(filePath, errorObj, fileExists, fileSize);

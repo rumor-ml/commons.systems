@@ -717,7 +717,9 @@ export async function ghCliWithRetry(
         );
       }
 
-      // Exponential backoff: 2^attempt seconds (attempt 1→2s, 2→4s, 3→8s)
+      // Exponential backoff: 2^attempt seconds
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, etc.
+      // Note: Unbounded growth - consider capping for very long retry sequences
       const delayMs = Math.pow(2, attempt) * 1000;
       await sleep(delayMs);
     }

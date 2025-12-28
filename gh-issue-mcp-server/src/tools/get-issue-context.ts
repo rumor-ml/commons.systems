@@ -22,46 +22,52 @@ import { createErrorResult, ParsingError } from '../utils/errors.js';
  * @throws {ParsingError} If response is missing 'data' field
  */
 function validateGraphQLResponse(
-  result: { data?: any },
+  result: { data?: any; errors?: Array<{ message: string; type?: string }> },
   queryName: string,
   issueNumber: string | number
 ): void {
   if (!result.data) {
     const responseJson = JSON.stringify(result);
+    const errors = result.errors || [];
 
-    // Only log detailed response in debug environments
-    // In production, log structure only (keys, error types) not values to avoid leaking sensitive data
+    // ALWAYS log GitHub API error messages at WARN level - they're safe and critical for debugging
+    // This ensures production users can diagnose authentication, permission, or rate limit issues
+    if (errors.length > 0) {
+      console.error(
+        `[gh-issue] WARN GraphQL query failed (query: ${queryName}, issue: #${issueNumber}, errorCount: ${errors.length})`
+      );
+      errors.forEach((err, idx) => {
+        console.error(
+          `[gh-issue] WARN   Error ${idx + 1}: ${err.type || 'unknown'} - ${err.message || '(no message)'}`
+        );
+      });
+    }
+
+    // Log additional debug info in debug environments
     if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
       const responsePreview =
         responseJson.length > 1000 ? responseJson.substring(0, 1000) + '...' : responseJson;
       console.error(
-        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, preview: ${responsePreview})`
-      );
-    } else {
-      // Production: Log structure and sanitized preview for diagnostics
-      // Preview is limited to 200 chars and only shows structure indicators (brackets, keys)
-      const responseKeys = Object.keys(result ?? {}).join(', ');
-      const errorCount = (result as { errors?: unknown[] }).errors?.length ?? 0;
-      // Extract first error message if present (GitHub API error messages are safe to log)
-      const resultObj = result as { errors?: Array<{ message: string; type?: string }> };
-      const firstError = resultObj?.errors?.[0];
-      const errorInfo = firstError
-        ? `, firstErrorType: ${firstError.type ?? 'unknown'}, firstErrorMessage: ${(firstError.message ?? '').substring(0, 100)}`
-        : '';
-      console.error(
-        `[gh-issue] GraphQL validation failed (query: ${queryName}, issue: #${issueNumber}, responseSize: ${responseJson.length}, responseKeys: [${responseKeys}], errorCount: ${errorCount}${errorInfo})`
+        `[gh-issue] DEBUG GraphQL response preview (responseSize: ${responseJson.length}, preview: ${responsePreview})`
       );
     }
 
-    // Include GitHub error details if available for better debugging
-    const resultWithErrors = result as { errors?: Array<{ message: string }> };
-    const errorContext = resultWithErrors?.errors?.[0]?.message
-      ? ` GitHub error: ${resultWithErrors.errors[0].message}`
-      : '';
+    // Build comprehensive error message with all errors
+    const errorDetails =
+      errors.length > 0
+        ? errors
+            .map((e, i) => `  ${i + 1}. [${e.type || 'unknown'}] ${e.message || '(no message)'}`)
+            .join('\n')
+        : '  (No error details available - check GitHub API status)';
 
     throw new ParsingError(
-      `GraphQL response missing 'data' field when fetching ${queryName} for issue #${issueNumber}.${errorContext} ` +
-        `Response keys: [${Object.keys(result ?? {}).join(', ')}]`
+      `GraphQL response missing 'data' field when fetching ${queryName} for issue #${issueNumber}.\n` +
+        `GitHub API Errors:\n${errorDetails}\n\n` +
+        `Possible causes:\n` +
+        `  - Issue #${issueNumber} does not exist\n` +
+        `  - Insufficient permissions to access issue\n` +
+        `  - GitHub API rate limit exceeded (check: gh api rate_limit)\n` +
+        `  - Network/authentication issues (check: gh auth status)`
     );
   }
 }

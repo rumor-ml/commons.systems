@@ -278,10 +278,19 @@ function detectIssueState(git: GitState): IssueState {
  * ```
  */
 export async function detectCurrentState(repo?: string, depth = 0): Promise<CurrentState> {
+  // Validate depth parameter FIRST - before any work
+  // Catches undefined, NaN, negative, or non-integer values that would bypass the depth check
+  if (!Number.isSafeInteger(depth) || depth < 0) {
+    throw new StateDetectionError(
+      `Invalid recursion depth parameter: ${depth}. Must be non-negative safe integer.`,
+      { depth, maxDepth: 3 }
+    );
+  }
+
   const MAX_RECURSION_DEPTH = 3;
 
-  // Check depth BEFORE any work to prevent unbounded recursion
-  if (depth > MAX_RECURSION_DEPTH) {
+  // Check depth limit with >= for clarity (0, 1, 2 allowed; 3+ rejected)
+  if (depth >= MAX_RECURSION_DEPTH) {
     logger.error('detectCurrentState: maximum recursion depth exceeded', {
       depth,
       maxDepth: MAX_RECURSION_DEPTH,
@@ -313,7 +322,8 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
       : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
 
     // If state detection took longer than 5 seconds, re-validate PR state
-    // to detect race conditions where PR might have been closed/modified
+    // to detect race conditions where PR might have been closed/modified during the slow API call.
+    // Note: This is a single recursive call with depth limit, not a loop.
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
