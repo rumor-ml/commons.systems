@@ -247,9 +247,11 @@ export async function safeUpdatePRBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
-    // Extract detailed validation info from Zod error
+    // Extract detailed validation info from Zod error or preserve original error context
     // Zod errors have an 'issues' array with field-level details
     let validationDetails = 'Unknown validation error';
+    let originalError: Error | undefined;
+
     if (validationError instanceof Error && 'issues' in validationError) {
       const zodError = validationError as {
         issues: Array<{ path: (string | number)[]; message: string }>;
@@ -257,8 +259,20 @@ export async function safeUpdatePRBodyState(
       validationDetails = zodError.issues
         .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
         .join('; ');
+      originalError = validationError;
     } else if (validationError instanceof Error) {
       validationDetails = validationError.message;
+      originalError = validationError;
+    } else {
+      // Non-Error thrown (unexpected) - log critical programming error
+      validationDetails = `Non-Error thrown: ${String(validationError)}`;
+      logger.error('CRITICAL: Non-Error thrown during state validation', {
+        validationError,
+        errorType: typeof validationError,
+        prNumber,
+        step,
+        impact: 'Programming error - validation threw non-Error object',
+      });
     }
 
     logger.error('safeUpdatePRBodyState: State validation failed before posting', {
@@ -266,7 +280,8 @@ export async function safeUpdatePRBodyState(
       step,
       state,
       validationDetails,
-      error: validationError instanceof Error ? validationError.message : String(validationError),
+      error: originalError?.message ?? String(validationError),
+      errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
     });
     throw new StateApiError(
@@ -274,7 +289,7 @@ export async function safeUpdatePRBodyState(
       'write',
       'pr',
       prNumber,
-      validationError instanceof Error ? validationError : new Error(String(validationError))
+      originalError ?? new Error(String(validationError))
     );
   }
 
@@ -490,9 +505,11 @@ export async function safeUpdateIssueBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
-    // Extract detailed validation info from Zod error
+    // Extract detailed validation info from Zod error or preserve original error context
     // Zod errors have an 'issues' array with field-level details
     let validationDetails = 'Unknown validation error';
+    let originalError: Error | undefined;
+
     if (validationError instanceof Error && 'issues' in validationError) {
       const zodError = validationError as {
         issues: Array<{ path: (string | number)[]; message: string }>;
@@ -500,8 +517,20 @@ export async function safeUpdateIssueBodyState(
       validationDetails = zodError.issues
         .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
         .join('; ');
+      originalError = validationError;
     } else if (validationError instanceof Error) {
       validationDetails = validationError.message;
+      originalError = validationError;
+    } else {
+      // Non-Error thrown (unexpected) - log critical programming error
+      validationDetails = `Non-Error thrown: ${String(validationError)}`;
+      logger.error('CRITICAL: Non-Error thrown during state validation', {
+        validationError,
+        errorType: typeof validationError,
+        issueNumber,
+        step,
+        impact: 'Programming error - validation threw non-Error object',
+      });
     }
 
     logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
@@ -509,7 +538,8 @@ export async function safeUpdateIssueBodyState(
       step,
       state,
       validationDetails,
-      error: validationError instanceof Error ? validationError.message : String(validationError),
+      error: originalError?.message ?? String(validationError),
+      errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
     });
     throw new StateApiError(
@@ -517,7 +547,7 @@ export async function safeUpdateIssueBodyState(
       'write',
       'issue',
       issueNumber,
-      validationError instanceof Error ? validationError : new Error(String(validationError))
+      originalError ?? new Error(String(validationError))
     );
   }
 

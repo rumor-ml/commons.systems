@@ -46,9 +46,19 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
     throw new Error(`No valid text content in ${toolName} response for ${context}`);
   }
 
-  // Warn about empty text content (may indicate upstream issue)
+  // Empty text content indicates upstream tool failure - CRITICAL
+  // This masks tool crashes, rate limiting, or network issues that returned empty responses
   if (textContent.text.length === 0) {
-    logger.warn(`Empty text content in ${toolName} response`, { context });
+    logger.error(`Empty text content in ${toolName} response - upstream tool failure`, {
+      context,
+      impact: 'Tool execution completed but produced no output',
+      action: 'Check gh-workflow-mcp-server logs for tool failures',
+    });
+    throw new Error(
+      `Empty content in ${toolName} response for ${context}. ` +
+        `This indicates an upstream tool failure. ` +
+        `Check gh-workflow-mcp-server logs for details.`
+    );
   }
 
   return textContent.text;
@@ -607,7 +617,19 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     // Validate consistency when both failureCount and overallStatus are available
     // This catches data inconsistencies that could hide actual failures
     if (overallStatus !== null) {
-      const statusSuccess = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
+      // BLOCKED means checks passed but PR cannot merge (missing reviews, conflicts, etc.)
+      // This is NOT a success state - the PR needs intervention before it can merge
+      if (overallStatus === 'BLOCKED') {
+        logger.warn('PR is BLOCKED - checks passed but merge is prevented', {
+          prNumber,
+          overallStatus,
+          failureCount,
+          impact: 'PR cannot be merged despite passing checks',
+          action: 'Check PR for merge blockers (missing reviews, branch not updated, etc.)',
+        });
+      }
+      // Compare against SUCCESS only - BLOCKED is not a success state
+      const statusSuccess = overallStatus === 'SUCCESS';
       if (success !== statusSuccess) {
         logger.warn('Inconsistent PR checks result: failureCount and status disagree', {
           failureCount,
@@ -629,8 +651,22 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     });
   } else {
     // Fallback: use status-based logic if failure count not parseable
-    success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
-    logger.info('Determined success from status (fallback)', { overallStatus, success, prNumber });
+    // BLOCKED is NOT a success state - checks passed but PR cannot merge
+    if (overallStatus === 'BLOCKED') {
+      logger.warn('PR is BLOCKED (fallback path) - checks passed but merge is prevented', {
+        prNumber,
+        overallStatus,
+        impact: 'PR cannot be merged despite passing checks',
+        action: 'Check PR for merge blockers (missing reviews, branch not updated, etc.)',
+      });
+    }
+    success = overallStatus === 'SUCCESS';
+    logger.info('Determined success from status (fallback)', {
+      overallStatus,
+      success,
+      prNumber,
+      note: 'BLOCKED status treated as failure - PR cannot merge',
+    });
   }
 
   if (success) {

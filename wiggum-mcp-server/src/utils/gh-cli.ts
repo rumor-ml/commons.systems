@@ -476,15 +476,14 @@ const RETRYABLE_ERROR_CODES = [
  * ```
  */
 function isRetryableError(error: unknown, exitCode?: number): boolean {
-  // Priority 1: Exit code (most reliable when available AND a valid HTTP status)
-  // Checks for retryable HTTP codes (429, 502-504). When exitCode is defined:
-  //   - If in retryable list -> returns true immediately
-  //   - If NOT in retryable list -> continues to Priority 2/3 checks (does not assume non-retryable)
-  // This allows network errors with non-retryable HTTP codes to still be retried.
+  // Priority 1: Exit code (most reliable when available)
+  // Immediately return true for known retryable HTTP status codes (429, 502-504).
+  // All other exit codes fall through to Priority 2/3 checks.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
     }
+    // Fall through to Priority 2/3 for other exit codes
   }
 
   if (error instanceof Error) {

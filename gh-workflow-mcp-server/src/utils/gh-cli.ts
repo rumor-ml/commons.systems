@@ -291,10 +291,8 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
   const successRate = totalLines > 0 ? successCount / totalLines : 1;
   const MIN_SUCCESS_RATE = 0.7; // At least 70% of lines must parse successfully
 
-  // ALWAYS warn if ANY lines were skipped to prevent hidden data loss
-  // Even a single skipped line could omit critical failure details needed for debugging
-  // Failure logs are the primary debugging tool - incomplete logs can block issue resolution
-  // Users must be informed when failure diagnosis may be incomplete
+  // Warn on ANY data loss - even one skipped line affects failure diagnosis
+  // This logs to stderr but doesn't fail unless threshold is exceeded (see below)
   if (skippedCount > 0) {
     const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
 
@@ -304,9 +302,9 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
     );
   }
 
-  // Threshold-based validation: fail if too many lines could not be parsed
-  // This catches gh CLI format changes or log corruption that would result in
-  // incomplete failure diagnosis being silently returned to users
+  // Fail only if parsing quality is too poor (< 70% success rate)
+  // This catches gh CLI format changes or severe log corruption
+  // The threshold allows minor parsing issues while catching severe format problems
   if (totalLines > 0 && successRate < MIN_SUCCESS_RATE) {
     console.error(
       `[gh-workflow] ERROR Log parsing failed below threshold (successRate: ${(successRate * 100).toFixed(1)}%, threshold: ${(MIN_SUCCESS_RATE * 100).toFixed(1)}%, skipped: ${skippedCount}/${totalLines})`
@@ -614,8 +612,8 @@ const RETRYABLE_ERROR_CODES = [
 // Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // Note: gh CLI often passes HTTP status codes as process exit codes (e.g., exit code 429 for rate limit).
-  // This is NOT standard Unix behavior (exit codes are normally 0-255), but gh CLI uses this pattern.
+  // Note: gh CLI uses HTTP status codes as process exit codes (e.g., exit code 429 for rate limit).
+  // While Unix convention suggests exit codes 0-255, gh CLI intentionally uses HTTP codes (100-599).
   // We check for known retryable HTTP status codes; all other codes fall through to subsequent checks.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
