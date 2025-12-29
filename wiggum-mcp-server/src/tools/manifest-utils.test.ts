@@ -692,6 +692,313 @@ describe('manifest-utils', () => {
           'Should use high_priority_count, not issues.length'
         );
       });
+
+      it('should handle ALL agents in both pending AND completed arrays (state corruption)', () => {
+        // Edge case: ALL agents appear in both arrays - tests recovery from state corruption
+        const manifests = new Map(); // No manifests = all agents have 0 issues
+        const previousPending = [...REVIEW_AGENT_NAMES];
+        const previousCompleted = [...REVIEW_AGENT_NAMES];
+
+        const result = updateAgentCompletionStatus(manifests, previousPending, previousCompleted);
+
+        // All should be completed (completed takes precedence)
+        assert.strictEqual(
+          result.completedAgents.length,
+          6,
+          'All agents should be completed when in both arrays'
+        );
+        assert.strictEqual(
+          result.pendingCompletionAgents.length,
+          0,
+          'No agents should be pending when already completed'
+        );
+        // No duplicates in output
+        const uniqueCompleted = new Set(result.completedAgents);
+        assert.strictEqual(
+          uniqueCompleted.size,
+          result.completedAgents.length,
+          'Should not have duplicate agents in completedAgents'
+        );
+      });
+
+      it('should ignore manifest data for completed agents (persist completion)', () => {
+        // Edge case: completed agent somehow gets new manifest data
+        // Verifies completion is sticky even if manifest appears
+        const manifests = new Map<string, AgentManifest>([
+          // Completed agent now has manifest with high-priority issues
+          [
+            'code-reviewer-in-scope',
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [
+                createTestIssue('code-reviewer', 'in-scope', 'high', 'New critical issue'),
+                createTestIssue(
+                  'code-reviewer',
+                  'in-scope',
+                  'high',
+                  'Another critical issue',
+                  'Test',
+                  '2025-01-01T00:00:01Z'
+                ),
+              ],
+              2
+            ),
+          ],
+        ]);
+
+        // Agent was completed - should stay completed
+        const result = updateAgentCompletionStatus(manifests, [], ['code-reviewer']);
+
+        assert.ok(
+          result.completedAgents.includes('code-reviewer'),
+          'Completed agent should stay completed even with new manifest'
+        );
+        assert.ok(
+          !result.pendingCompletionAgents.includes('code-reviewer'),
+          'Completed agent should not appear in pending'
+        );
+      });
+
+      it('should handle pending agents with large issue counts gracefully', () => {
+        // Edge case: agent was pending but now has many high-priority issues
+        const manyIssues = Array.from({ length: 100 }, (_, i) =>
+          createTestIssue(
+            'code-reviewer',
+            'in-scope',
+            'high',
+            `Issue ${i + 1}`,
+            `Description ${i + 1}`,
+            `2025-01-01T00:00:${String(i).padStart(2, '0')}Z`
+          )
+        );
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createTestManifest('code-reviewer', 'in-scope', manyIssues)],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, ['code-reviewer'], []);
+
+        // Agent should be reset to active (not in either list)
+        assert.ok(
+          !result.completedAgents.includes('code-reviewer'),
+          'Agent with issues should not be completed'
+        );
+        assert.ok(
+          !result.pendingCompletionAgents.includes('code-reviewer'),
+          'Agent with issues should not be pending'
+        );
+      });
+    });
+  });
+
+  describe('2-strike completion edge cases', () => {
+    describe('createAgentManifest invariant enforcement', () => {
+      it('should make high_priority_count mismatch impossible via factory', () => {
+        // The createAgentManifest factory COMPUTES high_priority_count from issues
+        // This test documents that it's impossible to create mismatched counts
+        const issues: IssueRecord[] = [
+          createTestIssue('code-reviewer', 'in-scope', 'high', 'High 1'),
+          createTestIssue('code-reviewer', 'in-scope', 'low', 'Low 1'),
+          createTestIssue(
+            'code-reviewer',
+            'in-scope',
+            'high',
+            'High 2',
+            'Test',
+            '2025-01-01T00:00:01Z'
+          ),
+        ];
+
+        // No matter what count you might "want", factory computes correctly
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        // high_priority_count is ALWAYS correctly computed from issues
+        const actualHighPriority = issues.filter((i) => i.priority === 'high').length;
+        assert.strictEqual(
+          manifest.high_priority_count,
+          actualHighPriority,
+          'Factory must compute high_priority_count from issues'
+        );
+        assert.strictEqual(manifest.high_priority_count, 2, 'Should have 2 high-priority issues');
+      });
+
+      it('should compute high_priority_count as non-negative (never negative)', () => {
+        // Empty issues array → high_priority_count = 0
+        const emptyManifest = createAgentManifest('code-reviewer', 'in-scope', []);
+        assert.strictEqual(
+          emptyManifest.high_priority_count,
+          0,
+          'Empty issues should have 0 high_priority_count'
+        );
+        assert.ok(
+          emptyManifest.high_priority_count >= 0,
+          'high_priority_count must be non-negative'
+        );
+
+        // All low-priority issues → high_priority_count = 0
+        const lowOnlyManifest = createAgentManifest('code-reviewer', 'in-scope', [
+          createTestIssue('code-reviewer', 'in-scope', 'low', 'Low 1'),
+          createTestIssue(
+            'code-reviewer',
+            'in-scope',
+            'low',
+            'Low 2',
+            'Test',
+            '2025-01-01T00:00:01Z'
+          ),
+        ]);
+        assert.strictEqual(
+          lowOnlyManifest.high_priority_count,
+          0,
+          'All low-priority issues should have 0 high_priority_count'
+        );
+      });
+    });
+
+    describe('getCompletedAgents edge cases', () => {
+      it('should handle manifest with computed high_priority_count correctly', () => {
+        // Since createAgentManifest computes high_priority_count from issues,
+        // this test verifies getCompletedAgents uses the computed count correctly
+        const issues = [
+          createTestIssue('code-reviewer', 'in-scope', 'high', 'High 1'),
+          createTestIssue(
+            'code-reviewer',
+            'in-scope',
+            'low',
+            'Low 1',
+            'Test',
+            '2025-01-01T00:00:01Z'
+          ),
+        ];
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createAgentManifest('code-reviewer', 'in-scope', issues)],
+        ]);
+
+        const completed = getCompletedAgents(manifests);
+
+        // Agent has 1 high-priority issue, should NOT be complete
+        assert.ok(
+          !completed.includes('code-reviewer'),
+          'Agent with high-priority issues should not be complete'
+        );
+      });
+
+      it('should handle agent with empty issues array correctly', () => {
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createAgentManifest('code-reviewer', 'in-scope', [])],
+        ]);
+
+        const completed = getCompletedAgents(manifests);
+
+        // Empty issues = 0 high-priority = complete
+        assert.ok(
+          completed.includes('code-reviewer'),
+          'Agent with empty issues array should be complete'
+        );
+      });
+    });
+
+    describe('updateAgentCompletionStatus data integrity', () => {
+      it('should handle rapid state transitions correctly', () => {
+        // Simulate rapid state changes over multiple iterations
+        const manifests1 = new Map(); // No issues
+        const manifests2 = new Map<string, AgentManifest>([
+          [
+            'code-reviewer-in-scope',
+            createTestManifest('code-reviewer', 'in-scope', [
+              createTestIssue('code-reviewer', 'in-scope', 'high', 'New issue'),
+            ]),
+          ],
+        ]);
+        const manifests3 = new Map(); // Issues fixed
+
+        // Iteration 1: No issues → pending
+        const result1 = updateAgentCompletionStatus(manifests1, [], []);
+        assert.ok(
+          result1.pendingCompletionAgents.includes('code-reviewer'),
+          'First zero should move to pending'
+        );
+
+        // Iteration 2: Issues appear → reset to active
+        const result2 = updateAgentCompletionStatus(
+          manifests2,
+          result1.pendingCompletionAgents,
+          result1.completedAgents
+        );
+        assert.ok(
+          !result2.pendingCompletionAgents.includes('code-reviewer'),
+          'Finding issues should reset pending status'
+        );
+        assert.ok(
+          !result2.completedAgents.includes('code-reviewer'),
+          'Finding issues should not complete agent'
+        );
+
+        // Iteration 3: No issues again → pending (starts fresh count)
+        const result3 = updateAgentCompletionStatus(
+          manifests3,
+          result2.pendingCompletionAgents,
+          result2.completedAgents
+        );
+        assert.ok(
+          result3.pendingCompletionAgents.includes('code-reviewer'),
+          'Second zero cycle should start pending again'
+        );
+
+        // Iteration 4: Still no issues → complete (2-strike passed)
+        const result4 = updateAgentCompletionStatus(
+          manifests3,
+          result3.pendingCompletionAgents,
+          result3.completedAgents
+        );
+        assert.ok(
+          result4.completedAgents.includes('code-reviewer'),
+          'Second consecutive zero should complete'
+        );
+      });
+
+      it('should not count out-of-scope issues toward completion blocking', () => {
+        // Agent has high-priority out-of-scope issues but no in-scope issues
+        const manifests = new Map<string, AgentManifest>([
+          [
+            'code-reviewer-out-of-scope',
+            createTestManifest(
+              'code-reviewer',
+              'out-of-scope',
+              [
+                createTestIssue('code-reviewer', 'out-of-scope', 'high', 'Critical out-of-scope'),
+                createTestIssue(
+                  'code-reviewer',
+                  'out-of-scope',
+                  'high',
+                  'Another critical out-of-scope',
+                  'Test',
+                  '2025-01-01T00:00:01Z'
+                ),
+              ],
+              2
+            ),
+          ],
+        ]);
+
+        // First iteration: should be pending (not blocked by out-of-scope)
+        const result1 = updateAgentCompletionStatus(manifests, [], []);
+        assert.ok(
+          result1.pendingCompletionAgents.includes('code-reviewer'),
+          'Out-of-scope issues should not block pending status'
+        );
+
+        // Second iteration: should complete
+        const result2 = updateAgentCompletionStatus(
+          manifests,
+          result1.pendingCompletionAgents,
+          result1.completedAgents
+        );
+        assert.ok(
+          result2.completedAgents.includes('code-reviewer'),
+          'Agent with only out-of-scope issues should complete after 2-strike'
+        );
+      });
     });
   });
 

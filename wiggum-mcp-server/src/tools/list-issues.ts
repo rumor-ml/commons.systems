@@ -22,9 +22,56 @@ import {
   isManifestFile,
   readManifestFile,
   extractScopeFromFilename,
+  groupIssuesByAgent,
 } from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
+
+/**
+ * Normalize a file path to a consistent relative format for comparison.
+ * This ensures that the same file represented with different path formats
+ * (absolute vs relative) will match when used as keys in the Union-Find.
+ *
+ * Examples:
+ * - /Users/n8/worktrees/625-branch/wiggum-mcp-server/src/foo.ts -> wiggum-mcp-server/src/foo.ts
+ * - wiggum-mcp-server/src/foo.ts -> wiggum-mcp-server/src/foo.ts
+ * - ./wiggum-mcp-server/src/foo.ts -> wiggum-mcp-server/src/foo.ts
+ */
+export function normalizeFilePath(filePath: string): string {
+  let normalized = filePath;
+
+  // Ensure forward slashes (for Windows compatibility) - do this first
+  normalized = normalized.replace(/\\/g, '/');
+
+  // Handle absolute paths with worktree patterns FIRST
+  // This must happen before cwd check because cwd might be a subdirectory of the worktree
+  // Match: /Users/.../worktrees/branch-name/... or /home/.../worktrees/...
+  const worktreeMatch = normalized.match(/^\/.*\/worktrees\/[^/]+\/(.+)$/);
+  if (worktreeMatch) {
+    normalized = worktreeMatch[1];
+    // Early return since we've found the repo-relative path
+    return normalized;
+  }
+
+  // Get current working directory for non-worktree absolute paths
+  const cwd = process.cwd();
+
+  // If absolute path starts with cwd, make it relative
+  if (normalized.startsWith(cwd)) {
+    normalized = normalized.slice(cwd.length);
+    // Remove leading slash if present
+    if (normalized.startsWith('/')) {
+      normalized = normalized.slice(1);
+    }
+  }
+
+  // Remove leading ./ if present
+  if (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+
+  return normalized;
+}
 
 // Zod schema for input validation
 export const ListIssuesInputSchema = z.object({
@@ -159,10 +206,13 @@ export function batchInScopeIssues(
     }
 
     files.forEach((file) => {
-      if (!fileToIssues.has(file)) {
-        fileToIssues.set(file, []);
+      // Normalize file paths to ensure consistent matching
+      // (e.g., absolute vs relative paths should be treated as the same file)
+      const normalizedFile = normalizeFilePath(file);
+      if (!fileToIssues.has(normalizedFile)) {
+        fileToIssues.set(normalizedFile, []);
       }
-      fileToIssues.get(file)!.push(index);
+      fileToIssues.get(normalizedFile)!.push(index);
     });
   });
 
@@ -200,7 +250,8 @@ export function batchInScopeIssues(
 
       const record = issueMap.get(issue.id);
       const files = record?.files_to_edit || [];
-      files.forEach((file) => filesSet.add(file));
+      // Normalize file paths for consistent output
+      files.forEach((file) => filesSet.add(normalizeFilePath(file)));
     }
 
     batches.push({
@@ -365,14 +416,8 @@ function formatResult(result: ListIssuesResult, scope: string): string {
   if (result.out_of_scope.length > 0) {
     output += `## Out-of-Scope Issues\n\n`;
 
-    // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in read-manifests.ts
-    const issuesByAgent = new Map<string, IssueReference[]>();
-    for (const issue of result.out_of_scope) {
-      if (!issuesByAgent.has(issue.agent_name)) {
-        issuesByAgent.set(issue.agent_name, []);
-      }
-      issuesByAgent.get(issue.agent_name)!.push(issue);
-    }
+    // Group out-of-scope issues by agent using shared utility (resolves #989)
+    const issuesByAgent = groupIssuesByAgent(result.out_of_scope);
 
     // Format each agent's issues
     for (const [agentName, issues] of issuesByAgent) {

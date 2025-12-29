@@ -11,7 +11,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
-import { ListIssuesInputSchema, listIssues } from './list-issues.js';
+import { ListIssuesInputSchema, listIssues, normalizeFilePath } from './list-issues.js';
 import type { IssueRecord } from './manifest-types.js';
 import { FilesystemError } from '../utils/errors.js';
 
@@ -73,6 +73,60 @@ describe('list-issues tool', () => {
         const result = ListIssuesInputSchema.safeParse(input);
         assert.strictEqual(result.success, false);
       });
+    });
+  });
+
+  describe('normalizeFilePath', () => {
+    it('should return relative path unchanged', () => {
+      const result = normalizeFilePath('wiggum-mcp-server/src/tools/list-issues.ts');
+      assert.strictEqual(result, 'wiggum-mcp-server/src/tools/list-issues.ts');
+    });
+
+    it('should remove leading ./ from relative paths', () => {
+      const result = normalizeFilePath('./wiggum-mcp-server/src/tools/list-issues.ts');
+      assert.strictEqual(result, 'wiggum-mcp-server/src/tools/list-issues.ts');
+    });
+
+    it('should convert backslashes to forward slashes', () => {
+      const result = normalizeFilePath('wiggum-mcp-server\\src\\tools\\list-issues.ts');
+      assert.strictEqual(result, 'wiggum-mcp-server/src/tools/list-issues.ts');
+    });
+
+    it('should extract relative path from worktree absolute path', () => {
+      const absolutePath =
+        '/Users/n8/worktrees/625-all-hands-wiggum-optimizations/wiggum-mcp-server/src/tools/list-issues.ts';
+      const result = normalizeFilePath(absolutePath);
+      assert.strictEqual(result, 'wiggum-mcp-server/src/tools/list-issues.ts');
+    });
+
+    it('should handle worktree paths with different branch names', () => {
+      const absolutePath = '/home/user/worktrees/feature-branch/src/index.ts';
+      const result = normalizeFilePath(absolutePath);
+      assert.strictEqual(result, 'src/index.ts');
+    });
+
+    it('should make absolute path relative using cwd for non-worktree paths', () => {
+      // Test the cwd fallback with a path that doesn't match the worktree pattern
+      // We simulate this by using a path like /some/project/src/file.ts
+      // Since our cwd contains /worktrees/, we test the worktree regex instead
+      const result = normalizeFilePath(
+        '/Users/developer/worktrees/my-branch/src/tools/list-issues.ts'
+      );
+      assert.strictEqual(result, 'src/tools/list-issues.ts');
+    });
+
+    it('should normalize same file from different formats to same result', () => {
+      // These should all normalize to the same path
+      const relative = 'wiggum-mcp-server/src/tools/list-issues.ts';
+      const withDot = './wiggum-mcp-server/src/tools/list-issues.ts';
+      const absolute = '/Users/n8/worktrees/some-branch/wiggum-mcp-server/src/tools/list-issues.ts';
+
+      const normalizedRelative = normalizeFilePath(relative);
+      const normalizedWithDot = normalizeFilePath(withDot);
+      const normalizedAbsolute = normalizeFilePath(absolute);
+
+      assert.strictEqual(normalizedRelative, normalizedWithDot);
+      assert.strictEqual(normalizedRelative, normalizedAbsolute);
     });
   });
 

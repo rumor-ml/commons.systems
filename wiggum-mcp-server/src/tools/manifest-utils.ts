@@ -300,16 +300,33 @@ export function readManifestFiles(): Map<string, AgentManifest> {
 
   // Check if directory exists
   if (!existsSync(manifestDir)) {
-    logger.info('Manifest directory does not exist - no issues recorded yet', {
+    logger.warn('Manifest directory does not exist - agents may not have executed', {
       path: manifestDir,
+      impact: 'Unable to determine if agents ran or found zero issues',
+      expectedBehavior: 'Directory should be created by first agent execution',
+      action: 'Verify /all-hands-review command was executed successfully',
     });
     return agentManifests;
   }
 
   // Read all files in directory
   const files = readdirSync(manifestDir);
+  const manifestFiles = files.filter(isManifestFile);
+
+  // Warn if directory exists but contains no manifest files
+  if (manifestFiles.length === 0) {
+    logger.warn('No manifest files found in directory - agents may have crashed', {
+      path: manifestDir,
+      totalFiles: files.length,
+      impact: 'Cannot distinguish between "no issues" and "agents failed"',
+      action: 'Check agent logs for execution errors or crashes',
+    });
+  }
 
   // Filter and process manifest files
+  // Track skipped files for summary warning
+  const skippedFiles: Array<{ filename: string; error: string }> = [];
+
   for (const filename of files) {
     if (!isManifestFile(filename)) {
       continue;
@@ -322,7 +339,25 @@ export function readManifestFiles(): Map<string, AgentManifest> {
     }
 
     const filepath = join(manifestDir, filename);
-    const issues = readManifestFile(filepath);
+
+    // Wrap readManifestFile in try-catch to prevent one corrupted file
+    // from causing loss of all valid issues from other agents
+    let issues: IssueRecord[];
+    try {
+      issues = readManifestFile(filepath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      skippedFiles.push({ filename, error: errorMsg });
+      logger.error('Failed to read manifest file - skipping this file', {
+        filepath,
+        filename,
+        error: errorMsg,
+        impact: 'Issues from this agent will be missing from results',
+        action: 'Check file for corruption and delete if necessary',
+      });
+      // Continue processing other files - partial data better than no data
+      continue;
+    }
 
     if (issues.length === 0) {
       continue;
@@ -341,10 +376,22 @@ export function readManifestFiles(): Map<string, AgentManifest> {
     }
   }
 
+  // Log summary warning if any files were skipped
+  if (skippedFiles.length > 0) {
+    logger.warn('Some manifest files could not be read', {
+      skippedCount: skippedFiles.length,
+      totalFiles: files.length,
+      skippedFiles,
+      userGuidance:
+        'Review data may be incomplete. Check tmp/wiggum directory for corrupted files.',
+    });
+  }
+
   logger.info('Read manifest files', {
     totalFiles: files.length,
     manifestCount: agentManifests.size,
     agents: Array.from(agentManifests.keys()),
+    skippedCount: skippedFiles.length,
   });
 
   return agentManifests;
@@ -389,6 +436,53 @@ export function getCompletedAgents(manifests: Map<string, AgentManifest>): strin
 }
 
 /**
+ * Group items by a key extracted via a callback function
+ *
+ * Generic utility function for grouping arrays by a string key.
+ * This is a shared implementation used by groupIssuesByAgent and similar functions.
+ *
+ * @param items - Array of items to group
+ * @param keyFn - Function to extract the grouping key from each item
+ * @returns Map with keys as group identifiers and values as arrays of items
+ *
+ * @example
+ * const grouped = groupBy(issues, (issue) => issue.agent_name);
+ * // Returns Map<string, IssueRecord[]>
+ */
+export function groupBy<T>(items: readonly T[], keyFn: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key)!.push(item);
+  }
+  return grouped;
+}
+
+/**
+ * Group issues by agent name
+ *
+ * Shared utility to avoid code duplication across manifest tools.
+ * Used in read-manifests.ts and list-issues.ts for formatting output.
+ *
+ * @param issues - Array of issues to group (IssueRecord or IssueReference)
+ * @returns Map with agent names as keys and arrays of issues as values
+ *
+ * @example
+ * const issuesByAgent = groupIssuesByAgent(issues);
+ * for (const [agentName, agentIssues] of issuesByAgent) {
+ *   console.log(`${agentName}: ${agentIssues.length} issues`);
+ * }
+ */
+export function groupIssuesByAgent<T extends { agent_name: string }>(
+  issues: readonly T[]
+): Map<string, T[]> {
+  return groupBy(issues, (issue) => issue.agent_name);
+}
+
+/**
  * Count total high-priority issues across all in-scope manifests
  *
  * This helper centralizes the logic for determining if there are any
@@ -413,6 +507,159 @@ export function countHighPriorityInScopeIssues(manifests: Map<string, AgentManif
     }
   }
   return total;
+}
+
+/**
+ * Minimal issue reference for token-efficient listing
+ *
+ * Contains only the essential fields needed to identify and describe an issue.
+ * Full details can be retrieved via getIssue() using the ID.
+ */
+export interface IssueReference {
+  readonly id: string; // Unique identifier: "{agent}-{scope}-{index}"
+  readonly agent_name: string;
+  readonly scope: IssueScope;
+  readonly priority: 'high' | 'low';
+  readonly title: string; // Just the title, not full description
+}
+
+/**
+ * Result from collecting manifest issues with references
+ *
+ * Contains both the minimal references (for listing) and full records (for batching/details).
+ */
+export interface CollectedManifestIssues {
+  readonly references: IssueReference[];
+  readonly records: IssueRecord[];
+}
+
+/**
+ * Collect all manifest issues matching a scope filter and create stable references
+ *
+ * This is a shared utility that consolidates the manifest reading and reference
+ * creation logic from get-issue.ts and list-issues.ts. It:
+ * 1. Reads all manifest files from the tmp/wiggum directory
+ * 2. Filters by scope (in-scope, out-of-scope, or all)
+ * 3. Groups issues by agent-scope key for stable ID generation
+ * 4. Creates IssueReference objects with unique IDs
+ *
+ * Error handling:
+ * - If a manifest file is corrupted, it is skipped and a warning is logged
+ * - Partial results are returned rather than failing completely
+ *
+ * @param scope - Filter for issue scope ('in-scope', 'out-of-scope', or 'all')
+ * @returns Object with references (minimal) and records (full details)
+ *
+ * @example
+ * const { references, records } = collectManifestIssuesWithReferences('in-scope');
+ * for (const ref of references) {
+ *   console.log(`[${ref.id}] ${ref.title}`);
+ * }
+ */
+export function collectManifestIssuesWithReferences(
+  scope: 'in-scope' | 'out-of-scope' | 'all'
+): CollectedManifestIssues {
+  const manifestDir = getManifestDir();
+
+  // Check if directory exists
+  if (!existsSync(manifestDir)) {
+    logger.info('Manifest directory does not exist - no issues recorded yet', {
+      path: manifestDir,
+    });
+    return { references: [], records: [] };
+  }
+
+  // Read all files in directory
+  const files = readdirSync(manifestDir);
+
+  // Filter manifest files by scope
+  const matchingFiles = files.filter((filename) => {
+    if (!isManifestFile(filename)) {
+      return false;
+    }
+
+    if (scope === 'all') {
+      return true;
+    }
+
+    const fileScope = extractScopeFromFilename(filename);
+    return fileScope === scope;
+  });
+
+  logger.info('Found manifest files for collection', {
+    totalFiles: files.length,
+    matchingFiles: matchingFiles.length,
+    scope,
+  });
+
+  // Read and group issues by agent-scope key for stable ID generation
+  const issuesByAgentScope = new Map<string, IssueRecord[]>();
+  const allIssueRecords: IssueRecord[] = [];
+  const skippedFiles: Array<{ filename: string; error: string }> = [];
+
+  for (const filename of matchingFiles) {
+    const filepath = join(manifestDir, filename);
+
+    // Wrap readManifestFile in try-catch to prevent one corrupted file
+    // from causing loss of all valid issues from other agents
+    let issues: IssueRecord[];
+    try {
+      issues = readManifestFile(filepath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      skippedFiles.push({ filename, error: errorMsg });
+      logger.error('Failed to read manifest file - skipping this file', {
+        filepath,
+        filename,
+        error: errorMsg,
+        impact: 'Issues from this agent will be missing from results',
+        action: 'Check file for corruption and delete if necessary',
+      });
+      // Continue processing other files - partial data better than no data
+      continue;
+    }
+
+    for (const issue of issues) {
+      allIssueRecords.push(issue);
+      const key = `${issue.agent_name}-${issue.scope}`;
+      if (!issuesByAgentScope.has(key)) {
+        issuesByAgentScope.set(key, []);
+      }
+      issuesByAgentScope.get(key)!.push(issue);
+    }
+  }
+
+  // Log summary warning if any files were skipped
+  if (skippedFiles.length > 0) {
+    logger.warn('Some manifest files could not be read', {
+      skippedCount: skippedFiles.length,
+      totalFiles: matchingFiles.length,
+      skippedFiles,
+      userGuidance:
+        'Review data may be incomplete. Check tmp/wiggum directory for corrupted files.',
+    });
+  }
+
+  // Create issue references with stable IDs
+  const issueReferences: IssueReference[] = [];
+  for (const [key, issues] of issuesByAgentScope) {
+    issues.forEach((issue, index) => {
+      issueReferences.push({
+        id: `${key}-${index}`,
+        agent_name: issue.agent_name,
+        scope: issue.scope,
+        priority: issue.priority,
+        title: issue.title,
+      });
+    });
+  }
+
+  logger.info('Collected manifest issues with references', {
+    totalReferences: issueReferences.length,
+    scope,
+  });
+
+  return { references: issueReferences, records: allIssueRecords };
 }
 
 /**

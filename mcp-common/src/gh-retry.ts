@@ -63,9 +63,10 @@ const RETRYABLE_ERROR_CODES = [
 // Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // Note: gh CLI sometimes uses HTTP status codes as process exit codes (e.g., exit code 429 for rate limit).
-  // While Unix convention is exit codes 0-255, gh CLI may use HTTP codes (100-599) for API errors.
-  // We prioritize exitCode when available, then fall back to message parsing.
+  // Note: gh CLI uses standard Unix exit codes (0-255), NOT HTTP status codes as exit codes.
+  // The exitCode parameter here comes from our GitHubCliError which may extract HTTP status
+  // from error messages - see ghCliWithRetry() status extraction logic.
+  // We check for common HTTP error codes that may be passed via exitCode parameter.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -172,6 +173,30 @@ function classifyErrorType(error: Error, exitCode?: number): string {
 }
 
 /**
+ * Helper patterns for detecting retryable errors in message text
+ * Used for validation/observability when classification may be inconsistent
+ */
+const RETRYABLE_MESSAGE_PATTERNS = ['timeout', 'network', '429', '502', '503', '504', 'rate limit'];
+
+/**
+ * Check if an error message contains patterns suggesting retryable error
+ * Used for validation when error classification may have failed
+ */
+function hasRetryablePattern(message: string): boolean {
+  const msg = message.toLowerCase();
+  return RETRYABLE_MESSAGE_PATTERNS.some((p) => msg.includes(p));
+}
+
+/**
+ * Get all retryable patterns matched in an error message
+ * Used for diagnostics when classification is inconsistent
+ */
+function getMatchedRetryablePatterns(message: string): string[] {
+  const msg = message.toLowerCase();
+  return RETRYABLE_MESSAGE_PATTERNS.filter((p) => msg.includes(p));
+}
+
+/**
  * Sleep for a specified number of milliseconds
  */
 export function sleep(ms: number): Promise<void> {
@@ -207,7 +232,9 @@ export async function ghCliWithRetry(
   // Validate maxRetries to ensure loop executes at least once and doesn't cause excessive delays
   // Prevents edge cases:
   //   - maxRetries < 1: Would skip the loop entirely
-  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
+  //   - maxRetries > 100: Would cause excessive delays. With exponential backoff capped at 60s:
+  //     attempts 1-6 use 2s+4s+8s+16s+32s+60s = 122s, attempts 7-100 use 94*60s = 5640s
+  //     Total worst case: ~96 minutes. Limit chosen to balance retry resilience with timeout expectations.
   //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
   // Without this validation, the function would reach the unreachable code path at the end
   // and throw an internal error with no context about the actual cause.
@@ -336,6 +363,31 @@ export async function ghCliWithRetry(
       if (errorType === 'unknown' && lastExitCode === undefined) {
         console.error(
           `[mcp-common] WARN Error classification unknown and no exit code extracted (errorMessage: ${lastError.message}, command: gh ${args.join(' ')})`
+        );
+      }
+
+      // Validate classification consistency - detect potential gh CLI version changes
+      // If error classified as retryable but type is unknown, classification may be incomplete
+      const isRetryable = isRetryableError(error, lastExitCode);
+      if (errorType === 'unknown' && isRetryable) {
+        console.error(
+          `[mcp-common] WARN Error classified as retryable but type is unknown ` +
+            `(errorMessage: ${lastError.message}, exitCode: ${lastExitCode}, ` +
+            `impact: May retry with incomplete error handling, ` +
+            `action: Review error classification logic and update patterns)`
+        );
+      }
+
+      // If classified as non-retryable but message has retryable patterns, log contradiction
+      // This catches cases where gh CLI error format changed and patterns no longer match
+      if (!isRetryable && hasRetryablePattern(lastError.message)) {
+        const matchedPatterns = getMatchedRetryablePatterns(lastError.message);
+        console.error(
+          `[mcp-common] WARN Error contains retryable patterns but classified as non-retryable ` +
+            `(errorMessage: ${lastError.message}, exitCode: ${lastExitCode}, ` +
+            `patterns: [${matchedPatterns.join(', ')}], ` +
+            `impact: Operation will fail fast instead of retrying, ` +
+            `action: Review error classification logic or check for gh CLI version changes)`
         );
       }
 

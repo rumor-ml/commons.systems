@@ -1,3 +1,7 @@
+// TODO(#998): Consider separating MCP-compatible types (with index signatures) from
+// internal types (without) to improve type safety while maintaining SDK compatibility.
+// The index signatures on ToolSuccess/ToolError weaken type safety despite factory functions.
+
 /**
  * Shared types for MCP servers
  *
