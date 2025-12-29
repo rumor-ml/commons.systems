@@ -261,8 +261,9 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
     const firstTab = line.indexOf('\t');
     if (firstTab === -1) {
       skippedCount++;
+      // WARN level - malformed lines represent data loss that affects failure diagnosis
       console.error(
-        `[gh-workflow] DEBUG Skipping log line missing first tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length})`
+        `[gh-workflow] WARN Skipping malformed log line - missing first tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length}, impact: Failure diagnosis may be incomplete)`
       );
       continue;
     }
@@ -270,8 +271,9 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
     const secondTab = line.indexOf('\t', firstTab + 1);
     if (secondTab === -1) {
       skippedCount++;
+      // WARN level - malformed lines represent data loss that affects failure diagnosis
       console.error(
-        `[gh-workflow] DEBUG Skipping log line missing second tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length})`
+        `[gh-workflow] WARN Skipping malformed log line - missing second tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length}, impact: Failure diagnosis may be incomplete)`
       );
       continue;
     }

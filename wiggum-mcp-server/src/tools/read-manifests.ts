@@ -64,11 +64,15 @@ function getManifestDir(): string {
 /**
  * Check if filename matches the manifest pattern
  * Pattern: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * NOTE: Requires .json extension for both in-scope and out-of-scope files.
+ * This prevents matching non-JSON files (e.g., .bak, .txt, .log) that might
+ * contain the scope marker in their filename.
  */
 function isManifestFile(filename: string): boolean {
   return (
-    (filename.endsWith('.json') && filename.includes('-in-scope-')) ||
-    filename.includes('-out-of-scope-')
+    filename.endsWith('.json') &&
+    (filename.includes('-in-scope-') || filename.includes('-out-of-scope-'))
   );
 }
 

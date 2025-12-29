@@ -97,7 +97,14 @@ function parseManifestFilename(
 
 /**
  * Read and parse a single manifest file
- * Returns array of issues or empty array if parsing fails
+ *
+ * Error handling strategy:
+ * - ENOENT (file not found): DEBUG level, acceptable - agent may not have run yet
+ * - EACCES/EROFS (permission errors): ERROR level - indicates filesystem issue
+ * - JSON parse errors: ERROR level - indicates manifest corruption
+ * - Other errors: WARN level with full diagnostics
+ *
+ * Returns empty array on failure to allow workflow to continue with partial data.
  */
 function readManifestFile(filepath: string): IssueRecord[] {
   try {
@@ -105,9 +112,11 @@ function readManifestFile(filepath: string): IssueRecord[] {
     const issues = JSON.parse(content);
 
     if (!Array.isArray(issues)) {
-      logger.warn('Manifest file is not an array - skipping', {
+      // ERROR level - schema violation indicates corruption or format change
+      logger.error('Manifest file is not an array - data corruption or format violation', {
         filepath,
         actualType: typeof issues,
+        impact: 'Agent completion tracking may be incorrect',
       });
       return [];
     }
@@ -115,9 +124,46 @@ function readManifestFile(filepath: string): IssueRecord[] {
     return issues;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.warn('Failed to read or parse manifest file - skipping', {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+
+    // File not found is acceptable - agent may not have completed yet
+    if (errorCode === 'ENOENT') {
+      logger.debug('Manifest file does not exist - agent may not have completed yet', {
+        filepath,
+      });
+      return [];
+    }
+
+    // Permission errors indicate filesystem issues that should be escalated
+    if (errorCode === 'EACCES' || errorCode === 'EROFS') {
+      logger.error('Cannot read manifest file due to filesystem permission error', {
+        filepath,
+        errorCode,
+        error: errorMsg,
+        impact: 'Agent completion tracking will be incorrect',
+        suggestion: 'Check file permissions on tmp/wiggum directory',
+      });
+      return [];
+    }
+
+    // JSON parse errors indicate corruption
+    if (error instanceof SyntaxError) {
+      logger.error('Failed to parse manifest file - JSON is malformed or corrupt', {
+        filepath,
+        error: errorMsg,
+        impact: 'Review issues from this agent will be lost',
+        suggestion: 'Check if file was partially written or truncated',
+      });
+      return [];
+    }
+
+    // Other errors - log with full context
+    logger.warn('Failed to read manifest file - unexpected error', {
       filepath,
+      errorCode,
       error: errorMsg,
+      errorStack: error instanceof Error ? error.stack : undefined,
+      impact: 'Agent completion tracking may be affected',
     });
     return [];
   }

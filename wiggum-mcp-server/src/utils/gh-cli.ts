@@ -366,10 +366,12 @@ export async function getPRReviewComments(
     } catch (error) {
       skippedCount++;
       // ERROR level - this is data loss that affects review completeness
+      // Include stack trace for debugging JSON parsing failures (may indicate API format changes)
       logger.error('Failed to parse review comment JSON - comment will be skipped', {
         prNumber,
         username,
         errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
         linePreview: line.substring(0, 100),
         position: comments.length,
         totalSkipped: skippedCount,

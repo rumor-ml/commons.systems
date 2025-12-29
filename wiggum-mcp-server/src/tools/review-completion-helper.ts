@@ -33,21 +33,7 @@ import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
 import { readFile, stat } from 'fs/promises';
-
-/**
- * Known agent names for validation and warnings
- *
- * These are the expected agent names in the scope-separated review workflow.
- * Used to warn when an unexpected agent name is extracted from file paths.
- */
-const KNOWN_AGENT_NAMES = [
-  'code-reviewer',
-  'silent-failure-hunter',
-  'code-simplifier',
-  'comment-analyzer',
-  'pr-test-analyzer',
-  'type-design-analyzer',
-];
+import { REVIEW_AGENT_NAMES } from './manifest-utils.js';
 
 /**
  * Extract agent name from file path
@@ -105,12 +91,13 @@ export function extractAgentNameFromPath(filePath: string): string {
   }
 
   // Warn if agent name doesn't match known agents (might be typo or new agent)
-  if (!KNOWN_AGENT_NAMES.includes(agentSlug)) {
+  // Uses REVIEW_AGENT_NAMES from manifest-utils.ts to ensure consistency across the codebase
+  if (!REVIEW_AGENT_NAMES.includes(agentSlug as (typeof REVIEW_AGENT_NAMES)[number])) {
     logger.warn('Extracted agent name not in known agents list', {
       filePath,
       extractedName: agentSlug,
-      knownAgents: KNOWN_AGENT_NAMES,
-      suggestion: 'Update KNOWN_AGENT_NAMES if this is a new agent',
+      knownAgents: REVIEW_AGENT_NAMES,
+      suggestion: 'Update REVIEW_AGENT_NAMES in manifest-utils.ts if this is a new agent',
     });
   }
 

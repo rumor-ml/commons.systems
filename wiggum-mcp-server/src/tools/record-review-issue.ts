@@ -1,11 +1,15 @@
 /**
  * Tool: wiggum_record_review_issue
  *
- * Records a single review issue to the manifest file system.
- * Each issue is appended to the appropriate manifest file based on agent name, scope, and timestamp.
- * Creates a NEW GitHub comment per issue (detects phase from wiggum state - posts to issue or PR).
+ * Records a single review issue to the manifest file system and posts a GitHub comment.
+ * Each call creates a new manifest file with a unique timestamp and random suffix to prevent
+ * race conditions when multiple agents run concurrently.
  *
  * Manifest files are JSON arrays stored in: $(pwd)/tmp/wiggum/{agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * Phase detection determines comment posting target:
+ * - Phase 1: Posts to the GitHub issue
+ * - Phase 2: Posts to the PR
  *
  * ERROR HANDLING STRATEGY:
  * - VALIDATION ERRORS: Invalid scope, priority, or missing required fields
@@ -93,8 +97,15 @@ function getManifestDir(): string {
 }
 
 /**
- * Append issue to manifest file
- * Creates new manifest file if it doesn't exist, otherwise appends to existing file
+ * Write issue to a new manifest file
+ *
+ * Creates a new manifest file for each issue. Each file gets a unique timestamp
+ * and random suffix to prevent race conditions when multiple agents run concurrently.
+ *
+ * NOTE: Despite the function name, this always creates a NEW file because
+ * generateManifestFilename() includes a timestamp and random suffix that ensures
+ * each call generates a unique filename. The "append to existing" logic exists
+ * only as a defensive measure in case of filename collision (extremely unlikely).
  */
 function appendToManifest(issue: IssueRecord): string {
   const manifestDir = getManifestDir();

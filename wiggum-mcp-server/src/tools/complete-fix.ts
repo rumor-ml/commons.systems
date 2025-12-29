@@ -124,11 +124,11 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
   // Validate out_of_scope_issues array contents if provided
   if (input.out_of_scope_issues && input.out_of_scope_issues.length > 0) {
-    // Number.isInteger validates both integrality and finiteness:
-    // - Returns false for NaN (not a number)
-    // - Returns false for Infinity and -Infinity (infinite values are not integers)
-    // - Returns false for floats like 1.5 (decimal numbers are not integers)
-    // Combined with num <= 0, this ensures only positive integers pass validation.
+    // Filter to find INVALID numbers that should be rejected:
+    // - !Number.isInteger(num): Rejects NaN, Infinity, -Infinity, and floats (e.g., 1.5)
+    // - num <= 0: Rejects zero and negative numbers
+    // Together, this filter KEEPS invalid values so we can report them as errors.
+    // Valid positive integers will NOT be in this array.
     const invalidNumbers = input.out_of_scope_issues.filter(
       (num) => !Number.isInteger(num) || num <= 0
     );
@@ -392,11 +392,13 @@ To resolve:
   // This ensures manifests are scoped to a single iteration
   await cleanupManifestFiles();
 
-  // Reuse newState to avoid race condition with GitHub API (issue #388)
-  // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-  // state changes have occurred (PR closed, commits added, issue modified). This is safe
-  // during inline step transitions within the same tool call. For state staleness validation,
-  // see issue #391.
+  // Reuse newState instead of calling detectCurrentState() again to avoid race condition
+  // with GitHub API (issue #388). When we just updated the PR/issue body, the API may not
+  // immediately return the updated state due to eventual consistency.
+  //
+  // TRADE-OFF: This is safe because we're within a single tool call and assume no external
+  // changes (PR closed, commits added) occurred during execution. For cross-tool-call state
+  // validation where staleness is a concern, see issue #391.
   const updatedState = applyWiggumState(state, newState);
   const nextStepResult = await getNextStepInstructions(updatedState);
 

@@ -1,8 +1,14 @@
 /**
  * Tool: wiggum_init
  *
- * Initialization/entry point tool. Analyzes current state and determines next action.
- * This tool should only be called ONCE at the start of the workflow.
+ * Entry point for the wiggum workflow. Analyzes current state and returns next action.
+ *
+ * USAGE: Call this tool ONCE at the start of each wiggum invocation. After init returns,
+ * follow the instructions provided - completion tools (wiggum_complete_*) will return
+ * next step instructions directly. Only call wiggum_init again when:
+ * - Starting a new wiggum session
+ * - Resuming after a workflow halt (e.g., iteration limit reached)
+ * - Restarting after an error recovery
  */
 
 import { z } from 'zod';
@@ -27,8 +33,7 @@ export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
 /**
  * Initialize wiggum flow and determine the next step based on current state
  *
- * IMPORTANT: This tool should only be called ONCE at the start of the workflow.
- * After initialization, completion tools will provide next step instructions directly.
+ * See module-level docs for usage guidelines on when to call this tool.
  */
 export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   let state;
