@@ -19,6 +19,7 @@ export interface WiggumState {
   readonly completedSteps: readonly WiggumStep[];
   readonly phase: WiggumPhase;
   readonly maxIterations?: number;
+  readonly completedAgents?: readonly string[];
 }
 
 /**
@@ -132,6 +133,7 @@ const WiggumStateSchema = z
       .readonly(),
     phase: z.enum(['phase1', 'phase2']),
     maxIterations: z.number().int().positive('maxIterations must be positive integer').optional(),
+    completedAgents: z.array(z.string()).readonly().optional(),
   })
   .refine(
     (data) => {

@@ -21,6 +21,7 @@ import type { WiggumPhase } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { readManifestFiles, getCompletedAgents, cleanupManifestFiles } from './manifest-utils.js';
 
 /**
  * Get target number (issue or PR) based on current phase
@@ -298,13 +299,23 @@ To resolve:
     ),
   });
 
-  // State remains at same step but with filtered completedSteps
+  // Read manifests and determine which agents are complete
+  const manifests = readManifestFiles();
+  const completedAgents = getCompletedAgents(manifests);
+
+  logger.info('Determined completed agents from manifests', {
+    completedAgents,
+    manifestCount: manifests.size,
+  });
+
+  // State remains at same step but with filtered completedSteps and updated completedAgents
   const newState: WiggumState = {
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
     phase: state.wiggum.phase,
     maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
+    completedAgents,
   };
 
   logger.info('Posting wiggum state comment', {
@@ -376,6 +387,10 @@ To resolve:
     targetNumber,
     location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
   });
+
+  // Clean up manifest files after successful state update
+  // This ensures manifests are scoped to a single iteration
+  await cleanupManifestFiles();
 
   // Reuse newState to avoid race condition with GitHub API (issue #388)
   // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external

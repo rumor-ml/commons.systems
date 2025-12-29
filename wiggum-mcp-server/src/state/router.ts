@@ -36,6 +36,7 @@ import {
 import type { ToolResult } from '../types.js';
 import { GitHubCliError, StateApiError } from '../utils/errors.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
+import { REVIEW_AGENT_NAMES } from '../tools/manifest-utils.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
@@ -44,6 +45,23 @@ import { sanitizeErrorMessage } from '../utils/security.js';
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
+
+/**
+ * Get list of active review agents (not yet completed)
+ *
+ * Filters REVIEW_AGENT_NAMES by removing any agents in completedAgents.
+ * Returns all agents if completedAgents is undefined or empty.
+ *
+ * @param completedAgents - Array of agent names that have completed (from WiggumState)
+ * @returns Array of active agent names that should still run
+ */
+function getActiveAgents(completedAgents: readonly string[] | undefined): readonly string[] {
+  if (!completedAgents || completedAgents.length === 0) {
+    return REVIEW_AGENT_NAMES;
+  }
+
+  return REVIEW_AGENT_NAMES.filter((agent) => !completedAgents.includes(agent));
+}
 
 /**
  * Result type for state update operations
@@ -1015,13 +1033,18 @@ async function handlePhase1MonitorWorkflow(
  * Phase 1 Step 2: PR Review
  */
 function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolResult {
+  // Get active agents (filter out completed ones)
+  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
+  const agentList =
+    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
     step_number: STEP_PHASE1_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `## Step 2: PR Review (Before PR Creation)
 
-Execute comprehensive PR review on the current branch before creating the pull request.
+Execute comprehensive PR review on the current branch before creating the pull request.${agentList}
 
 **Instructions:**
 
@@ -1066,13 +1089,18 @@ Execute comprehensive PR review on the current branch before creating the pull r
  * Phase 1 Step 3: Security Review
  */
 function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
+  // Get active agents (filter out completed ones)
+  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
+  const agentList =
+    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
     step_number: STEP_PHASE1_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `## Step 3: Security Review (Before PR Creation)
 
-Execute security review on the current branch before creating the pull request.
+Execute security review on the current branch before creating the pull request.${agentList}
 
 **Instructions:**
 
@@ -1713,12 +1741,17 @@ async function handlePhase2CodeQuality(state: CurrentStateWithPR): Promise<ToolR
  * NOTE: Step 4 (PR Review) was removed as Phase 1 review is comprehensive
  */
 function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
+  // Get active agents (filter out completed ones)
+  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
+  const agentList =
+    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW],
     step_number: STEP_PHASE2_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline
+Review all commits: git log main..HEAD --oneline${agentList}
 
 Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 

@@ -147,60 +147,64 @@ You are thorough but pragmatic, focusing on tests that provide real value in cat
 
 ## CRITICAL: Output Format for Scope-Aware Mode
 
-### File Writing
+### Recording Issues
 
-1. Determine paths:
+For each test coverage issue found, call the `wiggum_record_review_issue` tool:
 
-   ```bash
-   # Collision prevention strategy:
-   # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
-   # - Cross-agent isolation: Agent name prefix (e.g., pr-test-analyzer-) in filename
-   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
-   #   even when multiple agents start in the exact same millisecond
-   TIMESTAMP=$(date +%s%3N)
-   RANDOM_SUFFIX=$(openssl rand -hex 4)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
-   ```
+```javascript
+mcp__wiggum__wiggum_record_review_issue({
+  agent_name: 'pr-test-analyzer',
+  scope: 'in-scope' | 'out-of-scope', // Based on scope criteria above
+  priority: 'high' | 'low', // Map from priority rating (see below)
+  title: 'Brief test gap title',
+  description:
+    'Full description with:\n- What is not tested\n- Why it matters (specific regression/bug it would catch)\n- Concrete test suggestion\n- Example of failure scenario',
+  location: 'path/to/file.ts:45', // Optional but recommended
+  existing_todo: {
+    // For out-of-scope issues only
+    has_todo: true | false,
+    issue_reference: '#123', // If has_todo is true
+  },
+  metadata: {
+    priority_rating: 1 - 10, // 1-10 scale
+    category: 'critical_gap' | 'important_improvement' | 'test_quality',
+  },
+});
+```
 
-2. Create directory:
+**Priority Mapping:**
 
-   ```bash
-   mkdir -p "$(pwd)/tmp/wiggum"
-   # Note: -p flag ensures mkdir succeeds even if directory already exists
-   # (multiple review agents may create this concurrently)
-   ```
+- Priority rating 5-10 → `priority: 'high'`
+- Priority rating 1-4 → `priority: 'low'`
 
-3. Write findings to both files using Write tool
-   - Use the EXACT structure from the "Output Format" section above: Summary, Critical Gaps, Important Improvements, Test Quality Issues, and Positive Observations
-   - The structure (section headings, order) MUST be identical in both files
-   - Only the specific findings differ (in-scope vs out-of-scope)
+**Rating Guidelines:**
+
+- 9-10: Critical functionality (data loss, security issues, system failures)
+- 7-8: Important business logic (user-facing errors)
+- 5-6: Edge cases (confusion or minor issues)
+- 3-4: Nice-to-have coverage
+- 1-2: Optional improvements
+
+**Checking for Existing TODOs (out-of-scope only):**
+
+Before recording an out-of-scope issue, check if a TODO comment already exists at the location:
+
+```bash
+# Read the file at the issue location
+grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
+```
+
+If a TODO with issue reference exists (e.g., `TODO(#123): Add test`), include it in `existing_todo`.
 
 ### Return JSON Summary
 
-After writing files, return this EXACT JSON structure:
+After recording all issues, return this EXACT JSON structure:
 
 ```json
 {
-  "agent_name": "pr-test-analyzer",
-  "in_scope_file": "$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-{timestamp}.md",
-  "in_scope_count": <number>,
-  "out_of_scope_count": <number>,
-  "severity_breakdown": {
-    "priority_8_10": <number>,
-    "priority_5_7": <number>,
-    "priority_3_4": <number>
-  },
-  "total_issues": <number>,
-  "issue_context": {
-    "issue_number": <number>,
-    "issue_title": "...",
-    "issue_url": "..."
-  }
+  "status": "complete",
+  "issues_recorded": <total_count>
 }
 ```
 
-**Note:** The `severity_breakdown` field provides detailed metrics for PR comments and debugging, while the wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions. Each agent uses a custom severity_breakdown structure tailored to its review type.
-
-For pr-test-analyzer, severity_breakdown uses `{ "priority_8_10": N, "priority_5_7": N, "priority_3_4": N }` based on the priority rating scale.
+**Note:** The `wiggum_record_review_issue` tool handles all file writing, GitHub comment posting, and manifest creation. Agents only need to call the tool for each finding and return the simple completion JSON.

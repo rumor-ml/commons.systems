@@ -16,6 +16,8 @@ import {
   CompleteSecurityReviewInputSchema,
 } from './tools/complete-security-review.js';
 import { completeFix, CompleteFixInputSchema } from './tools/complete-fix.js';
+import { recordReviewIssue, RecordReviewIssueInputSchema } from './tools/record-review-issue.js';
+import { readManifests, ReadManifestsInputSchema } from './tools/read-manifests.js';
 
 import { createErrorResult } from './utils/errors.js';
 import { DEFAULT_MAX_ITERATIONS } from './constants.js';
@@ -180,6 +182,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['fix_description', 'has_in_scope_fixes'],
         },
       },
+      {
+        name: 'wiggum_record_review_issue',
+        description:
+          'Record a single review issue to the manifest file system and post as GitHub comment. Each issue is appended to a manifest file based on agent name, scope, and timestamp. Posts to PR (phase2) or issue (phase1).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            agent_name: {
+              type: 'string',
+              description: 'Name of the review agent that found this issue',
+            },
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope'],
+              description: 'Whether this issue is in-scope or out-of-scope for the current work',
+            },
+            priority: {
+              type: 'string',
+              enum: ['high', 'low'],
+              description: 'Priority level of the issue (high or low only)',
+            },
+            title: {
+              type: 'string',
+              description: 'Brief title summarizing the issue',
+            },
+            description: {
+              type: 'string',
+              description: 'Detailed description of the issue',
+            },
+            location: {
+              type: 'string',
+              description: 'Optional file path or location where the issue was found',
+            },
+            existing_todo: {
+              type: 'string',
+              description: 'Optional existing TODO comment related to this issue',
+            },
+            metadata: {
+              type: 'object',
+              description: 'Optional metadata object with additional context',
+            },
+          },
+          required: ['agent_name', 'scope', 'priority', 'title', 'description'],
+        },
+      },
+      {
+        name: 'wiggum_read_manifests',
+        description:
+          'Read and aggregate review issue manifest files based on scope filter. Returns aggregated manifest data with summary statistics including total issues, priority counts, and issues grouped by agent.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope', 'all'],
+              description: 'Filter manifests by scope: in-scope, out-of-scope, or all',
+            },
+          },
+          required: ['scope'],
+        },
+      },
     ],
   };
 });
@@ -215,9 +278,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await completeFix(validated);
       }
 
+      case 'wiggum_record_review_issue': {
+        const validated = RecordReviewIssueInputSchema.parse(args);
+        return await recordReviewIssue(validated);
+      }
+
+      case 'wiggum_read_manifests': {
+        const validated = ReadManifestsInputSchema.parse(args);
+        return await readManifests(validated);
+      }
+
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests`
         );
     }
   } catch (error) {

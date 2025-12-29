@@ -150,60 +150,56 @@ IMPORTANT: You analyze and provide feedback only. Do not modify code or comments
 
 ## CRITICAL: Output Format for Scope-Aware Mode
 
-### File Writing
+### Recording Issues
 
-1. Determine paths:
+For each comment issue found, call the `wiggum_record_review_issue` tool:
 
-   ```bash
-   # Collision prevention strategy:
-   # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
-   # - Cross-agent isolation: Agent name prefix (e.g., comment-analyzer-) in filename
-   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
-   #   even when multiple agents start in the exact same millisecond
-   TIMESTAMP=$(date +%s%3N)
-   RANDOM_SUFFIX=$(openssl rand -hex 4)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
-   ```
+```javascript
+mcp__wiggum__wiggum_record_review_issue({
+  agent_name: 'comment-analyzer',
+  scope: 'in-scope' | 'out-of-scope', // Based on scope criteria above
+  priority: 'high' | 'low', // Map from category (see below)
+  title: 'Brief issue title',
+  description:
+    'Full description with:\n- Issue/current state\n- Why it matters\n- Suggested improvement or rationale for removal',
+  location: 'path/to/file.ts:45', // Optional but recommended
+  existing_todo: {
+    // For out-of-scope issues only
+    has_todo: true | false,
+    issue_reference: '#123', // If has_todo is true
+  },
+  metadata: {
+    category: 'critical_issue' | 'improvement' | 'removal',
+  },
+});
+```
 
-2. Create directory:
+**Priority Mapping:**
 
-   ```bash
-   mkdir -p "$(pwd)/tmp/wiggum"
-   # Note: -p flag ensures mkdir succeeds even if directory already exists
-   # (multiple review agents may create this concurrently)
-   ```
+- Critical Issues (factually incorrect/misleading) → `priority: 'high'`
+- Recommended Removals (adds no value/confusing) → `priority: 'high'`
+- Improvement Opportunities (could be enhanced) → `priority: 'low'`
 
-3. Write findings to both files using Write tool
-   - Use the EXACT structure from the "Your analysis output should be structured as:" section above: Summary, Critical Issues (with Location/Issue/Suggestion), Improvement Opportunities (with Location/Current state/Suggestion), Recommended Removals (with Location/Rationale), and Positive Findings
-   - The structure (section headings, order) MUST be identical in both files
-   - Only the specific findings differ (in-scope vs out-of-scope)
+**Checking for Existing TODOs (out-of-scope only):**
+
+Before recording an out-of-scope issue, check if a TODO comment already exists at the location:
+
+```bash
+# Read the file at the issue location
+grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
+```
+
+If a TODO with issue reference exists (e.g., `TODO(#123): Fix comment`), include it in `existing_todo`.
 
 ### Return JSON Summary
 
-After writing files, return this EXACT JSON structure:
+After recording all issues, return this EXACT JSON structure:
 
 ```json
 {
-  "agent_name": "comment-analyzer",
-  "in_scope_file": "$(pwd)/tmp/wiggum/comment-analyzer-in-scope-{timestamp}.md",
-  "out_of_scope_file": "$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-{timestamp}.md",
-  "in_scope_count": <number>,
-  "out_of_scope_count": <number>,
-  "severity_breakdown": {
-    "critical_issues": <number>,
-    "improvements": <number>,
-    "removals": <number>
-  },
-  "total_issues": <number>,
-  "issue_context": {
-    "issue_number": <number>,
-    "issue_title": "...",
-    "issue_url": "..."
-  }
+  "status": "complete",
+  "issues_recorded": <total_count>
 }
 ```
 
-**Note:** The `severity_breakdown` field provides detailed metrics for PR comments and debugging, while the wiggum tool uses only `in_scope_count` and `out_of_scope_count` for workflow decisions. Each agent uses a custom severity_breakdown structure tailored to its review type.
-
-For comment-analyzer, severity_breakdown uses `{ "critical_issues": N, "improvements": N, "removals": N }` to categorize findings.
+**Note:** The `wiggum_record_review_issue` tool handles all file writing, GitHub comment posting, and manifest creation. Agents only need to call the tool for each finding and return the simple completion JSON.

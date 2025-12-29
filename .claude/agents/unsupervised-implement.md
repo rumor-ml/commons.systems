@@ -30,11 +30,12 @@ You receive structured context in the initial prompt:
 
 ```
 **Context:**
-- in_scope_files: [list of files to fix]
 - issue_number: 625
 - review_type: "PR Review" or "Security Review"
 - previous_context: {...} (optional, for resumption)
 ```
+
+**Note:** You do NOT receive `in_scope_files` in the input. Instead, you must read manifests to find your work (see Phase 0 below).
 
 For resumption after clarification:
 
@@ -64,27 +65,70 @@ Skip exploration/planning phases, incorporate user answers, proceed directly to 
 
 ## Workflow Phases
 
+### Phase 0: Read In-Scope Manifests
+
+**CRITICAL:** Before starting any work, read the in-scope manifests to find all issues to fix:
+
+```javascript
+const manifestResult = await mcp__wiggum__wiggum_read_manifests({
+  scope: 'in-scope',
+});
+```
+
+This returns:
+
+```typescript
+{
+  manifests: IssueManifest[],  // Array of manifests from each agent
+  summary: {
+    total_issues: number,
+    high_priority_count: number,
+    low_priority_count: number,
+    agents_with_issues: string[]
+  }
+}
+```
+
+**Extract work from manifests:**
+
+1. Collect all issues from all agents
+2. Build list of affected files from `issue.location` fields
+3. Use this information for the Explore and Plan phases
+
+**If no manifests found or total_issues === 0:**
+Return early with:
+
+```json
+{
+  "status": "complete",
+  "fixes_applied": [],
+  "tests_passed": true,
+  "iterations": 0,
+  "note": "No in-scope issues found in manifests"
+}
+```
+
 ### Phase 1: Launch Explore Agents
 
 Launch 1-3 Explore agents (haiku model) in parallel to gather context.
 
-**Agent 1: Extract Issues**
+**Agent 1: Analyze Manifest Issues**
 
 ```
 Task({
   subagent_type: "Explore",
   model: "haiku",
-  description: "Extract issues from review results",
-  prompt: `Read the in-scope review result files and extract all issues that need fixing.
+  description: "Analyze issues from manifests",
+  prompt: `Analyze the issues found in the manifest data.
 
-**Files to analyze:**
-${inScopeFiles.join('\n')}
+**Manifest data:**
+${JSON.stringify(manifestResult, null, 2)}
 
 **Task:**
-1. Read each file completely
-2. Extract all identified issues
-3. Categorize by severity and type
-4. Return structured list of issues with file locations
+1. Group issues by file location
+2. Identify which issues are related
+3. Categorize by type (bug fix, error handling, test coverage, etc.)
+4. Return structured analysis with prioritized groups
 `
 })
 ```
@@ -96,13 +140,13 @@ Task({
   subagent_type: "Explore",
   model: "haiku",
   description: "Understand current implementation",
-  prompt: `Read the source files referenced in the review results to understand current implementation.
+  prompt: `Read the source files referenced in the manifest issues to understand current implementation.
 
-**Review results:**
-${inScopeFiles.join('\n')}
+**Issue locations:**
+${manifestResult.manifests.flatMap(m => m.issues.map(i => i.location)).filter(Boolean).join('\n')}
 
 **Task:**
-1. Identify all source files mentioned
+1. Extract unique file paths from locations
 2. Read each source file
 3. Understand current implementation patterns
 4. Note dependencies and related code
@@ -118,10 +162,12 @@ Task({
   subagent_type: "Explore",
   model: "haiku",
   description: "Identify related code",
-  prompt: `Identify code that may be affected by fixing the issues.
+  prompt: `Identify code that may be affected by fixing the manifest issues.
 
-**Known issues:**
-[Brief summary from Agent 1 output]
+**Manifest summary:**
+- Total issues: ${manifestResult.summary.total_issues}
+- Agents: ${manifestResult.summary.agents_with_issues.join(', ')}
+- Files affected: [Extract from Agent 2 output]
 
 **Task:**
 1. Use Glob/Grep to find related code
@@ -136,20 +182,20 @@ Wait for all Explore agents to complete. Read their outputs using TaskOutput too
 
 ### Phase 2: Launch Plan Agent
 
-Launch 1 Plan agent (opus model) with comprehensive context from Phase 1.
+Launch 1 Plan agent (opus model) with comprehensive context from Phase 0 and Phase 1.
 
 ```
 Task({
   subagent_type: "Plan",
   model: "opus",
   description: "Create implementation plan",
-  prompt: `Create a detailed implementation plan for fixing all in-scope issues.
+  prompt: `Create a detailed implementation plan for fixing all in-scope issues from manifests.
+
+**Manifest data:**
+${JSON.stringify(manifestResult, null, 2)}
 
 **Context from Exploration:**
 ${JSON.stringify(exploreResults, null, 2)}
-
-**In-scope files:**
-${inScopeFiles.join('\n')}
 
 **Issue context:**
 ${issueNumber}
