@@ -65,14 +65,15 @@ const KNOWN_AGENT_NAMES = [
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
  *
  * @example
- * extractAgentNameFromPath('$(pwd)/tmp/wiggum/code-reviewer-in-scope-1234.md')
+ * extractAgentNameFromPath('$(pwd)/tmp/wiggum/code-reviewer-in-scope-1234-abc123.md')
  * // Returns: 'Code Reviewer'
  */
 export function extractAgentNameFromPath(filePath: string): string {
   const fileName = filePath.split('/').pop() || '';
 
-  // Match pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md
-  const match = fileName.match(/^(.+?)-(in-scope|out-of-scope)-\d+\.md$/);
+  // Match pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md
+  // Random suffix prevents collisions when agents start simultaneously
+  const match = fileName.match(/^(.+?)-(in-scope|out-of-scope)-\d+-[a-f0-9]+\.md$/);
 
   if (!match) {
     // Pattern didn't match - file name is malformed
@@ -80,13 +81,13 @@ export function extractAgentNameFromPath(filePath: string): string {
     logger.error('Failed to extract agent name from file path - file naming convention violated', {
       filePath,
       fileName,
-      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}.md',
+      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md',
       impact: 'Cannot attribute review findings to specific agent',
       action: 'Fix agent file naming to match convention',
     });
     throw new ValidationError(
       `Invalid review result filename: ${fileName}\n` +
-        `Expected pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md\n` +
+        `Expected pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md\n` +
         `File path: ${filePath}\n\n` +
         `This indicates a bug in the review agent file naming logic.`
     );

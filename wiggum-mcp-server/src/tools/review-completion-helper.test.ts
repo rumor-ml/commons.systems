@@ -99,11 +99,23 @@ describe('review-completion-helper', () => {
     });
   });
 
+  // Helper function to generate random hex suffix for test filenames
+  function randomHex(): string {
+    return Math.random().toString(16).substring(2, 10);
+  }
+
   describe('loadReviewResults', () => {
     it('should successfully load multiple in-scope and out-of-scope files', async () => {
-      const inScopeFile1 = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
-      const inScopeFile2 = '/tmp/claude/silent-failure-hunter-in-scope-' + (Date.now() + 1) + '.md';
-      const outOfScopeFile = '/tmp/claude/code-reviewer-out-of-scope-' + Date.now() + '.md';
+      const inScopeFile1 =
+        '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
+      const inScopeFile2 =
+        '/tmp/claude/silent-failure-hunter-in-scope-' +
+        (Date.now() + 1) +
+        '-' +
+        randomHex() +
+        '.md';
+      const outOfScopeFile =
+        '/tmp/claude/code-reviewer-out-of-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       await writeFile(inScopeFile1, 'Issue 1: Fix bug');
       await writeFile(inScopeFile2, 'Issue 2: Add test');
@@ -125,7 +137,8 @@ describe('review-completion-helper', () => {
 
     it('should throw ValidationError when in-scope file does not exist', async () => {
       // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
-      const nonexistentFile = '/tmp/claude/nonexistent-in-scope-' + Date.now() + '.md';
+      const nonexistentFile =
+        '/tmp/claude/nonexistent-in-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       await assert.rejects(async () => loadReviewResults([nonexistentFile], []), {
         name: 'ValidationError',
@@ -136,7 +149,8 @@ describe('review-completion-helper', () => {
     it('should throw ValidationError for empty files', async () => {
       // Use proper agent naming pattern so extractAgentNameFromPath succeeds
       // and we can test the actual empty file handling
-      const emptyFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      const emptyFile =
+        '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(emptyFile, '');
 
       await assert.rejects(async () => loadReviewResults([emptyFile], []), {
@@ -523,20 +537,22 @@ describe('review-completion-helper', () => {
   describe('extractAgentNameFromPath', () => {
     it('should extract agent name from in-scope file path', () => {
       const result = extractAgentNameFromPath(
-        '/tmp/claude/wiggum-625/code-reviewer-in-scope-1234.md'
+        '/tmp/claude/wiggum-625/code-reviewer-in-scope-1234-abc123.md'
       );
       assert.strictEqual(result, 'Code Reviewer');
     });
 
     it('should extract agent name from out-of-scope file path', () => {
       const result = extractAgentNameFromPath(
-        '/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678.md'
+        '/tmp/claude/wiggum-625/pr-test-analyzer-out-of-scope-5678-def456.md'
       );
       assert.strictEqual(result, 'Pr Test Analyzer');
     });
 
     it('should handle single-word agent names', () => {
-      const result = extractAgentNameFromPath('/tmp/claude/wiggum-625/linter-in-scope-1234.md');
+      const result = extractAgentNameFromPath(
+        '/tmp/claude/wiggum-625/linter-in-scope-1234-abc123.md'
+      );
       assert.strictEqual(result, 'Linter');
     });
 
@@ -558,7 +574,7 @@ describe('review-completion-helper', () => {
     });
 
     it('should handle paths with only filename', () => {
-      const result = extractAgentNameFromPath('comment-analyzer-in-scope-9999.md');
+      const result = extractAgentNameFromPath('comment-analyzer-in-scope-9999-abc123.md');
       assert.strictEqual(result, 'Comment Analyzer');
     });
   });
@@ -571,7 +587,8 @@ describe('review-completion-helper', () => {
     });
 
     it('should read and format single in-scope file', async () => {
-      const tempFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      const tempFile =
+        '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(tempFile, 'Test content');
 
       const result = await loadReviewResults([tempFile], []);
@@ -584,7 +601,8 @@ describe('review-completion-helper', () => {
     });
 
     it('should read and format single out-of-scope file', async () => {
-      const tempFile = '/tmp/claude/pr-test-analyzer-out-of-scope-' + Date.now() + '.md';
+      const tempFile =
+        '/tmp/claude/pr-test-analyzer-out-of-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(tempFile, 'Out of scope content');
 
       const result = await loadReviewResults([], [tempFile]);
@@ -597,8 +615,10 @@ describe('review-completion-helper', () => {
     });
 
     it('should read and format multiple files', async () => {
-      const inScope1 = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
-      const inScope2 = '/tmp/claude/comment-analyzer-in-scope-' + Date.now() + '.md';
+      const inScope1 =
+        '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
+      const inScope2 =
+        '/tmp/claude/comment-analyzer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(inScope1, 'Review 1');
       await writeFile(inScope2, 'Review 2');
 
@@ -614,7 +634,8 @@ describe('review-completion-helper', () => {
 
     it('should throw ValidationError with details for missing in-scope files', async () => {
       // Only in-scope failures are fatal - out-of-scope failures just log warnings
-      const missingInScopeFile = '/tmp/claude/missing-file-in-scope-' + Date.now() + '.md';
+      const missingInScopeFile =
+        '/tmp/claude/missing-file-in-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       await assert.rejects(async () => loadReviewResults([missingInScopeFile], []), {
         name: 'ValidationError',
@@ -624,7 +645,8 @@ describe('review-completion-helper', () => {
 
     it('should include all failure details in error message', async () => {
       // File path must include '-in-scope-' pattern for correct category detection
-      const missingFile = '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '.md';
+      const missingFile =
+        '/tmp/claude/code-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       try {
         await loadReviewResults([missingFile], []);
@@ -643,8 +665,9 @@ describe('review-completion-helper', () => {
     });
 
     it('should aggregate errors when some in-scope files exist and some do not', async () => {
-      const existingFile = '/tmp/claude/linter-in-scope-' + Date.now() + '.md';
-      const missingFile = '/tmp/claude/missing-reviewer-in-scope-' + Date.now() + '.md';
+      const existingFile = '/tmp/claude/linter-in-scope-' + Date.now() + '-' + randomHex() + '.md';
+      const missingFile =
+        '/tmp/claude/missing-reviewer-in-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(existingFile, 'Content');
 
       try {
@@ -681,7 +704,8 @@ describe('review-completion-helper', () => {
       // Tests the edge case where stat() finds a file with size > 0,
       // but readFile() returns empty content (race with file truncation)
       // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
-      const tempFile = '/tmp/claude/empty-after-stat-in-scope-' + Date.now() + '.md';
+      const tempFile =
+        '/tmp/claude/empty-after-stat-in-scope-' + Date.now() + '-' + randomHex() + '.md';
       await writeFile(tempFile, '   '); // Only whitespace
 
       await assert.rejects(async () => loadReviewResults([tempFile], []), {
@@ -694,7 +718,7 @@ describe('review-completion-helper', () => {
 
     it('should include error code in error details for ENOENT (in-scope)', async () => {
       // Using in-scope pattern to trigger error (out-of-scope failures are non-fatal)
-      const missingFile = '/tmp/claude/missing-in-scope-' + Date.now() + '.md';
+      const missingFile = '/tmp/claude/missing-in-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       try {
         await loadReviewResults([missingFile], []);
@@ -713,8 +737,10 @@ describe('review-completion-helper', () => {
       // With tiered failure handling:
       // - in-scope failures are CRITICAL and throw
       // - out-of-scope failures just log warnings and continue
-      const missingInScope = '/tmp/claude/missing-in-scope-' + Date.now() + '.md';
-      const missingOutOfScope = '/tmp/claude/missing-out-of-scope-' + Date.now() + '.md';
+      const missingInScope =
+        '/tmp/claude/missing-in-scope-' + Date.now() + '-' + randomHex() + '.md';
+      const missingOutOfScope =
+        '/tmp/claude/missing-out-of-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       try {
         await loadReviewResults([missingInScope], [missingOutOfScope]);
@@ -733,7 +759,8 @@ describe('review-completion-helper', () => {
 
     it('should succeed when only out-of-scope files fail', async () => {
       // With tiered failure handling, out-of-scope failures are non-fatal
-      const missingOutOfScope = '/tmp/claude/missing-out-of-scope-' + Date.now() + '.md';
+      const missingOutOfScope =
+        '/tmp/claude/missing-out-of-scope-' + Date.now() + '-' + randomHex() + '.md';
 
       // This should NOT throw - out-of-scope failures are warnings only
       const result = await loadReviewResults([], [missingOutOfScope]);
@@ -803,8 +830,8 @@ describe('review-completion-helper', () => {
     describe('Partial success scenarios (tiered failure handling)', () => {
       test('should handle partial success: some in-scope files succeed, some fail', async () => {
         // Create test files: 1 success, 1 failure
-        const successFile = `/tmp/claude/success-in-scope-${Date.now()}.md`;
-        const failFile = `/tmp/claude/fail-in-scope-${Date.now()}.md`;
+        const successFile = `/tmp/claude/success-in-scope-${Date.now()}-${randomHex()}.md`;
+        const failFile = `/tmp/claude/fail-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await writeFile(successFile, '# Test content');
         // Don't create failFile - it will fail with ENOENT
@@ -825,8 +852,8 @@ describe('review-completion-helper', () => {
 
       test('should succeed when only out-of-scope files fail (non-fatal)', async () => {
         // With tiered failure handling, out-of-scope failures are warnings only
-        const inScopeSuccess = `/tmp/claude/success-in-scope-${Date.now()}.md`;
-        const outOfScopeFail = `/tmp/claude/fail-out-of-scope-${Date.now()}.md`;
+        const inScopeSuccess = `/tmp/claude/success-in-scope-${Date.now()}-${randomHex()}.md`;
+        const outOfScopeFail = `/tmp/claude/fail-out-of-scope-${Date.now()}-${randomHex()}.md`;
 
         await writeFile(inScopeSuccess, '# In-scope content');
         // Don't create outOfScopeFail - but this should NOT cause a throw
@@ -841,8 +868,8 @@ describe('review-completion-helper', () => {
 
       test('should reject when in-scope file fails even if out-of-scope also fails', async () => {
         // In-scope failures are always fatal
-        const fail1 = `/tmp/claude/fail1-in-scope-${Date.now()}.md`;
-        const fail2 = `/tmp/claude/fail2-out-of-scope-${Date.now()}.md`;
+        const fail1 = `/tmp/claude/fail1-in-scope-${Date.now()}-${randomHex()}.md`;
+        const fail2 = `/tmp/claude/fail2-out-of-scope-${Date.now()}-${randomHex()}.md`;
 
         await assert.rejects(
           async () => {
@@ -859,7 +886,7 @@ describe('review-completion-helper', () => {
 
     describe('Empty file detection', () => {
       test('should detect file truncated after stat() shows non-zero size', async () => {
-        const file = `/tmp/claude/truncated-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/truncated-in-scope-${Date.now()}-${randomHex()}.md`;
 
         // Create file with content, then immediately truncate to empty
         // This simulates race condition where stat() sees size > 0 but readFile gets empty
@@ -879,7 +906,7 @@ describe('review-completion-helper', () => {
       });
 
       test('should handle whitespace-only files', async () => {
-        const file = `/tmp/claude/whitespace-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/whitespace-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await writeFile(file, '  \n\t  \n  '); // Various whitespace
 
@@ -897,7 +924,7 @@ describe('review-completion-helper', () => {
       });
 
       test('should handle stat() showing size 0', async () => {
-        const file = `/tmp/claude/zero-size-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/zero-size-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await writeFile(file, ''); // Zero-byte file
 
@@ -917,7 +944,7 @@ describe('review-completion-helper', () => {
 
     describe('Error classification and hints', () => {
       test('should include ENOENT action hint', async () => {
-        const file = `/tmp/claude/missing-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/missing-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await assert.rejects(
           async () => {
@@ -934,7 +961,7 @@ describe('review-completion-helper', () => {
         // Note: This test documents expected behavior but may be hard to reproduce reliably
         // across different systems due to permission setup complexity
         // We validate the error structure exists rather than forcing the error condition
-        const file = `/tmp/claude/access-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/access-in-scope-${Date.now()}-${randomHex()}.md`;
 
         // Document that EACCES errors should include file path and error code
         // Actual permission error testing would require platform-specific setup
@@ -945,7 +972,7 @@ describe('review-completion-helper', () => {
       });
 
       test('should include empty file action hint', async () => {
-        const file = `/tmp/claude/empty-hint-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/empty-hint-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await writeFile(file, '');
 
@@ -984,7 +1011,7 @@ describe('review-completion-helper', () => {
       });
 
       test('should include error codes in error message', async () => {
-        const file = `/tmp/claude/enoent-in-scope-${Date.now()}.md`;
+        const file = `/tmp/claude/enoent-in-scope-${Date.now()}-${randomHex()}.md`;
 
         await assert.rejects(
           async () => {
