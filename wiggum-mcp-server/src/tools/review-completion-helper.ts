@@ -56,11 +56,10 @@ const KNOWN_AGENT_NAMES = [
  * agent name. Converts kebab-case to Title Case by capitalizing the first
  * letter of each word.
  *
- * LIMITATION: Acronyms are not specially handled. 'pr-test-analyzer' becomes
- * 'Pr Test Analyzer' instead of 'PR Test Analyzer'. This trade-off avoids
- * maintaining an acronym whitelist while providing consistent, predictable
- * capitalization. Used in GitHub comment headers and logs (affects presentation
- * quality but not workflow logic).
+ * NOTE: Acronyms are not specially handled (e.g., 'pr-test-analyzer' becomes
+ * 'Pr Test Analyzer' not 'PR Test Analyzer'). This avoids maintaining an
+ * acronym whitelist. Since this only affects presentation in GitHub comments
+ * and logs (not workflow logic), the trade-off is acceptable for consistency.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails

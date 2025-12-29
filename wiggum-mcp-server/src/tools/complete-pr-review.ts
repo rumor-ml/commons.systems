@@ -70,7 +70,7 @@ const PR_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
 /**
  * Complete PR review and update state
  *
- * Throws ValidationError if issue number is undefined (see review-completion-helper.ts:1279-1282).
+ * Throws ValidationError if issue number is undefined (see review-completion-helper.ts:1294-1296).
  * TODO(#314): Add more actionable error context to help users diagnose state detection issues.
  */
 export async function completePRReview(input: CompletePRReviewInput): Promise<ToolResult> {

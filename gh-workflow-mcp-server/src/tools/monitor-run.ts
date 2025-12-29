@@ -240,14 +240,14 @@ export async function monitorRun(input: MonitorRunInput): Promise<ToolResult> {
     const fetchedRuns = await Promise.all(runIds.map((id) => getWorkflowRun(id, resolvedRepo)));
     const runs: Map<number, WorkflowRunData> = new Map();
     fetchedRuns.forEach((runData, index) => {
-      // TODO: See issue #539 - Add runtime validation for gh CLI response structure
+      // SAFETY: gh CLI returns JSON matching WorkflowRunData structure (see #539 for planned schema validation)
       runs.set(runIds[index], runData as WorkflowRunData);
     });
 
     const jobsResults = await Promise.all(runIds.map((id) => getWorkflowJobs(id, resolvedRepo)));
     const allJobs: Map<number, JobData[]> = new Map();
     jobsResults.forEach((jobsData: any, index) => {
-      // TODO: See issue #539 - Add runtime validation for gh CLI response structure
+      // SAFETY: gh CLI returns JSON matching JobData[] structure (see #539 for planned schema validation)
       allJobs.set(runIds[index], jobsData.jobs || []);
     });
 

@@ -45,9 +45,10 @@ export interface OverallStatus {
 /**
  * Execute a gh watch command with timeout support using AbortController
  *
- * Timeout is enforced using AbortController's signal mechanism. When timeout
- * expires, the controller aborts the execa process, which throws an error with
- * `isCanceled: true`. This is detected to return a timeout result.
+ * Uses AbortController for timeout enforcement to avoid orphaned processes.
+ * When timeout expires, the controller aborts the execa process cleanly, which
+ * throws an error with `isCanceled: true`. This is detected to return a timeout
+ * result rather than treating it as a command failure.
  *
  * @param args - Command arguments (e.g., ['run', 'watch', '123', '--exit-status'])
  * @param timeoutMs - Timeout in milliseconds
