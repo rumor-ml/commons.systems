@@ -339,8 +339,11 @@ export function generateScopeSeparatedFixInstructions(
   outOfScopeCount: number,
   outOfScopeFiles: readonly string[]
 ): string {
-  const inScopeFileList = inScopeFiles.map((f) => `- ${f}`).join('\n');
-  const outOfScopeFileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');
+  // issueNumber, inScopeFiles, and outOfScopeFiles are kept in signature for backwards compatibility
+  // but are no longer used since we switched to wiggum_list_issues workflow
+  void issueNumber;
+  void inScopeFiles;
+  void outOfScopeFiles;
 
   // Build the instruction text
   let instructions = `${inScopeCount} in-scope ${reviewType.toLowerCase()} review issue(s) found.`;
@@ -351,99 +354,90 @@ export function generateScopeSeparatedFixInstructions(
 
   instructions += `
 
-## Critical: Launch TWO Agents in PARALLEL
+## Workflow: List Issues -> Launch Agents
 
-The review agents have already separated in-scope (must fix) from out-of-scope (track for future).
-Launch BOTH agents in a single message with multiple Task calls to work in parallel:
+**Step 1: Get Issue References**
 
-### Agent 1: Unsupervised Implementation
+Call \`wiggum_list_issues\` to get minimal issue references:
+
+\`\`\`
+wiggum_list_issues({ scope: 'all' })
+\`\`\`
+
+This returns issue IDs, titles, and counts WITHOUT full descriptions (saves tokens).
+
+**Step 2: Create TODO List**
+
+From the returned issue references, create a TODO list to track progress.
+
+**Step 3: Launch Agents**
+
+### For In-Scope Issues: RUN ONE AT A TIME (Sequential)
+
+For EACH in-scope issue (one at a time, in order):
 
 \`\`\`
 Task({
   subagent_type: "unsupervised-implement",
   model: "opus",
-  description: "Autonomously implement in-scope ${reviewType} fixes",
-  prompt: \`Implement all in-scope issues from ${reviewType.toLowerCase()} review.
+  description: "Implement fix for issue {issue_id}",
+  prompt: \`Implement fix for issue: {issue_id}
 
-**Context:**
-- in_scope_files: ${inScopeFileList}
-- issue_number: ${issueNumber}
-- review_type: "${reviewType}"
+**Instructions:**
+1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
+2. Implement the fix described in the issue
+3. Return completion status
 
-Follow your system prompt to explore, plan, and implement fixes autonomously.
-If you need clarification, return structured JSON with questions.
+**IMPORTANT:** The agent will fetch full issue details using wiggum_get_issue.
+Do not pass full details in this prompt - pass only the issue_id.
 \`
 })
 \`\`\`
 
-**After Agent Completes:**
+Wait for each agent to complete before starting the next one.
 
-1. Parse agent response JSON
-2. **If \`status === "needs_clarification"\`:**
-   - Use AskUserQuestion tool with questions from response
-   - Re-invoke unsupervised-implement agent with user answers:
-     \`\`\`
-     Task({
-       subagent_type: "unsupervised-implement",
-       model: "opus",
-       prompt: \`Resume implementation with user clarifications.
-
-       **Previous Context:** \${JSON.stringify(context)}
-
-       **User Answers:**
-       \${userAnswers}
-       \`
-     })
-     \`\`\`
-3. **If \`status === "complete"\`:**
-   - Proceed to commit workflow
-   - Wait for out-of-scope agent to complete
-   - Execute /commit-merge-push
-   - Call wiggum_complete_fix
 `;
 
   if (outOfScopeCount > 0) {
     instructions += `
-### Agent 2: Track Out-of-Scope Recommendations
+### For Out-of-Scope Issues: RUN ALL IN PARALLEL
+
+Launch ALL out-of-scope tracking agents IN PARALLEL (all in one message):
+
+For EACH out-of-scope issue:
 
 \`\`\`
 Task({
-  subagent_type: "general-purpose",
+  subagent_type: "out-of-scope-tracker",
   model: "sonnet",
-  description: "Track out-of-scope ${reviewType.toLowerCase()} review recommendations",
-  prompt: \`Track out-of-scope recommendations in GitHub issues.
+  description: "Track out-of-scope issue {issue_id}",
+  prompt: \`Track out-of-scope issue: {issue_id}
 
-**Out-of-Scope Result Files:**
-${outOfScopeFileList}
+**Instructions:**
+1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
+2. Follow the out-of-scope tracking workflow in your system prompt
+3. Return completion status with issue numbers created/updated
 
-**Your Tasks:**
-1. Read ALL out-of-scope result files above
-2. For each recommendation:
-   - Search for existing issues: \\\`gh issue list -S "keywords" --json number,title,body\\\`
-   - If matching issue exists: Add comment linking to issue #${issueNumber}
-   - If no match: Create new issue with proper labels and context
-3. Collect all issue numbers (both new and existing)
-4. Report back with list of issue numbers for wiggum_complete_fix
-
-**Issue Creation Template:**
-- Title: Concise description of recommendation
-- Body: Context from review, link to issue #${issueNumber}
-- Labels: "enhancement", "from-review", appropriate area labels
+**IMPORTANT:** The agent will fetch full issue details using wiggum_get_issue.
+Do not pass full details in this prompt - pass only the issue_id.
 \`
 })
 \`\`\`
+
+**Launch all out-of-scope agents in parallel** by making multiple Task calls in a single message.
+
 `;
   }
 
   instructions += `
-## After Both Agents Complete
+## After All Agents Complete
 
-1. Wait for BOTH agents to finish
+1. Wait for ALL agents to finish (both in-scope sequential and out-of-scope parallel)
 2. Run \`/commit-merge-push\` to commit and push ALL fixes
 3. Call \`wiggum_complete_fix\` with:
-   - \`fix_description\`: Summary of in-scope fixes from Agent 1
+   - \`fix_description\`: Summary of in-scope fixes
    - \`has_in_scope_fixes\`: true (we fixed ${inScopeCount} issue(s))
-   - \`out_of_scope_issues\`: Array of issue numbers from Agent 2${outOfScopeCount === 0 ? ' (empty array if no out-of-scope)' : ''}
+   - \`out_of_scope_issues\`: Array of issue numbers from out-of-scope trackers${outOfScopeCount === 0 ? ' (empty array if no out-of-scope)' : ''}
 `;
 
   return instructions;
