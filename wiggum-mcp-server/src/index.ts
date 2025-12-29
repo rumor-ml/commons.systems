@@ -18,6 +18,8 @@ import {
 import { completeFix, CompleteFixInputSchema } from './tools/complete-fix.js';
 import { recordReviewIssue, RecordReviewIssueInputSchema } from './tools/record-review-issue.js';
 import { readManifests, ReadManifestsInputSchema } from './tools/read-manifests.js';
+import { listIssues, ListIssuesInputSchema } from './tools/list-issues.js';
+import { getIssue, GetIssueInputSchema } from './tools/get-issue.js';
 
 import { createErrorResult } from './utils/errors.js';
 import { DEFAULT_MAX_ITERATIONS } from './constants.js';
@@ -216,8 +218,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Optional file path or location where the issue was found',
             },
             existing_todo: {
-              type: 'string',
-              description: 'Optional existing TODO comment related to this issue',
+              type: 'object',
+              description:
+                'Optional existing TODO tracking information for out-of-scope issues. Used to avoid duplicate GitHub comments.',
+              properties: {
+                has_todo: {
+                  type: 'boolean',
+                  description: 'Whether a TODO comment exists at the issue location',
+                },
+                issue_reference: {
+                  type: 'string',
+                  description: 'Issue number reference from TODO (e.g., "#123")',
+                },
+              },
+              required: ['has_todo'],
             },
             metadata: {
               type: 'object',
@@ -241,6 +255,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['scope'],
+        },
+      },
+      {
+        name: 'wiggum_list_issues',
+        description:
+          'List all review issues as minimal references (ID, title, agent, scope, priority) without full details. Use this in the main thread to get issue IDs, then pass IDs to subagents who call wiggum_get_issue to get full details. Prevents token waste in main thread.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope', 'all'],
+              description: 'Filter issues by scope (defaults to "all")',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'wiggum_get_issue',
+        description:
+          'Get full details for a single issue by ID. Used by subagents to retrieve complete issue information including description, location, existing_todo, and metadata. ID format: {agent-name}-{scope}-{index} (e.g., "code-reviewer-in-scope-0")',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Issue ID from wiggum_list_issues (e.g., "code-reviewer-in-scope-0")',
+            },
+          },
+          required: ['id'],
         },
       },
     ],
@@ -288,9 +333,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await readManifests(validated);
       }
 
+      case 'wiggum_list_issues': {
+        const validated = ListIssuesInputSchema.parse(args);
+        return await listIssues(validated);
+      }
+
+      case 'wiggum_get_issue': {
+        const validated = GetIssueInputSchema.parse(args);
+        return await getIssue(validated);
+      }
+
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue`
         );
     }
   } catch (error) {
