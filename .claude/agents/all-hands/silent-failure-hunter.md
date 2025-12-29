@@ -262,6 +262,15 @@ grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
 
 If a TODO with issue reference exists (e.g., `TODO(#123): Fix this`), include it in `existing_todo`.
 
+## Response Guidelines
+
+**CRITICAL:** Keep your response MINIMAL to reduce token usage in the main orchestration loop.
+
+- Record all findings using `wiggum_record_review_issue` - do NOT include them in your response
+- Return ONLY: "Review complete" on success, or brief error description on failure
+- **DO NOT** output verbose summaries of what you reviewed
+- **DO NOT** list findings in your response (they're already in manifests)
+
 **Completion:**
 
 Return "Review complete" on success, or describe any errors encountered on failure.
