@@ -147,6 +147,7 @@ mcp__wiggum__wiggum_record_review_issue({
   description:
     'Full description with:\n- What needs simplification\n- Why it should be simplified\n- How to simplify it\n- Project standards being applied',
   location: 'path/to/file.ts:45', // Optional but recommended
+  files_to_edit: ['path/to/file.ts'], // For in-scope issues - files that need modification
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -161,6 +162,10 @@ mcp__wiggum__wiggum_record_review_issue({
 **Priority Mapping:**
 
 - All simplification opportunities → `priority: 'high'`
+
+**Files to Edit (for in-scope issues):**
+
+For in-scope issues, ALWAYS provide the `files_to_edit` array listing all files that need modification for the simplification. Include the primary file and any related files that need changes.
 
 **Checking for Existing TODOs (out-of-scope only):**
 

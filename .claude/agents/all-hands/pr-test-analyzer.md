@@ -160,6 +160,7 @@ mcp__wiggum__wiggum_record_review_issue({
   description:
     'Full description with:\n- What is not tested\n- Why it matters (specific regression/bug it would catch)\n- Concrete test suggestion\n- Example of failure scenario',
   location: 'path/to/file.ts:45', // Optional but recommended
+  files_to_edit: ['path/to/test-file.ts'], // For in-scope issues - test files that need modification
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -171,6 +172,10 @@ mcp__wiggum__wiggum_record_review_issue({
   },
 });
 ```
+
+**Files to Edit (for in-scope issues):**
+
+For in-scope issues, ALWAYS provide the `files_to_edit` array listing all test files (and possibly source files) that need modification to add the missing test coverage.
 
 **Priority Mapping:**
 

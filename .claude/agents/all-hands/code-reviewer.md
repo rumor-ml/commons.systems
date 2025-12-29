@@ -138,6 +138,7 @@ mcp__wiggum__wiggum_record_review_issue({
   description:
     'Full description with:\n- Confidence score\n- CLAUDE.md rule or bug explanation\n- Concrete fix suggestion',
   location: 'path/to/file.ts:45', // Optional but recommended
+  files_to_edit: ['path/to/file.ts', 'path/to/other-file.ts'], // For in-scope issues - files that need modification
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -154,6 +155,17 @@ mcp__wiggum__wiggum_record_review_issue({
 
 - All reported issues (≥80 confidence) → `priority: 'high'`
 - Issues below 80 confidence are not reported
+
+**Files to Edit (for in-scope issues):**
+
+For in-scope issues, ALWAYS provide the `files_to_edit` array listing all files that need modification to fix the issue:
+
+- Include the primary file where the issue was found
+- Include any related files that need changes (imports, types, tests, etc.)
+- This enables batching of related issues for efficient parallel implementation
+- Example: `files_to_edit: ['src/tools/complete-fix.ts', 'src/tools/complete-fix.test.ts']`
+
+For out-of-scope issues, omit `files_to_edit` as they are tracked individually
 
 **Checking for Existing TODOs (out-of-scope only):**
 

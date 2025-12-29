@@ -1012,7 +1012,7 @@ describe('record-review-issue tool', () => {
     });
 
     describe('partial success - manifest succeeded, GitHub failed', () => {
-      it('should return partial success when manifest succeeds but GitHub fails', async () => {
+      it('should return partial success with isError:true when manifest succeeds but GitHub fails', async () => {
         /**
          * Behavioral specification: Manifest succeeded, GitHub failed
          *
@@ -1030,21 +1030,29 @@ describe('record-review-issue tool', () => {
          * - Message shows manifest succeeded with filepath
          * - Message shows GitHub failed with error message
          * - Message includes the issue description for visibility
-         * - isError: false (partial success is not an error)
+         * - isError: true (signals to caller that operation partially failed)
+         * - _meta.partialSuccess: true (distinguishes from total failure)
+         * - _meta.errorCode: 'GITHUB_COMMENT_FAILED'
+         * - _meta.manifestWritten: true
+         * - _meta.commentFailed: true
          *
-         * WHY PARTIAL SUCCESS:
-         * The issue is tracked in the manifest and will be included in
-         * agent completion tracking. User can manually post to GitHub.
+         * WHY isError: true:
+         * Previously returned isError: false which masked the failure from callers.
+         * Now returns isError: true so callers know something went wrong, but
+         * _meta.partialSuccess indicates it wasn't a total failure.
          *
          * IMPLEMENTATION REFERENCE:
-         * Lines 324-345: if (filepath && commentError) block
+         * Lines 362-391: if (filepath && commentError) block
          */
-        assert.ok(true, 'Documented: Manifest success + GitHub failure returns partial success');
+        assert.ok(
+          true,
+          'Documented: Manifest success + GitHub failure returns isError:true with partial success metadata'
+        );
       });
     });
 
     describe('partial success - manifest failed, GitHub succeeded', () => {
-      it('should return partial success when manifest fails but GitHub succeeds', async () => {
+      it('should return partial success with isError:true when manifest fails but GitHub succeeds', async () => {
         /**
          * Behavioral specification: Manifest failed, GitHub succeeded
          *
@@ -1062,16 +1070,24 @@ describe('record-review-issue tool', () => {
          * - Message shows manifest failed with error message
          * - Message shows GitHub succeeded
          * - Warning about manifest-based tracking not working
-         * - isError: false (partial success is not an error)
+         * - isError: true (signals to caller that operation partially failed)
+         * - _meta.partialSuccess: true (distinguishes from total failure)
+         * - _meta.errorCode: 'MANIFEST_WRITE_FAILED'
+         * - _meta.manifestWritten: false
+         * - _meta.commentFailed: false
          *
-         * WHY PARTIAL SUCCESS:
-         * The issue is visible on GitHub and won't be lost.
-         * Agent completion tracking may be affected.
+         * WHY isError: true:
+         * Previously returned isError: false which masked the failure from callers.
+         * Now returns isError: true so callers know something went wrong, but
+         * _meta.partialSuccess indicates it wasn't a total failure.
          *
          * IMPLEMENTATION REFERENCE:
-         * Lines 347-366: if (!filepath && !commentError) block
+         * Lines 393-420: if (!filepath && !commentError) block
          */
-        assert.ok(true, 'Documented: Manifest failure + GitHub success returns partial success');
+        assert.ok(
+          true,
+          'Documented: Manifest failure + GitHub success returns isError:true with partial success metadata'
+        );
       });
 
       it('should still try GitHub comment even after manifest failure', async () => {
@@ -1098,7 +1114,7 @@ describe('record-review-issue tool', () => {
          * EXPECTED RESULT:
          * - postIssueComment() IS called despite manifest failure
          * - Issue is posted to GitHub (not lost!)
-         * - Returns partial success, not error
+         * - Returns isError: true with _meta.partialSuccess: true
          *
          * PREVIOUS BEHAVIOR (BUG):
          * - appendToManifest() throws
@@ -1107,8 +1123,8 @@ describe('record-review-issue tool', () => {
          * - Issue completely lost
          *
          * IMPLEMENTATION REFERENCE:
-         * Lines 288-302: Try/catch around postIssueComment is separate
-         * from manifest try/catch at lines 276-286
+         * Lines 314-324: Try/catch around postIssueComment is separate
+         * from manifest try/catch at lines 303-312
          */
         assert.ok(true, 'Documented: GitHub comment is attempted even after manifest failure');
       });

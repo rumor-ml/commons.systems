@@ -64,9 +64,8 @@ const RETRYABLE_ERROR_CODES = [
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
   // Note: gh CLI sometimes uses HTTP status codes as process exit codes (e.g., exit code 429 for rate limit).
-  // This is not guaranteed across all gh CLI versions or error types - Unix convention is exit codes 0-255,
-  // but gh CLI may use HTTP codes (100-599) for some API errors.
-  // We check exitCode first when available, then fall back to message parsing (lines 258-307).
+  // While Unix convention is exit codes 0-255, gh CLI may use HTTP codes (100-599) for API errors.
+  // We prioritize exitCode when available, then fall back to message parsing.
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -81,13 +80,11 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
       return true;
     }
 
-    // Priority 3: Message pattern matching (fallback, less reliable)
-    // FRAGILE: gh CLI error message format is not a stable API and can change between versions
-    // If patterns stop matching, check:
-    //   1. gh CLI release notes for error message changes
-    //   2. Whether gh CLI now exposes structured error types (see issue #453)
-    //   3. Add new patterns based on observed error messages in logs
-    // Long-term fix: Migrate to structured error types (issue #453)
+    // Priority 3: Message pattern matching (fallback when exit code unavailable)
+    // NOTE: gh CLI error messages may change between versions. If patterns stop matching:
+    //   1. Check gh CLI release notes for message format changes
+    //   2. Update patterns based on observed error messages in logs
+    //   3. Consider contributing to issue #453 for structured error types
     const msg = error.message.toLowerCase();
     const patterns = [
       // Network errors
@@ -103,7 +100,7 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
       '502',
       '503',
       '504',
-      // Rate limit messages (multiple phrasings - fragile to changes)
+      // Rate limit messages (multiple phrasings for coverage)
       'rate limit',
       'api rate limit exceeded',
       'rate_limit_exceeded',
@@ -333,6 +330,7 @@ export async function ghCliWithRetry(
       // Log retry attempts with consistent formatting and full context
       const errorType = classifyErrorType(lastError, lastExitCode);
 
+      // TODO(#995): Add observability for 'unknown' error classifications
       // Warn when error cannot be classified and we have no exit code
       // This indicates error message patterns may have changed or new error type encountered
       if (errorType === 'unknown' && lastExitCode === undefined) {
@@ -365,7 +363,7 @@ export async function ghCliWithRetry(
     }
   }
 
-  // UNREACHABLE: Loop must execute at least once (maxRetries validated at entry, lines 210-227)
+  // UNREACHABLE: Loop must execute at least once (maxRetries >= 1 validated at function entry)
   // and every iteration either returns success or throws. If reached, this indicates a logic bug.
   // Provide full diagnostic context for debugging.
   const GitHubCliError = (await import('./errors.js')).GitHubCliError;

@@ -364,16 +364,16 @@ export async function getPRReviewComments(
   // Design decision: Continue processing when individual comments are malformed
   // Rationale: Single malformed JSON should not block processing of all remaining valid comments
   // Historical context: Production incidents showed one bad comment blocking entire review pipeline
-  // Solution: Skip malformed comments with error logging to prevent total failure
+  // Solution: Skip malformed comments with warning logging to prevent total failure
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
     } catch (error) {
       skippedCount++;
-      // ERROR level - this is data loss that affects review completeness
+      // WARN level - individual parse failures are expected edge cases, not errors
       // Include stack trace for debugging JSON parsing failures (may indicate API format changes)
       // TODO(#982): Add DEBUG-level log with full raw line content for post-mortem analysis
-      logger.error('Failed to parse review comment JSON - comment will be skipped', {
+      logger.warn('Failed to parse review comment JSON - comment will be skipped', {
         prNumber,
         username,
         errorMessage: error instanceof Error ? error.message : String(error),

@@ -15,9 +15,14 @@
  * across all manifest operations.
  *
  * ERROR HANDLING STRATEGY:
- * - VALIDATION ERRORS: Invalid scope, priority, or missing required fields
- * - LOGGED ERRORS: File system errors during manifest write (logged but execution continues)
- * - STRUCTURED LOGGING: Issue recording, comment posting, manifest creation
+ * - FULL SUCCESS: Both manifest write and GitHub comment succeed -> isError: false
+ * - PARTIAL SUCCESS: One operation succeeds, one fails -> isError: true with _meta.partialSuccess
+ *   - GITHUB_COMMENT_FAILED: Manifest written but comment failed (issue tracked but not visible)
+ *   - MANIFEST_WRITE_FAILED: Comment posted but manifest failed (issue visible but not tracked)
+ * - TOTAL FAILURE: Both operations fail -> throws ValidationError with recovery details
+ *
+ * The isError: true for partial success ensures callers are aware that something went wrong,
+ * while _meta.partialSuccess indicates the operation was not a complete failure.
  */
 
 import { z } from 'zod';
@@ -52,6 +57,10 @@ export const RecordReviewIssueInputSchema = z.object({
     })
     .optional(),
   metadata: z.record(z.unknown()).optional(),
+  files_to_edit: z
+    .array(z.string())
+    .optional()
+    .describe('Array of file paths this issue requires editing (for in-scope batching)'),
 });
 
 export type RecordReviewIssueInput = z.infer<typeof RecordReviewIssueInputSchema>;
@@ -306,6 +315,7 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     existing_todo: input.existing_todo,
     metadata: input.metadata,
     timestamp: new Date().toISOString(),
+    files_to_edit: input.files_to_edit,
   };
 
   let filepath: string | undefined;
@@ -378,7 +388,15 @@ ${input.description}`;
 
     return {
       content: [{ type: 'text', text: partialMessage }],
-      isError: false, // Partial success - manifest worked
+      isError: true, // Signal partial failure to caller
+      _meta: {
+        errorType: 'PartialSuccess',
+        errorCode: 'GITHUB_COMMENT_FAILED',
+        partialSuccess: true,
+        manifestWritten: true,
+        commentFailed: true,
+        manifestPath: filepath,
+      },
     };
   }
 
@@ -399,7 +417,15 @@ Manual verification required. Check filesystem permissions and disk space.`;
 
     return {
       content: [{ type: 'text', text: partialMessage }],
-      isError: false, // Partial success - GitHub comment worked
+      isError: true, // Signal partial failure to caller
+      _meta: {
+        errorType: 'PartialSuccess',
+        errorCode: 'MANIFEST_WRITE_FAILED',
+        partialSuccess: true,
+        manifestWritten: false,
+        commentFailed: false,
+        manifestError: manifestError,
+      },
     };
   }
 

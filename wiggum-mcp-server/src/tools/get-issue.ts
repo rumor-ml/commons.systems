@@ -26,11 +26,18 @@ import {
 } from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { batchInScopeIssues } from './list-issues.js';
+import type { IssueReference } from './list-issues.js';
 
 // Zod schema for input validation
-export const GetIssueInputSchema = z.object({
-  id: z.string().min(1, 'id cannot be empty'),
-});
+export const GetIssueInputSchema = z.union([
+  z.object({
+    id: z.string().min(1, 'id cannot be empty'),
+  }),
+  z.object({
+    batch_id: z.string().min(1, 'batch_id cannot be empty'),
+  }),
+]);
 
 export type GetIssueInput = z.infer<typeof GetIssueInputSchema>;
 
@@ -50,6 +57,16 @@ export interface IssueDetails {
     readonly issue_reference?: string;
   };
   readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly files_to_edit?: readonly string[];
+}
+
+/**
+ * Batch issue details returned when batch_id is provided
+ */
+export interface BatchIssueDetails {
+  readonly batch_id: string;
+  readonly files: readonly string[];
+  readonly issues: readonly IssueDetails[];
 }
 
 /**
@@ -175,6 +192,7 @@ function findIssueById(id: string): IssueDetails | null {
     location: issue.location,
     existing_todo: issue.existing_todo,
     metadata: issue.metadata,
+    files_to_edit: issue.files_to_edit,
   };
 
   logger.info('Retrieved issue details', {
@@ -185,6 +203,88 @@ function findIssueById(id: string): IssueDetails | null {
   });
 
   return details;
+}
+
+/**
+ * Find and return all issues in a batch by batch_id
+ * Batch ID format: "batch-{N}"
+ */
+async function findBatchById(batchId: string): Promise<BatchIssueDetails | null> {
+  const manifestDir = getManifestDir();
+
+  if (!existsSync(manifestDir)) {
+    logger.info('Manifest directory does not exist - no batches available', {
+      path: manifestDir,
+    });
+    return null;
+  }
+
+  // Read all in-scope manifest files
+  const files = readdirSync(manifestDir);
+  const inScopeFiles = files.filter((filename) => {
+    if (!isManifestFile(filename)) {
+      return false;
+    }
+    return extractScopeFromFilename(filename) === 'in-scope';
+  });
+
+  // Collect all in-scope issues
+  const issuesByAgent = new Map<string, IssueRecord[]>();
+  const allIssueRecords: IssueRecord[] = [];
+
+  for (const filename of inScopeFiles) {
+    const filepath = join(manifestDir, filename);
+    const issues = readManifestFile(filepath);
+
+    for (const issue of issues) {
+      allIssueRecords.push(issue);
+      const key = `${issue.agent_name}-${issue.scope}`;
+      if (!issuesByAgent.has(key)) {
+        issuesByAgent.set(key, []);
+      }
+      issuesByAgent.get(key)!.push(issue);
+    }
+  }
+
+  // Create issue references with IDs
+  const issueReferences: IssueReference[] = [];
+  for (const [key, issues] of issuesByAgent) {
+    issues.forEach((issue, index) => {
+      issueReferences.push({
+        id: `${key}-${index}`,
+        agent_name: issue.agent_name,
+        scope: issue.scope,
+        priority: issue.priority,
+        title: issue.title,
+      });
+    });
+  }
+
+  // Batch issues using the same algorithm as list-issues
+  const batches = batchInScopeIssues(issueReferences, allIssueRecords);
+
+  // Find the requested batch
+  const batch = batches.find((b) => b.batch_id === batchId);
+
+  if (!batch) {
+    logger.warn('Batch not found', { batchId, availableBatches: batches.length });
+    return null;
+  }
+
+  // Retrieve full details for all issues in the batch
+  const issueDetails: IssueDetails[] = [];
+  for (const issueId of batch.issue_ids) {
+    const details = findIssueById(issueId);
+    if (details) {
+      issueDetails.push(details);
+    }
+  }
+
+  return {
+    batch_id: batch.batch_id,
+    files: batch.files,
+    issues: issueDetails,
+  };
 }
 
 /**
@@ -238,14 +338,67 @@ ${JSON.stringify(details.metadata, null, 2)}
 }
 
 /**
- * Get full details for a single issue
+ * Format batch details as text output
+ */
+function formatBatchDetails(details: BatchIssueDetails): string {
+  let output = `# Batch: ${details.batch_id}
+
+**Files (${details.files.length}):**
+`;
+
+  for (const file of details.files) {
+    output += `- ${file}\n`;
+  }
+
+  output += `\n**Issues (${details.issues.length}):**\n\n`;
+
+  for (const issue of details.issues) {
+    const priorityEmoji = issue.priority === 'high' ? '🔴' : '🔵';
+    output += `---\n\n## ${priorityEmoji} [${issue.id}] ${issue.title}\n\n`;
+    output += `**Agent:** ${issue.agent_name}\n`;
+    output += `**Priority:** ${issue.priority}\n\n`;
+    output += `${issue.description}\n\n`;
+
+    if (issue.location) {
+      output += `**Location:** ${issue.location}\n\n`;
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Get full details for a single issue or batch
  */
 export async function getIssue(input: GetIssueInput): Promise<ToolResult> {
+  // Check if this is a batch request or single issue request
+  if ('batch_id' in input) {
+    logger.info('wiggum_get_issue (batch)', {
+      batch_id: input.batch_id,
+    });
+
+    const batchDetails = await findBatchById(input.batch_id);
+
+    if (!batchDetails) {
+      throw new ValidationError(
+        `Batch not found: ${input.batch_id}. ` +
+          `Make sure the batch_id format is correct (e.g., "batch-0") ` +
+          `and the batch exists in the manifest files.`
+      );
+    }
+
+    const output = formatBatchDetails(batchDetails);
+
+    return {
+      content: [{ type: 'text', text: output }],
+    };
+  }
+
+  // Single issue request
   logger.info('wiggum_get_issue', {
     id: input.id,
   });
 
-  // Find the issue
   const details = findIssueById(input.id);
 
   if (!details) {
@@ -256,7 +409,6 @@ export async function getIssue(input: GetIssueInput): Promise<ToolResult> {
     );
   }
 
-  // Format output
   const output = formatIssueDetails(details);
 
   return {

@@ -55,9 +55,9 @@ import { REVIEW_AGENT_NAMES, isReviewAgentName } from './manifest-utils.js';
  * agent name. Converts kebab-case to Title Case by capitalizing the first
  * letter of each word.
  *
- * NOTE: Acronyms are not specially handled (e.g., 'pr-test-analyzer' becomes
- * 'Pr Test Analyzer' not 'PR Test Analyzer'). This avoids maintaining an
- * acronym whitelist while keeping the transformation simple and consistent.
+ * NOTE: Acronyms are treated the same as other words (e.g., 'pr-test-analyzer' becomes
+ * 'Pr Test Analyzer'). This provides consistent formatting without maintaining an
+ * acronym whitelist.
  * Currently used for display in GitHub comments and logs.
  *
  * @param filePath - Full path to the review output file
@@ -174,25 +174,11 @@ interface FileReadErrorWithDiagnostics extends FileReadErrorBase {
 }
 
 /**
- * Enhanced file read error with diagnostic information
+ * Enhanced file read error with optional diagnostic information
  *
- * Discriminated union type that makes diagnostic availability explicit.
- * When diagnosticsAvailable is true, fileExists is guaranteed to be present.
- * This enables type-safe narrowing when consumers check for diagnostics.
- *
- * Immutable error object with readonly fields to prevent accidental modification
- * during error propagation and multi-step error handling. The category field
- * uses a string literal union for type-safe discrimination between in-scope
- * and out-of-scope file errors.
- *
- * @example
- * if (error.diagnosticsAvailable) {
- *   // TypeScript knows fileExists is available here
- *   console.log(`File exists: ${error.fileExists}`);
- *   if (error.fileExists && error.fileSize !== undefined) {
- *     console.log(`File size: ${error.fileSize}`);
- *   }
- * }
+ * Discriminated union on `diagnosticsAvailable`:
+ * - When true: fileExists and fileSize are available
+ * - When false: stat() was not attempted or failed
  */
 type FileReadError = FileReadErrorNoDiagnostics | FileReadErrorWithDiagnostics;
 
@@ -1137,20 +1123,11 @@ export async function safePostReviewComment(
   maxRetries = 3,
   deps?: Partial<SafePostReviewCommentDeps>
 ): Promise<boolean> {
-  // Validate maxRetries to ensure retry loop executes correctly
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
-  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
-  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
-  //
-  // DESIGN: Throw ValidationError for invalid maxRetries because:
-  //   1. This is a programming error in the caller, not an operational failure
-  //   2. Programming errors should fail fast to surface bugs during development
-  //   3. Returning false would hide the root cause (bad parameter) behind a generic "comment failed" message
-  //   4. Tests that should catch invalid maxRetries would silently pass instead of failing
-  //   5. Developers debugging retry failures would be led down wrong debugging paths
-  // The "safe" contract means we don't halt on OPERATIONAL failures (API errors, rate limits),
-  // not that we tolerate PROGRAMMING errors in caller code.
+  //   - maxRetries > 100: Excessive delays (up to 100 minutes with 60s cap)
+  //   - Non-integer: Unpredictable loop behavior
+  // Throw ValidationError (programming error) rather than returning false (operational failure)
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error('safePostReviewComment: Invalid maxRetries parameter - throwing ValidationError', {
@@ -1356,14 +1333,10 @@ export async function retryStateUpdate(
   maxRetries = 3,
   deps?: Partial<RetryStateUpdateDeps>
 ): Promise<StateUpdateResult> {
-  // Enforce maxRetries >= 1 to guarantee loop executes at least once
-  // This ensures every code path attempts the state update before failing
-  //
-  // DESIGN: Throw ValidationError for invalid maxRetries since:
-  // 1. StateUpdateResult type only supports 'rate_limit' | 'network' failure reasons
-  // 2. Invalid maxRetries is a programming error, not an operational failure
-  // 3. Programming errors should fail fast to surface bugs during development
-  // The caller should never pass invalid maxRetries - this guards against bugs.
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - Non-integer: Unpredictable loop behavior
+  // Throw ValidationError (programming error) since StateUpdateResult only supports operational failures
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     logger.error('retryStateUpdate: Invalid maxRetries parameter - throwing ValidationError', {
       maxRetries,

@@ -21,7 +21,7 @@ describe('get-issue tool', () => {
         const input = { id: 'code-reviewer-in-scope-0' };
         const result = GetIssueInputSchema.safeParse(input);
         assert.strictEqual(result.success, true);
-        if (result.success) {
+        if (result.success && 'id' in result.data) {
           assert.strictEqual(result.data.id, 'code-reviewer-in-scope-0');
         }
       });
@@ -30,7 +30,7 @@ describe('get-issue tool', () => {
         const input = { id: 'silent-failure-hunter-out-of-scope-5' };
         const result = GetIssueInputSchema.safeParse(input);
         assert.strictEqual(result.success, true);
-        if (result.success) {
+        if (result.success && 'id' in result.data) {
           assert.strictEqual(result.data.id, 'silent-failure-hunter-out-of-scope-5');
         }
       });
@@ -39,8 +39,17 @@ describe('get-issue tool', () => {
         const input = { id: 'pr-test-analyzer-in-scope-2' };
         const result = GetIssueInputSchema.safeParse(input);
         assert.strictEqual(result.success, true);
-        if (result.success) {
+        if (result.success && 'id' in result.data) {
           assert.strictEqual(result.data.id, 'pr-test-analyzer-in-scope-2');
+        }
+      });
+
+      it('should validate with valid batch ID', () => {
+        const input = { batch_id: 'batch-0' };
+        const result = GetIssueInputSchema.safeParse(input);
+        assert.strictEqual(result.success, true);
+        if (result.success && 'batch_id' in result.data) {
+          assert.strictEqual(result.data.batch_id, 'batch-0');
         }
       });
     });

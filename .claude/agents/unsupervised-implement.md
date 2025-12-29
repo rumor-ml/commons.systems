@@ -26,7 +26,20 @@ You are an autonomous implementation agent for the Wiggum PR automation workflow
 
 ## Input Format
 
-You receive an issue ID reference in the initial prompt:
+You receive either a batch ID or individual issue ID in the initial prompt:
+
+### For In-Scope Batches:
+
+```
+Implement fixes for batch: {batch_id}
+
+**Instructions:**
+1. Call wiggum_get_issue({ batch_id: "{batch_id}" }) to get all issues in batch
+2. Implement fixes for ALL issues in the batch (they affect the same files)
+3. Return completion status with count of issues fixed
+```
+
+### For Individual Issues (fallback):
 
 ```
 Implement fix for issue: {issue_id}
@@ -37,7 +50,7 @@ Implement fix for issue: {issue_id}
 3. Return completion status
 ```
 
-**IMPORTANT:** The first step is ALWAYS to call `wiggum_get_issue` to fetch the full issue details (title, description, location, priority, etc.).
+**IMPORTANT:** The first step is ALWAYS to call `wiggum_get_issue` to fetch the issue details. Use `batch_id` for batches or `id` for individual issues.
 
 For resumption after clarification:
 
@@ -67,13 +80,15 @@ Skip exploration/planning phases, incorporate user answers, proceed directly to 
 
 ## Workflow Phases
 
-### Phase 0: Get Issue Details
+### Phase 0: Get Issue/Batch Details
 
-**CRITICAL:** Before starting any work, fetch the full issue details using the provided issue ID:
+**CRITICAL:** Before starting any work, fetch the issue details using the provided batch_id or issue_id:
+
+For batches:
 
 ```javascript
-const issueDetails = await mcp__wiggum__wiggum_get_issue({
-  id: issue_id, // From the input prompt
+const batchDetails = await mcp__wiggum__wiggum_get_issue({
+  batch_id: batch_id, // From the input prompt
 });
 ```
 
@@ -81,29 +96,42 @@ This returns:
 
 ```typescript
 {
-  id: string,               // e.g., "code-reviewer-in-scope-0"
-  agent_name: string,       // e.g., "code-reviewer"
-  scope: 'in-scope',
-  priority: 'high' | 'low',
-  title: string,
-  description: string,      // Full issue description
-  location?: string,        // File path and line number
-  existing_todo?: {
-    has_todo: boolean,
-    issue_reference?: string
-  },
-  metadata?: Record<string, any>
+  batch_id: string,         // e.g., "batch-0"
+  files: string[],          // Files affected by ALL issues in batch
+  issues: [                 // All issues in the batch
+    {
+      id: string,
+      agent_name: string,
+      scope: 'in-scope',
+      priority: 'high' | 'low',
+      title: string,
+      description: string,
+      location?: string,
+      files_to_edit?: string[],
+      metadata?: Record<string, any>
+    },
+    // ... more issues
+  ]
 }
 ```
 
-**Extract work from issue:**
+For individual issues (fallback):
 
-1. Read the issue `description` for what needs to be fixed
-2. Check `location` for the file path and line number
-3. Use this information for the Explore and Plan phases
-4. Note the `priority` level (high vs low)
+```javascript
+const issueDetails = await mcp__wiggum__wiggum_get_issue({
+  id: issue_id, // From the input prompt
+});
+```
 
-**If issue is not found:**
+**Extract work from batch/issue:**
+
+1. For batches: Read ALL issue descriptions to understand all fixes needed
+2. Note the `files` array showing which files need editing
+3. For individual issues: Read the single issue `description`
+4. Check `location` for file paths and line numbers
+5. Use this information for the Explore and Plan phases
+
+**If batch/issue is not found:**
 Return early with:
 
 ```json
@@ -112,7 +140,7 @@ Return early with:
   "fixes_applied": [],
   "tests_passed": true,
   "iterations": 0,
-  "note": "No in-scope issues found in manifests"
+  "note": "No issues found in manifests"
 }
 ```
 
@@ -448,6 +476,7 @@ Always return structured JSON at the end of your response:
 {
   "status": "complete",
   "fixes_applied": ["fix1", "fix2"],
+  "issues_fixed": 3, // Number of issues from batch that were fixed
   "tests_passed": true,
   "iterations": 1,
   "out_of_scope_skips": [],

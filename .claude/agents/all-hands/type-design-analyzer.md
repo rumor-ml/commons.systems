@@ -192,6 +192,7 @@ mcp__wiggum__wiggum_record_review_issue({
   description:
     'Full description with:\n- Invariants identified\n- Ratings (Encapsulation, Expression, Usefulness, Enforcement)\n- Specific concern or improvement needed\n- Recommended fix with example',
   location: 'path/to/file.ts:45', // Optional but recommended
+  files_to_edit: ['path/to/file.ts'], // For in-scope issues - files that need modification
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -209,6 +210,10 @@ mcp__wiggum__wiggum_record_review_issue({
   },
 });
 ```
+
+**Files to Edit (for in-scope issues):**
+
+For in-scope issues, ALWAYS provide the `files_to_edit` array listing all files that need modification to fix the type design issue. Include the primary file and any related files that need changes.
 
 **Priority Mapping:**
 

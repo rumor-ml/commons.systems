@@ -46,10 +46,29 @@ export interface IssueReference {
 }
 
 /**
- * Result with issue references and counts
+ * Batch of in-scope issues grouped by file overlap
+ */
+export interface IssueBatch {
+  readonly batch_id: string; // e.g., "batch-0"
+  readonly files: readonly string[]; // Files this batch affects
+  readonly issue_count: number; // Number of issues in batch
+  readonly issue_ids: readonly string[]; // IDs of issues in this batch
+  readonly titles: readonly string[]; // Brief titles for display
+}
+
+/**
+ * Result with batched in-scope issues and individual out-of-scope issues
  */
 export interface ListIssuesResult {
-  readonly issues: readonly IssueReference[];
+  // Batched structure for in-scope issues
+  readonly in_scope_batches: readonly IssueBatch[];
+
+  // Individual out-of-scope issues (unchanged)
+  readonly out_of_scope: readonly IssueReference[];
+
+  // Counts
+  readonly total_issues: number;
+  readonly total_batches: number;
   readonly counts: {
     readonly in_scope: number;
     readonly out_of_scope: number;
@@ -59,9 +78,153 @@ export interface ListIssuesResult {
 }
 
 /**
- * Read all manifest files matching the scope filter and return minimal references
+ * Union-Find data structure for grouping issues with overlapping files
  */
-function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueReference[] {
+class UnionFind {
+  private parent: Map<number, number> = new Map();
+  private rank: Map<number, number> = new Map();
+
+  constructor(size: number) {
+    for (let i = 0; i < size; i++) {
+      this.parent.set(i, i);
+      this.rank.set(i, 0);
+    }
+  }
+
+  find(x: number): number {
+    const parent = this.parent.get(x)!;
+    if (parent !== x) {
+      this.parent.set(x, this.find(parent)); // Path compression
+    }
+    return this.parent.get(x)!;
+  }
+
+  union(x: number, y: number): void {
+    const rootX = this.find(x);
+    const rootY = this.find(y);
+
+    if (rootX === rootY) return;
+
+    const rankX = this.rank.get(rootX)!;
+    const rankY = this.rank.get(rootY)!;
+
+    // Union by rank
+    if (rankX < rankY) {
+      this.parent.set(rootX, rootY);
+    } else if (rankX > rankY) {
+      this.parent.set(rootY, rootX);
+    } else {
+      this.parent.set(rootY, rootX);
+      this.rank.set(rootX, rankX + 1);
+    }
+  }
+}
+
+/**
+ * Batch in-scope issues by overlapping file sets using union-find algorithm
+ * Exported for use in get-issue.ts
+ */
+export function batchInScopeIssues(
+  issues: IssueReference[],
+  allIssues: IssueRecord[]
+): IssueBatch[] {
+  if (issues.length === 0) {
+    return [];
+  }
+
+  // Create a map from issue ID to issue record for file lookup
+  const issueMap = new Map<string, IssueRecord>();
+  for (const issue of allIssues) {
+    // Find the matching reference to get its ID
+    const ref = issues.find(
+      (r) => r.agent_name === issue.agent_name && r.scope === issue.scope && r.title === issue.title
+    );
+    if (ref) {
+      issueMap.set(ref.id, issue);
+    }
+  }
+
+  // Initialize union-find
+  const uf = new UnionFind(issues.length);
+
+  // Create file-to-issues mapping
+  const fileToIssues = new Map<string, number[]>();
+  issues.forEach((issue, index) => {
+    const record = issueMap.get(issue.id);
+    const files = record?.files_to_edit || [];
+
+    if (files.length === 0) {
+      // Issue without files gets its own batch
+      return;
+    }
+
+    files.forEach((file) => {
+      if (!fileToIssues.has(file)) {
+        fileToIssues.set(file, []);
+      }
+      fileToIssues.get(file)!.push(index);
+    });
+  });
+
+  // Union issues that share files
+  for (const issueIndices of fileToIssues.values()) {
+    for (let i = 1; i < issueIndices.length; i++) {
+      uf.union(issueIndices[0], issueIndices[i]);
+    }
+  }
+
+  // Group issues by root
+  const batchGroups = new Map<number, number[]>();
+  issues.forEach((_, index) => {
+    const root = uf.find(index);
+    if (!batchGroups.has(root)) {
+      batchGroups.set(root, []);
+    }
+    batchGroups.get(root)!.push(index);
+  });
+
+  // Create batches
+  const batches: IssueBatch[] = [];
+  let batchIndex = 0;
+
+  for (const issueIndices of batchGroups.values()) {
+    // Collect all files for this batch
+    const filesSet = new Set<string>();
+    const batchIssueIds: string[] = [];
+    const batchTitles: string[] = [];
+
+    for (const index of issueIndices) {
+      const issue = issues[index];
+      batchIssueIds.push(issue.id);
+      batchTitles.push(issue.title);
+
+      const record = issueMap.get(issue.id);
+      const files = record?.files_to_edit || [];
+      files.forEach((file) => filesSet.add(file));
+    }
+
+    batches.push({
+      batch_id: `batch-${batchIndex}`,
+      files: Array.from(filesSet).sort(),
+      issue_count: issueIndices.length,
+      issue_ids: batchIssueIds,
+      titles: batchTitles,
+    });
+
+    batchIndex++;
+  }
+
+  return batches;
+}
+
+/**
+ * Read all manifest files matching the scope filter and return minimal references
+ * Also returns full issue records for batching purposes
+ */
+function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): {
+  references: IssueReference[];
+  records: IssueRecord[];
+} {
   const manifestDir = getManifestDir();
 
   // Check if directory exists
@@ -69,7 +232,7 @@ function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRe
     logger.info('Manifest directory does not exist - no issues recorded yet', {
       path: manifestDir,
     });
-    return [];
+    return { references: [], records: [] };
   }
 
   // Read all files in directory
@@ -98,6 +261,7 @@ function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRe
   // Read and create minimal references
   const issueReferences: IssueReference[] = [];
   const issuesByAgent = new Map<string, IssueRecord[]>();
+  const allIssueRecords: IssueRecord[] = [];
 
   // First, group all issues by agent name and scope
   for (const filename of matchingFiles) {
@@ -105,6 +269,7 @@ function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRe
     const issues = readManifestFile(filepath);
 
     for (const issue of issues) {
+      allIssueRecords.push(issue);
       const key = `${issue.agent_name}-${issue.scope}`;
       if (!issuesByAgent.has(key)) {
         issuesByAgent.set(key, []);
@@ -131,18 +296,28 @@ function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRe
     scope,
   });
 
-  return issueReferences;
+  return { references: issueReferences, records: allIssueRecords };
 }
 
 /**
- * Calculate counts from issue references
+ * Calculate counts from in-scope and out-of-scope issues
+ * Note: batches parameter removed since we calculate directly from issues
  */
-function calculateCounts(issues: readonly IssueReference[]): ListIssuesResult['counts'] {
+function calculateCounts(
+  inScopeIssues: readonly IssueReference[],
+  outOfScope: readonly IssueReference[]
+): ListIssuesResult['counts'] {
+  const inScopeCount = inScopeIssues.length;
+
   return {
-    in_scope: issues.filter((i) => i.scope === 'in-scope').length,
-    out_of_scope: issues.filter((i) => i.scope === 'out-of-scope').length,
-    high_priority: issues.filter((i) => i.priority === 'high').length,
-    low_priority: issues.filter((i) => i.priority === 'low').length,
+    in_scope: inScopeCount,
+    out_of_scope: outOfScope.length,
+    high_priority:
+      inScopeIssues.filter((i) => i.priority === 'high').length +
+      outOfScope.filter((i) => i.priority === 'high').length,
+    low_priority:
+      inScopeIssues.filter((i) => i.priority === 'low').length +
+      outOfScope.filter((i) => i.priority === 'low').length,
   };
 }
 
@@ -150,7 +325,7 @@ function calculateCounts(issues: readonly IssueReference[]): ListIssuesResult['c
  * Format result as text output
  */
 function formatResult(result: ListIssuesResult, scope: string): string {
-  if (result.issues.length === 0) {
+  if (result.total_issues === 0) {
     return `No issues found for scope: ${scope}`;
   }
 
@@ -159,45 +334,67 @@ function formatResult(result: ListIssuesResult, scope: string): string {
   let output = `# Issue References (scope: ${scope})
 
 ## Counts
-- **Total:** ${result.issues.length}
+- **Total:** ${result.total_issues}
 - **In-Scope:** ${counts.in_scope}
 - **Out-of-Scope:** ${counts.out_of_scope}
 - **High Priority:** ${counts.high_priority}
 - **Low Priority:** ${counts.low_priority}
-
-## Issue References
+- **Batches:** ${result.total_batches}
 
 `;
 
-  // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in read-manifests.ts
-  const issuesByAgent = new Map<string, IssueReference[]>();
-  for (const issue of result.issues) {
-    if (!issuesByAgent.has(issue.agent_name)) {
-      issuesByAgent.set(issue.agent_name, []);
+  // Format in-scope batches
+  if (result.in_scope_batches.length > 0) {
+    output += `## In-Scope Batches\n\n`;
+
+    for (const batch of result.in_scope_batches) {
+      output += `### ${batch.batch_id} (${batch.issue_count} issue${batch.issue_count !== 1 ? 's' : ''}, ${batch.files.length} file${batch.files.length !== 1 ? 's' : ''})\n\n`;
+      output += `**Files:**\n`;
+      for (const file of batch.files) {
+        output += `- ${file}\n`;
+      }
+      output += `\n**Issues:**\n`;
+      for (let i = 0; i < batch.issue_ids.length; i++) {
+        output += `- [${batch.issue_ids[i]}] ${batch.titles[i]}\n`;
+      }
+      output += '\n';
     }
-    issuesByAgent.get(issue.agent_name)!.push(issue);
   }
 
-  // Format each agent's issues
-  for (const [agentName, issues] of issuesByAgent) {
-    output += `### ${agentName} (${issues.length} issue${issues.length !== 1 ? 's' : ''})\n\n`;
+  // Format out-of-scope issues
+  if (result.out_of_scope.length > 0) {
+    output += `## Out-of-Scope Issues\n\n`;
 
-    for (const issue of issues) {
-      const priorityEmoji = issue.priority === 'high' ? '🔴' : '🔵';
-      const scopeLabel = issue.scope === 'in-scope' ? 'In-Scope' : 'Out-of-Scope';
-
-      output += `- **${priorityEmoji} ${scopeLabel}** [${issue.id}] ${issue.title}\n`;
+    // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in read-manifests.ts
+    const issuesByAgent = new Map<string, IssueReference[]>();
+    for (const issue of result.out_of_scope) {
+      if (!issuesByAgent.has(issue.agent_name)) {
+        issuesByAgent.set(issue.agent_name, []);
+      }
+      issuesByAgent.get(issue.agent_name)!.push(issue);
     }
 
-    output += '\n';
+    // Format each agent's issues
+    for (const [agentName, issues] of issuesByAgent) {
+      output += `### ${agentName} (${issues.length} issue${issues.length !== 1 ? 's' : ''})\n\n`;
+
+      for (const issue of issues) {
+        const priorityEmoji = issue.priority === 'high' ? '🔴' : '🔵';
+
+        output += `- **${priorityEmoji}** [${issue.id}] ${issue.title}\n`;
+      }
+
+      output += '\n';
+    }
   }
 
   output += `\n---
 
 **Next steps:**
-- For in-scope issues: Call unsupervised-implement agent with \`issue_id\` (ONE AT A TIME, sequential)
+- For in-scope batches: Call unsupervised-implement agent with \`batch_id\` (ALL IN PARALLEL)
 - For out-of-scope issues: Call out-of-scope-tracker agent with \`issue_id\` (ALL IN PARALLEL)
-- Each agent will call \`wiggum_get_issue({ id })\` to get full details
+- Implementation agents will call \`wiggum_get_issue({ batch_id })\` to get all issues in batch
+- Tracker agents will call \`wiggum_get_issue({ id })\` to get individual issue details
 `;
 
   return output;
@@ -211,15 +408,25 @@ export async function listIssues(input: ListIssuesInput): Promise<ToolResult> {
     scope: input.scope,
   });
 
-  // Get minimal issue references
-  const issues = listManifestIssues(input.scope);
+  // Get minimal issue references and full records
+  const { references, records } = listManifestIssues(input.scope);
+
+  // Separate in-scope and out-of-scope
+  const inScopeIssues = references.filter((i) => i.scope === 'in-scope');
+  const outOfScopeIssues = references.filter((i) => i.scope === 'out-of-scope');
+
+  // Batch in-scope issues by overlapping files
+  const inScopeBatches = batchInScopeIssues(inScopeIssues, records);
 
   // Calculate counts
-  const counts = calculateCounts(issues);
+  const counts = calculateCounts(inScopeIssues, outOfScopeIssues);
 
   // Create result
   const result: ListIssuesResult = {
-    issues,
+    in_scope_batches: inScopeBatches,
+    out_of_scope: outOfScopeIssues,
+    total_issues: references.length,
+    total_batches: inScopeBatches.length,
     counts,
   };
 

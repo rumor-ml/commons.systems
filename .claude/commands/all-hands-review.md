@@ -104,32 +104,53 @@ This returns minimal issue references (ID, title, agent, scope, priority) withou
 
 ## Step 4: Create Todo List
 
-Create **one todo item per issue** from the issue references returned by `wiggum_list_issues`:
+Create todo items from the batches and out-of-scope issues returned by `wiggum_list_issues`:
 
-For each issue in the response, create a todo item:
+### For In-Scope Batches:
 
-- **content**: `[{scope}] {issue_id}: {title}` (e.g., `[in-scope] code-reviewer-in-scope-0: Missing error handling`)
-- **activeForm**: `Fixing {title}` for in-scope, `Tracking {title}` for out-of-scope
+Create one todo item per batch:
+
+- **content**: `[batch-{N}] {file_count} files, {issue_count} issues` (e.g., `[batch-0] 3 files, 5 issues`)
+- **activeForm**: `Fixing batch-{N} ({issue_count} issues)`
+- **status**: `pending`
+
+### For Out-of-Scope Issues:
+
+Create one todo item per issue:
+
+- **content**: `[out-of-scope] {issue_id}: {title}` (e.g., `[out-of-scope] code-reviewer-out-of-scope-0: Consider adding logging`)
+- **activeForm**: `Tracking {title}`
 - **status**: `pending`
 
 Example todo list structure:
 
 ```
+☐ [batch-0] 2 files, 3 issues
+☐ [batch-1] 1 file, 2 issues
 ☐ [out-of-scope] code-reviewer-out-of-scope-0: Consider adding logging
 ☐ [out-of-scope] silent-failure-hunter-out-of-scope-0: Future improvement
-☐ [in-scope] code-simplifier-in-scope-0: Duplicate function
-☐ [in-scope] comment-analyzer-in-scope-0: Stale comment
 ```
 
-This allows users to track progress on each individual issue.
+This allows users to track progress on batches and individual out-of-scope issues.
 
 ## Step 5: Launch Implementation Agents and Fix ALL Issues
 
 **CRITICAL: One iteration = `/all-hands-review` + fix ALL issues. Do NOT proceed to Step 6 until ALL TODO items are addressed.**
 
-Based on the issues found:
+Based on the batches and issues found:
 
-### Out-of-Scope Issues (Launch in PARALLEL)
+### In-Scope Batches (Launch ALL in PARALLEL)
+
+For each in-scope batch, launch unsupervised-implement agent:
+
+```
+Task tool with subagent_type="unsupervised-implement"
+Pass batch_id from wiggum_list_issues (e.g., "batch-0", "batch-1")
+```
+
+**CRITICAL:** Launch ALL in-scope implementation agents in PARALLEL (single response with multiple Task calls). They edit different files so there are no conflicts.
+
+### Out-of-Scope Issues (Launch ALL in PARALLEL)
 
 For each out-of-scope issue, launch out-of-scope-tracker agent:
 
@@ -140,18 +161,7 @@ Pass issue ID from wiggum_list_issues
 
 **CRITICAL:** Launch ALL out-of-scope-tracker agents in PARALLEL (single response with multiple Task calls).
 
-### In-Scope Issues (Launch ONE AT A TIME)
-
-For each in-scope issue, launch unsupervised-implement agent:
-
-```
-Task tool with subagent_type="unsupervised-implement"
-Pass issue ID from wiggum_list_issues
-```
-
-**CRITICAL:** Launch unsupervised-implement agents SEQUENTIALLY (one at a time). Wait for each to complete before launching the next.
-
-**CRITICAL:** After ALL unsupervised-implement agents complete, verify the TODO list. ALL in-scope items must show as completed before proceeding to Step 6.
+**CRITICAL:** After ALL implementation and tracker agents complete, verify the TODO list. ALL items must show as completed before proceeding to Step 6.
 
 ## Step 6: Complete All-Hands Review
 

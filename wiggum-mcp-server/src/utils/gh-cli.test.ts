@@ -314,39 +314,40 @@ describe('Rate Limit Retry Logic', () => {
     });
   });
 
-  describe('20% parsing threshold behavior', () => {
-    // Tests document the behavior when >20% of review comments fail to parse
-    // The actual function getPRReviewComments throws when skipRatio > 0.2
+  describe('10% parsing threshold behavior', () => {
+    // Tests document the behavior when >10% of review comments fail to parse
+    // The actual function getPRReviewComments throws when skipRatio > 0.1
+    // Note: Lower threshold (10% vs 20%) because code review data is critical for quality gates
 
-    it('should document threshold calculation (exactly 20% should NOT throw)', () => {
-      // 2 of 10 comments skip = 20% = 0.2
-      // Threshold is > 0.2, so exactly 20% should NOT throw
+    it('should document threshold calculation (exactly 10% should NOT throw)', () => {
+      // 1 of 10 comments skip = 10% = 0.1
+      // Threshold is > 0.1, so exactly 10% should NOT throw
+      const skipped = 1;
+      const total = 10;
+      const skipRatio = skipped / total;
+      const shouldThrow = skipRatio > 0.1;
+      assert.strictEqual(skipRatio, 0.1);
+      assert.strictEqual(shouldThrow, false, 'Exactly 10% should NOT throw');
+    });
+
+    it('should document threshold calculation (11% should throw)', () => {
+      // 11 of 100 comments skip = 11% = 0.11
+      // Threshold is > 0.1, so 11% should throw
+      const skipped = 11;
+      const total = 100;
+      const skipRatio = skipped / total;
+      const shouldThrow = skipRatio > 0.1;
+      assert.strictEqual(skipRatio, 0.11);
+      assert.strictEqual(shouldThrow, true, '11% should throw');
+    });
+
+    it('should document 20% skip rate calculation', () => {
+      // 2 of 10 comments skip = 20%
       const skipped = 2;
       const total = 10;
       const skipRatio = skipped / total;
-      const shouldThrow = skipRatio > 0.2;
       assert.strictEqual(skipRatio, 0.2);
-      assert.strictEqual(shouldThrow, false, 'Exactly 20% should NOT throw');
-    });
-
-    it('should document threshold calculation (21% should throw)', () => {
-      // 21 of 100 comments skip = 21% = 0.21
-      // Threshold is > 0.2, so 21% should throw
-      const skipped = 21;
-      const total = 100;
-      const skipRatio = skipped / total;
-      const shouldThrow = skipRatio > 0.2;
-      assert.strictEqual(skipRatio, 0.21);
-      assert.strictEqual(shouldThrow, true, '21% should throw');
-    });
-
-    it('should document 30% skip rate calculation', () => {
-      // 3 of 10 comments skip = 30%
-      const skipped = 3;
-      const total = 10;
-      const skipRatio = skipped / total;
-      assert.strictEqual(skipRatio, 0.3);
-      assert.strictEqual(skipRatio > 0.2, true, '30% should exceed threshold');
+      assert.strictEqual(skipRatio > 0.1, true, '20% should exceed threshold');
     });
 
     it('should document edge case: 1 comment, 1 skip = 100%', () => {
@@ -354,7 +355,7 @@ describe('Rate Limit Retry Logic', () => {
       const skipped = 1;
       const total = 1;
       const skipRatio = skipped / total;
-      const shouldThrow = skipRatio > 0.2;
+      const shouldThrow = skipRatio > 0.1;
       assert.strictEqual(skipRatio, 1.0);
       assert.strictEqual(shouldThrow, true, '100% should throw');
     });

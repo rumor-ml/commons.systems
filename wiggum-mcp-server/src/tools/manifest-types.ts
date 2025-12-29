@@ -138,6 +138,8 @@ export interface IssueRecord {
   readonly metadata?: Readonly<Record<string, unknown>>;
   /** ISO 8601 timestamp when the issue was recorded */
   readonly timestamp: string;
+  /** Files this issue requires editing (for in-scope batching) */
+  readonly files_to_edit?: readonly string[];
 }
 
 /**
@@ -167,6 +169,7 @@ const IssueRecordSchema = z.object({
   existing_todo: ExistingTodoSchema.optional(),
   metadata: z.record(z.unknown()).optional(),
   timestamp: z.string().datetime({ message: 'timestamp must be valid ISO 8601 format' }),
+  files_to_edit: z.array(z.string()).optional(),
 });
 
 // Export schema for validation in other modules if needed

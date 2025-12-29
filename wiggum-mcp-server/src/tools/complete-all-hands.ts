@@ -21,6 +21,7 @@ import { createWiggumState } from '../state/types.js';
 import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js';
 import {
   readManifestFiles,
+  cleanupManifestFiles,
   safeCleanupManifestFiles,
   updateAgentCompletionStatus,
   countHighPriorityInScopeIssues,
@@ -114,9 +115,11 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
       pendingCompletionAgents,
     };
 
-    // Clean up manifest files after successful step completion
-    // Cleanup failures are non-fatal - state persistence is what matters
-    await safeCleanupManifestFiles();
+    // Clean up manifest files BEFORE state persistence in fast-path
+    // Must use throwing version here because cleanup happens BEFORE state is persisted.
+    // If cleanup fails silently, stale manifests would corrupt agent completion tracking
+    // on next iteration (see manifest-utils.ts for detailed error handling).
+    await cleanupManifestFiles();
 
     logger.info('Updating wiggum state (fast-path)', {
       phase,

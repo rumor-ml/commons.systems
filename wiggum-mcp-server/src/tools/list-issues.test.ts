@@ -159,9 +159,9 @@ describe('list-issues behavioral tests', () => {
     });
 
     describe('manifest file reading and filtering', () => {
-      it('should read and return issues from manifest files', async () => {
+      it('should read and return issues from manifest files (batched for in-scope)', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
-        const issue = createIssueRecord({ title: 'Test Issue 1' });
+        const issue = createIssueRecord({ title: 'Test Issue 1', scope: 'in-scope' });
         writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue]);
 
         const result = await listIssues({ scope: 'all' });
@@ -169,10 +169,11 @@ describe('list-issues behavioral tests', () => {
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
         assert.ok(text.includes('Test Issue 1'), 'Should include issue title');
-        assert.ok(text.includes('code-reviewer'), 'Should include agent name');
+        assert.ok(text.includes('batch-0'), 'Should show in-scope issue in a batch');
+        assert.ok(text.includes('code-reviewer-in-scope-0'), 'Should include issue ID');
       });
 
-      it('should filter issues by in-scope', async () => {
+      it('should filter issues by in-scope (batched)', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
         const inScopeIssue = createIssueRecord({
           title: 'In-Scope Issue',
@@ -189,11 +190,12 @@ describe('list-issues behavioral tests', () => {
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        assert.ok(text.includes('In-Scope Issue'), 'Should include in-scope issue');
+        assert.ok(text.includes('In-Scope Issue'), 'Should include in-scope issue in batch');
+        assert.ok(text.includes('batch-0'), 'Should show batch for in-scope issue');
         assert.ok(!text.includes('Out-of-Scope Issue'), 'Should NOT include out-of-scope issue');
       });
 
-      it('should filter issues by out-of-scope', async () => {
+      it('should filter issues by out-of-scope (individual references)', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
         const inScopeIssue = createIssueRecord({
           title: 'In-Scope Issue',
@@ -211,10 +213,12 @@ describe('list-issues behavioral tests', () => {
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
         assert.ok(!text.includes('In-Scope Issue'), 'Should NOT include in-scope issue');
+        assert.ok(!text.includes('batch-'), 'Should NOT have batches when filtering out-of-scope');
         assert.ok(text.includes('Out-of-Scope Issue'), 'Should include out-of-scope issue');
+        assert.ok(text.includes('code-reviewer-out-of-scope-0'), 'Should show individual issue ID');
       });
 
-      it('should return all issues when scope is "all"', async () => {
+      it('should return all issues when scope is "all" (batched in-scope, individual out-of-scope)', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
         const inScopeIssue = createIssueRecord({
           title: 'In-Scope Issue',
@@ -231,8 +235,16 @@ describe('list-issues behavioral tests', () => {
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        assert.ok(text.includes('In-Scope Issue'), 'Should include in-scope issue');
-        assert.ok(text.includes('Out-of-Scope Issue'), 'Should include out-of-scope issue');
+        assert.ok(text.includes('In-Scope Issue'), 'Should include in-scope issue in batch');
+        assert.ok(text.includes('batch-0'), 'Should show batch for in-scope issue');
+        assert.ok(
+          text.includes('Out-of-Scope Issue'),
+          'Should include out-of-scope issue individually'
+        );
+        assert.ok(
+          text.includes('code-reviewer-out-of-scope-0'),
+          'Should show individual out-of-scope ID'
+        );
       });
     });
 
@@ -369,11 +381,17 @@ describe('list-issues behavioral tests', () => {
       });
     });
 
-    describe('grouping issues by agent', () => {
-      it('should group issues under agent headers', async () => {
+    describe('batching in-scope issues', () => {
+      it('should show in-scope issues in batches, not by agent', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
-        const codeReviewerIssue = createIssueRecord({ agent_name: 'code-reviewer' });
-        const hunterIssue = createIssueRecord({ agent_name: 'silent-failure-hunter' });
+        const codeReviewerIssue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+        });
+        const hunterIssue = createIssueRecord({
+          agent_name: 'silent-failure-hunter',
+          scope: 'in-scope',
+        });
         writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [codeReviewerIssue]);
         writeTestManifest(manifestDir, 'silent-failure-hunter', 'in-scope', [hunterIssue]);
 
@@ -381,19 +399,27 @@ describe('list-issues behavioral tests', () => {
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        // Agent headers should appear
-        assert.ok(text.includes('### code-reviewer'), 'Should have code-reviewer header');
-        assert.ok(
-          text.includes('### silent-failure-hunter'),
-          'Should have silent-failure-hunter header'
-        );
+        // In-scope issues should appear in batches, not under agent headers
+        assert.ok(text.includes('## In-Scope Batches'), 'Should have In-Scope Batches section');
+        assert.ok(text.includes('batch-'), 'Should have batch IDs');
       });
 
-      it('should show issue count per agent in header', async () => {
+      it('should show issue count per batch in header', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Create issues that share a file so they get batched together
         const issues = [
-          createIssueRecord({ title: 'Issue 1', agent_name: 'code-reviewer' }),
-          createIssueRecord({ title: 'Issue 2', agent_name: 'code-reviewer' }),
+          createIssueRecord({
+            title: 'Issue 1',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/test.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue 2',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/test.ts'],
+          }),
         ];
         writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', issues);
 
@@ -401,34 +427,49 @@ describe('list-issues behavioral tests', () => {
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        assert.ok(text.includes('code-reviewer (2 issues)'), 'Should show issue count in header');
+        assert.ok(
+          text.includes('2 issues') || text.includes('2 issue'),
+          'Should show issue count in batch header'
+        );
       });
 
-      it('should use singular "issue" for single issue', async () => {
+      it('should use singular "issue" for single issue in batch', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
-        const issue = createIssueRecord({ title: 'Single Issue', agent_name: 'code-reviewer' });
+        const issue = createIssueRecord({
+          title: 'Single Issue',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+        });
         writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue]);
 
         const result = await listIssues({ scope: 'all' });
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        assert.ok(text.includes('code-reviewer (1 issue)'), 'Should use singular "issue"');
+        assert.ok(text.includes('1 issue'), 'Should use singular "issue" in batch header');
       });
     });
 
     describe('output formatting', () => {
-      it('should show priority emoji (red for high, blue for low)', async () => {
+      it('should show priority emoji for out-of-scope issues only', async () => {
         const manifestDir = join(testDir, 'tmp', 'wiggum');
-        const highIssue = createIssueRecord({ priority: 'high', title: 'High Issue' });
-        const lowIssue = createIssueRecord({ priority: 'low', title: 'Low Issue' });
-        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [highIssue, lowIssue]);
+        const highIssue = createIssueRecord({
+          priority: 'high',
+          title: 'High Issue',
+          scope: 'out-of-scope',
+        });
+        const lowIssue = createIssueRecord({
+          priority: 'low',
+          title: 'Low Issue',
+          scope: 'out-of-scope',
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'out-of-scope', [highIssue, lowIssue]);
 
         const result = await listIssues({ scope: 'all' });
 
         assert.ok(result.content[0].type === 'text');
         const text = result.content[0].text;
-        // Check for emojis in the output
+        // Check for emojis in the output (out-of-scope issues show priority emojis)
         assert.ok(text.includes('\u{1F534}'), 'Should include red circle for high priority'); // 🔴
         assert.ok(text.includes('\u{1F535}'), 'Should include blue circle for low priority'); // 🔵
       });
