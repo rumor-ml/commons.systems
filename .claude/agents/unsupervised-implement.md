@@ -304,6 +304,44 @@ If ambiguities found, return structured JSON:
 
 ### Phase 4: Implementation
 
+#### Handling Already-Fixed Issues
+
+During implementation, if you discover that an issue in your batch is already fixed
+(e.g., by a previous fix in the same batch or by another issue you just implemented):
+
+1. Call `wiggum_update_issue({ id: "{issue_id}", already_fixed: true })`
+2. Log the reason why the issue was already fixed
+3. Do NOT attempt to fix an already-fixed issue
+4. Include in your completion status: `"already_fixed_issues": ["issue-id-1", "issue-id-2"]`
+
+#### Closing Referenced TODO Issues
+
+When implementing fixes, check if any issue has `existing_todo.has_todo: true` with
+an `existing_todo.issue_reference`:
+
+**For each in-scope issue with an existing TODO:**
+
+1. Note the referenced issue number (e.g., "#123" from `existing_todo.issue_reference`)
+2. If your fix removes the TODO comment:
+   a. Check if the referenced issue is still open:
+   ```bash
+   gh issue view 123 --json state --jq '.state'
+   ```
+   b. If OPEN, close it with a reference to the current issue number (from branch name):
+   ```bash
+   # Extract issue number from branch name (e.g., "625-feature-name" -> 625)
+   gh issue close 123 --comment "Fixed in #625"
+   ```
+3. Track closed issues in completion status:
+   ```json
+   {
+     "status": "complete",
+     "todo_issues_closed": [123, 456]
+   }
+   ```
+
+#### Implementation
+
 If no blockers detected, invoke accept-edits agent with the plan:
 
 ```
@@ -477,6 +515,8 @@ Always return structured JSON at the end of your response:
   "status": "complete",
   "fixes_applied": ["fix1", "fix2"],
   "issues_fixed": 3, // Number of issues from batch that were fixed
+  "already_fixed_issues": [], // Issue IDs marked as already_fixed
+  "todo_issues_closed": [], // GitHub issue numbers closed (from TODO references)
   "tests_passed": true,
   "iterations": 1,
   "out_of_scope_skips": [],

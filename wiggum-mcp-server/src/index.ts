@@ -20,6 +20,7 @@ import { recordReviewIssue, RecordReviewIssueInputSchema } from './tools/record-
 import { readManifests, ReadManifestsInputSchema } from './tools/read-manifests.js';
 import { listIssues, ListIssuesInputSchema } from './tools/list-issues.js';
 import { getIssue, GetIssueInputSchema } from './tools/get-issue.js';
+import { updateIssue, UpdateIssueInputSchema } from './tools/update-issue.js';
 
 import { createErrorResult } from './utils/errors.js';
 import { DEFAULT_MAX_ITERATIONS } from './constants.js';
@@ -264,6 +265,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['id'],
         },
       },
+      {
+        name: 'wiggum_update_issue',
+        description:
+          'Update fields on an existing issue in the manifest files. Used by implementation agents to mark issues as already_fixed when they discover that an issue has been resolved by a previous fix in the same batch.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Issue ID (e.g., "code-reviewer-in-scope-0")',
+            },
+            already_fixed: {
+              type: 'boolean',
+              description: 'Whether the issue has already been fixed',
+            },
+          },
+          required: ['id', 'already_fixed'],
+        },
+      },
     ],
   };
 });
@@ -319,9 +339,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await getIssue(validated);
       }
 
+      case 'wiggum_update_issue': {
+        const validated = UpdateIssueInputSchema.parse(args);
+        return await updateIssue(validated);
+      }
+
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_all_hands, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_all_hands, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue, wiggum_update_issue`
         );
     }
   } catch (error) {
