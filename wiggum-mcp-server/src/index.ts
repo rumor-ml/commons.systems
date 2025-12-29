@@ -10,7 +10,7 @@ import {
 
 import { wiggumInit, WiggumInitInputSchema } from './tools/init.js';
 import { completePRCreation, CompletePRCreationInputSchema } from './tools/complete-pr-creation.js';
-import { completePRReview, CompletePRReviewInputSchema } from './tools/complete-pr-review.js';
+import { completeAllHands, CompleteAllHandsInputSchema } from './tools/complete-all-hands.js';
 import {
   completeSecurityReview,
   CompleteSecurityReviewInputSchema,
@@ -67,47 +67,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'wiggum_complete_pr_review',
+        name: 'wiggum_complete_all_hands',
         description:
-          'Complete PR review step after executing the phase-appropriate review command (Phase 1: /all-hands-review, Phase 2: /review). Validates command execution, posts structured PR comment with review results, and returns next step instructions. If issues found, increments iteration and returns Plan+Fix instructions. If no issues, marks step complete and proceeds.',
+          'Complete all-hands review after all agents finish (both review and implementation). Reads manifests internally, applies 2-strike agent completion logic, and returns next step instructions. If all agents complete with 0 high-priority in-scope issues, marks step complete and proceeds. Otherwise returns instructions to continue iteration.',
         inputSchema: {
           type: 'object',
           properties: {
-            command_executed: {
-              type: 'boolean',
-              description: 'Confirm PR review command was actually executed (must be true)',
-            },
-            in_scope_files: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Array of in-scope result file paths from review agents',
-            },
-            out_of_scope_files: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Array of out-of-scope result file paths from review agents',
-            },
-            in_scope_count: {
-              type: 'number',
-              description: 'Total count of in-scope issues found across all agents',
-            },
-            out_of_scope_count: {
-              type: 'number',
-              description: 'Total count of out-of-scope recommendations across all agents',
-            },
             maxIterations: {
               type: 'number',
               description:
                 'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
             },
           },
-          required: [
-            'command_executed',
-            'in_scope_files',
-            'out_of_scope_files',
-            'in_scope_count',
-            'out_of_scope_count',
-          ],
+          required: [],
         },
       },
       {
@@ -308,9 +280,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await completePRCreation(validated);
       }
 
-      case 'wiggum_complete_pr_review': {
-        const validated = CompletePRReviewInputSchema.parse(args);
-        return await completePRReview(validated);
+      case 'wiggum_complete_all_hands': {
+        const validated = CompleteAllHandsInputSchema.parse(args);
+        return await completeAllHands(validated);
       }
 
       case 'wiggum_complete_security_review': {
@@ -345,7 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_all_hands, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue`
         );
     }
   } catch (error) {
