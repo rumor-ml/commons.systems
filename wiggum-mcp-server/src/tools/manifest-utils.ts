@@ -489,8 +489,12 @@ export function groupIssuesByAgent<T extends { agent_name: string }>(
  * high-priority in-scope issues remaining, which is used to decide
  * whether to advance to the next step or continue iteration.
  *
+ * **Note:** Issues where already_fixed === true are excluded from the count.
+ * The count is read from manifest.high_priority_count which is computed by
+ * createAgentManifest() and already excludes already_fixed issues.
+ *
  * @param manifests - Map of agent manifests from readManifestFiles
- * @returns Total count of high-priority issues in all in-scope manifests
+ * @returns Total count of high-priority issues in all in-scope manifests (excluding already_fixed)
  *
  * @example
  * const manifests = readManifestFiles();
@@ -503,6 +507,8 @@ export function countHighPriorityInScopeIssues(manifests: Map<string, AgentManif
   let total = 0;
   for (const [key, manifest] of manifests.entries()) {
     if (key.endsWith('-in-scope')) {
+      // manifest.high_priority_count already excludes already_fixed issues
+      // (computed by createAgentManifest)
       total += manifest.high_priority_count;
     }
   }
