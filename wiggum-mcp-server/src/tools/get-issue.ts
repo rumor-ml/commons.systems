@@ -58,6 +58,7 @@ export interface IssueDetails {
   };
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly files_to_edit?: readonly string[];
+  readonly already_fixed?: boolean;
 }
 
 /**
@@ -193,6 +194,7 @@ function findIssueById(id: string): IssueDetails | null {
     existing_todo: issue.existing_todo,
     metadata: issue.metadata,
     files_to_edit: issue.files_to_edit,
+    already_fixed: issue.already_fixed,
   };
 
   logger.info('Retrieved issue details', {

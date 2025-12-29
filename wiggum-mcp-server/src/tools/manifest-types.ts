@@ -261,7 +261,10 @@ export function createAgentManifest(
   }
 
   // Compute high_priority_count from issues (single source of truth)
-  const high_priority_count = issues.filter((i) => i.priority === 'high').length;
+  // Exclude issues that are already fixed
+  const high_priority_count = issues.filter(
+    (i) => i.priority === 'high' && !i.already_fixed
+  ).length;
 
   return {
     agent_name,
