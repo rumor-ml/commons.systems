@@ -3,11 +3,29 @@
  *
  * Provides functions to read manifest files created by review agents
  * and determine which agents have completed their work (zero high-priority in-scope issues).
+ *
+ * This module exports shared utility functions used by:
+ * - read-manifests.ts (reads and aggregates manifests by scope)
+ * - record-review-issue.ts (writes issues to manifest files)
+ *
+ * Consolidation reduces code duplication and ensures consistent behavior
+ * across all manifest operations.
  */
 
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
+import type {
+  IssueRecord,
+  AgentManifest,
+  IssueScope,
+  ManifestFilenameComponents,
+} from './manifest-types.js';
+import { isIssueRecordArray } from './manifest-types.js';
+
+// Re-export types for consumers that import from manifest-utils
+export type { IssueRecord, AgentManifest, IssueScope, ManifestFilenameComponents };
+export { isIssueRecord, isIssueRecordArray } from './manifest-types.js';
 
 /**
  * All review agent names
@@ -23,43 +41,43 @@ export const REVIEW_AGENT_NAMES = [
 ] as const;
 
 /**
- * Issue record from manifest files
- */
-interface IssueRecord {
-  readonly agent_name: string;
-  readonly scope: 'in-scope' | 'out-of-scope';
-  readonly priority: 'high' | 'low';
-  readonly title: string;
-  readonly description: string;
-  readonly location?: string;
-  readonly existing_todo?: string;
-  readonly metadata?: Record<string, unknown>;
-  readonly timestamp: string;
-}
-
-/**
- * Manifest summary by agent
- */
-interface AgentManifest {
-  readonly agent_name: string;
-  readonly scope: 'in-scope' | 'out-of-scope';
-  readonly issues: readonly IssueRecord[];
-  readonly high_priority_count: number;
-}
-
-/**
  * Get manifest directory path
+ *
+ * Returns the path to the manifest directory: $(pwd)/tmp/wiggum/
+ * This is where all manifest JSON files are stored.
+ *
+ * NOTE: This function does NOT create the directory. Use getOrCreateManifestDir()
+ * from record-review-issue.ts if you need to ensure the directory exists.
+ *
+ * @returns Absolute path to the manifest directory
  */
-function getManifestDir(): string {
+export function getManifestDir(): string {
   const cwd = process.cwd();
   return join(cwd, 'tmp', 'wiggum');
 }
 
 /**
  * Check if filename matches the manifest pattern
- * Pattern: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * Valid patterns:
+ * - {agent-name}-in-scope-{timestamp}-{random}.json
+ * - {agent-name}-out-of-scope-{timestamp}-{random}.json
+ *
+ * CRITICAL: Both conditions (JSON extension AND scope marker) must be met.
+ * The parentheses around the OR expression ensure .json is required for BOTH
+ * scope patterns. Without proper parentheses, operator precedence would cause
+ * the condition to incorrectly match non-JSON files containing '-out-of-scope-'.
+ *
+ * @param filename - Filename to check (not full path)
+ * @returns true if filename matches the manifest pattern
+ *
+ * @example
+ * isManifestFile('code-reviewer-in-scope-1234567890-abc123.json') // true
+ * isManifestFile('code-reviewer-out-of-scope-1234567890-abc123.json') // true
+ * isManifestFile('code-reviewer-in-scope-1234567890.bak') // false - not .json
+ * isManifestFile('random-file.json') // false - no scope marker
  */
-function isManifestFile(filename: string): boolean {
+export function isManifestFile(filename: string): boolean {
   return (
     filename.endsWith('.json') &&
     (filename.includes('-in-scope-') || filename.includes('-out-of-scope-'))
@@ -68,14 +86,22 @@ function isManifestFile(filename: string): boolean {
 
 /**
  * Extract agent name and scope from manifest filename
- * Filename pattern: {agent-name}-{scope}-{timestamp}-{random}.json
- * Returns: { agentName: string, scope: 'in-scope' | 'out-of-scope' }
+ *
+ * Parses the manifest filename pattern: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * @param filename - Filename to parse (not full path)
+ * @returns Parsed components or null if filename doesn't match pattern
+ *
+ * @example
+ * parseManifestFilename('code-reviewer-in-scope-1234567890-abc123.json')
+ * // Returns: { agentName: 'code-reviewer', scope: 'in-scope' }
+ *
+ * parseManifestFilename('invalid-filename.json')
+ * // Returns: null
  */
-function parseManifestFilename(
-  filename: string
-): { agentName: string; scope: 'in-scope' | 'out-of-scope' } | null {
+export function parseManifestFilename(filename: string): ManifestFilenameComponents | null {
   // Extract scope first
-  let scope: 'in-scope' | 'out-of-scope';
+  let scope: IssueScope;
   if (filename.includes('-in-scope-')) {
     scope = 'in-scope';
   } else if (filename.includes('-out-of-scope-')) {
@@ -98,30 +124,49 @@ function parseManifestFilename(
 /**
  * Read and parse a single manifest file
  *
+ * Reads a JSON manifest file and validates its contents as an array of IssueRecords.
+ * Uses runtime type validation via isIssueRecordArray to ensure data integrity.
+ *
  * Error handling strategy:
  * - ENOENT (file not found): DEBUG level, acceptable - agent may not have run yet
  * - EACCES/EROFS (permission errors): ERROR level - indicates filesystem issue
  * - JSON parse errors: ERROR level - indicates manifest corruption
+ * - Schema validation errors: ERROR level - indicates format mismatch
  * - Other errors: WARN level with full diagnostics
  *
  * Returns empty array on failure to allow workflow to continue with partial data.
+ *
+ * @param filepath - Full path to the manifest file
+ * @returns Array of IssueRecords, or empty array on failure
  */
-function readManifestFile(filepath: string): IssueRecord[] {
+export function readManifestFile(filepath: string): IssueRecord[] {
   try {
     const content = readFileSync(filepath, 'utf-8');
-    const issues = JSON.parse(content);
+    const parsed = JSON.parse(content);
 
-    if (!Array.isArray(issues)) {
+    if (!Array.isArray(parsed)) {
       // ERROR level - schema violation indicates corruption or format change
       logger.error('Manifest file is not an array - data corruption or format violation', {
         filepath,
-        actualType: typeof issues,
+        actualType: typeof parsed,
         impact: 'Agent completion tracking may be incorrect',
       });
       return [];
     }
 
-    return issues;
+    // Validate each issue record has the expected structure
+    if (!isIssueRecordArray(parsed)) {
+      logger.error('Manifest file contains invalid issue records - schema validation failed', {
+        filepath,
+        issueCount: parsed.length,
+        impact: 'Some or all issues may have invalid structure',
+        suggestion: 'Check manifest file format matches IssueRecord interface',
+      });
+      // Return empty to prevent downstream errors from malformed data
+      return [];
+    }
+
+    return parsed;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorCode = (error as NodeJS.ErrnoException).code;

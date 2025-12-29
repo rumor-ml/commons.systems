@@ -7,7 +7,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { REVIEW_AGENT_NAMES, getCompletedAgents } from './manifest-utils.js';
+import {
+  REVIEW_AGENT_NAMES,
+  getCompletedAgents,
+  isManifestFile,
+  parseManifestFilename,
+  getManifestDir,
+} from './manifest-utils.js';
+import { isIssueRecord, isIssueRecordArray } from './manifest-types.js';
 
 describe('manifest-utils', () => {
   describe('REVIEW_AGENT_NAMES', () => {
@@ -324,6 +331,328 @@ describe('manifest-utils', () => {
     });
   });
 
+  describe('isManifestFile', () => {
+    describe('valid manifest filenames', () => {
+      it('should accept in-scope manifest file', () => {
+        assert.strictEqual(isManifestFile('code-reviewer-in-scope-1234567890-abc123.json'), true);
+      });
+
+      it('should accept out-of-scope manifest file', () => {
+        assert.strictEqual(
+          isManifestFile('code-reviewer-out-of-scope-1234567890-abc123.json'),
+          true
+        );
+      });
+
+      it('should accept manifest with simple agent name', () => {
+        assert.strictEqual(isManifestFile('reviewer-in-scope-1234.json'), true);
+      });
+
+      it('should accept manifest with complex agent name', () => {
+        assert.strictEqual(
+          isManifestFile('silent-failure-hunter-in-scope-1234567890-deadbeef.json'),
+          true
+        );
+      });
+    });
+
+    describe('invalid manifest filenames', () => {
+      it('should reject non-JSON file with in-scope marker', () => {
+        // This test verifies the operator precedence fix
+        // Without proper parentheses, this would incorrectly match
+        assert.strictEqual(isManifestFile('code-reviewer-in-scope-1234567890.bak'), false);
+      });
+
+      it('should reject non-JSON file with out-of-scope marker', () => {
+        // Critical test: verifies .json is required for BOTH scope patterns
+        assert.strictEqual(isManifestFile('code-reviewer-out-of-scope-1234567890.bak'), false);
+      });
+
+      it('should reject .txt file with scope marker', () => {
+        assert.strictEqual(isManifestFile('code-reviewer-in-scope-1234567890.txt'), false);
+      });
+
+      it('should reject .log file with scope marker', () => {
+        assert.strictEqual(isManifestFile('debug-out-of-scope-log.log'), false);
+      });
+
+      it('should reject JSON file without scope marker', () => {
+        assert.strictEqual(isManifestFile('code-reviewer-1234567890.json'), false);
+      });
+
+      it('should reject random JSON file', () => {
+        assert.strictEqual(isManifestFile('random-file.json'), false);
+      });
+
+      it('should reject empty filename', () => {
+        assert.strictEqual(isManifestFile(''), false);
+      });
+
+      it('should reject just .json extension', () => {
+        assert.strictEqual(isManifestFile('.json'), false);
+      });
+    });
+
+    describe('edge cases', () => {
+      it('should handle filename with multiple scope markers', () => {
+        // Should match because it contains a scope marker and ends with .json
+        assert.strictEqual(isManifestFile('in-scope-test-out-of-scope-1234567890.json'), true);
+      });
+
+      it('should handle uppercase in filename (no match)', () => {
+        // Our pattern is case-sensitive
+        assert.strictEqual(isManifestFile('code-reviewer-IN-SCOPE-1234567890.json'), false);
+      });
+    });
+  });
+
+  describe('parseManifestFilename', () => {
+    describe('valid filenames', () => {
+      it('should parse in-scope manifest filename', () => {
+        const result = parseManifestFilename('code-reviewer-in-scope-1234567890-abc123.json');
+        assert.deepStrictEqual(result, {
+          agentName: 'code-reviewer',
+          scope: 'in-scope',
+        });
+      });
+
+      it('should parse out-of-scope manifest filename', () => {
+        const result = parseManifestFilename('code-reviewer-out-of-scope-1234567890-abc123.json');
+        assert.deepStrictEqual(result, {
+          agentName: 'code-reviewer',
+          scope: 'out-of-scope',
+        });
+      });
+
+      it('should parse complex agent name', () => {
+        const result = parseManifestFilename(
+          'silent-failure-hunter-in-scope-1234567890-deadbeef.json'
+        );
+        assert.deepStrictEqual(result, {
+          agentName: 'silent-failure-hunter',
+          scope: 'in-scope',
+        });
+      });
+
+      it('should parse simple agent name', () => {
+        const result = parseManifestFilename('reviewer-out-of-scope-1234.json');
+        assert.deepStrictEqual(result, {
+          agentName: 'reviewer',
+          scope: 'out-of-scope',
+        });
+      });
+    });
+
+    describe('invalid filenames', () => {
+      it('should return null for filename without scope marker', () => {
+        const result = parseManifestFilename('code-reviewer-1234567890.json');
+        assert.strictEqual(result, null);
+      });
+
+      it('should return null for empty filename', () => {
+        const result = parseManifestFilename('');
+        assert.strictEqual(result, null);
+      });
+
+      it('should return null for filename with only scope marker', () => {
+        const result = parseManifestFilename('-in-scope-1234567890.json');
+        assert.strictEqual(result, null);
+      });
+    });
+  });
+
+  describe('getManifestDir', () => {
+    it('should return path ending with tmp/wiggum', () => {
+      const dir = getManifestDir();
+      assert.ok(dir.endsWith('tmp/wiggum') || dir.endsWith('tmp\\wiggum'));
+    });
+
+    it('should return absolute path', () => {
+      const dir = getManifestDir();
+      // Should start with / on Unix or drive letter on Windows
+      assert.ok(dir.startsWith('/') || /^[A-Za-z]:/.test(dir));
+    });
+  });
+
+  describe('isIssueRecord', () => {
+    describe('valid issue records', () => {
+      it('should accept minimal valid issue record', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test Issue',
+          description: 'Test Description',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), true);
+      });
+
+      it('should accept issue record with all optional fields', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'out-of-scope',
+          priority: 'low',
+          title: 'Test Issue',
+          description: 'Test Description',
+          location: 'src/file.ts:42',
+          existing_todo: {
+            has_todo: true,
+            issue_reference: '#123',
+          },
+          metadata: { severity: 'critical', confidence: 95 },
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), true);
+      });
+    });
+
+    describe('invalid issue records', () => {
+      it('should reject null', () => {
+        assert.strictEqual(isIssueRecord(null), false);
+      });
+
+      it('should reject undefined', () => {
+        assert.strictEqual(isIssueRecord(undefined), false);
+      });
+
+      it('should reject primitive values', () => {
+        assert.strictEqual(isIssueRecord('string'), false);
+        assert.strictEqual(isIssueRecord(123), false);
+        assert.strictEqual(isIssueRecord(true), false);
+      });
+
+      it('should reject empty object', () => {
+        assert.strictEqual(isIssueRecord({}), false);
+      });
+
+      it('should reject missing agent_name', () => {
+        const record = {
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+
+      it('should reject empty agent_name', () => {
+        const record = {
+          agent_name: '',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+
+      it('should reject invalid scope', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'invalid-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+
+      it('should reject invalid priority', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'medium',
+          title: 'Test',
+          description: 'Test',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+
+      it('should reject non-string location', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+          location: 123,
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+
+      it('should reject non-object metadata', () => {
+        const record = {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+          metadata: 'not an object',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        };
+        assert.strictEqual(isIssueRecord(record), false);
+      });
+    });
+  });
+
+  describe('isIssueRecordArray', () => {
+    it('should accept empty array', () => {
+      assert.strictEqual(isIssueRecordArray([]), true);
+    });
+
+    it('should accept array of valid issue records', () => {
+      const records = [
+        {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Issue 1',
+          description: 'Description 1',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        },
+        {
+          agent_name: 'code-simplifier',
+          scope: 'out-of-scope',
+          priority: 'low',
+          title: 'Issue 2',
+          description: 'Description 2',
+          timestamp: '2025-01-15T10:31:00.000Z',
+        },
+      ];
+      assert.strictEqual(isIssueRecordArray(records), true);
+    });
+
+    it('should reject non-array', () => {
+      assert.strictEqual(isIssueRecordArray({}), false);
+      assert.strictEqual(isIssueRecordArray('string'), false);
+      assert.strictEqual(isIssueRecordArray(null), false);
+    });
+
+    it('should reject array with invalid record', () => {
+      const records = [
+        {
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Issue 1',
+          description: 'Description 1',
+          timestamp: '2025-01-15T10:30:00.000Z',
+        },
+        {
+          // Missing required fields
+          agent_name: 'code-simplifier',
+        },
+      ];
+      assert.strictEqual(isIssueRecordArray(records), false);
+    });
+  });
+
   // NOTE: Full behavioral testing of readManifestFiles and cleanupManifestFiles
   // requires integration tests with filesystem mocks. The core logic tested here:
   // 1. REVIEW_AGENT_NAMES contains all expected agents
@@ -332,10 +661,12 @@ describe('manifest-utils', () => {
   //    - In-scope manifest has zero high-priority issues (complete)
   //    - In-scope manifest has high-priority issues (incomplete)
   //    - Out-of-scope issues don't affect completion status
+  // 3. isManifestFile correctly identifies valid manifest filenames
+  // 4. parseManifestFilename correctly extracts agent name and scope
+  // 5. isIssueRecord and isIssueRecordArray validate data structure
   //
   // Additional integration tests would cover:
   // - Reading manifest files from tmp/wiggum directory
-  // - Parsing manifest filenames to extract agent name and scope
   // - Handling malformed filenames gracefully
   // - Merging issues from multiple manifest files per agent
   // - Cleaning up manifest files after processing
