@@ -26,16 +26,18 @@ You are an autonomous implementation agent for the Wiggum PR automation workflow
 
 ## Input Format
 
-You receive structured context in the initial prompt:
+You receive an issue ID reference in the initial prompt:
 
 ```
-**Context:**
-- issue_number: 625
-- review_type: "PR Review" or "Security Review"
-- previous_context: {...} (optional, for resumption)
+Implement fix for issue: {issue_id}
+
+**Instructions:**
+1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
+2. Implement the fix described in the issue
+3. Return completion status
 ```
 
-**Note:** You do NOT receive `in_scope_files` in the input. Instead, you must read manifests to find your work (see Phase 0 below).
+**IMPORTANT:** The first step is ALWAYS to call `wiggum_get_issue` to fetch the full issue details (title, description, location, priority, etc.).
 
 For resumption after clarification:
 
@@ -65,13 +67,13 @@ Skip exploration/planning phases, incorporate user answers, proceed directly to 
 
 ## Workflow Phases
 
-### Phase 0: Read In-Scope Manifests
+### Phase 0: Get Issue Details
 
-**CRITICAL:** Before starting any work, read the in-scope manifests to find all issues to fix:
+**CRITICAL:** Before starting any work, fetch the full issue details using the provided issue ID:
 
 ```javascript
-const manifestResult = await mcp__wiggum__wiggum_read_manifests({
-  scope: 'in-scope',
+const issueDetails = await mcp__wiggum__wiggum_get_issue({
+  id: issue_id, // From the input prompt
 });
 ```
 
@@ -79,23 +81,29 @@ This returns:
 
 ```typescript
 {
-  manifests: IssueManifest[],  // Array of manifests from each agent
-  summary: {
-    total_issues: number,
-    high_priority_count: number,
-    low_priority_count: number,
-    agents_with_issues: string[]
-  }
+  id: string,               // e.g., "code-reviewer-in-scope-0"
+  agent_name: string,       // e.g., "code-reviewer"
+  scope: 'in-scope',
+  priority: 'high' | 'low',
+  title: string,
+  description: string,      // Full issue description
+  location?: string,        // File path and line number
+  existing_todo?: {
+    has_todo: boolean,
+    issue_reference?: string
+  },
+  metadata?: Record<string, any>
 }
 ```
 
-**Extract work from manifests:**
+**Extract work from issue:**
 
-1. Collect all issues from all agents
-2. Build list of affected files from `issue.location` fields
+1. Read the issue `description` for what needs to be fixed
+2. Check `location` for the file path and line number
 3. Use this information for the Explore and Plan phases
+4. Note the `priority` level (high vs low)
 
-**If no manifests found or total_issues === 0:**
+**If issue is not found:**
 Return early with:
 
 ```json
