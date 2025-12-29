@@ -187,10 +187,12 @@ Think deeply about each type's role in the larger system. Sometimes a simpler ty
    # Collision prevention strategy:
    # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
    # - Cross-agent isolation: Agent name prefix (e.g., type-design-analyzer-) in filename
-   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
+   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
+   #   even when multiple agents start in the exact same millisecond
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-${TIMESTAMP}.md"
+   RANDOM_SUFFIX=$(openssl rand -hex 4)
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
    ```
 
 2. Create directory:

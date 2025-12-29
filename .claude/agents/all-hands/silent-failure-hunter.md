@@ -220,10 +220,12 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
    # Collision prevention strategy:
    # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
    # - Cross-agent isolation: Agent name prefix (e.g., silent-failure-hunter-) in filename
-   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
+   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
+   #   even when multiple agents start in the exact same millisecond
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-${TIMESTAMP}.md"
+   RANDOM_SUFFIX=$(openssl rand -hex 4)
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
    ```
 
 2. Create directory:

@@ -133,10 +133,12 @@ Be thorough but filter aggressively - quality over quantity. Focus on issues tha
    # Collision prevention strategy:
    # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
    # - Cross-agent isolation: Agent name prefix (e.g., code-reviewer-) in filename
-   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
+   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
+   #   even when multiple agents start in the exact same millisecond
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-${TIMESTAMP}.md"
+   RANDOM_SUFFIX=$(openssl rand -hex 4)
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
    ```
 
 2. Create directory:

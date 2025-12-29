@@ -158,10 +158,12 @@ IMPORTANT: You analyze and provide feedback only. Do not modify code or comments
    # Collision prevention strategy:
    # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
    # - Cross-agent isolation: Agent name prefix (e.g., comment-analyzer-) in filename
-   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
+   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
+   #   even when multiple agents start in the exact same millisecond
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-${TIMESTAMP}.md"
+   RANDOM_SUFFIX=$(openssl rand -hex 4)
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
    ```
 
 2. Create directory:

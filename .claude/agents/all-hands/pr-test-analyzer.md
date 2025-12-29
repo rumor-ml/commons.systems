@@ -155,10 +155,12 @@ You are thorough but pragmatic, focusing on tests that provide real value in cat
    # Collision prevention strategy:
    # - Cross-worktree isolation: $(pwd) provides worktree-specific directory paths
    # - Cross-agent isolation: Agent name prefix (e.g., pr-test-analyzer-) in filename
-   # - Same-worktree/same-second: Millisecond timestamp ensures uniqueness
+   # - Same-worktree/same-millisecond: Timestamp + random suffix ensures uniqueness
+   #   even when multiple agents start in the exact same millisecond
    TIMESTAMP=$(date +%s%3N)
-   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-${TIMESTAMP}.md"
-   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-${TIMESTAMP}.md"
+   RANDOM_SUFFIX=$(openssl rand -hex 4)
+   IN_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
+   OUT_OF_SCOPE_FILE="$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-${TIMESTAMP}-${RANDOM_SUFFIX}.md"
    ```
 
 2. Create directory:
