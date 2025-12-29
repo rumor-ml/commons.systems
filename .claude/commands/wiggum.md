@@ -265,54 +265,48 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 **After calling this tool ONCE, follow the instructions it returns. DO NOT call it again.**
 
-### wiggum_complete_pr_review
+### wiggum_complete_all_hands
 
-Call after executing the phase-appropriate review command:
+Call after `/all-hands-review` completes (after all review and implementation agents finish).
 
-- **Phase 1:** After `/all-hands-review`
-- **Phase 2:** After `/review`
-
-**Used in TWO contexts:**
-
-- **Phase 1 (p1-2):** Pre-PR code review on local branch (uses `/all-hands-review`)
-- **Phase 2 (p2-4):** Post-PR review on actual PR (uses `/review`)
+**Used in Phase 1 (p1-2) only:** Pre-PR all-hands code review on local branch
 
 **Returns next step instructions.**
 
-**CRITICAL: Pass file paths directly from review agents. Do NOT create intermediate summary files.**
+**CRITICAL: This tool reads manifests internally. Do NOT pass file paths.**
 
 ```typescript
-mcp__wiggum__wiggum_complete_pr_review({
-  command_executed: true,
-  in_scope_files: [
-    '$(pwd)/tmp/wiggum/code-reviewer-in-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/silent-failure-hunter-in-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/code-simplifier-in-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/comment-analyzer-in-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/pr-test-analyzer-in-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/type-design-analyzer-in-scope-{timestamp}.md',
-  ],
-  out_of_scope_files: [
-    '$(pwd)/tmp/wiggum/code-reviewer-out-of-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/silent-failure-hunter-out-of-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/code-simplifier-out-of-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/comment-analyzer-out-of-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/pr-test-analyzer-out-of-scope-{timestamp}.md',
-    '$(pwd)/tmp/wiggum/type-design-analyzer-out-of-scope-{timestamp}.md',
-  ],
-  in_scope_count: 17,
-  out_of_scope_count: 21,
+mcp__wiggum__wiggum_complete_all_hands({
+  maxIterations: 15, // Optional: override default iteration limit
 });
 ```
 
+**What this tool does automatically:**
+
+- Reads manifest files from `tmp/wiggum/` directory
+- Applies 2-strike agent completion verification logic
+- Determines if all agents have completed (0 high-priority in-scope issues)
+- Updates wiggum state with agent tracking
+- Cleans up manifest files after processing
+- Returns next step instructions
+
+**Agent Completion Logic:**
+
+The tool uses 2-strike verification to prevent false completions:
+
+1. **First time agent finds 0 high-priority issues** → Added to `pendingCompletionAgents` (runs once more)
+2. **Second consecutive time** → Moved to `completedAgents` (stops running)
+3. **Agent finds issues after pending** → Reset to active (removed from both lists)
+4. **All agents complete** → Step advances to next workflow step
+5. **Some agents still active** → Returns instructions to continue iteration
+
 IMPORTANT:
 
-- `command_executed` must be `true`
-- `in_scope_files` and `out_of_scope_files` contain file paths directly from review agents
-- `in_scope_count` and `out_of_scope_count` are the total counts across all agents
-- **Do NOT create summary files** - agents write individual files, tool concatenates them server-side
-- Tool reads files, aggregates results, and posts to GitHub comment
-- Tool returns next step instructions (either fix instructions or next step)
+- Tool handles all manifest reading internally
+- No file paths needed as input
+- Automatically tracks which agents have completed
+- Only advances step when ALL agents have 0 high-priority in-scope issues for 2 consecutive iterations
+- `maxIterations` is optional - use when user approves increasing limit
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
 

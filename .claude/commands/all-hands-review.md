@@ -90,47 +90,65 @@ Use the Task tool to launch ALL 6 all-hands agents in PARALLEL (make 6 Task call
 
 **CRITICAL:** Launch all 6 agents in parallel (single response with 6 Task calls). Do NOT launch them sequentially.
 
-## Step 3: Aggregate Results
+## Step 3: List Review Issues
 
-After all agents complete:
-
-1. Parse the JSON summary from each agent's response
-2. Extract from each agent:
-   - `in_scope_file` path
-   - `out_of_scope_file` path
-   - `in_scope_count`
-   - `out_of_scope_count`
-3. Build arrays:
-   - `inScopeFiles = [agent1.in_scope_file, agent2.in_scope_file, ...]`
-   - `outOfScopeFiles = [agent1.out_of_scope_file, agent2.out_of_scope_file, ...]`
-4. Sum counts:
-   - `totalInScope = sum(agent.in_scope_count for all agents)`
-   - `totalOutOfScope = sum(agent.out_of_scope_count for all agents)`
-
-## Step 4: Format Output
-
-Present results in this concise format:
+After all review agents complete, call `wiggum_list_issues` to get issue references:
 
 ```
-## All-Hands Review Complete
-
-**Results:**
-- In-Scope Issues: [totalInScope]
-- Out-of-Scope Recommendations: [totalOutOfScope]
-
-**Files Generated:**
-In-Scope: [inScopeFiles.length] files
-Out-of-Scope: [outOfScopeFiles.length] files
-
-**File Paths:**
-In-Scope:
-- [list all inScopeFiles paths]
-
-Out-of-Scope:
-- [list all outOfScopeFiles paths]
-
-Next: These file paths will be passed to wiggum_complete_pr_review.
+mcp__wiggum__wiggum_list_issues({ scope: 'all' })
 ```
+
+This returns minimal issue references (ID, title, agent, scope, priority) without full details.
+
+## Step 4: Create Todo List
+
+Create a todo list from the issue references to track implementation work:
+
+1. Group issues by scope (in-scope vs out-of-scope)
+2. Create todo items for each in-scope issue
+3. Create todo items for each out-of-scope issue
+4. Mark all items as "pending" initially
+
+## Step 5: Launch Implementation Agents
+
+Based on the issues found:
+
+### Out-of-Scope Issues (Launch in PARALLEL)
+
+For each out-of-scope issue, launch out-of-scope-tracker agent:
+
+```
+Task tool with subagent_type="out-of-scope-tracker"
+Pass issue ID from wiggum_list_issues
+```
+
+**CRITICAL:** Launch ALL out-of-scope-tracker agents in PARALLEL (single response with multiple Task calls).
+
+### In-Scope Issues (Launch ONE AT A TIME)
+
+For each in-scope issue, launch unsupervised-implement agent:
+
+```
+Task tool with subagent_type="unsupervised-implement"
+Pass issue ID from wiggum_list_issues
+```
+
+**CRITICAL:** Launch unsupervised-implement agents SEQUENTIALLY (one at a time). Wait for each to complete before launching the next.
+
+## Step 6: Complete All-Hands Review
+
+After ALL subagents complete (both out-of-scope trackers and unsupervised implementers), call:
+
+```
+mcp__wiggum__wiggum_complete_all_hands({})
+```
+
+This tool:
+
+- Reads manifests internally
+- Applies 2-strike agent completion logic
+- Cleans up manifest files
+- Returns next step instructions
 
 ## Important Notes
 
