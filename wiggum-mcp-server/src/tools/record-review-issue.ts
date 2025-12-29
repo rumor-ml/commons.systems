@@ -30,13 +30,87 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { detectCurrentState } from '../state/detector.js';
-import { postPRComment } from '../utils/gh-cli.js';
+import { postPRComment, sleep } from '../utils/gh-cli.js';
 import { ghCli } from '../utils/gh-cli.js';
 import { logger } from '../utils/logger.js';
 import { FilesystemError, ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import type { IssueRecord } from './manifest-types.js';
 import { ReviewAgentNameSchema } from './manifest-types.js';
+
+/**
+ * Known file extensions for validating auto-extracted file paths
+ * Used to filter out descriptive strings that don't represent actual files
+ */
+const KNOWN_FILE_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.go',
+  '.py',
+  '.java',
+  '.md',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.html',
+  '.css',
+  '.scss',
+  '.less',
+  '.vue',
+  '.svelte',
+  '.rs',
+  '.rb',
+  '.php',
+  '.c',
+  '.cpp',
+  '.h',
+  '.hpp',
+  '.swift',
+  '.kt',
+  '.scala',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.sql',
+  '.graphql',
+  '.proto',
+  '.xml',
+  '.toml',
+];
+
+/**
+ * Validate that a string looks like a file path
+ *
+ * Checks for:
+ * 1. Non-empty string
+ * 2. Contains path separator (/ or \)
+ * 3. Has a known file extension
+ * 4. No spaces (descriptive strings usually have spaces)
+ *
+ * This prevents descriptive location strings like "Multiple files" or
+ * Windows drive letters like "C" from being treated as file paths.
+ */
+function looksLikeFilePath(value: string): boolean {
+  if (!value || value.length === 0) {
+    return false;
+  }
+
+  // Descriptive strings usually have spaces
+  if (value.includes(' ')) {
+    return false;
+  }
+
+  // Must have a path separator
+  if (!value.includes('/') && !value.includes('\\')) {
+    return false;
+  }
+
+  // Must end with a known file extension
+  const lowerValue = value.toLowerCase();
+  return KNOWN_FILE_EXTENSIONS.some((ext) => lowerValue.endsWith(ext));
+}
 
 // Zod schema for input validation
 export const RecordReviewIssueInputSchema = z.object({
@@ -109,15 +183,14 @@ function getOrCreateManifestDir(): string {
  * Creates a unique manifest file for each issue using timestamp + 4-byte random suffix.
  * This prevents race conditions when multiple agents run concurrently.
  *
- * NOTE: While this function effectively always creates a NEW file (the filename includes
- * both a millisecond timestamp and 8-character random hex suffix making collisions
- * cryptographically unlikely at ~1 in 4 billion per millisecond), the name "appendToManifest"
- * is accurate because the function:
- * 1. Reads existing content if the file exists (defensive handling)
- * 2. Appends the new issue to the issues array
- * 3. Writes the updated array back to the file
+ * NOTE: Each call creates a unique manifest file using timestamp + 4-byte random suffix,
+ * making filename collisions astronomically unlikely (~1 in 4 billion per millisecond).
  *
- * The append-to-existing logic handles the theoretical edge case of filename collision.
+ * The function is named "appendToManifest" because it conceptually appends to the set
+ * of manifest files in the directory, not because it appends to an existing file.
+ *
+ * The defensive read-existing-content logic (lines 129-133) handles the theoretical
+ * edge case of filename collision, but in practice this code path is never executed.
  */
 function appendToManifest(issue: IssueRecord): string {
   const manifestDir = getOrCreateManifestDir();
@@ -304,6 +377,36 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     title: input.title,
   });
 
+  // Auto-extract files_to_edit from location if not provided
+  // This is a defensive fallback - agents should still provide files_to_edit explicitly
+  let filesToEdit = input.files_to_edit;
+  if ((!filesToEdit || filesToEdit.length === 0) && input.location) {
+    // Extract file path from location like "/path/to/file.ts:45"
+    const extractedValue = input.location.split(':')[0];
+
+    // Validate extracted path looks like a file path
+    // This prevents descriptive strings like "Multiple files" or Windows drive letters like "C"
+    // from being added to files_to_edit, which would cause incorrect batching
+    if (extractedValue && looksLikeFilePath(extractedValue)) {
+      filesToEdit = [extractedValue];
+      logger.info('Auto-extracted files_to_edit from location', {
+        location: input.location,
+        extractedFile: extractedValue,
+        agentName: input.agent_name,
+      });
+    } else {
+      logger.warn('Could not auto-extract valid file path from location', {
+        location: input.location,
+        extractedValue: extractedValue || '(empty)',
+        agentName: input.agent_name,
+        impact: 'Issue will not be batched by file - may be in separate batch',
+        recommendation: 'Agent should provide files_to_edit explicitly',
+      });
+      // Don't set filesToEdit - leave it undefined
+      // This is safer than adding invalid paths that would cause incorrect batching
+    }
+  }
+
   // Create issue record with timestamp
   const issue: IssueRecord = {
     agent_name: input.agent_name,
@@ -315,7 +418,7 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     existing_todo: input.existing_todo,
     metadata: input.metadata,
     timestamp: new Date().toISOString(),
-    files_to_edit: input.files_to_edit,
+    files_to_edit: filesToEdit,
   };
 
   let filepath: string | undefined;
@@ -333,20 +436,70 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     });
   }
 
-  // Try to post to GitHub
+  // Try to post to GitHub with retry logic
+  // Retry helps recover from transient network errors and rate limits
+  const MAX_COMMENT_RETRIES = 3;
   let commentError: string | undefined;
-  try {
-    await postIssueComment(issue);
-  } catch (error) {
-    commentError = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to post GitHub comment', {
-      agentName: input.agent_name,
-      error: commentError,
-      manifestSucceeded: filepath !== undefined,
-      impact: filepath
-        ? 'Issue is in manifest but not visible on GitHub'
-        : 'Issue completely lost - neither in manifest nor on GitHub',
-    });
+
+  for (let attempt = 1; attempt <= MAX_COMMENT_RETRIES; attempt++) {
+    try {
+      await postIssueComment(issue);
+      // Success - clear any previous error
+      commentError = undefined;
+
+      // Log recovery if we succeeded after retry
+      if (attempt > 1) {
+        logger.warn('GitHub comment succeeded after retry - transient failure recovered', {
+          agentName: input.agent_name,
+          attempt,
+          maxRetries: MAX_COMMENT_RETRIES,
+        });
+      }
+      break;
+    } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      commentError = errorObj.message;
+
+      // Check if error is retryable (network errors, rate limits, server errors)
+      const errorMsg = commentError.toLowerCase();
+      const isRetryable =
+        errorMsg.includes('network') ||
+        errorMsg.includes('timeout') ||
+        errorMsg.includes('rate limit') ||
+        errorMsg.includes('429') ||
+        errorMsg.includes('502') ||
+        errorMsg.includes('503') ||
+        errorMsg.includes('504') ||
+        errorMsg.includes('econnreset') ||
+        errorMsg.includes('econnrefused');
+
+      if (!isRetryable || attempt === MAX_COMMENT_RETRIES) {
+        // Non-retryable error or final attempt - log and exit loop
+        logger.error('Failed to post GitHub comment', {
+          agentName: input.agent_name,
+          error: commentError,
+          attempt,
+          maxRetries: MAX_COMMENT_RETRIES,
+          isRetryable,
+          manifestSucceeded: filepath !== undefined,
+          impact: filepath
+            ? 'Issue is in manifest but not visible on GitHub'
+            : 'Issue completely lost - neither in manifest nor on GitHub',
+        });
+        break;
+      }
+
+      // Log retry attempt and wait with exponential backoff
+      const delayMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+      logger.warn('GitHub comment failed - retrying with exponential backoff', {
+        agentName: input.agent_name,
+        attempt,
+        maxRetries: MAX_COMMENT_RETRIES,
+        delayMs,
+        error: commentError,
+      });
+      await sleep(delayMs);
+    }
   }
 
   // Handle the four possible outcomes

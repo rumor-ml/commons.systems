@@ -16,7 +16,7 @@ import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_WORKFLOW } from '../c
 import { logger } from '../utils/logger.js';
 import { StateDetectionError, StateApiError } from '../utils/errors.js';
 import type { GitState, PRState, CurrentState, IssueState, WiggumState } from './types.js';
-import { validateCurrentState } from './types.js';
+import { validateCurrentState, createIssueExists, createIssueDoesNotExist } from './types.js';
 import type { WiggumPhase } from '../constants.js';
 
 /**
@@ -245,10 +245,10 @@ export async function detectPRState(repo?: string): Promise<PRState> {
 function detectIssueState(git: GitState): IssueState {
   const issueNumber = extractIssueNumberFromBranch(git.currentBranch);
 
-  return {
-    exists: issueNumber !== null,
-    number: issueNumber ?? undefined,
-  };
+  if (issueNumber !== null) {
+    return createIssueExists(issueNumber);
+  }
+  return createIssueDoesNotExist();
 }
 
 /**

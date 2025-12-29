@@ -1376,7 +1376,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         'PR checks',
         prChecksResult.failureDetails || prChecksResult.errorSummary,
         'See PR checks for details',
-        updatedState.issue.number
+        updatedState.issue.exists ? updatedState.issue.number : undefined
       );
       output.steps_completed_by_tool = [
         ...stepsCompleted,
@@ -1463,7 +1463,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       'Workflow',
       monitorResult.failureDetails || monitorResult.errorSummary,
       'See workflow logs for details',
-      state.issue.number
+      state.issue.exists ? state.issue.number : undefined
     );
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
@@ -1575,7 +1575,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       'PR checks',
       prChecksResult.failureDetails || prChecksResult.errorSummary,
       'See PR checks for details',
-      state.issue.number
+      state.issue.exists ? state.issue.number : undefined
     );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',

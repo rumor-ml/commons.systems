@@ -63,6 +63,8 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (error instanceof GitHubCliError) {
       throw error;
     }
+    // TODO(#999): Extract exitCode, stderr, stdout from original error before wrapping
+    // Currently these properties are lost, forcing retry logic to use message pattern matching
     // Preserve original error type for better debugging, but wrap in GitHubCliError
     const originalError = error instanceof Error ? error : new Error(String(error));
     throw new GitHubCliError(

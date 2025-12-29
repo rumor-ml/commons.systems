@@ -12,6 +12,7 @@
  * @module state-update-error
  */
 
+import { z } from 'zod';
 import { STEP_NAMES } from '../constants.js';
 import type { WiggumPhase } from '../constants.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
@@ -22,20 +23,97 @@ import { logger } from './logger.js';
 
 /**
  * Parameters for building a state update failure response
+ *
+ * All fields are readonly to enforce immutability once created.
+ * Use createStateUpdateFailureParams() factory function to construct
+ * instances with runtime validation of all invariants.
  */
 export interface StateUpdateFailureParams {
   /** Current workflow state */
-  state: CurrentState;
+  readonly state: CurrentState;
   /** State update result containing the failure reason */
-  stateResult: { success: false; reason: string };
+  readonly stateResult: { readonly success: false; readonly reason: string };
   /** New state that was attempted to be persisted */
-  newState: WiggumState;
+  readonly newState: WiggumState;
   /** Current workflow phase */
-  phase: WiggumPhase;
+  readonly phase: WiggumPhase;
   /** Steps completed messages to display in the response */
-  stepsCompleted: string[];
+  readonly stepsCompleted: readonly string[];
   /** Name of the calling tool for logging purposes */
-  toolName: string;
+  readonly toolName: string;
+}
+
+/**
+ * Zod schema for StateUpdateFailureParams validation
+ *
+ * Validates:
+ * - stateResult.success must be false (failure discriminant)
+ * - stateResult.reason must be non-empty (useful error message)
+ * - toolName must be non-empty (required for retry instructions)
+ * - phase must be valid WiggumPhase
+ *
+ * Note: stepsCompleted can be empty (some failures happen before any steps complete)
+ * Note: state and newState are not deeply validated here - they use their own schemas
+ */
+const StateUpdateFailureParamsSchema = z.object({
+  state: z.object({}).passthrough(), // CurrentState validated by its own schema
+  stateResult: z.object({
+    success: z.literal(false, {
+      errorMap: () => ({
+        message: 'stateResult.success must be false (this type is for failure responses only)',
+      }),
+    }),
+    reason: z
+      .string()
+      .min(1, 'stateResult.reason cannot be empty - provide a meaningful failure reason'),
+  }),
+  newState: z.object({}).passthrough(), // WiggumState validated by its own schema
+  phase: z.enum(['phase1', 'phase2']),
+  stepsCompleted: z.array(z.string()),
+  toolName: z.string().min(1, 'toolName cannot be empty - required for retry instructions'),
+});
+
+/**
+ * Create a validated StateUpdateFailureParams object
+ *
+ * Factory function that ensures all StateUpdateFailureParams objects pass runtime
+ * validation, catching invalid data early and enforcing all invariants
+ * (non-empty reason, non-empty toolName, valid phase, etc.).
+ *
+ * This follows the same pattern as createWiggumState, createPRExists, etc.
+ * for consistency across the codebase.
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createStateUpdateFailureParams({ state, stateResult: { success: false, reason: 'rate limit' }, ... })
+ * - AVOID: const params: StateUpdateFailureParams = { ... }
+ *
+ * @param params - Parameters to validate
+ * @returns Validated StateUpdateFailureParams with all invariants verified
+ * @throws {z.ZodError} If validation fails (empty reason, empty toolName, invalid phase, etc.)
+ *
+ * @example
+ * const params = createStateUpdateFailureParams({
+ *   state: currentState,
+ *   stateResult: { success: false, reason: 'GitHub API rate limit exceeded' },
+ *   newState: createWiggumState({ ... }),
+ *   phase: 'phase2',
+ *   stepsCompleted: ['Validated input', 'Read manifests'],
+ *   toolName: 'wiggum_complete_all_hands',
+ * });
+ */
+export function createStateUpdateFailureParams(params: {
+  readonly state: CurrentState;
+  readonly stateResult: { readonly success: false; readonly reason: string };
+  readonly newState: WiggumState;
+  readonly phase: WiggumPhase;
+  readonly stepsCompleted: readonly string[];
+  readonly toolName: string;
+}): StateUpdateFailureParams {
+  // Validate the params using Zod schema
+  // Note: state and newState are not deeply validated here - they use their own schemas
+  StateUpdateFailureParamsSchema.parse(params);
+  // Return the original params (which are already properly typed) after validation
+  return params;
 }
 
 /**

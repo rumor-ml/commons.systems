@@ -24,10 +24,10 @@ import {
   readManifestFile,
   extractScopeFromFilename,
 } from './manifest-utils.js';
+import type { IssueReference } from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { batchInScopeIssues } from './list-issues.js';
-import type { IssueReference } from './list-issues.js';
 
 // Zod schema for input validation
 export const GetIssueInputSchema = z.union([

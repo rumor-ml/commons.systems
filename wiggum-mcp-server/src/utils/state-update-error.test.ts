@@ -7,7 +7,10 @@
 
 import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
-import { buildStateUpdateFailureResponse } from './state-update-error.js';
+import {
+  buildStateUpdateFailureResponse,
+  createStateUpdateFailureParams,
+} from './state-update-error.js';
 import type { StateUpdateFailureParams } from './state-update-error.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
 import { createWiggumState, createPRExists, createPRDoesNotExist } from '../state/types.js';
@@ -581,6 +584,212 @@ describe('buildStateUpdateFailureResponse', () => {
         text.includes(STEP_PHASE2_CODE_QUALITY),
         `Should include step number: ${STEP_PHASE2_CODE_QUALITY}`
       );
+    });
+  });
+});
+
+describe('createStateUpdateFailureParams', () => {
+  describe('Valid Input', () => {
+    it('should create valid params with all required fields', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      const params = createStateUpdateFailureParams({
+        state,
+        stateResult: { success: false, reason: 'GitHub API rate limit exceeded' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: ['Step 1: Validated input'],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      assert.strictEqual(params.state, state, 'Should preserve state reference');
+      assert.strictEqual(params.newState, newState, 'Should preserve newState reference');
+      assert.strictEqual(params.stateResult.success, false, 'Should preserve success: false');
+      assert.strictEqual(
+        params.stateResult.reason,
+        'GitHub API rate limit exceeded',
+        'Should preserve reason'
+      );
+      assert.strictEqual(params.phase, 'phase2', 'Should preserve phase');
+      assert.deepStrictEqual(
+        params.stepsCompleted,
+        ['Step 1: Validated input'],
+        'Should preserve stepsCompleted'
+      );
+      assert.strictEqual(params.toolName, 'wiggum_complete_all_hands', 'Should preserve toolName');
+    });
+
+    it('should allow empty stepsCompleted array', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      const params = createStateUpdateFailureParams({
+        state,
+        stateResult: { success: false, reason: 'network error' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_fix',
+      });
+
+      assert.deepStrictEqual(params.stepsCompleted, [], 'Should allow empty stepsCompleted');
+    });
+
+    it('should work with phase1', () => {
+      const state = createMockPhase1State();
+      const newState = createWiggumState({
+        iteration: 2,
+        step: STEP_PHASE1_CREATE_PR,
+        completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+        phase: 'phase1',
+      });
+
+      const params = createStateUpdateFailureParams({
+        state,
+        stateResult: { success: false, reason: 'rate limit' },
+        newState,
+        phase: 'phase1',
+        stepsCompleted: ['Read issue'],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      assert.strictEqual(params.phase, 'phase1', 'Should accept phase1');
+    });
+  });
+
+  describe('Invalid Input Validation', () => {
+    it('should reject empty reason', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      assert.throws(
+        () =>
+          createStateUpdateFailureParams({
+            state,
+            stateResult: { success: false, reason: '' },
+            newState,
+            phase: 'phase2',
+            stepsCompleted: [],
+            toolName: 'wiggum_complete_all_hands',
+          }),
+        (error: Error) => {
+          assert.ok(
+            error.message.includes('reason') && error.message.includes('empty'),
+            `Should reject empty reason: ${error.message}`
+          );
+          return true;
+        }
+      );
+    });
+
+    it('should reject empty toolName', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      assert.throws(
+        () =>
+          createStateUpdateFailureParams({
+            state,
+            stateResult: { success: false, reason: 'error' },
+            newState,
+            phase: 'phase2',
+            stepsCompleted: [],
+            toolName: '',
+          }),
+        (error: Error) => {
+          assert.ok(
+            error.message.includes('toolName') && error.message.includes('empty'),
+            `Should reject empty toolName: ${error.message}`
+          );
+          return true;
+        }
+      );
+    });
+
+    it('should reject invalid phase', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      assert.throws(
+        () =>
+          createStateUpdateFailureParams({
+            state,
+            stateResult: { success: false, reason: 'error' },
+            newState,
+            phase: 'phase3' as 'phase1' | 'phase2',
+            stepsCompleted: [],
+            toolName: 'wiggum_complete_all_hands',
+          }),
+        (error: Error) => {
+          // Zod will reject invalid enum value
+          assert.ok(error.message.length > 0, 'Should throw on invalid phase');
+          return true;
+        }
+      );
+    });
+
+    it('should reject stateResult with success: true', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      assert.throws(
+        () =>
+          createStateUpdateFailureParams({
+            state,
+            // Force TypeScript to allow success: true for testing runtime validation
+            stateResult: { success: true, reason: 'error' } as unknown as {
+              success: false;
+              reason: string;
+            },
+            newState,
+            phase: 'phase2',
+            stepsCompleted: [],
+            toolName: 'wiggum_complete_all_hands',
+          }),
+        (error: Error) => {
+          assert.ok(
+            error.message.includes('success') && error.message.includes('false'),
+            `Should reject success: true: ${error.message}`
+          );
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('Integration with buildStateUpdateFailureResponse', () => {
+    let loggerErrorMock: ReturnType<typeof mock.method>;
+
+    beforeEach(() => {
+      loggerErrorMock = mock.method(logger, 'error', () => {});
+    });
+
+    afterEach(() => {
+      loggerErrorMock.mock.restore();
+    });
+
+    it('should produce params that work with buildStateUpdateFailureResponse', () => {
+      const state = createMockPhase2State();
+      const newState = createMockNewState();
+
+      const params = createStateUpdateFailureParams({
+        state,
+        stateResult: { success: false, reason: 'GitHub API rate limit exceeded' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: ['Validated input', 'Read manifests'],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      const result = buildStateUpdateFailureResponse(params);
+
+      assert.strictEqual(result.isError, true, 'Should produce error response');
+      assert.strictEqual(result.content.length, 1, 'Should have content');
+
+      const text = result.content[0].text;
+      assert.ok(text.includes('GitHub API rate limit exceeded'), 'Should include failure reason');
+      assert.ok(text.includes('wiggum_complete_all_hands'), 'Should include tool name');
     });
   });
 });

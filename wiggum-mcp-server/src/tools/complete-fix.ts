@@ -54,6 +54,12 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
 
 /**
  * Complete a fix cycle and update state
+ *
+ * NOTE: This function shares patterns with complete-all-hands.ts including:
+ * - Manifest reading and agent completion status update
+ * - Fast-path state update when no high-priority issues
+ * - State persistence with error handling
+ * See code-simplifier-in-scope-3 for potential future refactoring.
  */
 export async function completeFix(input: CompleteFixInput): Promise<ToolResult> {
   if (!input.fix_description || input.fix_description.trim().length === 0) {

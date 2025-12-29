@@ -22,7 +22,6 @@ import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js'
 import {
   readManifestFiles,
   cleanupManifestFiles,
-  safeCleanupManifestFiles,
   updateAgentCompletionStatus,
   countHighPriorityInScopeIssues,
   REVIEW_AGENT_NAMES,
@@ -48,6 +47,12 @@ export type CompleteAllHandsInput = z.infer<typeof CompleteAllHandsInputSchema>;
  * Uses 2-strike verification logic to mark agents complete.
  * If all agents complete (0 high-priority in-scope issues), advances to next step.
  * If agents have issues remaining, returns instructions to continue iteration.
+ *
+ * NOTE: This function shares patterns with complete-fix.ts including:
+ * - Manifest reading and agent completion status update
+ * - Fast-path state update when no high-priority issues
+ * - State persistence with error handling
+ * See code-simplifier-in-scope-3 for potential future refactoring.
  */
 export async function completeAllHands(input: CompleteAllHandsInput): Promise<ToolResult> {
   const state = await detectCurrentState();
@@ -212,8 +217,11 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   });
 
   // Clean up manifest files after successful state update
-  // Cleanup failures are non-fatal - state is already persisted to GitHub
-  await safeCleanupManifestFiles();
+  // Use throwing version for consistency with fast-path - cleanup failures
+  // would corrupt agent completion tracking on the next iteration.
+  // If cleanup fails, workflow should halt with a clear error message
+  // rather than proceeding with stale manifests.
+  await cleanupManifestFiles();
 
   // Reuse newState instead of calling detectCurrentState() again to avoid race condition
   const updatedState = applyWiggumState(state, newState);

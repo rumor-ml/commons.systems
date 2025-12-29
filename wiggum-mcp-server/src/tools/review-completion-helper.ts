@@ -188,16 +188,26 @@ type FileReadError = FileReadErrorNoDiagnostics | FileReadErrorWithDiagnostics;
  * Factory function that automatically determines the category (in-scope vs out-of-scope)
  * based on the file path naming convention, and extracts Node.js error codes.
  *
- * Returns a discriminated union based on whether diagnostics are available:
- * - If fileExists is undefined, returns FileReadErrorNoDiagnostics
- * - If fileExists is defined (boolean), returns FileReadErrorWithDiagnostics
+ * Uses function overloads to provide compile-time type narrowing:
+ * - When fileExists is provided (boolean), returns FileReadErrorWithDiagnostics
+ * - When fileExists is omitted, returns FileReadErrorNoDiagnostics
+ *
+ * This enables callers to get the specific variant type without runtime checks
+ * when the factory is used correctly with known parameters.
  *
  * @param filePath - Path to the file that failed to read
  * @param error - The error that occurred
- * @param fileExists - Whether the file exists (undefined = diagnostics unavailable)
+ * @param fileExists - Whether the file exists (omit for no diagnostics)
  * @param fileSize - Size of the file if it exists (for diagnostics)
  * @returns FileReadError with appropriate discriminated union variant
  */
+function createFileReadError(
+  filePath: string,
+  error: Error,
+  fileExists: boolean,
+  fileSize?: number
+): FileReadErrorWithDiagnostics;
+function createFileReadError(filePath: string, error: Error): FileReadErrorNoDiagnostics;
 function createFileReadError(
   filePath: string,
   error: Error,
@@ -300,9 +310,32 @@ function createFileReadError(
  * Does NOT prevent intentional bypassing via type assertion.
  *
  * MUST use createNonEmptyString() factory to construct instances from untrusted data.
+ * Use isNonEmptyString() type guard at API boundaries for defensive validation.
  * The brand serves as a marker that validation has occurred, not a runtime guarantee.
  */
 type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
+
+/**
+ * Type guard for NonEmptyString validation
+ *
+ * Use this at API boundaries to defensively validate strings that claim to be
+ * NonEmptyString but may have bypassed the factory (e.g., via type assertion).
+ *
+ * @param value - String value to check
+ * @returns True if the string is non-empty after trimming whitespace
+ *
+ * @example
+ * // At API boundary - defensive validation
+ * function processReviewResult(result: ReviewFileReadResult) {
+ *   if (!isNonEmptyString(result.content)) {
+ *     throw new Error('Invalid result: content is empty');
+ *   }
+ *   // Now guaranteed safe to use
+ * }
+ */
+function isNonEmptyString(value: string): value is NonEmptyString {
+  return value.trim().length > 0;
+}
 
 /**
  * Create a NonEmptyString with runtime validation
@@ -312,10 +345,10 @@ type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
  * @throws {Error} If string is empty or whitespace-only
  */
 function createNonEmptyString(value: string): NonEmptyString {
-  if (value.trim().length === 0) {
+  if (!isNonEmptyString(value)) {
     throw new Error('File is empty - review agent may not have completed');
   }
-  return value as NonEmptyString;
+  return value;
 }
 
 /**
@@ -1801,7 +1834,7 @@ The workflow will resume from this step once the state update succeeds.`,
       phase: state.wiggum.phase,
       reviewStep,
       issueExists: state.issue.exists,
-      issueNumber: state.issue.number,
+      issueNumber: state.issue.exists ? state.issue.number : undefined,
       action: 'Continuing workflow without comment',
     });
   }

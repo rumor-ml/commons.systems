@@ -69,13 +69,30 @@ export interface PRDoesNotExist {
   readonly exists: false;
 }
 
-// TODO(#990): Refactor IssueState to use discriminated union pattern like PRState for compile-time safety
 /**
- * Issue state from GitHub
+ * Issue state from GitHub - using discriminated union for type safety
+ *
+ * This pattern eliminates invalid states at compile time. Only two valid states exist:
+ * 1. IssueExists: { exists: true, number: <positive integer> }
+ * 2. IssueDoesNotExist: { exists: false }
+ *
+ * Invalid states like { exists: true, number: undefined } are now impossible.
  */
-export interface IssueState {
-  readonly exists: boolean;
-  readonly number?: number;
+export type IssueState = IssueExists | IssueDoesNotExist;
+
+/**
+ * Issue exists (extracted from branch name)
+ */
+export interface IssueExists {
+  readonly exists: true;
+  readonly number: number;
+}
+
+/**
+ * Issue does not exist (branch name doesn't contain issue number)
+ */
+export interface IssueDoesNotExist {
+  readonly exists: false;
 }
 
 /**
@@ -166,10 +183,54 @@ export function createPRDoesNotExist(): PRDoesNotExist {
   return PRDoesNotExistSchema.parse({ exists: false });
 }
 
-const IssueStateSchema = z.object({
-  exists: z.boolean(),
-  number: z.number().int().positive('Issue number must be positive integer').optional(),
+const IssueExistsSchema = z.object({
+  exists: z.literal(true),
+  number: z.number().int().positive('Issue number must be positive integer'),
 });
+
+const IssueDoesNotExistSchema = z.object({
+  exists: z.literal(false),
+});
+
+const IssueStateSchema = z.discriminatedUnion('exists', [
+  IssueExistsSchema,
+  IssueDoesNotExistSchema,
+]);
+
+/**
+ * Create a validated IssueExists object
+ *
+ * This factory function ensures all IssueExists objects pass runtime validation
+ * through IssueExistsSchema.parse(), catching invalid data early and enforcing
+ * all invariants (positive issue number).
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createIssueExists(123)
+ * - AVOID: const issue: IssueExists = { exists: true, number: 123 }
+ *
+ * @param number - Issue number (must be positive integer)
+ * @returns Validated IssueExists with all invariants verified
+ * @throws {z.ZodError} If validation fails (non-positive issue number, etc.)
+ */
+export function createIssueExists(number: number): IssueExists {
+  const issue: IssueExists = { exists: true, number };
+  return IssueExistsSchema.parse(issue);
+}
+
+/**
+ * Create a validated IssueDoesNotExist object
+ *
+ * This factory function provides a type-safe way to create the "issue not found" state.
+ * While IssueDoesNotExist is simple (just { exists: false }), using this factory:
+ * - Ensures consistency with the createIssueExists pattern
+ * - Allows adding validation/invariants in the future without breaking callers
+ * - Documents intent clearly in calling code
+ *
+ * @returns Validated IssueDoesNotExist object
+ */
+export function createIssueDoesNotExist(): IssueDoesNotExist {
+  return IssueDoesNotExistSchema.parse({ exists: false });
+}
 
 const WiggumStateSchema = z
   .object({

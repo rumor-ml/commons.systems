@@ -25,6 +25,7 @@ import {
   isManifestFile,
   readManifestFile,
   extractScopeFromFilename,
+  groupIssuesByAgent,
 } from './manifest-utils.js';
 
 // Zod schema for input validation
@@ -37,9 +38,13 @@ export const ReadManifestsInputSchema = z.object({
 export type ReadManifestsInput = z.infer<typeof ReadManifestsInputSchema>;
 
 /**
- * Read all manifest files matching the scope filter
+ * Read all manifest files matching the scope filter and return a flat array of issues
+ *
+ * Note: This is a local function that returns IssueRecord[] (flat array).
+ * The exported readManifestFiles in manifest-utils.ts returns Map<string, AgentManifest> (grouped by agent).
+ * This function is named differently to avoid confusion with the grouped version.
  */
-function readManifestFiles(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRecord[] {
+function collectManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRecord[] {
   const manifestDir = getManifestDir();
 
   // Check if directory exists
@@ -136,14 +141,8 @@ ${summary.agents_with_issues.map((agent) => `- ${agent}`).join('\n')}
 
 `;
 
-  // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in list-issues.ts
-  const issuesByAgent = new Map<string, IssueRecord[]>();
-  for (const issue of summary.issues) {
-    if (!issuesByAgent.has(issue.agent_name)) {
-      issuesByAgent.set(issue.agent_name, []);
-    }
-    issuesByAgent.get(issue.agent_name)!.push(issue);
-  }
+  // Group issues by agent using shared utility (resolves #989)
+  const issuesByAgent = groupIssuesByAgent(summary.issues);
 
   // Format each agent's issues
   for (const [agentName, issues] of issuesByAgent) {
@@ -184,7 +183,7 @@ export async function readManifests(input: ReadManifestsInput): Promise<ToolResu
   });
 
   // Read manifests
-  const issues = readManifestFiles(input.scope);
+  const issues = collectManifestIssues(input.scope);
 
   // Calculate summary
   const summary = calculateSummary(issues);
