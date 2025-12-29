@@ -11,6 +11,9 @@
  * - Phase 1: Posts to the GitHub issue
  * - Phase 2: Posts to the PR
  *
+ * This tool uses shared types from manifest-types.ts to ensure consistency
+ * across all manifest operations.
+ *
  * ERROR HANDLING STRATEGY:
  * - VALIDATION ERRORS: Invalid scope, priority, or missing required fields
  * - LOGGED ERRORS: File system errors during manifest write (logged but execution continues)
@@ -27,6 +30,7 @@ import { ghCli } from '../utils/gh-cli.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
+import type { IssueRecord } from './manifest-types.js';
 
 // Zod schema for input validation
 export const RecordReviewIssueInputSchema = z.object({
@@ -40,26 +44,16 @@ export const RecordReviewIssueInputSchema = z.object({
   title: z.string().min(1, 'title cannot be empty'),
   description: z.string().min(1, 'description cannot be empty'),
   location: z.string().optional(),
-  existing_todo: z.string().optional(),
+  existing_todo: z
+    .object({
+      has_todo: z.boolean(),
+      issue_reference: z.string().optional(),
+    })
+    .optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
 export type RecordReviewIssueInput = z.infer<typeof RecordReviewIssueInputSchema>;
-
-/**
- * Issue record stored in manifest files
- */
-interface IssueRecord {
-  readonly agent_name: string;
-  readonly scope: 'in-scope' | 'out-of-scope';
-  readonly priority: 'high' | 'low';
-  readonly title: string;
-  readonly description: string;
-  readonly location?: string;
-  readonly existing_todo?: string;
-  readonly metadata?: Record<string, unknown>;
-  readonly timestamp: string; // ISO 8601 timestamp
-}
 
 /**
  * Generate a random suffix for filename collision prevention
@@ -169,7 +163,7 @@ ${issue.description}
   }
 
   if (issue.existing_todo) {
-    comment += `\n**Existing TODO:** ${issue.existing_todo}\n`;
+    comment += `\n**Existing TODO:** ${issue.existing_todo.has_todo ? `Yes (${issue.existing_todo.issue_reference || 'no reference'})` : 'No'}\n`;
   }
 
   if (issue.metadata && Object.keys(issue.metadata).length > 0) {
@@ -182,10 +176,31 @@ ${issue.description}
 /**
  * Post issue as GitHub comment
  * Posts to PR if in phase2, or to issue if in phase1
+ *
+ * Only posts comment if:
+ * 1. Issue is in-scope (always post), OR
+ * 2. Issue is out-of-scope AND (no existing_todo OR has_todo is false OR issue_reference is empty)
+ *
+ * This prevents comment pollution for out-of-scope issues that already have tracked TODOs.
  */
 async function postIssueComment(issue: IssueRecord): Promise<void> {
-  const state = await detectCurrentState();
+  // Determine if we should post a GitHub comment
+  const shouldPostComment =
+    issue.scope === 'in-scope' ||
+    !issue.existing_todo?.has_todo ||
+    !issue.existing_todo?.issue_reference;
 
+  if (!shouldPostComment) {
+    logger.info('Skipping GitHub comment for out-of-scope issue with existing TODO reference', {
+      agentName: issue.agent_name,
+      scope: issue.scope,
+      hasTodo: issue.existing_todo?.has_todo,
+      issueReference: issue.existing_todo?.issue_reference,
+    });
+    return;
+  }
+
+  const state = await detectCurrentState();
   const commentBody = formatIssueComment(issue);
 
   if (state.wiggum.phase === 'phase2' && state.pr.exists) {

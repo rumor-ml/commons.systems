@@ -52,12 +52,16 @@ describe('record-review-issue tool', () => {
           priority: 'high' as const,
           title: 'Test issue',
           description: 'Test description',
-          existing_todo: '#123',
+          existing_todo: {
+            has_todo: true,
+            issue_reference: '#123',
+          },
         };
         const result = RecordReviewIssueInputSchema.safeParse(input);
         assert.strictEqual(result.success, true);
         if (result.success) {
-          assert.strictEqual(result.data.existing_todo, '#123');
+          assert.strictEqual(result.data.existing_todo?.has_todo, true);
+          assert.strictEqual(result.data.existing_todo?.issue_reference, '#123');
         }
       });
 
