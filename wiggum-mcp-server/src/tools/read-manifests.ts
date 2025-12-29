@@ -4,6 +4,9 @@
  * Reads and aggregates review issue manifest files based on scope filter.
  * Globs for matching JSON files in $(pwd)/tmp/wiggum/ directory and returns aggregated data.
  *
+ * This tool uses shared utilities from manifest-utils.ts to avoid code duplication
+ * and ensure consistent behavior across all manifest operations.
+ *
  * ERROR HANDLING STRATEGY:
  * - VALIDATION ERRORS: Invalid scope parameter
  * - LOGGED ERRORS: File system errors, JSON parsing errors (skipped with warning)
@@ -11,10 +14,12 @@
  */
 
 import { z } from 'zod';
-import { existsSync, readdirSync, readFileSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
 import type { ToolResult } from '../types.js';
+import type { IssueRecord, IssueScope } from './manifest-types.js';
+import { getManifestDir, isManifestFile, readManifestFile } from './manifest-utils.js';
 
 // Zod schema for input validation
 export const ReadManifestsInputSchema = z.object({
@@ -26,22 +31,9 @@ export const ReadManifestsInputSchema = z.object({
 export type ReadManifestsInput = z.infer<typeof ReadManifestsInputSchema>;
 
 /**
- * Issue record from manifest files
- */
-interface IssueRecord {
-  readonly agent_name: string;
-  readonly scope: 'in-scope' | 'out-of-scope';
-  readonly priority: 'high' | 'low';
-  readonly title: string;
-  readonly description: string;
-  readonly location?: string;
-  readonly existing_todo?: string;
-  readonly metadata?: Record<string, unknown>;
-  readonly timestamp: string;
-}
-
-/**
  * Aggregated manifest summary
+ *
+ * Note: IssueRecord is imported from manifest-types.ts to avoid duplication
  */
 interface ManifestSummary {
   readonly total_issues: number;
@@ -54,33 +46,15 @@ interface ManifestSummary {
 }
 
 /**
- * Get manifest directory path
- */
-function getManifestDir(): string {
-  const cwd = process.cwd();
-  return join(cwd, 'tmp', 'wiggum');
-}
-
-/**
- * Check if filename matches the manifest pattern
- * Pattern: {agent-name}-{scope}-{timestamp}-{random}.json
- *
- * NOTE: Requires .json extension for both in-scope and out-of-scope files.
- * This prevents matching non-JSON files (e.g., .bak, .txt, .log) that might
- * contain the scope marker in their filename.
- */
-function isManifestFile(filename: string): boolean {
-  return (
-    filename.endsWith('.json') &&
-    (filename.includes('-in-scope-') || filename.includes('-out-of-scope-'))
-  );
-}
-
-/**
  * Extract scope from manifest filename
- * Returns 'in-scope' or 'out-of-scope' if found in filename, otherwise undefined
+ *
+ * Helper function to determine if a file matches the requested scope filter.
+ * Uses the filename pattern convention: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * @param filename - Filename to extract scope from
+ * @returns 'in-scope' or 'out-of-scope' if found, otherwise undefined
  */
-function extractScopeFromFilename(filename: string): 'in-scope' | 'out-of-scope' | undefined {
+function extractScopeFromFilename(filename: string): IssueScope | undefined {
   if (filename.includes('-in-scope-')) {
     return 'in-scope';
   }
@@ -88,34 +62,6 @@ function extractScopeFromFilename(filename: string): 'in-scope' | 'out-of-scope'
     return 'out-of-scope';
   }
   return undefined;
-}
-
-/**
- * Read and parse a single manifest file
- * Returns array of issues or empty array if parsing fails
- */
-function readManifestFile(filepath: string): IssueRecord[] {
-  try {
-    const content = readFileSync(filepath, 'utf-8');
-    const issues = JSON.parse(content);
-
-    if (!Array.isArray(issues)) {
-      logger.warn('Manifest file is not an array - skipping', {
-        filepath,
-        actualType: typeof issues,
-      });
-      return [];
-    }
-
-    return issues;
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.warn('Failed to read or parse manifest file - skipping', {
-      filepath,
-      error: errorMsg,
-    });
-    return [];
-  }
 }
 
 /**
@@ -258,7 +204,7 @@ ${summary.agents_with_issues.map((agent) => `- ${agent}`).join('\n')}
       }
 
       if (issue.existing_todo) {
-        output += `**Existing TODO:** ${issue.existing_todo}\n\n`;
+        output += `**Existing TODO:** ${issue.existing_todo.has_todo ? `Yes (${issue.existing_todo.issue_reference || 'no reference'})` : 'No'}\n\n`;
       }
 
       if (issue.metadata && Object.keys(issue.metadata).length > 0) {
