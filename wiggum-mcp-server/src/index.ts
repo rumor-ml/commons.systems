@@ -93,23 +93,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Confirm /security-review was actually executed (must be true)',
             },
-            in_scope_files: {
+            in_scope_result_files: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Array of in-scope result file paths from security review agents',
+              description:
+                'Array of in-scope result file paths from security review agents (each file may contain multiple issues)',
             },
-            out_of_scope_files: {
+            out_of_scope_result_files: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Array of out-of-scope result file paths from security review agents',
+              description:
+                'Array of out-of-scope result file paths from security review agents (each file may contain multiple issues)',
             },
-            in_scope_count: {
+            in_scope_issue_count: {
               type: 'number',
-              description: 'Total count of in-scope security issues found across all agents',
+              description:
+                'Total count of in-scope security issues found across all agents (not file count)',
             },
-            out_of_scope_count: {
+            out_of_scope_issue_count: {
               type: 'number',
-              description: 'Total count of out-of-scope security recommendations across all agents',
+              description:
+                'Total count of out-of-scope security recommendations across all agents (not file count)',
             },
             maxIterations: {
               type: 'number',
@@ -119,10 +123,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: [
             'command_executed',
-            'in_scope_files',
-            'out_of_scope_files',
-            'in_scope_count',
-            'out_of_scope_count',
+            'in_scope_result_files',
+            'out_of_scope_result_files',
+            'in_scope_issue_count',
+            'out_of_scope_issue_count',
           ],
         },
       },

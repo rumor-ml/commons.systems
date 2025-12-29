@@ -44,6 +44,7 @@ import { ghCli, getPR } from '../utils/gh-cli.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
 import type { ToolResult } from '../types.js';
 import type { WiggumState, CurrentState } from '../state/types.js';
+import { createWiggumState } from '../state/types.js';
 
 export const CompletePRCreationInputSchema = z.object({
   pr_description: z.string().describe("Agent's description of PR contents and changes"),
@@ -225,13 +226,13 @@ ${commits}`;
     // Mark Phase 1 Step 4 complete and transition to Phase 2
     // Reset maxIterations to default for the new PR (Phase 2)
     // State will be persisted to PR body by getNextStepInstructions() via safeUpdatePRBodyState()
-    const newState: WiggumState = {
+    const newState: WiggumState = createWiggumState({
       iteration: state.wiggum.iteration,
       step: STEP_PHASE1_CREATE_PR,
       completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
       phase: 'phase2',
       maxIterations: undefined,
-    };
+    });
 
     // Fix stale PR state after PR creation (issue #429)
     // The state captured at line 83 has pr.exists = false since no PR existed yet.

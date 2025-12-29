@@ -150,35 +150,64 @@ describe('GitHubCliError', () => {
     assert.ok(!error.message.includes('Warning')); // No clamping warning
   });
 
-  it('clamps negative exit codes to 0', () => {
-    const error = new GitHubCliError('Test', -5, 'stderr');
-
-    assert.equal(error.exitCode, 0);
-    assert.ok(error.message.includes('Warning: Invalid exit code -5'));
-    assert.ok(error.message.includes('clamped to 0'));
+  it('throws ValidationError for negative exit codes (except -1)', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', -5, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid exit/status code: -5') &&
+          err.message.includes(
+            'Must be -1 (unknown), 0-255 (Unix exit code), or 400-599 (HTTP status code)'
+          )
+        );
+      }
+    );
   });
 
-  it('preserves -1 sentinel value without warning', () => {
+  it('preserves -1 sentinel value', () => {
     const error = new GitHubCliError('Process did not run', -1, 'stderr');
 
-    assert.equal(error.exitCode, -1); // NOT clamped
-    assert.ok(!error.message.includes('Warning')); // No warning for sentinel
+    assert.equal(error.exitCode, -1);
     assert.equal(error.message, 'Process did not run');
   });
 
-  it('clamps exit codes above 255 to 255', () => {
-    const error = new GitHubCliError('Test', 500, 'stderr');
+  it('accepts HTTP status codes (400-599)', () => {
+    // HTTP status codes are valid for API error classification
+    const error404 = new GitHubCliError('Not found', 404, 'stderr');
+    assert.equal(error404.exitCode, 404);
 
-    assert.equal(error.exitCode, 255);
-    assert.ok(error.message.includes('Warning: Invalid exit code 500'));
-    assert.ok(error.message.includes('clamped to 255'));
+    const error429 = new GitHubCliError('Rate limited', 429, 'stderr');
+    assert.equal(error429.exitCode, 429);
+
+    const error500 = new GitHubCliError('Server error', 500, 'stderr');
+    assert.equal(error500.exitCode, 500);
+  });
+
+  it('throws ValidationError for exit codes in invalid range (256-399)', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', 300, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid exit/status code: 300');
+      }
+    );
+  });
+
+  it('throws ValidationError for exit codes above 599', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', 600, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid exit/status code: 600');
+      }
+    );
   });
 
   it('does not modify message for valid exit codes', () => {
     const error = new GitHubCliError('Normal error', 1, 'stderr');
 
     assert.equal(error.message, 'Normal error');
-    assert.ok(!error.message.includes('Warning'));
   });
 
   it('extends McpError', () => {

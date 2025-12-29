@@ -17,7 +17,12 @@ import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import type { ToolResult } from '../types.js';
 import type { IssueRecord, IssueScope } from './manifest-types.js';
-import { getManifestDir, isManifestFile, readManifestFile } from './manifest-utils.js';
+import {
+  getManifestDir,
+  isManifestFile,
+  readManifestFile,
+  extractScopeFromFilename,
+} from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -51,19 +56,6 @@ export interface ListIssuesResult {
     readonly high_priority: number;
     readonly low_priority: number;
   };
-}
-
-/**
- * Extract scope from manifest filename
- */
-function extractScopeFromFilename(filename: string): IssueScope | undefined {
-  if (filename.includes('-in-scope-')) {
-    return 'in-scope';
-  }
-  if (filename.includes('-out-of-scope-')) {
-    return 'out-of-scope';
-  }
-  return undefined;
 }
 
 /**

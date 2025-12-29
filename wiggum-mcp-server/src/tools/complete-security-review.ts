@@ -5,17 +5,8 @@
  */
 
 import { z } from 'zod';
-import {
-  STEP_PHASE1_SECURITY_REVIEW,
-  STEP_PHASE2_SECURITY_REVIEW,
-  SECURITY_REVIEW_COMMAND,
-} from '../constants.js';
 import type { ToolResult } from '../types.js';
-import {
-  completeReview,
-  validateReviewConfig,
-  type ReviewConfig,
-} from './review-completion-helper.js';
+import { completeReview, createSecurityReviewConfig } from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
   command_executed: z
@@ -26,10 +17,22 @@ export const CompleteSecurityReviewInputSchema = z.object({
       }),
     })
     .describe('Confirm /security-review was actually executed (must be true)'),
-  in_scope_files: z.array(z.string()).describe('Array of in-scope result file paths'),
-  out_of_scope_files: z.array(z.string()).describe('Array of out-of-scope result file paths'),
-  in_scope_count: z.number().int().nonnegative().describe('Total in-scope security issues'),
-  out_of_scope_count: z.number().int().nonnegative().describe('Total out-of-scope security issues'),
+  in_scope_result_files: z
+    .array(z.string())
+    .describe('Array of in-scope result file paths (each file may contain multiple issues)'),
+  out_of_scope_result_files: z
+    .array(z.string())
+    .describe('Array of out-of-scope result file paths (each file may contain multiple issues)'),
+  in_scope_issue_count: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Total count of in-scope security issues across all result files'),
+  out_of_scope_issue_count: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Total count of out-of-scope security issues across all result files'),
   maxIterations: z
     .number()
     .int()
@@ -42,26 +45,9 @@ export const CompleteSecurityReviewInputSchema = z.object({
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
-// TODO(#334): Add validation tests for phase-specific fields
-// Tests should verify: STEP_PHASE1_SECURITY_REVIEW, STEP_PHASE2_SECURITY_REVIEW match actual workflow steps,
-// phase1Command/phase2Command match command registry, step prefixes match phase (p1-/p2-)
-// Validate config at module load time to catch misconfigurations early
-const SECURITY_REVIEW_CONFIG: ReviewConfig = validateReviewConfig({
-  phase1Step: STEP_PHASE1_SECURITY_REVIEW,
-  phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-  phase1Command: SECURITY_REVIEW_COMMAND,
-  phase2Command: SECURITY_REVIEW_COMMAND,
-  reviewTypeLabel: 'Security',
-  issueTypeLabel: 'security issue(s) found',
-  successMessage: `All security checks passed with no vulnerabilities identified.
-
-**Security Aspects Covered:**
-- Authentication and authorization
-- Input validation and sanitization
-- Secrets management
-- Dependency vulnerabilities
-- Security best practices`,
-});
+// Use factory function for validated security review configuration
+// This centralizes configuration in review-completion-helper.ts and ensures consistency
+const SECURITY_REVIEW_CONFIG = createSecurityReviewConfig();
 
 /**
  * Complete security review and update state

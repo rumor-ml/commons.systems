@@ -18,8 +18,14 @@ import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
 import type { ToolResult } from '../types.js';
-import type { IssueRecord, IssueScope } from './manifest-types.js';
-import { getManifestDir, isManifestFile, readManifestFile } from './manifest-utils.js';
+import type { IssueRecord, ManifestSummary } from './manifest-types.js';
+import { createManifestSummary } from './manifest-types.js';
+import {
+  getManifestDir,
+  isManifestFile,
+  readManifestFile,
+  extractScopeFromFilename,
+} from './manifest-utils.js';
 
 // Zod schema for input validation
 export const ReadManifestsInputSchema = z.object({
@@ -29,40 +35,6 @@ export const ReadManifestsInputSchema = z.object({
 });
 
 export type ReadManifestsInput = z.infer<typeof ReadManifestsInputSchema>;
-
-/**
- * Aggregated manifest summary
- *
- * Note: IssueRecord is imported from manifest-types.ts to avoid duplication
- */
-interface ManifestSummary {
-  readonly total_issues: number;
-  readonly high_priority_count: number;
-  readonly low_priority_count: number;
-  readonly in_scope_count: number;
-  readonly out_of_scope_count: number;
-  readonly agents_with_issues: readonly string[];
-  readonly issues: readonly IssueRecord[];
-}
-
-/**
- * Extract scope from manifest filename
- *
- * Helper function to determine if a file matches the requested scope filter.
- * Uses the filename pattern convention: {agent-name}-{scope}-{timestamp}-{random}.json
- *
- * @param filename - Filename to extract scope from
- * @returns 'in-scope' or 'out-of-scope' if found, otherwise undefined
- */
-function extractScopeFromFilename(filename: string): IssueScope | undefined {
-  if (filename.includes('-in-scope-')) {
-    return 'in-scope';
-  }
-  if (filename.includes('-out-of-scope-')) {
-    return 'out-of-scope';
-  }
-  return undefined;
-}
 
 /**
  * Read all manifest files matching the scope filter
@@ -130,29 +102,14 @@ function readManifestFiles(scope: 'in-scope' | 'out-of-scope' | 'all'): IssueRec
 
 /**
  * Calculate summary statistics from issues
+ *
+ * Uses the createManifestSummary factory to ensure invariant validation:
+ * - total_issues === in_scope_count + out_of_scope_count
+ * - total_issues === high_priority_count + low_priority_count
+ * - agents_with_issues is sorted and unique
  */
 function calculateSummary(issues: readonly IssueRecord[]): ManifestSummary {
-  const highPriorityCount = issues.filter((i) => i.priority === 'high').length;
-  const lowPriorityCount = issues.filter((i) => i.priority === 'low').length;
-  const inScopeCount = issues.filter((i) => i.scope === 'in-scope').length;
-  const outOfScopeCount = issues.filter((i) => i.scope === 'out-of-scope').length;
-
-  // Get unique agent names
-  const agentSet = new Set<string>();
-  for (const issue of issues) {
-    agentSet.add(issue.agent_name);
-  }
-  const agents = Array.from(agentSet).sort();
-
-  return {
-    total_issues: issues.length,
-    high_priority_count: highPriorityCount,
-    low_priority_count: lowPriorityCount,
-    in_scope_count: inScopeCount,
-    out_of_scope_count: outOfScopeCount,
-    agents_with_issues: agents,
-    issues,
-  };
+  return createManifestSummary(issues);
 }
 
 /**

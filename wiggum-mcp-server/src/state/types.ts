@@ -79,6 +79,7 @@ export interface IssueState {
 /**
  * Complete current state for wiggum flow
  */
+// TODO(#980): Consider adding createCurrentState factory function for consistency with other state types
 export interface CurrentState {
   readonly git: GitState;
   readonly pr: PRState;
@@ -119,6 +120,49 @@ const PRDoesNotExistSchema = z.object({
 });
 
 const PRStateSchema = z.discriminatedUnion('exists', [PRExistsSchema, PRDoesNotExistSchema]);
+
+/**
+ * Create a validated PRExists object
+ *
+ * This factory function ensures all PRExists objects pass runtime validation
+ * through PRExistsSchema.parse(), catching invalid data early and enforcing
+ * all invariants (positive PR number, valid URL, non-empty branch names, etc.).
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createPRExists({ number: 123, title: 'Fix bug', ... })
+ * - AVOID: const pr: PRExists = { exists: true, number: 123, ... }
+ *
+ * @param data - PR data to validate (without exists field, which is set automatically)
+ * @returns Validated PRExists with all invariants verified
+ * @throws {z.ZodError} If validation fails (invalid URL, empty branch names, etc.)
+ */
+export function createPRExists(data: {
+  readonly number: number;
+  readonly title: string;
+  readonly state: PRStateValue;
+  readonly url: string;
+  readonly labels: readonly string[];
+  readonly headRefName: string;
+  readonly baseRefName: string;
+}): PRExists {
+  const pr: PRExists = { exists: true, ...data };
+  return PRExistsSchema.parse(pr);
+}
+
+/**
+ * Create a validated PRDoesNotExist object
+ *
+ * This factory function provides a type-safe way to create the "PR not found" state.
+ * While PRDoesNotExist is simple (just { exists: false }), using this factory:
+ * - Ensures consistency with the createPRExists pattern
+ * - Allows adding validation/invariants in the future without breaking callers
+ * - Documents intent clearly in calling code
+ *
+ * @returns Validated PRDoesNotExist object
+ */
+export function createPRDoesNotExist(): PRDoesNotExist {
+  return PRDoesNotExistSchema.parse({ exists: false });
+}
 
 const IssueStateSchema = z.object({
   exists: z.boolean(),
@@ -161,10 +205,50 @@ const WiggumStateSchema = z
     {
       message: 'phase and step/completedSteps prefixes must be consistent',
     }
+  )
+  .refine(
+    (data) => {
+      // Validate mutual exclusion: an agent cannot be both completed and pending completion
+      if (!data.completedAgents || !data.pendingCompletionAgents) {
+        return true; // Skip if either is undefined
+      }
+      const completed = new Set(data.completedAgents);
+      return !data.pendingCompletionAgents.some((agent) => completed.has(agent));
+    },
+    {
+      message: 'completedAgents and pendingCompletionAgents must be mutually exclusive',
+    }
   );
 
 // Export schema for validation in other modules (e.g., state update validation)
 export { WiggumStateSchema };
+
+/**
+ * Create a validated WiggumState object
+ *
+ * This factory function ensures all WiggumState objects pass runtime validation
+ * through WiggumStateSchema.parse(), catching invalid state early and enforcing
+ * all invariants (step ordering, phase consistency, non-negative iteration, etc.).
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createWiggumState({ iteration: 0, step: 'p1-1', ... })
+ * - AVOID: const state: WiggumState = { iteration: 0, step: 'p1-1', ... }
+ *
+ * @param state - State data to validate
+ * @returns Validated WiggumState with all invariants verified
+ * @throws {z.ZodError} If validation fails (invalid step order, phase mismatch, etc.)
+ */
+export function createWiggumState(state: {
+  readonly iteration: number;
+  readonly step: WiggumStep;
+  readonly completedSteps: readonly WiggumStep[];
+  readonly phase: WiggumPhase;
+  readonly maxIterations?: number;
+  readonly completedAgents?: readonly string[];
+  readonly pendingCompletionAgents?: readonly string[];
+}): WiggumState {
+  return WiggumStateSchema.parse(state);
+}
 
 const CurrentStateSchema = z.object({
   git: GitStateSchema,

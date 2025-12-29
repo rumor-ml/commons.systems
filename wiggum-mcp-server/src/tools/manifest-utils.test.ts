@@ -14,8 +14,61 @@ import {
   isManifestFile,
   parseManifestFilename,
   getManifestDir,
+  extractScopeFromFilename,
 } from './manifest-utils.js';
-import { isIssueRecord, isIssueRecordArray } from './manifest-types.js';
+import {
+  isIssueRecord,
+  isIssueRecordArray,
+  createManifestSummary,
+  ManifestSummaryInvariantError,
+  createAgentManifest,
+  AgentManifestInvariantError,
+} from './manifest-types.js';
+import type {
+  IssueRecord,
+  ReviewAgentName,
+  IssueScope,
+  IssuePriority,
+  AgentManifest,
+} from './manifest-types.js';
+
+/**
+ * Test helper to create properly typed IssueRecord objects
+ * Ensures agent_name is correctly typed as ReviewAgentName
+ */
+function createTestIssue(
+  agentName: ReviewAgentName,
+  scope: IssueScope,
+  priority: IssuePriority,
+  title = 'Test',
+  description = 'Test',
+  timestamp = '2025-01-01T00:00:00Z'
+): IssueRecord {
+  return {
+    agent_name: agentName,
+    scope,
+    priority,
+    title,
+    description,
+    timestamp,
+  };
+}
+
+/**
+ * Test helper to create properly typed AgentManifest objects
+ *
+ * Uses the createAgentManifest factory to ensure high_priority_count is
+ * computed correctly from the issues array. The _highPriorityCount parameter
+ * is ignored (kept for backward compatibility with existing test call sites).
+ */
+function createTestManifest(
+  agentName: ReviewAgentName,
+  scope: IssueScope,
+  issues: IssueRecord[],
+  _highPriorityCount?: number // Ignored - computed by factory
+): AgentManifest {
+  return createAgentManifest(agentName, scope, issues);
+}
 
 describe('manifest-utils', () => {
   describe('REVIEW_AGENT_NAMES', () => {
@@ -73,24 +126,15 @@ describe('manifest-utils', () => {
 
     describe('agents with zero high-priority in-scope issues', () => {
       it('should mark agent complete with zero high-priority issues', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 0,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [createTestIssue('code-reviewer', 'in-scope', 'low')],
+              0
+            ),
           ],
         ]);
 
@@ -99,24 +143,15 @@ describe('manifest-utils', () => {
       });
 
       it('should mark agent complete with only out-of-scope high-priority issues', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'silent-failure-hunter-out-of-scope',
-            {
-              agent_name: 'silent-failure-hunter',
-              scope: 'out-of-scope' as const,
-              issues: [
-                {
-                  agent_name: 'silent-failure-hunter',
-                  scope: 'out-of-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'silent-failure-hunter',
+              'out-of-scope',
+              [createTestIssue('silent-failure-hunter', 'out-of-scope', 'high')],
+              1
+            ),
           ],
         ]);
 
@@ -126,42 +161,24 @@ describe('manifest-utils', () => {
       });
 
       it('should mark multiple agents complete with low-priority only', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 0,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [createTestIssue('code-reviewer', 'in-scope', 'low')],
+              0
+            ),
           ],
           [
             'code-simplifier-in-scope',
-            {
-              agent_name: 'code-simplifier',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-simplifier',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 0,
-            },
+            createTestManifest(
+              'code-simplifier',
+              'in-scope',
+              [createTestIssue('code-simplifier', 'in-scope', 'low')],
+              0
+            ),
           ],
         ]);
 
@@ -173,24 +190,15 @@ describe('manifest-utils', () => {
 
     describe('agents with high-priority in-scope issues', () => {
       it('should NOT mark agent complete with high-priority issues', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'pr-test-analyzer-in-scope',
-            {
-              agent_name: 'pr-test-analyzer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'pr-test-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'pr-test-analyzer',
+              'in-scope',
+              [createTestIssue('pr-test-analyzer', 'in-scope', 'high')],
+              1
+            ),
           ],
         ]);
 
@@ -199,32 +207,25 @@ describe('manifest-utils', () => {
       });
 
       it('should NOT mark agent complete with multiple high-priority issues', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'comment-analyzer-in-scope',
-            {
-              agent_name: 'comment-analyzer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'comment-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Test 1',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-                {
-                  agent_name: 'comment-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Test 2',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:01Z',
-                },
+            createTestManifest(
+              'comment-analyzer',
+              'in-scope',
+              [
+                createTestIssue('comment-analyzer', 'in-scope', 'high', 'Test 1'),
+                createTestIssue(
+                  'comment-analyzer',
+                  'in-scope',
+                  'high',
+                  'Test 2',
+                  'Test',
+                  '2025-01-01T00:00:01Z'
+                ),
               ],
-              high_priority_count: 2,
-            },
+              2
+            ),
           ],
         ]);
 
@@ -233,32 +234,25 @@ describe('manifest-utils', () => {
       });
 
       it('should NOT mark agent complete with mixed priority (includes high)', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'type-design-analyzer-in-scope',
-            {
-              agent_name: 'type-design-analyzer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'type-design-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'High priority',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-                {
-                  agent_name: 'type-design-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Low priority',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:01Z',
-                },
+            createTestManifest(
+              'type-design-analyzer',
+              'in-scope',
+              [
+                createTestIssue('type-design-analyzer', 'in-scope', 'high', 'High priority'),
+                createTestIssue(
+                  'type-design-analyzer',
+                  'in-scope',
+                  'low',
+                  'Low priority',
+                  'Test',
+                  '2025-01-01T00:00:01Z'
+                ),
               ],
-              high_priority_count: 1,
-            },
+              1
+            ),
           ],
         ]);
 
@@ -269,48 +263,30 @@ describe('manifest-utils', () => {
 
     describe('mixed agent states', () => {
       it('should correctly separate completed and incomplete agents', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           // Complete: no manifest
           // code-reviewer - no entry = complete
 
           // Complete: zero high-priority
           [
             'silent-failure-hunter-in-scope',
-            {
-              agent_name: 'silent-failure-hunter',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'silent-failure-hunter',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 0,
-            },
+            createTestManifest(
+              'silent-failure-hunter',
+              'in-scope',
+              [createTestIssue('silent-failure-hunter', 'in-scope', 'low')],
+              0
+            ),
           ],
 
           // Incomplete: has high-priority
           [
             'pr-test-analyzer-in-scope',
-            {
-              agent_name: 'pr-test-analyzer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'pr-test-analyzer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Test',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'pr-test-analyzer',
+              'in-scope',
+              [createTestIssue('pr-test-analyzer', 'in-scope', 'high')],
+              1
+            ),
           ],
         ]);
 
@@ -335,16 +311,8 @@ describe('manifest-utils', () => {
   describe('updateAgentCompletionStatus', () => {
     describe('2-strike verification logic', () => {
       it('should mark agent as pending on first zero high-priority iteration', () => {
-        const manifests = new Map([
-          [
-            'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [],
-              high_priority_count: 0,
-            },
-          ],
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createTestManifest('code-reviewer', 'in-scope', [], 0)],
         ]);
 
         const result = updateAgentCompletionStatus(manifests, [], []);
@@ -355,16 +323,8 @@ describe('manifest-utils', () => {
       });
 
       it('should mark agent as complete on second consecutive zero high-priority iteration', () => {
-        const manifests = new Map([
-          [
-            'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [],
-              high_priority_count: 0,
-            },
-          ],
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createTestManifest('code-reviewer', 'in-scope', [], 0)],
         ]);
 
         // Second iteration - agent was pending, still has 0 issues
@@ -375,24 +335,23 @@ describe('manifest-utils', () => {
       });
 
       it('should reset pending agent to active if issues are found', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'New issue',
-                  description: 'Found after pending',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [
+                createTestIssue(
+                  'code-reviewer',
+                  'in-scope',
+                  'high',
+                  'New issue',
+                  'Found after pending'
+                ),
               ],
-              high_priority_count: 1,
-            },
+              1
+            ),
           ],
         ]);
 
@@ -404,24 +363,23 @@ describe('manifest-utils', () => {
       });
 
       it('should never revert completed agents', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'New issue',
-                  description: 'Found after completion',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [
+                createTestIssue(
+                  'code-reviewer',
+                  'in-scope',
+                  'high',
+                  'New issue',
+                  'Found after completion'
+                ),
               ],
-              high_priority_count: 1,
-            },
+              1
+            ),
           ],
         ]);
 
@@ -435,35 +393,21 @@ describe('manifest-utils', () => {
 
     describe('multiple agents with different states', () => {
       it('should handle mixed agent states correctly', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           // code-reviewer: has issues (active)
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Issue',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [createTestIssue('code-reviewer', 'in-scope', 'high', 'Issue')],
+              1
+            ),
           ],
           // silent-failure-hunter: no issues (will be pending)
           [
             'silent-failure-hunter-in-scope',
-            {
-              agent_name: 'silent-failure-hunter',
-              scope: 'in-scope' as const,
-              issues: [],
-              high_priority_count: 0,
-            },
+            createTestManifest('silent-failure-hunter', 'in-scope', [], 0),
           ],
           // code-simplifier: no manifest (will be pending)
         ]);
@@ -519,24 +463,15 @@ describe('manifest-utils', () => {
 
     describe('out-of-scope issues behavior', () => {
       it('should ignore out-of-scope high-priority issues for completion', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-out-of-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'out-of-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'out-of-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Out of scope',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'out-of-scope',
+              [createTestIssue('code-reviewer', 'out-of-scope', 'high', 'Out of scope')],
+              1
+            ),
           ],
         ]);
 
@@ -547,44 +482,26 @@ describe('manifest-utils', () => {
       });
 
       it('should handle mix of in-scope and out-of-scope manifests', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           // In-scope with issues (blocks completion)
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'high' as const,
-                  title: 'In scope',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [createTestIssue('code-reviewer', 'in-scope', 'high', 'In scope')],
+              1
+            ),
           ],
           // Out-of-scope with issues (doesn't block)
           [
             'code-reviewer-out-of-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'out-of-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'out-of-scope' as const,
-                  priority: 'high' as const,
-                  title: 'Out of scope',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 1,
-            },
+            createTestManifest(
+              'code-reviewer',
+              'out-of-scope',
+              [createTestIssue('code-reviewer', 'out-of-scope', 'high', 'Out of scope')],
+              1
+            ),
           ],
         ]);
 
@@ -618,24 +535,15 @@ describe('manifest-utils', () => {
       });
 
       it('should handle agent with only low-priority in-scope issues', () => {
-        const manifests = new Map([
+        const manifests = new Map<string, AgentManifest>([
           [
             'code-reviewer-in-scope',
-            {
-              agent_name: 'code-reviewer',
-              scope: 'in-scope' as const,
-              issues: [
-                {
-                  agent_name: 'code-reviewer',
-                  scope: 'in-scope' as const,
-                  priority: 'low' as const,
-                  title: 'Low priority',
-                  description: 'Test',
-                  timestamp: '2025-01-01T00:00:00Z',
-                },
-              ],
-              high_priority_count: 0, // Only low priority
-            },
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [createTestIssue('code-reviewer', 'in-scope', 'low', 'Low priority')],
+              0 // Only low priority
+            ),
           ],
         ]);
 
@@ -643,6 +551,145 @@ describe('manifest-utils', () => {
 
         // Should be pending (0 high-priority issues)
         assert.ok(result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+
+      it('should handle duplicate agents in pendingCompletionAgents array', () => {
+        const manifests = new Map();
+        // Duplicate agent in pending array - should handle gracefully
+        const previousPending = ['code-reviewer', 'code-reviewer', 'code-simplifier'];
+
+        const result = updateAgentCompletionStatus(manifests, previousPending, []);
+
+        // Both should complete (second consecutive zero)
+        // Duplicates should not cause issues - agent appears once in result
+        assert.ok(result.completedAgents.includes('code-reviewer'));
+        assert.ok(result.completedAgents.includes('code-simplifier'));
+        // No duplicates in output
+        const codeReviewerCount = result.completedAgents.filter(
+          (a) => a === 'code-reviewer'
+        ).length;
+        assert.strictEqual(codeReviewerCount, 1, 'Should not have duplicate agents in output');
+      });
+
+      it('should give precedence to completed over pending when agent is in both arrays', () => {
+        const manifests = new Map();
+        // Agent appears in both completed and pending - completed should take precedence
+        const previousPending = ['code-reviewer'];
+        const previousCompleted = ['code-reviewer', 'code-simplifier'];
+
+        const result = updateAgentCompletionStatus(manifests, previousPending, previousCompleted);
+
+        // code-reviewer should remain completed (not demoted to pending)
+        assert.ok(
+          result.completedAgents.includes('code-reviewer'),
+          'Agent in both arrays should remain completed'
+        );
+        assert.ok(
+          !result.pendingCompletionAgents.includes('code-reviewer'),
+          'Agent in both arrays should not be in pending'
+        );
+        // code-simplifier should also remain completed
+        assert.ok(result.completedAgents.includes('code-simplifier'));
+      });
+
+      it('should ignore unknown agent names in previousPending', () => {
+        const manifests = new Map();
+        // Unknown agent not in REVIEW_AGENT_NAMES
+        const previousPending = ['code-reviewer', 'unknown-agent', 'fake-reviewer'];
+
+        const result = updateAgentCompletionStatus(manifests, previousPending, []);
+
+        // code-reviewer should complete (was pending, still 0 issues)
+        assert.ok(result.completedAgents.includes('code-reviewer'));
+        // Unknown agents should be silently ignored - not in any output
+        assert.ok(
+          !result.completedAgents.includes('unknown-agent'),
+          'Unknown agent should not appear in completedAgents'
+        );
+        assert.ok(
+          !result.pendingCompletionAgents.includes('unknown-agent'),
+          'Unknown agent should not appear in pendingCompletionAgents'
+        );
+        assert.ok(!result.completedAgents.includes('fake-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('fake-reviewer'));
+      });
+
+      it('should ignore unknown agent names in previousCompleted', () => {
+        const manifests = new Map();
+        // Unknown agent in completed array
+        const previousCompleted = ['code-reviewer', 'unknown-agent'];
+
+        const result = updateAgentCompletionStatus(manifests, [], previousCompleted);
+
+        // Known agent should persist in completed
+        assert.ok(result.completedAgents.includes('code-reviewer'));
+        // Unknown agent is copied as-is (completed array is spread directly)
+        // This is current behavior - completed agents from previous state persist
+        // The unknown agent will remain but won't affect REVIEW_AGENT_NAMES processing
+      });
+
+      it('should not produce duplicate agents when same agent has multiple manifest files', () => {
+        // Simulate scenario where agent has both in-scope and out-of-scope manifests
+        const manifests = new Map<string, AgentManifest>([
+          ['code-reviewer-in-scope', createTestManifest('code-reviewer', 'in-scope', [], 0)],
+          [
+            'code-reviewer-out-of-scope',
+            createTestManifest(
+              'code-reviewer',
+              'out-of-scope',
+              [createTestIssue('code-reviewer', 'out-of-scope', 'high', 'Out of scope issue')],
+              1
+            ),
+          ],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // code-reviewer should be pending (first zero in-scope)
+        assert.ok(result.pendingCompletionAgents.includes('code-reviewer'));
+        // No duplicates from multiple manifest types
+        const codeReviewerPendingCount = result.pendingCompletionAgents.filter(
+          (a) => a === 'code-reviewer'
+        ).length;
+        assert.strictEqual(
+          codeReviewerPendingCount,
+          1,
+          'Should not have duplicates from multiple manifest types'
+        );
+      });
+
+      it('should handle high_priority_count being 0 with non-empty issues array', () => {
+        // Edge case: issues array has items but high_priority_count is 0
+        // This could happen if all issues are low priority
+        const manifests = new Map<string, AgentManifest>([
+          [
+            'code-reviewer-in-scope',
+            createTestManifest(
+              'code-reviewer',
+              'in-scope',
+              [
+                createTestIssue('code-reviewer', 'in-scope', 'low', 'Low priority 1'),
+                createTestIssue(
+                  'code-reviewer',
+                  'in-scope',
+                  'low',
+                  'Low priority 2',
+                  'Test',
+                  '2025-01-01T00:00:01Z'
+                ),
+              ],
+              0 // Correct: 0 high priority even with 2 issues
+            ),
+          ],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // Should be pending (uses high_priority_count, not issues.length)
+        assert.ok(
+          result.pendingCompletionAgents.includes('code-reviewer'),
+          'Should use high_priority_count, not issues.length'
+        );
       });
     });
   });
@@ -718,6 +765,65 @@ describe('manifest-utils', () => {
       it('should handle uppercase in filename (no match)', () => {
         // Our pattern is case-sensitive
         assert.strictEqual(isManifestFile('code-reviewer-IN-SCOPE-1234567890.json'), false);
+      });
+    });
+  });
+
+  describe('extractScopeFromFilename', () => {
+    describe('valid scope extraction', () => {
+      it('should extract in-scope from manifest filename', () => {
+        const scope = extractScopeFromFilename('code-reviewer-in-scope-1234567890-abc123.json');
+        assert.strictEqual(scope, 'in-scope');
+      });
+
+      it('should extract out-of-scope from manifest filename', () => {
+        const scope = extractScopeFromFilename('code-reviewer-out-of-scope-1234567890-abc123.json');
+        assert.strictEqual(scope, 'out-of-scope');
+      });
+
+      it('should extract scope from complex agent name', () => {
+        const scope = extractScopeFromFilename(
+          'silent-failure-hunter-in-scope-1234567890-abc.json'
+        );
+        assert.strictEqual(scope, 'in-scope');
+      });
+
+      it('should return in-scope when both markers present (checks in-scope first)', () => {
+        // Edge case: filename contains both scope markers
+        // The pattern requires hyphen BEFORE the scope marker: -in-scope- and -out-of-scope-
+        const scope = extractScopeFromFilename('test-in-scope-and-out-of-scope-1234567890.json');
+        // Current implementation checks -in-scope- first
+        assert.strictEqual(scope, 'in-scope');
+      });
+
+      it('should return out-of-scope when only out-of-scope marker has proper hyphens', () => {
+        // Filename starts with "in-scope" but lacks leading hyphen, so -in-scope- pattern doesn't match
+        // Only -out-of-scope- pattern matches
+        const scope = extractScopeFromFilename('in-scope-test-out-of-scope-1234567890.json');
+        assert.strictEqual(scope, 'out-of-scope');
+      });
+    });
+
+    describe('invalid scope extraction', () => {
+      it('should return undefined for filename without scope marker', () => {
+        const scope = extractScopeFromFilename('code-reviewer-1234567890.json');
+        assert.strictEqual(scope, undefined);
+      });
+
+      it('should return undefined for empty filename', () => {
+        const scope = extractScopeFromFilename('');
+        assert.strictEqual(scope, undefined);
+      });
+
+      it('should return undefined for uppercase scope marker', () => {
+        // Case sensitivity check
+        const scope = extractScopeFromFilename('code-reviewer-IN-SCOPE-1234567890.json');
+        assert.strictEqual(scope, undefined);
+      });
+
+      it('should return undefined for partial scope marker', () => {
+        const scope = extractScopeFromFilename('code-reviewer-in-scope1234567890.json'); // missing hyphen
+        assert.strictEqual(scope, undefined);
       });
     });
   });
@@ -914,6 +1020,56 @@ describe('manifest-utils', () => {
         };
         assert.strictEqual(isIssueRecord(record), false);
       });
+
+      it('should reject invalid ISO 8601 timestamp format', () => {
+        const invalidTimestamps = [
+          'not-a-date',
+          '2025-01-15', // Missing time portion
+          '01/15/2025', // Wrong format
+          '2025-01-15 10:30:00', // Missing T separator
+          '', // Empty string
+        ];
+
+        for (const timestamp of invalidTimestamps) {
+          const record = {
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            priority: 'high',
+            title: 'Test',
+            description: 'Test',
+            timestamp,
+          };
+          assert.strictEqual(
+            isIssueRecord(record),
+            false,
+            `Expected isIssueRecord to reject invalid timestamp: "${timestamp}"`
+          );
+        }
+      });
+
+      it('should accept valid ISO 8601 timestamp formats', () => {
+        const validTimestamps = [
+          '2025-01-15T10:30:00Z', // UTC without milliseconds
+          '2025-01-15T10:30:00.000Z', // UTC with milliseconds
+          '2025-01-15T10:30:00.123Z', // UTC with non-zero milliseconds
+        ];
+
+        for (const timestamp of validTimestamps) {
+          const record = {
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            priority: 'high',
+            title: 'Test',
+            description: 'Test',
+            timestamp,
+          };
+          assert.strictEqual(
+            isIssueRecord(record),
+            true,
+            `Expected isIssueRecord to accept valid timestamp: "${timestamp}"`
+          );
+        }
+      });
     });
   });
 
@@ -969,8 +1125,387 @@ describe('manifest-utils', () => {
     });
   });
 
+  describe('createManifestSummary', () => {
+    /**
+     * Helper to create a valid IssueRecord for testing
+     */
+    function createIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
+      return {
+        agent_name: 'code-reviewer',
+        scope: 'in-scope',
+        priority: 'high',
+        title: 'Test Issue',
+        description: 'Test Description',
+        timestamp: '2025-01-15T10:30:00.000Z',
+        ...overrides,
+      };
+    }
+
+    describe('empty issues array', () => {
+      it('should create summary with all zeros for empty array', () => {
+        const summary = createManifestSummary([]);
+
+        assert.strictEqual(summary.total_issues, 0);
+        assert.strictEqual(summary.high_priority_count, 0);
+        assert.strictEqual(summary.low_priority_count, 0);
+        assert.strictEqual(summary.in_scope_count, 0);
+        assert.strictEqual(summary.out_of_scope_count, 0);
+        assert.deepStrictEqual(summary.agents_with_issues, []);
+        assert.deepStrictEqual(summary.issues, []);
+      });
+    });
+
+    describe('count computation', () => {
+      it('should compute correct counts for mixed issues', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ scope: 'in-scope', priority: 'high', agent_name: 'code-reviewer' }),
+          createIssue({ scope: 'in-scope', priority: 'low', agent_name: 'code-simplifier' }),
+          createIssue({ scope: 'out-of-scope', priority: 'high', agent_name: 'code-reviewer' }),
+          createIssue({ scope: 'out-of-scope', priority: 'low', agent_name: 'pr-test-analyzer' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.strictEqual(summary.total_issues, 4);
+        assert.strictEqual(summary.high_priority_count, 2);
+        assert.strictEqual(summary.low_priority_count, 2);
+        assert.strictEqual(summary.in_scope_count, 2);
+        assert.strictEqual(summary.out_of_scope_count, 2);
+      });
+
+      it('should compute correct counts for all high-priority in-scope issues', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ scope: 'in-scope', priority: 'high' }),
+          createIssue({ scope: 'in-scope', priority: 'high' }),
+          createIssue({ scope: 'in-scope', priority: 'high' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.strictEqual(summary.total_issues, 3);
+        assert.strictEqual(summary.high_priority_count, 3);
+        assert.strictEqual(summary.low_priority_count, 0);
+        assert.strictEqual(summary.in_scope_count, 3);
+        assert.strictEqual(summary.out_of_scope_count, 0);
+      });
+
+      it('should compute correct counts for all low-priority out-of-scope issues', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ scope: 'out-of-scope', priority: 'low' }),
+          createIssue({ scope: 'out-of-scope', priority: 'low' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.strictEqual(summary.total_issues, 2);
+        assert.strictEqual(summary.high_priority_count, 0);
+        assert.strictEqual(summary.low_priority_count, 2);
+        assert.strictEqual(summary.in_scope_count, 0);
+        assert.strictEqual(summary.out_of_scope_count, 2);
+      });
+    });
+
+    describe('agents_with_issues', () => {
+      it('should extract unique agent names', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ agent_name: 'code-reviewer' }),
+          createIssue({ agent_name: 'code-reviewer' }),
+          createIssue({ agent_name: 'code-simplifier' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.deepStrictEqual(summary.agents_with_issues, ['code-reviewer', 'code-simplifier']);
+      });
+
+      it('should sort agent names alphabetically', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ agent_name: 'type-design-analyzer' }),
+          createIssue({ agent_name: 'code-reviewer' }),
+          createIssue({ agent_name: 'pr-test-analyzer' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.deepStrictEqual(summary.agents_with_issues, [
+          'code-reviewer',
+          'pr-test-analyzer',
+          'type-design-analyzer',
+        ]);
+      });
+
+      it('should handle single agent correctly', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ agent_name: 'code-reviewer' }),
+          createIssue({ agent_name: 'code-reviewer' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.deepStrictEqual(summary.agents_with_issues, ['code-reviewer']);
+      });
+    });
+
+    describe('invariant validation', () => {
+      it('should satisfy scope count invariant (in + out = total)', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ scope: 'in-scope' }),
+          createIssue({ scope: 'out-of-scope' }),
+          createIssue({ scope: 'in-scope' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        // Invariant: in_scope_count + out_of_scope_count === total_issues
+        assert.strictEqual(
+          summary.in_scope_count + summary.out_of_scope_count,
+          summary.total_issues
+        );
+      });
+
+      it('should satisfy priority count invariant (high + low = total)', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ priority: 'high' }),
+          createIssue({ priority: 'low' }),
+          createIssue({ priority: 'high' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        // Invariant: high_priority_count + low_priority_count === total_issues
+        assert.strictEqual(
+          summary.high_priority_count + summary.low_priority_count,
+          summary.total_issues
+        );
+      });
+
+      it('should satisfy issues array length invariant', () => {
+        const issues: IssueRecord[] = [
+          createIssue({}),
+          createIssue({}),
+          createIssue({}),
+          createIssue({}),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        // Invariant: total_issues === issues.length
+        assert.strictEqual(summary.total_issues, summary.issues.length);
+      });
+    });
+
+    describe('ManifestSummaryInvariantError', () => {
+      it('should have correct name property', () => {
+        const error = new ManifestSummaryInvariantError('test error', {});
+        assert.strictEqual(error.name, 'ManifestSummaryInvariantError');
+      });
+
+      it('should include message in error', () => {
+        const error = new ManifestSummaryInvariantError('test message', {});
+        assert.ok(error.message.includes('test message'));
+        assert.ok(error.message.includes('invariant violated'));
+      });
+
+      it('should store summary in error', () => {
+        const partialSummary = { total_issues: 5, high_priority_count: 3 };
+        const error = new ManifestSummaryInvariantError('test', partialSummary);
+        assert.deepStrictEqual(error.summary, partialSummary);
+      });
+    });
+
+    describe('issues array preservation', () => {
+      it('should preserve the original issues array', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ title: 'Issue 1' }),
+          createIssue({ title: 'Issue 2' }),
+        ];
+
+        const summary = createManifestSummary(issues);
+
+        assert.strictEqual(summary.issues.length, 2);
+        assert.strictEqual(summary.issues[0].title, 'Issue 1');
+        assert.strictEqual(summary.issues[1].title, 'Issue 2');
+      });
+
+      it('should not modify input array', () => {
+        const issues: IssueRecord[] = [createIssue({})];
+        const originalLength = issues.length;
+
+        createManifestSummary(issues);
+
+        assert.strictEqual(issues.length, originalLength);
+      });
+    });
+  });
+
+  describe('createAgentManifest', () => {
+    /**
+     * Helper to create a valid IssueRecord for testing
+     */
+    function createIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
+      return {
+        agent_name: 'code-reviewer',
+        scope: 'in-scope',
+        priority: 'high',
+        title: 'Test Issue',
+        description: 'Test Description',
+        timestamp: '2025-01-15T10:30:00.000Z',
+        ...overrides,
+      };
+    }
+
+    describe('empty issues array', () => {
+      it('should create manifest with zero high_priority_count for empty array', () => {
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', []);
+
+        assert.strictEqual(manifest.agent_name, 'code-reviewer');
+        assert.strictEqual(manifest.scope, 'in-scope');
+        assert.deepStrictEqual(manifest.issues, []);
+        assert.strictEqual(manifest.high_priority_count, 0);
+      });
+
+      it('should work with out-of-scope and empty array', () => {
+        const manifest = createAgentManifest('silent-failure-hunter', 'out-of-scope', []);
+
+        assert.strictEqual(manifest.agent_name, 'silent-failure-hunter');
+        assert.strictEqual(manifest.scope, 'out-of-scope');
+        assert.strictEqual(manifest.high_priority_count, 0);
+      });
+    });
+
+    describe('high_priority_count computation', () => {
+      it('should compute correct count for all high-priority issues', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ priority: 'high' }),
+          createIssue({ priority: 'high' }),
+          createIssue({ priority: 'high' }),
+        ];
+
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        assert.strictEqual(manifest.high_priority_count, 3);
+      });
+
+      it('should compute correct count for all low-priority issues', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ priority: 'low' }),
+          createIssue({ priority: 'low' }),
+        ];
+
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        assert.strictEqual(manifest.high_priority_count, 0);
+      });
+
+      it('should compute correct count for mixed priorities', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ priority: 'high' }),
+          createIssue({ priority: 'low' }),
+          createIssue({ priority: 'high' }),
+          createIssue({ priority: 'low' }),
+          createIssue({ priority: 'high' }),
+        ];
+
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        assert.strictEqual(manifest.high_priority_count, 3);
+        assert.strictEqual(manifest.issues.length, 5);
+      });
+    });
+
+    describe('agent_name validation', () => {
+      it('should throw AgentManifestInvariantError for empty string', () => {
+        assert.throws(
+          () => createAgentManifest('', 'in-scope', []),
+          (error: Error) => {
+            assert.ok(error instanceof AgentManifestInvariantError);
+            assert.ok(error.message.includes('agent_name must be non-empty'));
+            return true;
+          }
+        );
+      });
+
+      it('should throw AgentManifestInvariantError for whitespace-only string', () => {
+        assert.throws(
+          () => createAgentManifest('   ', 'in-scope', []),
+          (error: Error) => {
+            assert.ok(error instanceof AgentManifestInvariantError);
+            assert.ok(error.message.includes('agent_name must be non-empty'));
+            return true;
+          }
+        );
+      });
+
+      it('should throw AgentManifestInvariantError for tab/newline-only string', () => {
+        assert.throws(
+          () => createAgentManifest('\t\n', 'in-scope', []),
+          (error: Error) => {
+            assert.ok(error instanceof AgentManifestInvariantError);
+            return true;
+          }
+        );
+      });
+
+      it('should accept valid agent names', () => {
+        // Should not throw for valid agent names
+        assert.doesNotThrow(() => createAgentManifest('code-reviewer', 'in-scope', []));
+        assert.doesNotThrow(() => createAgentManifest('silent-failure-hunter', 'out-of-scope', []));
+        assert.doesNotThrow(() => createAgentManifest('type-design-analyzer', 'in-scope', []));
+      });
+    });
+
+    describe('issues array preservation', () => {
+      it('should preserve the original issues array', () => {
+        const issues: IssueRecord[] = [
+          createIssue({ title: 'Issue 1' }),
+          createIssue({ title: 'Issue 2' }),
+        ];
+
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        assert.strictEqual(manifest.issues.length, 2);
+        assert.strictEqual(manifest.issues[0].title, 'Issue 1');
+        assert.strictEqual(manifest.issues[1].title, 'Issue 2');
+      });
+
+      it('should not modify input array', () => {
+        const issues: IssueRecord[] = [createIssue({})];
+        const originalLength = issues.length;
+
+        createAgentManifest('code-reviewer', 'in-scope', issues);
+
+        assert.strictEqual(issues.length, originalLength);
+      });
+    });
+  });
+
+  describe('AgentManifestInvariantError', () => {
+    it('should have correct name property', () => {
+      const error = new AgentManifestInvariantError('test error', {});
+      assert.strictEqual(error.name, 'AgentManifestInvariantError');
+    });
+
+    it('should include message in error', () => {
+      const error = new AgentManifestInvariantError('test message', {});
+      assert.ok(error.message.includes('test message'));
+      assert.ok(error.message.includes('invariant violated'));
+    });
+
+    it('should store manifest in error', () => {
+      const partialManifest = { agent_name: 'test', high_priority_count: 3 };
+      const error = new AgentManifestInvariantError('test', partialManifest);
+      assert.deepStrictEqual(error.manifest, partialManifest);
+    });
+
+    it('should be instanceof Error', () => {
+      const error = new AgentManifestInvariantError('test', {});
+      assert.ok(error instanceof Error);
+    });
+  });
+
   // NOTE: Full behavioral testing of readManifestFiles and cleanupManifestFiles
-  // requires integration tests with filesystem mocks. The core logic tested here:
+  // is covered in manifest-utils.integration.test.ts using real filesystem operations.
+  // The core logic tested here:
   // 1. REVIEW_AGENT_NAMES contains all expected agents
   // 2. getCompletedAgents correctly identifies complete agents based on:
   //    - No in-scope manifest exists (complete)
@@ -980,11 +1515,14 @@ describe('manifest-utils', () => {
   // 3. isManifestFile correctly identifies valid manifest filenames
   // 4. parseManifestFilename correctly extracts agent name and scope
   // 5. isIssueRecord and isIssueRecordArray validate data structure
+  // 6. createManifestSummary computes correct counts and validates invariants
   //
-  // Additional integration tests would cover:
+  // @see manifest-utils.integration.test.ts for integration tests covering:
   // - Reading manifest files from tmp/wiggum directory
   // - Handling malformed filenames gracefully
   // - Merging issues from multiple manifest files per agent
   // - Cleaning up manifest files after processing
   // - Handling filesystem errors gracefully
+  // - 2-strike agent completion edge cases
+  // - Concurrent manifest operations
 });

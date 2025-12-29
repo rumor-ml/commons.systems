@@ -326,26 +326,26 @@ Call after executing `/security-review`.
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  in_scope_files: [
+  in_scope_result_files: [
     '$(pwd)/tmp/wiggum/security-agent-1-in-scope-{timestamp}.md',
     '$(pwd)/tmp/wiggum/security-agent-2-in-scope-{timestamp}.md',
     // ... all security review agent in-scope files
   ],
-  out_of_scope_files: [
+  out_of_scope_result_files: [
     '$(pwd)/tmp/wiggum/security-agent-1-out-of-scope-{timestamp}.md',
     '$(pwd)/tmp/wiggum/security-agent-2-out-of-scope-{timestamp}.md',
     // ... all security review agent out-of-scope files
   ],
-  in_scope_count: 5,
-  out_of_scope_count: 3,
+  in_scope_issue_count: 5,
+  out_of_scope_issue_count: 3,
 });
 ```
 
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `in_scope_files` and `out_of_scope_files` contain file paths directly from security review agents
-- `in_scope_count` and `out_of_scope_count` are the total counts across all agents
+- `in_scope_result_files` and `out_of_scope_result_files` contain file paths directly from security review agents (each file may contain multiple issues)
+- `in_scope_issue_count` and `out_of_scope_issue_count` are the total issue counts across all agents (not file counts)
 - **Do NOT create summary files** - agents write individual files, tool concatenates them server-side
 - Tool reads files, aggregates results, and posts to GitHub comment
 - Tool returns next step instructions (either fix instructions or next step)

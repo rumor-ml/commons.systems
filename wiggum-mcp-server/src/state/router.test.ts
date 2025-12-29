@@ -8,7 +8,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports, createStateUpdateFailure } from './router.js';
-import type { CurrentState, PRExists, PRDoesNotExist, PRStateValue } from './types.js';
+import type { CurrentState, PRExists, PRStateValue } from './types.js';
+import { createPRExists, createPRDoesNotExist } from './types.js';
 import type { WiggumStep } from '../constants.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
@@ -28,16 +29,17 @@ const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInst
 
 /**
  * Create a mock CurrentState for testing
+ *
+ * Uses createPRExists/createPRDoesNotExist factory functions to ensure
+ * PR state is validated at construction time (issue #625 type-design-analyzer-in-scope-3).
  */
 function createMockState(overrides: {
   pr?: { exists: boolean; state?: PRStateValue; number?: number };
   git?: { isMainBranch?: boolean; hasUncommittedChanges?: boolean; isPushed?: boolean };
   wiggum?: { iteration?: number; completedSteps?: WiggumStep[]; phase?: 'phase1' | 'phase2' };
 }): CurrentState {
-  const defaultPR: PRDoesNotExist = { exists: false };
   const pr = overrides.pr?.exists
-    ? ({
-        exists: true,
+    ? createPRExists({
         state: overrides.pr.state || 'OPEN',
         number: overrides.pr.number || 123,
         title: 'Test PR',
@@ -45,8 +47,8 @@ function createMockState(overrides: {
         labels: [],
         headRefName: 'feature-branch',
         baseRefName: 'main',
-      } as PRExists)
-    : defaultPR;
+      })
+    : createPRDoesNotExist();
 
   return {
     pr,
@@ -210,6 +212,47 @@ describe('formatFixInstructions', () => {
     assert.ok(step2Index < step3Index, 'Step 2 should come before Step 3');
     assert.ok(step3Index < step4Index, 'Step 3 should come before Step 4');
     assert.ok(step4Index < step5Index, 'Step 4 should come before Step 5');
+  });
+
+  it('should add truncation indicator when failure details exceed 1000 characters', () => {
+    // Create a string longer than 1000 characters (the sanitization limit)
+    const longDetails = 'x'.repeat(1500);
+    const result = formatFixInstructions('Workflow', longDetails, 'default');
+
+    // The sanitized details should be truncated to 1000 chars
+    assert.ok(
+      result.includes('x'.repeat(100)), // Some x's should remain
+      'Should include some original content'
+    );
+    assert.ok(
+      result.includes('Error details truncated'),
+      'Should include truncation indicator for truncated content'
+    );
+    assert.ok(
+      result.includes('See workflow logs for full details'),
+      'Should direct user to workflow logs'
+    );
+  });
+
+  it('should not add truncation indicator when failure details are under limit', () => {
+    const shortDetails = 'Error: Test failed in file.ts:42';
+    const result = formatFixInstructions('Workflow', shortDetails, 'default');
+
+    assert.ok(
+      !result.includes('Error details truncated'),
+      'Should not include truncation indicator for short content'
+    );
+    assert.ok(result.includes(shortDetails), 'Should include original short details unchanged');
+  });
+
+  it('should not add truncation indicator when using default message', () => {
+    const result = formatFixInstructions('PR checks', undefined, 'See PR checks for details');
+
+    assert.ok(
+      !result.includes('Error details truncated'),
+      'Should not include truncation indicator when using default message'
+    );
+    assert.ok(result.includes('See PR checks for details'), 'Should include default message');
   });
 });
 
@@ -427,7 +470,6 @@ describe('createStateUpdateFailure factory function', () => {
 
     assert.strictEqual(result.success, false);
     assert.strictEqual(result.reason, 'rate_limit');
-    assert.strictEqual(result.isTransient, true);
     assert.strictEqual(result.lastError, error);
     assert.strictEqual(result.attemptCount, 3);
   });
@@ -438,7 +480,6 @@ describe('createStateUpdateFailure factory function', () => {
 
     assert.strictEqual(result.success, false);
     assert.strictEqual(result.reason, 'network');
-    assert.strictEqual(result.isTransient, true);
     assert.strictEqual(result.lastError, error);
     assert.strictEqual(result.attemptCount, 2);
   });

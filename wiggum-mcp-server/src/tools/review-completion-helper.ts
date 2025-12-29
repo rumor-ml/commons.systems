@@ -4,6 +4,10 @@
  * This module extracts common logic from complete-pr-review.ts and
  * complete-security-review.ts to reduce duplication while preserving
  * the distinct behavior of each review type.
+ *
+ * TODO(#985): Consolidate verbose error handling patterns - consider extracting
+ * diagnostic context building, file reading error handling, and state update
+ * error responses into helper functions.
  */
 
 import { z } from 'zod';
@@ -22,18 +26,27 @@ import {
 } from '../state/state-utils.js';
 import {
   STEP_NAMES,
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE2_PR_REVIEW,
+  STEP_PHASE1_SECURITY_REVIEW,
+  STEP_PHASE2_SECURITY_REVIEW,
+  PHASE1_PR_REVIEW_COMMAND,
+  PHASE2_PR_REVIEW_COMMAND,
+  SECURITY_REVIEW_COMMAND,
   generateOutOfScopeTrackingInstructions,
   generateScopeSeparatedFixInstructions,
   generateIterationLimitInstructions,
 } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { ValidationError, FilesystemError, GitHubCliError } from '../utils/errors.js';
+import { buildValidationErrorMessage } from '../utils/error-messages.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
+import { createWiggumState } from '../state/types.js';
 import { readFile, stat } from 'fs/promises';
-import { REVIEW_AGENT_NAMES } from './manifest-utils.js';
+import { REVIEW_AGENT_NAMES, isReviewAgentName } from './manifest-utils.js';
 
 /**
  * Extract agent name from file path
@@ -44,8 +57,8 @@ import { REVIEW_AGENT_NAMES } from './manifest-utils.js';
  *
  * NOTE: Acronyms are not specially handled (e.g., 'pr-test-analyzer' becomes
  * 'Pr Test Analyzer' not 'PR Test Analyzer'). This avoids maintaining an
- * acronym whitelist. Since this only affects presentation in GitHub comments
- * and logs (not workflow logic), the trade-off is acceptable for consistency.
+ * acronym whitelist while keeping the transformation simple and consistent.
+ * Currently used for display in GitHub comments and logs.
  *
  * @param filePath - Full path to the review output file
  * @returns Human-readable agent name, or 'Unknown Agent (filename)' if parsing fails
@@ -91,13 +104,13 @@ export function extractAgentNameFromPath(filePath: string): string {
   }
 
   // Warn if agent name doesn't match known agents (might be typo or new agent)
-  // Uses REVIEW_AGENT_NAMES from manifest-utils.ts to ensure consistency across the codebase
-  if (!REVIEW_AGENT_NAMES.includes(agentSlug as (typeof REVIEW_AGENT_NAMES)[number])) {
+  // Uses isReviewAgentName type guard for compile-time and runtime type safety
+  if (!isReviewAgentName(agentSlug)) {
     logger.warn('Extracted agent name not in known agents list', {
       filePath,
       extractedName: agentSlug,
       knownAgents: REVIEW_AGENT_NAMES,
-      suggestion: 'Update REVIEW_AGENT_NAMES in manifest-utils.ts if this is a new agent',
+      suggestion: 'Update ReviewAgentName type in manifest-types.ts if this is a new agent',
     });
   }
 
@@ -116,12 +129,14 @@ export function extractAgentNameFromPath(filePath: string): string {
  * Covers file I/O errors that require specific handling or diagnostics in production.
  * This list is intentionally limited to errors we've observed and handle specifically
  * (e.g., permission errors get different recovery instructions than missing files).
- * Unknown error codes are logged with warnings (see createFileReadError line 215).
+ * Unknown error codes are logged with warnings (see createFileReadError function).
  *
  * **When to extend this enum:**
  * Add new codes when they require distinct error messages or recovery paths.
  * If a new error code should be handled the same as an existing one, no change needed.
  */
+// TODO(#988): Consider adding NODE_FILE_ERROR_DESCRIPTIONS map and describeFileError helper
+// for programmatic access to error descriptions at runtime
 type NodeFileErrorCode =
   | 'EACCES' // Permission denied
   | 'ENOENT' // No such file or directory
@@ -133,21 +148,53 @@ type NodeFileErrorCode =
   | 'EROFS'; // Read-only file system
 
 /**
+ * Base fields shared by all FileReadError variants
+ */
+interface FileReadErrorBase {
+  readonly filePath: string;
+  readonly error: Error;
+  readonly category: 'in-scope' | 'out-of-scope';
+  readonly errorCode?: NodeFileErrorCode;
+}
+
+/**
+ * FileReadError without diagnostic information (stat() not attempted or failed)
+ */
+interface FileReadErrorNoDiagnostics extends FileReadErrorBase {
+  readonly diagnosticsAvailable: false;
+}
+
+/**
+ * FileReadError with diagnostic information from successful stat() call
+ */
+interface FileReadErrorWithDiagnostics extends FileReadErrorBase {
+  readonly diagnosticsAvailable: true;
+  readonly fileExists: boolean;
+  readonly fileSize?: number; // Only meaningful when fileExists is true
+}
+
+/**
  * Enhanced file read error with diagnostic information
+ *
+ * Discriminated union type that makes diagnostic availability explicit.
+ * When diagnosticsAvailable is true, fileExists is guaranteed to be present.
+ * This enables type-safe narrowing when consumers check for diagnostics.
  *
  * Immutable error object with readonly fields to prevent accidental modification
  * during error propagation and multi-step error handling. The category field
  * uses a string literal union for type-safe discrimination between in-scope
  * and out-of-scope file errors.
+ *
+ * @example
+ * if (error.diagnosticsAvailable) {
+ *   // TypeScript knows fileExists is available here
+ *   console.log(`File exists: ${error.fileExists}`);
+ *   if (error.fileExists && error.fileSize !== undefined) {
+ *     console.log(`File size: ${error.fileSize}`);
+ *   }
+ * }
  */
-interface FileReadError {
-  readonly filePath: string;
-  readonly error: Error;
-  readonly category: 'in-scope' | 'out-of-scope';
-  readonly errorCode?: NodeFileErrorCode;
-  readonly fileExists?: boolean;
-  readonly fileSize?: number;
-}
+type FileReadError = FileReadErrorNoDiagnostics | FileReadErrorWithDiagnostics;
 
 /**
  * Create a FileReadError with category derived from file path
@@ -155,11 +202,15 @@ interface FileReadError {
  * Factory function that automatically determines the category (in-scope vs out-of-scope)
  * based on the file path naming convention, and extracts Node.js error codes.
  *
+ * Returns a discriminated union based on whether diagnostics are available:
+ * - If fileExists is undefined, returns FileReadErrorNoDiagnostics
+ * - If fileExists is defined (boolean), returns FileReadErrorWithDiagnostics
+ *
  * @param filePath - Path to the file that failed to read
  * @param error - The error that occurred
- * @param fileExists - Whether the file exists (for diagnostics)
+ * @param fileExists - Whether the file exists (undefined = diagnostics unavailable)
  * @param fileSize - Size of the file if it exists (for diagnostics)
- * @returns FileReadError with all fields populated
+ * @returns FileReadError with appropriate discriminated union variant
  */
 function createFileReadError(
   filePath: string,
@@ -168,15 +219,33 @@ function createFileReadError(
   fileSize?: number
 ): FileReadError {
   // Validate path follows expected pattern before deriving category
-  // Pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}.md
-  const pathPattern = /-(?:in-scope|out-of-scope)-\d+\.md$/;
+  // Pattern: {agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md
+  // Random suffix prevents collisions when agents start simultaneously
+  const pathPattern = /-(?:in-scope|out-of-scope)-\d+-[a-f0-9]+\.md$/;
   if (!pathPattern.test(filePath)) {
-    logger.warn('createFileReadError: filePath does not match expected pattern', {
+    // Log error for diagnostics before throwing
+    logger.error('createFileReadError: filePath does not match expected pattern', {
       filePath,
-      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}.md',
-      impact: 'Category derivation may be incorrect',
-      action: 'Verify file naming convention is correct',
+      expectedPattern: '{agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md',
+      impact: 'Category derivation cannot proceed - this is a programming error',
+      action: 'Fix agent file naming to match convention',
     });
+
+    // Fail fast on invalid filenames instead of continuing with potentially wrong category
+    // (in-scope vs out-of-scope). This prevents workflow bugs where fatal errors are treated
+    // as warnings or vice versa.
+    throw new ValidationError(
+      buildValidationErrorMessage({
+        problem: 'Invalid review result file path - cannot derive category (in-scope/out-of-scope)',
+        context: `File path: ${filePath}`,
+        expected: '{agent-name}-(in-scope|out-of-scope)-{timestamp}-{random-suffix}.md',
+        remediation: [
+          'Verify the file was created by a wiggum review agent',
+          'Check agent file naming logic matches the expected convention',
+          'This is a programming error - file naming convention was violated',
+        ],
+      })
+    );
   }
 
   // Derive category from file path pattern
@@ -213,22 +282,39 @@ function createFileReadError(
     }
   }
 
-  return {
+  // Build base fields shared by all variants
+  const baseFields: FileReadErrorBase = {
     filePath,
     error,
     category,
     errorCode,
-    fileExists,
-    fileSize,
+  };
+
+  // Return appropriate discriminated union variant based on diagnostics availability
+  // fileExists being defined (boolean) indicates stat() was attempted and succeeded
+  if (fileExists !== undefined) {
+    return {
+      ...baseFields,
+      diagnosticsAvailable: true,
+      fileExists,
+      fileSize,
+    };
+  }
+
+  return {
+    ...baseFields,
+    diagnosticsAvailable: false,
   };
 }
 
 /**
  * Branded type for non-empty strings
  *
- * Provides compile-time type safety to prevent passing empty strings.
- * Runtime validation via createNonEmptyString() is still required at
- * boundaries where untrusted data enters the system.
+ * Prevents accidental mixing of validated and unvalidated strings at compile time.
+ * Does NOT prevent intentional bypassing via type assertion.
+ *
+ * MUST use createNonEmptyString() factory to construct instances from untrusted data.
+ * The brand serves as a marker that validation has occurred, not a runtime guarantee.
  */
 type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
 
@@ -539,12 +625,13 @@ export async function loadReviewResults(
     // CRITICAL: Any in-scope file failure is fatal - these are required for the workflow
     if (inScopeErrors.length > 0) {
       const errorDetails = inScopeErrors
-        .map(({ filePath, error, category, errorCode, fileExists, fileSize }) => {
+        .map((e) => {
+          const { filePath, error, category, errorCode } = e;
           const code = errorCode ? ` [${errorCode}]` : '';
-          const existence =
-            fileExists !== undefined
-              ? ` (exists: ${fileExists}, size: ${fileSize ?? 'unknown'})`
-              : '';
+          // Use discriminated union to safely access diagnostics
+          const existence = e.diagnosticsAvailable
+            ? ` (exists: ${e.fileExists}, size: ${e.fileSize ?? 'unknown'})`
+            : '';
           return `  - [${category}] ${filePath}${code}: ${error.message}${existence}`;
         })
         .join('\n');
@@ -556,7 +643,10 @@ export async function loadReviewResults(
       // Classify errors to help user decide action
       const hasPermissionErrors = inScopeErrors.some((e) => e.errorCode === 'EACCES');
       const hasMissingFiles = inScopeErrors.some((e) => e.errorCode === 'ENOENT');
-      const hasEmptyFiles = inScopeErrors.some((e) => e.fileExists && e.fileSize === 0);
+      // Use discriminated union to safely check for empty files
+      const hasEmptyFiles = inScopeErrors.some(
+        (e) => e.diagnosticsAvailable && e.fileExists && e.fileSize === 0
+      );
 
       let actionHint = '';
       if (hasMissingFiles) {
@@ -674,13 +764,13 @@ export async function loadReviewResults(
  */
 export const ReviewConfigSchema = z
   .object({
-    phase1Step: z.string(),
-    phase2Step: z.string(),
-    phase1Command: z.string(),
-    phase2Command: z.string(),
-    reviewTypeLabel: z.string(),
-    issueTypeLabel: z.string(),
-    successMessage: z.string(),
+    phase1Step: z.string().min(1, 'phase1Step cannot be empty'),
+    phase2Step: z.string().min(1, 'phase2Step cannot be empty'),
+    phase1Command: z.string().min(1, 'phase1Command cannot be empty'),
+    phase2Command: z.string().min(1, 'phase2Command cannot be empty'),
+    reviewTypeLabel: z.string().min(1, 'reviewTypeLabel cannot be empty'),
+    issueTypeLabel: z.string().min(1, 'issueTypeLabel cannot be empty'),
+    successMessage: z.string().min(1, 'successMessage cannot be empty'),
   })
   .refine(
     (data) => {
@@ -735,13 +825,69 @@ export function validateReviewConfig(config: unknown): ReviewConfig {
 }
 
 /**
+ * Create a validated PR review configuration
+ *
+ * Factory function that creates a ReviewConfig for PR reviews with
+ * all required fields pre-configured and validated. This reduces
+ * duplication and ensures consistency across PR review tools.
+ *
+ * @returns Validated ReviewConfig for PR reviews
+ */
+export function createPRReviewConfig(): ReviewConfig {
+  return validateReviewConfig({
+    phase1Step: STEP_PHASE1_PR_REVIEW,
+    phase2Step: STEP_PHASE2_PR_REVIEW,
+    phase1Command: PHASE1_PR_REVIEW_COMMAND,
+    phase2Command: PHASE2_PR_REVIEW_COMMAND,
+    reviewTypeLabel: 'PR',
+    issueTypeLabel: 'issue(s)',
+    successMessage: `No PR review issues found. The code meets quality standards.
+
+**Aspects Covered:**
+- Code quality and maintainability
+- Type safety and error handling
+- Test coverage and assertions
+- Documentation completeness`,
+  });
+}
+
+/**
+ * Create a validated Security review configuration
+ *
+ * Factory function that creates a ReviewConfig for security reviews with
+ * all required fields pre-configured and validated. This reduces
+ * duplication and ensures consistency across security review tools.
+ *
+ * @returns Validated ReviewConfig for security reviews
+ */
+export function createSecurityReviewConfig(): ReviewConfig {
+  return validateReviewConfig({
+    phase1Step: STEP_PHASE1_SECURITY_REVIEW,
+    phase2Step: STEP_PHASE2_SECURITY_REVIEW,
+    phase1Command: SECURITY_REVIEW_COMMAND,
+    phase2Command: SECURITY_REVIEW_COMMAND,
+    reviewTypeLabel: 'Security',
+    issueTypeLabel: 'security issue(s) found',
+    successMessage: `All security checks passed with no vulnerabilities identified.
+
+**Security Aspects Covered:**
+- Authentication and authorization
+- Input validation and sanitization
+- Secrets management
+- Dependency vulnerabilities
+- Security best practices`,
+  });
+}
+
+/**
  * Zod schema for ReviewCompletionInput runtime validation
  *
- * **IMPORTANT: Issue counts vs file counts**
- * in_scope_count and out_of_scope_count represent the number of ISSUES found,
- * not the number of FILES. Each file may contain multiple issues from one agent.
- * We validate file array non-emptiness when counts > 0, but do NOT validate
- * that issue counts equal file counts.
+ * **Field naming convention:**
+ * - `*_result_files` are file paths containing review results (each file may have multiple issues)
+ * - `*_issue_count` are the total number of issues (not files)
+ *
+ * This naming makes the semantic relationship clear: result files contain issues,
+ * and counts reflect issue totals, not file counts.
  *
  * **Numeric validation:**
  * Counts are validated as safe non-negative integers to prevent overflow and
@@ -760,25 +906,27 @@ export const ReviewCompletionInputSchema = z
           'Do not shortcut the review process.',
       }),
     }),
-    in_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
-    out_of_scope_files: z.array(z.string().min(1, 'File path cannot be empty')),
-    in_scope_count: z
-      .number()
-      .int()
-      .nonnegative()
-      .refine(Number.isFinite, { message: 'in_scope_count must be finite (not Infinity or NaN)' })
-      .refine(Number.isSafeInteger, {
-        message: 'in_scope_count must be a safe integer (within MAX_SAFE_INTEGER)',
-      }),
-    out_of_scope_count: z
+    in_scope_result_files: z.array(z.string().min(1, 'File path cannot be empty')),
+    out_of_scope_result_files: z.array(z.string().min(1, 'File path cannot be empty')),
+    in_scope_issue_count: z
       .number()
       .int()
       .nonnegative()
       .refine(Number.isFinite, {
-        message: 'out_of_scope_count must be finite (not Infinity or NaN)',
+        message: 'in_scope_issue_count must be finite (not Infinity or NaN)',
       })
       .refine(Number.isSafeInteger, {
-        message: 'out_of_scope_count must be a safe integer (within MAX_SAFE_INTEGER)',
+        message: 'in_scope_issue_count must be a safe integer (within MAX_SAFE_INTEGER)',
+      }),
+    out_of_scope_issue_count: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine(Number.isFinite, {
+        message: 'out_of_scope_issue_count must be finite (not Infinity or NaN)',
+      })
+      .refine(Number.isSafeInteger, {
+        message: 'out_of_scope_issue_count must be a safe integer (within MAX_SAFE_INTEGER)',
       }),
     maxIterations: z
       .number()
@@ -792,23 +940,23 @@ export const ReviewCompletionInputSchema = z
   })
   .refine(
     (data) => {
-      // If in_scope_count > 0, we must have at least one in_scope_files entry
-      return data.in_scope_count === 0 || data.in_scope_files.length > 0;
+      // If in_scope_issue_count > 0, we must have at least one result file
+      return data.in_scope_issue_count === 0 || data.in_scope_result_files.length > 0;
     },
     {
       message:
-        'in_scope_count is greater than 0 but in_scope_files is empty. ' +
+        'in_scope_issue_count is greater than 0 but in_scope_result_files is empty. ' +
         'If there are in-scope issues, file paths must be provided.',
     }
   )
   .refine(
     (data) => {
-      // If out_of_scope_count > 0, we must have at least one out_of_scope_files entry
-      return data.out_of_scope_count === 0 || data.out_of_scope_files.length > 0;
+      // If out_of_scope_issue_count > 0, we must have at least one result file
+      return data.out_of_scope_issue_count === 0 || data.out_of_scope_result_files.length > 0;
     },
     {
       message:
-        'out_of_scope_count is greater than 0 but out_of_scope_files is empty. ' +
+        'out_of_scope_issue_count is greater than 0 but out_of_scope_result_files is empty. ' +
         'If there are out-of-scope issues, file paths must be provided.',
     }
   );
@@ -816,19 +964,23 @@ export const ReviewCompletionInputSchema = z
 /**
  * Input for review completion
  *
- * **IMPORTANT: Issue counts vs file counts**
- * in_scope_count and out_of_scope_count represent the number of ISSUES,
- * not FILES. A single file may contain multiple issues from one agent.
+ * **Field naming convention:**
+ * - `*_result_files` are file paths containing review results (each file may have multiple issues)
+ * - `*_issue_count` are the total number of issues (not files)
  *
  * @see ReviewCompletionInputSchema for complete validation rules
  */
 export interface ReviewCompletionInput {
   /** Must be true - enforced by schema to prevent skipping review */
   readonly command_executed: true;
-  readonly in_scope_files: readonly string[];
-  readonly out_of_scope_files: readonly string[];
-  readonly in_scope_count: number;
-  readonly out_of_scope_count: number;
+  /** File paths containing in-scope review results (each file may contain multiple issues) */
+  readonly in_scope_result_files: readonly string[];
+  /** File paths containing out-of-scope review results (each file may contain multiple issues) */
+  readonly out_of_scope_result_files: readonly string[];
+  /** Total count of in-scope issues across all result files */
+  readonly in_scope_issue_count: number;
+  /** Total count of out-of-scope issues across all result files */
+  readonly out_of_scope_issue_count: number;
   readonly maxIterations?: number;
 }
 
@@ -919,30 +1071,43 @@ function buildNewState(
 ): WiggumState {
   // Only increment iteration for in-scope issues
   if (hasInScopeIssues) {
-    return {
+    return createWiggumState({
       iteration: currentState.wiggum.iteration + 1,
       step: reviewStep,
       completedSteps: currentState.wiggum.completedSteps,
       phase: currentState.wiggum.phase,
       maxIterations: maxIterations ?? currentState.wiggum.maxIterations,
-    };
+    });
   }
 
   // If no in-scope issues (even if out-of-scope exist), mark complete
-  return {
+  return createWiggumState({
     iteration: currentState.wiggum.iteration,
     step: reviewStep,
     completedSteps: addToCompletedSteps(currentState.wiggum.completedSteps, reviewStep),
     phase: currentState.wiggum.phase,
     maxIterations: maxIterations ?? currentState.wiggum.maxIterations,
-  };
+  });
 }
 
 /**
  * Sleep helper for retry delays
+ *
+ * Exported for testing - allows tests to provide a mock that records delays
+ * without actually waiting, enabling fast tests of exponential backoff logic.
  */
-function sleepMs(ms: number): Promise<void> {
+export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Dependencies for safePostReviewComment (for testing)
+ */
+export interface SafePostReviewCommentDeps {
+  /** Function to post a comment to an issue */
+  postIssueComment: (issueNumber: number, body: string) => Promise<void>;
+  /** Function to sleep for retry delays */
+  sleep: (ms: number) => Promise<void>;
 }
 
 /**
@@ -962,15 +1127,17 @@ function sleepMs(ms: number): Promise<void> {
  * @param commentBody - Full comment body with review details
  * @param reviewStep - Current review step for logging context
  * @param maxRetries - Maximum retry attempts (default: 3, range: 1-100)
+ * @param deps - Optional dependencies for testing (defaults to real implementations)
  * @returns Promise<boolean> - true if comment posted successfully, false if failed
  * @throws {ValidationError} If maxRetries is not a positive integer in range 1-100
  */
-async function safePostReviewComment(
+export async function safePostReviewComment(
   issueNumber: number,
   commentTitle: string,
   commentBody: string,
   reviewStep: WiggumStep,
-  maxRetries = 3
+  maxRetries = 3,
+  deps?: Partial<SafePostReviewCommentDeps>
 ): Promise<boolean> {
   // Validate maxRetries to ensure retry loop executes correctly
   // CRITICAL: Invalid maxRetries would break retry logic:
@@ -1004,14 +1171,16 @@ async function safePostReviewComment(
     );
   }
 
-  // Import postIssueComment from issue-comments module
-  const { postIssueComment } = await import('../state/issue-comments.js');
+  // Use injected dependencies or import real implementations
+  const postComment =
+    deps?.postIssueComment ?? (await import('../state/issue-comments.js')).postIssueComment;
+  const sleep = deps?.sleep ?? sleepMs;
 
   const fullCommentBody = `## ${commentTitle}\n\n${commentBody}`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await postIssueComment(issueNumber, fullCommentBody);
+      await postComment(issueNumber, fullCommentBody);
 
       // Log success (or recovery on retry)
       if (attempt > 1) {
@@ -1096,7 +1265,7 @@ async function safePostReviewComment(
             wasCapped: uncappedDelayMs > MAX_DELAY_MS,
             remainingAttempts: maxRetries - attempt,
           });
-          await sleepMs(delayMs);
+          await sleep(delayMs);
           continue; // Retry
         }
 
@@ -1125,8 +1294,15 @@ async function safePostReviewComment(
     }
   }
 
-  // This code path should be unreachable due to loop logic, but TypeScript requires a return
-  // If we reach here, it indicates a programming error in the retry loop
+  // UNREACHABLE: Loop must execute at least once (maxRetries validated), and every iteration
+  // either returns success, returns failure, or continues. Reaching here indicates:
+  // 1. Validation bug: maxRetries <= 0 was allowed
+  // 2. Loop bug: An iteration path neither returned nor continued
+  //
+  // If this error occurs, check:
+  // - Error logs for actual maxRetries value and iteration count
+  // - Review all loop code paths for missing return/continue statements
+  // - Verify maxRetries validation is enforced at all entry points
   logger.error('CRITICAL: Unreachable code path in safePostReviewComment', {
     issueNumber,
     reviewStep,
@@ -1134,6 +1310,29 @@ async function safePostReviewComment(
     impact: 'Internal error - retry loop logic violation',
   });
   return false;
+}
+
+/**
+ * New state shape for retryStateUpdate
+ */
+export interface RetryStateUpdateNewState {
+  iteration: number;
+  step: WiggumStep;
+  completedSteps: readonly WiggumStep[];
+  phase: WiggumPhase;
+}
+
+/**
+ * Dependencies for retryStateUpdate (for testing)
+ */
+export interface RetryStateUpdateDeps {
+  /** Function to update body state */
+  updateBodyState: (
+    state: CurrentState,
+    newState: RetryStateUpdateNewState
+  ) => Promise<StateUpdateResult>;
+  /** Function to sleep for retry delays */
+  sleep: (ms: number) => Promise<void>;
 }
 
 /**
@@ -1146,18 +1345,15 @@ async function safePostReviewComment(
  * @param state - Current state object
  * @param newState - New state to update
  * @param maxRetries - Maximum retry attempts (default: 3, must be >= 1)
+ * @param deps - Optional dependencies for testing (defaults to real implementations)
  * @returns StateUpdateResult after retries exhausted or success
  * @throws {ValidationError} If maxRetries is not a positive integer
  */
-async function retryStateUpdate(
+export async function retryStateUpdate(
   state: CurrentState,
-  newState: {
-    iteration: number;
-    step: WiggumStep;
-    completedSteps: readonly WiggumStep[];
-    phase: WiggumPhase;
-  },
-  maxRetries = 3
+  newState: RetryStateUpdateNewState,
+  maxRetries = 3,
+  deps?: Partial<RetryStateUpdateDeps>
 ): Promise<StateUpdateResult> {
   // Enforce maxRetries >= 1 to guarantee loop executes at least once
   // This ensures every code path attempts the state update before failing
@@ -1184,13 +1380,17 @@ async function retryStateUpdate(
     );
   }
 
+  // Use injected dependencies or default to real implementations
+  const doUpdateBodyState = deps?.updateBodyState ?? updateBodyState;
+  const sleep = deps?.sleep ?? sleepMs;
+
   // DO NOT initialize result here - force every code path to set it
   // This prevents returning a misleading placeholder error that says "network failure"
   // when no network call was actually attempted.
   let result: StateUpdateResult | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    result = await updateBodyState(state, newState);
+    result = await doUpdateBodyState(state, newState);
 
     if (result.success) {
       if (attempt > 1) {
@@ -1203,13 +1403,12 @@ async function retryStateUpdate(
       return result;
     }
 
-    // Only retry for transient failures
-    if (!result.isTransient || attempt === maxRetries) {
-      logger.warn('State update failed - not retrying', {
+    // All failures are transient (rate_limit or network), so retry until maxRetries
+    if (attempt === maxRetries) {
+      logger.warn('State update failed - max retries reached', {
         attempt,
         maxRetries,
         reason: result.reason,
-        isTransient: result.isTransient,
       });
       return result;
     }
@@ -1222,17 +1421,22 @@ async function retryStateUpdate(
       delayMs,
       reason: result.reason,
     });
-    await sleepMs(delayMs);
+    await sleep(delayMs);
   }
 
-  // TypeScript control flow: This should be unreachable. The loop must execute at least once
-  // (maxRetries >= 1 validated above), and every iteration either returns success, returns failure,
-  // or continues. If reached, indicates a logic bug where an iteration neither returned nor continued.
+  // UNREACHABLE: Loop must execute at least once (maxRetries >= 1 validated above), and every
+  // iteration either returns success, returns failure, or continues. Reaching here indicates:
+  // 1. Validation bug: maxRetries check was bypassed or incorrect
+  // 2. Loop bug: An iteration path neither returned nor continued
+  // 3. TypeScript inference bug: Control flow analysis is incorrect
   //
-  // Consolidated error handling provides consistent diagnostics regardless of whether result was set:
-  // - Both error paths log the same context (maxRetries, phase, step)
-  // - Error messages clearly indicate this is an internal programming error
-  // - Logs provide debugging context for root cause analysis
+  // If this error occurs, check:
+  // - Error logs for actual maxRetries value and iteration count
+  // - Review all loop code paths for missing return/continue statements
+  // - Verify TypeScript version didn't regress on control flow analysis
+  // - Check if any async/await errors could skip loop body
+  //
+  // Consolidated error handling provides consistent diagnostics regardless of whether result was set
 
   // Build common diagnostic context for error handling
   const diagnosticContext = {
@@ -1395,8 +1599,8 @@ function buildIssuesFoundResponse(
       pr_number: state.wiggum.phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
       issue_number: issueNumber,
       total_issues: issues.total,
-      in_scope_count: inScopeCount,
-      out_of_scope_count: outOfScopeCount,
+      in_scope_issue_count: inScopeCount,
+      out_of_scope_issue_count: outOfScopeCount,
     },
   };
 
@@ -1446,7 +1650,7 @@ export async function completeReview(
     inScope,
     outOfScope,
     warnings: loadWarnings,
-  } = await loadReviewResults(input.in_scope_files, input.out_of_scope_files);
+  } = await loadReviewResults(input.in_scope_result_files, input.out_of_scope_result_files);
 
   // Combine formatted sections for comment
   const verbatimResponse = [inScope, outOfScope].filter(Boolean).join('\n\n');
@@ -1473,13 +1677,13 @@ export async function completeReview(
 
   validatePhaseRequirements(state, config);
 
-  // NOTE: Zod schema (ReviewCompletionInputSchema) already validates that in_scope_count
-  // and out_of_scope_count are non-negative safe integers. No additional validation needed.
-  const inScopeCount = input.in_scope_count;
-  const outOfScopeCount = input.out_of_scope_count;
+  // NOTE: Zod schema (ReviewCompletionInputSchema) already validates that in_scope_issue_count
+  // and out_of_scope_issue_count are non-negative safe integers. No additional validation needed.
+  const inScopeCount = input.in_scope_issue_count;
+  const outOfScopeCount = input.out_of_scope_issue_count;
 
-  // NOTE: in_scope_count and out_of_scope_count represent the number of ISSUES,
-  // not the number of FILES. Each file can contain multiple issues from one agent.
+  // NOTE: in_scope_issue_count and out_of_scope_issue_count represent the number of ISSUES,
+  // not the number of result files. Each file can contain multiple issues from one agent.
   // We validate that files exist and are readable in loadReviewResults(), but we
   // do NOT validate that issue counts match file counts.
 
@@ -1507,7 +1711,6 @@ export async function completeReview(
       reviewType: config.reviewTypeLabel,
       reviewStep,
       reason: result.reason,
-      isTransient: result.isTransient,
       phase: state.wiggum.phase,
       prNumber: state.pr.exists ? state.pr.number : undefined,
       issueNumber: state.issue.exists ? state.issue.number : undefined,
@@ -1608,7 +1811,15 @@ The workflow will resume from this step once the state update succeeds.`,
         `Check the ${state.wiggum.phase === 'phase1' ? 'issue' : 'PR'} body for current state, not comments.\n`;
     }
   } else {
-    // Defensive: Should be unreachable (validatePhaseRequirements ensures issue exists)
+    // UNREACHABLE: validatePhaseRequirements ensures issue exists before reaching this point.
+    // Reaching here indicates:
+    // 1. validatePhaseRequirements was bypassed or its check was modified
+    // 2. State was mutated between validation and this check
+    //
+    // If this error occurs, check:
+    // - That validatePhaseRequirements is called before this code path
+    // - That state.issue is not reassigned after validation
+    // - That the caller didn't skip validation
     logger.error('Missing issue for comment posting - skipping comment', {
       phase: state.wiggum.phase,
       reviewStep,
@@ -1637,8 +1848,8 @@ The workflow will resume from this step once the state update succeeds.`,
       config,
       inScopeCount,
       outOfScopeCount,
-      input.in_scope_files,
-      input.out_of_scope_files,
+      input.in_scope_result_files,
+      input.out_of_scope_result_files,
       combinedWarning
     );
   }
@@ -1649,7 +1860,7 @@ The workflow will resume from this step once the state update succeeds.`,
   if (hasOutOfScopeIssues) {
     // Step is marked complete (newState already posted), but we need to track out-of-scope issues
     const issueNumber = state.issue.exists ? state.issue.number : undefined;
-    const outOfScopeFiles = input.out_of_scope_files ?? [];
+    const outOfScopeFiles = input.out_of_scope_result_files ?? [];
 
     // Reuse the newState we just posted to avoid race condition with GitHub API (issue #388)
     const updatedState = applyWiggumState(state, newState);

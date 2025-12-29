@@ -15,10 +15,10 @@ describe('complete-security-review tool', () => {
     it('should validate required fields', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 3,
-        out_of_scope_count: 0,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 3,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -27,10 +27,10 @@ describe('complete-security-review tool', () => {
 
     it('should reject missing command_executed field', () => {
       const input = {
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 3,
-        out_of_scope_count: 0,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 3,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -40,10 +40,10 @@ describe('complete-security-review tool', () => {
     it('should accept verbatim_response_file instead of verbatim_response', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
-        out_of_scope_files: ['/path/to/file3.ts'],
-        in_scope_count: 2,
-        out_of_scope_count: 1,
+        in_scope_result_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
+        out_of_scope_result_files: ['/path/to/file3.ts'],
+        in_scope_issue_count: 2,
+        out_of_scope_issue_count: 1,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -53,10 +53,10 @@ describe('complete-security-review tool', () => {
     it('should accept both verbatim_response and verbatim_response_file (file takes precedence at runtime)', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: ['/path/to/file2.ts'],
-        in_scope_count: 1,
-        out_of_scope_count: 1,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: ['/path/to/file2.ts'],
+        in_scope_issue_count: 1,
+        out_of_scope_issue_count: 1,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -66,10 +66,10 @@ describe('complete-security-review tool', () => {
     it('should accept missing verbatim fields at schema level (validated at runtime)', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
       };
 
       // Schema accepts it - tool runtime validates at least one is provided
@@ -80,9 +80,9 @@ describe('complete-security-review tool', () => {
     it('should reject missing security issue counts', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 3,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 3,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -92,10 +92,10 @@ describe('complete-security-review tool', () => {
     it('should accept zero security issues', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -105,10 +105,10 @@ describe('complete-security-review tool', () => {
     it('should accept negative security issue counts at schema level (validated by tool)', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: -1,
-        out_of_scope_count: 2,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: -1,
+        out_of_scope_issue_count: 2,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -119,10 +119,10 @@ describe('complete-security-review tool', () => {
     it('should accept high priority security issues', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 10,
-        out_of_scope_count: 0,
+        in_scope_result_files: ['/path/to/file1.ts', '/path/to/file2.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 10,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -132,10 +132,10 @@ describe('complete-security-review tool', () => {
     it('should reject command_executed: false at schema level', () => {
       const input = {
         command_executed: false, // Schema now rejects false values
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 3,
-        out_of_scope_count: 0,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 3,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -152,10 +152,10 @@ describe('complete-security-review tool', () => {
     it('should accept optional maxIterations parameter', () => {
       const input = {
         command_executed: true,
-        in_scope_files: ['/path/to/file1.ts'],
-        out_of_scope_files: [],
-        in_scope_count: 3,
-        out_of_scope_count: 0,
+        in_scope_result_files: ['/path/to/file1.ts'],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 3,
+        out_of_scope_issue_count: 0,
         maxIterations: 20,
       };
 
@@ -169,10 +169,10 @@ describe('complete-security-review tool', () => {
     it('should accept input without maxIterations (optional field)', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
       };
 
       const result = CompleteSecurityReviewInputSchema.safeParse(input);
@@ -185,10 +185,10 @@ describe('complete-security-review tool', () => {
     it('should reject non-integer maxIterations', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
         maxIterations: 15.7,
       };
 
@@ -199,10 +199,10 @@ describe('complete-security-review tool', () => {
     it('should reject zero maxIterations', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
         maxIterations: 0,
       };
 
@@ -213,10 +213,10 @@ describe('complete-security-review tool', () => {
     it('should reject negative maxIterations', () => {
       const input = {
         command_executed: true,
-        in_scope_files: [],
-        out_of_scope_files: [],
-        in_scope_count: 0,
-        out_of_scope_count: 0,
+        in_scope_result_files: [],
+        out_of_scope_result_files: [],
+        in_scope_issue_count: 0,
+        out_of_scope_issue_count: 0,
         maxIterations: -10,
       };
 

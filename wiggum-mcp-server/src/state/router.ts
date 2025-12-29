@@ -12,7 +12,7 @@ import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
-import { WiggumStateSchema } from './types.js';
+import { WiggumStateSchema, createWiggumState } from './types.js';
 import { applyWiggumState } from './state-utils.js';
 import { advanceToNextStep } from './transitions.js';
 import {
@@ -66,42 +66,21 @@ function getActiveAgents(completedAgents: readonly string[] | undefined): readon
 /**
  * Result type for state update operations
  *
- * CONTEXT: This discriminated union supports race-safe state persistence (issue #388).
- * By distinguishing successful persistence from transient failures, callers can make
- * informed decisions about retrying vs halting the workflow when state updates fail.
+ * Discriminated union for race-safe state persistence (issue #388).
  *
- * Provides expressive error handling with clear failure reasons:
- * - success: true - State updated successfully in PR/issue body
- * - success: false - Update failed due to transient error (rate limit or network)
+ * - Success: State persisted to PR/issue body
+ * - Failure: Transient error (rate limit or network) - safe to retry
  *
- * Transient errors are logged and cause workflow to halt gracefully with
- * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
+ * Critical errors (404, auth) throw immediately and never return failure.
+ * All failures returned from this type are transient by definition.
  *
- * Failure cases REQUIRE lastError and attemptCount for debugging (issue #625):
- * - lastError: The actual error from the final retry attempt (REQUIRED for diagnostics)
- * - attemptCount: Number of retry attempts made before failure (REQUIRED for retry analysis)
- *
- * @deprecated The `isTransient` field is structurally redundant in this discriminated union.
- *
- * When `success === false`, the failure is ALWAYS transient (rate limit or network).
- * Critical errors (404, auth) throw immediately and never return a failure result.
- *
- * Migration: Replace `result.isTransient` checks with `!result.success`:
- *   // Before:
- *   if (!result.success && result.isTransient) { handleTransient(); }
- *
- *   // After:
- *   if (!result.success) { handleTransient(); }
- *
- * Use `result.reason` to distinguish 'rate_limit' vs 'network' failures for logging/metrics.
- * Removal blocked by: Need to update call sites in router.ts, init.ts (TODO: #800)
+ * Failure cases include lastError and attemptCount for debugging (issue #625).
  */
 export type StateUpdateResult =
   | { readonly success: true }
   | {
       readonly success: false;
       readonly reason: 'rate_limit' | 'network';
-      readonly isTransient: true;
       readonly lastError: Error;
       readonly attemptCount: number;
     };
@@ -132,7 +111,7 @@ export function createStateUpdateFailure(
   if (!(lastError instanceof Error)) {
     throw new Error(`createStateUpdateFailure: lastError must be Error instance`);
   }
-  return { success: false, reason, isTransient: true, lastError, attemptCount };
+  return { success: false, reason, lastError, attemptCount };
 }
 
 interface WiggumInstructions {
@@ -152,13 +131,12 @@ interface WiggumInstructions {
 }
 
 /**
- * Internal helper: Check for uncommitted changes and return early exit if found
+ * Check for uncommitted changes before workflow monitoring
  *
- * This is an internal utility function used by multiple step handlers
- * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
- * git state before proceeding with monitoring operations.
+ * Internal helper shared by handleStepMonitorWorkflow and handleStepMonitorPRChecks.
+ * Returns early exit instructions if uncommitted changes detected.
  *
- * @internal - Not part of public API. Exported via _testExports for unit testing only.
+ * @internal Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -170,6 +148,7 @@ function checkUncommittedChanges(
   stepsCompleted: string[]
 ): ToolResult | null {
   if (state.git.hasUncommittedChanges) {
+    // TODO(#981): Add INFO level logging when returning early with commit instructions
     output.instructions =
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
@@ -181,13 +160,12 @@ function checkUncommittedChanges(
 }
 
 /**
- * Internal helper: Check if branch is pushed to remote and return early exit if not
+ * Check if branch is pushed to remote before workflow monitoring
  *
- * This is an internal utility function used by multiple step handlers
- * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
- * git state before proceeding with monitoring operations.
+ * Internal helper shared by handleStepMonitorWorkflow and handleStepMonitorPRChecks.
+ * Returns early exit instructions if branch not pushed to remote.
  *
- * @internal - Not part of public API. Exported via _testExports for unit testing only.
+ * @internal Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -199,6 +177,7 @@ function checkBranchPushed(
   stepsCompleted: string[]
 ): ToolResult | null {
   if (!state.git.isPushed) {
+    // TODO(#981): Add INFO level logging when returning early with push instructions
     output.instructions =
       'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
@@ -208,6 +187,9 @@ function checkBranchPushed(
   }
   return null;
 }
+
+// TODO(#984): Extract common logic between safeUpdatePRBodyState and safeUpdateIssueBodyState
+// into a generic safeUpdateBodyState<T> function to reduce ~480 lines of duplication to ~250 lines.
 
 /**
  * Safely update wiggum state in PR body with error handling and retry logic
@@ -304,8 +286,10 @@ export async function safeUpdatePRBodyState(
       errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
     });
+    // Include state summary in error message for debugging without log access (issue #625)
+    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
     throw new StateApiError(
-      `Invalid state - validation failed: ${validationDetails}`,
+      `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
       'write',
       'pr',
       prNumber,
@@ -571,8 +555,10 @@ export async function safeUpdateIssueBodyState(
       errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
     });
+    // Include state summary in error message for debugging without log access (issue #625)
+    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
     throw new StateApiError(
-      `Invalid state - validation failed: ${validationDetails}`,
+      `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
       'write',
       'issue',
       issueNumber,
@@ -763,19 +749,49 @@ function formatFixInstructions(
   defaultMessage: string,
   issueNumber?: number
 ): string {
-  // TODO(#417): Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
-  const sanitizedDetails = failureDetails
-    ? sanitizeErrorMessage(failureDetails, 1000)
-    : defaultMessage;
+  let sanitizedDetails: string;
+  let truncationIndicator = '';
+
+  if (failureDetails) {
+    const originalLength = failureDetails.length;
+    const hadMultipleLines = failureDetails.includes('\n');
+    sanitizedDetails = sanitizeErrorMessage(failureDetails, 1000);
+
+    // Detect sanitization and log for debugging
+    const wasLengthTruncated = sanitizedDetails.length < originalLength;
+    const wasMultilineReduced = hadMultipleLines && !sanitizedDetails.includes('\n');
+    const wasSanitized = wasLengthTruncated || wasMultilineReduced;
+
+    if (wasSanitized) {
+      logger.info('Error details sanitized during formatting', {
+        failureType,
+        originalLength,
+        sanitizedLength: sanitizedDetails.length,
+        wasLengthTruncated,
+        wasMultilineReduced,
+        impact: 'User sees sanitized error message',
+        recommendation: 'Check full failure details in GitHub workflow logs',
+      });
+      // Add user-facing indicator only for significant truncation
+      if (wasLengthTruncated) {
+        truncationIndicator =
+          '\n\n_(Error details truncated. See workflow logs for full details.)_';
+      }
+    }
+  } else {
+    sanitizedDetails = defaultMessage;
+  }
 
   // If issueNumber provided, use triage workflow
   if (issueNumber !== undefined) {
-    return generateWorkflowTriageInstructions(
-      issueNumber,
-      failureType as 'Workflow' | 'PR checks',
-      sanitizedDetails
+    return (
+      generateWorkflowTriageInstructions(
+        issueNumber,
+        failureType as 'Workflow' | 'PR checks',
+        sanitizedDetails
+      ) + truncationIndicator
     );
   }
 
@@ -789,7 +805,7 @@ function formatFixInstructions(
 5. Call wiggum_complete_fix with fix_description
 
 **Failure Details:**
-${sanitizedDetails}`;
+${sanitizedDetails}${truncationIndicator}`;
 }
 
 /**
@@ -951,12 +967,12 @@ async function handlePhase1MonitorWorkflow(
     return await getNextStepInstructions(updatedState);
   } else {
     // Workflow failed - increment iteration and return fix instructions with triage
-    const newState = {
+    const newState = createWiggumState({
       iteration: state.wiggum.iteration + 1,
       step: STEP_PHASE1_MONITOR_WORKFLOW,
       completedSteps: state.wiggum.completedSteps,
       phase: 'phase1' as const,
-    };
+    });
 
     const stateResult = await safeUpdateIssueBodyState(
       issueNumber,
@@ -1054,19 +1070,17 @@ Execute comprehensive PR review on the current branch before creating the pull r
    \`\`\`
 
 2. After the review completes, aggregate results from all agents:
-   - Collect in_scope_file paths from each agent's JSON response
-   - Collect out_of_scope_file paths from each agent's JSON response
-   - Sum in_scope_count across all agents
-   - Sum out_of_scope_count across all agents
+   - Collect result file paths from each agent's JSON response
+   - Sum issue counts across all agents
 
 3. Call the \`wiggum_complete_pr_review\` tool with:
    - command_executed: true
-   - in_scope_files: [array of file paths from all agents]
-   - out_of_scope_files: [array of file paths from all agents]
-   - in_scope_count: (total count of in-scope issues, NOT files)
-   - out_of_scope_count: (total count of out-of-scope issues, NOT files)
+   - in_scope_result_files: [array of result file paths from all agents]
+   - out_of_scope_result_files: [array of result file paths from all agents]
+   - in_scope_issue_count: (total count of in-scope issues across all result files)
+   - out_of_scope_issue_count: (total count of out-of-scope issues across all result files)
 
-   **IMPORTANT:** Counts represent ISSUES, not FILES. Each file may contain multiple issues.
+   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
 
 4. Results will be posted to issue #${issueNumber}
 
@@ -1110,19 +1124,17 @@ Execute security review on the current branch before creating the pull request.$
    \`\`\`
 
 2. After the review completes, aggregate results from all agents:
-   - Collect in_scope_file paths from each agent's JSON response
-   - Collect out_of_scope_file paths from each agent's JSON response
-   - Sum in_scope_count across all agents
-   - Sum out_of_scope_count across all agents
+   - Collect result file paths from each agent's JSON response
+   - Sum issue counts across all agents
 
 3. Call the \`wiggum_complete_security_review\` tool with:
    - command_executed: true
-   - in_scope_files: [array of file paths from all agents]
-   - out_of_scope_files: [array of file paths from all agents]
-   - in_scope_count: (total count of in-scope security issues, NOT files)
-   - out_of_scope_count: (total count of out-of-scope security issues, NOT files)
+   - in_scope_result_files: [array of result file paths from all agents]
+   - out_of_scope_result_files: [array of result file paths from all agents]
+   - in_scope_issue_count: (total count of in-scope security issues across all result files)
+   - out_of_scope_issue_count: (total count of out-of-scope security issues across all result files)
 
-   **IMPORTANT:** Counts represent ISSUES, not FILES. Each file may contain multiple issues.
+   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
 
 4. Results will be posted to issue #${issueNumber}
 
@@ -1690,7 +1702,12 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   } else {
     // Comments found - return code quality review instructions
     output.steps_completed_by_tool.push(`Fetched code quality comments - ${comments.length} found`);
-    output.instructions = `${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
+
+    // Prepend warning to instructions if some comments could not be parsed
+    // This ensures the warning is prominent and not just in the warning field
+    const warningPrefix = userWarning ? `**WARNING:** ${userWarning}\n\n` : '';
+
+    output.instructions = `${warningPrefix}${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
 
 IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate critically.
 

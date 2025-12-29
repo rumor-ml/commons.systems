@@ -85,10 +85,16 @@ function validateGraphQLResponse(
  * Transforms GraphQL issue data to have comments as a flat array instead of
  * the nested { nodes: [...] } structure.
  *
- * RATIONALE: Simplifies downstream consumption. We fetch first 100 comments
- * (hard-coded in getCommentsFragment at `comments(first: 100)`) which is sufficient
- * for current use cases. If pagination becomes necessary, both getCommentsFragment
- * and this function will need updating.
+ * RATIONALE: Simplifies downstream consumption by flattening GraphQL's nested structure.
+ *
+ * Transforms:
+ *   { comments: { nodes: [{author: {...}, body: '...'}] } }
+ * Into:
+ *   { comments: [{author: {...}, body: '...'}] }
+ *
+ * We fetch first 100 comments (hard-coded in getCommentsFragment at `comments(first: 100)`)
+ * which is sufficient for current use cases. If pagination becomes necessary, both
+ * getCommentsFragment and this function will need updating.
  *
  * @param raw - Raw issue data from GraphQL with comments.nodes structure
  * @returns Normalized issue data with comments as flat array, or null if raw is null

@@ -91,19 +91,41 @@ export class NetworkError extends McpError {
 }
 
 /**
+ * Check if a status code is valid for GitHubCliError
+ *
+ * Accepts:
+ * - -1: Sentinel value indicating "unknown/not available"
+ * - 0-255: Standard Unix exit codes
+ * - 400-599: HTTP status codes (for API error classification)
+ *
+ * @param code - Code to validate
+ * @returns true if the code is valid
+ */
+function isValidStatusCode(code: number): boolean {
+  if (code === -1) return true; // Sentinel for "unknown"
+  if (Number.isInteger(code) && code >= 0 && code <= 255) return true; // Unix exit codes
+  if (Number.isInteger(code) && code >= 400 && code <= 599) return true; // HTTP status codes
+  return false;
+}
+
+/**
  * Error thrown when GitHub CLI (gh) commands fail
  *
  * Captures structured information from gh command failures including:
- * - Exit code (clamped to valid range 0-255)
+ * - Exit/status code (validated, see below)
  * - stderr output (can be empty string)
  * - stdout output (optional)
  *
  * Exit code handling:
- * - Valid range (0-255): Used as-is
- * - Sentinel value (-1): Preserved to indicate "exit code unknown" (not part of 0-255 range)
- * - Invalid values: Clamped to 0-255 range with warning prefix in message
+ * - Sentinel value (-1): Indicates "exit code unknown" (process didn't run)
+ * - Valid Unix range (0-255): Standard process exit codes
+ * - HTTP status codes (400-599): For API error classification (e.g., 404, 429)
+ * - Invalid values: Throws ValidationError
  *
- * This ensures error construction never fails.
+ * NOTE: This field has dual semantics - it stores either Unix exit codes
+ * (from process execution) OR HTTP status codes (from API responses).
+ * This is intentional to support both `gh` CLI exit codes and GitHub
+ * API response status codes for error classification.
  *
  * @example
  * ```typescript
@@ -116,10 +138,11 @@ export class NetworkError extends McpError {
  *   undefined
  * );
  *
- * // Invalid exit code is clamped with warning prefix:
- * const err = new GitHubCliError('Failed', 500, 'stderr');
- * // err.message === '[Warning: Invalid exit code 500 clamped to 255] Failed'
- * // err.exitCode === 255
+ * // HTTP status codes are valid for API errors:
+ * throw new GitHubCliError('Rate limited', 429, 'Too many requests');
+ *
+ * // Invalid exit code throws ValidationError:
+ * new GitHubCliError('Failed', 1000, 'stderr'); // throws!
  * ```
  */
 export class GitHubCliError extends McpError {
@@ -132,24 +155,38 @@ export class GitHubCliError extends McpError {
     public readonly stdout?: string,
     cause?: Error
   ) {
-    // -1 indicates process didn't run or exit code unknown
-    // Clamp exit code to valid range (0-255) for actual exit codes
-    const clampedExitCode = exitCode === -1 ? -1 : Math.max(0, Math.min(255, exitCode));
+    // Validate exit code
+    if (!isValidStatusCode(exitCode)) {
+      throw new ValidationError(
+        `Invalid exit/status code: ${exitCode}. ` +
+          `Must be -1 (unknown), 0-255 (Unix exit code), or 400-599 (HTTP status code).`
+      );
+    }
 
-    // Add warning to message if exit code was invalid (but not for -1 sentinel)
-    const warningPrefix =
-      exitCode !== -1 && exitCode !== clampedExitCode
-        ? `[Warning: Invalid exit code ${exitCode} clamped to ${clampedExitCode}] `
-        : '';
-
-    super(`${warningPrefix}${message}`, 'GH_CLI_ERROR');
+    super(message, 'GH_CLI_ERROR');
     this.name = 'GitHubCliError';
-    this.exitCode = clampedExitCode;
+    this.exitCode = exitCode;
     if (cause) {
       this.cause = cause;
     }
   }
 }
+
+/**
+ * Known error categories from MCP error classes.
+ *
+ * These are the error types returned by analyzeRetryability() for known MCP errors.
+ * Note: errorType can also be any Error subclass name (e.g., 'TypeError', 'RangeError')
+ * or typeof value for non-Error objects (e.g., 'string', 'object', 'undefined').
+ */
+export type KnownErrorCategory =
+  | 'ValidationError'
+  | 'FormattingError'
+  | 'TimeoutError'
+  | 'NetworkError'
+  | 'GitHubCliError'
+  | 'ParsingError'
+  | 'McpError';
 
 /**
  * Retry decision information with structured metadata
@@ -160,8 +197,14 @@ export class GitHubCliError extends McpError {
 export interface RetryDecision {
   /** Whether the error is terminal (should not be retried) */
   readonly isTerminal: boolean;
-  /** The error type (e.g., 'ValidationError', 'TimeoutError', 'Error', 'string') */
-  readonly errorType: string;
+  /**
+   * The error type for categorization.
+   *
+   * For known MCP errors, this is one of KnownErrorCategory values.
+   * For other Error instances, this is error.constructor.name (e.g., 'TypeError', 'RangeError').
+   * For non-Error objects, this is typeof error (e.g., 'string', 'object', 'undefined').
+   */
+  readonly errorType: KnownErrorCategory | string;
   /** Human-readable explanation of why the error is or is not terminal */
   readonly reason: string;
 }

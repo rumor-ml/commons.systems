@@ -8,7 +8,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { hasPrototypePollution, safeJsonParse, validateWiggumState } from './utils.js';
-import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW, isValidStep } from '../constants.js';
+import { createWiggumState } from './types.js';
+import {
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE2_MONITOR_WORKFLOW,
+  isValidStep,
+} from '../constants.js';
 
 describe('hasPrototypePollution', () => {
   describe('basic attack vectors', () => {
@@ -468,5 +474,243 @@ describe('Performance and DoS Prevention', () => {
 
     assert.strictEqual(result, false);
     assert.ok(elapsed < 500, `Should complete reasonably fast, took ${elapsed}ms`);
+  });
+});
+
+describe('createWiggumState', () => {
+  describe('valid state creation', () => {
+    it('should create a valid WiggumState with required fields', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+      });
+
+      assert.strictEqual(state.iteration, 0);
+      assert.strictEqual(state.step, STEP_PHASE1_MONITOR_WORKFLOW);
+      assert.deepStrictEqual(state.completedSteps, []);
+      assert.strictEqual(state.phase, 'phase1');
+      assert.strictEqual(state.maxIterations, undefined);
+    });
+
+    it('should create a valid WiggumState with all optional fields', () => {
+      const state = createWiggumState({
+        iteration: 5,
+        step: STEP_PHASE1_PR_REVIEW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
+        phase: 'phase1',
+        maxIterations: 15,
+        completedAgents: ['agent1', 'agent2'],
+        pendingCompletionAgents: ['agent3'],
+      });
+
+      assert.strictEqual(state.iteration, 5);
+      assert.strictEqual(state.step, STEP_PHASE1_PR_REVIEW);
+      assert.deepStrictEqual(state.completedSteps, [STEP_PHASE1_MONITOR_WORKFLOW]);
+      assert.strictEqual(state.phase, 'phase1');
+      assert.strictEqual(state.maxIterations, 15);
+      assert.deepStrictEqual(state.completedAgents, ['agent1', 'agent2']);
+      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent3']);
+    });
+
+    it('should create a valid phase2 state', () => {
+      const state = createWiggumState({
+        iteration: 1,
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW, 'p1-3', 'p1-4'],
+        phase: 'phase2',
+      });
+
+      assert.strictEqual(state.step, STEP_PHASE2_MONITOR_WORKFLOW);
+      assert.strictEqual(state.phase, 'phase2');
+    });
+  });
+
+  describe('validation errors', () => {
+    it('should throw for negative iteration', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: -1,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase1',
+          }),
+        /iteration must be non-negative/
+      );
+    });
+
+    it('should throw for invalid step', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: 'invalid-step' as typeof STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase1',
+          }),
+        /Invalid enum value/
+      );
+    });
+
+    it('should throw for invalid phase', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase3' as 'phase1',
+          }),
+        /Invalid enum value/
+      );
+    });
+
+    it('should throw for non-integer maxIterations', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase1',
+            maxIterations: 5.5,
+          }),
+        /Expected integer/
+      );
+    });
+
+    it('should throw for zero maxIterations', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase1',
+            maxIterations: 0,
+          }),
+        /maxIterations must be positive/
+      );
+    });
+
+    it('should throw when completedSteps contain future steps', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [STEP_PHASE1_PR_REVIEW], // p1-2 comes after p1-1
+            phase: 'phase1',
+          }),
+        /completedSteps must only contain steps before current step/
+      );
+    });
+
+    it('should throw for phase-step mismatch', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE2_MONITOR_WORKFLOW, // p2-1 in phase1
+            completedSteps: [],
+            phase: 'phase1',
+          }),
+        /phase and step\/completedSteps prefixes must be consistent/
+      );
+    });
+
+    it('should throw when agent appears in both completedAgents and pendingCompletionAgents', () => {
+      assert.throws(
+        () =>
+          createWiggumState({
+            iteration: 0,
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            completedSteps: [],
+            phase: 'phase1',
+            completedAgents: ['agent1', 'agent2'],
+            pendingCompletionAgents: ['agent2', 'agent3'], // agent2 is in both
+          }),
+        /completedAgents and pendingCompletionAgents must be mutually exclusive/
+      );
+    });
+
+    it('should allow disjoint completedAgents and pendingCompletionAgents', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+        completedAgents: ['agent1', 'agent2'],
+        pendingCompletionAgents: ['agent3', 'agent4'],
+      });
+
+      assert.deepStrictEqual(state.completedAgents, ['agent1', 'agent2']);
+      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent3', 'agent4']);
+    });
+
+    it('should allow completedAgents without pendingCompletionAgents', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+        completedAgents: ['agent1'],
+      });
+
+      assert.deepStrictEqual(state.completedAgents, ['agent1']);
+      assert.strictEqual(state.pendingCompletionAgents, undefined);
+    });
+
+    it('should allow pendingCompletionAgents without completedAgents', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+        pendingCompletionAgents: ['agent1'],
+      });
+
+      assert.strictEqual(state.completedAgents, undefined);
+      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent1']);
+    });
+
+    it('should allow empty arrays for both completedAgents and pendingCompletionAgents', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+        completedAgents: [],
+        pendingCompletionAgents: [],
+      });
+
+      assert.deepStrictEqual(state.completedAgents, []);
+      assert.deepStrictEqual(state.pendingCompletionAgents, []);
+    });
+  });
+
+  describe('immutability guarantee', () => {
+    it('should return a state that matches WiggumState interface', () => {
+      const state = createWiggumState({
+        iteration: 0,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        completedSteps: [],
+        phase: 'phase1',
+      });
+
+      // Verify the state has all required properties
+      assert.ok('iteration' in state);
+      assert.ok('step' in state);
+      assert.ok('completedSteps' in state);
+      assert.ok('phase' in state);
+
+      // Verify types
+      assert.strictEqual(typeof state.iteration, 'number');
+      assert.strictEqual(typeof state.step, 'string');
+      assert.ok(Array.isArray(state.completedSteps));
+      assert.strictEqual(typeof state.phase, 'string');
+    });
   });
 });

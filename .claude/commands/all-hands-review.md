@@ -102,12 +102,24 @@ This returns minimal issue references (ID, title, agent, scope, priority) withou
 
 ## Step 4: Create Todo List
 
-Create a todo list from the issue references to track implementation work:
+Create **one todo item per issue** from the issue references returned by `wiggum_list_issues`:
 
-1. Group issues by scope (in-scope vs out-of-scope)
-2. Create todo items for each in-scope issue
-3. Create todo items for each out-of-scope issue
-4. Mark all items as "pending" initially
+For each issue in the response, create a todo item:
+
+- **content**: `[{scope}] {issue_id}: {title}` (e.g., `[in-scope] code-reviewer-in-scope-0: Missing error handling`)
+- **activeForm**: `Fixing {title}` for in-scope, `Tracking {title}` for out-of-scope
+- **status**: `pending`
+
+Example todo list structure:
+
+```
+☐ [out-of-scope] code-reviewer-out-of-scope-0: Consider adding logging
+☐ [out-of-scope] silent-failure-hunter-out-of-scope-0: Future improvement
+☐ [in-scope] code-simplifier-in-scope-0: Duplicate function
+☐ [in-scope] comment-analyzer-in-scope-0: Stale comment
+```
+
+This allows users to track progress on each individual issue.
 
 ## Step 5: Launch Implementation Agents
 

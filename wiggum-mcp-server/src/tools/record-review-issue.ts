@@ -28,13 +28,14 @@ import { detectCurrentState } from '../state/detector.js';
 import { postPRComment } from '../utils/gh-cli.js';
 import { ghCli } from '../utils/gh-cli.js';
 import { logger } from '../utils/logger.js';
-import { ValidationError } from '../utils/errors.js';
+import { FilesystemError, ValidationError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import type { IssueRecord } from './manifest-types.js';
+import { ReviewAgentNameSchema } from './manifest-types.js';
 
 // Zod schema for input validation
 export const RecordReviewIssueInputSchema = z.object({
-  agent_name: z.string().min(1, 'agent_name cannot be empty'),
+  agent_name: ReviewAgentNameSchema,
   scope: z.enum(['in-scope', 'out-of-scope'], {
     errorMap: () => ({ message: 'scope must be either "in-scope" or "out-of-scope"' }),
   }),
@@ -77,8 +78,11 @@ function generateManifestFilename(agentName: string, scope: string): string {
 /**
  * Get or create manifest directory
  * Creates $(pwd)/tmp/wiggum directory if it doesn't exist
+ *
+ * NOTE: This differs from getManifestDir() in manifest-utils.ts which only returns
+ * the path without creating it. This function is used for write operations.
  */
-function getManifestDir(): string {
+function getOrCreateManifestDir(): string {
   const cwd = process.cwd();
   const manifestDir = join(cwd, 'tmp', 'wiggum');
 
@@ -93,16 +97,18 @@ function getManifestDir(): string {
 /**
  * Write issue to a new manifest file
  *
- * Creates a new manifest file for each issue. Each file gets a unique timestamp
- * and random suffix to prevent race conditions when multiple agents run concurrently.
+ * Creates a unique manifest file for each issue using timestamp + 4-byte random suffix.
+ * This prevents race conditions when multiple agents run concurrently.
  *
- * NOTE: Despite the function name, this always creates a NEW file because
- * generateManifestFilename() includes a timestamp and random suffix that ensures
- * each call generates a unique filename. The "append to existing" logic exists
- * only as a defensive measure in case of filename collision (extremely unlikely).
+ * TODO(#983): Rename function to writeIssueToManifest - name is misleading
+ *
+ * Despite the function name, this effectively always creates a NEW file. The filename
+ * includes both a millisecond timestamp and 8-character random hex suffix (4 bytes),
+ * making collisions cryptographically unlikely (~1 in 4 billion per millisecond).
+ * The append-to-existing logic handles this theoretical edge case defensively.
  */
 function appendToManifest(issue: IssueRecord): string {
-  const manifestDir = getManifestDir();
+  const manifestDir = getOrCreateManifestDir();
   const filename = generateManifestFilename(issue.agent_name, issue.scope);
   const filepath = join(manifestDir, filename);
 
@@ -131,22 +137,58 @@ function appendToManifest(issue: IssueRecord): string {
     return filepath;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as NodeJS.ErrnoException).code;
+
+    // Classify error and provide specific guidance
+    let errorMessage: string;
+
+    if (errorCode === 'ENOSPC') {
+      errorMessage =
+        `Cannot write manifest file - disk is full: ${filepath}. ` +
+        `Free up disk space and retry the operation.`;
+    } else if (errorCode === 'EACCES') {
+      errorMessage =
+        `Cannot write manifest file - permission denied: ${filepath}. ` +
+        `Ensure the process has write permissions to tmp/wiggum directory.`;
+    } else if (errorCode === 'EROFS') {
+      errorMessage =
+        `Cannot write manifest file - filesystem is read-only: ${filepath}. ` +
+        `This is a system configuration issue.`;
+    } else if (error instanceof SyntaxError) {
+      // JSON parse error when reading existing manifest
+      errorMessage =
+        `Cannot append to manifest - existing file is corrupted: ${filepath}. ` +
+        `Parse error: ${errorMsg}. Delete the file and retry.`;
+    } else {
+      errorMessage =
+        `Failed to write manifest file: ${errorMsg}. ` +
+        `Ensure the tmp/wiggum directory exists and is writable.`;
+    }
+
     logger.error('Failed to write manifest file', {
       filepath,
       error: errorMsg,
+      errorCode,
       agentName: issue.agent_name,
+      impact: 'Review issue will not be recorded',
     });
-    throw new ValidationError(
-      `Failed to write manifest file: ${errorMsg}. ` +
-        `Ensure the tmp/wiggum directory is writable.`
+
+    throw new FilesystemError(
+      errorMessage,
+      filepath,
+      error instanceof Error ? error : new Error(errorMsg),
+      undefined,
+      errorCode
     );
   }
 }
 
 /**
  * Format issue as GitHub comment markdown
+ *
+ * Exported for testing.
  */
-function formatIssueComment(issue: IssueRecord): string {
+export function formatIssueComment(issue: IssueRecord): string {
   const priorityEmoji = issue.priority === 'high' ? '🔴' : '🔵';
   const scopeLabel = issue.scope === 'in-scope' ? 'In-Scope' : 'Out-of-Scope';
 
@@ -235,6 +277,12 @@ async function postIssueComment(issue: IssueRecord): Promise<void> {
 
 /**
  * Record a review issue to the manifest and post as GitHub comment
+ *
+ * Error handling strategy: "Best effort" approach to prevent data loss
+ * - Try manifest write first
+ * - If manifest fails, still try to post GitHub comment (issue visible, not tracked)
+ * - If GitHub fails but manifest succeeded (issue tracked, not visible)
+ * - If both fail, throw with all details for manual recovery
  */
 export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<ToolResult> {
   logger.info('wiggum_record_review_issue', {
@@ -257,13 +305,41 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     timestamp: new Date().toISOString(),
   };
 
-  // Append to manifest file
-  const filepath = appendToManifest(issue);
+  let filepath: string | undefined;
+  let manifestError: string | undefined;
 
-  // Post to GitHub
-  await postIssueComment(issue);
+  // Try to append to manifest
+  try {
+    filepath = appendToManifest(issue);
+  } catch (error) {
+    manifestError = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to write manifest file - will still try GitHub comment', {
+      agentName: input.agent_name,
+      error: manifestError,
+      impact: 'Issue will not be in manifest but may be posted as GitHub comment',
+    });
+  }
 
-  const successMessage = `✅ Recorded review issue from ${input.agent_name}
+  // Try to post to GitHub
+  let commentError: string | undefined;
+  try {
+    await postIssueComment(issue);
+  } catch (error) {
+    commentError = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to post GitHub comment', {
+      agentName: input.agent_name,
+      error: commentError,
+      manifestSucceeded: filepath !== undefined,
+      impact: filepath
+        ? 'Issue is in manifest but not visible on GitHub'
+        : 'Issue completely lost - neither in manifest nor on GitHub',
+    });
+  }
+
+  // Handle the four possible outcomes
+  if (filepath && !commentError) {
+    // Full success
+    const successMessage = `✅ Recorded review issue from ${input.agent_name}
 
 **Scope:** ${input.scope}
 **Priority:** ${input.priority}
@@ -275,7 +351,64 @@ Issue has been:
 
 Manifest file contains all issues from this agent and scope.`;
 
-  return {
-    content: [{ type: 'text', text: successMessage }],
-  };
+    return {
+      content: [{ type: 'text', text: successMessage }],
+    };
+  }
+
+  if (filepath && commentError) {
+    // Manifest succeeded, GitHub failed
+    const partialMessage = `⚠️ Partial success: Recorded review issue from ${input.agent_name}
+
+**Scope:** ${input.scope}
+**Priority:** ${input.priority}
+**Title:** ${input.title}
+
+Issue has been:
+1. ✅ Appended to manifest file: ${filepath}
+2. ❌ Failed to post GitHub comment: ${commentError}
+
+**WARNING:** This issue is tracked in the manifest but NOT visible on GitHub.
+Check GitHub API rate limits and connectivity. Issue details:
+
+${input.description}`;
+
+    return {
+      content: [{ type: 'text', text: partialMessage }],
+      isError: false, // Partial success - manifest worked
+    };
+  }
+
+  if (!filepath && !commentError) {
+    // Manifest failed, GitHub succeeded
+    const partialMessage = `⚠️ Partial success: Recorded review issue from ${input.agent_name}
+
+**Scope:** ${input.scope}
+**Priority:** ${input.priority}
+**Title:** ${input.title}
+
+Issue has been:
+1. ❌ Failed to write to manifest file: ${manifestError}
+2. ✅ Posted as GitHub comment
+
+**WARNING:** This issue will NOT be included in manifest-based agent completion tracking.
+Manual verification required. Check filesystem permissions and disk space.`;
+
+    return {
+      content: [{ type: 'text', text: partialMessage }],
+      isError: false, // Partial success - GitHub comment worked
+    };
+  }
+
+  // Both failed - total failure, throw with all details for manual recovery
+  throw new ValidationError(
+    `Failed to record review issue from ${input.agent_name}:\n\n` +
+      `1. Manifest write failed: ${manifestError}\n` +
+      `2. GitHub comment failed: ${commentError}\n\n` +
+      `Issue details (COPY THIS TO GITHUB MANUALLY):\n` +
+      `Title: ${input.title}\n` +
+      `Description: ${input.description}\n` +
+      `Location: ${input.location || 'N/A'}\n\n` +
+      `Check filesystem permissions, disk space, and GitHub API connectivity.`
+  );
 }

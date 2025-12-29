@@ -316,7 +316,7 @@ After the agent completes, the workflow will proceed to the next step automatica
 /**
  * Generate parallel fix instructions for scope-separated review results
  *
- * When using the new file-based scope-separated format (in_scope_files + out_of_scope_files),
+ * When using the new file-based scope-separated format (in_scope_result_files + out_of_scope_result_files),
  * triage has already been done by the review agents. We can launch TWO agents in PARALLEL:
  * 1. One to plan and fix in-scope issues
  * 2. One to track out-of-scope recommendations
@@ -325,10 +325,10 @@ After the agent completes, the workflow will proceed to the next step automatica
  *
  * @param issueNumber - GitHub issue number
  * @param reviewType - Review type label (e.g., "PR", "Security")
- * @param inScopeCount - Number of in-scope issues
- * @param inScopeFiles - Array of file paths containing in-scope results
- * @param outOfScopeCount - Number of out-of-scope recommendations
- * @param outOfScopeFiles - Array of file paths containing out-of-scope results
+ * @param inScopeCount - Number of in-scope issues (total issue count, not file count)
+ * @param inScopeFiles - Array of result file paths containing in-scope results
+ * @param outOfScopeCount - Number of out-of-scope recommendations (total issue count, not file count)
+ * @param outOfScopeFiles - Array of result file paths containing out-of-scope results
  * @returns Instructions for parallel fix execution
  */
 export function generateScopeSeparatedFixInstructions(
@@ -339,6 +339,7 @@ export function generateScopeSeparatedFixInstructions(
   outOfScopeCount: number,
   outOfScopeFiles: readonly string[]
 ): string {
+  // TODO(#986): Consider deprecating unused parameters (issueNumber, inScopeFiles, outOfScopeFiles) in a future version bump
   // issueNumber, inScopeFiles, and outOfScopeFiles are kept in signature for backwards compatibility
   // but are no longer used since we switched to wiggum_list_issues workflow
   void issueNumber;
