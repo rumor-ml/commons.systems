@@ -39,12 +39,13 @@
   build_mcp_server() {
     local server_dir="$1"
     local server_name=$(basename "$server_dir")
+    local log_file="tmp/infrastructure/${server_name}-build.log"
 
     echo "Building $server_name..."
-    if (cd "$server_dir" && npm run build > tmp/infrastructure/mcp-build.log 2>&1); then
+    if (cd "$server_dir" && npm run build > "../$log_file" 2>&1); then
       echo "  ✓ $server_name built successfully"
     else
-      echo "  ⚠ Warning: $server_name build failed (check tmp/infrastructure/mcp-build.log)"
+      echo "  ⚠ Warning: $server_name build failed (check $log_file)"
     fi
   }
 
