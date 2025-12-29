@@ -10,6 +10,7 @@ import assert from 'node:assert';
 import {
   REVIEW_AGENT_NAMES,
   getCompletedAgents,
+  updateAgentCompletionStatus,
   isManifestFile,
   parseManifestFilename,
   getManifestDir,
@@ -327,6 +328,321 @@ describe('manifest-utils', () => {
 
         // Total count
         assert.strictEqual(completed.length, 5);
+      });
+    });
+  });
+
+  describe('updateAgentCompletionStatus', () => {
+    describe('2-strike verification logic', () => {
+      it('should mark agent as pending on first zero high-priority iteration', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [],
+              high_priority_count: 0,
+            },
+          ],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        assert.ok(result.pendingCompletionAgents.includes('code-reviewer'));
+        assert.ok(!result.completedAgents.includes('code-reviewer'));
+        assert.strictEqual(result.pendingCompletionAgents.length, 6); // All agents with 0 issues
+      });
+
+      it('should mark agent as complete on second consecutive zero high-priority iteration', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [],
+              high_priority_count: 0,
+            },
+          ],
+        ]);
+
+        // Second iteration - agent was pending, still has 0 issues
+        const result = updateAgentCompletionStatus(manifests, ['code-reviewer'], []);
+
+        assert.ok(result.completedAgents.includes('code-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+
+      it('should reset pending agent to active if issues are found', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'in-scope' as const,
+                  priority: 'high' as const,
+                  title: 'New issue',
+                  description: 'Found after pending',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+        ]);
+
+        // Agent was pending, but now has issues - should reset to active
+        const result = updateAgentCompletionStatus(manifests, ['code-reviewer'], []);
+
+        assert.ok(!result.completedAgents.includes('code-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+
+      it('should never revert completed agents', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'in-scope' as const,
+                  priority: 'high' as const,
+                  title: 'New issue',
+                  description: 'Found after completion',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+        ]);
+
+        // Agent was completed - should stay completed even with new issues
+        const result = updateAgentCompletionStatus(manifests, [], ['code-reviewer']);
+
+        assert.ok(result.completedAgents.includes('code-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+    });
+
+    describe('multiple agents with different states', () => {
+      it('should handle mixed agent states correctly', () => {
+        const manifests = new Map([
+          // code-reviewer: has issues (active)
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'in-scope' as const,
+                  priority: 'high' as const,
+                  title: 'Issue',
+                  description: 'Test',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+          // silent-failure-hunter: no issues (will be pending)
+          [
+            'silent-failure-hunter-in-scope',
+            {
+              agent_name: 'silent-failure-hunter',
+              scope: 'in-scope' as const,
+              issues: [],
+              high_priority_count: 0,
+            },
+          ],
+          // code-simplifier: no manifest (will be pending)
+        ]);
+
+        const result = updateAgentCompletionStatus(
+          manifests,
+          ['comment-analyzer'], // was pending
+          ['pr-test-analyzer'] // was completed
+        );
+
+        // Active agent (has issues)
+        assert.ok(!result.completedAgents.includes('code-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('code-reviewer'));
+
+        // New pending agents (first 0)
+        assert.ok(result.pendingCompletionAgents.includes('silent-failure-hunter'));
+        assert.ok(result.pendingCompletionAgents.includes('code-simplifier'));
+
+        // Pending -> Complete (second 0)
+        assert.ok(result.completedAgents.includes('comment-analyzer'));
+        assert.ok(!result.pendingCompletionAgents.includes('comment-analyzer'));
+
+        // Already completed (persists)
+        assert.ok(result.completedAgents.includes('pr-test-analyzer'));
+        assert.ok(!result.pendingCompletionAgents.includes('pr-test-analyzer'));
+      });
+
+      it('should handle all agents pending', () => {
+        const manifests = new Map(); // No manifests = all agents have 0 issues
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // All 6 agents should be pending
+        assert.strictEqual(result.pendingCompletionAgents.length, 6);
+        assert.strictEqual(result.completedAgents.length, 0);
+      });
+
+      it('should handle all agents completing together', () => {
+        const manifests = new Map(); // No manifests = all agents still have 0 issues
+
+        // All were pending, now all should complete
+        const result = updateAgentCompletionStatus(
+          manifests,
+          [...REVIEW_AGENT_NAMES], // all pending
+          []
+        );
+
+        // All 6 agents should be completed
+        assert.strictEqual(result.completedAgents.length, 6);
+        assert.strictEqual(result.pendingCompletionAgents.length, 0);
+      });
+    });
+
+    describe('out-of-scope issues behavior', () => {
+      it('should ignore out-of-scope high-priority issues for completion', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-out-of-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'out-of-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'out-of-scope' as const,
+                  priority: 'high' as const,
+                  title: 'Out of scope',
+                  description: 'Test',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+        ]);
+
+        // Out-of-scope issues should not block completion
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        assert.ok(result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+
+      it('should handle mix of in-scope and out-of-scope manifests', () => {
+        const manifests = new Map([
+          // In-scope with issues (blocks completion)
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'in-scope' as const,
+                  priority: 'high' as const,
+                  title: 'In scope',
+                  description: 'Test',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+          // Out-of-scope with issues (doesn't block)
+          [
+            'code-reviewer-out-of-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'out-of-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'out-of-scope' as const,
+                  priority: 'high' as const,
+                  title: 'Out of scope',
+                  description: 'Test',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 1,
+            },
+          ],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // In-scope issues block completion
+        assert.ok(!result.completedAgents.includes('code-reviewer'));
+        assert.ok(!result.pendingCompletionAgents.includes('code-reviewer'));
+      });
+    });
+
+    describe('edge cases', () => {
+      it('should handle empty previous states', () => {
+        const manifests = new Map();
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // Should work without errors
+        assert.ok(Array.isArray(result.completedAgents));
+        assert.ok(Array.isArray(result.pendingCompletionAgents));
+      });
+
+      it('should preserve previously completed agents order', () => {
+        const manifests = new Map();
+        const previousCompleted = ['code-reviewer', 'code-simplifier'];
+
+        const result = updateAgentCompletionStatus(manifests, [], previousCompleted);
+
+        // Previously completed agents should appear first in same order
+        assert.strictEqual(result.completedAgents[0], 'code-reviewer');
+        assert.strictEqual(result.completedAgents[1], 'code-simplifier');
+      });
+
+      it('should handle agent with only low-priority in-scope issues', () => {
+        const manifests = new Map([
+          [
+            'code-reviewer-in-scope',
+            {
+              agent_name: 'code-reviewer',
+              scope: 'in-scope' as const,
+              issues: [
+                {
+                  agent_name: 'code-reviewer',
+                  scope: 'in-scope' as const,
+                  priority: 'low' as const,
+                  title: 'Low priority',
+                  description: 'Test',
+                  timestamp: '2025-01-01T00:00:00Z',
+                },
+              ],
+              high_priority_count: 0, // Only low priority
+            },
+          ],
+        ]);
+
+        const result = updateAgentCompletionStatus(manifests, [], []);
+
+        // Should be pending (0 high-priority issues)
+        assert.ok(result.pendingCompletionAgents.includes('code-reviewer'));
       });
     });
   });

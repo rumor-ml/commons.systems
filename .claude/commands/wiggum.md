@@ -364,60 +364,47 @@ Call after completing any Plan+Fix cycle. **Returns next step instructions.**
 
 ```typescript
 mcp__wiggum__wiggum_complete_fix({
-  fix_description: 'Brief description of what was fixed or why no fixes were needed',
-  has_in_scope_fixes: true, // or false
+  fix_description: 'Brief description of what was fixed',
   out_of_scope_issues: [123, 456], // Optional: issue numbers for out-of-scope recommendations
 });
 ```
 
 **Parameters:**
 
-- `fix_description` (required): Brief description of what was fixed or why issues were ignored
-- `has_in_scope_fixes` (required): Boolean indicating if any in-scope code changes were made
-  - `true`: Made code changes — the tool will clear completed steps and return re-verification instructions
-  - `false`: No code changes — the tool will mark step complete and advance to next step
+- `fix_description` (required): Brief description of what was fixed
 - `out_of_scope_issues` (optional): Array of issue numbers for recommendations that should be tracked separately
+- `has_in_scope_fixes` (DEPRECATED): This parameter is ignored. The tool now reads manifests to determine fix status automatically.
 
 **Tool Behavior:**
 
-- If `has_in_scope_fixes: true`:
-  - Posts fix documentation to PR
-  - Clears completed steps to re-verify from current step
-  - Returns instructions to re-verify the step where issues were found
-- If `has_in_scope_fixes: false`:
-  - Posts minimal state comment with title "${step} - Complete (No In-Scope Fixes)"
-  - Marks current step as complete (adds to completedSteps array)
-  - Advances to next workflow step
+The tool reads manifest files to determine which agents found high-priority in-scope issues:
+
+1. **Agents with 0 high-priority in-scope issues for first time** → Added to `pendingCompletionAgents` (will run one more time for verification)
+2. **Agents with 0 high-priority issues for second consecutive time** → Moved to `completedAgents` (will not run again this step)
+3. **Agents that found issues after being pending** → Reset to active (removed from pending)
+4. **All agents complete** → Step advances to next workflow step
+5. **Some agents still active** → Returns instructions to re-run review with active agents only
+
+**2-Strike Agent Completion:**
+
+Agents use a "2-strike" verification rule to prevent false completions:
+
+- First time finding 0 high-priority issues → "pending" (verified once more)
+- Second consecutive time → "complete" (stops running)
+
+This ensures agents don't stop prematurely due to transient code states.
 
 **Common Scenarios:**
 
 ```typescript
-// Scenario 1: Stale Code Quality Comments (issue #430)
-// All comments reference already-fixed code from earlier commits
+// Scenario 1: After implementing fixes
 wiggum_complete_fix({
-  fix_description:
-    'All 3 code quality comments evaluated - all reference already-fixed code from earlier commits',
-  has_in_scope_fixes: false,
+  fix_description: 'Fixed type errors in manifest-utils.ts and added validation',
 });
 
-// Scenario 2: Valid Issues Found and Fixed
+// Scenario 2: With out-of-scope issues to track
 wiggum_complete_fix({
-  fix_description: 'Fixed 2 code quality issues: removed unused imports, fixed type errors',
-  has_in_scope_fixes: true,
-});
-
-// Scenario 3: Mixed Valid and Stale
-// Fixed some issues but others were stale - ANY fixes require re-verification
-wiggum_complete_fix({
-  fix_description: 'Fixed 1 valid issue (type error), ignored 2 stale comments (already fixed)',
-  has_in_scope_fixes: true, // Made fixes - needs re-verification
-});
-
-// Scenario 4: All Out-of-Scope
-// No in-scope fixes, but created issues for broader improvements
-wiggum_complete_fix({
-  fix_description: 'All 5 recommendations are out-of-scope architectural changes',
-  has_in_scope_fixes: false,
+  fix_description: 'Fixed code quality issues',
   out_of_scope_issues: [567, 568, 569],
 });
 ```

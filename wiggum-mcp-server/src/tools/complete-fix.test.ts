@@ -154,13 +154,17 @@ describe('complete-fix tool', () => {
       }
     });
 
-    it('should require has_in_scope_fixes field', () => {
+    it('should allow has_in_scope_fixes to be omitted (deprecated field)', () => {
       const input = {
         fix_description: 'Fixed the issue',
       };
 
       const result = CompleteFixInputSchema.safeParse(input);
-      assert.strictEqual(result.success, false);
+      // has_in_scope_fixes is now optional (deprecated)
+      assert.strictEqual(result.success, true);
+      if (result.success) {
+        assert.strictEqual(result.data.has_in_scope_fixes, undefined);
+      }
     });
   });
 

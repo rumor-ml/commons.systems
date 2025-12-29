@@ -21,7 +21,11 @@ import type { WiggumPhase } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
-import { readManifestFiles, getCompletedAgents, cleanupManifestFiles } from './manifest-utils.js';
+import {
+  readManifestFiles,
+  cleanupManifestFiles,
+  updateAgentCompletionStatus,
+} from './manifest-utils.js';
 
 /**
  * Get target number (issue or PR) based on current phase
@@ -78,8 +82,9 @@ export const CompleteFixInputSchema = z.object({
   fix_description: z.string().describe('Brief description of what was fixed'),
   has_in_scope_fixes: z
     .boolean()
+    .optional()
     .describe(
-      'Whether any in-scope fixes were made. If false, skips state update and comment posting.'
+      'DEPRECATED: Tool now reads manifests to determine fix status. This parameter is ignored but kept for backward compatibility.'
     ),
   out_of_scope_issues: z
     .array(z.number())
@@ -171,16 +176,50 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     currentStep: state.wiggum.step,
     fixDescription: input.fix_description,
     hasInScopeFixes: input.has_in_scope_fixes,
+    deprecationNote:
+      input.has_in_scope_fixes !== undefined
+        ? 'has_in_scope_fixes parameter is deprecated - using manifest-based detection'
+        : undefined,
   });
 
-  // If no in-scope fixes were made, mark step complete and proceed to next step
-  if (!input.has_in_scope_fixes) {
-    logger.info('No in-scope fixes made - marking step complete and proceeding to next step', {
-      phase,
-      targetNumber,
-      outOfScopeIssues: input.out_of_scope_issues,
-      currentStep: state.wiggum.step,
-    });
+  // Read manifests to determine current state
+  const manifests = readManifestFiles();
+
+  // Update agent completion status using 2-strike logic
+  const { completedAgents, pendingCompletionAgents } = updateAgentCompletionStatus(
+    manifests,
+    state.wiggum.pendingCompletionAgents ?? [],
+    state.wiggum.completedAgents ?? []
+  );
+
+  // Determine if there are any high-priority in-scope issues remaining
+  let totalHighPriorityIssues = 0;
+  for (const [key, manifest] of manifests.entries()) {
+    if (key.endsWith('-in-scope')) {
+      totalHighPriorityIssues += manifest.high_priority_count;
+    }
+  }
+
+  logger.info('Manifest analysis complete', {
+    totalHighPriorityIssues,
+    completedAgents,
+    pendingCompletionAgents,
+    totalManifests: manifests.size,
+  });
+
+  // If no high-priority in-scope issues remain, mark step complete and proceed to next step
+  if (totalHighPriorityIssues === 0) {
+    logger.info(
+      'No high-priority in-scope issues - marking step complete and proceeding to next step',
+      {
+        phase,
+        targetNumber,
+        outOfScopeIssues: input.out_of_scope_issues,
+        currentStep: state.wiggum.step,
+        completedAgents,
+        pendingCompletionAgents,
+      }
+    );
 
     // Mark current step as complete and advance to next step
     // Use transition helper to ensure valid state (issue #799)
@@ -190,6 +229,9 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     if (input.maxIterations !== undefined) {
       newState = { ...newState, maxIterations: input.maxIterations };
     }
+
+    // Clean up manifest files after successful step completion
+    await cleanupManifestFiles();
 
     logger.info('Updating wiggum state (fast-path)', {
       phase,
@@ -299,16 +341,7 @@ To resolve:
     ),
   });
 
-  // Read manifests and determine which agents are complete
-  const manifests = readManifestFiles();
-  const completedAgents = getCompletedAgents(manifests);
-
-  logger.info('Determined completed agents from manifests', {
-    completedAgents,
-    manifestCount: manifests.size,
-  });
-
-  // State remains at same step but with filtered completedSteps and updated completedAgents
+  // State remains at same step but with filtered completedSteps and updated agent tracking
   const newState: WiggumState = {
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
@@ -316,6 +349,7 @@ To resolve:
     phase: state.wiggum.phase,
     maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
     completedAgents,
+    pendingCompletionAgents,
   };
 
   logger.info('Posting wiggum state comment', {

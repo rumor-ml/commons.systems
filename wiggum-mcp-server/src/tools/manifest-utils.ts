@@ -289,12 +289,13 @@ export function readManifestFiles(): Map<string, AgentManifest> {
 }
 
 /**
- * Determine which agents should be marked complete
+ * Determine which agents should be marked complete (DEPRECATED - use updateAgentCompletionStatus)
  *
  * An agent is complete if:
  * 1. No in-scope manifest exists (found zero issues), OR
  * 2. Has in-scope manifest but zero high-priority issues
  *
+ * @deprecated Use updateAgentCompletionStatus instead for 2-strike completion logic
  * @param manifests - Map of agent manifests from readManifestFiles
  * @returns Array of agent names that are complete
  */
@@ -323,6 +324,83 @@ export function getCompletedAgents(manifests: Map<string, AgentManifest>): strin
   }
 
   return completedAgents;
+}
+
+/**
+ * Update agent completion status using 2-strike verification logic
+ *
+ * Implements a 2-strike completion rule:
+ * - First time agent finds 0 high-priority in-scope issues → "pending completion" (runs again)
+ * - Second consecutive time → marked complete (stops running)
+ * - If agent finds issues after being pending → reset to active (removed from both lists)
+ *
+ * This prevents false completions due to transient code states while still achieving
+ * the optimization goal of skipping agents that have no more work to do.
+ *
+ * @param manifests - Map of agent manifests from readManifestFiles
+ * @param previousPending - Array of agents pending completion from previous iteration
+ * @param previousCompleted - Array of completed agents from previous iteration
+ * @returns Object with completedAgents and pendingCompletionAgents arrays
+ *
+ * @example
+ * // Run 1: agent finds 0 issues
+ * updateAgentCompletionStatus(manifests, [], [])
+ * // Returns: { completedAgents: [], pendingCompletionAgents: ['code-reviewer'] }
+ *
+ * // Run 2: agent still finds 0 issues
+ * updateAgentCompletionStatus(manifests, ['code-reviewer'], [])
+ * // Returns: { completedAgents: ['code-reviewer'], pendingCompletionAgents: [] }
+ *
+ * // Run 3: agent finds issues after being pending
+ * updateAgentCompletionStatus(manifestsWithIssues, ['code-reviewer'], [])
+ * // Returns: { completedAgents: [], pendingCompletionAgents: [] } // Reset to active
+ */
+export function updateAgentCompletionStatus(
+  manifests: Map<string, AgentManifest>,
+  previousPending: readonly string[],
+  previousCompleted: readonly string[]
+): { completedAgents: string[]; pendingCompletionAgents: string[] } {
+  const completedAgents: string[] = [...previousCompleted];
+  const pendingCompletionAgents: string[] = [];
+
+  for (const agentName of REVIEW_AGENT_NAMES) {
+    // Skip already completed agents (never revert completion)
+    if (previousCompleted.includes(agentName)) {
+      continue;
+    }
+
+    const inScopeManifest = manifests.get(`${agentName}-in-scope`);
+    const hasHighPriorityIssues =
+      inScopeManifest !== undefined && inScopeManifest.high_priority_count > 0;
+
+    if (hasHighPriorityIssues) {
+      // Agent found issues - reset any pending status
+      // (implicitly not added to either list - back to active)
+      logger.info('Agent has work - resetting pending status if any', {
+        agentName,
+        highPriorityCount: inScopeManifest.high_priority_count,
+        wasPending: previousPending.includes(agentName),
+      });
+    } else if (previousPending.includes(agentName)) {
+      // Second consecutive 0 → COMPLETE (2-strike verification passed)
+      completedAgents.push(agentName);
+      logger.info('Agent marked complete after 2-strike verification', {
+        agentName,
+        reason: '2nd consecutive iteration with zero high-priority issues',
+        highPriorityCount: inScopeManifest?.high_priority_count ?? 0,
+      });
+    } else {
+      // First time 0 → PENDING (needs verification)
+      pendingCompletionAgents.push(agentName);
+      logger.info('Agent pending completion - will verify next iteration', {
+        agentName,
+        reason: '1st iteration with zero high-priority issues',
+        highPriorityCount: inScopeManifest?.high_priority_count ?? 0,
+      });
+    }
+  }
+
+  return { completedAgents, pendingCompletionAgents };
 }
 
 /**
