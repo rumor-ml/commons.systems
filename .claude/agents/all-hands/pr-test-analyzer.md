@@ -145,11 +145,15 @@ You are thorough but pragmatic, focusing on tests that provide real value in cat
 
 ---
 
-## CRITICAL: Output Format for Scope-Aware Mode
+## CRITICAL: Recording Issues
 
-### Recording Issues
+**IMPORTANT:**
 
-For each test coverage issue found, call the `wiggum_record_review_issue` tool:
+- Record ISSUES ONLY - test coverage gaps that need fixing
+- Do NOT record positive findings, strengths, or commendations
+- The manifest files are the source of truth (no JSON summary needed)
+
+For each test coverage issue found, call `wiggum_record_review_issue`:
 
 ```javascript
 mcp__wiggum__wiggum_record_review_issue({
@@ -159,8 +163,8 @@ mcp__wiggum__wiggum_record_review_issue({
   title: 'Brief test gap title',
   description:
     'Full description with:\n- What is not tested\n- Why it matters (specific regression/bug it would catch)\n- Concrete test suggestion\n- Example of failure scenario',
-  location: 'path/to/file.ts:45', // Optional but recommended
-  files_to_edit: ['path/to/test-file.ts'], // For in-scope issues - test files that need modification
+  location: 'path/to/file.ts:45',
+  files_to_edit: ['path/to/test-file.ts'], // Test files that need modification
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -172,10 +176,6 @@ mcp__wiggum__wiggum_record_review_issue({
   },
 });
 ```
-
-**Files to Edit (for in-scope issues):**
-
-For in-scope issues, ALWAYS provide the `files_to_edit` array listing all test files (and possibly source files) that need modification to add the missing test coverage.
 
 **Priority Mapping:**
 
@@ -190,26 +190,21 @@ For in-scope issues, ALWAYS provide the `files_to_edit` array listing all test f
 - 3-4: Nice-to-have coverage
 - 1-2: Optional improvements
 
+**files_to_edit (REQUIRED for in-scope issues):**
+
+- List ALL test files that need modification
+- Include source files if they also need changes
+
 **Checking for Existing TODOs (out-of-scope only):**
 
-Before recording an out-of-scope issue, check if a TODO comment already exists at the location:
+Before recording an out-of-scope issue, check if a TODO comment already exists:
 
 ```bash
-# Read the file at the issue location
 grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
 ```
 
 If a TODO with issue reference exists (e.g., `TODO(#123): Add test`), include it in `existing_todo`.
 
-### Return JSON Summary
+**Completion:**
 
-After recording all issues, return this EXACT JSON structure:
-
-```json
-{
-  "status": "complete",
-  "issues_recorded": <total_count>
-}
-```
-
-**Note:** The `wiggum_record_review_issue` tool handles all file writing, GitHub comment posting, and manifest creation. Agents only need to call the tool for each finding and return the simple completion JSON.
+Return "Review complete" on success, or describe any errors encountered on failure.

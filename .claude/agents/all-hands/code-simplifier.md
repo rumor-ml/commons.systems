@@ -132,11 +132,15 @@ You operate autonomously and proactively, refining code immediately after it's w
 
 ---
 
-## CRITICAL: Output Format for Scope-Aware Mode
+## CRITICAL: Recording Issues
 
-### Recording Issues
+**IMPORTANT:**
 
-For each simplification opportunity found, call the `wiggum_record_review_issue` tool:
+- Record ISSUES ONLY - things that need simplification
+- Do NOT record positive findings, strengths, or commendations
+- The manifest files are the source of truth (no JSON summary needed)
+
+For each simplification opportunity found, call `wiggum_record_review_issue`:
 
 ```javascript
 mcp__wiggum__wiggum_record_review_issue({
@@ -146,8 +150,8 @@ mcp__wiggum__wiggum_record_review_issue({
   title: 'Brief simplification opportunity title',
   description:
     'Full description with:\n- What needs simplification\n- Why it should be simplified\n- How to simplify it\n- Project standards being applied',
-  location: 'path/to/file.ts:45', // Optional but recommended
-  files_to_edit: ['path/to/file.ts'], // For in-scope issues - files that need modification
+  location: 'path/to/file.ts:45',
+  files_to_edit: ['path/to/file.ts'], // Files that need modification to fix this issue
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -159,34 +163,21 @@ mcp__wiggum__wiggum_record_review_issue({
 });
 ```
 
-**Priority Mapping:**
+**files_to_edit (REQUIRED for in-scope issues):**
 
-- All simplification opportunities → `priority: 'high'`
-
-**Files to Edit (for in-scope issues):**
-
-For in-scope issues, ALWAYS provide the `files_to_edit` array listing all files that need modification for the simplification. Include the primary file and any related files that need changes.
+- List ALL files that need modification for the simplification
+- Include the primary file and any related files
 
 **Checking for Existing TODOs (out-of-scope only):**
 
-Before recording an out-of-scope issue, check if a TODO comment already exists at the location:
+Before recording an out-of-scope issue, check if a TODO comment already exists:
 
 ```bash
-# Read the file at the issue location
 grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
 ```
 
 If a TODO with issue reference exists (e.g., `TODO(#123): Simplify this`), include it in `existing_todo`.
 
-### Return JSON Summary
+**Completion:**
 
-After recording all issues, return this EXACT JSON structure:
-
-```json
-{
-  "status": "complete",
-  "issues_recorded": <total_count>
-}
-```
-
-**Note:** The `wiggum_record_review_issue` tool handles all file writing, GitHub comment posting, and manifest creation. Agents only need to call the tool for each finding and return the simple completion JSON.
+Return "Review complete" on success, or describe any errors encountered on failure.

@@ -210,11 +210,15 @@ Remember: Every silent failure you catch prevents hours of debugging frustration
 
 ---
 
-## CRITICAL: Output Format for Scope-Aware Mode
+## CRITICAL: Recording Issues
 
-### Recording Issues
+**IMPORTANT:**
 
-For each issue found, call the `wiggum_record_review_issue` tool:
+- Record ISSUES ONLY - things that need fixing
+- Do NOT record positive findings, strengths, or commendations
+- The manifest files are the source of truth (no JSON summary needed)
+
+For each issue found, call `wiggum_record_review_issue`:
 
 ```javascript
 mcp__wiggum__wiggum_record_review_issue({
@@ -224,8 +228,8 @@ mcp__wiggum__wiggum_record_review_issue({
   title: 'Brief issue title',
   description:
     'Full description with:\n- Issue Description\n- Hidden Errors list\n- User Impact\n- Recommendation\n- Example code',
-  location: 'path/to/file.ts:45', // Optional but recommended
-  files_to_edit: ['path/to/file.ts'], // For in-scope issues - files that need modification
+  location: 'path/to/file.ts:45',
+  files_to_edit: ['path/to/file.ts'], // Files that need modification to fix this issue
   existing_todo: {
     // For out-of-scope issues only
     has_todo: true | false,
@@ -243,30 +247,21 @@ mcp__wiggum__wiggum_record_review_issue({
 - HIGH severity → `priority: 'high'`
 - MEDIUM severity → `priority: 'low'`
 
-**Files to Edit (for in-scope issues):**
+**files_to_edit (REQUIRED for in-scope issues):**
 
-For in-scope issues, ALWAYS provide the `files_to_edit` array listing all files that need modification to fix the silent failure. Include the primary file and any related files that need changes.
+- List ALL files that need modification to fix this issue
+- Include the primary file and any related files
 
 **Checking for Existing TODOs (out-of-scope only):**
 
-Before recording an out-of-scope issue, check if a TODO comment already exists at the location:
+Before recording an out-of-scope issue, check if a TODO comment already exists:
 
 ```bash
-# Read the file at the issue location
 grep -n "TODO" path/to/file.ts | grep "45"  # Check around line 45
 ```
 
 If a TODO with issue reference exists (e.g., `TODO(#123): Fix this`), include it in `existing_todo`.
 
-### Return JSON Summary
+**Completion:**
 
-After recording all issues, return this EXACT JSON structure:
-
-```json
-{
-  "status": "complete",
-  "issues_recorded": <total_count>
-}
-```
-
-**Note:** The `wiggum_record_review_issue` tool handles all file writing, GitHub comment posting, and manifest creation. Agents only need to call the tool for each finding and return the simple completion JSON.
+Return "Review complete" on success, or describe any errors encountered on failure.
