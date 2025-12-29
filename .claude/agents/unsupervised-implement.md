@@ -504,6 +504,18 @@ If 3 iterations of explore-plan-implement still have in-scope test failures:
 }
 ```
 
+## Response Guidelines
+
+**CRITICAL:** Keep your response MINIMAL to reduce token usage in the main orchestration loop.
+
+- **DO NOT** output verbose step-by-step logs
+- **DO NOT** narrate each action you're taking
+- **DO** work quietly and efficiently
+- **DO** return ONLY the structured JSON response
+- If errors occur, include error details in the JSON `reason` field, not as narrative text
+
+Your entire response to the main thread should be the JSON object only. No preamble, no summary, no explanation.
+
 ## Response Format
 
 Always return structured JSON at the end of your response:
