@@ -26,6 +26,7 @@ export interface WiggumState {
 /**
  * Git repository state
  */
+// TODO(#991): Add createGitState factory function for consistency with createWiggumState and createPRExists
 export interface GitState {
   readonly currentBranch: string;
   readonly isMainBranch: boolean;
@@ -68,6 +69,7 @@ export interface PRDoesNotExist {
   readonly exists: false;
 }
 
+// TODO(#990): Refactor IssueState to use discriminated union pattern like PRState for compile-time safety
 /**
  * Issue state from GitHub
  */

@@ -169,7 +169,7 @@ function formatResult(result: ListIssuesResult, scope: string): string {
 
 `;
 
-  // Group by agent
+  // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in read-manifests.ts
   const issuesByAgent = new Map<string, IssueReference[]>();
   for (const issue of result.issues) {
     if (!issuesByAgent.has(issue.agent_name)) {

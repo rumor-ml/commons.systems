@@ -430,22 +430,22 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-  // DEFENSIVE: This code path should be unreachable if retry logic is correct.
+  // Fallback for unclassified errors: TypeScript cannot prove all catch block paths
+  // return or throw, so we need this handler. This code can execute if:
+  //   - An error type we failed to classify (e.g., new GitHub API error format)
+  //   - A logic bug in the retry loop structure
   //
-  // TypeScript requires this because it cannot statically prove all code paths in the
-  // catch block either return or throw. While we believe all error types are classified,
-  // TypeScript's control flow analysis is conservative and requires exhaustive handling.
+  // This is NOT dead code - it's a legitimate handler for unexpected error types.
+  // The catch block's pattern matching (is404, isAuth, isRateLimit, isNetwork) covers
+  // known error patterns, but cannot guarantee coverage of all possible errors.
   //
-  // The retry loop SHOULD always exit via one of these paths:
+  // Expected exit paths from the retry loop:
   //   1. Return { success: true } on successful state update
   //   2. Throw immediately for critical errors (404, 401/403)
   //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
-  //   4. Throw for unexpected/unclassified errors
+  //   4. Throw for unexpected/unclassified errors (catch-all at end of catch block)
   //
-  // If this code executes at runtime, it indicates:
-  //   - An error type we failed to classify in the catch block
-  //   - A logic bug in the retry loop structure
-  // This is a programming error and should be investigated (issue #625).
+  // If this executes, it indicates a gap in error classification - investigate (issue #625).
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -693,22 +693,22 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-  // DEFENSIVE: This code path should be unreachable if retry logic is correct.
+  // Fallback for unclassified errors: TypeScript cannot prove all catch block paths
+  // return or throw, so we need this handler. This code can execute if:
+  //   - An error type we failed to classify (e.g., new GitHub API error format)
+  //   - A logic bug in the retry loop structure
   //
-  // TypeScript requires this because it cannot statically prove all code paths in the
-  // catch block either return or throw. While we believe all error types are classified,
-  // TypeScript's control flow analysis is conservative and requires exhaustive handling.
+  // This is NOT dead code - it's a legitimate handler for unexpected error types.
+  // The catch block's pattern matching (is404, isAuth, isRateLimit, isNetwork) covers
+  // known error patterns, but cannot guarantee coverage of all possible errors.
   //
-  // The retry loop SHOULD always exit via one of these paths:
+  // Expected exit paths from the retry loop:
   //   1. Return { success: true } on successful state update
   //   2. Throw immediately for critical errors (404, 401/403)
   //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
-  //   4. Throw for unexpected/unclassified errors
+  //   4. Throw for unexpected/unclassified errors (catch-all at end of catch block)
   //
-  // If this code executes at runtime, it indicates:
-  //   - An error type we failed to classify in the catch block
-  //   - A logic bug in the retry loop structure
-  // This is a programming error and should be investigated (issue #625).
+  // If this executes, it indicates a gap in error classification - investigate (issue #625).
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,

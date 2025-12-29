@@ -136,7 +136,7 @@ ${summary.agents_with_issues.map((agent) => `- ${agent}`).join('\n')}
 
 `;
 
-  // Group issues by agent
+  // TODO(#989): Extract shared groupIssuesByAgent utility - same pattern in list-issues.ts
   const issuesByAgent = new Map<string, IssueRecord[]>();
   for (const issue of summary.issues) {
     if (!issuesByAgent.has(issue.agent_name)) {

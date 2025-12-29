@@ -19,11 +19,11 @@ import {
   type StateUpdateResult,
 } from '../state/router.js';
 import {
-  addToCompletedSteps,
   applyWiggumState,
   isIterationLimitReached,
   getEffectiveMaxIterations,
 } from '../state/state-utils.js';
+import { advanceToNextStep } from '../state/transitions.js';
 import {
   STEP_NAMES,
   STEP_PHASE1_PR_REVIEW,
@@ -567,48 +567,48 @@ export interface LoadReviewResultsOutput {
 }
 
 /**
- * Load review results from scope-separated file lists
+ * Load review results from scope-separated file path lists
  *
  * Reads multiple review result files and aggregates them with agent headers.
  * Collects errors from all file reads and provides comprehensive error context
  * if any files fail to read. Includes error codes and file metadata for diagnostics.
  *
- * In-scope file failures are fatal (throw ValidationError).
- * Out-of-scope file failures are non-fatal but return warnings to inform users.
+ * In-scope file path failures are fatal (throw ValidationError).
+ * Out-of-scope file path failures are non-fatal but return warnings to inform users.
  *
- * @param inScopeFiles - Array of file paths containing in-scope review results
- * @param outOfScopeFiles - Array of file paths containing out-of-scope review results
+ * @param inScopeFilePaths - Array of paths to in-scope review result files
+ * @param outOfScopeFilePaths - Array of paths to out-of-scope review result files
  * @returns Object with formatted in-scope/out-of-scope sections and any warnings
- * @throws {ValidationError} If in-scope files fail to read, with details of all failures
+ * @throws {ValidationError} If in-scope file paths fail to read, with details of all failures
  *
  * @example
- * // Load results from multiple agent files
+ * // Load results from multiple agent result file paths
  * const { inScope, outOfScope, warnings } = await loadReviewResults(
- *   ['$(pwd)/tmp/wiggum-625/code-reviewer-in-scope-1234.md'],
- *   ['$(pwd)/tmp/wiggum-625/code-reviewer-out-of-scope-1234.md']
+ *   ['/tmp/claude/wiggum-625/code-reviewer-in-scope-1234567890-abc123.md'],
+ *   ['/tmp/claude/wiggum-625/code-reviewer-out-of-scope-1234567890-def456.md']
  * );
  * if (warnings.length > 0) {
  *   console.warn('Review data incomplete:', warnings.join('\n'));
  * }
  */
 export async function loadReviewResults(
-  inScopeFiles: readonly string[] = [],
-  outOfScopeFiles: readonly string[] = []
+  inScopeFilePaths: readonly string[] = [],
+  outOfScopeFilePaths: readonly string[] = []
 ): Promise<LoadReviewResultsOutput> {
   const errors: FileReadError[] = [];
 
-  // Read all in-scope files
+  // Read all in-scope file paths
   const inScopeResults: string[] = [];
-  for (const filePath of inScopeFiles) {
+  for (const filePath of inScopeFilePaths) {
     const result = await readReviewFile(filePath, 'in-scope', errors);
     if (result) {
       inScopeResults.push(`#### ${result.agentName}\n\n${result.content}\n\n---\n`);
     }
   }
 
-  // Read all out-of-scope files
+  // Read all out-of-scope file paths
   const outOfScopeResults: string[] = [];
-  for (const filePath of outOfScopeFiles) {
+  for (const filePath of outOfScopeFilePaths) {
     const result = await readReviewFile(filePath, 'out-of-scope', errors);
     if (result) {
       outOfScopeResults.push(`#### ${result.agentName}\n\n${result.content}\n\n---\n`);
@@ -628,7 +628,6 @@ export async function loadReviewResults(
         .map((e) => {
           const { filePath, error, category, errorCode } = e;
           const code = errorCode ? ` [${errorCode}]` : '';
-          // Use discriminated union to safely access diagnostics
           const existence = e.diagnosticsAvailable
             ? ` (exists: ${e.fileExists}, size: ${e.fileSize ?? 'unknown'})`
             : '';
@@ -638,7 +637,7 @@ export async function loadReviewResults(
 
       // Collect failed file paths for set operations
       const failedPaths = new Set(inScopeErrors.map((e) => e.filePath));
-      const successfulInScope = inScopeFiles.filter((f) => !failedPaths.has(f));
+      const successfulInScope = inScopeFilePaths.filter((f) => !failedPaths.has(f));
 
       // Classify errors to help user decide action
       const hasPermissionErrors = inScopeErrors.some((e) => e.errorCode === 'EACCES');
@@ -660,7 +659,7 @@ export async function loadReviewResults(
 
       logger.error('Critical: In-scope review file loading failed', {
         inScopeErrorCount: inScopeErrors.length,
-        totalInScopeFiles: inScopeFiles.length,
+        totalInScopeFilePaths: inScopeFilePaths.length,
         successfulInScopeCount: successfulInScope.length,
         failedFiles: inScopeErrors.map((e) => ({
           path: e.filePath,
@@ -680,7 +679,7 @@ export async function loadReviewResults(
     // Add warning to return value so callers can surface it to users
     if (outOfScopeErrors.length > 0) {
       const failedFileNames = outOfScopeErrors.map((e) => e.filePath.split('/').pop()).join(', ');
-      const totalOutOfScope = outOfScopeFiles.length;
+      const totalOutOfScope = outOfScopeFilePaths.length;
 
       // Check if ALL out-of-scope files failed (indicates systemic issue)
       const allFailed = outOfScopeErrors.length === totalOutOfScope && totalOutOfScope > 0;
@@ -729,7 +728,7 @@ export async function loadReviewResults(
           'Out-of-scope review files failed to load - proceeding with degraded tracking',
           {
             outOfScopeErrorCount: outOfScopeErrors.length,
-            totalOutOfScopeFiles: outOfScopeFiles.length,
+            totalOutOfScopeFilePaths: outOfScopeFilePaths.length,
             successfulOutOfScope: outOfScopeResults.length,
             dataLossPercentage: `${dataLossPercentage}%`,
             impact: 'Out-of-scope recommendations may be incomplete',
@@ -1080,12 +1079,11 @@ function buildNewState(
     });
   }
 
-  // If no in-scope issues (even if out-of-scope exist), mark complete
+  // If no in-scope issues (even if out-of-scope exist), mark complete and advance to next step
+  // Use advanceToNextStep() to maintain invariant: completedSteps contains only steps before current
+  const baseState = advanceToNextStep(currentState.wiggum);
   return createWiggumState({
-    iteration: currentState.wiggum.iteration,
-    step: reviewStep,
-    completedSteps: addToCompletedSteps(currentState.wiggum.completedSteps, reviewStep),
-    phase: currentState.wiggum.phase,
+    ...baseState,
     maxIterations: maxIterations ?? currentState.wiggum.maxIterations,
   });
 }
@@ -1294,6 +1292,9 @@ export async function safePostReviewComment(
     }
   }
 
+  // TODO(#992): Consider simplifying verbose unreachable code error handling - move detailed
+  // comments to design doc, keep only essential error message
+
   // UNREACHABLE: Loop must execute at least once (maxRetries validated), and every iteration
   // either returns success, returns failure, or continues. Reaching here indicates:
   // 1. Validation bug: maxRetries <= 0 was allowed
@@ -1423,6 +1424,9 @@ export async function retryStateUpdate(
     });
     await sleep(delayMs);
   }
+
+  // TODO(#992): Consider simplifying verbose unreachable code error handling - move detailed
+  // comments to design doc, keep only essential error message
 
   // UNREACHABLE: Loop must execute at least once (maxRetries >= 1 validated above), and every
   // iteration either returns success, returns failure, or continues. Reaching here indicates:

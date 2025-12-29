@@ -197,6 +197,20 @@ export function shouldResetCompletedAgents(
 }
 
 /**
+ * Format a location string for logging based on phase and target number
+ *
+ * Returns "issue #N" for phase1 or "PR #N" for phase2, providing consistent
+ * location formatting across all tools.
+ *
+ * @param phase - Current workflow phase ('phase1' or 'phase2')
+ * @param targetNumber - Issue or PR number
+ * @returns Formatted location string (e.g., "issue #123" or "PR #456")
+ */
+export function formatLocation(phase: WiggumPhase, targetNumber: number): string {
+  return phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`;
+}
+
+/**
  * Get target number (issue or PR) based on current phase
  *
  * In Phase 1 (pre-PR), returns the issue number extracted from the branch name.

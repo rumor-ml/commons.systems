@@ -18,6 +18,7 @@ import {
   analyzeRetryability,
   formatError,
   isSystemError,
+  isKnownErrorCategory,
   SYSTEM_ERROR_CODES,
 } from './errors.js';
 
@@ -962,6 +963,98 @@ describe('analyzeRetryability', () => {
     } finally {
       process.env.NODE_ENV = originalEnv;
       console.debug = originalDebug;
+    }
+  });
+});
+
+describe('isKnownErrorCategory', () => {
+  it('returns true for ValidationError', () => {
+    assert.equal(isKnownErrorCategory('ValidationError'), true);
+  });
+
+  it('returns true for FormattingError', () => {
+    assert.equal(isKnownErrorCategory('FormattingError'), true);
+  });
+
+  it('returns true for TimeoutError', () => {
+    assert.equal(isKnownErrorCategory('TimeoutError'), true);
+  });
+
+  it('returns true for NetworkError', () => {
+    assert.equal(isKnownErrorCategory('NetworkError'), true);
+  });
+
+  it('returns true for GitHubCliError', () => {
+    assert.equal(isKnownErrorCategory('GitHubCliError'), true);
+  });
+
+  it('returns true for ParsingError', () => {
+    assert.equal(isKnownErrorCategory('ParsingError'), true);
+  });
+
+  it('returns true for McpError', () => {
+    assert.equal(isKnownErrorCategory('McpError'), true);
+  });
+
+  it('returns false for generic Error', () => {
+    assert.equal(isKnownErrorCategory('Error'), false);
+  });
+
+  it('returns false for TypeError', () => {
+    assert.equal(isKnownErrorCategory('TypeError'), false);
+  });
+
+  it('returns false for RangeError', () => {
+    assert.equal(isKnownErrorCategory('RangeError'), false);
+  });
+
+  it('returns false for arbitrary strings', () => {
+    assert.equal(isKnownErrorCategory('SomeRandomError'), false);
+    assert.equal(isKnownErrorCategory('CustomError'), false);
+    assert.equal(isKnownErrorCategory('string'), false);
+    assert.equal(isKnownErrorCategory('object'), false);
+    assert.equal(isKnownErrorCategory('undefined'), false);
+  });
+
+  it('returns false for empty string', () => {
+    assert.equal(isKnownErrorCategory(''), false);
+  });
+
+  it('works with analyzeRetryability result', () => {
+    // For known MCP errors, isKnownErrorCategory should return true
+    const validationDecision = analyzeRetryability(new ValidationError('test'));
+    assert.equal(isKnownErrorCategory(validationDecision.errorType), true);
+
+    const timeoutDecision = analyzeRetryability(new TimeoutError('test'));
+    assert.equal(isKnownErrorCategory(timeoutDecision.errorType), true);
+
+    // For unknown errors, isKnownErrorCategory should return false
+    const genericDecision = analyzeRetryability(new Error('test'));
+    assert.equal(isKnownErrorCategory(genericDecision.errorType), false);
+
+    const stringDecision = analyzeRetryability('string error');
+    assert.equal(isKnownErrorCategory(stringDecision.errorType), false);
+  });
+
+  it('enables type narrowing in conditional branches', () => {
+    const decision = analyzeRetryability(new NetworkError('test'));
+
+    // This test verifies the type guard works for type narrowing
+    if (isKnownErrorCategory(decision.errorType)) {
+      // Inside this branch, decision.errorType is KnownErrorCategory
+      // TypeScript should allow accessing it as such
+      const category:
+        | 'ValidationError'
+        | 'FormattingError'
+        | 'TimeoutError'
+        | 'NetworkError'
+        | 'GitHubCliError'
+        | 'ParsingError'
+        | 'McpError' = decision.errorType;
+      assert.equal(category, 'NetworkError');
+    } else {
+      // This branch should not be reached for known errors
+      assert.fail('NetworkError should be a known error category');
     }
   });
 });

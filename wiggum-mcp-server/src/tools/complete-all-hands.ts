@@ -12,74 +12,20 @@ import {
   safeUpdatePRBodyState,
   safeUpdateIssueBodyState,
 } from '../state/router.js';
-import { applyWiggumState, getTargetNumber } from '../state/state-utils.js';
+import { applyWiggumState, formatLocation, getTargetNumber } from '../state/state-utils.js';
 import { advanceToNextStep } from '../state/transitions.js';
 import { logger } from '../utils/logger.js';
-import { STEP_NAMES } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import type { WiggumState, CurrentState } from '../state/types.js';
+import type { WiggumState } from '../state/types.js';
 import { createWiggumState } from '../state/types.js';
-import type { WiggumPhase } from '../constants.js';
-import { formatWiggumResponse } from '../utils/format-response.js';
+import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js';
 import {
   readManifestFiles,
-  cleanupManifestFiles,
+  safeCleanupManifestFiles,
   updateAgentCompletionStatus,
   countHighPriorityInScopeIssues,
+  REVIEW_AGENT_NAMES,
 } from './manifest-utils.js';
-
-/**
- * Build a standardized error response for state update failures
- */
-function buildStateUpdateFailureResponse(
-  state: CurrentState,
-  stateResult: { success: false; reason: string },
-  newState: WiggumState,
-  phase: WiggumPhase,
-  stepsCompleted: string[]
-): ToolResult {
-  logger.error('Critical: State update failed - halting workflow', {
-    targetNumber: getTargetNumber(state, phase, 'wiggum_complete_all_hands'),
-    phase,
-    step: state.wiggum.step,
-    reason: stateResult.reason,
-    impact: 'Race condition fix requires state persistence',
-  });
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: formatWiggumResponse({
-          current_step: STEP_NAMES[state.wiggum.step],
-          step_number: state.wiggum.step,
-          iteration_count: newState.iteration,
-          instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.
-
-**IMPORTANT: Your workflow state has NOT been modified.**
-You are still on: ${STEP_NAMES[state.wiggum.step]}
-
-The race condition fix requires state persistence to GitHub.
-
-Common causes:
-- GitHub API rate limiting: Check \`gh api rate_limit\`
-- Network connectivity issues
-
-To resolve:
-1. Check rate limits: \`gh api rate_limit\`
-2. Verify network connectivity
-3. Retry by calling wiggum_complete_all_hands again with the same parameters`,
-          steps_completed_by_tool: stepsCompleted,
-          context: {
-            pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-            issue_number: phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-          },
-        }),
-      },
-    ],
-    isError: true,
-  };
-}
 
 export const CompleteAllHandsInputSchema = z.object({
   maxIterations: z
@@ -111,7 +57,7 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   logger.info('wiggum_complete_all_hands started', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     iteration: state.wiggum.iteration,
     currentStep: state.wiggum.step,
   });
@@ -136,16 +82,20 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
     totalManifests: manifests.size,
   });
 
-  // If no high-priority in-scope issues remain, mark step complete and proceed to next step
-  if (totalHighPriorityIssues === 0) {
+  // Check if all agents have completed (2-strike verification passed)
+  const allAgentsComplete = REVIEW_AGENT_NAMES.every((agent) => completedAgents.includes(agent));
+
+  // If no high-priority in-scope issues remain AND all agents complete, mark step complete and proceed
+  if (totalHighPriorityIssues === 0 && allAgentsComplete) {
     logger.info(
-      'No high-priority in-scope issues - marking step complete and proceeding to next step',
+      'All agents complete with no high-priority issues - marking step complete and proceeding to next step',
       {
         phase,
         targetNumber,
         currentStep: state.wiggum.step,
         completedAgents,
         pendingCompletionAgents,
+        allAgentsComplete,
       }
     );
 
@@ -166,21 +116,12 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
 
     // Clean up manifest files after successful step completion
     // Cleanup failures are non-fatal - state persistence is what matters
-    try {
-      await cleanupManifestFiles();
-    } catch (cleanupError) {
-      logger.warn('Failed to clean up manifest files - continuing anyway', {
-        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-        impact: 'Old manifest files may accumulate in tmp/wiggum',
-        recommendation: 'Manually delete tmp/wiggum/*.json files if needed',
-      });
-      // Continue - cleanup failure is not critical for workflow correctness
-    }
+    await safeCleanupManifestFiles();
 
     logger.info('Updating wiggum state (fast-path)', {
       phase,
       targetNumber,
-      location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+      location: formatLocation(phase, targetNumber),
       newState,
     });
 
@@ -191,18 +132,25 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
         : await safeUpdatePRBodyState(targetNumber, newState, state.wiggum.step);
 
     if (!stateResult.success) {
-      return buildStateUpdateFailureResponse(state, stateResult, newState, phase, [
-        'Built new state locally (NOT persisted)',
-        `Attempted to post state comment - FAILED (${stateResult.reason})`,
-        'State NOT modified on GitHub',
-        'Action required: Retry after resolving the issue',
-      ]);
+      return buildStateUpdateFailureResponse({
+        state,
+        stateResult,
+        newState,
+        phase,
+        stepsCompleted: [
+          'Built new state locally (NOT persisted)',
+          `Attempted to post state comment - FAILED (${stateResult.reason})`,
+          'State NOT modified on GitHub',
+          'Action required: Retry after resolving the issue',
+        ],
+        toolName: 'wiggum_complete_all_hands',
+      });
     }
 
     logger.info('Fast-path state comment posted successfully', {
       phase,
       targetNumber,
-      location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+      location: formatLocation(phase, targetNumber),
       currentStep: state.wiggum.step,
       iteration: state.wiggum.iteration,
     });
@@ -213,9 +161,10 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   }
 
   // There are still high-priority issues remaining
-  // Update state with new agent tracking and return instructions to continue
+  // Increment iteration and update state with new agent tracking
+  // Each completion call represents one iteration cycle (review + fix)
   const newState: WiggumState = createWiggumState({
-    iteration: state.wiggum.iteration,
+    iteration: state.wiggum.iteration + 1,
     step: state.wiggum.step,
     completedSteps: state.wiggum.completedSteps,
     phase: state.wiggum.phase,
@@ -227,7 +176,7 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   logger.info('Posting wiggum state comment with updated agent tracking', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     newState,
   });
 
@@ -238,32 +187,30 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
       : await safeUpdatePRBodyState(targetNumber, newState, state.wiggum.step);
 
   if (!stateResult.success) {
-    return buildStateUpdateFailureResponse(state, stateResult, newState, phase, [
-      'Built new state with updated agent tracking',
-      `Attempted to post state comment - FAILED (${stateResult.reason})`,
-      'State NOT modified on GitHub',
-      'Action required: Retry wiggum_complete_all_hands to post state',
-    ]);
+    return buildStateUpdateFailureResponse({
+      state,
+      stateResult,
+      newState,
+      phase,
+      stepsCompleted: [
+        'Built new state with updated agent tracking',
+        `Attempted to post state comment - FAILED (${stateResult.reason})`,
+        'State NOT modified on GitHub',
+        'Action required: Retry wiggum_complete_all_hands to post state',
+      ],
+      toolName: 'wiggum_complete_all_hands',
+    });
   }
 
   logger.info('Wiggum state comment posted successfully', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
   });
 
   // Clean up manifest files after successful state update
   // Cleanup failures are non-fatal - state is already persisted to GitHub
-  try {
-    await cleanupManifestFiles();
-  } catch (cleanupError) {
-    logger.warn('Failed to clean up manifest files - continuing anyway', {
-      error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-      impact: 'Old manifest files may accumulate in tmp/wiggum',
-      recommendation: 'Manually delete tmp/wiggum/*.json files if needed',
-    });
-    // Continue - cleanup failure is not critical for workflow correctness
-  }
+  await safeCleanupManifestFiles();
 
   // Reuse newState instead of calling detectCurrentState() again to avoid race condition
   const updatedState = applyWiggumState(state, newState);
@@ -272,7 +219,7 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   logger.info('wiggum_complete_all_hands completed successfully', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     nextStepResultLength: JSON.stringify(nextStepResult).length,
   });
 

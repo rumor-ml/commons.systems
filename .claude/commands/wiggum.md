@@ -267,7 +267,9 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 ### wiggum_complete_all_hands
 
-Call after `/all-hands-review` completes (after all review and implementation agents finish).
+Call after `/all-hands-review` completes AND ALL TODO items are addressed (both review and implementation agents finish).
+
+**CRITICAL: One iteration = `/all-hands-review` + fix ALL issues. Do NOT call this tool until ALL TODO items are addressed.**
 
 **Used in Phase 1 (p1-2) only:** Pre-PR all-hands code review on local branch
 
@@ -283,12 +285,13 @@ mcp__wiggum__wiggum_complete_all_hands({
 
 **What this tool does automatically:**
 
+- **Increments iteration count** (each call = one complete review+fix cycle)
 - Reads manifest files from `tmp/wiggum/` directory
 - Applies 2-strike agent completion verification logic
 - Determines if all agents have completed (0 high-priority in-scope issues)
 - Updates wiggum state with agent tracking
 - Cleans up manifest files after processing
-- Returns next step instructions
+- Returns next step instructions (including Active Agents list for next iteration)
 
 **Agent Completion Logic:**
 
@@ -298,7 +301,15 @@ The tool uses 2-strike verification to prevent false completions:
 2. **Second consecutive time** → Moved to `completedAgents` (stops running)
 3. **Agent finds issues after pending** → Reset to active (removed from both lists)
 4. **All agents complete** → Step advances to next workflow step
-5. **Some agents still active** → Returns instructions to continue iteration
+5. **Some agents still active** → Returns instructions to continue iteration with Active Agents list
+
+**Active Agents:**
+
+When the tool returns instructions for the next iteration, it includes an **Active Agents** list. On subsequent `/all-hands-review` calls:
+
+- **Only launch agents NOT in `completedAgents`**
+- Completed agents have passed 2-strike verification and should not run again
+- This reduces redundant work as agents complete
 
 IMPORTANT:
 

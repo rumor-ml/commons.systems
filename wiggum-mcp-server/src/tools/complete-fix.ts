@@ -11,16 +11,16 @@ import {
   safeUpdatePRBodyState,
   safeUpdateIssueBodyState,
 } from '../state/router.js';
-import { applyWiggumState, getTargetNumber } from '../state/state-utils.js';
+import { applyWiggumState, formatLocation, getTargetNumber } from '../state/state-utils.js';
 import { advanceToNextStep } from '../state/transitions.js';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';
 import { buildValidationErrorMessage } from '../utils/error-messages.js';
-import { STEP_ORDER, STEP_NAMES } from '../constants.js';
+import { STEP_ORDER } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import type { WiggumState } from '../state/types.js';
 import { createWiggumState } from '../state/types.js';
-import { formatWiggumResponse } from '../utils/format-response.js';
+import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js';
 import {
   readManifestFiles,
   cleanupManifestFiles,
@@ -117,7 +117,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   logger.info('wiggum_complete_fix started', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     iteration: state.wiggum.iteration,
     currentStep: state.wiggum.step,
     fixDescription: input.fix_description,
@@ -177,7 +177,7 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     logger.info('Updating wiggum state (fast-path)', {
       phase,
       targetNumber,
-      location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+      location: formatLocation(phase, targetNumber),
       newState,
     });
 
@@ -189,59 +189,25 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
 
     if (!stateResult.success) {
       // TODO(#416): Add reason-specific error guidance for different failure types
-      logger.error('Critical: State update failed (fast-path) - halting workflow', {
-        targetNumber,
+      return buildStateUpdateFailureResponse({
+        state,
+        stateResult,
+        newState,
         phase,
-        step: state.wiggum.step,
-        reason: stateResult.reason,
-        impact: 'Race condition fix requires state persistence',
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[state.wiggum.step],
-              step_number: state.wiggum.step,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.
-
-**IMPORTANT: Your workflow state has NOT been modified.** The step has NOT been marked complete.
-You are still on: ${STEP_NAMES[state.wiggum.step]}
-
-The race condition fix requires state persistence to GitHub.
-
-Common causes:
-- GitHub API rate limiting: Check \`gh api rate_limit\`
-- Network connectivity issues
-
-To resolve:
-1. Check rate limits: \`gh api rate_limit\`
-2. Verify network connectivity
-3. Retry by calling wiggum_complete_fix again with the same parameters`,
-              steps_completed_by_tool: [
-                'Built new state locally (NOT persisted)',
-                `Attempted to post state comment - FAILED (${stateResult.reason})`,
-                'State NOT modified on GitHub',
-                'Action required: Retry after resolving the issue',
-              ],
-              context: {
-                pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-                issue_number:
-                  phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-              },
-            }),
-          },
+        stepsCompleted: [
+          'Built new state locally (NOT persisted)',
+          `Attempted to post state comment - FAILED (${stateResult.reason})`,
+          'State NOT modified on GitHub',
+          'Action required: Retry after resolving the issue',
         ],
-        isError: true,
-      };
+        toolName: 'wiggum_complete_fix',
+      });
     }
 
     logger.info('Fast-path state comment posted successfully', {
       phase,
       targetNumber,
-      location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+      location: formatLocation(phase, targetNumber),
       fixDescription: input.fix_description,
       outOfScopeIssues: input.out_of_scope_issues,
       currentStep: state.wiggum.step,
@@ -302,7 +268,7 @@ To resolve:
   logger.info('Posting wiggum state comment', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     newState,
   });
 
@@ -313,60 +279,26 @@ To resolve:
       : await safeUpdatePRBodyState(targetNumber, newState, state.wiggum.step);
 
   if (!stateResult.success) {
-    logger.error('Critical: State update failed (main-path) - halting workflow', {
-      targetNumber,
+    return buildStateUpdateFailureResponse({
+      state,
+      stateResult,
+      newState,
       phase,
-      step: state.wiggum.step,
-      reason: stateResult.reason,
-      impact: 'Race condition fix requires state persistence',
-    });
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: formatWiggumResponse({
-            current_step: STEP_NAMES[state.wiggum.step],
-            step_number: state.wiggum.step,
-            iteration_count: newState.iteration,
-            instructions: `ERROR: Failed to post state comment due to ${stateResult.reason}.
-
-**IMPORTANT: Your workflow state has NOT been modified.** The step has NOT been marked complete.
-You are still on: ${STEP_NAMES[state.wiggum.step]}
-
-The race condition fix requires state persistence to GitHub.
-
-Common causes:
-- GitHub API rate limiting: Check \`gh api rate_limit\`
-- Network connectivity issues
-
-To resolve:
-1. Check rate limits: \`gh api rate_limit\`
-2. Verify network connectivity
-3. Retry by calling wiggum_complete_fix again with the same parameters`,
-            steps_completed_by_tool: [
-              'Built new state with filtered completedSteps',
-              `Attempted to post state comment - FAILED (${stateResult.reason})`,
-              'State NOT modified on GitHub',
-              'NO fix description comment posted (state update failed first)',
-              'Action required: Retry wiggum_complete_fix to post both comments',
-            ],
-            context: {
-              pr_number: phase === 'phase2' && state.pr.exists ? state.pr.number : undefined,
-              issue_number:
-                phase === 'phase1' && state.issue.exists ? state.issue.number : undefined,
-            },
-          }),
-        },
+      stepsCompleted: [
+        'Built new state with filtered completedSteps',
+        `Attempted to post state comment - FAILED (${stateResult.reason})`,
+        'State NOT modified on GitHub',
+        'NO fix description comment posted (state update failed first)',
+        'Action required: Retry wiggum_complete_fix to post both comments',
       ],
-      isError: true,
-    };
+      toolName: 'wiggum_complete_fix',
+    });
   }
 
   logger.info('Wiggum state comment posted successfully', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
   });
 
   // Clean up manifest files after successful state update
@@ -390,7 +322,7 @@ To resolve:
   logger.info('wiggum_complete_fix completed successfully', {
     phase,
     targetNumber,
-    location: phase === 'phase1' ? `issue #${targetNumber}` : `PR #${targetNumber}`,
+    location: formatLocation(phase, targetNumber),
     nextStepResultLength: JSON.stringify(nextStepResult).length,
   });
 

@@ -95,17 +95,20 @@ function getOrCreateManifestDir(): string {
 }
 
 /**
- * Write issue to a new manifest file
+ * Write issue to a manifest file
  *
  * Creates a unique manifest file for each issue using timestamp + 4-byte random suffix.
  * This prevents race conditions when multiple agents run concurrently.
  *
- * TODO(#983): Rename function to writeIssueToManifest - name is misleading
+ * NOTE: While this function effectively always creates a NEW file (the filename includes
+ * both a millisecond timestamp and 8-character random hex suffix making collisions
+ * cryptographically unlikely at ~1 in 4 billion per millisecond), the name "appendToManifest"
+ * is accurate because the function:
+ * 1. Reads existing content if the file exists (defensive handling)
+ * 2. Appends the new issue to the issues array
+ * 3. Writes the updated array back to the file
  *
- * Despite the function name, this effectively always creates a NEW file. The filename
- * includes both a millisecond timestamp and 8-character random hex suffix (4 bytes),
- * making collisions cryptographically unlikely (~1 in 4 billion per millisecond).
- * The append-to-existing logic handles this theoretical edge case defensively.
+ * The append-to-existing logic handles the theoretical edge case of filename collision.
  */
 function appendToManifest(issue: IssueRecord): string {
   const manifestDir = getOrCreateManifestDir();

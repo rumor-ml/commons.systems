@@ -189,10 +189,53 @@ export type KnownErrorCategory =
   | 'McpError';
 
 /**
+ * Array of known error category names for runtime validation.
+ *
+ * This is kept in sync with the KnownErrorCategory type union above.
+ * Used by isKnownErrorCategory() for runtime type narrowing.
+ */
+const KNOWN_ERROR_CATEGORIES: readonly string[] = [
+  'ValidationError',
+  'FormattingError',
+  'TimeoutError',
+  'NetworkError',
+  'GitHubCliError',
+  'ParsingError',
+  'McpError',
+] as const;
+
+/**
+ * Type guard to check if an error type string is a known MCP error category.
+ *
+ * This enables runtime type narrowing for the RetryDecision.errorType field,
+ * allowing consumers to distinguish between known MCP errors and unknown errors.
+ *
+ * @param errorType - The error type string to check
+ * @returns true if errorType is a KnownErrorCategory, with type narrowing
+ *
+ * @example
+ * ```typescript
+ * const decision = analyzeRetryability(error);
+ * if (isKnownErrorCategory(decision.errorType)) {
+ *   // decision.errorType is now typed as KnownErrorCategory
+ *   handleKnownError(decision.errorType);
+ * } else {
+ *   // decision.errorType is typed as string (unknown error type)
+ *   logUnknownError(decision.errorType);
+ * }
+ * ```
+ */
+export function isKnownErrorCategory(errorType: string): errorType is KnownErrorCategory {
+  return KNOWN_ERROR_CATEGORIES.includes(errorType);
+}
+
+/**
  * Retry decision information with structured metadata
  *
  * Provides detailed information about whether an error should be retried,
  * including the error type and reason for the retry decision.
+ *
+ * Use isKnownErrorCategory() to narrow errorType to KnownErrorCategory at runtime.
  */
 export interface RetryDecision {
   /** Whether the error is terminal (should not be retried) */

@@ -578,3 +578,28 @@ export async function cleanupManifestFiles(): Promise<void> {
     path: manifestDir,
   });
 }
+
+/**
+ * Safely clean up manifest files with non-fatal error handling
+ *
+ * Wraps cleanupManifestFiles() with try-catch to handle cleanup failures gracefully.
+ * Cleanup failures are logged but do not throw - this is appropriate when:
+ * - State has already been persisted to GitHub
+ * - Workflow correctness doesn't depend on immediate cleanup
+ * - Manual cleanup is acceptable as a fallback
+ *
+ * Use cleanupManifestFiles() directly if cleanup failure should halt the workflow.
+ *
+ * @returns Promise that always resolves (never throws)
+ */
+export async function safeCleanupManifestFiles(): Promise<void> {
+  try {
+    await cleanupManifestFiles();
+  } catch (error) {
+    logger.warn('Failed to clean up manifest files - continuing anyway', {
+      error: error instanceof Error ? error.message : String(error),
+      impact: 'Old manifest files may accumulate in tmp/wiggum',
+      recommendation: 'Manually delete tmp/wiggum/*.json files if needed',
+    });
+  }
+}

@@ -309,6 +309,7 @@ describe('manifest-utils', () => {
   });
 
   describe('updateAgentCompletionStatus', () => {
+    // TODO(#994): Consider adding mutation tests (e.g., Stryker.js) to verify test quality for 2-strike logic
     describe('2-strike verification logic', () => {
       it('should mark agent as pending on first zero high-priority iteration', () => {
         const manifests = new Map<string, AgentManifest>([

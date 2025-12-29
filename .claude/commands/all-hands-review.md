@@ -62,7 +62,9 @@ Extract issue number and fetch context:
 
 ## Step 2: Launch Parallel Review Agents
 
-Use the Task tool to launch ALL 6 all-hands agents in PARALLEL (make 6 Task calls in a single response):
+**Active Agents:** On first iteration, all 6 agents are active. On subsequent iterations, only launch agents that are NOT in the `completedAgents` list returned by wiggum tools. Skip completed agents.
+
+Use the Task tool to launch active agents in PARALLEL (make Task calls in a single response):
 
 1. **code-reviewer**
    - `subagent_type`: "code-reviewer"
@@ -121,7 +123,9 @@ Example todo list structure:
 
 This allows users to track progress on each individual issue.
 
-## Step 5: Launch Implementation Agents
+## Step 5: Launch Implementation Agents and Fix ALL Issues
+
+**CRITICAL: One iteration = `/all-hands-review` + fix ALL issues. Do NOT proceed to Step 6 until ALL TODO items are addressed.**
 
 Based on the issues found:
 
@@ -147,9 +151,13 @@ Pass issue ID from wiggum_list_issues
 
 **CRITICAL:** Launch unsupervised-implement agents SEQUENTIALLY (one at a time). Wait for each to complete before launching the next.
 
+**CRITICAL:** After ALL unsupervised-implement agents complete, verify the TODO list. ALL in-scope items must show as completed before proceeding to Step 6.
+
 ## Step 6: Complete All-Hands Review
 
-After ALL subagents complete (both out-of-scope trackers and unsupervised implementers), call:
+**PRECONDITION:** All in-scope issues from the TODO list must be addressed before calling this tool. If any in-scope items are still pending, go back to Step 5 and address them first.
+
+After ALL TODO items are addressed (both out-of-scope trackers and unsupervised implementers complete), call:
 
 ```
 mcp__wiggum__wiggum_complete_all_hands({})
@@ -165,9 +173,10 @@ This tool:
 ## Important Notes
 
 - **You are an orchestrator** - validate git state yourself, fetch issue context, then delegate review work to specialized agents
-- All agents run in parallel for maximum speed
+- **One iteration = `/all-hands-review` + fix ALL issues** - do NOT call `wiggum_complete_all_hands` until ALL TODO items are addressed
+- **Active Agents** - On subsequent iterations, only launch agents NOT in `completedAgents` list
+- All active agents run in parallel for maximum speed
 - Agents are scope-aware and will categorize findings as in-scope or out-of-scope based on issue context
-- Each agent writes findings to separate files and returns JSON summaries with file paths
+- Each agent writes findings to manifest files via `wiggum_record_review_issue`
 - Use `origin/main...HEAD` (THREE dots) to exclude already-merged commits
-- Aggregate file paths and counts from all agents for wiggum integration
-- The file paths will be passed to wiggum_complete_pr_review for processing
+- The completion tool reads manifests internally and handles agent completion tracking
