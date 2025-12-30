@@ -308,45 +308,32 @@ function setupEventListeners() {
       console.warn('Search input not found, search functionality will be unavailable');
     }
 
-    // Modal
-    const closeModalBtn = document.getElementById('closeModalBtn');
-    const cancelModalBtn = document.getElementById('cancelModalBtn');
-    const deleteCardBtn = document.getElementById('deleteCardBtn');
-    const cardForm = document.getElementById('cardForm');
-    const cardType = document.getElementById('cardType');
+    // Modal elements - consolidated setup (resolves #562)
+    const modalElements = [
+      { id: 'closeModalBtn', name: 'Close modal button', event: 'click', handler: closeCardEditor },
+      {
+        id: 'cancelModalBtn',
+        name: 'Cancel modal button',
+        event: 'click',
+        handler: closeCardEditor,
+      },
+      { id: 'deleteCardBtn', name: 'Delete card button', event: 'click', handler: deleteCard },
+      { id: 'cardForm', name: 'Card form', event: 'submit', handler: handleCardSave },
+      { id: 'cardType', name: 'Card type select', event: 'change', handler: updateSubtypeOptions },
+    ];
+
+    for (const { id, name, event, handler } of modalElements) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener(event, handler);
+      } else {
+        console.error(`${name} not found`);
+      }
+    }
+
+    // TODO(#1037): Missing logging in setupEventListeners for missing modal backdrop
+    // modalBackdrop handled separately (uses querySelector, no error logging)
     const modalBackdrop = document.querySelector('.modal-backdrop');
-
-    // TODO(#562): Extract repetitive modal button error handling to helper function
-    if (closeModalBtn) {
-      closeModalBtn.addEventListener('click', closeCardEditor);
-    } else {
-      console.error('Close modal button not found');
-    }
-
-    if (cancelModalBtn) {
-      cancelModalBtn.addEventListener('click', closeCardEditor);
-    } else {
-      console.error('Cancel modal button not found');
-    }
-
-    if (deleteCardBtn) {
-      deleteCardBtn.addEventListener('click', deleteCard);
-    } else {
-      console.error('Delete card button not found');
-    }
-
-    if (cardForm) {
-      cardForm.addEventListener('submit', handleCardSave);
-    } else {
-      console.error('Card form not found');
-    }
-
-    if (cardType) {
-      cardType.addEventListener('change', updateSubtypeOptions);
-    } else {
-      console.error('Card type select not found');
-    }
-
     if (modalBackdrop) {
       modalBackdrop.addEventListener('click', closeCardEditor);
     }

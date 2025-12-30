@@ -116,6 +116,84 @@ test.describe('Event Listener Setup - Error Handling', () => {
     await expect(cardItems.first()).toBeVisible({ timeout: 10000 });
   });
 
+  test('should log specific error when only closeModalBtn is missing', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Remove only the close modal button
+    await page.evaluate(() => {
+      document.getElementById('closeModalBtn')?.remove();
+    });
+
+    // Trigger re-initialization
+    await page.evaluate(() => {
+      window.__testHelpers?.setupEventListeners();
+    });
+
+    // Wait for specific error message about close modal button
+    const hasCloseModalError = await waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('Close modal button not found'),
+      500
+    );
+    expect(hasCloseModalError).toBeTruthy();
+
+    // Verify other modal functionality still works - cancel button should still exist
+    const cancelBtn = page.locator('#cancelModalBtn');
+    await expect(cancelBtn).toBeVisible();
+  });
+
+  test('should log specific error when only cardForm is missing', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Remove only the card form
+    await page.evaluate(() => {
+      document.getElementById('cardForm')?.remove();
+    });
+
+    // Trigger re-initialization
+    await page.evaluate(() => {
+      window.__testHelpers?.setupEventListeners();
+    });
+
+    // Wait for specific error message about card form
+    const hasCardFormError = await waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('Card form not found'),
+      500
+    );
+    expect(hasCardFormError).toBeTruthy();
+
+    // Verify other modal elements still work - modal buttons should exist
+    const closeBtn = page.locator('#closeModalBtn');
+    await expect(closeBtn).toBeVisible();
+  });
+
+  test('should log specific error when only cardType is missing', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Remove only the card type select
+    await page.evaluate(() => {
+      document.getElementById('cardType')?.remove();
+    });
+
+    // Trigger re-initialization
+    await page.evaluate(() => {
+      window.__testHelpers?.setupEventListeners();
+    });
+
+    // Wait for specific error message about card type select
+    const hasCardTypeError = await waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('Card type select not found'),
+      500
+    );
+    expect(hasCardTypeError).toBeTruthy();
+
+    // Verify other modal elements still work - form should exist
+    const cardForm = page.locator('#cardForm');
+    await expect(cardForm).toBeVisible();
+  });
+
   test('should handle missing mobile menu elements gracefully', async ({ page }) => {
     await page.goto('/cards.html');
 
@@ -189,8 +267,7 @@ test.describe('Event Listener Setup - Error Handling', () => {
     const searchInput = page.locator('#searchCards');
     await expect(searchInput).toBeVisible();
     await searchInput.fill('skill');
-    // KEEP: 300ms delay matches production search debouncing (300ms in cards.js)
-    // Without this delay, test would check results before debounced search executes
+    // 300ms delay allows search filtering to complete before checking results
     await page.waitForTimeout(300);
 
     // Should have filtered cards

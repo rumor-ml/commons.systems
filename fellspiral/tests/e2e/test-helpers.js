@@ -5,8 +5,78 @@
 // Playwright expect - imported once at module level for use in assertion helpers
 import { expect as playwrightExpect } from '@playwright/test';
 
-// Timing constants for UI interactions - these ensure DOM updates complete before test assertions
-// Values chosen through empirical testing to balance reliability and test speed
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
+/**
+ * Viewport size configuration
+ * @typedef {Object} ViewportSize
+ * @property {number} width - Viewport width in pixels
+ * @property {number} height - Viewport height in pixels
+ */
+
+/**
+ * Standard viewport sizes for responsive testing
+ * @typedef {Object} ViewportSizes
+ * @property {Readonly<ViewportSize>} mobile - Mobile viewport (iPhone 8: 375x667)
+ * @property {Readonly<ViewportSize>} tablet - Tablet viewport (iPad portrait: 768x1024)
+ * @property {Readonly<ViewportSize>} desktop - Desktop viewport (1280x720)
+ * @property {Readonly<ViewportSize>} desktopLarge - Large desktop viewport (1920x1080)
+ */
+
+/**
+ * Test card data structure
+ * @typedef {Object} CardData
+ * @property {string} title - Unique card title with timestamp and counter
+ * @property {string} type - Card type (e.g., "Equipment")
+ * @property {string} subtype - Card subtype (e.g., "Weapon")
+ * @property {string} tags - Comma-separated tags
+ * @property {string} description - Card description
+ * @property {string} stat1 - First stat value
+ * @property {string} stat2 - Second stat value
+ * @property {string} cost - Card cost value
+ */
+
+/**
+ * Console message capture controller
+ * @typedef {Object} CaptureController
+ * @property {() => string[]} getMessages - Get defensive copy of captured messages
+ * @property {() => void} startCapture - Begin capturing console messages (must not already be capturing)
+ * @property {() => void} stopCapture - Stop capturing and remove listener (must be capturing)
+ */
+
+/**
+ * Firebase Admin app instance
+ * @typedef {import('firebase-admin').app.App} FirebaseApp
+ */
+
+/**
+ * Firestore database instance
+ * @typedef {import('firebase-admin').firestore.Firestore} FirestoreDatabase
+ */
+
+/**
+ * Firebase Admin and Firestore instances (singleton)
+ * @typedef {Object} FirestoreAdminInstance
+ * @property {FirebaseApp} app - Firebase Admin app instance
+ * @property {FirestoreDatabase} db - Firestore database instance (pre-configured for emulator)
+ */
+
+/**
+ * Result of deleteTestCards operation
+ * @typedef {Object} DeleteResult
+ * @property {number} deleted - Count of successfully deleted documents
+ */
+
+// =============================================================================
+// Timing Constants
+// =============================================================================
+
+// Timing constants for UI interactions - ensure DOM updates complete before test assertions.
+// Values determined through testing across browsers (Chrome, Firefox, Safari) to find minimum
+// delays that prevent flaky failures while maintaining test speed. Increase if tests become
+// flaky on slower systems; decrease if testing infrastructure improves.
 
 // Modal animation and form hydration delay - allows modal CSS transitions to complete
 // and combobox dropdown options to be properly initialized before interaction
@@ -20,11 +90,60 @@ const DROPDOWN_RENDER_DELAY_MS = 50;
 // dynamically filtered based on selected type, requires DOM update to complete
 const SUBTYPE_UPDATE_DELAY_MS = 100;
 
-// Standard viewport sizes for responsive testing
+// =============================================================================
+// Firestore Error Helpers
+// =============================================================================
+
+/**
+ * Handle common Firestore error codes by throwing actionable error messages
+ * @param {Error & {code?: string}} error - Error from Firestore operation
+ * @throws {Error} Always throws with actionable message for known error codes
+ */
+function handleFirestoreErrorCode(error) {
+  if (error.code === 'unavailable') {
+    throw new Error(
+      `Firestore emulator unavailable: ${error.message}. ` +
+        `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
+    );
+  }
+  if (error.code === 'permission-denied') {
+    throw new Error(
+      `Firestore permission denied: ${error.message}. ` +
+        `Check Firestore security rules in emulator.`
+    );
+  }
+  throw error;
+}
+
+/**
+ * Wrap errors with context, re-throwing errors that already have detailed Firestore messages
+ * @param {Error} error - Error to wrap
+ * @param {string} context - Context string for error message (e.g., 'getCardFromFirestore')
+ * @throws {Error} Always throws - either the original error or a wrapped version
+ */
+function wrapFirestoreError(error, context) {
+  if (
+    error instanceof Error &&
+    (error.message.includes('Firestore') || error.message.includes('Failed to'))
+  ) {
+    throw error;
+  }
+  throw new Error(`${context} failed: ${error.message}`, { cause: error });
+}
+
+// =============================================================================
+// Viewport Configuration
+// =============================================================================
+
 // TODO(#491): Add test coverage for E2E test helper error paths
 // TODO(#490): Add comprehensive error handling to E2E test helpers
-// Frozen to prevent accidental mutations that could affect test consistency
-// Mobile: iPhone 8 dimensions, Tablet: iPad portrait, Desktop: Common 16:9 resolutions
+
+/**
+ * Standard viewport sizes for responsive testing.
+ * All viewports are frozen to prevent accidental mutations that could affect test consistency.
+ * Mobile: iPhone 8, Tablet: iPad portrait, Desktop: Common 16:9 resolutions
+ * @type {Readonly<ViewportSizes>}
+ */
 export const VIEWPORTS = Object.freeze({
   mobile: Object.freeze({ width: 375, height: 667 }),
   tablet: Object.freeze({ width: 768, height: 1024 }),
@@ -56,6 +175,7 @@ export async function setupDesktopViewport(page) {
   await page.setViewportSize(VIEWPORTS.desktop);
 }
 
+// TODO(#1043): Module-level _cardCounter lacks encapsulation and reset mechanism for test isolation
 // Counter for ensuring unique card titles even when created in same millisecond
 let _cardCounter = 0;
 
@@ -68,11 +188,7 @@ let _cardCounter = 0;
  * to modify the data: `{ ...generateTestCardData(), title: 'Custom' }`
  *
  * @param {string} suffix - Optional suffix to add to title for additional uniqueness
- * @returns {{
- *   title: string, type: string, subtype: string,
- *   tags: string, description: string,
- *   stat1: string, stat2: string, cost: string
- * }} Frozen card data object
+ * @returns {Readonly<CardData>} Frozen card data object
  */
 export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
@@ -97,6 +213,7 @@ export function generateTestCardData(suffix = '') {
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {number} timeout - Timeout in milliseconds (default: 5000)
  */
+// TODO(#1028): No tests verify waitForFirebaseInit enhanced error message content
 export async function waitForFirebaseInit(page, timeout = 5000) {
   // Wait for window.__testAuth to be available (set by authEmulator fixture)
   // This indicates Firebase Auth has been initialized and connected to emulator
@@ -133,8 +250,9 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
  *
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {string} messageType - Type of console messages to capture ('error', 'warning', 'log', etc.)
- * @returns {{getMessages: () => string[], startCapture: () => void, stopCapture: () => void}} Capture controller
+ * @returns {CaptureController} Capture controller with start/stop lifecycle
  */
+// TODO(#1029): Add tests for state guard enforcement (startCapture/stopCapture error cases)
 export function captureConsoleMessages(page, messageType = 'error') {
   const messages = [];
   let _isCapturing = false;
@@ -146,6 +264,7 @@ export function captureConsoleMessages(page, messageType = 'error') {
   };
 
   return {
+    // TODO(#1026): Comment claims "defensive copy" but implementation is shallow copy
     getMessages: () => [...messages], // Return defensive copy
     startCapture: () => {
       if (_isCapturing) {
@@ -164,14 +283,18 @@ export function captureConsoleMessages(page, messageType = 'error') {
   };
 }
 
+// TODO(#1035): Consider using Playwright's waitForEvent('console') with predicate filter for more reliable, event-driven testing instead of timeout-based approach
 /**
- * Wait for console messages matching a pattern
- * Uses single timeout to avoid race conditions between listener cleanup and timeout resolution
+ * Wait for console messages matching a pattern.
+ * Uses single setTimeout for both listener cleanup and result resolution to avoid
+ * race conditions where the timeout fires while the listener is still processing
+ * a message, potentially missing late-arriving matches.
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {(msg: string) => boolean} predicate - Function to test console messages
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
  * @returns {Promise<boolean>} True if matching message found within timeout
  */
+// TODO(#1040): Add try-catch to expose predicate errors instead of silently swallowing them
 export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
   const messages = [];
 
@@ -324,9 +447,19 @@ async function fillComboboxField(page, inputId, listboxId, value, dropdownDelay 
   try {
     await selectComboboxOption(page, listboxId, value);
   } catch (error) {
-    // No matching option found - close dropdown and accept custom value
-    // This is expected behavior for custom values not in the predefined list
-    await page.locator(`#${inputId}`).press('Escape');
+    // Only handle "option not found" errors - re-throw all others (listbox not found, page errors, etc.)
+    // This prevents masking critical errors like broken DOM or browser context issues
+    if (
+      error.message &&
+      error.message.includes('Option') &&
+      error.message.includes('not found in listbox')
+    ) {
+      // No matching option found - close dropdown and accept custom value
+      // This is expected behavior for custom values not in the predefined list
+      await page.locator(`#${inputId}`).press('Escape');
+    } else {
+      throw error;
+    }
   }
 }
 
@@ -449,6 +582,7 @@ let _adminApp = null;
 let _firestoreDb = null;
 let _firestoreSettingsConfigured = false;
 
+// TODO(#1027): Update comment to accurately describe JavaScript concurrency model instead of using "thread-safe" terminology
 /**
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
@@ -458,7 +592,7 @@ let _firestoreSettingsConfigured = false;
  * test execution. If you need concurrent test isolation, consider implementing
  * an initialization lock or separate instances per test.
  *
- * @returns {Promise<{app: any, db: any}>} Firebase Admin app and Firestore database instances
+ * @returns {Promise<FirestoreAdminInstance>} Firebase Admin app and Firestore database instances
  */
 export async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
@@ -577,18 +711,7 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
         }
       } catch (error) {
         // Map Firestore error codes to actionable messages
-        if (error.code === 'unavailable') {
-          throw new Error(
-            `Firestore emulator unavailable: ${error.message}. ` +
-              `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
-          );
-        } else if (error.code === 'permission-denied') {
-          throw new Error(
-            `Firestore permission denied: ${error.message}. ` +
-              `Check Firestore security rules in emulator.`
-          );
-        }
-        throw error; // Re-throw unexpected errors
+        handleFirestoreErrorCode(error);
       }
 
       // If this was the last attempt, return null
@@ -603,18 +726,25 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
 
     return null;
   } catch (error) {
-    // Re-throw errors that already have detailed Firestore error messages
-    if (error instanceof Error && error.message.includes('Firestore')) {
-      throw error;
-    }
-    throw new Error(`getCardFromFirestore failed: ${error.message}`, { cause: error });
+    wrapFirestoreError(error, 'getCardFromFirestore');
   }
 }
 
 /**
  * Delete test cards from Firestore emulator by title pattern
+ *
+ * **IMPORTANT**: Firestore batch operations have a 500-operation limit per commit.
+ * If more than 500 cards match the pattern, the batch.commit() will fail with a
+ * Firestore error. For large cleanups, either:
+ * - Use more specific patterns to keep matches under 500
+ * - Call deleteTestCards multiple times with different patterns
+ * - Split cleanup across test files/suites
+ *
  * @param {RegExp|string} titlePattern - Pattern to match card titles (regex or string prefix)
- * @returns {Promise<{deleted: number, failed: number}>} Object with count of successfully deleted and failed cards
+ * @returns {Promise<DeleteResult>} Object with count of successfully deleted documents
+ * @throws {Error} If titlePattern is falsy, empty string, or not string/RegExp
+ * @throws {Error} If Firestore emulator is unavailable
+ * @throws {Error} If batch deletion fails (e.g., exceeds 500 operation limit)
  */
 export async function deleteTestCards(titlePattern) {
   // Input validation - reject falsy values and empty strings
@@ -646,13 +776,7 @@ export async function deleteTestCards(titlePattern) {
     try {
       snapshot = await cardsCollection.get();
     } catch (error) {
-      if (error.code === 'unavailable') {
-        throw new Error(
-          `Firestore emulator unavailable: ${error.message}. ` +
-            `Check that emulator is running at ${process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980'}.`
-        );
-      }
-      throw error;
+      handleFirestoreErrorCode(error);
     }
 
     // Filter cards by title pattern
@@ -674,7 +798,7 @@ export async function deleteTestCards(titlePattern) {
           batch.delete(docRef);
         }
         await batch.commit();
-        return { deleted: docsToDelete.length, failed: 0 };
+        return { deleted: docsToDelete.length };
       } catch (error) {
         throw new Error(
           `Failed to batch delete ${docsToDelete.length} cards: ${error.message}. ` +
@@ -683,15 +807,8 @@ export async function deleteTestCards(titlePattern) {
       }
     }
 
-    return { deleted: 0, failed: 0 };
+    return { deleted: 0 };
   } catch (error) {
-    // Re-throw errors that already have detailed Firestore error messages
-    if (
-      error instanceof Error &&
-      (error.message.includes('Firestore') || error.message.includes('Failed to batch delete'))
-    ) {
-      throw error;
-    }
-    throw new Error(`deleteTestCards failed: ${error.message}`, { cause: error });
+    wrapFirestoreError(error, 'deleteTestCards');
   }
 }
