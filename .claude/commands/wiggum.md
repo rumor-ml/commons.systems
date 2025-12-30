@@ -179,10 +179,11 @@ Execute AFTER PR is created for final validation:
 - Final validation agent runs after all edits complete, so it can run full test suite without race conditions
 - Any cross-batch issues are resolved by the validation agent
 
-**Phase 6: Complete**
+**Phase 6: Commit and Complete**
 
-7. Call `wiggum_complete_all_hands({})`
-8. Follow the instructions returned by the tool
+7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
+8. Call `wiggum_complete_all_hands({})`
+9. Follow the instructions returned by the tool
 
 ---
 

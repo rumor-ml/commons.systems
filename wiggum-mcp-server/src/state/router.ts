@@ -970,7 +970,10 @@ Execute security review on the current branch before creating the pull request.
    - Collect result file paths from each agent's JSON response
    - Sum issue counts across all agents
 
-3. Call the \`wiggum_complete_security_review\` tool with:
+3. If any in-scope issues were found and fixed:
+   - Execute \`/commit-merge-push\` using SlashCommand tool
+
+4. Call the \`wiggum_complete_security_review\` tool with:
    - command_executed: true
    - in_scope_result_files: [array of result file paths from all agents]
    - out_of_scope_result_files: [array of result file paths from all agents]
@@ -979,13 +982,13 @@ Execute security review on the current branch before creating the pull request.
 
    **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
 
-4. Results will be posted to issue #${issueNumber}
+5. Results will be posted to issue #${issueNumber}
 
-5. If issues are found:
+6. If issues are found:
    - You will be instructed to fix them (Plan + Fix cycle)
    - After fixes, workflow restarts from Step p1-1
 
-6. If no issues:
+7. If no issues:
    - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
     steps_completed_by_tool: [],
     context: {},
