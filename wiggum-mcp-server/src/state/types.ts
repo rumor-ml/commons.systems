@@ -371,10 +371,11 @@ const WiggumStateSchema = z
     (data) => {
       // Validate phase-step consistency: phase1 uses p1-* steps, phase2 uses p2-* steps
       const phasePrefix = data.phase === 'phase1' ? 'p1-' : 'p2-';
-      const stepValid = data.step.startsWith(phasePrefix);
-      // completedSteps in phase2 can include p1-* steps (from previous phase)
+      // Special case: 'approval' step is valid in phase2 even though it doesn't have p2- prefix
+      const stepValid = data.step === 'approval' || data.step.startsWith(phasePrefix);
+      // completedSteps in phase2 can include p1-* steps (from previous phase) and 'approval'
       const completedValid = data.completedSteps.every(
-        (s) => s.startsWith('p1-') || s.startsWith(phasePrefix)
+        (s) => s === 'approval' || s.startsWith('p1-') || s.startsWith(phasePrefix)
       );
       return stepValid && completedValid;
     },
