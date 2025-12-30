@@ -322,31 +322,363 @@ During implementation, if you discover that an issue in your batch should not be
 3. Do NOT attempt to fix a not-fixed issue
 4. Include in your completion status: `"not_fixed_issues": ["issue-id-1", "issue-id-2"]`
 
-#### Closing Referenced TODO Issues
+#### Verifying and Closing TODO-Referenced Issues
 
-When implementing fixes, check if any issue has `existing_todo.has_todo: true` with
-an `existing_todo.issue_reference`:
+After the accept-edits agent completes implementation, verify TODO removals and close resolved issues.
 
-**For each in-scope issue with an existing TODO:**
+**Step 1: Parse TODO Removals from accept-edits Response**
 
-1. Note the referenced issue number (e.g., "#123" from `existing_todo.issue_reference`)
-2. If your fix removes the TODO comment:
-   a. Check if the referenced issue is still open:
-   ```bash
-   gh issue view 123 --json state --jq '.state'
-   ```
-   b. If OPEN, close it with a reference to the current issue number (from branch name):
-   ```bash
-   # Extract issue number from branch name (e.g., "625-feature-name" -> 625)
-   gh issue close 123 --comment "Fixed in #625"
-   ```
-3. Track closed issues in completion status:
-   ```json
-   {
-     "status": "complete",
-     "todo_issues_closed": [123, 456]
-   }
-   ```
+The accept-edits agent returns a response ending with:
+
+```markdown
+## TODO Removals
+
+The following TODO comments with issue references were removed during implementation:
+
+- Issue #123: Removed from /path/to/file.ts:42 (Fixed error handling)
+- Issue #456: Removed from /path/to/other.go:88 (Implemented validation)
+
+**Unique Issue Numbers**: 123, 456
+```
+
+Or:
+
+```markdown
+## TODO Removals
+
+None
+```
+
+Parse the response to extract TODO removals:
+
+1. Search for "## TODO Removals" section in accept-edits output
+2. If section contains "None", skip to Phase 5 completion
+3. Otherwise, find the "**Unique Issue Numbers**:" line
+4. Extract comma-separated issue numbers (e.g., "123, 456" → [123, 456])
+5. Parse each number as integer
+
+**Parsing example:**
+
+```typescript
+const response = taskOutput.content;
+const todoSection = response.match(/## TODO Removals\n\n([\s\S]*?)(?=\n##|$)/);
+
+if (!todoSection || todoSection[1].trim() === 'None') {
+  // No TODOs removed, skip verification
+  return;
+}
+
+const uniqueLine = todoSection[1].match(/\*\*Unique Issue Numbers\*\*:\s*([0-9,\s]+)/);
+if (!uniqueLine) {
+  // Malformed response, log warning
+  console.warn('TODO Removals section missing Unique Issue Numbers line');
+  return;
+}
+
+const issueNumbers = uniqueLine[1]
+  .split(',')
+  .map((n) => n.trim())
+  .filter((n) => /^\d+$/.test(n))
+  .map((n) => parseInt(n, 10));
+```
+
+**Step 2: Deduplicate Issue Numbers**
+
+When processing batches, the same issue might appear multiple times. Deduplicate:
+
+```typescript
+const uniqueIssues = [...new Set(issueNumbers)];
+// [313, 416, 313] → [313, 416]
+```
+
+**Step 3: Verify Each Issue Has No Remaining TODOs**
+
+For each unique issue number, search the entire codebase to verify ALL TODOs are gone.
+
+**3a. Extract and Validate Issue Number**
+
+```typescript
+for (const issueNum of uniqueIssues) {
+  // Validate: must be positive integer
+  if (!Number.isInteger(issueNum) || issueNum <= 0) {
+    console.warn(`Malformed issue number: ${issueNum}, skipping`);
+    continue;
+  }
+
+  // Process this issue
+  await verifyAndCloseIssue(issueNum);
+}
+```
+
+**3b. Search Codebase for Remaining TODOs**
+
+Use Grep to search entire worktree for any remaining TODO comments referencing this issue:
+
+```javascript
+// Search for TODO(#123) pattern
+const pattern = `TODO\\(#${issueNumber}\\)`;
+
+const grepResult = await Grep({
+  pattern: pattern,
+  output_mode: 'files_with_matches',
+  path: '/Users/n8/worktrees/625-all-hands-wiggum-optimizations',
+});
+```
+
+**Critical regex details:**
+
+- Use double backslash `\\(` and `\\)` to escape parentheses in the pattern
+- Pattern must match exact format: `TODO(#123)`
+- Search entire worktree using absolute path
+- Use `files_with_matches` mode for performance (we only need to know if any exist)
+
+**Error handling for Grep:**
+
+```typescript
+try {
+  const grepResult = await Grep({
+    pattern: `TODO\\(#${issueNumber}\\)`,
+    output_mode: 'files_with_matches',
+    path: '/Users/n8/worktrees/625-all-hands-wiggum-optimizations',
+  });
+
+  const remainingFiles = grepResult.files || [];
+
+  if (remainingFiles.length > 0) {
+    // TODOs still exist - DO NOT close issue
+    skipped.push({
+      issue: issueNumber,
+      reason: `${remainingFiles.length} file(s) still contain TODO(#${issueNumber})`,
+    });
+    continue; // Skip to next issue
+  }
+
+  // No remaining TODOs - proceed to close
+} catch (error) {
+  // Grep failed - be conservative, don't close
+  console.error(`Grep search failed for issue #${issueNumber}:`, error);
+  skipped.push({
+    issue: issueNumber,
+    reason: `Verification failed: ${error.message}`,
+  });
+  continue;
+}
+```
+
+**3c. Check Issue State Before Closing**
+
+Before attempting to close, verify the issue exists and is open:
+
+```bash
+issue_state=$(gh issue view ${issue_number} --json state --jq '.state' 2>/dev/null)
+
+if [ $? -ne 0 ]; then
+  echo "Issue #${issue_number} not found (may have been deleted)"
+  # Log warning but continue with other issues
+  continue
+fi
+
+if [ "$issue_state" = "CLOSED" ]; then
+  echo "Issue #${issue_number} already closed, skipping"
+  continue
+fi
+```
+
+**Error handling for gh CLI:**
+
+```typescript
+// Use Bash tool with error handling
+const checkResult = await Bash({
+  command: `gh issue view ${issueNumber} --json state --jq '.state'`,
+  description: `Check state of issue #${issueNumber}`,
+  dangerouslyDisableSandbox: true,
+});
+
+if (checkResult.exit_code !== 0) {
+  if (checkResult.stderr.includes('Could not resolve to an Issue')) {
+    // Issue doesn't exist - log and skip
+    console.warn(`Issue #${issueNumber} not found, skipping close`);
+    continue;
+  } else {
+    // Other gh error - log and skip
+    console.error(`Failed to check issue #${issueNumber}:`, checkResult.stderr);
+    skipped.push({
+      issue: issueNumber,
+      reason: `Failed to verify issue state: ${checkResult.stderr.substring(0, 100)}`,
+    });
+    continue;
+  }
+}
+
+const issueState = checkResult.stdout.trim();
+
+if (issueState === 'CLOSED') {
+  console.log(`Issue #${issueNumber} already closed, skipping`);
+  continue;
+}
+```
+
+**3d. Close the Issue**
+
+If all checks pass (no remaining TODOs, issue is open), close it:
+
+```bash
+# Extract current issue number from branch name
+current_branch=$(git branch --show-current)
+current_issue=$(echo "$current_branch" | grep -oE '^[0-9]+')
+
+# Close with reference to current issue
+gh issue close ${issue_number} \
+  --comment "All TODO(#${issue_number}) references resolved in #${current_issue}"
+```
+
+**Full close implementation:**
+
+```typescript
+// Get current issue from branch name
+const branchResult = await Bash({
+  command: 'git branch --show-current',
+  description: 'Get current branch name',
+});
+
+const branch = branchResult.stdout.trim();
+const currentIssueMatch = branch.match(/^(\d+)/);
+const currentIssue = currentIssueMatch ? currentIssueMatch[1] : 'this PR';
+
+// Close the issue
+const closeResult = await Bash({
+  command: `gh issue close ${issueNumber} --comment "All TODO(#${issueNumber}) references resolved in #${currentIssue}"`,
+  description: `Close issue #${issueNumber}`,
+  dangerouslyDisableSandbox: true,
+});
+
+if (closeResult.exit_code !== 0) {
+  console.error(`Failed to close issue #${issueNumber}:`, closeResult.stderr);
+  skipped.push({
+    issue: issueNumber,
+    reason: `Failed to close: ${closeResult.stderr.substring(0, 100)}`,
+  });
+  continue;
+}
+
+// Successfully closed - track it
+closedIssues.push(issueNumber);
+console.log(`Successfully closed issue #${issueNumber}`);
+```
+
+**3e. Track Results**
+
+Maintain two arrays during verification:
+
+```typescript
+const closedIssues: number[] = []; // Successfully closed
+const skipped: Array<{ issue: number; reason: string }> = []; // Skipped with reason
+```
+
+**Step 4: Comprehensive Error Handling**
+
+**Error Categories:**
+
+1. **Validation Errors** (malformed input):
+   - Malformed issue number (non-numeric, negative)
+   - Action: Log warning, skip issue, continue with others
+
+2. **Search Errors** (Grep failure):
+   - Grep tool failure, permission issues
+   - Action: Log error, skip issue (conservative - don't close if can't verify), continue with others
+
+3. **API Errors** (gh CLI failure):
+   - Issue not found (404)
+   - Network timeout
+   - Authentication failure
+   - Action: Log warning, skip issue, continue with others
+
+4. **State Errors** (unexpected states):
+   - Issue already closed
+   - Action: Log info, skip issue, continue with others
+
+**Error response format:**
+
+```typescript
+skipped.push({
+  issue: issueNumber,
+  reason: 'Brief description of why skipped',
+});
+```
+
+**Logging strategy:**
+
+- Use console.log for successful operations
+- Use console.warn for expected edge cases (already closed, not found)
+- Use console.error for unexpected failures (Grep error, gh error)
+- Keep messages concise to reduce token usage
+
+**Step 5: Update Completion Status**
+
+Add two new fields to the completion status JSON:
+
+```json
+{
+  "status": "complete",
+  "fixes_applied": ["fix1", "fix2"],
+  "issues_fixed": 3,
+  "not_fixed_issues": [],
+  "todo_issues_closed": [313, 416],
+  "todo_issues_skipped": [
+    {
+      "issue": 123,
+      "reason": "3 file(s) still contain TODO(#123)"
+    },
+    {
+      "issue": 789,
+      "reason": "Issue already closed"
+    }
+  ],
+  "tests_passed": true,
+  "iterations": 1,
+  "out_of_scope_skips": [],
+  "plan_file": "path/to/plan.md"
+}
+```
+
+**Field descriptions:**
+
+- `todo_issues_closed`: Array of issue numbers successfully closed (empty array if none)
+- `todo_issues_skipped`: Array of objects with issue number and reason for skipping (empty array if none)
+
+**Example responses:**
+
+No TODOs removed:
+
+```json
+{
+  "todo_issues_closed": [],
+  "todo_issues_skipped": []
+}
+```
+
+All TODOs verified and closed:
+
+```json
+{
+  "todo_issues_closed": [313, 416, 789],
+  "todo_issues_skipped": []
+}
+```
+
+Some closed, some skipped:
+
+```json
+{
+  "todo_issues_closed": [313, 416],
+  "todo_issues_skipped": [
+    {
+      "issue": 789,
+      "reason": "2 file(s) still contain TODO(#789)"
+    }
+  ]
+}
+```
 
 #### Implementation
 
