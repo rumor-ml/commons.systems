@@ -46,6 +46,7 @@ check_port_available() {
 }
 
 # Find next available port starting from base
+# TODO(#1047): Function exits entire script on failure instead of returning error code
 find_available_port() {
   local base_port=$1
   local service_name=$2

@@ -48,10 +48,37 @@ describe('Firestore Security Rules - Cards Collection', () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
         await userDb.collection('cards').doc().set({
           title: 'Test Card',
+          subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }, 'Create without type should be denied');
+    });
+
+    it('should deny create if subtype field is missing', async () => {
+      // Subtype requirement added in #244 to ensure cards are properly categorized
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc().set({
+          title: 'Test Card',
+          type: 'task',
+          // Missing subtype
+          createdBy: USER_1,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Create without subtype should be denied');
+    });
+
+    it('should allow create if subtype field is provided', async () => {
+      // Verify that cards with subtype are accepted
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Card with Subtype',
+        type: 'task',
+        subtype: 'urgent',
+      });
+
+      assert.ok(cardRef.id, 'Card with subtype should be created');
+      console.log(`Created card ${cardRef.id} with subtype`);
     });
 
     it('should deny create if createdBy does not match auth.uid (fake creator)', async () => {
@@ -60,6 +87,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
         await userDb.collection('cards').doc().set({
           title: 'Fake Card',
           type: 'task',
+          subtype: 'default',
           createdBy: USER_2, // USER_1 trying to fake USER_2's creation
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -97,8 +125,8 @@ describe('Firestore Security Rules - Cards Collection', () => {
     });
 
     it('should deny create with non-string title', { skip: true }, async () => {
-      // SKIP: Security rules don't currently validate field types (tracking issue: #534)
-      // TODO(#534): Update rules to validate title is string: request.resource.data.title is string
+      // SKIP: Security rules don't currently validate field types (tracking issue: #1044)
+      // TODO(#1044): Update rules to validate title is string: request.resource.data.title is string
       // Test with number title: 12345
       await helper.assertPermissionDenied(async () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
@@ -115,8 +143,8 @@ describe('Firestore Security Rules - Cards Collection', () => {
     });
 
     it('should deny create with empty string title', { skip: true }, async () => {
-      // SKIP: Security rules don't currently validate string length (tracking issue: #534)
-      // TODO(#534): Update rules to validate title is non-empty: request.resource.data.title.size() > 0
+      // SKIP: Security rules don't currently validate string length (tracking issue: #1044)
+      // TODO(#1044): Update rules to validate title is non-empty: request.resource.data.title.size() > 0
       // Test with title: ''
       await helper.assertPermissionDenied(async () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
@@ -130,8 +158,8 @@ describe('Firestore Security Rules - Cards Collection', () => {
     });
 
     it('should deny create with null required fields', { skip: true }, async () => {
-      // SKIP: Security rules don't currently validate against null (tracking issue: #534)
-      // TODO(#534): Update rules to validate field is not null: request.resource.data.title != null
+      // SKIP: Security rules don't currently validate against null (tracking issue: #1044)
+      // TODO(#1044): Update rules to validate field is not null: request.resource.data.title != null
       // Test with title: null
       await helper.assertPermissionDenied(async () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
@@ -148,8 +176,8 @@ describe('Firestore Security Rules - Cards Collection', () => {
     });
 
     it('should deny create with excessively long title', { skip: true }, async () => {
-      // SKIP: Security rules don't currently validate field size limits (tracking issue: #534)
-      // TODO(#534): Update rules to validate max size: request.resource.data.title.size() < 1000
+      // SKIP: Security rules don't currently validate field size limits (tracking issue: #1044)
+      // TODO(#1044): Update rules to validate max size: request.resource.data.title.size() < 1000
       // Test with 1MB title for DoS protection
       const longTitle = 'A'.repeat(1024 * 1024); // 1MB string
 
@@ -202,15 +230,42 @@ describe('Firestore Security Rules - Cards Collection', () => {
       }, 'Non-creator update should be denied');
     });
 
-    it('should deny update if lastModifiedAt is not set to request.time', async () => {
+    it('should deny update if lastModifiedAt is missing', async () => {
       await helper.assertPermissionDenied(async () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
         await userDb.collection('cards').doc(testCardId).update({
           title: 'Invalid Update',
           lastModifiedBy: USER_1,
-          // Missing lastModifiedAt or setting it to a custom value
+          // Missing lastModifiedAt
         });
-      }, 'Update without proper lastModifiedAt should be denied');
+      }, 'Update without lastModifiedAt should be denied');
+    });
+
+    it('should deny update with custom lastModifiedAt timestamp (timestamp manipulation attack)', async () => {
+      // This test prevents timestamp manipulation attacks where users set custom timestamps
+      // to manipulate sort order or forge audit trails
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        const customTimestamp = admin.firestore.Timestamp.fromDate(new Date('2099-01-01'));
+        await userDb.collection('cards').doc(testCardId).update({
+          title: 'Timestamp Attack',
+          lastModifiedBy: USER_1,
+          lastModifiedAt: customTimestamp, // Custom timestamp instead of serverTimestamp()
+        });
+      }, 'Update with custom lastModifiedAt should be denied');
+    });
+
+    it('should deny update with past lastModifiedAt timestamp', async () => {
+      // Users cannot backdate modifications to manipulate history
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        const pastTimestamp = admin.firestore.Timestamp.fromDate(new Date('2020-01-01'));
+        await userDb.collection('cards').doc(testCardId).update({
+          title: 'Past Timestamp Attack',
+          lastModifiedBy: USER_1,
+          lastModifiedAt: pastTimestamp,
+        });
+      }, 'Update with past lastModifiedAt should be denied');
     });
 
     it('should deny update if user tries to change createdBy field', async () => {
@@ -261,13 +316,17 @@ describe('Firestore Security Rules - Cards Collection', () => {
     });
 
     it('should deny update by non-creator (regression test for OR vulnerability)', async () => {
-      // This test prevents regression back to the vulnerable OR condition:
+      // This test prevents regression back to the vulnerable OR condition where
+      // any user could update any card by simply setting lastModifiedBy to their own UID.
+      // The vulnerable rule was:
       // && (resource.data.createdBy == request.auth.uid
       //     || request.resource.data.lastModifiedBy == request.auth.uid)
+      // The correct rule requires BOTH: user must be the creator AND must set lastModifiedBy correctly.
 
       const cardRef = await helper.createCardAsUser(USER_1, {
         title: 'USER_1 Card',
         type: 'task',
+        subtype: 'default',
       });
 
       await helper.assertPermissionDenied(async () => {
@@ -327,6 +386,30 @@ describe('Firestore Security Rules - Cards Collection', () => {
         });
       }, 'Removing immutable fields should be denied');
     });
+
+    it('should deny update that removes required title field', async () => {
+      // Users should not be able to delete required fields that ensure data integrity
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc(testCardId).update({
+          title: admin.firestore.FieldValue.delete(), // Removing required field
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Update removing title field should be denied');
+    });
+
+    it('should deny update that removes required type field', async () => {
+      // Users should not be able to delete required fields that ensure data integrity
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc(testCardId).update({
+          type: admin.firestore.FieldValue.delete(), // Removing required field
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Update removing type field should be denied');
+    });
   });
 
   describe('DELETE operations', () => {
@@ -337,6 +420,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
       const cardRef = await helper.createCardAsUser(USER_1, {
         title: 'Delete Test Card',
         type: 'task',
+        subtype: 'default',
         description: 'Card for testing deletes',
       });
       testCardId = cardRef.id;
@@ -403,11 +487,14 @@ describe('Firestore Security Rules - Cards Collection', () => {
       // SKIP: Firebase Admin SDK with @google-cloud/firestore doesn't properly simulate
       // unauthenticated access (request.auth == null) in the Firestore Emulator.
       // Tracking issue: #533
+      // NOTE: The rules DO deny unauthenticated access via isAuthenticated() checks.
+      // This limitation only affects unit test simulation, not production security.
       await helper.assertPermissionDenied(async () => {
         const unauthDb = helper.getFirestoreAsUnauthenticated();
         await unauthDb.collection('cards').doc().set({
           title: 'Unauth Card',
           type: 'task',
+          subtype: 'default',
           createdBy: 'fake-uid',
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -418,9 +505,12 @@ describe('Firestore Security Rules - Cards Collection', () => {
       // SKIP: Firebase Admin SDK with @google-cloud/firestore doesn't properly simulate
       // unauthenticated access (request.auth == null) in the Firestore Emulator.
       // Tracking issue: #533
+      // NOTE: The rules DO deny unauthenticated access via isAuthenticated() checks.
+      // This limitation only affects unit test simulation, not production security.
       const cardRef = await helper.createCardAsUser(USER_1, {
         title: 'Test Card',
         type: 'task',
+        subtype: 'default',
       });
 
       await helper.assertPermissionDenied(async () => {
@@ -435,9 +525,12 @@ describe('Firestore Security Rules - Cards Collection', () => {
       // SKIP: Firebase Admin SDK with @google-cloud/firestore doesn't properly simulate
       // unauthenticated access (request.auth == null) in the Firestore Emulator.
       // Tracking issue: #533
+      // NOTE: The rules DO deny unauthenticated access via isAuthenticated() checks.
+      // This limitation only affects unit test simulation, not production security.
       const cardRef = await helper.createCardAsUser(USER_1, {
         title: 'Test Card',
         type: 'task',
+        subtype: 'default',
       });
 
       await helper.assertPermissionDenied(async () => {
@@ -459,6 +552,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
       batch.set(card1Ref, {
         title: 'Batch Card 1',
         type: 'task',
+        subtype: 'default',
         createdBy: USER_1,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         lastModifiedBy: USER_1,
@@ -468,6 +562,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
       batch.set(card2Ref, {
         title: 'Batch Card 2',
         type: 'bug',
+        subtype: 'default',
         createdBy: USER_1,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         lastModifiedBy: USER_1,
@@ -482,7 +577,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
 
       assert.ok(card1.exists, 'Card 1 should exist');
       assert.ok(card2.exists, 'Card 2 should exist');
-      console.log(`✓ Batch created cards ${card1Ref.id} and ${card2Ref.id}`);
+      console.log(`Batch created cards ${card1Ref.id} and ${card2Ref.id}`);
     });
 
     it('should deny batch if any operation violates rules', async () => {
@@ -490,6 +585,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
       const card1Ref = await helper.createCardAsUser(USER_1, {
         title: 'Batch Test Card',
         type: 'task',
+        subtype: 'default',
       });
 
       await helper.assertPermissionDenied(async () => {
@@ -501,6 +597,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
         batch.set(newCardRef, {
           title: 'Valid Batch Card',
           type: 'feature',
+          subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           lastModifiedBy: USER_1,
@@ -529,6 +626,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
         batch.set(cardRef, {
           title: 'Fake Card',
           type: 'task',
+          subtype: 'default',
           createdBy: USER_2, // USER_1 trying to fake USER_2's creation
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           lastModifiedBy: USER_2,
@@ -551,12 +649,13 @@ describe('Firestore Security Rules - Cards Collection', () => {
           {
             title: `Test Card in ${collection}`,
             type: 'task',
+            subtype: 'default',
           },
           collection
         );
 
         assert.ok(cardRef.id, `Card should be created in ${collection}`);
-        console.log(`✓ Created card ${cardRef.id} in ${collection}`);
+        console.log(`Created card ${cardRef.id} in ${collection}`);
       }
     });
 
@@ -567,6 +666,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
         await userDb.collection('cards_pr_abc').doc().set({
           title: 'Invalid PR Collection',
           type: 'task',
+          subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -580,6 +680,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
         await userDb.collection('cards_preview_MyBranch').doc().set({
           title: 'Invalid Preview Collection',
           type: 'task',
+          subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -599,6 +700,7 @@ describe('Firestore Security Rules - Cards Collection', () => {
             .set({
               title: `Test Card in ${collection}`,
               type: 'task',
+              subtype: 'default',
               createdBy: USER_1,
               createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });

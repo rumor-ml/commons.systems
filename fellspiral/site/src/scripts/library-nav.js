@@ -333,6 +333,7 @@ export async function initLibraryNav() {
 
   const libraryNav = new LibraryNav(container, {
     onNavigate: ({ type, subtype }) => {
+      // TODO(#1031): Misleading comment about cards.html navigation behavior
       // If we're on cards.html, trigger filtering via hash change
       if (window.location.pathname.includes('cards.html')) {
         // This will be handled by cards.js hash change listener

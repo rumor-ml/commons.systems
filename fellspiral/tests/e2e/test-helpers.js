@@ -194,6 +194,16 @@ export async function createCardViaUI(page, cardData) {
         currentUser: !!window.__testAuth?.currentUser,
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
+
+      // Log the diagnostic info before throwing so it's visible in test output
+      // even if the error is caught by a higher-level handler
+      console.error('Auth not ready for card creation', {
+        authState,
+        timeoutMs: 5000,
+        originalError: error.message,
+        emulatorHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
+      });
+
       throw new Error(
         `Auth not ready after 5s: ${JSON.stringify(authState)}\n` +
           `Possible causes:\n` +
@@ -220,6 +230,9 @@ export async function createCardViaUI(page, cardData) {
 // Shared Firebase Admin instance for Firestore operations
 let _adminApp = null;
 let _firestoreDb = null;
+// Track initialization separately from the Firestore instance (not monkey-patching)
+let _isFirestoreConfigured = false;
+let _configuredFirestoreHost = null;
 
 /**
  * Get or initialize Firebase Admin SDK and Firestore connection
@@ -227,6 +240,15 @@ let _firestoreDb = null;
  */
 async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
+    // Validate emulator host hasn't changed
+    const currentHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
+    if (_isFirestoreConfigured && _configuredFirestoreHost !== currentHost) {
+      console.warn('Firestore emulator host changed after initialization', {
+        previousHost: _configuredFirestoreHost,
+        currentHost: currentHost,
+        impact: 'Using previous configuration, new host ignored',
+      });
+    }
     return { app: _adminApp, db: _firestoreDb };
   }
 
@@ -247,17 +269,33 @@ async function getFirestoreAdmin() {
   _firestoreDb = admin.firestore(_adminApp);
 
   // Only configure settings if not already configured
-  if (!_firestoreDb._settingsConfigured) {
+  if (!_isFirestoreConfigured) {
     const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
     const [host, port] = firestoreHost.split(':');
 
-    _firestoreDb.settings({
-      host: `${host}:${port}`,
-      ssl: false,
-    });
+    try {
+      _firestoreDb.settings({
+        host: `${host}:${port}`,
+        ssl: false,
+      });
 
-    // Mark as configured to prevent duplicate calls
-    _firestoreDb._settingsConfigured = true;
+      _isFirestoreConfigured = true;
+      _configuredFirestoreHost = firestoreHost;
+    } catch (error) {
+      // Handle the "already initialized" error explicitly
+      if (error.message?.includes('already been initialized')) {
+        console.warn('Firestore already configured, reusing existing settings');
+        _isFirestoreConfigured = true;
+        _configuredFirestoreHost = firestoreHost;
+      } else {
+        // Unexpected error - log and throw
+        console.error('Failed to configure Firestore emulator settings', {
+          host: firestoreHost,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
   }
 
   return { app: _adminApp, db: _firestoreDb };
@@ -267,11 +305,17 @@ async function getFirestoreAdmin() {
  * Query Firestore emulator directly to get a card by title
  * Includes retry logic to handle emulator write propagation delays (especially in Firefox)
  * @param {string} cardTitle - Title of the card to find
- * @param {number} maxRetries - Maximum number of retries (default: 5)
- * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
- * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
+ * @param {Object} options - Configuration options
+ * @param {number} options.maxRetries - Maximum number of retries (default: 5)
+ * @param {number} options.initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
+ * @param {boolean} options.throwOnNotFound - Whether to throw an error if card not found after retries (default: true)
+ * @returns {Promise<Object|null>} Card document with id and data, or null if not found and throwOnNotFound is false
+ * @throws {Error} If card not found after retries and throwOnNotFound is true, or if query fails
  */
-export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDelayMs = 500) {
+export async function getCardFromFirestore(
+  cardTitle,
+  { maxRetries = 5, initialDelayMs = 500, throwOnNotFound = true } = {}
+) {
   // Import collection name helper
   const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
 
@@ -283,25 +327,72 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
 
   // Retry with exponential backoff
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
+    try {
+      const snapshot = await cardsCollection.where('title', '==', cardTitle).get();
 
-    if (!snapshot.empty) {
-      // Found the card!
-      const doc = snapshot.docs[0];
-      return {
-        id: doc.id,
-        ...doc.data(),
-      };
+      if (!snapshot.empty) {
+        // Found the card!
+        const doc = snapshot.docs[0];
+        return {
+          id: doc.id,
+          ...doc.data(),
+        };
+      }
+
+      // Card not found yet
+      if (attempt < maxRetries) {
+        const delayMs = initialDelayMs * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    } catch (error) {
+      // Query failed - log and potentially throw immediately
+      console.error(
+        `Query failed for card "${cardTitle}" (attempt ${attempt + 1}/${maxRetries + 1})`,
+        {
+          cardTitle,
+          collection: collectionName,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+
+      // If this was the last attempt, throw
+      if (attempt === maxRetries) {
+        throw new Error(
+          `Failed to query Firestore for card "${cardTitle}" after ${maxRetries + 1} attempts:\n` +
+            `  Collection: ${collectionName}\n` +
+            `  Error: ${error instanceof Error ? error.message : String(error)}\n` +
+            `  This indicates a Firestore connection or query issue, not a missing card.\n` +
+            `  Check that the Firestore emulator is running and accessible.`
+        );
+      }
+
+      // Retry on query failures too
+      const delayMs = initialDelayMs * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
+  }
 
-    // If this was the last attempt, return null
-    if (attempt === maxRetries) {
-      return null;
-    }
+  // Card not found after all retries
+  if (throwOnNotFound) {
+    const totalWaitTime = initialDelayMs * (Math.pow(2, maxRetries) - 1);
+    console.error(`Card not found in Firestore after ${maxRetries + 1} attempts`, {
+      cardTitle,
+      collection: collectionName,
+      retriesPerformed: maxRetries + 1,
+      totalWaitTime,
+    });
 
-    // Wait before retrying (exponential backoff)
-    const delayMs = initialDelayMs * Math.pow(2, attempt);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    throw new Error(
+      `Card "${cardTitle}" not found in Firestore after ${maxRetries + 1} attempts:\n` +
+        `  Collection: ${collectionName}\n` +
+        `  Total retries: ${maxRetries}\n` +
+        `  Total wait time: ~${totalWaitTime}ms\n` +
+        `  Possible causes:\n` +
+        `    - Card creation failed silently\n` +
+        `    - Firestore write propagation delay (increase maxRetries)\n` +
+        `    - Wrong collection name or query criteria\n` +
+        `    - Emulator data was cleared between operations`
+    );
   }
 
   return null;

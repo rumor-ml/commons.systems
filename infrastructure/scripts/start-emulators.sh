@@ -142,6 +142,7 @@ else
 fi
 
 # Check Firestore emulator
+# TODO(#1046): HTTP health checks only log warnings - should fail script or retry
 if curl -sf "http://127.0.0.1:${FIRESTORE_PORT}/" > /dev/null 2>&1; then
   echo "✓ Firestore emulator HTTP API is responding"
 else

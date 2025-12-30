@@ -115,7 +115,7 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // TODO: Make emulator error detection more specific by checking error codes instead of string matching.
+        // TODO(#1038): Make emulator error detection more specific by checking error codes instead of string matching.
         // Current approach is brittle - look for error.code === 'already-initialized' or similar Firebase error codes.
         const msg = error.message || '';
 
@@ -198,6 +198,7 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
+    // TODO(#1034): Verify error enrichment doesn't break caller's error.code checks
     // Enrich error with context before re-throwing
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
     enrichedError.originalError = error;
@@ -397,6 +398,7 @@ export async function getFirebaseAuth() {
   return auth;
 }
 
+// TODO(#1030): Clarify comment about module binding issue - explain WHY auth is undefined at import time
 // Synchronous getter for auth instance (returns current value without initialization)
 // This fixes module binding issue where auth is undefined at import time
 // IMPORTANT: Checks window.__testAuth first to handle test mode where

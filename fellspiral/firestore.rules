@@ -31,12 +31,13 @@ service cloud.firestore {
       // While Firebase documentation shows that serverTimestamp() can be compared with request.time
       // (see: https://firebase.google.com/docs/firestore/security/rules-conditions), in practice
       // this validation is optional for CREATE since createdAt is set once and never modified.
-      // UPDATE operations DO validate lastModifiedAt == request.time to ensure proper timestamp usage.
+      // UPDATE operations require lastModifiedAt field to be present in the update
+      // and validate lastModifiedAt == request.time to ensure proper timestamp usage.
       // User attribution security is always enforced via createdBy/lastModifiedBy == request.auth.uid checks.
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()
-                    && request.resource.data.keys().hasAll(['title', 'type'])
+                    && request.resource.data.keys().hasAll(['title', 'type', 'subtype'])
                     && request.resource.data.createdBy == request.auth.uid;
 
       // Allow update only if user is the creator
@@ -52,7 +53,9 @@ service cloud.firestore {
                     && request.resource.data.lastModifiedAt == request.time
                     // Enforce field immutability
                     && request.resource.data.createdBy == resource.data.createdBy
-                    && request.resource.data.createdAt == resource.data.createdAt;
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    // Ensure required fields cannot be deleted (must still exist after update)
+                    && request.resource.data.keys().hasAll(['title', 'type', 'subtype']);
 
       // Allow delete only if user is the creator
       allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
