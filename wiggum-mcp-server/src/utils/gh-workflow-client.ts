@@ -5,6 +5,7 @@
  * allowing wiggum to call tools like gh_get_failure_details directly via MCP protocol.
  */
 
+// TODO(#973): Enhance empty content error diagnostics in extractTextFromMCPResult
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { existsSync } from 'fs';

@@ -5,6 +5,7 @@
  * Tests cover agent completion tracking, manifest reading, and cleanup logic.
  */
 
+// TODO(#994): Consider adding mutation tests for 2-strike verification logic
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {

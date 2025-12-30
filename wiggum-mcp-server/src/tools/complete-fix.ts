@@ -7,6 +7,9 @@
  * TODO(#489): Use createErrorResult for state comment failures - needs verification (may be stale)
  */
 
+// TODO(#1008): Improve comment explaining state reuse safety in complete-fix.ts
+// TODO(#983): Verbose comments that describe obvious code
+// TODO(#938): Extract duplicated error state update response blocks in complete-fix.ts
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {

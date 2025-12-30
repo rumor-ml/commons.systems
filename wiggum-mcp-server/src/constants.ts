@@ -2,6 +2,7 @@
  * Shared constants for Wiggum MCP server
  */
 
+// TODO(#974): Consider simplifying generateScopeSeparatedFixInstructions template
 import { ValidationError } from './utils/errors.js';
 import { logger } from './utils/logger.js';
 
@@ -412,15 +413,19 @@ Task({
   subagent_type: "out-of-scope-tracker",
   model: "sonnet",
   description: "Track out-of-scope issue {issue_id}",
-  prompt: \`Track out-of-scope issue: {issue_id}
+  prompt: \`Track out-of-scope issue: {issue_id}. Current issue number: ${issueNumber}
 
 **Instructions:**
 1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
 2. Follow the out-of-scope tracking workflow in your system prompt
-3. Return completion status with issue numbers created/updated
+3. Use the current issue number to set up dependency/blocker relationships
+4. Return completion status with issue numbers created/updated
 
 **IMPORTANT:** The agent will fetch full issue details using wiggum_get_issue.
 Do not pass full details in this prompt - pass only the issue_id.
+
+The current issue number (${issueNumber}) is the issue being worked on (from the branch name prefix).
+Use this to mark out-of-scope issues as blocked by the current issue when appropriate.
 \`
 })
 \`\`\`

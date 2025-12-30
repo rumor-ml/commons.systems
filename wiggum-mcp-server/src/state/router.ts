@@ -6,6 +6,14 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
+// TODO(#942): Extract verbose error handling pattern in router.ts state update failures
+// TODO(#941): Extract duplicate state update pattern in router.ts (safeUpdatePRBodyState and safeUpdateIssueBodyState)
+// TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
+// TODO(#858): Improve state update retry loop error context capture
+// TODO(#811): Extract verbose state update error message formatting
+// TODO(#810): Extract duplicate safeUpdate functions in router.ts
+// TODO(#716): Migrate error classification in router.ts to structured error types
+// TODO(#710): Extract type alias for TransientFailureReason
 import { getPRReviewComments, sleep } from '../utils/gh-cli.js';
 import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';

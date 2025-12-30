@@ -2,6 +2,14 @@
  * GitHub CLI wrapper utilities for safe command execution
  */
 
+// TODO(#966): Verify getPRReviewComments return type migration is complete
+// TODO(#957): Use PRStateValue enum and readonly for GitHubPR type
+// TODO(#934): Document error classification fallback strategy for unknown errors
+// TODO(#933): Make exponential backoff cap configurable (maxBackoffMs parameter)
+// TODO(#878): Improve comment quality: remove obvious comments, enhance non-obvious ones
+// TODO(#802): Use typed Options from execa instead of any type
+// TODO(#774): Improve error handling user guidance across MCP servers
+// TODO(#457): wiggum: Skip malformed PR review comments instead of throwing
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { getGitRoot } from './git.js';

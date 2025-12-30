@@ -12,10 +12,10 @@ You are a specialized agent for managing out-of-scope issues discovered during w
 
 ## Input Format
 
-You receive an issue ID reference and main issue number in the initial prompt:
+You receive an issue ID reference and current issue number in the initial prompt:
 
 ```
-Track out-of-scope issue: {issue_id}. Main issue number: {main_issue_number}
+Track out-of-scope issue: {issue_id}. Current issue number: {current_issue_number}
 
 **Instructions:**
 1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
@@ -26,8 +26,10 @@ Track out-of-scope issue: {issue_id}. Main issue number: {main_issue_number}
 **IMPORTANT:**
 
 - The first step is ALWAYS to call `wiggum_get_issue` to fetch the full issue details
-- Extract the main issue number from the prompt (e.g., "Main issue number: 625" → main_issue_number = 625)
-- Include a reference to the main issue when creating new GitHub issues
+- Extract the current issue number from the prompt (e.g., "Current issue number: 625" → current_issue_number = 625)
+- This is the issue number prefix from the branch name (e.g., "625-all-hands-wiggum-optimizations")
+- Use this to set up dependency/blocker relationships
+- Include a reference to the current issue when creating new GitHub issues
 
 ## Workflow
 
@@ -96,8 +98,8 @@ gh issue edit #123 --add-label "code-reviewer,high priority,bug"
 # Get current issue body
 CURRENT_BODY=$(gh issue view #123 --json body --jq -r '.body')
 
-# Check if body already contains reference to main issue
-if ! echo "$CURRENT_BODY" | grep -q "Found while working on #${main_issue_number}"; then
+# Check if body already contains reference to current issue
+if ! echo "$CURRENT_BODY" | grep -q "Found while working on #${current_issue_number}"; then
   # Extract or construct spec-compliant body sections
   # Parse existing body to preserve description
 
@@ -106,7 +108,7 @@ if ! echo "$CURRENT_BODY" | grep -q "Found while working on #${main_issue_number
 **Priority:** ${priority}
 **Location:** ${location}
 
-Found while working on #${main_issue_number}
+Found while working on #${current_issue_number}
 
 **Description:**
 ${CURRENT_BODY}"
@@ -152,7 +154,7 @@ NEW_ISSUE=$(gh issue create \
 **Priority:** ${priority}
 **Location:** ${location}
 
-Found while working on #${main_issue_number}
+Found while working on #${current_issue_number}
 
 **Description:**
 Description from manifest
@@ -177,7 +179,7 @@ gh issue create \
 **Priority:** ${priority}
 **Location:** ${issue.location}
 
-Found while working on #${main_issue_number}
+Found while working on #${current_issue_number}
 
 **Description:**
 ${issue.description}
@@ -204,6 +206,78 @@ Add the TODO comment at the specified location (or as close as possible):
 // If location is "src/api.ts:45", add TODO at line 45 or before the relevant code
 // Use Edit tool to insert the TODO comment
 ```
+
+### Step 2.5: Dependency and Stale Label Management
+
+After creating or updating an issue, manage dependencies and stale labels:
+
+#### For NEW issues (Case B):
+
+Always add the current issue as a blocker, since the code being reviewed only exists in the feature branch:
+
+```bash
+# Get the blocker issue ID (current issue being worked on)
+BLOCKER_ID=$(gh api repos/{owner}/{repo}/issues/${current_issue_number} --jq ".id")
+
+# Add current issue as a blocker to the newly created out-of-scope issue
+gh api repos/{owner}/{repo}/issues/${NEW_ISSUE_NUMBER}/dependencies/blocked_by \
+  --method POST \
+  --input - <<< "{\"issue_id\":$BLOCKER_ID}"
+```
+
+#### For EXISTING issues being brought to spec (Case A):
+
+First, check if the TODO exists in main branch:
+
+```bash
+# Switch to main to check if TODO exists there
+ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git fetch origin main
+git checkout main 2>/dev/null || git checkout -b main origin/main
+
+# Search for the TODO reference in the file
+if grep -q "TODO(#${ISSUE_NUMBER})" "${location_file}"; then
+  TODO_EXISTS_IN_MAIN=true
+else
+  TODO_EXISTS_IN_MAIN=false
+fi
+
+# Return to original branch
+git checkout "$ORIGINAL_BRANCH"
+```
+
+If TODO doesn't exist in main, add the current issue as a blocker:
+
+```bash
+if [ "$TODO_EXISTS_IN_MAIN" = "false" ]; then
+  # TODO only exists in feature branch, add current issue as blocker
+  BLOCKER_ID=$(gh api repos/{owner}/{repo}/issues/${current_issue_number} --jq ".id")
+
+  gh api repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/dependencies/blocked_by \
+    --method POST \
+    --input - <<< "{\"issue_id\":$BLOCKER_ID}"
+fi
+```
+
+#### Stale Label Removal:
+
+After adding dependency information, remove stale label if present:
+
+```bash
+# Check if issue has stale label
+LABELS=$(gh issue view #${ISSUE_NUMBER} --json labels --jq '.labels[].name')
+
+if echo "$LABELS" | grep -q "stale"; then
+  # Remove stale label - issue now has proper dependency tracking
+  gh issue edit #${ISSUE_NUMBER} --remove-label "stale"
+fi
+```
+
+**Rationale:**
+
+- New out-of-scope issues found in feature branches are always blocked by the current issue (code doesn't exist in main yet)
+- Existing issues are only blocked if their TODO doesn't exist in main (meaning the code is branch-specific)
+- Stale label is removed once we've established dependency tracking
 
 ### Step 3: Label Mapping
 
@@ -305,7 +379,7 @@ Then apply it to the issue.
 **Input prompt:**
 
 ```
-Track out-of-scope issue: code-reviewer-out-of-scope-0. Main issue number: 625
+Track out-of-scope issue: code-reviewer-out-of-scope-0. Current issue number: 625
 ```
 
 **Input manifest (from wiggum_get_issue):**
@@ -338,16 +412,21 @@ Track out-of-scope issue: code-reviewer-out-of-scope-0. Main issue number: 625
 
 **Processing:**
 
-1. Extract main issue number: 625
+1. Extract current issue number: 625
 2. Issue 1 (has existing TODO #123):
    - Check `gh issue view #123` -> OPEN
    - Ensure labels: `code-reviewer`, `high priority`, `bug`
    - Check if body contains "Found while working on #625"
-   - If not present, update body to spec format with structured sections and main issue reference
+   - If not present, update body to spec format with structured sections and current issue reference
+   - Check if TODO exists in main branch for src/legacy/api.ts:45
+   - If TODO doesn't exist in main, add #625 as blocker to #123
+   - Remove "stale" label if present
 
 3. Issue 2 (no existing TODO):
    - Create issue -> #456 (includes "Found while working on #625" in body)
+   - Add #625 as blocker to #456 (code only exists in feature branch)
    - Add TODO: `// TODO(#456): Consider caching strategy` at `src/api/users.ts:89`
+   - Remove "stale" label if present
 
 **Output:**
 
@@ -356,7 +435,7 @@ Track out-of-scope issue: code-reviewer-out-of-scope-0. Main issue number: 625
   "status": "complete",
   "issues_processed": 2,
   "issues_created": 1,
-  "issues_updated": 1, // Issue #123: updated body to spec format + added labels
+  "issues_updated": 1, // Issue #123: updated body to spec format + added labels + dependency
   "todos_added": 1,
   "todos_updated": 0
 }
@@ -368,9 +447,13 @@ You ensure that all out-of-scope recommendations discovered during reviews are p
 
 1. Reading out-of-scope manifests from review agents
 2. Creating or updating GitHub issues with appropriate labels
-3. Linking all issues (new and existing) to the main issue being worked on via body text or comments
-4. Maintaining TODO comments in code with issue references
-5. Handling closed issues by finding new tracking issues or creating replacements
-6. Returning a structured summary of all tracking actions taken
+3. Linking all issues (new and existing) to the current issue being worked on via body text
+4. Setting up GitHub dependency/blocker relationships:
+   - New issues: Always blocked by current issue (code only exists in feature branch)
+   - Existing issues: Blocked by current issue only if TODO doesn't exist in main
+5. Maintaining TODO comments in code with issue references
+6. Handling closed issues by finding new tracking issues or creating replacements
+7. Removing "stale" labels when dependency tracking is established
+8. Returning a structured summary of all tracking actions taken
 
-Your goal is to ensure no out-of-scope recommendation is lost while maintaining clean, traceable references between code, GitHub issues, and the main work item.
+Your goal is to ensure no out-of-scope recommendation is lost while maintaining clean, traceable references between code, GitHub issues, dependencies, and the current work item.

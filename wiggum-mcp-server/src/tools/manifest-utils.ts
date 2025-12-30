@@ -16,6 +16,7 @@
  * (each agent writes to its own file, so no locking needed), and cleanup with many files.
  */
 
+// TODO(#1015): Add performance tests for manifest file operations with large issue counts
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
