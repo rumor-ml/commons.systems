@@ -81,6 +81,20 @@ export async function postIssueComment(
 }
 
 /**
+ * Search for command evidence in a list of comments
+ *
+ * @internal Pure function for testing - no I/O operations
+ */
+function searchCommandInComments(comments: readonly { body: string }[], command: string): boolean {
+  for (const comment of comments) {
+    if (comment.body.includes(command)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Check if a specific review command was executed (evidence in issue comments)
  */
 export async function hasIssueReviewCommandEvidence(
@@ -96,18 +110,23 @@ export async function hasIssueReviewCommandEvidence(
     commentCount: comments.length,
   });
 
-  // Search for command mention in any comment
-  for (const comment of comments) {
-    if (comment.body.includes(command)) {
-      return true;
-    }
+  const found = searchCommandInComments(comments, command);
+
+  if (!found) {
+    logger.debug('hasIssueReviewCommandEvidence: command not found', {
+      issueNumber,
+      command,
+      checkedCommentCount: comments.length,
+    });
   }
 
-  logger.debug('hasIssueReviewCommandEvidence: command not found', {
-    issueNumber,
-    command,
-    checkedCommentCount: comments.length,
-  });
-
-  return false;
+  return found;
 }
+
+/**
+ * Test exports for unit testing internal functions
+ * @internal Only use in tests
+ */
+export const _testExports = {
+  searchCommandInComments,
+};

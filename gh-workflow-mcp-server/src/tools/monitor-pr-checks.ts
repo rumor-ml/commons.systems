@@ -126,7 +126,7 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       failFast: input.fail_fast,
     });
 
-    // If timed out AND using chunked mode, return "still running"
+    // If timed out AND using chunked mode, return "still running" with structured metadata
     if (watchResult.timedOut && input.max_single_call_timeout_seconds) {
       return {
         content: [
@@ -135,6 +135,14 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
             text: 'CHECKS_RUNNING: PR checks still in progress. Monitoring will continue automatically.',
           },
         ],
+        isError: false,
+        meta: {
+          status: 'in_progress',
+          chunked_timeout: true,
+          continue_monitoring: true,
+          pr_number: input.pr_number,
+          elapsed_seconds: input.max_single_call_timeout_seconds,
+        },
       };
     }
 
@@ -189,14 +197,24 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
     const totalDurationSeconds = Math.round((Date.now() - startTime) / 1000);
 
-    // Build unknown states warning if any were encountered
+    // Build unknown states warning if any were encountered - make it prominent
     const unknownStatesWarning =
       unknownStates.length > 0
         ? [
             ``,
-            `Warning: Unknown GitHub check states detected: ${unknownStates.join(', ')}`,
-            `This may indicate a GitHub API change. Monitoring continued conservatively.`,
-            `Action: Add these states to known states in constants.ts if they are valid terminal states.`,
+            `---`,
+            `CRITICAL: Unknown GitHub check states detected: ${unknownStates.join(', ')}`,
+            ``,
+            `This may indicate a GitHub API change that requires code updates.`,
+            `Monitoring treated these as 'in_progress' which may be incorrect.`,
+            ``,
+            `Action Required:`,
+            `  1. Verify these states at: ${pr.url}/checks`,
+            `  2. Add valid terminal states to PR_CHECK_TERMINAL_STATES in constants.ts`,
+            `  3. Report to maintainers if GitHub API changed`,
+            ``,
+            `Impact: If these are terminal states, monitoring may timeout waiting for completion.`,
+            `---`,
           ]
         : [];
 

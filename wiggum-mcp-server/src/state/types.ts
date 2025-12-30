@@ -24,7 +24,6 @@ export interface WiggumState {
 /**
  * Git repository state
  */
-// TODO(#991): Add createGitState factory function for consistency with createWiggumState and createPRExists
 export interface GitState {
   readonly currentBranch: string;
   readonly isMainBranch: boolean;
@@ -96,7 +95,6 @@ export interface IssueDoesNotExist {
 /**
  * Complete current state for wiggum flow
  */
-// TODO(#980): Consider adding createCurrentState factory function for consistency with other state types
 export interface CurrentState {
   readonly git: GitState;
   readonly pr: PRState;
@@ -111,13 +109,52 @@ export interface CurrentState {
  * to catch invalid data early and provide clear error messages.
  */
 
-const GitStateSchema = z.object({
-  currentBranch: z.string().min(1, 'currentBranch cannot be empty'),
-  isMainBranch: z.boolean(),
-  hasUncommittedChanges: z.boolean(),
-  isRemoteTracking: z.boolean(),
-  isPushed: z.boolean(),
-});
+const GitStateSchema = z
+  .object({
+    currentBranch: z.string().min(1, 'currentBranch cannot be empty'),
+    isMainBranch: z.boolean(),
+    hasUncommittedChanges: z.boolean(),
+    isRemoteTracking: z.boolean(),
+    isPushed: z.boolean(),
+  })
+  .refine(
+    (data) => {
+      // If not tracking remote, cannot be pushed
+      if (!data.isRemoteTracking && data.isPushed) {
+        return false;
+      }
+      return true;
+    },
+    { message: 'isPushed requires isRemoteTracking to be true' }
+  );
+
+/**
+ * Create a validated GitState object
+ *
+ * This factory function ensures all GitState objects pass runtime validation
+ * through GitStateSchema.parse(), catching invalid data early and enforcing
+ * all invariants (non-empty branch name, cross-field consistency).
+ *
+ * Cross-field validation:
+ * - isPushed requires isRemoteTracking to be true (cannot push without tracking remote)
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createGitState({ currentBranch: 'main', isMainBranch: true, ... })
+ * - AVOID: const git: GitState = { currentBranch: 'main', ... }
+ *
+ * @param state - Git state data to validate
+ * @returns Validated GitState with all invariants verified
+ * @throws {z.ZodError} If validation fails (empty branch name, isPushed without tracking, etc.)
+ */
+export function createGitState(state: {
+  readonly currentBranch: string;
+  readonly isMainBranch: boolean;
+  readonly hasUncommittedChanges: boolean;
+  readonly isRemoteTracking: boolean;
+  readonly isPushed: boolean;
+}): GitState {
+  return GitStateSchema.parse(state);
+}
 
 const PRStateValueSchema = z.enum(['OPEN', 'CLOSED', 'MERGED']);
 
@@ -388,4 +425,30 @@ const CurrentStateSchema = z.object({
  */
 export function validateCurrentState(data: unknown): CurrentState {
   return CurrentStateSchema.parse(data);
+}
+
+/**
+ * Create a validated CurrentState object
+ *
+ * This factory function ensures all CurrentState objects pass runtime validation
+ * through CurrentStateSchema.parse(), catching invalid data early and enforcing
+ * all invariants from nested state types (GitState, PRState, IssueState, WiggumState).
+ *
+ * Use this factory instead of direct object construction to guarantee validation:
+ * - GOOD: createCurrentState({ git: createGitState(...), pr: createPRExists(...), ... })
+ * - AVOID: const state: CurrentState = { git: {...}, pr: {...}, ... }
+ *
+ * For untyped data from external sources (e.g., parsed JSON), use validateCurrentState instead.
+ *
+ * @param state - State data with typed sub-objects
+ * @returns Validated CurrentState with all invariants verified
+ * @throws {z.ZodError} If validation fails (invalid git state, PR state, issue state, or wiggum state)
+ */
+export function createCurrentState(state: {
+  readonly git: GitState;
+  readonly pr: PRState;
+  readonly issue: IssueState;
+  readonly wiggum: WiggumState;
+}): CurrentState {
+  return CurrentStateSchema.parse(state);
 }

@@ -152,18 +152,8 @@ const RETRYABLE_ERROR_CODES = [
  * to Priority 2/3 checks. This conservative approach ensures network-level issues
  * are detected even when the error has a non-retryable HTTP status code.
  *
- * @example
- * ```typescript
- * try {
- *   await ghCli(['pr', 'view']);
- * } catch (error) {
- *   if (isRetryableError(error)) {
- *     // Retry the operation
- *   }
- * }
- * ```
  */
-// TODO(#453): Migrate to structured error types for type-safe error handling
+// TODO(#453): See mcp-common/src/gh-retry.ts isRetryableError() for structured error type migration plan
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
   // Check for known retryable HTTP status codes (429, 502-504) and return true immediately.
@@ -301,9 +291,7 @@ export async function ghCliWithRetry(
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
-  // Validate maxRetries to ensure loop executes at least once
-  // This prevents the edge case where maxRetries < 1 would skip the loop entirely,
-  // resulting in a confusing "Unexpected retry failure" error with no context
+  // Validate maxRetries - see mcp-common/src/gh-retry.ts for detailed validation rationale
   if (!Number.isInteger(maxRetries) || maxRetries < 1) {
     throw new GitHubCliError(
       `ghCliWithRetry: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
@@ -334,66 +322,69 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Extract exit code from error object (may be undefined - see function JSDoc for details)
-      // Fallback: Extract HTTP status from error message text when exitCode unavailable
       lastExitCode = (error as { exitCode?: number }).exitCode;
+      // Fallback: Parse error message for HTTP status if not available in error object
+      // Wrapped in try-catch to prevent status extraction failures from masking the original error
       if (lastExitCode === undefined && lastError.message) {
-        // Try multiple patterns to extract HTTP status from error message
-        // Different gh CLI versions and error contexts may format status differently
-        const statusPatterns = [
-          /HTTP\s+(\d{3})/i, // "HTTP 429"
-          /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
-          /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
-          /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
-        ];
+        try {
+          // Try multiple patterns to extract HTTP status from error message
+          // Different gh CLI versions and error contexts may format status differently
+          const statusPatterns = [
+            /HTTP\s+(\d{3})/i, // "HTTP 429"
+            /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
+            /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
+            /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
+          ];
 
-        for (const pattern of statusPatterns) {
-          const statusMatch = lastError.message.match(pattern);
-          if (statusMatch && statusMatch[1]) {
-            const parsed = parseInt(statusMatch[1], 10);
-            // Validate extracted value is a well-formed HTTP status code (100-599)
-            // Why we accept ALL HTTP codes, not just retryable ones (429/502-504):
-            // - isRetryableError() uses exitCode for accurate retry decisions
-            // - classifyErrorType() uses exitCode for detailed logging (rate_limit, permission, not_found, etc.)
-            // - A 404 exitCode helps log "not_found" vs generic "unknown" error type
-            // Validation criteria:
-            // - Must be finite (rejects NaN from unparseable input like "status: abc")
-            // - Must be safe integer (handles NaN case - parseInt returns NaN for invalid input
-            //   like "abc", which fails isSafeInteger; also provides defense against future changes)
-            // - Must be in HTTP range (100-599 per RFC 7231)
-            // Note: parseInt stops at first non-digit: parseInt("429abc", 10) returns 429
-            // Note: parseInt("429.5", 10) returns 429 (stops at '.'), parseInt("Infinity", 10) returns NaN
-            // Validation ensures extracted values are well-formed HTTP status codes (100-599)
-            if (
-              Number.isFinite(parsed) &&
-              Number.isSafeInteger(parsed) &&
-              parsed >= 100 &&
-              parsed <= 599
-            ) {
-              lastExitCode = parsed;
-              console.error(
-                `[gh-issue] DEBUG Extracted HTTP status from error message (pattern: ${pattern.source}, exitCode: ${parsed})`
-              );
-              break;
+          for (const pattern of statusPatterns) {
+            const statusMatch = lastError.message.match(pattern);
+            if (statusMatch && statusMatch[1]) {
+              const parsed = parseInt(statusMatch[1], 10);
+              // Accept HTTP error codes (100-599) for classification logging
+              // Note: 100-399 unlikely in errors but accepted for robustness
+              if (
+                Number.isFinite(parsed) &&
+                Number.isSafeInteger(parsed) &&
+                parsed >= 100 &&
+                parsed <= 599
+              ) {
+                lastExitCode = parsed;
+                console.error(
+                  `[gh-issue] DEBUG Extracted HTTP status from error message (pattern: ${pattern.source}, exitCode: ${parsed})`
+                );
+                break;
+              } else {
+                // Log when we extract a value but it fails validation
+                // This helps detect gh CLI format changes or regex pattern bugs
+                console.error(
+                  `[gh-issue] WARN Extracted invalid HTTP status code from error message (extracted: ${parsed}, pattern: ${pattern.source}, errorMessage: ${lastError.message}, impact: Falling back to message pattern matching, action: Check if gh CLI message format changed or regex pattern needs update)`
+                );
+              }
             }
           }
-        }
 
-        // Log if no valid HTTP status code was extracted from error message
-        if (lastExitCode === undefined) {
-          // Check if error message suggests this SHOULD have had HTTP status
-          const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+          // Log if no valid HTTP status code was extracted from error message
+          if (lastExitCode === undefined) {
+            // Check if error message suggests this SHOULD have had HTTP status
+            const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
 
-          if (likelyHttpError) {
-            // This looks like an HTTP error but we couldn't extract the status code
-            console.error(
-              `[gh-issue] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
-            );
-          } else {
-            console.error(
-              `[gh-issue] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
-            );
+            if (likelyHttpError) {
+              // This looks like an HTTP error but we couldn't extract the status code
+              console.error(
+                `[gh-issue] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
+              );
+            } else {
+              console.error(
+                `[gh-issue] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
+              );
+            }
           }
+        } catch (extractionError) {
+          // Status extraction failed - log and continue with undefined exitCode
+          // This ensures original error handling proceeds even if extraction has bugs
+          console.error(
+            `[gh-issue] WARN Status extraction threw unexpected error (extractionError: ${extractionError instanceof Error ? extractionError.message : String(extractionError)}, originalError: ${lastError.message}, impact: Proceeding without HTTP status code, action: Check status extraction patterns for bugs)`
+          );
         }
       }
 
@@ -456,6 +447,7 @@ export async function ghCliWithRetry(
 
   // This should be unreachable with maxRetries >= 1 validation above
   // If reached, provide full diagnostic context for debugging
+  // TODO(#1019): Explain why we log to console.error before throwing
   console.error(
     `[gh-issue] ERROR INTERNAL: ghCliWithRetry loop completed without returning (maxRetries: ${maxRetries}, lastExitCode: ${lastExitCode}, command: gh ${args.join(' ')}, lastError: ${lastError?.message ?? 'none'})`
   );

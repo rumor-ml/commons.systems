@@ -672,6 +672,53 @@ describe('ghCliWithRetry', () => {
         assert.equal(delay, 60000, `Attempt ${index + 6} should be capped at 60s`);
       });
     });
+
+    it('should apply backoff between retry attempts', async () => {
+      // Test that retries actually wait between attempts
+      // Use short delays to keep test fast
+      let attemptCount = 0;
+      const attemptTimes: number[] = [];
+
+      const mockGhCli: GhCliFn = async () => {
+        attemptTimes.push(Date.now());
+        attemptCount++;
+        if (attemptCount < 3) {
+          // Throw retryable error
+          const err = new Error('HTTP 503') as Error & { exitCode: number };
+          err.exitCode = 503;
+          throw err;
+        }
+        return 'success';
+      };
+
+      const result = await ghCliWithRetry(mockGhCli, ['test'], {}, 3);
+
+      assert.equal(result, 'success');
+      assert.equal(attemptCount, 3, 'Should take 3 attempts');
+      assert.equal(attemptTimes.length, 3, 'Should have 3 attempt timestamps');
+
+      // Verify delays are approximately correct (with tolerance for timing variance)
+      // First backoff: 2^1 * 1000 = 2000ms
+      const delay1 = attemptTimes[1] - attemptTimes[0];
+      assert.ok(delay1 >= 1800 && delay1 <= 2500, `First delay should be ~2s, got ${delay1}ms`);
+
+      // Second backoff: 2^2 * 1000 = 4000ms
+      const delay2 = attemptTimes[2] - attemptTimes[1];
+      assert.ok(delay2 >= 3800 && delay2 <= 4500, `Second delay should be ~4s, got ${delay2}ms`);
+    });
+
+    it('should NOT retry non-retryable errors (404)', async () => {
+      let attemptCount = 0;
+      const mockGhCli: GhCliFn = async () => {
+        attemptCount++;
+        const err = new Error('HTTP 404 Not Found') as Error & { exitCode: number };
+        err.exitCode = 404;
+        throw err;
+      };
+
+      await assert.rejects(async () => ghCliWithRetry(mockGhCli, ['test'], {}, 5));
+      assert.equal(attemptCount, 1, 'Should NOT retry 404 errors');
+    });
   });
 
   describe('success after retry logging', () => {

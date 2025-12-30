@@ -128,6 +128,110 @@ describe('list-issues tool', () => {
       assert.strictEqual(normalizedRelative, normalizedWithDot);
       assert.strictEqual(normalizedRelative, normalizedAbsolute);
     });
+
+    // Edge case tests for path normalization (pr-test-analyzer-in-scope-4)
+    describe('edge cases', () => {
+      it('should handle Windows absolute path with backslashes in worktree pattern', () => {
+        // Windows-style path with backslashes - should be normalized to forward slashes first
+        // and then matched by the worktree regex (which now supports Windows drive letters)
+        const windowsPath = 'C:\\Users\\dev\\worktrees\\feature-branch\\src\\tools\\list-issues.ts';
+        const result = normalizeFilePath(windowsPath);
+        // After backslash conversion: C:/Users/dev/worktrees/feature-branch/src/tools/list-issues.ts
+        // This should now match the worktree regex and extract the repo-relative path
+        assert.strictEqual(result, 'src/tools/list-issues.ts');
+      });
+
+      it('should extract relative path from Windows worktree path with drive letter', () => {
+        // Windows path with drive letter that matches worktree pattern
+        const windowsWorktreePath = 'C:/Users/dev/worktrees/feature-branch/src/file.ts';
+        const result = normalizeFilePath(windowsWorktreePath);
+        assert.strictEqual(result, 'src/file.ts');
+      });
+
+      it('should normalize Windows and Unix worktree paths to same result', () => {
+        const unixPath = '/Users/dev/worktrees/branch/src/file.ts';
+        const windowsPath = 'D:\\Users\\dev\\worktrees\\branch\\src\\file.ts';
+
+        const normalizedUnix = normalizeFilePath(unixPath);
+        const normalizedWindows = normalizeFilePath(windowsPath);
+
+        // Both should normalize to same relative path
+        assert.strictEqual(normalizedUnix, 'src/file.ts');
+        assert.strictEqual(normalizedWindows, 'src/file.ts');
+        assert.strictEqual(normalizedUnix, normalizedWindows);
+      });
+
+      it('should handle deeply nested paths within worktree', () => {
+        const nestedPath =
+          '/Users/n8/worktrees/625-branch/packages/core/src/utils/helpers/deep/nested/file.ts';
+        const result = normalizeFilePath(nestedPath);
+        assert.strictEqual(result, 'packages/core/src/utils/helpers/deep/nested/file.ts');
+      });
+
+      it('should remove only one leading ./ (current behavior)', () => {
+        // NOTE: Current implementation only removes one leading ./
+        // Multiple ./ sequences are NOT fully normalized.
+        // This test documents the current behavior.
+        const pathWithMultipleDots = './././wiggum-mcp-server/src/tools/list-issues.ts';
+        const result = normalizeFilePath(pathWithMultipleDots);
+        // Only the first ./ is removed by current implementation
+        assert.strictEqual(result, '././wiggum-mcp-server/src/tools/list-issues.ts');
+      });
+
+      it('should handle Unix absolute path without worktree pattern', () => {
+        // Absolute path that doesn't match worktree pattern
+        // This tests the cwd-based normalization fallback
+        const absoluteNoWorktree = '/some/other/project/src/file.ts';
+        const result = normalizeFilePath(absoluteNoWorktree);
+        // Since the path doesn't match worktree pattern and doesn't start with cwd,
+        // it should be returned as-is (or with minor normalization)
+        // Current cwd is typically /Users/n8/worktrees/... so this path won't match
+        assert.ok(!result.includes('\\'), 'Should have forward slashes');
+        // The exact result depends on cwd, but we verify it's a valid path
+        assert.ok(result.length > 0, 'Should return a non-empty path');
+      });
+
+      it('should handle Windows worktree path with mixed slashes', () => {
+        // Windows path that mixes forward and backslashes
+        const mixedPath = 'C:/Users/dev\\worktrees/feature-branch\\src/tools/list-issues.ts';
+        const result = normalizeFilePath(mixedPath);
+        // After normalization, all slashes should be forward and path extracted
+        assert.ok(!result.includes('\\'), 'Should convert all backslashes to forward slashes');
+        assert.strictEqual(result, 'src/tools/list-issues.ts');
+      });
+
+      it('should handle worktree path with branch name containing hyphens and numbers', () => {
+        const complexBranchPath =
+          '/home/user/worktrees/625-all-hands-wiggum-optimizations/src/index.ts';
+        const result = normalizeFilePath(complexBranchPath);
+        assert.strictEqual(result, 'src/index.ts');
+      });
+
+      it('should handle path with spaces (after worktree)', () => {
+        // File paths can contain spaces
+        const pathWithSpaces = '/Users/n8/worktrees/my-branch/src/components/My Component/index.ts';
+        const result = normalizeFilePath(pathWithSpaces);
+        assert.strictEqual(result, 'src/components/My Component/index.ts');
+      });
+
+      it('should preserve relative path starting with ../', () => {
+        // Paths starting with ../ should not have the leading part removed
+        const parentPath = '../other-package/src/file.ts';
+        const result = normalizeFilePath(parentPath);
+        assert.strictEqual(result, '../other-package/src/file.ts');
+      });
+
+      it('should handle empty string gracefully', () => {
+        const result = normalizeFilePath('');
+        assert.strictEqual(result, '');
+      });
+
+      it('should handle just a filename without path', () => {
+        const filename = 'file.ts';
+        const result = normalizeFilePath(filename);
+        assert.strictEqual(result, 'file.ts');
+      });
+    });
   });
 
   // NOTE: Schema validation tests above. Behavioral tests below.
@@ -621,6 +725,213 @@ describe('list-issues behavioral tests', () => {
         assert.ok(text.includes('Issue from File 1'), 'Should include issue from first file');
         assert.ok(text.includes('Issue from File 2'), 'Should include issue from second file');
         assert.ok(text.includes('**Total:** 2'), 'Should count both issues');
+      });
+    });
+
+    describe('Union-Find batching algorithm edge cases', () => {
+      it('should batch issues with transitive file overlap', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Issue A shares file2.ts with Issue B
+        // Issue B shares file3.ts with Issue C
+        // All three should be batched together via transitive connection (A-B-C)
+        const issueA = createIssueRecord({
+          title: 'Issue A',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/file1.ts', 'src/file2.ts'],
+        });
+        const issueB = createIssueRecord({
+          title: 'Issue B',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/file2.ts', 'src/file3.ts'],
+        });
+        const issueC = createIssueRecord({
+          title: 'Issue C',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/file3.ts', 'src/file4.ts'],
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issueA, issueB, issueC]);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // All three issues should be in the same batch (batch-0)
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('3 issues'), 'Should have 3 issues in batch (transitive grouping)');
+        // Should NOT have batch-1 since all issues are connected
+        assert.ok(!text.includes('batch-1'), 'Should NOT have batch-1 (all issues connected)');
+        // Verify all issues are listed
+        assert.ok(text.includes('Issue A'), 'Should include Issue A');
+        assert.ok(text.includes('Issue B'), 'Should include Issue B');
+        assert.ok(text.includes('Issue C'), 'Should include Issue C');
+      });
+
+      it('should isolate issues without files_to_edit into separate batches', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Issues without files_to_edit should each get their own batch
+        const issueA = createIssueRecord({
+          title: 'Issue A No Files',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: [], // Empty array
+        });
+        const issueB = createIssueRecord({
+          title: 'Issue B No Files',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          // No files_to_edit property at all
+        });
+        const issueC = createIssueRecord({
+          title: 'Issue C With File',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/test.ts'],
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issueA, issueB, issueC]);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // Each issue without files gets its own batch, plus one for issue C
+        // So we should have at least 3 batches
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('batch-1'), 'Should have batch-1');
+        assert.ok(text.includes('batch-2'), 'Should have batch-2');
+        // Verify all issues are listed
+        assert.ok(text.includes('Issue A No Files'), 'Should include Issue A');
+        assert.ok(text.includes('Issue B No Files'), 'Should include Issue B');
+        assert.ok(text.includes('Issue C With File'), 'Should include Issue C');
+      });
+
+      it('should batch issues with same file in different path formats', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // All three issues reference the same file but with different path formats
+        // After normalization, they should all batch together
+        const issueA = createIssueRecord({
+          title: 'Issue A Absolute Path',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['/Users/n8/worktrees/some-branch/wiggum-mcp-server/src/foo.ts'],
+        });
+        const issueB = createIssueRecord({
+          title: 'Issue B Dot Relative',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['./wiggum-mcp-server/src/foo.ts'],
+        });
+        const issueC = createIssueRecord({
+          title: 'Issue C Plain Relative',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['wiggum-mcp-server/src/foo.ts'],
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issueA, issueB, issueC]);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // All three issues should be in the same batch because they reference the same file
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('3 issues'), 'Should have 3 issues in batch (path normalization)');
+        // Should NOT have batch-1 since all issues reference the same file
+        assert.ok(
+          !text.includes('batch-1'),
+          'Should NOT have batch-1 (same file after normalization)'
+        );
+        // Verify all issues are listed
+        assert.ok(text.includes('Issue A Absolute Path'), 'Should include Issue A');
+        assert.ok(text.includes('Issue B Dot Relative'), 'Should include Issue B');
+        assert.ok(text.includes('Issue C Plain Relative'), 'Should include Issue C');
+        // The output should show the normalized path only once
+        assert.ok(
+          text.includes('wiggum-mcp-server/src/foo.ts'),
+          'Should include normalized file path'
+        );
+      });
+
+      it('should create separate batches for issues with no file overlap', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Two issues with completely different files should be in separate batches
+        const issueA = createIssueRecord({
+          title: 'Issue A',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/moduleA/file1.ts', 'src/moduleA/file2.ts'],
+        });
+        const issueB = createIssueRecord({
+          title: 'Issue B',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/moduleB/file3.ts', 'src/moduleB/file4.ts'],
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issueA, issueB]);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // Should have two separate batches
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('batch-1'), 'Should have batch-1');
+        // Each batch should have 1 issue
+        const batch0Match = text.match(/batch-0 \((\d+) issue/);
+        const batch1Match = text.match(/batch-1 \((\d+) issue/);
+        assert.ok(batch0Match && batch0Match[1] === '1', 'batch-0 should have 1 issue');
+        assert.ok(batch1Match && batch1Match[1] === '1', 'batch-1 should have 1 issue');
+      });
+
+      it('should handle deep transitive chains correctly (path compression)', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Create a long chain: A-B-C-D-E where each adjacent pair shares a file
+        // This tests path compression in the Union-Find
+        const issues = [
+          createIssueRecord({
+            title: 'Issue A',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/a.ts', 'src/shared-ab.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue B',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared-ab.ts', 'src/shared-bc.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue C',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared-bc.ts', 'src/shared-cd.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue D',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared-cd.ts', 'src/shared-de.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue E',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared-de.ts', 'src/e.ts'],
+          }),
+        ];
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', issues);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // All 5 issues should be in the same batch via transitive connections
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('5 issues'), 'Should have 5 issues in batch (deep chain)');
+        // Should NOT have batch-1
+        assert.ok(!text.includes('batch-1'), 'Should NOT have batch-1 (all connected via chain)');
       });
     });
   });

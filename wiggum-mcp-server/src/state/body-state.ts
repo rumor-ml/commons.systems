@@ -128,10 +128,24 @@ function extractStateFromBody(body: string): WiggumState | null {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const matchedJsonPreview = match[1].substring(0, 200);
 
+    // Defensive validation: clamp bodyLength to non-negative to avoid throwing
+    // StateCorruptionValidationError during error construction. This should never
+    // happen (body.length is always >= 0 for strings), but we clamp defensively
+    // to ensure the state corruption error is always thrown, not masked by
+    // a validation error about negative bodyLength.
+    const safeBodyLength = Math.max(0, body.length);
+    if (body.length < 0) {
+      // Log if we ever hit this impossible case - would indicate a serious bug
+      logger.warn('extractStateFromBody: body.length is negative - clamping to 0', {
+        bodyLength: body.length,
+        impact: 'Internal error - body should never have negative length',
+      });
+    }
+
     logger.error('extractStateFromBody: critical state parsing failure', {
       error: errorMsg,
       errorType: error instanceof Error ? error.constructor.name : typeof error,
-      bodyLength: body.length,
+      bodyLength: safeBodyLength,
       matchedJson: matchedJsonPreview,
       impact: 'Workflow state is corrupted and cannot be parsed',
     });
@@ -149,7 +163,7 @@ function extractStateFromBody(body: string): WiggumState | null {
         `  2. Either fix the JSON manually or remove the comment to reset the workflow\n` +
         `  3. If corruption persists, file a bug with the error details above`,
       errorMsg,
-      body.length,
+      safeBodyLength,
       matchedJsonPreview
     );
   }
@@ -235,14 +249,25 @@ export async function getWiggumStateFromPRBody(
       throw error;
     }
 
-    // Non-critical errors: network issues, transient API failures, etc.
-    // Return null to indicate "no state found" - callers should handle this gracefully
-    logger.warn('getWiggumStateFromPRBody: failed to fetch PR body - treating as no state', {
+    // Non-critical errors: network issues, transient API failures, rate limits, etc.
+    // Return null to indicate "no state found" - callers should handle this gracefully.
+    //
+    // RATIONALE for null fallback (why this is acceptable):
+    //   1. Callers treat missing state as "initialize new workflow" - safe default
+    //   2. Transient errors (network, rate limit, server 5xx) will resolve on retry
+    //   3. State persistence uses read-back verification to detect write failures
+    //   4. Users can always manually check PR body to verify state presence
+    //
+    // TRADE-OFF: Caller cannot distinguish "no state exists" from "fetch failed".
+    // This is logged at ERROR level to ensure visibility for debugging.
+    logger.error('getWiggumStateFromPRBody: failed to fetch PR body - returning null', {
       prNumber,
       repo,
       error: errorMsg,
       exitCode,
-      assumption: 'PR may have no wiggum state or transient error occurred',
+      impact: 'Caller will treat this as "no state exists" - may reinitialize workflow',
+      action: 'Retry the operation or check GitHub API status if issue persists',
+      assumption: 'Transient error will resolve on retry',
     });
     return null;
   }
@@ -305,14 +330,25 @@ export async function getWiggumStateFromIssueBody(
       throw error;
     }
 
-    // Non-critical errors: network issues, transient API failures, etc.
-    // Return null to indicate "no state found" - callers should handle this gracefully
-    logger.warn('getWiggumStateFromIssueBody: failed to fetch issue body - treating as no state', {
+    // Non-critical errors: network issues, transient API failures, rate limits, etc.
+    // Return null to indicate "no state found" - callers should handle this gracefully.
+    //
+    // RATIONALE for null fallback (why this is acceptable):
+    //   1. Callers treat missing state as "initialize new workflow" - safe default
+    //   2. Transient errors (network, rate limit, server 5xx) will resolve on retry
+    //   3. State persistence uses read-back verification to detect write failures
+    //   4. Users can always manually check issue body to verify state presence
+    //
+    // TRADE-OFF: Caller cannot distinguish "no state exists" from "fetch failed".
+    // This is logged at ERROR level to ensure visibility for debugging.
+    logger.error('getWiggumStateFromIssueBody: failed to fetch issue body - returning null', {
       issueNumber,
       repo,
       error: errorMsg,
       exitCode,
-      assumption: 'Issue may have no wiggum state or transient error occurred',
+      impact: 'Caller will treat this as "no state exists" - may reinitialize workflow',
+      action: 'Retry the operation or check GitHub API status if issue persists',
+      assumption: 'Transient error will resolve on retry',
     });
     return null;
   }

@@ -89,18 +89,37 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     const capturedStack = new Error('Stack trace for unknown error type').stack;
     const errorType = typeof error;
     const errorStr = String(error);
-    console.error('[gh-workflow] WARN ghCli caught unexpected error type', {
-      error,
-      errorType,
-      args,
-      capturedStack, // Include stack trace for debugging
-    });
+
+    // Safely serialize error for logging - handle objects that don't JSON.stringify cleanly
+    let errorSerialized: string;
+    try {
+      errorSerialized = JSON.stringify(error, null, 2);
+    } catch (_serializeError) {
+      // Fallback for objects with circular references or non-enumerable properties
+      errorSerialized = errorStr;
+    }
+
+    console.error(
+      '[gh-workflow] WARN ghCli caught unexpected error type',
+      JSON.stringify(
+        {
+          errorType,
+          errorString: errorStr,
+          errorSerialized,
+          args,
+          capturedStack,
+        },
+        null,
+        2
+      )
+    );
     // Include full diagnostic context in thrown error for debugging
     throw new GitHubCliError(
       `Failed to execute gh CLI (unexpected error type):\n` +
         `Command: gh ${args.join(' ')}\n` +
         `Error type: ${errorType}\n` +
         `Error value: ${errorStr}\n` +
+        `Error serialized: ${errorSerialized}\n` +
         `This indicates a programming error (non-Error thrown).\n` +
         `Stack trace at catch point:\n${capturedStack}`
     );

@@ -34,6 +34,7 @@ import {
   formatError,
   isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
+import { logger } from './logger.js';
 import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
 import type { ToolError } from '@commons/mcp-common/types';
 import { createToolError } from '@commons/mcp-common/types';
@@ -263,4 +264,68 @@ export function createErrorResult(error: unknown): ToolError {
 
   // Delegate to mcp-common for all other error types
   return baseCreateErrorResult(error);
+}
+
+/**
+ * Result of extracting Zod validation error details
+ */
+export interface ZodErrorDetails {
+  /** Human-readable error details string */
+  readonly details: string;
+  /** Original error if it was an Error instance */
+  readonly originalError: Error | undefined;
+  /** True if the thrown value was not an Error instance */
+  readonly isNonError: boolean;
+}
+
+/**
+ * Extract detailed validation information from a Zod error or other validation error
+ *
+ * Zod errors have an 'issues' array with field-level details. This function extracts
+ * those details into a human-readable string, or falls back to the error message
+ * for non-Zod errors.
+ *
+ * @param error - The error thrown during validation (may or may not be a ZodError)
+ * @param context - Optional context for logging (e.g., { prNumber, step })
+ * @returns Structured details including the formatted message and original error
+ */
+export function extractZodValidationDetails(
+  error: unknown,
+  context?: Record<string, unknown>
+): ZodErrorDetails {
+  if (error instanceof Error && 'issues' in error) {
+    // Zod error with issues array
+    const zodError = error as {
+      issues: Array<{ path: (string | number)[]; message: string }>;
+    };
+    const details = zodError.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    return {
+      details,
+      originalError: error,
+      isNonError: false,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      details: error.message,
+      originalError: error,
+      isNonError: false,
+    };
+  }
+
+  // Non-Error thrown (unexpected) - log critical programming error
+  logger.error('CRITICAL: Non-Error thrown during validation', {
+    validationError: error,
+    errorType: typeof error,
+    ...context,
+    impact: 'Programming error - validation threw non-Error object',
+  });
+  return {
+    details: `Non-Error thrown: ${String(error)}`,
+    originalError: undefined,
+    isNonError: true,
+  };
 }

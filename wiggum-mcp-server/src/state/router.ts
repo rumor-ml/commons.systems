@@ -33,7 +33,8 @@ import {
   generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { GitHubCliError, StateApiError } from '../utils/errors.js';
+import { GitHubCliError, StateApiError, extractZodValidationDetails } from '../utils/errors.js';
+import { classifyGitHubError } from '@commons/mcp-common/errors';
 import { sanitizeErrorMessage } from '../utils/security.js';
 
 /**
@@ -227,39 +228,16 @@ export async function safeUpdatePRBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
-    // Extract detailed validation info from Zod error or preserve original error context
-    // Zod errors have an 'issues' array with field-level details
-    let validationDetails = 'Unknown validation error';
-    let originalError: Error | undefined;
-
-    if (validationError instanceof Error && 'issues' in validationError) {
-      const zodError = validationError as {
-        issues: Array<{ path: (string | number)[]; message: string }>;
-      };
-      validationDetails = zodError.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('; ');
-      originalError = validationError;
-    } else if (validationError instanceof Error) {
-      validationDetails = validationError.message;
-      originalError = validationError;
-    } else {
-      // Non-Error thrown (unexpected) - log critical programming error
-      validationDetails = `Non-Error thrown: ${String(validationError)}`;
-      logger.error('CRITICAL: Non-Error thrown during state validation', {
-        validationError,
-        errorType: typeof validationError,
-        prNumber,
-        step,
-        impact: 'Programming error - validation threw non-Error object',
-      });
-    }
+    const { details, originalError } = extractZodValidationDetails(validationError, {
+      prNumber,
+      step,
+    });
 
     logger.error('safeUpdatePRBodyState: State validation failed before posting', {
       prNumber,
       step,
       state,
-      validationDetails,
+      validationDetails: details,
       error: originalError?.message ?? String(validationError),
       errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
@@ -267,7 +245,7 @@ export async function safeUpdatePRBodyState(
     // Include state summary in error message for debugging without log access (issue #625)
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
     throw StateApiError.create(
-      `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
+      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
       'write',
       'pr',
       prNumber,
@@ -304,20 +282,9 @@ export async function safeUpdatePRBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type based on error message patterns and exit codes
+      // Classify error type using shared utility
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      //
-      // Network vs HTTP error classification:
-      //   - Network errors: Use message pattern matching (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
-      //     because network failure exit codes vary by tool/platform (Node.js, gh CLI, OS).
-      //   - HTTP errors (404, 429): Use reliable exitCode values from gh CLI.
-      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-      const isAuth =
-        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-        exitCode === 401 ||
-        exitCode === 403;
-      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      const classification = classifyGitHubError(updateError, exitCode);
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -333,12 +300,11 @@ export async function safeUpdatePRBodyState(
         errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
         exitCode,
         stderr,
-        // Include classification results for debugging
-        classification: { is404, isAuth, isRateLimit, isNetwork },
+        classification,
       };
 
       // Critical errors: PR not found or authentication failures - throw immediately (no retry)
-      if (is404) {
+      if (classification.is404) {
         logger.error('Critical: PR not found - cannot update state in body', {
           ...errorContext,
           impact: 'Workflow state persistence failed',
@@ -349,7 +315,7 @@ export async function safeUpdatePRBodyState(
         throw updateError;
       }
 
-      if (isAuth) {
+      if (classification.isAuth) {
         logger.error('Critical: Authentication failed - cannot update state in body', {
           ...errorContext,
           impact: 'Workflow state persistence failed - insufficient permissions',
@@ -361,12 +327,11 @@ export async function safeUpdatePRBodyState(
       }
 
       // Transient errors: Rate limits or network issues - retry with backoff
-      if (isRateLimit || isNetwork) {
-        const reason = isRateLimit ? 'rate_limit' : 'network';
+      if (classification.isTransient) {
+        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
-          // Examples with default maxRetries=3: attempt 1->2s, 2->4s, 3->8s
+          // Exponential backoff: 2^attempt seconds, capped at 60s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
@@ -408,22 +373,8 @@ export async function safeUpdatePRBodyState(
       throw updateError;
     }
   }
-  // Fallback for unclassified errors: TypeScript cannot prove all catch block paths
-  // return or throw, so we need this handler. This code can execute if:
-  //   - An error type we failed to classify (e.g., new GitHub API error format)
-  //   - A logic bug in the retry loop structure
-  //
-  // This is NOT dead code - it's a legitimate handler for unexpected error types.
-  // The catch block's pattern matching (is404, isAuth, isRateLimit, isNetwork) covers
-  // known error patterns, but cannot guarantee coverage of all possible errors.
-  //
-  // Expected exit paths from the retry loop:
-  //   1. Return { success: true } on successful state update
-  //   2. Throw immediately for critical errors (404, 401/403)
-  //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
-  //   4. Throw for unexpected/unclassified errors (catch-all at end of catch block)
-  //
-  // If this executes, it indicates a gap in error classification - investigate (issue #625).
+  // Fallback: TypeScript cannot prove all catch paths return/throw.
+  // If this executes, investigate gap in error classification (issue #625).
   logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
     prNumber,
     step,
@@ -494,39 +445,16 @@ export async function safeUpdateIssueBodyState(
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
-    // Extract detailed validation info from Zod error or preserve original error context
-    // Zod errors have an 'issues' array with field-level details
-    let validationDetails = 'Unknown validation error';
-    let originalError: Error | undefined;
-
-    if (validationError instanceof Error && 'issues' in validationError) {
-      const zodError = validationError as {
-        issues: Array<{ path: (string | number)[]; message: string }>;
-      };
-      validationDetails = zodError.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('; ');
-      originalError = validationError;
-    } else if (validationError instanceof Error) {
-      validationDetails = validationError.message;
-      originalError = validationError;
-    } else {
-      // Non-Error thrown (unexpected) - log critical programming error
-      validationDetails = `Non-Error thrown: ${String(validationError)}`;
-      logger.error('CRITICAL: Non-Error thrown during state validation', {
-        validationError,
-        errorType: typeof validationError,
-        issueNumber,
-        step,
-        impact: 'Programming error - validation threw non-Error object',
-      });
-    }
+    const { details, originalError } = extractZodValidationDetails(validationError, {
+      issueNumber,
+      step,
+    });
 
     logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
       issueNumber,
       step,
       state,
-      validationDetails,
+      validationDetails: details,
       error: originalError?.message ?? String(validationError),
       errorStack: originalError?.stack,
       impact: 'Invalid state cannot be persisted to GitHub',
@@ -534,7 +462,7 @@ export async function safeUpdateIssueBodyState(
     // Include state summary in error message for debugging without log access (issue #625)
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
     throw StateApiError.create(
-      `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
+      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
       'write',
       'issue',
       issueNumber,
@@ -565,20 +493,9 @@ export async function safeUpdateIssueBodyState(
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
       const stateJson = JSON.stringify(state);
 
-      // Classify error type based on error message patterns and exit codes
+      // Classify error type using shared utility
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      //
-      // Network vs HTTP error classification:
-      //   - Network errors: Use message pattern matching (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
-      //     because network failure exit codes vary by tool/platform (Node.js, gh CLI, OS).
-      //   - HTTP errors (404, 429): Use reliable exitCode values from gh CLI.
-      const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-      const isAuth =
-        /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-        exitCode === 401 ||
-        exitCode === 403;
-      const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-      const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+      const classification = classifyGitHubError(updateError, exitCode);
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -594,12 +511,11 @@ export async function safeUpdateIssueBodyState(
         errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
         exitCode,
         stderr,
-        // Include classification results for debugging
-        classification: { is404, isAuth, isRateLimit, isNetwork },
+        classification,
       };
 
       // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
-      if (is404) {
+      if (classification.is404) {
         logger.error('Critical: Issue not found - cannot update state in body', {
           ...errorContext,
           impact: 'Workflow state persistence failed',
@@ -610,7 +526,7 @@ export async function safeUpdateIssueBodyState(
         throw updateError;
       }
 
-      if (isAuth) {
+      if (classification.isAuth) {
         logger.error('Critical: Authentication failed - cannot update state in body', {
           ...errorContext,
           impact: 'Workflow state persistence failed - insufficient permissions',
@@ -622,12 +538,11 @@ export async function safeUpdateIssueBodyState(
       }
 
       // Transient errors: Rate limits or network issues - retry with backoff
-      if (isRateLimit || isNetwork) {
-        const reason = isRateLimit ? 'rate_limit' : 'network';
+      if (classification.isTransient) {
+        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds, capped at 60s to match gh-cli.ts behavior
-          // Examples with default maxRetries=3: attempt 1->2s, 2->4s, 3->8s
+          // Exponential backoff: 2^attempt seconds, capped at 60s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
@@ -669,22 +584,8 @@ export async function safeUpdateIssueBodyState(
       throw updateError;
     }
   }
-  // Fallback for unclassified errors: TypeScript cannot prove all catch block paths
-  // return or throw, so we need this handler. This code can execute if:
-  //   - An error type we failed to classify (e.g., new GitHub API error format)
-  //   - A logic bug in the retry loop structure
-  //
-  // This is NOT dead code - it's a legitimate handler for unexpected error types.
-  // The catch block's pattern matching (is404, isAuth, isRateLimit, isNetwork) covers
-  // known error patterns, but cannot guarantee coverage of all possible errors.
-  //
-  // Expected exit paths from the retry loop:
-  //   1. Return { success: true } on successful state update
-  //   2. Throw immediately for critical errors (404, 401/403)
-  //   3. Return createStateUpdateFailure() after retry exhaustion (rate limit/network)
-  //   4. Throw for unexpected/unclassified errors (catch-all at end of catch block)
-  //
-  // If this executes, it indicates a gap in error classification - investigate (issue #625).
+  // Fallback: TypeScript cannot prove all catch paths return/throw.
+  // If this executes, investigate gap in error classification (issue #625).
   logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
     issueNumber,
     step,
@@ -915,6 +816,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
+            // TODO(#1012): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
@@ -981,6 +883,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
+            // TODO(#1012): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,

@@ -170,6 +170,7 @@ function findIssueById(id: string): IssueDetails | null {
  * Find and return all issues in a batch by batch_id
  * Batch ID format: "batch-{N}"
  */
+// TODO(#1018): Remove async keyword since this function has no await statements
 async function findBatchById(batchId: string): Promise<BatchIssueDetails | null> {
   const manifestDir = getManifestDir();
 

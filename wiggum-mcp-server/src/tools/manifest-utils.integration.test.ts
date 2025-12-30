@@ -127,74 +127,237 @@ describe('manifest-utils integration tests', () => {
 
         assert.strictEqual(result.length, 0);
       });
-
-      it('should return empty array for non-existent file (ENOENT)', () => {
-        const filepath = join(testDir, 'tmp', 'wiggum', 'nonexistent.json');
-
-        const result = readManifestFile(filepath);
-
-        assert.deepStrictEqual(result, []);
-      });
     });
 
+    /**
+     * Critical error handling tests for readManifestFile
+     *
+     * These tests verify the error handling strategy documented in manifest-utils.ts:
+     * - ENOENT (file not found): Returns empty array - agent may not have run yet
+     * - All other errors: Throws FilesystemError to prevent silent data loss
+     *
+     * WHY THIS MATTERS:
+     * The function throws on errors (except ENOENT) because returning an empty array
+     * would cause callers to incorrectly believe the agent found zero issues, leading to:
+     * - Agents being incorrectly marked as complete
+     * - Review findings being silently lost
+     * - Workflow proceeding without critical feedback
+     *
+     * If these error paths regress (e.g., catch block returns [] instead of throwing),
+     * an agent's entire review output could be lost. The completion logic would see []
+     * and mark the agent as complete with zero issues.
+     *
+     * @see manifest-utils.ts lines 220-250 for error handling documentation
+     */
     describe('error handling', () => {
-      it('should throw FilesystemError for malformed JSON', () => {
-        const manifestDir = join(testDir, 'tmp', 'wiggum');
-        mkdirSync(manifestDir, { recursive: true });
-        const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
-        writeFileSync(filepath, '{ invalid json }', 'utf-8');
+      describe('JSON parse errors (SyntaxError)', () => {
+        it('should throw FilesystemError for malformed JSON', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
+          writeFileSync(filepath, '{ invalid json }', 'utf-8');
 
-        assert.throws(
-          () => readManifestFile(filepath),
-          (err: Error) => {
-            assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
-            assert.ok(
-              err.message.includes('malformed JSON'),
-              'Error should mention malformed JSON'
-            );
-            return true;
-          }
-        );
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(
+                err.message.includes('malformed JSON'),
+                'Error should mention malformed JSON'
+              );
+              return true;
+            }
+          );
+        });
+
+        it('should throw FilesystemError for truncated JSON (partial write)', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-truncated.json');
+          // Simulate partial write - JSON cut off mid-property
+          writeFileSync(
+            filepath,
+            '[{"agent_name":"code-reviewer","scope":"in-scope","pri',
+            'utf-8'
+          );
+
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(
+                err.message.includes('malformed JSON'),
+                'Error should mention malformed JSON for truncated content'
+              );
+              return true;
+            }
+          );
+        });
       });
 
-      it('should throw FilesystemError for non-array JSON', () => {
-        const manifestDir = join(testDir, 'tmp', 'wiggum');
-        mkdirSync(manifestDir, { recursive: true });
-        const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
-        writeFileSync(filepath, JSON.stringify({ not: 'array' }), 'utf-8');
+      describe('array validation failures', () => {
+        it('should throw FilesystemError for non-array JSON (object)', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
+          writeFileSync(filepath, JSON.stringify({ not: 'array' }), 'utf-8');
 
-        assert.throws(
-          () => readManifestFile(filepath),
-          (err: Error) => {
-            assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
-            assert.ok(err.message.includes('corrupted'), 'Error should mention corruption');
-            return true;
-          }
-        );
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(err.message.includes('corrupted'), 'Error should mention corruption');
+              return true;
+            }
+          );
+        });
+
+        it('should throw FilesystemError for non-array JSON (string)', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-string.json');
+          writeFileSync(filepath, JSON.stringify('just a string'), 'utf-8');
+
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(err.message.includes('corrupted'), 'Error should mention corruption');
+              return true;
+            }
+          );
+        });
+
+        it('should throw FilesystemError for non-array JSON (null)', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-null.json');
+          writeFileSync(filepath, 'null', 'utf-8');
+
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(err.message.includes('corrupted'), 'Error should mention corruption');
+              return true;
+            }
+          );
+        });
       });
 
-      it('should throw FilesystemError for invalid issue records', () => {
-        const manifestDir = join(testDir, 'tmp', 'wiggum');
-        mkdirSync(manifestDir, { recursive: true });
-        const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
-        // Valid JSON array but invalid IssueRecord structure
-        writeFileSync(filepath, JSON.stringify([{ invalid: 'structure' }]), 'utf-8');
+      describe('schema validation failures (isIssueRecordArray)', () => {
+        it('should throw FilesystemError for invalid issue records (missing required fields)', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-abc123.json');
+          // Valid JSON array but invalid IssueRecord structure - missing required fields
+          writeFileSync(filepath, JSON.stringify([{ invalid: 'structure' }]), 'utf-8');
 
-        assert.throws(
-          () => readManifestFile(filepath),
-          (err: Error) => {
-            assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
-            assert.ok(
-              err.message.includes('invalid issue records'),
-              'Error should mention invalid records'
-            );
-            return true;
-          }
-        );
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(
+                err.message.includes('invalid issue records'),
+                'Error should mention invalid records'
+              );
+              return true;
+            }
+          );
+        });
+
+        it('should throw FilesystemError for issue with invalid scope value', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-badscope.json');
+          // Valid structure but invalid scope value
+          writeFileSync(
+            filepath,
+            JSON.stringify([
+              {
+                agent_name: 'code-reviewer',
+                scope: 'invalid-scope', // Not 'in-scope' or 'out-of-scope'
+                priority: 'high',
+                title: 'Test',
+                description: 'Test',
+                timestamp: '2025-01-01T00:00:00Z',
+              },
+            ]),
+            'utf-8'
+          );
+
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(
+                err.message.includes('invalid issue records'),
+                'Error should mention invalid records'
+              );
+              return true;
+            }
+          );
+        });
+
+        it('should throw FilesystemError for issue with invalid priority value', () => {
+          const manifestDir = join(testDir, 'tmp', 'wiggum');
+          mkdirSync(manifestDir, { recursive: true });
+          const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-badpri.json');
+          // Valid structure but invalid priority value
+          writeFileSync(
+            filepath,
+            JSON.stringify([
+              {
+                agent_name: 'code-reviewer',
+                scope: 'in-scope',
+                priority: 'medium', // Not 'high' or 'low'
+                title: 'Test',
+                description: 'Test',
+                timestamp: '2025-01-01T00:00:00Z',
+              },
+            ]),
+            'utf-8'
+          );
+
+          assert.throws(
+            () => readManifestFile(filepath),
+            (err: Error) => {
+              assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+              assert.ok(
+                err.message.includes('invalid issue records'),
+                'Error should mention invalid records'
+              );
+              return true;
+            }
+          );
+        });
       });
 
-      // Note: Permission tests are skipped on some systems (Windows, root user)
-      // They are included for completeness but may be skipped in CI
+      describe('ENOENT handling (file not found)', () => {
+        it('should return empty array for non-existent file (ENOENT)', () => {
+          const filepath = join(testDir, 'tmp', 'wiggum', 'nonexistent-file.json');
+
+          const result = readManifestFile(filepath);
+
+          // ENOENT is acceptable - agent may not have completed yet
+          assert.deepStrictEqual(result, []);
+        });
+
+        it('should return empty array when parent directory does not exist', () => {
+          const filepath = join(testDir, 'nonexistent-dir', 'wiggum', 'file.json');
+
+          const result = readManifestFile(filepath);
+
+          // ENOENT is acceptable even for missing parent directories
+          assert.deepStrictEqual(result, []);
+        });
+      });
+
+      // Note: EACCES/EROFS permission tests are platform-dependent and require
+      // special setup (chmod, running as non-root). They are intentionally not
+      // included in the standard test suite to avoid flaky tests in CI.
+      // The error handling code path for permissions is simple (throw FilesystemError)
+      // and is validated by code review rather than automated tests.
     });
   });
 

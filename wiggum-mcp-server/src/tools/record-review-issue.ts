@@ -33,7 +33,7 @@ import { detectCurrentState } from '../state/detector.js';
 import { postPRComment, sleep } from '../utils/gh-cli.js';
 import { ghCli } from '../utils/gh-cli.js';
 import { logger } from '../utils/logger.js';
-import { FilesystemError, ValidationError } from '../utils/errors.js';
+import { FilesystemError, ValidationError, GitHubCliError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import type { IssueRecord } from './manifest-types.js';
 import { ReviewAgentNameSchema } from './manifest-types.js';
@@ -81,6 +81,16 @@ const KNOWN_FILE_EXTENSIONS = [
 ];
 
 /**
+ * Result of file path validation with rejection reason for debugging
+ */
+interface FilePathValidation {
+  /** Whether the value looks like a valid file path */
+  valid: boolean;
+  /** Reason for rejection (only present when valid is false) */
+  reason?: string;
+}
+
+/**
  * Validate that a string looks like a file path
  *
  * Checks for:
@@ -91,25 +101,100 @@ const KNOWN_FILE_EXTENSIONS = [
  *
  * This prevents descriptive location strings like "Multiple files" or
  * Windows drive letters like "C" from being treated as file paths.
+ *
+ * Returns validation result with rejection reason for debugging when validation fails.
  */
-function looksLikeFilePath(value: string): boolean {
+function looksLikeFilePath(value: string): FilePathValidation {
   if (!value || value.length === 0) {
-    return false;
+    return { valid: false, reason: 'empty string' };
   }
 
   // Descriptive strings usually have spaces
   if (value.includes(' ')) {
-    return false;
+    return { valid: false, reason: 'contains spaces (likely descriptive text, not a file path)' };
   }
 
   // Must have a path separator
   if (!value.includes('/') && !value.includes('\\')) {
-    return false;
+    return { valid: false, reason: 'no path separator (/ or \\)' };
   }
 
   // Must end with a known file extension
   const lowerValue = value.toLowerCase();
-  return KNOWN_FILE_EXTENSIONS.some((ext) => lowerValue.endsWith(ext));
+  const hasKnownExtension = KNOWN_FILE_EXTENSIONS.some((ext) => lowerValue.endsWith(ext));
+  if (!hasKnownExtension) {
+    // Show first few extensions to hint at what's expected
+    const extensionSample = KNOWN_FILE_EXTENSIONS.slice(0, 5).join(', ');
+    return {
+      valid: false,
+      reason: `unknown file extension (expected: ${extensionSample}, ...)`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Serialized error details for debugging
+ *
+ * Contains structured information about an error that can be safely serialized
+ * to JSON and included in _meta for debugging partial success scenarios.
+ */
+interface SerializedError {
+  /** Error message */
+  message: string;
+  /** Error class name (e.g., 'GitHubCliError', 'FilesystemError') */
+  name: string;
+  /** Stack trace for debugging (if available) */
+  stack?: string;
+  /** Exit code for process errors (GitHubCliError) */
+  exitCode?: number;
+  /** Standard error output for process errors (GitHubCliError) */
+  stderr?: string;
+  /** Standard output for process errors (GitHubCliError) */
+  stdout?: string;
+  /** Original error code (e.g., 'EACCES', 'ENOENT') */
+  code?: string;
+}
+
+/**
+ * Serialize an error to a structured object for debugging
+ *
+ * Extracts relevant information from error objects including:
+ * - Standard Error properties (message, name, stack)
+ * - GitHubCliError properties (exitCode, stderr, stdout)
+ * - Node.js error code (for filesystem errors)
+ *
+ * This enables preserving full error context in _meta for debugging
+ * partial success scenarios without losing valuable diagnostic information.
+ */
+function serializeError(error: Error): SerializedError {
+  const serialized: SerializedError = {
+    message: error.message,
+    name: error.name,
+  };
+
+  // Include stack trace if available
+  if (error.stack) {
+    serialized.stack = error.stack;
+  }
+
+  // Include GitHubCliError-specific fields
+  if (error instanceof GitHubCliError) {
+    serialized.exitCode = error.exitCode;
+    serialized.stderr = error.stderr;
+    if (error.stdout) {
+      serialized.stdout = error.stdout;
+    }
+  }
+
+  // Include Node.js error code (for filesystem errors)
+  const nodeError = error as NodeJS.ErrnoException;
+  if (nodeError.code) {
+    serialized.code = nodeError.code;
+  }
+
+  return serialized;
 }
 
 // Zod schema for input validation
@@ -199,6 +284,7 @@ function appendToManifest(issue: IssueRecord): string {
   const filepath = join(manifestDir, filename);
 
   try {
+    // TODO(#1001): Simplify verbose TODO comment in appendToManifest function
     // CRITICAL: Each call creates a UNIQUE file (timestamp + 4-byte random).
     // If this file exists, we have a serious bug in filename generation.
     // Fail loudly instead of masking the issue by silently appending.
@@ -396,7 +482,8 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     // Validate extracted path looks like a file path
     // This prevents descriptive strings like "Multiple files" or Windows drive letters like "C"
     // from being added to files_to_edit, which would cause incorrect batching
-    if (extractedValue && looksLikeFilePath(extractedValue)) {
+    const validation = looksLikeFilePath(extractedValue || '');
+    if (extractedValue && validation.valid) {
       filesToEdit = [extractedValue];
       logger.info('Auto-extracted files_to_edit from location', {
         location: input.location,
@@ -404,13 +491,30 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
         agentName: input.agent_name,
       });
     } else {
-      logger.warn('Could not auto-extract valid file path from location', {
+      // Log at ERROR level for in-scope issues (batching is critical for parallel execution)
+      // Log at WARN level for out-of-scope issues (batching is less important)
+      const logData = {
         location: input.location,
         extractedValue: extractedValue || '(empty)',
+        rejectionReason: validation.reason || 'unknown',
         agentName: input.agent_name,
-        impact: 'Issue will not be batched by file - may be in separate batch',
-        recommendation: 'Agent should provide files_to_edit explicitly',
-      });
+        scope: input.scope,
+        impact:
+          input.scope === 'in-scope'
+            ? 'CRITICAL: Issue will not be batched with related issues - parallel execution impacted'
+            : 'Issue will not be batched - may be in separate batch',
+        recommendation: 'Agent should provide files_to_edit explicitly in input',
+        action:
+          input.scope === 'in-scope'
+            ? 'Review agent implementation to ensure files_to_edit is provided'
+            : undefined,
+      };
+
+      if (input.scope === 'in-scope') {
+        logger.error('Could not auto-extract valid file path from location', logData);
+      } else {
+        logger.warn('Could not auto-extract valid file path from location', logData);
+      }
       // Don't set filesToEdit - leave it undefined
       // This is safer than adding invalid paths that would cause incorrect batching
     }
@@ -432,12 +536,15 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
 
   let filepath: string | undefined;
   let manifestError: string | undefined;
+  let manifestErrorDetails: SerializedError | undefined;
 
   // Try to append to manifest
   try {
     filepath = appendToManifest(issue);
   } catch (error) {
-    manifestError = error instanceof Error ? error.message : String(error);
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    manifestError = errorObj.message;
+    manifestErrorDetails = serializeError(errorObj);
     logger.error('Failed to write manifest file - will still try GitHub comment', {
       agentName: input.agent_name,
       error: manifestError,
@@ -449,12 +556,14 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
   // Retry helps recover from transient network errors and rate limits
   const MAX_COMMENT_RETRIES = 3;
   let commentError: string | undefined;
+  let commentErrorDetails: SerializedError | undefined;
 
   for (let attempt = 1; attempt <= MAX_COMMENT_RETRIES; attempt++) {
     try {
       await postIssueComment(issue);
-      // Success - clear any previous error
+      // Success - clear any previous error and error details
       commentError = undefined;
+      commentErrorDetails = undefined;
 
       // Log recovery if we succeeded after retry
       if (attempt > 1) {
@@ -468,10 +577,35 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
       commentError = errorObj.message;
+      commentErrorDetails = serializeError(errorObj);
 
-      // Check if error is retryable (network errors, rate limits, server errors)
+      // Check for non-retryable errors FIRST to avoid unnecessary retry delays
+      // ValidationError indicates phase state is invalid - retrying won't help
+      if (error instanceof ValidationError) {
+        logger.error('Failed to post GitHub comment - validation error (non-retryable)', {
+          agentName: input.agent_name,
+          error: commentError,
+          attempt,
+          errorType: 'validation',
+          manifestSucceeded: filepath !== undefined,
+          impact: filepath
+            ? 'Issue is in manifest but not visible on GitHub'
+            : 'Issue completely lost - neither in manifest nor on GitHub',
+        });
+        break; // Exit immediately, don't retry
+      }
+
+      // Check if error is retryable based on exit code or message patterns
       const errorMsg = commentError.toLowerCase();
-      const isRetryable =
+
+      // Check GitHubCliError exit codes for HTTP status codes (more reliable than message matching)
+      const hasRetryableExitCode =
+        error instanceof GitHubCliError &&
+        error.exitCode !== undefined &&
+        [429, 502, 503, 504].includes(error.exitCode);
+
+      // Fall back to message pattern matching for other transient errors
+      const hasRetryableMessage =
         errorMsg.includes('network') ||
         errorMsg.includes('timeout') ||
         errorMsg.includes('rate limit') ||
@@ -482,6 +616,8 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
         errorMsg.includes('econnreset') ||
         errorMsg.includes('econnrefused');
 
+      const isRetryable = hasRetryableExitCode || hasRetryableMessage;
+
       if (!isRetryable) {
         // Non-retryable error - exit immediately without retrying
         logger.error('Failed to post GitHub comment - error is not retryable', {
@@ -489,6 +625,7 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
           error: commentError,
           attempt,
           errorType: 'non-retryable',
+          exitCode: error instanceof GitHubCliError ? error.exitCode : undefined,
           manifestSucceeded: filepath !== undefined,
           impact: filepath
             ? 'Issue is in manifest but not visible on GitHub'
@@ -505,6 +642,7 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
           attempt,
           maxRetries: MAX_COMMENT_RETRIES,
           errorType: 'exhausted-retries',
+          exitCode: error instanceof GitHubCliError ? error.exitCode : undefined,
           manifestSucceeded: filepath !== undefined,
           impact: filepath
             ? 'Issue is in manifest but not visible on GitHub'
@@ -521,6 +659,7 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
         maxRetries: MAX_COMMENT_RETRIES,
         delayMs,
         error: commentError,
+        exitCode: error instanceof GitHubCliError ? error.exitCode : undefined,
       });
       await sleep(delayMs);
     }
@@ -529,12 +668,18 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
   // Handle the four possible outcomes
   if (filepath && !commentError) {
     // Full success
+    // Include files_to_edit status warning when missing for in-scope issues
+    const filesToEditWarning =
+      input.scope === 'in-scope' && (!filesToEdit || filesToEdit.length === 0)
+        ? '\n**Warning:** No files_to_edit - issue may not be batched correctly for parallel execution\n'
+        : '';
+
     const successMessage = `✅ Recorded review issue from ${input.agent_name}
 
 **Scope:** ${input.scope}
 **Priority:** ${input.priority}
 **Title:** ${input.title}
-
+${filesToEditWarning}
 Issue has been:
 1. Appended to manifest file: ${filepath}
 2. Posted as GitHub comment
@@ -573,6 +718,8 @@ ${input.description}`;
         manifestWritten: true,
         commentFailed: true,
         manifestPath: filepath,
+        // Include full error details for debugging (stack trace, exit code, stderr, etc.)
+        error: commentErrorDetails,
       },
     };
   }
@@ -602,6 +749,8 @@ Manual verification required. Check filesystem permissions and disk space.`;
         manifestWritten: false,
         commentFailed: false,
         manifestError: manifestError,
+        // Include full error details for debugging (stack trace, error code, etc.)
+        error: manifestErrorDetails,
       },
     };
   }

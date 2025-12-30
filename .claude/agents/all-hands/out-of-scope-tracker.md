@@ -12,10 +12,10 @@ You are a specialized agent for managing out-of-scope issues discovered during w
 
 ## Input Format
 
-You receive an issue ID reference in the initial prompt:
+You receive an issue ID reference and main issue number in the initial prompt:
 
 ```
-Track out-of-scope issue: {issue_id}
+Track out-of-scope issue: {issue_id}. Main issue number: {main_issue_number}
 
 **Instructions:**
 1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
@@ -23,7 +23,11 @@ Track out-of-scope issue: {issue_id}
 3. Return completion status with issue numbers created/updated
 ```
 
-**IMPORTANT:** The first step is ALWAYS to call `wiggum_get_issue` to fetch the full issue details.
+**IMPORTANT:**
+
+- The first step is ALWAYS to call `wiggum_get_issue` to fetch the full issue details
+- Extract the main issue number from the prompt (e.g., "Main issue number: 625" → main_issue_number = 625)
+- Include a reference to the main issue when creating new GitHub issues
 
 ## Workflow
 
@@ -72,7 +76,7 @@ gh issue view #123 --json state,title,labels --jq '.'
 
 **Sub-step A2a: If issue is OPEN**
 
-Ensure the issue has correct labels:
+Ensure the issue has correct labels and body format:
 
 - Agent name label (e.g., `code-reviewer`, `silent-failure-hunter`)
 - Priority label: `high priority` or `low priority`
@@ -84,6 +88,32 @@ gh issue view #123 --json labels --jq '.labels[].name'
 
 # Add missing labels
 gh issue edit #123 --add-label "code-reviewer,high priority,bug"
+```
+
+**Update body to spec format if needed:**
+
+```bash
+# Get current issue body
+CURRENT_BODY=$(gh issue view #123 --json body --jq -r '.body')
+
+# Check if body already contains reference to main issue
+if ! echo "$CURRENT_BODY" | grep -q "Found while working on #${main_issue_number}"; then
+  # Extract or construct spec-compliant body sections
+  # Parse existing body to preserve description
+
+  # Reconstruct body with spec format
+  NEW_BODY="**Agent:** ${agent_name}
+**Priority:** ${priority}
+**Location:** ${location}
+
+Found while working on #${main_issue_number}
+
+**Description:**
+${CURRENT_BODY}"
+
+  # Update issue body
+  gh issue edit #123 --body "$NEW_BODY"
+fi
 ```
 
 **Sub-step A2b: If issue is CLOSED**
@@ -118,7 +148,16 @@ Create a new tracking issue and update the TODO:
 # Create new issue
 NEW_ISSUE=$(gh issue create \
   --title "Original title from manifest" \
-  --body "Description from manifest\n\nLocation: ${location}\n\nOriginally tracked in #123 (now closed)" \
+  --body "**Agent:** ${agent_name}
+**Priority:** ${priority}
+**Location:** ${location}
+
+Found while working on #${main_issue_number}
+
+**Description:**
+Description from manifest
+
+Originally tracked in #123 (now closed)" \
   --label "${agent_name},${priority_label},${type_label}" \
   --json number --jq '.number')
 
@@ -137,6 +176,8 @@ gh issue create \
   --body "**Agent:** ${agent_name}
 **Priority:** ${priority}
 **Location:** ${issue.location}
+
+Found while working on #${main_issue_number}
 
 **Description:**
 ${issue.description}
@@ -261,7 +302,13 @@ Then apply it to the issue.
 
 ## Example Workflow
 
-**Input manifest:**
+**Input prompt:**
+
+```
+Track out-of-scope issue: code-reviewer-out-of-scope-0. Main issue number: 625
+```
+
+**Input manifest (from wiggum_get_issue):**
 
 ```json
 {
@@ -291,12 +338,15 @@ Then apply it to the issue.
 
 **Processing:**
 
-1. Issue 1 (has existing TODO #123):
+1. Extract main issue number: 625
+2. Issue 1 (has existing TODO #123):
    - Check `gh issue view #123` -> OPEN
    - Ensure labels: `code-reviewer`, `high priority`, `bug`
+   - Check if body contains "Found while working on #625"
+   - If not present, update body to spec format with structured sections and main issue reference
 
-2. Issue 2 (no existing TODO):
-   - Create issue -> #456
+3. Issue 2 (no existing TODO):
+   - Create issue -> #456 (includes "Found while working on #625" in body)
    - Add TODO: `// TODO(#456): Consider caching strategy` at `src/api/users.ts:89`
 
 **Output:**
@@ -306,7 +356,7 @@ Then apply it to the issue.
   "status": "complete",
   "issues_processed": 2,
   "issues_created": 1,
-  "issues_updated": 1,
+  "issues_updated": 1, // Issue #123: updated body to spec format + added labels
   "todos_added": 1,
   "todos_updated": 0
 }
@@ -318,8 +368,9 @@ You ensure that all out-of-scope recommendations discovered during reviews are p
 
 1. Reading out-of-scope manifests from review agents
 2. Creating or updating GitHub issues with appropriate labels
-3. Maintaining TODO comments in code with issue references
-4. Handling closed issues by finding new tracking issues or creating replacements
-5. Returning a structured summary of all tracking actions taken
+3. Linking all issues (new and existing) to the main issue being worked on via body text or comments
+4. Maintaining TODO comments in code with issue references
+5. Handling closed issues by finding new tracking issues or creating replacements
+6. Returning a structured summary of all tracking actions taken
 
-Your goal is to ensure no out-of-scope recommendation is lost while maintaining clean, traceable references between code and GitHub issues.
+Your goal is to ensure no out-of-scope recommendation is lost while maintaining clean, traceable references between code, GitHub issues, and the main work item.

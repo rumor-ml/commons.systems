@@ -146,6 +146,10 @@ function extractTestSummary(logText: string): string | null {
 
 /**
  * Format job summaries into the final output text
+ *
+ * Warnings are PREPENDED to ensure visibility even when output is truncated.
+ * This is important because truncation typically happens at the end, and warnings
+ * about incomplete parsing should be the first thing users see.
  */
 function formatJobSummaries(
   run: WorkflowRunData,
@@ -154,21 +158,21 @@ function formatJobSummaries(
   parseWarnings?: string[]
 ): ToolResult {
   // TODO: Extract budget calculation into shared helper (budgetCalculator)
-  // EXACT duplication between formatJobSummaries() (lines 156-179) and
-  // getFailureDetails() (lines 681-704). Both calculate:
-  //   1. warningText from parseWarnings array
-  //   2. truncationMarker constant
-  //   3. summaryBudget using Math.max(100, maxChars - warningSize - truncationMarkerSize)
-  // A shared helper would prevent bugs if formula changes (e.g., different minimum budget)
-  // and eliminate the risk of the two implementations drifting apart.
-  // Calculate warning text size FIRST to reserve space in budget
+  // EXACT duplication with getFailureDetails() (search for "EXACT duplication with formatJobSummaries")
+
+  // Build warning text FIRST - prepending ensures visibility even if content is truncated
   let warningText = '';
   if (parseWarnings && parseWarnings.length > 0) {
-    const warningLines = ['', '', '⚠️  EXTRACTION WARNING: Test output parsing encountered issues'];
+    const warningLines = ['---', 'PARSING WARNING: Log parsing encountered issues', ''];
     for (const warning of parseWarnings) {
       warningLines.push(`  - ${warning}`);
     }
-    warningLines.push('Some test results may be incomplete. Check logs for details.');
+    warningLines.push('');
+    warningLines.push(
+      'Some failure details may be incomplete. Check stderr for individual line details.'
+    );
+    warningLines.push('---');
+    warningLines.push('');
     warningText = warningLines.join('\n');
   }
 
@@ -183,14 +187,21 @@ function formatJobSummaries(
     maxChars - warningSize - truncationMarkerSize
   );
 
-  // Build summary content
-  const lines: string[] = [
+  // Build summary content (warnings prepended, not appended)
+  const lines: string[] = [];
+
+  // Prepend warnings at the TOP for visibility (won't be truncated)
+  if (warningText) {
+    lines.push(warningText);
+  }
+
+  lines.push(
     `Workflow Run Failed: ${run.name}`,
     `Overall Status: ${run.status} / ${run.conclusion || 'none'}`,
     `URL: ${run.url}`,
     '',
-    `Failed Jobs (${summaries.length}):`,
-  ];
+    `Failed Jobs (${summaries.length}):`
+  );
 
   for (const job of summaries) {
     lines.push(``, `  Job: ${job.name} (${job.conclusion})`, `  URL: ${job.url}`);
@@ -210,29 +221,19 @@ function formatJobSummaries(
 
   let output = lines.join('\n');
 
-  // Truncate summary if it exceeds budget
-  if (output.length > summaryBudget) {
-    output = output.substring(0, summaryBudget) + truncationMarker;
+  // Truncate summary if it exceeds budget (warnings already prepended, won't be lost)
+  if (output.length > maxChars) {
+    output = output.substring(0, maxChars - truncationMarkerSize) + truncationMarker;
   }
 
-  // Append warnings (guaranteed to fit since we reserved space)
-  if (warningText) {
-    output += warningText;
-  }
-
-  // TODO: Track budget calculation bugs as tool errors, not silent warnings
-  // CURRENT BEHAVIOR: Returns success with [BUG] diagnostics when output exceeds max_chars
-  //   - This hides errors from caller, making debugging harder
-  //   - Should throw error or return structured error result instead
-  // SPECIFIC ISSUE: When summary + warning + truncation marker exceeds max_chars due to
-  // calculation bug, we do "emergency truncation" but still return success status.
-  // Final safety check - this should never trigger if our math is correct
+  // Defensive check: Verify output fits within maxChars despite budget calculation
+  // If this triggers, it indicates a bug in the budget calculation logic above
   if (output.length > maxChars) {
     const overage = output.length - maxChars;
 
     const truncationNotice = [
       '',
-      '⚠️  EMERGENCY TRUNCATION OCCURRED',
+      'EMERGENCY TRUNCATION OCCURRED',
       '',
       `Content ${overage} chars over limit (${output.length} > ${maxChars})`,
       'This indicates a budget calculation bug.',
@@ -251,10 +252,9 @@ function formatJobSummaries(
         `Expected: ${maxChars}, Actual: ${output.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
     );
 
-    // Emergency truncation preserving as much context as possible
-    const preserveAmount = Math.max(500, maxChars - truncationNotice.length - warningText.length);
-    output =
-      output.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
+    // Emergency truncation preserving warnings (already at the top)
+    const preserveAmount = Math.max(500, maxChars - truncationNotice.length);
+    output = output.substring(0, preserveAmount) + truncationMarker + truncationNotice;
   }
 
   return { content: [{ type: 'text', text: output }] };
@@ -278,7 +278,7 @@ async function getFailureDetailsFromLogFailed(
   const jobSummaries: Map<string, FailedJobSummary> = new Map();
   const parseWarnings: string[] = [];
 
-  // Surface log parsing completeness warning if any lines were skipped
+  // Collect log parsing warnings to include in final output
   if (parseResult.warning) {
     parseWarnings.push(parseResult.warning);
   }
@@ -442,14 +442,25 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         // Let validation, timeout, and parsing errors propagate since they indicate
         // programming issues or user errors that should be surfaced immediately
         if (!(error instanceof GitHubCliError)) {
-          // Log the programming/validation error for debugging
+          // Non-GitHub CLI errors (ValidationError, ParsingError, TimeoutError) indicate
+          // programming issues that should fail fast, not fall back to alternative approaches
+          const errorType = error instanceof Error ? error.constructor.name : typeof error;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+
           console.error(
             `[gh-workflow] ERROR Non-retryable error in getFailureDetailsFromLogFailed: ` +
-              `errorType=${error instanceof Error ? error.constructor.name : typeof error}, ` +
-              `message=${error instanceof Error ? error.message : String(error)}, ` +
+              `errorType=${errorType}, ` +
+              `message=${errorMessage}, ` +
               `impact=Programming or validation error should not fall back to API approach`
           );
-          throw error; // Propagate - don't hide validation/parsing errors
+
+          // Wrap error with context about extraction method and why no fallback occurred
+          if (error instanceof Error) {
+            error.message =
+              `Failed during 'gh run view --log-failed' extraction:\n${errorMessage}\n\n` +
+              `No fallback to API approach attempted (${errorType} errors are not recoverable).`;
+          }
+          throw error;
         }
 
         // GitHub CLI errors trigger fallback to job-based approach
@@ -627,15 +638,25 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
         );
         console.error(errorMessage);
 
+        // Track log retrieval failure as a warning for visibility
+        parseWarnings.push(
+          `Failed to retrieve logs for job "${job.name}": ${formatErrorMessage(error)}`
+        );
+
         // Extract just the error details for the failed step display
         const errorDetailsOnly = formatErrorMessage(error);
 
         failedSteps.push({
-          name: 'Unable to retrieve logs',
+          name: 'Log retrieval failed',
           conclusion: job.conclusion,
           error_lines: [
-            errorDetailsOnly,
+            `Failed to retrieve logs: ${errorDetailsOnly}`,
             error instanceof GitHubCliError && error.exitCode ? `Exit code: ${error.exitCode}` : '',
+            '',
+            'Troubleshooting:',
+            '  - Check GitHub API authentication: gh auth status',
+            '  - Verify network connectivity',
+            '  - Confirm job permissions and visibility',
           ].filter(Boolean),
         });
       }
@@ -683,18 +704,22 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
     // Indicate if run is still in progress (fail-fast scenario)
     const headerSuffix = run.status !== 'completed' ? ' (run still in progress)' : '';
 
-    // Calculate warning text size FIRST to reserve space in budget
+    // TODO: Extract budget calculation into shared helper (budgetCalculator)
+    // EXACT duplication with formatJobSummaries() at line 164 (search for "Calculate warning text size FIRST")
+
+    // Build warning text FIRST - prepending ensures visibility even if content is truncated
     let warningText = '';
     if (parseWarnings.length > 0) {
-      const warningLines = [
-        '',
-        '',
-        '⚠️  EXTRACTION WARNING: Test output parsing encountered issues',
-      ];
+      const warningLines = ['---', 'PARSING WARNING: Log parsing encountered issues', ''];
       for (const warning of parseWarnings) {
         warningLines.push(`  - ${warning}`);
       }
-      warningLines.push('Some test results may be incomplete. Check logs for details.');
+      warningLines.push('');
+      warningLines.push(
+        'Some failure details may be incomplete. Check stderr for individual line details.'
+      );
+      warningLines.push('---');
+      warningLines.push('');
       warningText = warningLines.join('\n');
     }
 
@@ -708,8 +733,10 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       input.max_chars - warningSize - truncationMarkerSize
     );
 
-    // Build summary content
+    // Build summary content (warnings prepended, not appended)
     let summary = [
+      // Prepend warnings at the TOP for visibility (won't be truncated)
+      ...(warningText ? [warningText] : []),
       // Prepend fallback warning if --log-failed failed
       ...(usingFallbackDueToLogFailedError ? [fallbackWarningPrefix] : []),
       `Workflow Run Failed${headerSuffix}: ${run.name}`,
@@ -720,47 +747,40 @@ export async function getFailureDetails(input: GetFailureDetailsInput): Promise<
       ...jobSummaries,
     ].join('\n');
 
-    // Truncate summary if needed
-    if (summary.length > summaryBudget) {
-      summary = summary.substring(0, summaryBudget) + truncationMarker;
+    // Truncate summary if needed (warnings already prepended, won't be lost)
+    if (summary.length > input.max_chars) {
+      summary = summary.substring(0, input.max_chars - truncationMarkerSize) + truncationMarker;
     }
 
-    // Append warnings (guaranteed to fit)
-    const finalSummary = summary + warningText;
-
     // Final safety check
-    let outputText = finalSummary;
-    if (finalSummary.length > input.max_chars) {
-      const overage = finalSummary.length - input.max_chars;
+    let outputText = summary;
+    if (summary.length > input.max_chars) {
+      const overage = summary.length - input.max_chars;
 
       const truncationNotice = [
         '',
-        '⚠️  EMERGENCY TRUNCATION OCCURRED',
+        'EMERGENCY TRUNCATION OCCURRED',
         '',
-        `Content ${overage} chars over limit (${finalSummary.length} > ${input.max_chars})`,
+        `Content ${overage} chars over limit (${summary.length} > ${input.max_chars})`,
         'This indicates a budget calculation bug.',
         '',
         'Budget Breakdown:',
         `  - Summary: ${summaryBudget} chars`,
         `  - Warnings: ${warningSize} chars`,
         `  - Expected: ${summaryBudget + warningSize + truncationMarkerSize}`,
-        `  - Actual: ${finalSummary.length}`,
+        `  - Actual: ${summary.length}`,
         '',
         'PLEASE FILE BUG REPORT with budget breakdown',
       ].join('\n');
 
       console.error(
         `[BUG] getFailureDetails: output exceeded max_chars despite budget calculation. ` +
-          `Expected: ${input.max_chars}, Actual: ${finalSummary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
+          `Expected: ${input.max_chars}, Actual: ${summary.length}, Budget: ${summaryBudget}, WarningSize: ${warningSize}`
       );
 
-      // Emergency truncation
-      const preserveAmount = Math.max(
-        500,
-        input.max_chars - truncationNotice.length - warningText.length
-      );
-      outputText =
-        summary.substring(0, preserveAmount) + truncationMarker + truncationNotice + warningText;
+      // Emergency truncation preserving warnings (already at the top)
+      const preserveAmount = Math.max(500, input.max_chars - truncationNotice.length);
+      outputText = summary.substring(0, preserveAmount) + truncationMarker + truncationNotice;
     }
 
     return {

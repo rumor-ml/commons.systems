@@ -63,10 +63,9 @@ const RETRYABLE_ERROR_CODES = [
 // Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // Note: gh CLI uses standard Unix exit codes (0-255), NOT HTTP status codes as exit codes.
-  // The exitCode parameter here comes from our GitHubCliError which may extract HTTP status
-  // from error messages - see ghCliWithRetry() status extraction logic.
-  // We check for common HTTP error codes that may be passed via exitCode parameter.
+  // Note: exitCode contains HTTP status codes extracted from error messages
+  // (see ghCliWithRetry() status extraction logic), not gh CLI process exit codes.
+  // We check for retryable HTTP status codes: 429 (rate limit), 502-504 (server errors).
   if (exitCode !== undefined) {
     if ([429, 502, 503, 504].includes(exitCode)) {
       return true;
@@ -231,13 +230,10 @@ export async function ghCliWithRetry(
 ): Promise<string> {
   // Validate maxRetries to ensure loop executes at least once and doesn't cause excessive delays
   // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely
-  //   - maxRetries > 100: Would cause excessive delays. With exponential backoff capped at 60s:
-  //     attempts 1-6 use 2s+4s+8s+16s+32s+60s = 122s, attempts 7-100 use 94*60s = 5640s
-  //     Total worst case: ~96 minutes. Limit chosen to balance retry resilience with timeout expectations.
-  //   - Non-integer (0.5, NaN, Infinity): Fractional retries or infinite loops
-  // Without this validation, the function would reach the unreachable code path at the end
-  // and throw an internal error with no context about the actual cause.
+  //   - maxRetries < 1: Would skip the loop entirely, causing unreachable code error
+  //   - maxRetries > 100: Would cause excessive cumulative delay (worst case: ~97 minutes total)
+  //     With exponential backoff capped at 60s, delays grow as: 2s, 4s, 8s, 16s, 32s, then 60s each
+  //   - Non-integer (0.5, NaN, Infinity): Invalid retry counts or infinite loops
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     const GitHubCliError = (await import('./errors.js')).GitHubCliError;
@@ -273,61 +269,67 @@ export async function ghCliWithRetry(
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      // Attempt to extract exit code from error object (duck-typed - works for GitHubCliError and similar types)
-      // Note: exitCode may be undefined if:
-      //   - Error object doesn't have exitCode property (e.g., generic Error, network timeout)
-      //   - gh CLI exited without setting HTTP status (e.g., subprocess crash)
-      //   - Error originated from ghCli() wrapper before CLI invocation
+      // Extract HTTP status code from error if available (GitHubCliError populates this from error messages)
+      // Note: exitCode may be undefined if error is a generic Error without exitCode property
+      // or if HTTP status extraction failed. Fallback parsing attempted below.
       lastExitCode = (error as { exitCode?: number }).exitCode;
-      // Fallback: If exitCode unavailable, parse HTTP status from error message using multiple patterns
+      // Fallback: If exitCode unavailable, parse HTTP status from error message
       if (lastExitCode === undefined && lastError.message) {
-        // Try multiple patterns to extract HTTP status from error message
-        // Different gh CLI versions and error contexts may format status differently
-        const statusPatterns = [
-          /HTTP\s+(\d{3})/i, // "HTTP 429"
-          /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
-          /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
-          /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
-        ];
+        try {
+          // Different gh CLI versions and error contexts may format status differently
+          const statusPatterns = [
+            /HTTP\s+(\d{3})/i, // "HTTP 429"
+            /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
+            /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
+            /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
+          ];
 
-        for (const pattern of statusPatterns) {
-          const statusMatch = lastError.message.match(pattern);
-          if (statusMatch && statusMatch[1]) {
-            const parsed = parseInt(statusMatch[1], 10);
-            // Validate parsed exit code is a valid HTTP status code
-            // - Must be finite (not Infinity or NaN from malformed input)
-            // - Must be safe integer (no precision loss)
-            // - Must be in valid HTTP status range (100-599)
-            if (
-              Number.isFinite(parsed) &&
-              Number.isSafeInteger(parsed) &&
-              parsed >= 100 &&
-              parsed <= 599
-            ) {
-              lastExitCode = parsed;
-              console.error(
-                `[mcp-common] DEBUG Extracted HTTP status from error message (pattern: ${pattern.source}, exitCode: ${parsed})`
-              );
-              break;
+          for (const pattern of statusPatterns) {
+            const statusMatch = lastError.message.match(pattern);
+            if (statusMatch && statusMatch[1]) {
+              const parsed = parseInt(statusMatch[1], 10);
+              // Validate parsed status is a valid HTTP code (100-599)
+              if (
+                Number.isFinite(parsed) &&
+                Number.isSafeInteger(parsed) &&
+                parsed >= 100 &&
+                parsed <= 599
+              ) {
+                lastExitCode = parsed;
+                console.error(
+                  `[mcp-common] DEBUG Extracted HTTP status from error message (pattern: ${pattern.source}, exitCode: ${parsed})`
+                );
+                break;
+              }
             }
           }
-        }
 
-        // Log if no valid HTTP status code was extracted from error message
-        if (lastExitCode === undefined) {
-          // Check if error message suggests this SHOULD have had HTTP status
-          const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+          // Log if no valid HTTP status code was extracted from error message
+          if (lastExitCode === undefined) {
+            // Check if error message suggests this SHOULD have had HTTP status
+            const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
 
-          if (likelyHttpError) {
-            // This looks like an HTTP error but we couldn't extract the status code
-            console.error(
-              `[mcp-common] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
-            );
-          } else {
-            console.error(
-              `[mcp-common] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
-            );
+            if (likelyHttpError) {
+              // This looks like an HTTP error but we couldn't extract the status code
+              console.error(
+                `[mcp-common] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
+              );
+            } else {
+              console.error(
+                `[mcp-common] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
+              );
+            }
           }
+        } catch (extractionError) {
+          // Programming error in status extraction - this should never happen
+          // Log and continue with undefined exitCode (falls back to message pattern matching)
+          console.error(
+            `[mcp-common] ERROR INTERNAL: Status extraction failed - bug in extraction logic ` +
+              `(error: ${extractionError instanceof Error ? extractionError.message : String(extractionError)}, ` +
+              `errorMessage: ${lastError.message}, ` +
+              `impact: Falling back to message pattern matching, ` +
+              `action: Fix extraction pattern or validation logic)`
+          );
         }
       }
 
@@ -405,30 +407,39 @@ export async function ghCliWithRetry(
       }
 
       // Exponential backoff: 2^attempt * 1000ms, capped at 60s
-      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
-      // Rationale: Reduces API load during outages, gives transient issues time to resolve
-      // Cap at 60s prevents impractical delays for high maxRetries values
-      const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
+      // Reduces API load during outages and gives transient issues time to resolve
+      const MAX_DELAY_MS = 60000;
       const uncappedDelayMs = Math.pow(2, attempt) * 1000;
       const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
       await sleep(delayMs);
     }
   }
 
-  // UNREACHABLE: Loop must execute at least once (maxRetries >= 1 validated at function entry)
-  // and every iteration either returns success or throws. If reached, this indicates a logic bug.
-  // Provide full diagnostic context for debugging.
+  // Unreachable: maxRetries validation ensures loop executes at least once
+  // If reached, indicates a severe programming error in retry logic
+  // TODO(#1019): Explain why we log to console.error before throwing
   const GitHubCliError = (await import('./errors.js')).GitHubCliError;
+  const errorContext = {
+    maxRetries,
+    lastExitCode,
+    command: `gh ${args.join(' ')}`,
+    lastErrorMessage: lastError?.message,
+    lastErrorType: lastError?.constructor.name,
+  };
+
   console.error(
-    `[mcp-common] ERROR INTERNAL: ghCliWithRetry loop completed without returning (maxRetries: ${maxRetries}, lastExitCode: ${lastExitCode}, command: gh ${args.join(' ')}, lastError: ${lastError?.message ?? 'none'})`
+    `[mcp-common] ERROR CRITICAL: Reached unreachable code in ghCliWithRetry. ` +
+      `This indicates a severe programming error. Context: ${JSON.stringify(errorContext)}`
   );
-  throw (
-    lastError ||
-    new GitHubCliError(
-      `INTERNAL ERROR: ghCliWithRetry loop completed without returning. ` +
-        `This indicates a programming error in retry logic. ` +
-        `Command: gh ${args.join(' ')}, maxRetries: ${maxRetries}, ` +
-        `lastError: none, lastExitCode: ${lastExitCode ?? 'undefined'}`
-    )
+
+  throw new GitHubCliError(
+    `CRITICAL INTERNAL ERROR: ghCliWithRetry reached unreachable code path.\n` +
+      `This should be impossible and indicates a severe bug in retry logic.\n` +
+      `Please file a bug report with this context:\n` +
+      `${JSON.stringify(errorContext, null, 2)}\n\n` +
+      `Possible causes:\n` +
+      `  - Loop logic bug (iteration didn't throw or return)\n` +
+      `  - maxRetries validation bypassed\n` +
+      `  - Memory corruption or runtime environment issue`
   );
 }

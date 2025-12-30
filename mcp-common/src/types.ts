@@ -1,6 +1,7 @@
 // Type safety architecture: This module provides two type layers:
-// 1. Strict types (ToolSuccessStrict/ToolErrorStrict) - No index signatures, full type safety
-//    Used by factory functions and application code for compile-time guarantees
+// 1. Strict types (ToolSuccessStrict/ToolErrorStrict) - Generic type parameters for metadata,
+//    no index signatures at the root level. Used by factory functions and application code
+//    for compile-time guarantees. Optional TMeta generic enables typed metadata access.
 // 2. MCP-compatible types (ToolSuccess/ToolError) - With index signatures for SDK compatibility
 //    Used only at MCP SDK boundaries where the framework may add additional properties
 //
@@ -27,21 +28,29 @@ import { ValidationError } from './errors.js';
  * Use `ToolSuccessStrict` throughout application code. The MCP-compatible
  * `ToolSuccess` type (with index signature) should only be used at SDK boundaries.
  *
+ * @typeParam TMeta - Optional type for additional metadata properties (defaults to empty object)
  * @property content - Array of text content objects
  * @property isError - Always false (discriminant for type narrowing)
- * @property _meta - Optional metadata object
+ * @property _meta - Optional metadata object with type-safe structure
  *
  * @example
  * ```typescript
  * const result = createToolSuccess('Success'); // Returns ToolSuccessStrict
  * result.isError; // false - type-safe access
  * result.arbitrary = 'value'; // Compile error! No index signature
+ *
+ * // With typed metadata:
+ * type UserMeta = { userId: string; role: 'admin' | 'user' };
+ * const typed: ToolSuccessStrict<UserMeta> = createToolSuccess('User created', { userId: '123', role: 'admin' });
+ * typed._meta?.userId; // Type-safe access
  * ```
  */
-export interface ToolSuccessStrict {
+export interface ToolSuccessStrict<
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
+> {
   readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
   readonly isError: false;
-  readonly _meta?: Readonly<{ [key: string]: unknown }>;
+  readonly _meta?: Readonly<TMeta>;
 }
 
 /**
@@ -80,25 +89,32 @@ export interface ToolSuccess extends ToolSuccessStrict {
  * Use `ToolErrorStrict` throughout application code. The MCP-compatible
  * `ToolError` type (with index signature) should only be used at SDK boundaries.
  *
+ * @typeParam TMeta - Optional type for additional metadata properties (defaults to empty object)
  * @property content - Array of text content objects
  * @property isError - Always true (discriminant for type narrowing)
- * @property _meta - Required metadata with errorType
+ * @property _meta - Required metadata with errorType and optional additional typed properties
  *
  * @example
  * ```typescript
  * const result = createToolError('Error', 'ValidationError'); // Returns ToolErrorStrict
  * result._meta.errorType; // 'ValidationError' - type-safe access
  * result.arbitrary = 'value'; // Compile error! No index signature
+ *
+ * // With typed metadata:
+ * type DebugMeta = { stackTrace: string; context: Record<string, string> };
+ * const typed: ToolErrorStrict<DebugMeta> = createToolError('Error', 'TestError', undefined, { stackTrace: '...', context: {} });
+ * typed._meta.stackTrace; // Type-safe access
  * ```
  */
-export interface ToolErrorStrict {
+export interface ToolErrorStrict<TMeta extends Record<string, unknown> = Record<string, unknown>> {
   readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
   readonly isError: true;
-  readonly _meta: Readonly<{
-    readonly errorType: string;
-    readonly errorCode?: string;
-    [key: string]: unknown;
-  }>;
+  readonly _meta: Readonly<
+    {
+      readonly errorType: string;
+      readonly errorCode?: string;
+    } & TMeta
+  >;
 }
 
 /**

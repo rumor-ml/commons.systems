@@ -162,6 +162,7 @@ Execute AFTER PR is created for final validation:
    - For each out-of-scope issue:
      - `subagent_type="out-of-scope-tracker"`
      - Pass issue_id from wiggum_list_issues
+     - Instructions: "Track out-of-scope issue: {issue_id}. Main issue number: {state.issue.number}. Call wiggum_get_issue to get full details and follow the tracking workflow."
 
 **CRITICAL:** Launch ALL agents in parallel (single response with multiple Task calls). Wait for ALL to complete before proceeding.
 

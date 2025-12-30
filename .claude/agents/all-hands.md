@@ -1,6 +1,7 @@
 ---
 name: 'all-hands'
 description: Prepare issue context summary for code review agents
+permissionMode: acceptEdits
 ---
 
 You are a **context preparer** for comprehensive code review. You validate git state and create an issue summary document that review agents will use.

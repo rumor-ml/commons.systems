@@ -63,15 +63,32 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     if (error instanceof GitHubCliError) {
       throw error;
     }
-    // TODO(#999): Extract exitCode, stderr, stdout from original error before wrapping
-    // Currently these properties are lost, forcing retry logic to use message pattern matching
-    // Preserve original error type for better debugging, but wrap in GitHubCliError
+
+    // Extract exitCode, stderr, stdout from execa errors before wrapping
+    // This preserves critical metadata for retry logic and debugging
     const originalError = error instanceof Error ? error : new Error(String(error));
+    let exitCode: number | undefined;
+    let stderr: string | undefined;
+    let stdout: string | undefined;
+
+    // Check if this is an execa error with these properties
+    if (error && typeof error === 'object') {
+      if ('exitCode' in error && typeof (error as Record<string, unknown>).exitCode === 'number') {
+        exitCode = (error as Record<string, unknown>).exitCode as number;
+      }
+      if ('stderr' in error && typeof (error as Record<string, unknown>).stderr === 'string') {
+        stderr = (error as Record<string, unknown>).stderr as string;
+      }
+      if ('stdout' in error && typeof (error as Record<string, unknown>).stdout === 'string') {
+        stdout = (error as Record<string, unknown>).stdout as string;
+      }
+    }
+
     throw new GitHubCliError(
       `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
-      undefined,
-      undefined,
-      undefined,
+      exitCode,
+      stderr,
+      stdout,
       originalError
     );
   }

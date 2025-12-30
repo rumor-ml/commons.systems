@@ -21,7 +21,6 @@ import { createWiggumState } from '../state/types.js';
 import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js';
 import {
   readManifestFiles,
-  cleanupManifestFiles,
   safeCleanupManifestFiles,
   countHighPriorityInScopeIssues,
 } from './manifest-utils.js';
@@ -51,6 +50,7 @@ export type CompleteAllHandsInput = z.infer<typeof CompleteAllHandsInputSchema>;
  * - Fast-path state update when no high-priority issues
  * - State persistence with error handling
  * See code-simplifier-in-scope-3 for potential future refactoring.
+ * TODO(#1017): Consider integration tests for complete-all-hands.ts workflow
  */
 export async function completeAllHands(input: CompleteAllHandsInput): Promise<ToolResult> {
   const state = await detectCurrentState();
@@ -93,11 +93,11 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
       newState = { ...newState, maxIterations: input.maxIterations };
     }
 
-    // Clean up manifest files BEFORE state persistence in fast-path
-    // Must use throwing version here because cleanup happens BEFORE state is persisted.
-    // If cleanup fails silently, stale manifests would corrupt agent completion tracking
-    // on next iteration (see manifest-utils.ts for detailed error handling).
-    await cleanupManifestFiles();
+    // Clean up manifest files BEFORE state persistence in fast-path.
+    // Use safe cleanup to avoid blocking workflow progression on cleanup failures.
+    // If cleanup fails, manifests remain on disk but workflow can continue.
+    // User can manually clean up tmp/wiggum/*.json if needed.
+    await safeCleanupManifestFiles();
 
     logger.info('Updating wiggum state (fast-path)', {
       phase,
@@ -187,13 +187,9 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
     location: formatLocation(phase, targetNumber),
   });
 
-  // Clean up manifest files after successful state update
-  // Use SAFE version because state is already persisted to GitHub.
-  // Unlike fast-path (line 127) where cleanup happens BEFORE state persistence,
-  // here the state is already committed. Cleanup failure should:
-  // - Log a warning but NOT block workflow progression
-  // - Allow user to manually clean up tmp/wiggum/*.json if needed
-  // - Avoid creating inconsistent state (persisted state + thrown error)
+  // Clean up manifest files after successful state update.
+  // Use safe cleanup because state is already persisted to GitHub.
+  // Cleanup failures should log a warning without blocking workflow.
   await safeCleanupManifestFiles();
 
   // Reuse newState instead of calling detectCurrentState() again to avoid race condition

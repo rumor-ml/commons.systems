@@ -2,6 +2,8 @@
  * Tool: wiggum_complete_fix
  *
  * Called after completing a Plan+Fix cycle
+ *
+ * TODO(#489): Use createErrorResult for state comment failures - needs verification (may be stale)
  */
 
 import { z } from 'zod';

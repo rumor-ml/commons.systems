@@ -2,6 +2,8 @@
  * State detection for Wiggum flow
  */
 
+// TODO(#1005): Duplicate throwStateApiError helper functions (may be resolved)
+
 import {
   getCurrentBranch,
   hasUncommittedChanges,
@@ -16,7 +18,12 @@ import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_WORKFLOW } from '../c
 import { logger } from '../utils/logger.js';
 import { StateDetectionError, StateApiError } from '../utils/errors.js';
 import type { GitState, PRState, CurrentState, IssueState, WiggumState } from './types.js';
-import { validateCurrentState, createIssueExists, createIssueDoesNotExist } from './types.js';
+import {
+  validateCurrentState,
+  createIssueExists,
+  createIssueDoesNotExist,
+  createGitState,
+} from './types.js';
 import type { WiggumPhase } from '../constants.js';
 
 /**
@@ -44,13 +51,13 @@ export async function detectGitState(): Promise<GitState> {
   const remoteTracking = await hasRemoteTracking(currentBranch);
   const pushed = await isBranchPushed(currentBranch);
 
-  return {
+  return createGitState({
     currentBranch,
     isMainBranch,
     hasUncommittedChanges: uncommitted,
     isRemoteTracking: remoteTracking,
     isPushed: pushed,
-  };
+  });
 }
 
 /**

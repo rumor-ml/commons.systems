@@ -29,9 +29,17 @@ import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 /**
- * Normalize a file path to a consistent relative format for comparison.
- * This ensures that the same file represented with different path formats
- * (absolute vs relative) will match when used as keys in the Union-Find.
+ * Normalize a file path to a consistent project-relative format for comparison.
+ * Converts absolute and relative paths to project-relative by:
+ * 1. Removing worktree path prefixes (e.g., /Users/.../worktrees/branch-name/)
+ * 2. Converting cwd-relative paths to project-relative
+ * 3. Removing leading ./ prefixes
+ *
+ * Target format: Project-relative path without leading slash or ./
+ * (e.g., "wiggum-mcp-server/src/foo.ts")
+ *
+ * This ensures paths referring to the same file match when used as keys
+ * in the Union-Find, regardless of how they were originally specified.
  *
  * Examples:
  * - /Users/n8/worktrees/625-branch/wiggum-mcp-server/src/foo.ts -> wiggum-mcp-server/src/foo.ts
@@ -39,6 +47,11 @@ import { join } from 'path';
  * - ./wiggum-mcp-server/src/foo.ts -> wiggum-mcp-server/src/foo.ts
  */
 export function normalizeFilePath(filePath: string): string {
+  // Handle empty input gracefully - return as-is to avoid silent failures
+  if (!filePath || filePath.length === 0) {
+    return filePath;
+  }
+
   let normalized = filePath;
 
   // Ensure forward slashes (for Windows compatibility) - do this first
@@ -47,11 +60,20 @@ export function normalizeFilePath(filePath: string): string {
   // Handle absolute paths with worktree patterns FIRST
   // This must happen before cwd check because cwd might be a subdirectory of the worktree
   // Match: /Users/.../worktrees/branch-name/... or /home/.../worktrees/...
-  const worktreeMatch = normalized.match(/^\/.*\/worktrees\/[^/]+\/(.+)$/);
+  // Also match Windows-style: C:/Users/.../worktrees/branch-name/...
+  const worktreeMatch = normalized.match(/^(?:[A-Za-z]:)?\/.*\/worktrees\/[^/]+\/(.+)$/);
   if (worktreeMatch) {
     normalized = worktreeMatch[1];
-    // Early return since we've found the repo-relative path
-    return normalized;
+    // Validate non-empty result before returning
+    if (normalized && normalized.length > 0) {
+      return normalized;
+    }
+    // If worktree match produced empty result, log and fall through
+    logger.warn('Worktree path normalization resulted in empty path', {
+      original: filePath,
+      impact: 'File will use original path for batching',
+    });
+    return filePath;
   }
 
   // Get current working directory for non-worktree absolute paths
@@ -63,6 +85,15 @@ export function normalizeFilePath(filePath: string): string {
     // Remove leading slash if present
     if (normalized.startsWith('/')) {
       normalized = normalized.slice(1);
+    }
+    // Validate non-empty result
+    if (!normalized || normalized.length === 0) {
+      logger.warn('CWD path normalization resulted in empty path', {
+        original: filePath,
+        cwd,
+        impact: 'File will use original path for batching',
+      });
+      return filePath;
     }
   }
 
@@ -117,20 +148,42 @@ export interface ListIssuesResult {
 }
 
 /**
- * Union-Find data structure for grouping issues with overlapping files
+ * Union-Find data structure for grouping issues with overlapping files.
+ *
+ * Enforced invariants (validated at runtime):
+ * - parent[i] points to a valid element (0 <= parent[i] < size) - bounds checked in find()/union()
+ * - size is non-negative - validated in constructor
+ * - External mutation prevented via private fields
+ *
+ * Algorithmic properties (maintained by correct implementation):
+ * - rank[i] remains non-negative (initialized to 0, only incremented)
+ * - Path compression in find() maintains tree structure
+ * - Union by rank keeps trees balanced for O(alpha(n)) operations
  */
 class UnionFind {
-  private parent: Map<number, number> = new Map();
-  private rank: Map<number, number> = new Map();
+  private readonly _size: number;
+  private readonly parent: Map<number, number> = new Map();
+  private readonly rank: Map<number, number> = new Map();
 
   constructor(size: number) {
+    if (size < 0) {
+      throw new Error(`UnionFind size must be non-negative, got ${size}`);
+    }
+    this._size = size;
     for (let i = 0; i < size; i++) {
       this.parent.set(i, i);
       this.rank.set(i, 0);
     }
   }
 
+  private validateIndex(x: number, method: string): void {
+    if (x < 0 || x >= this._size) {
+      throw new Error(`${method}: index ${x} out of bounds [0, ${this._size})`);
+    }
+  }
+
   find(x: number): number {
+    this.validateIndex(x, 'find');
     const parent = this.parent.get(x)!;
     if (parent !== x) {
       this.parent.set(x, this.find(parent)); // Path compression
@@ -139,6 +192,9 @@ class UnionFind {
   }
 
   union(x: number, y: number): void {
+    this.validateIndex(x, 'union');
+    this.validateIndex(y, 'union');
+
     const rootX = this.find(x);
     const rootY = this.find(y);
 
@@ -264,6 +320,7 @@ export function batchInScopeIssues(
  * Read all manifest files matching the scope filter and return minimal references
  * Also returns full issue records for batching purposes
  */
+// TODO(#1016): Duplicate logic with collectManifestIssuesWithReferences in manifest-utils.ts
 function listManifestIssues(scope: 'in-scope' | 'out-of-scope' | 'all'): {
   references: IssueReference[];
   records: IssueRecord[];

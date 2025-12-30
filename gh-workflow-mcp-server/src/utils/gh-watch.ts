@@ -76,11 +76,11 @@ async function createAbortableWatch(args: string[], timeoutMs: number): Promise<
   } catch (error: any) {
     clearTimeout(timer);
 
-    // Check if error was due to abort/timeout
     if (error.isCanceled) {
+      // Return standard Unix timeout exit code (same as 'timeout' command)
       return {
         success: false,
-        exitCode: 124, // Standard timeout exit code
+        exitCode: 124,
         timedOut: true,
         output: '',
       };

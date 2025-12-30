@@ -59,9 +59,10 @@ export const REVIEW_AGENT_NAMES: readonly ReviewAgentName[] = REVIEW_AGENT_NAME_
  * Returns the path to the manifest directory: $(pwd)/tmp/wiggum/
  * This is where all manifest JSON files are stored.
  *
- * NOTE: This function does NOT create the directory. Callers that need to write
- * (e.g., record-review-issue.ts) create the directory on-demand before writing.
- * For reading operations, a missing directory is acceptable (no manifests exist yet).
+ * NOTE: This function does NOT create the directory.
+ * - Writers (record-review-issue.ts) create it before writing via mkdirSync(dir, { recursive: true })
+ * - Readers (this module) treat missing directory as "no manifests exist yet" (returns empty arrays)
+ * - Directory is created on-demand by first write operation
  *
  * @returns Absolute path to the manifest directory
  */
@@ -149,6 +150,7 @@ export function parseManifestFilename(filename: string): ManifestFilenameCompone
     return null;
   }
 
+  // TODO(#1006): Duplicate scope extraction patterns in parseIssueId and parseManifestFilename
   // Extract agent name (everything before -{scope}-)
   const scopeMarker = scope === 'in-scope' ? '-in-scope-' : '-out-of-scope-';
   const agentName = filename.split(scopeMarker)[0];
@@ -359,6 +361,7 @@ export function readManifestFile(filepath: string): IssueRecord[] {
  * Read all manifest files and group by agent name
  * Returns a map of agent name to their manifest data
  */
+// TODO(#1011): Refactor: Extract shared manifest file iteration helper
 export function readManifestFiles(): Map<string, AgentManifest> {
   const manifestDir = getManifestDir();
   const agentManifests = new Map<string, AgentManifest>();
@@ -405,23 +408,34 @@ export function readManifestFiles(): Map<string, AgentManifest> {
 
     const filepath = join(manifestDir, filename);
 
+    // TODO(#1004): Duplicate manifest reading and failure collection logic
     // Wrap readManifestFile in try-catch to prevent one corrupted file
-    // from causing loss of all valid issues from other agents
+    // from causing loss of all valid issues from other agents.
+    // IMPORTANT: Only catch FilesystemError which indicates expected corruption
+    // or permission issues. Let unexpected errors (TypeError, ReferenceError, etc.)
+    // propagate to fail fast and reveal bugs.
     let issues: IssueRecord[];
     try {
       issues = readManifestFile(filepath);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      skippedFiles.push({ filename, error: errorMsg });
-      logger.error('Failed to read manifest file - skipping this file', {
-        filepath,
-        filename,
-        error: errorMsg,
-        impact: 'Issues from this agent will be missing from results',
-        action: 'Check file for corruption and delete if necessary',
-      });
-      // Continue processing other files - partial data better than no data
-      continue;
+      // Only catch FilesystemError - these are expected errors from corruption,
+      // permission issues, or malformed JSON that we can safely skip
+      if (error instanceof FilesystemError) {
+        const errorMsg = error.message;
+        skippedFiles.push({ filename, error: errorMsg });
+        logger.error('Failed to read manifest file - skipping this file', {
+          filepath,
+          filename,
+          error: errorMsg,
+          impact: 'Issues from this agent will be missing from results',
+          action: 'Check file for corruption and delete if necessary',
+        });
+        // Continue processing other files - partial data better than no data
+        continue;
+      }
+      // Unexpected error (TypeError, ReferenceError, etc.) - re-throw to fail fast
+      // This ensures programming bugs in readManifestFile are not silently swallowed
+      throw error;
     }
 
     if (issues.length === 0) {
@@ -688,22 +702,32 @@ export function collectManifestIssuesWithReferences(
     const filepath = join(manifestDir, filename);
 
     // Wrap readManifestFile in try-catch to prevent one corrupted file
-    // from causing loss of all valid issues from other agents
+    // from causing loss of all valid issues from other agents.
+    // IMPORTANT: Only catch FilesystemError which indicates expected corruption
+    // or permission issues. Let unexpected errors (TypeError, ReferenceError, etc.)
+    // propagate to fail fast and reveal bugs.
     let issues: IssueRecord[];
     try {
       issues = readManifestFile(filepath);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      skippedFiles.push({ filename, error: errorMsg });
-      logger.error('Failed to read manifest file - skipping this file', {
-        filepath,
-        filename,
-        error: errorMsg,
-        impact: 'Issues from this agent will be missing from results',
-        action: 'Check file for corruption and delete if necessary',
-      });
-      // Continue processing other files - partial data better than no data
-      continue;
+      // Only catch FilesystemError - these are expected errors from corruption,
+      // permission issues, or malformed JSON that we can safely skip
+      if (error instanceof FilesystemError) {
+        const errorMsg = error.message;
+        skippedFiles.push({ filename, error: errorMsg });
+        logger.error('Failed to read manifest file - skipping this file', {
+          filepath,
+          filename,
+          error: errorMsg,
+          impact: 'Issues from this agent will be missing from results',
+          action: 'Check file for corruption and delete if necessary',
+        });
+        // Continue processing other files - partial data better than no data
+        continue;
+      }
+      // Unexpected error (TypeError, ReferenceError, etc.) - re-throw to fail fast
+      // This ensures programming bugs in readManifestFile are not silently swallowed
+      throw error;
     }
 
     for (const issue of issues) {

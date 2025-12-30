@@ -4,6 +4,8 @@
  * Called when Step 0 (Ensure PR) instructs creation of PR
  * Codifies the entire PR creation process following completion tool pattern
  *
+ * TODO(#414): Fix silent failures and error handling - needs verification (may be stale)
+ *
  * ERROR HANDLING STRATEGY:
  *
  * This handler implements defensive error handling with explicit ValidationError throws

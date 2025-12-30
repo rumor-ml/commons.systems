@@ -543,3 +543,62 @@ export class FormattingError extends McpError {
     }
   }
 }
+
+/**
+ * GitHub error classification result
+ *
+ * Used to categorize GitHub API errors for retry logic and error handling.
+ * All flags are mutually exclusive except isTransient/isCritical which summarize the others.
+ */
+export interface GitHubErrorClassification {
+  /** True if error is 404 not found */
+  readonly is404: boolean;
+  /** True if error is authentication/permission failure (401, 403) */
+  readonly isAuth: boolean;
+  /** True if error is rate limit (429) */
+  readonly isRateLimit: boolean;
+  /** True if error is network failure (ECONNREFUSED, ETIMEDOUT, etc.) */
+  readonly isNetwork: boolean;
+  /** True if error is transient (isRateLimit || isNetwork) - safe to retry */
+  readonly isTransient: boolean;
+  /** True if error is critical (is404 || isAuth) - should not retry */
+  readonly isCritical: boolean;
+}
+
+/**
+ * Classify a GitHub API error for retry logic
+ *
+ * Determines error type based on error message patterns and exit codes.
+ * Uses both exit code (most reliable when available) and message pattern
+ * matching (fallback for wrapped errors).
+ *
+ * Network vs HTTP error classification:
+ * - Network errors: Use message pattern matching (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
+ *   because network failure exit codes vary by tool/platform.
+ * - HTTP errors (404, 429): Use reliable exitCode values from gh CLI.
+ *
+ * @param error - Error object or message to classify
+ * @param exitCode - Optional exit code from CLI command
+ * @returns Classification result with boolean flags
+ */
+export function classifyGitHubError(error: unknown, exitCode?: number): GitHubErrorClassification {
+  const errorMsg =
+    error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+
+  const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
+  const isAuth =
+    /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
+    exitCode === 401 ||
+    exitCode === 403;
+  const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
+  const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
+
+  return {
+    is404,
+    isAuth,
+    isRateLimit,
+    isNetwork,
+    isTransient: isRateLimit || isNetwork,
+    isCritical: is404 || isAuth,
+  };
+}

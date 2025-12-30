@@ -10,6 +10,20 @@ import { getPRComments } from '../utils/gh-cli.js';
 import { logger } from '../utils/logger.js';
 
 /**
+ * Search for command evidence in a list of comments
+ *
+ * @internal Pure function for testing - no I/O operations
+ */
+function searchCommandInComments(comments: readonly { body: string }[], command: string): boolean {
+  for (const comment of comments) {
+    if (comment.body.includes(command)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Check if a specific review command was executed (evidence in PR comments)
  */
 export async function hasReviewCommandEvidence(
@@ -25,18 +39,23 @@ export async function hasReviewCommandEvidence(
     commentCount: comments.length,
   });
 
-  // Search for command mention in any comment
-  for (const comment of comments) {
-    if (comment.body.includes(command)) {
-      return true;
-    }
+  const found = searchCommandInComments(comments, command);
+
+  if (!found) {
+    logger.debug('hasReviewCommandEvidence: command not found', {
+      prNumber,
+      command,
+      checkedCommentCount: comments.length,
+    });
   }
 
-  logger.debug('hasReviewCommandEvidence: command not found', {
-    prNumber,
-    command,
-    checkedCommentCount: comments.length,
-  });
-
-  return false;
+  return found;
 }
+
+/**
+ * Test exports for unit testing internal functions
+ * @internal Only use in tests
+ */
+export const _testExports = {
+  searchCommandInComments,
+};
