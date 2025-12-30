@@ -247,10 +247,8 @@ describe('advanceToNextStep', () => {
       assert.strictEqual(nextStep, null);
     });
 
-    it('should fail to advance to approval due to schema validation limitation', () => {
-      // Note: This test documents a bug where the schema doesn't allow
-      // step: 'approval' with phase: 'phase2' because 'approval' doesn't start with 'p2-'
-      // TODO(#996): Fix schema to allow 'approval' step with phase2
+    it('should advance to approval from security review in phase2', () => {
+      // Schema now allows step: 'approval' with phase: 'phase2'
       const securityReviewState = createWiggumState({
         step: STEP_PHASE2_SECURITY_REVIEW,
         iteration: 0,
@@ -263,14 +261,18 @@ describe('advanceToNextStep', () => {
         ],
       });
 
-      // Attempting to advance to approval throws due to schema validation bug
-      assert.throws(
-        () => advanceToNextStep(securityReviewState),
-        (error: unknown) => {
-          // Currently throws ZodError due to schema validation issue
-          assert.ok(error instanceof Error && error.name === 'ZodError');
-          return true;
-        }
+      const newState = advanceToNextStep(securityReviewState);
+
+      assert.strictEqual(newState.step, 'approval');
+      assert.deepStrictEqual(
+        [...newState.completedSteps],
+        [
+          STEP_PHASE2_MONITOR_WORKFLOW,
+          STEP_PHASE2_MONITOR_CHECKS,
+          STEP_PHASE2_CODE_QUALITY,
+          STEP_PHASE2_PR_REVIEW,
+          STEP_PHASE2_SECURITY_REVIEW,
+        ]
       );
     });
   });
