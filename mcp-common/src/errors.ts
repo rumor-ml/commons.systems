@@ -150,8 +150,82 @@ function isValidStatusCode(code: number): boolean {
  * new GitHubCliError('Failed', 1000, 'stderr'); // throws!
  * ```
  */
+/**
+ * Exit code domain for GitHubCliError
+ *
+ * The exitCode field in GitHubCliError has dual semantics:
+ * - 'unknown': Sentinel value (-1) indicating exit code unavailable
+ * - 'unix': Process exit codes (0-255)
+ * - 'http': HTTP status codes (400-599)
+ *
+ * Use getExitCodeDomain() to determine the domain at runtime.
+ */
+export type ExitCodeDomain = 'unknown' | 'unix' | 'http';
+
+/**
+ * Determine the domain of a GitHubCliError exit code
+ *
+ * Since exit code ranges are non-overlapping (0-255 for Unix, 400-599 for HTTP),
+ * the domain can be inferred from the value itself:
+ * - -1: 'unknown' (process didn't run or exit code unavailable)
+ * - 0-255: 'unix' (standard process exit codes)
+ * - 400-599: 'http' (HTTP status codes from API responses)
+ *
+ * @param exitCode - The exit code to classify
+ * @returns The domain of the exit code
+ *
+ * @example
+ * ```typescript
+ * const error = new GitHubCliError('Not found', 404, 'stderr');
+ * const domain = getExitCodeDomain(error.exitCode);
+ * // domain === 'http'
+ *
+ * const error2 = new GitHubCliError('Command failed', 1, 'stderr');
+ * const domain2 = getExitCodeDomain(error2.exitCode);
+ * // domain2 === 'unix'
+ * ```
+ */
+export function getExitCodeDomain(exitCode: number): ExitCodeDomain {
+  if (exitCode === -1) return 'unknown';
+  if (exitCode >= 0 && exitCode <= 255) return 'unix';
+  if (exitCode >= 400 && exitCode <= 599) return 'http';
+  // This should never happen due to constructor validation
+  throw new ValidationError(
+    `Invalid exit code: ${exitCode}. Valid ranges: -1, 0-255 (Unix), 400-599 (HTTP).`
+  );
+}
+
+/**
+ * Type guard to check if an exit code is an HTTP status code
+ *
+ * @param exitCode - The exit code to check
+ * @returns true if the exit code is an HTTP status code (400-599)
+ */
+export function isHttpStatusCode(exitCode: number): boolean {
+  return getExitCodeDomain(exitCode) === 'http';
+}
+
+/**
+ * Type guard to check if an exit code is a Unix exit code
+ *
+ * @param exitCode - The exit code to check
+ * @returns true if the exit code is a Unix exit code (0-255)
+ */
+export function isUnixExitCode(exitCode: number): boolean {
+  return getExitCodeDomain(exitCode) === 'unix';
+}
+
 export class GitHubCliError extends McpError {
   public readonly exitCode: number;
+
+  /**
+   * Get the domain of this error's exit code
+   *
+   * @returns 'unknown' if exit code is -1, 'unix' for 0-255, 'http' for 400-599
+   */
+  public get exitCodeDomain(): ExitCodeDomain {
+    return getExitCodeDomain(this.exitCode);
+  }
 
   constructor(
     message: string,

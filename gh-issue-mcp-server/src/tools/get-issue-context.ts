@@ -11,9 +11,10 @@ import { createErrorResult, ParsingError, ValidationError, NetworkError } from '
 /**
  * Validate GraphQL response has expected data field
  *
- * Validates response structure and throws an appropriate error with GitHub error
- * context if the response is missing the 'data' field. Error types are chosen
- * based on the GraphQL error type to preserve error semantics for upstream handling.
+ * Validates that GraphQL response contains a 'data' field, indicating successful
+ * query execution. Throws an appropriate error with GitHub error context if the
+ * 'data' field is missing. Error types are chosen based on the GraphQL error type
+ * to preserve error semantics for upstream handling.
  *
  * **Error type mapping:**
  * - FORBIDDEN -> ValidationError (permission issues, not retryable)

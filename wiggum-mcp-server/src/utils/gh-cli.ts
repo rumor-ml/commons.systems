@@ -60,6 +60,7 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     return result.stdout || '';
   } catch (error) {
     // TODO: See issue #443 - Distinguish programming errors from operational errors
+    // TODO(#999): Review error propagation to ensure original error context is preserved
     if (error instanceof GitHubCliError) {
       throw error;
     }

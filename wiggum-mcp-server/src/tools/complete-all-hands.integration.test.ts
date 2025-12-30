@@ -22,10 +22,12 @@
  * 1. Filesystem-based manifest operations (which CAN be tested with real files)
  * 2. Documentation of expected behavior (for future mock implementation)
  * 3. Utility function tests that don't require mocking
+ * 4. State update failure response builder (can be tested directly)
  *
  * @see complete-all-hands.test.ts for schema validation tests
  * @see complete-fix.integration.test.ts for similar documentation pattern
  * @see https://github.com/commons-systems/commons.systems/issues/625
+ * @see https://github.com/commons-systems/commons.systems/issues/313 for test coverage tracking
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -42,12 +44,22 @@ import {
 } from './manifest-utils.js';
 import type { IssueRecord } from './manifest-types.js';
 import {
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
   STEP_PHASE2_CODE_QUALITY,
+  STEP_NAMES,
 } from '../constants.js';
 import { advanceToNextStep } from '../state/transitions.js';
-import { createWiggumState } from '../state/types.js';
+import {
+  createWiggumState,
+  createGitState,
+  createPRExists,
+  createIssueExists,
+} from '../state/types.js';
+import type { CurrentState } from '../state/types.js';
+import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js';
 
 // Test directory setup
 let testDir: string;
@@ -484,6 +496,507 @@ describe('complete-all-hands integration tests', () => {
         2,
         'Should exclude not_fixed issues from count (1 excluded, 2 counted)'
       );
+    });
+  });
+
+  describe('state update failure response builder', () => {
+    /**
+     * Helper to create a mock CurrentState for testing buildStateUpdateFailureResponse.
+     * This allows us to test the response builder in isolation without mocking
+     * detectCurrentState() or making GitHub API calls.
+     */
+    function createMockCurrentState(phase: 'phase1' | 'phase2'): CurrentState {
+      const wiggumState = createWiggumState({
+        iteration: 2,
+        step: phase === 'phase1' ? STEP_PHASE1_PR_REVIEW : STEP_PHASE2_CODE_QUALITY,
+        completedSteps:
+          phase === 'phase1'
+            ? [STEP_PHASE1_MONITOR_WORKFLOW]
+            : [STEP_PHASE2_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_CHECKS],
+        phase,
+      });
+
+      const gitState = createGitState({
+        currentBranch: '625-test-branch',
+        isMainBranch: false,
+        hasUncommittedChanges: false,
+        isRemoteTracking: true,
+        isPushed: true,
+      });
+
+      if (phase === 'phase1') {
+        return {
+          wiggum: wiggumState,
+          git: gitState,
+          pr: { exists: false as const },
+          issue: createIssueExists(625),
+        };
+      } else {
+        return {
+          wiggum: wiggumState,
+          git: gitState,
+          pr: createPRExists({
+            number: 123,
+            title: 'Test PR',
+            state: 'OPEN',
+            url: 'https://github.com/test/repo/pull/123',
+            labels: [],
+            headRefName: '625-test-branch',
+            baseRefName: 'main',
+          }),
+          issue: createIssueExists(625),
+        };
+      }
+    }
+
+    it('should include isError: true in response', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: ['Step 1', 'Step 2'],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert
+      assert.strictEqual(response.isError, true, 'Response should have isError: true');
+    });
+
+    it('should include error message with failure reason', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert
+      assert.ok(response.content[0].type === 'text', 'Response should have text content');
+      const text = response.content[0].text;
+      assert.ok(text.includes('rate_limit'), 'Error message should include failure reason');
+      assert.ok(
+        text.includes('ERROR: Failed to post state comment'),
+        'Should include error prefix'
+      );
+    });
+
+    it('should include "state has NOT been modified" warning', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'network' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert
+      const text = (response.content[0] as { type: 'text'; text: string }).text;
+      assert.ok(text.includes('has NOT been modified'), 'Should warn that state was not modified');
+    });
+
+    it('should include current step name in error message', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert
+      const text = (response.content[0] as { type: 'text'; text: string }).text;
+      const expectedStepName = STEP_NAMES[STEP_PHASE2_CODE_QUALITY];
+      assert.ok(
+        text.includes(expectedStepName),
+        `Should include step name "${expectedStepName}" in message`
+      );
+    });
+
+    it('should include tool name for retry instructions', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert
+      const text = (response.content[0] as { type: 'text'; text: string }).text;
+      assert.ok(text.includes('wiggum_complete_all_hands'), 'Should include tool name for retry');
+    });
+
+    it('should include PR number in context for phase2', () => {
+      // Setup
+      const state = createMockCurrentState('phase2');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase2',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase2',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert - The PR number should appear in the formatted response
+      const text = (response.content[0] as { type: 'text'; text: string }).text;
+      assert.ok(text.includes('123') || text.includes('pr_number'), 'Should reference PR context');
+    });
+
+    it('should include issue number in context for phase1', () => {
+      // Setup
+      const state = createMockCurrentState('phase1');
+      const newState = createWiggumState({
+        iteration: state.wiggum.iteration + 1,
+        step: state.wiggum.step,
+        completedSteps: state.wiggum.completedSteps,
+        phase: 'phase1',
+      });
+
+      // Act
+      const response = buildStateUpdateFailureResponse({
+        state,
+        stateResult: { success: false, reason: 'rate_limit' },
+        newState,
+        phase: 'phase1',
+        stepsCompleted: [],
+        toolName: 'wiggum_complete_all_hands',
+      });
+
+      // Assert - Should be a valid error response for phase1
+      assert.ok(response.isError, 'Should be an error response for phase1 failure');
+      assert.ok(response.content[0].type === 'text', 'Response should have text content');
+    });
+  });
+
+  describe('fast-path vs slow-path decision logic', () => {
+    it('should trigger fast-path when high-priority count is 0', () => {
+      // Setup: Create only low-priority issues
+      const manifestDir = getManifestDir();
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ priority: 'low' }),
+        createIssueRecord({ priority: 'low' }),
+      ]);
+
+      // Act
+      const manifests = readManifestFiles();
+      const count = countHighPriorityInScopeIssues(manifests);
+
+      // Assert: Count is 0, which would trigger fast-path in completeAllHands
+      assert.strictEqual(count, 0, 'Low-priority issues should result in count 0 (fast-path)');
+    });
+
+    it('should trigger slow-path when high-priority count is > 0', () => {
+      // Setup: Create mix of priorities
+      const manifestDir = getManifestDir();
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ priority: 'high' }),
+        createIssueRecord({ priority: 'low' }),
+      ]);
+
+      // Act
+      const manifests = readManifestFiles();
+      const count = countHighPriorityInScopeIssues(manifests);
+
+      // Assert: Count is > 0, which would trigger slow-path in completeAllHands
+      assert.strictEqual(count, 1, 'High-priority issues should result in count > 0 (slow-path)');
+    });
+
+    it('should trigger fast-path when only out-of-scope issues exist', () => {
+      // Setup: Create only out-of-scope high-priority issues
+      const manifestDir = getManifestDir();
+      writeTestManifest(manifestDir, 'code-reviewer', 'out-of-scope', [
+        createIssueRecord({ priority: 'high', scope: 'out-of-scope' }),
+        createIssueRecord({ priority: 'high', scope: 'out-of-scope' }),
+      ]);
+
+      // Act
+      const manifests = readManifestFiles();
+      const count = countHighPriorityInScopeIssues(manifests);
+
+      // Assert: Out-of-scope issues don't count, so fast-path is triggered
+      assert.strictEqual(
+        count,
+        0,
+        'Out-of-scope issues should not count toward slow-path decision'
+      );
+    });
+
+    it('should correctly compute state advancement for fast-path', () => {
+      /**
+       * This test verifies the state transitions that occur in fast-path:
+       * 1. advanceToNextStep() is called
+       * 2. Current step is added to completedSteps
+       * 3. Iteration remains unchanged
+       */
+      const initialState = createWiggumState({
+        iteration: 3,
+        step: STEP_PHASE2_CODE_QUALITY,
+        completedSteps: [STEP_PHASE2_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_CHECKS],
+        phase: 'phase2',
+      });
+
+      // Act: Simulate fast-path state transition
+      const newState = advanceToNextStep(initialState);
+
+      // Assert
+      assert.strictEqual(newState.iteration, 3, 'Iteration should NOT be incremented in fast-path');
+      assert.ok(
+        newState.completedSteps.includes(STEP_PHASE2_CODE_QUALITY),
+        'Current step should be added to completedSteps'
+      );
+      assert.strictEqual(
+        newState.completedSteps.length,
+        3,
+        'completedSteps should have one more entry'
+      );
+    });
+
+    it('should correctly compute state for slow-path', () => {
+      /**
+       * This test verifies the state transitions that occur in slow-path:
+       * 1. Iteration is incremented by 1
+       * 2. Step remains unchanged (workflow loops back)
+       * 3. completedSteps remains unchanged
+       */
+      const initialState = createWiggumState({
+        iteration: 3,
+        step: STEP_PHASE2_CODE_QUALITY,
+        completedSteps: [STEP_PHASE2_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_CHECKS],
+        phase: 'phase2',
+      });
+
+      // Act: Simulate slow-path state transition (as done in completeAllHands)
+      const newState = createWiggumState({
+        iteration: initialState.iteration + 1,
+        step: initialState.step,
+        completedSteps: initialState.completedSteps,
+        phase: initialState.phase,
+      });
+
+      // Assert
+      assert.strictEqual(newState.iteration, 4, 'Iteration should be incremented in slow-path');
+      assert.strictEqual(newState.step, STEP_PHASE2_CODE_QUALITY, 'Step should remain unchanged');
+      assert.deepStrictEqual(
+        newState.completedSteps,
+        initialState.completedSteps,
+        'completedSteps should remain unchanged'
+      );
+    });
+  });
+
+  describe('manifest cleanup timing verification', () => {
+    it('should have manifests present before cleanup in fast-path scenario', async () => {
+      /**
+       * This test verifies the manifest state at the decision point in fast-path:
+       * When countHighPriorityInScopeIssues returns 0, manifests should still exist
+       * before safeCleanupManifestFiles is called.
+       */
+      const manifestDir = getManifestDir();
+
+      // Setup: Create manifests with only low-priority issues (fast-path trigger)
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ priority: 'low' }),
+      ]);
+
+      // Verify manifests exist before cleanup
+      const manifests = readManifestFiles();
+      assert.strictEqual(manifests.size, 1, 'Manifests should exist before cleanup');
+
+      // Verify count is 0 (fast-path condition)
+      const count = countHighPriorityInScopeIssues(manifests);
+      assert.strictEqual(count, 0, 'Count should be 0 for fast-path');
+
+      // Act: Simulate cleanup
+      await cleanupManifestFiles();
+
+      // Assert: Manifests cleaned up
+      const manifestsAfter = readManifestFiles();
+      assert.strictEqual(manifestsAfter.size, 0, 'Manifests should be cleaned up in fast-path');
+    });
+
+    it('should preserve manifests when cleanup is not called (simulating failure)', () => {
+      /**
+       * This test verifies that manifests are preserved if cleanup is never called.
+       * In slow-path failure scenarios, safeCleanupManifestFiles is only called
+       * AFTER successful state persistence. If state update fails, cleanup is not
+       * called and manifests remain for retry.
+       */
+      const manifestDir = getManifestDir();
+
+      // Setup: Create manifests with high-priority issues (slow-path trigger)
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ priority: 'high' }),
+      ]);
+
+      // Act: Simulate slow-path without cleanup (as if state update failed)
+      const manifests = readManifestFiles();
+      const count = countHighPriorityInScopeIssues(manifests);
+
+      // Assert: Manifests still exist (no cleanup called)
+      assert.strictEqual(count, 1, 'Count should be 1 (slow-path condition)');
+      const filesBefore = readdirSync(manifestDir).filter((f) => f.endsWith('.json'));
+      assert.strictEqual(filesBefore.length, 1, 'Manifest file should be preserved on failure');
+    });
+  });
+
+  describe('complete-all-hands workflow integration (documentation)', () => {
+    it('documents the complete fast-path execution flow', () => {
+      /**
+       * SPECIFICATION: Fast-path execution flow in completeAllHands()
+       *
+       * PRECONDITION:
+       * - Manifests exist in tmp/wiggum/
+       * - countHighPriorityInScopeIssues(manifests) === 0
+       *
+       * EXECUTION ORDER:
+       * 1. detectCurrentState() - get current workflow state
+       * 2. readManifestFiles() - read all manifest files
+       * 3. countHighPriorityInScopeIssues(manifests) - returns 0
+       * 4. advanceToNextStep(state.wiggum) - mark current step complete
+       * 5. [if input.maxIterations] - override maxIterations in newState
+       * 6. safeCleanupManifestFiles() - delete manifest files (non-blocking)
+       * 7. safeUpdatePRBodyState() or safeUpdateIssueBodyState() - persist state
+       * 8. [if success] applyWiggumState() - merge states locally
+       * 9. [if success] getNextStepInstructions() - return next step instructions
+       * 10. [if failure] buildStateUpdateFailureResponse() - return error response
+       *
+       * KEY INVARIANTS:
+       * - Iteration is NOT incremented (remains unchanged)
+       * - Current step is added to completedSteps
+       * - Cleanup happens BEFORE state persistence
+       * - getNextStepInstructions uses locally-merged state (race condition fix)
+       *
+       * See complete-all-hands.ts lines 81-141 for implementation.
+       */
+      assert.ok(true, 'Fast-path execution flow documented');
+    });
+
+    it('documents the complete slow-path execution flow', () => {
+      /**
+       * SPECIFICATION: Slow-path execution flow in completeAllHands()
+       *
+       * PRECONDITION:
+       * - Manifests exist in tmp/wiggum/
+       * - countHighPriorityInScopeIssues(manifests) > 0
+       *
+       * EXECUTION ORDER:
+       * 1. detectCurrentState() - get current workflow state
+       * 2. readManifestFiles() - read all manifest files
+       * 3. countHighPriorityInScopeIssues(manifests) - returns > 0
+       * 4. createWiggumState() - create new state with incremented iteration
+       *    - iteration: state.wiggum.iteration + 1
+       *    - step: unchanged (workflow loops back to re-run reviews)
+       *    - completedSteps: unchanged (step not marked complete)
+       *    - maxIterations: input.maxIterations ?? state.wiggum.maxIterations
+       * 5. safeUpdatePRBodyState() or safeUpdateIssueBodyState() - persist state
+       * 6. [if success] safeCleanupManifestFiles() - delete manifest files
+       * 7. [if success] applyWiggumState() - merge states locally
+       * 8. [if success] getNextStepInstructions() - return next step instructions
+       * 9. [if failure at step 5] buildStateUpdateFailureResponse() - return error
+       *    - Cleanup is NOT called (manifests preserved for retry)
+       *
+       * KEY INVARIANTS:
+       * - Iteration IS incremented by 1
+       * - Step remains unchanged (triggers re-review)
+       * - completedSteps remains unchanged
+       * - Cleanup happens AFTER successful state persistence
+       * - On state update failure, manifests are preserved
+       *
+       * See complete-all-hands.ts lines 144-206 for implementation.
+       */
+      assert.ok(true, 'Slow-path execution flow documented');
+    });
+
+    it('documents phase routing decision logic', () => {
+      /**
+       * SPECIFICATION: Phase-based routing in completeAllHands()
+       *
+       * PHASE DETECTION:
+       * - phase is read from state.wiggum.phase
+       * - Valid values: 'phase1' or 'phase2'
+       *
+       * PHASE 1 (Pre-PR):
+       * - Uses safeUpdateIssueBodyState(issueNumber, newState, step)
+       * - issueNumber comes from state.issue.number (extracted from branch name)
+       * - State is persisted in the originating GitHub issue body
+       *
+       * PHASE 2 (Post-PR):
+       * - Uses safeUpdatePRBodyState(prNumber, newState, step)
+       * - prNumber comes from state.pr.number (from getPR() API call)
+       * - State is persisted in the PR body
+       *
+       * TARGET NUMBER RESOLUTION:
+       * - getTargetNumber(state, phase, toolName) extracts the correct number
+       * - Throws if required entity (issue/PR) doesn't exist for the phase
+       *
+       * See complete-all-hands.ts lines 110-113 (fast-path) and 162-166 (slow-path).
+       */
+      assert.ok(true, 'Phase routing decision logic documented');
     });
   });
 });

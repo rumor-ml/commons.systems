@@ -3,6 +3,7 @@
  *
  * Called after completing a Plan+Fix cycle
  *
+ * TODO(#363): Make CompleteFixInput type readonly
  * TODO(#489): Use createErrorResult for state comment failures - needs verification (may be stale)
  */
 

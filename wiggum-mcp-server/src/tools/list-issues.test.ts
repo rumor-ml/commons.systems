@@ -933,6 +933,165 @@ describe('list-issues behavioral tests', () => {
         // Should NOT have batch-1
         assert.ok(!text.includes('batch-1'), 'Should NOT have batch-1 (all connected via chain)');
       });
+
+      it('should produce deterministic batching across multiple calls', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Create a mix of connected and unconnected issues
+        const issues = [
+          createIssueRecord({
+            title: 'Issue A',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared.ts', 'src/a.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue B',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/shared.ts', 'src/b.ts'],
+          }),
+          createIssueRecord({
+            title: 'Issue C',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['src/isolated.ts'],
+          }),
+        ];
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', issues);
+
+        // Call listIssues multiple times and verify same results
+        const results: string[] = [];
+        for (let i = 0; i < 5; i++) {
+          const result = await listIssues({ scope: 'in-scope' });
+          assert.ok(result.content[0].type === 'text');
+          results.push(result.content[0].text);
+        }
+
+        // All results should be identical
+        for (let i = 1; i < results.length; i++) {
+          assert.strictEqual(
+            results[i],
+            results[0],
+            `Result ${i} should match first result for deterministic batching`
+          );
+        }
+
+        // Verify the structure is correct (A and B batched, C separate)
+        const text = results[0];
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('batch-1'), 'Should have batch-1');
+        // One batch should have 2 issues (A+B), one should have 1 (C)
+        const batch0Match = text.match(/batch-0 \((\d+) issue/);
+        const batch1Match = text.match(/batch-1 \((\d+) issue/);
+        assert.ok(batch0Match && batch1Match, 'Should have batch counts');
+        const counts = [parseInt(batch0Match![1]), parseInt(batch1Match![1])].sort();
+        assert.deepStrictEqual(counts, [1, 2], 'Should have batches of size 1 and 2');
+      });
+
+      it('should handle path with only worktree prefix (edge case normalization)', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Edge case: path that is exactly the worktree root, would normalize to empty string
+        // The implementation should fall back to original path in this case
+        const issues = [
+          createIssueRecord({
+            title: 'Issue A',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['file.ts'], // Very short path
+          }),
+          createIssueRecord({
+            title: 'Issue B',
+            agent_name: 'code-reviewer',
+            scope: 'in-scope',
+            files_to_edit: ['file.ts'], // Same short path
+          }),
+        ];
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', issues);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // Both issues reference the same file, should be in one batch
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('2 issues'), 'Should have 2 issues in same batch');
+        assert.ok(!text.includes('batch-1'), 'Should NOT have batch-1');
+      });
+
+      it('should handle issues from multiple agents with overlapping files', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Issues from DIFFERENT agents but overlapping files should batch together
+        const issue1 = createIssueRecord({
+          title: 'Code Reviewer Issue',
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          files_to_edit: ['src/shared-module.ts'],
+        });
+        const issue2 = createIssueRecord({
+          title: 'Type Analyzer Issue',
+          agent_name: 'type-design-analyzer',
+          scope: 'in-scope',
+          files_to_edit: ['src/shared-module.ts'],
+        });
+        const issue3 = createIssueRecord({
+          title: 'Test Analyzer Issue',
+          agent_name: 'pr-test-analyzer',
+          scope: 'in-scope',
+          files_to_edit: ['src/other-file.ts'],
+        });
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue1]);
+        writeTestManifest(manifestDir, 'type-design-analyzer', 'in-scope', [issue2]);
+        writeTestManifest(manifestDir, 'pr-test-analyzer', 'in-scope', [issue3]);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // Issues 1 and 2 share a file, issue 3 is separate
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('batch-1'), 'Should have batch-1');
+        // Verify batch sizes
+        const batch0Match = text.match(/batch-0 \((\d+) issue/);
+        const batch1Match = text.match(/batch-1 \((\d+) issue/);
+        assert.ok(batch0Match && batch1Match, 'Should have batch-0 and batch-1');
+        const batchSizes = [parseInt(batch0Match![1]), parseInt(batch1Match![1])].sort();
+        assert.deepStrictEqual(
+          batchSizes,
+          [1, 2],
+          'Should have one batch with 2 issues and one with 1 issue'
+        );
+        // Verify all issues are present
+        assert.ok(text.includes('Code Reviewer Issue'), 'Should include code-reviewer issue');
+        assert.ok(text.includes('Type Analyzer Issue'), 'Should include type-analyzer issue');
+        assert.ok(text.includes('Test Analyzer Issue'), 'Should include test-analyzer issue');
+      });
+
+      it('should batch by file content not by issue count', async () => {
+        const manifestDir = join(testDir, 'tmp', 'wiggum');
+        // Even if one file is referenced by many issues, they should all batch together
+        const sharedFile = 'src/heavily-referenced.ts';
+        const issues = [];
+        for (let i = 0; i < 10; i++) {
+          issues.push(
+            createIssueRecord({
+              title: `Issue ${i}`,
+              agent_name: 'code-reviewer',
+              scope: 'in-scope',
+              files_to_edit: [sharedFile, `src/unique-${i}.ts`],
+            })
+          );
+        }
+        writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', issues);
+
+        const result = await listIssues({ scope: 'in-scope' });
+
+        assert.ok(result.content[0].type === 'text');
+        const text = result.content[0].text;
+        // All 10 issues should be in one batch since they share heavily-referenced.ts
+        assert.ok(text.includes('batch-0'), 'Should have batch-0');
+        assert.ok(text.includes('10 issues'), 'Should have 10 issues in single batch');
+        assert.ok(!text.includes('batch-1'), 'Should NOT have batch-1');
+      });
     });
   });
 });

@@ -63,13 +63,16 @@ const RETRYABLE_ERROR_CODES = [
 // Benefits: Type-safe error handling, eliminate fragile message parsing
 function isRetryableError(error: unknown, exitCode?: number): boolean {
   // Priority 1: Exit code (most reliable when available)
-  // Note: exitCode contains HTTP status codes extracted from error messages
-  // (see ghCliWithRetry() status extraction logic), not gh CLI process exit codes.
+  // Note: exitCode may come from two sources:
+  //   1. error.exitCode property (e.g., GitHubCliError)
+  //   2. HTTP status extracted from error messages (fallback in ghCliWithRetry)
   // We check for retryable HTTP status codes: 429 (rate limit), 502-504 (server errors).
+  // IMPORTANT: If exitCode is defined (HTTP status extracted), use it definitively.
+  // Don't fall through to message pattern matching which could find a different status.
   if (exitCode !== undefined) {
-    if ([429, 502, 503, 504].includes(exitCode)) {
-      return true;
-    }
+    // Return true only for retryable HTTP status codes
+    // Return false for any other HTTP status code - don't fall through to pattern matching
+    return [429, 502, 503, 504].includes(exitCode);
   }
 
   if (error instanceof Error) {
@@ -206,7 +209,7 @@ export function sleep(ms: number): Promise<void> {
  * Execute gh CLI command with retry logic
  *
  * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
- * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
+ * Uses exponential backoff (2s, 4s, 8s, ... up to 60s cap). Logs retry attempts and final failures.
  * Non-retryable errors (like validation errors) fail immediately.
  *
  * @param ghCli - Function to execute gh commands
@@ -228,12 +231,7 @@ export async function ghCliWithRetry(
   options?: GhCliWithRetryOptions,
   maxRetries = 3
 ): Promise<string> {
-  // Validate maxRetries to ensure loop executes at least once and doesn't cause excessive delays
-  // Prevents edge cases:
-  //   - maxRetries < 1: Would skip the loop entirely, causing unreachable code error
-  //   - maxRetries > 100: Would cause excessive cumulative delay (worst case: ~97 minutes total)
-  //     With exponential backoff capped at 60s, delays grow as: 2s, 4s, 8s, 16s, 32s, then 60s each
-  //   - Non-integer (0.5, NaN, Infinity): Invalid retry counts or infinite loops
+  // Validate maxRetries: must be 1-100. Upper bound prevents excessive delay (~97 min worst case).
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     const GitHubCliError = (await import('./errors.js')).GitHubCliError;
@@ -255,11 +253,8 @@ export async function ghCliWithRetry(
     try {
       const result = await ghCli(args, options);
 
-      // Success after retry - log recovery at WARN level for production visibility
-      // INFO may be filtered in production, hiding important recovery patterns
-      // Helps identify flaky endpoints or transient GitHub API issues
-      // Uses console.error to ensure visibility even when stdout is redirected
-      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
+      // Log recovery at WARN level for production visibility (INFO may be filtered).
+      // Note: Logs firstError (initial failure) not lastError to show what triggered the retry.
       if (attempt > 1 && firstError) {
         console.error(
           `[mcp-common] WARN ghCliWithRetry: succeeded after retry - transient failure recovered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')}, impact: Operation delayed by retry, action: Monitor for consistent retry patterns)`
@@ -288,7 +283,7 @@ export async function ghCliWithRetry(
             const statusMatch = lastError.message.match(pattern);
             if (statusMatch && statusMatch[1]) {
               const parsed = parseInt(statusMatch[1], 10);
-              // Validate parsed status is a valid HTTP code (100-599)
+              // Validate parsed status is in HTTP code range (100-599)
               if (
                 Number.isFinite(parsed) &&
                 Number.isSafeInteger(parsed) &&
@@ -415,9 +410,8 @@ export async function ghCliWithRetry(
     }
   }
 
-  // Unreachable: maxRetries validation ensures loop executes at least once
-  // If reached, indicates a severe programming error in retry logic
-  // TODO(#1019): Explain why we log to console.error before throwing
+  // Unreachable: maxRetries validation ensures loop executes at least once.
+  // Log critical error before throwing to ensure visibility even if error is caught upstream.
   const GitHubCliError = (await import('./errors.js')).GitHubCliError;
   const errorContext = {
     maxRetries,

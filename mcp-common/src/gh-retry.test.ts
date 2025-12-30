@@ -797,6 +797,54 @@ describe('ghCliWithRetry', () => {
   });
 
   describe('edge cases', () => {
+    it('should extract first retryable status when multiple HTTP codes in message', async () => {
+      // Error message contains multiple HTTP codes - should extract the first valid one
+      let attemptCount = 0;
+      const mockGhCli: GhCliFn = async () => {
+        attemptCount++;
+        throw new Error('Failed to create PR (HTTP 404) but API returned HTTP 502');
+      };
+
+      await assert.rejects(async () => ghCliWithRetry(mockGhCli, ['test'], {}, 2));
+      // Should NOT retry because 404 (first match) is not retryable
+      // The pattern matches first occurrence (HTTP 404), not the retryable 502
+      assert.equal(attemptCount, 1, 'Should extract first HTTP status from message');
+    });
+
+    it('should throw final error after exhausting retries with different error types', async () => {
+      let attemptCount = 0;
+      const mockGhCli: GhCliFn = async () => {
+        attemptCount++;
+        if (attemptCount === 1) {
+          // First: network error
+          const err = new Error('network timeout') as NodeJS.ErrnoException;
+          err.code = 'ETIMEDOUT';
+          throw err;
+        }
+        if (attemptCount === 2) {
+          // Second: rate limit
+          const err = new Error('HTTP 429 rate limit') as Error & { exitCode: number };
+          err.exitCode = 429;
+          throw err;
+        }
+        // Third: server error
+        const err = new Error('HTTP 503 service unavailable') as Error & { exitCode: number };
+        err.exitCode = 503;
+        throw err;
+      };
+
+      await assert.rejects(
+        async () => ghCliWithRetry(mockGhCli, ['test'], {}, 3),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          // Final error should be the last attempt's error
+          assert.ok(error.message.includes('503'), 'Should throw final attempt error');
+          return true;
+        }
+      );
+      assert.equal(attemptCount, 3, 'Should exhaust all retries with different error types');
+    });
+
     it('should handle non-Error objects thrown by ghCli', async () => {
       let attemptCount = 0;
       const mockGhCli: GhCliFn = async () => {

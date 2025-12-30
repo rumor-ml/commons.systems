@@ -13,6 +13,7 @@ export interface DetectionResult {
   readonly isTimeout?: boolean;
 }
 
+// TODO(#363): Review type safety - ensure all fields remain readonly and consider factory function
 export interface ExtractedError {
   readonly testName?: string;
   readonly fileName?: string;

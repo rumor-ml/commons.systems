@@ -20,6 +20,10 @@ import {
   isSystemError,
   isKnownErrorCategory,
   SYSTEM_ERROR_CODES,
+  getExitCodeDomain,
+  isHttpStatusCode,
+  isUnixExitCode,
+  type ExitCodeDomain,
 } from './errors.js';
 
 describe('McpError', () => {
@@ -319,6 +323,146 @@ describe('GitHubCliError', () => {
       assert.doesNotThrow(() => GitHubCliError.createSafe('Test', -100, 'stderr'));
       assert.doesNotThrow(() => GitHubCliError.createSafe('Test', 350, 'stderr'));
     });
+  });
+
+  describe('exitCodeDomain property', () => {
+    it('returns unknown for -1 sentinel value', () => {
+      const error = new GitHubCliError('Process did not run', -1, 'stderr');
+      assert.equal(error.exitCodeDomain, 'unknown');
+    });
+
+    it('returns unix for exit codes 0-255', () => {
+      const error0 = new GitHubCliError('Success', 0, '');
+      assert.equal(error0.exitCodeDomain, 'unix');
+
+      const error1 = new GitHubCliError('Failed', 1, 'stderr');
+      assert.equal(error1.exitCodeDomain, 'unix');
+
+      const error128 = new GitHubCliError('Signal', 128, 'stderr');
+      assert.equal(error128.exitCodeDomain, 'unix');
+
+      const error255 = new GitHubCliError('Max code', 255, 'stderr');
+      assert.equal(error255.exitCodeDomain, 'unix');
+    });
+
+    it('returns http for status codes 400-599', () => {
+      const error404 = new GitHubCliError('Not found', 404, 'stderr');
+      assert.equal(error404.exitCodeDomain, 'http');
+
+      const error429 = new GitHubCliError('Rate limited', 429, 'stderr');
+      assert.equal(error429.exitCodeDomain, 'http');
+
+      const error500 = new GitHubCliError('Server error', 500, 'stderr');
+      assert.equal(error500.exitCodeDomain, 'http');
+
+      const error599 = new GitHubCliError('Max HTTP', 599, 'stderr');
+      assert.equal(error599.exitCodeDomain, 'http');
+    });
+  });
+});
+
+describe('getExitCodeDomain', () => {
+  it('returns unknown for -1', () => {
+    assert.equal(getExitCodeDomain(-1), 'unknown');
+  });
+
+  it('returns unix for 0', () => {
+    assert.equal(getExitCodeDomain(0), 'unix');
+  });
+
+  it('returns unix for 255', () => {
+    assert.equal(getExitCodeDomain(255), 'unix');
+  });
+
+  it('returns http for 400', () => {
+    assert.equal(getExitCodeDomain(400), 'http');
+  });
+
+  it('returns http for 599', () => {
+    assert.equal(getExitCodeDomain(599), 'http');
+  });
+
+  it('throws ValidationError for invalid exit codes', () => {
+    // Gap between Unix and HTTP ranges (256-399)
+    assert.throws(
+      () => getExitCodeDomain(300),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: 300')
+    );
+
+    // Negative (except -1)
+    assert.throws(
+      () => getExitCodeDomain(-5),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: -5')
+    );
+
+    // Above HTTP range
+    assert.throws(
+      () => getExitCodeDomain(600),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: 600')
+    );
+  });
+
+  it('enables type narrowing for discriminated domain checks', () => {
+    const exitCode = 404;
+    const domain: ExitCodeDomain = getExitCodeDomain(exitCode);
+
+    // This verifies the type system allows the exhaustive switch
+    switch (domain) {
+      case 'unknown':
+        assert.fail('Should not be unknown');
+        break;
+      case 'unix':
+        assert.fail('Should not be unix');
+        break;
+      case 'http':
+        // Expected path for HTTP status code
+        assert.ok(true);
+        break;
+    }
+  });
+});
+
+describe('isHttpStatusCode', () => {
+  it('returns true for HTTP status codes (400-599)', () => {
+    assert.equal(isHttpStatusCode(400), true);
+    assert.equal(isHttpStatusCode(404), true);
+    assert.equal(isHttpStatusCode(429), true);
+    assert.equal(isHttpStatusCode(500), true);
+    assert.equal(isHttpStatusCode(599), true);
+  });
+
+  it('returns false for Unix exit codes (0-255)', () => {
+    assert.equal(isHttpStatusCode(0), false);
+    assert.equal(isHttpStatusCode(1), false);
+    assert.equal(isHttpStatusCode(128), false);
+    assert.equal(isHttpStatusCode(255), false);
+  });
+
+  it('returns false for unknown (-1)', () => {
+    assert.equal(isHttpStatusCode(-1), false);
+  });
+});
+
+describe('isUnixExitCode', () => {
+  it('returns true for Unix exit codes (0-255)', () => {
+    assert.equal(isUnixExitCode(0), true);
+    assert.equal(isUnixExitCode(1), true);
+    assert.equal(isUnixExitCode(128), true);
+    assert.equal(isUnixExitCode(255), true);
+  });
+
+  it('returns false for HTTP status codes (400-599)', () => {
+    assert.equal(isUnixExitCode(400), false);
+    assert.equal(isUnixExitCode(404), false);
+    assert.equal(isUnixExitCode(429), false);
+    assert.equal(isUnixExitCode(599), false);
+  });
+
+  it('returns false for unknown (-1)', () => {
+    assert.equal(isUnixExitCode(-1), false);
   });
 });
 

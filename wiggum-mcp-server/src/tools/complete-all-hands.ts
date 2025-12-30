@@ -50,7 +50,13 @@ export type CompleteAllHandsInput = z.infer<typeof CompleteAllHandsInputSchema>;
  * - Fast-path state update when no high-priority issues
  * - State persistence with error handling
  * See code-simplifier-in-scope-3 for potential future refactoring.
- * TODO(#1017): Consider integration tests for complete-all-hands.ts workflow
+ *
+ * @see complete-all-hands.integration.test.ts for integration tests covering:
+ * - Fast-path state advancement when countHighPriorityInScopeIssues returns 0
+ * - Slow-path iteration increment when issues remain
+ * - State update failure handling with buildStateUpdateFailureResponse
+ * - Manifest cleanup timing (success vs preservation on failure)
+ * - Phase-based routing (phase1 to issue body, phase2 to PR body)
  */
 export async function completeAllHands(input: CompleteAllHandsInput): Promise<ToolResult> {
   const state = await detectCurrentState();

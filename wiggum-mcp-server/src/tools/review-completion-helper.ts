@@ -986,6 +986,8 @@ export const ReviewCompletionInputSchema = z
  * - `*_result_files` are file paths containing review results (each file may have multiple issues)
  * - `*_issue_count` are the total number of issues (not files)
  *
+ * TODO(#637): Consider factory function to enforce "at least one verbatim field" invariant at type level
+ *
  * @see ReviewCompletionInputSchema for complete validation rules
  */
 export interface ReviewCompletionInput {
@@ -1028,6 +1030,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
   }
 }
 
+// TODO(#637): Add readonly modifiers and factory function with validation for non-negative integers
 interface IssueCounts {
   high: number;
   medium: number;

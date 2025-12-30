@@ -156,6 +156,7 @@ export async function getCurrentRepo(): Promise<string> {
     return result.trim();
   } catch (error) {
     // Preserve original error details for debugging while providing user-friendly message
+    // TODO(#441): Fix silent error swallowing in getCurrentRepo()
     const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,

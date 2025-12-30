@@ -12,6 +12,8 @@ import { STEP_ORDER } from '../constants.js';
 
 /**
  * Wiggum state tracked via PR/issue body
+ *
+ * TODO(#323): Add state machine class with transition validation
  */
 export interface WiggumState {
   readonly iteration: number;
@@ -23,6 +25,8 @@ export interface WiggumState {
 
 /**
  * Git repository state
+ *
+ * TODO(#991): Consider adding factory function for validation consistency (may be resolved - createGitState exists)
  */
 export interface GitState {
   readonly currentBranch: string;
@@ -94,6 +98,8 @@ export interface IssueDoesNotExist {
 
 /**
  * Complete current state for wiggum flow
+ *
+ * TODO(#980): Consider adding runtime validation schema similar to WiggumState (may be resolved - CurrentStateSchema exists)
  */
 export interface CurrentState {
   readonly git: GitState;

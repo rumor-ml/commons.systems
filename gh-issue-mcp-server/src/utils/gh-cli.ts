@@ -79,6 +79,7 @@ export async function getCurrentRepo(): Promise<string> {
     return result.trim();
   } catch (error) {
     // TODO: Preserve original error details (currently discards cause chain)
+    // TODO(#441): Fix silent error swallowing in getCurrentRepo()
     //   Use error.cause parameter (passed below) to preserve full stack trace through error chain
     //   This allows debugging to trace back to root cause (e.g., network error -> GitHubCliError)
     throw new GitHubCliError(
