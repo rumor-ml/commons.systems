@@ -10,6 +10,24 @@
  * error responses into helper functions.
  */
 
+// TODO(#1002): Overly verbose NodeFileErrorCode type and validation in review-completion-helper.ts
+// TODO(#967): Extract shared validation for review file naming pattern
+// TODO(#947): Improve naming consistency for state update functions
+// TODO(#937): Include error codes in out-of-scope file loading warnings
+// TODO(#929): Improve visibility of unknown agent names in review completion
+// TODO(#908): Replace throwing error with Result type in extractAgentNameFromPath
+// TODO(#906): Make KNOWN_AGENT_NAMES array immutable with 'as const'
+// TODO(#905): Reduce comment verbosity in review file empty error message
+// TODO(#877): Extract ReviewConfig schemas to dedicated schemas directory
+// TODO(#876): Use structured data for LoadReviewResultsOutput instead of pre-formatted markdown strings
+// TODO(#861): Prioritize empty file error causes with diagnostic checks
+// TODO(#822): Improve extractAgentNameFromPath file naming validation to be more graceful for out-of-scope files
+// TODO(#805): Improve file read error messages with specific action hints
+// TODO(#790): Improve error handling for extractAgentNameFromPath ValidationError
+// TODO(#782): Improve stat() error logging in readReviewFile error recovery
+// TODO(#781): Fix acronym capitalization in extractAgentNameFromPath
+// TODO(#739): Make KNOWN_AGENT_NAMES readonly and consider auto-generation
+// TODO(#707): Improve agent name validation warnings with typo detection
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {

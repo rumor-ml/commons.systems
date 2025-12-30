@@ -5,6 +5,7 @@
  * Reads manifests internally, applies 2-strike logic, and returns next step instructions.
  */
 
+// TODO(#1017): Consider integration tests for complete-all-hands.ts workflow
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import {

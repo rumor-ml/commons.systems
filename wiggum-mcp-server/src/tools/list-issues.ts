@@ -13,6 +13,7 @@
  * - STRUCTURED LOGGING: Issue listing, counts, filtering
  */
 
+// TODO(#989): Repeated issue grouping pattern in list-issues.ts and read-manifests.ts
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import type { ToolResult } from '../types.js';

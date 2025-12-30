@@ -13,6 +13,7 @@
  * - STRUCTURED LOGGING: Issue retrieval, ID parsing
  */
 
+// TODO(#1000): Refactor: Extract duplicated file reading pattern in get-issue.ts findBatchById function
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { ValidationError } from '../utils/errors.js';

@@ -4,6 +4,8 @@
 
 // TODO(#1005): Duplicate throwStateApiError helper functions (may be resolved)
 
+// TODO(#1009): detectCurrentState() recursion limit error message could be more actionable
+// TODO(#788): Improve recursion depth validation error messages in detectCurrentState
 import {
   getCurrentBranch,
   hasUncommittedChanges,

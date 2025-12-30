@@ -3,6 +3,7 @@
  * Monitor all status checks for a pull request until completion
  */
 
+// TODO(#867): Make polling interval defaults configurable via environment variables
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
 import {

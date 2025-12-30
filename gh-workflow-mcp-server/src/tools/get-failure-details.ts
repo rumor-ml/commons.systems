@@ -3,6 +3,9 @@
  * Get token-efficient summary of workflow failures
  */
 
+// TODO(#964): Extract duplicated budget calculation pattern in get-failure-details.ts
+// TODO(#862): Use structured warning objects instead of manual string concatenation
+// TODO(#860): Require both pass/fail counts in extractTestSummary or return null
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
 import { MAX_RESPONSE_LENGTH, FAILURE_CONCLUSIONS } from '../constants.js';

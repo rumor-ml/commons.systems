@@ -5,6 +5,7 @@
  * with timeout support and structured result handling.
  */
 
+// TODO(#874): Use discriminated union for WatchResult to prevent inconsistent states
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { CHECK_ICONS } from '../constants.js';

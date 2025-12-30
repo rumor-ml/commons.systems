@@ -2,6 +2,11 @@
  * GitHub CLI wrapper utilities for safe command execution
  */
 
+// TODO(#958): Use string literal union for WorkflowStatus in StateToStatusResult
+// TODO(#936): Improve parseFailedStepLogs error handling with actionable recovery steps
+// TODO(#843): Document FailedStepLogsResult warning field usage contract
+// TODO(#791): Improve JSDoc clarity for ghCliWithRetry logging note
+// TODO(#349): gh-workflow-mcp: Improve JSON parsing resilience in getPRReviewComments
 import { execa } from 'execa';
 import { GitHubCliError, ParsingError } from './errors.js';
 import {
