@@ -179,8 +179,8 @@ mcp__wiggum__wiggum_record_review_issue({
 
 **Priority Mapping:**
 
-- Priority rating 5-10 → `priority: 'high'`
-- Priority rating 1-4 → `priority: 'low'`
+- Priority rating 8-10 → `priority: 'high'`
+- Priority rating 1-7 → `priority: 'low'`
 
 **Rating Guidelines:**
 

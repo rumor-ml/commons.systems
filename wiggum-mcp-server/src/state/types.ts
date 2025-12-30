@@ -19,8 +19,6 @@ export interface WiggumState {
   readonly completedSteps: readonly WiggumStep[];
   readonly phase: WiggumPhase;
   readonly maxIterations?: number;
-  readonly completedAgents?: readonly string[];
-  readonly pendingCompletionAgents?: readonly string[];
 }
 
 /**
@@ -183,6 +181,46 @@ export function createPRDoesNotExist(): PRDoesNotExist {
   return PRDoesNotExistSchema.parse({ exists: false });
 }
 
+/**
+ * Type guard to check if a PRState indicates an existing PR
+ *
+ * Provides convenient type narrowing for PRState discriminated unions,
+ * consistent with the isToolError() pattern in mcp-common/types.ts.
+ *
+ * @param state - PRState to check
+ * @returns true if PR exists, with type narrowing to PRExists
+ *
+ * @example
+ * ```typescript
+ * if (isPRExists(state)) {
+ *   console.log(state.number, state.url);  // TypeScript knows all PR fields exist
+ * }
+ * ```
+ */
+export function isPRExists(state: PRState): state is PRExists {
+  return state.exists === true;
+}
+
+/**
+ * Type guard to check if a PRState indicates no PR
+ *
+ * Provides convenient type narrowing for PRState discriminated unions,
+ * consistent with the isToolSuccess() pattern in mcp-common/types.ts.
+ *
+ * @param state - PRState to check
+ * @returns true if PR does not exist, with type narrowing to PRDoesNotExist
+ *
+ * @example
+ * ```typescript
+ * if (isPRDoesNotExist(state)) {
+ *   console.log('No PR exists for this branch');
+ * }
+ * ```
+ */
+export function isPRDoesNotExist(state: PRState): state is PRDoesNotExist {
+  return state.exists === false;
+}
+
 const IssueExistsSchema = z.object({
   exists: z.literal(true),
   number: z.number().int().positive('Issue number must be positive integer'),
@@ -232,6 +270,46 @@ export function createIssueDoesNotExist(): IssueDoesNotExist {
   return IssueDoesNotExistSchema.parse({ exists: false });
 }
 
+/**
+ * Type guard to check if an IssueState indicates an existing issue
+ *
+ * Provides convenient type narrowing for IssueState discriminated unions,
+ * consistent with the isToolError() pattern in mcp-common/types.ts.
+ *
+ * @param state - IssueState to check
+ * @returns true if issue exists, with type narrowing to IssueExists
+ *
+ * @example
+ * ```typescript
+ * if (isIssueExists(state)) {
+ *   console.log(state.number);  // TypeScript knows number exists
+ * }
+ * ```
+ */
+export function isIssueExists(state: IssueState): state is IssueExists {
+  return state.exists === true;
+}
+
+/**
+ * Type guard to check if an IssueState indicates no issue
+ *
+ * Provides convenient type narrowing for IssueState discriminated unions,
+ * consistent with the isToolSuccess() pattern in mcp-common/types.ts.
+ *
+ * @param state - IssueState to check
+ * @returns true if issue does not exist, with type narrowing to IssueDoesNotExist
+ *
+ * @example
+ * ```typescript
+ * if (isIssueDoesNotExist(state)) {
+ *   console.log('No issue linked to branch');
+ * }
+ * ```
+ */
+export function isIssueDoesNotExist(state: IssueState): state is IssueDoesNotExist {
+  return state.exists === false;
+}
+
 const WiggumStateSchema = z
   .object({
     iteration: z.number().int().nonnegative('iteration must be non-negative integer'),
@@ -241,8 +319,6 @@ const WiggumStateSchema = z
       .readonly(),
     phase: z.enum(['phase1', 'phase2']),
     maxIterations: z.number().int().positive('maxIterations must be positive integer').optional(),
-    completedAgents: z.array(z.string()).readonly().optional(),
-    pendingCompletionAgents: z.array(z.string()).readonly().optional(),
   })
   .refine(
     (data) => {
@@ -267,19 +343,6 @@ const WiggumStateSchema = z
     },
     {
       message: 'phase and step/completedSteps prefixes must be consistent',
-    }
-  )
-  .refine(
-    (data) => {
-      // Validate mutual exclusion: an agent cannot be both completed and pending completion
-      if (!data.completedAgents || !data.pendingCompletionAgents) {
-        return true; // Skip if either is undefined
-      }
-      const completed = new Set(data.completedAgents);
-      return !data.pendingCompletionAgents.some((agent) => completed.has(agent));
-    },
-    {
-      message: 'completedAgents and pendingCompletionAgents must be mutually exclusive',
     }
   );
 
@@ -307,8 +370,6 @@ export function createWiggumState(state: {
   readonly completedSteps: readonly WiggumStep[];
   readonly phase: WiggumPhase;
   readonly maxIterations?: number;
-  readonly completedAgents?: readonly string[];
-  readonly pendingCompletionAgents?: readonly string[];
 }): WiggumState {
   return WiggumStateSchema.parse(state);
 }

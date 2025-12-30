@@ -244,6 +244,82 @@ describe('GitHubCliError', () => {
     assert.ok('cause' in error);
     assert.equal((error as any).cause.message, 'DNS timeout');
   });
+
+  describe('createSafe static factory', () => {
+    it('passes through valid exit codes unchanged', () => {
+      const error = GitHubCliError.createSafe('Command failed', 1, 'stderr');
+
+      assert.equal(error.exitCode, 1);
+      assert.equal(error.message, 'Command failed');
+      assert.equal(error.stderr, 'stderr');
+    });
+
+    it('passes through valid HTTP status codes unchanged', () => {
+      const error = GitHubCliError.createSafe('Not found', 404, 'Not Found');
+
+      assert.equal(error.exitCode, 404);
+      assert.equal(error.message, 'Not found');
+    });
+
+    it('clamps exit codes above 255 to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', 999, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 999 clamped to 255]'));
+      assert.ok(error.message.includes('Command failed'));
+    });
+
+    it('clamps exit codes in invalid range (256-399) to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', 300, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 300 clamped to 255]'));
+    });
+
+    it('clamps exit codes above 599 to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Server error', 600, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 600 clamped to 255]'));
+    });
+
+    it('clamps negative exit codes (except -1) to 0 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', -5, 'stderr');
+
+      assert.equal(error.exitCode, 0);
+      assert.ok(error.message.includes('[Warning: Invalid exit code -5 clamped to 0]'));
+    });
+
+    it('preserves -1 sentinel value', () => {
+      const error = GitHubCliError.createSafe('Process did not run', -1, 'stderr');
+
+      assert.equal(error.exitCode, -1);
+      assert.equal(error.message, 'Process did not run');
+    });
+
+    it('uses default values when parameters are omitted', () => {
+      const error = GitHubCliError.createSafe('Message only');
+
+      assert.equal(error.exitCode, -1);
+      assert.equal(error.stderr, '');
+      assert.equal(error.stdout, undefined);
+    });
+
+    it('preserves stdout and cause parameters', () => {
+      const cause = new Error('Root cause');
+      const error = GitHubCliError.createSafe('Command failed', 1, 'stderr', 'stdout', cause);
+
+      assert.equal(error.stdout, 'stdout');
+      assert.strictEqual(error.cause, cause);
+    });
+
+    it('never throws even with extreme invalid values', () => {
+      // These would throw with the constructor
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', 1000, 'stderr'));
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', -100, 'stderr'));
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', 350, 'stderr'));
+    });
+  });
 });
 
 describe('ParsingError', () => {

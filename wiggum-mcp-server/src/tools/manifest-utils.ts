@@ -12,7 +12,8 @@
  * across all manifest operations.
  *
  * TODO(#987): Add performance tests for manifest file operations - test read/write scaling
- * with large issue counts, concurrent agent writes, and cleanup with many files.
+ * with large issue counts, concurrent writes from multiple agents to different manifest files
+ * (each agent writes to its own file, so no locking needed), and cleanup with many files.
  */
 
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
@@ -58,9 +59,9 @@ export const REVIEW_AGENT_NAMES: readonly ReviewAgentName[] = REVIEW_AGENT_NAME_
  * Returns the path to the manifest directory: $(pwd)/tmp/wiggum/
  * This is where all manifest JSON files are stored.
  *
- * NOTE: This function does NOT create the directory. The version in
- * record-review-issue.ts creates it on-demand during writes. For reading
- * operations, missing directory is acceptable (no manifests exist yet).
+ * NOTE: This function does NOT create the directory. Callers that need to write
+ * (e.g., record-review-issue.ts) create the directory on-demand before writing.
+ * For reading operations, a missing directory is acceptable (no manifests exist yet).
  *
  * @returns Absolute path to the manifest directory
  */
@@ -160,6 +161,66 @@ export function parseManifestFilename(filename: string): ManifestFilenameCompone
 }
 
 /**
+ * Parse issue ID into components
+ *
+ * Issue ID format: {agent-name}-{scope}-{index}
+ * Example: "code-reviewer-in-scope-0"
+ *
+ * This function is shared between get-issue.ts and update-issue.ts to avoid
+ * code duplication. It extracts the agent name, scope, and numeric index
+ * from a composite issue ID.
+ *
+ * @param id - Issue ID to parse (e.g., "code-reviewer-in-scope-0")
+ * @returns Parsed components or null if ID doesn't match expected pattern
+ *
+ * @example
+ * parseIssueId('code-reviewer-in-scope-0')
+ * // Returns: { agentName: 'code-reviewer', scope: 'in-scope', index: 0 }
+ *
+ * parseIssueId('silent-failure-hunter-out-of-scope-5')
+ * // Returns: { agentName: 'silent-failure-hunter', scope: 'out-of-scope', index: 5 }
+ *
+ * parseIssueId('invalid-id-format')
+ * // Returns: null
+ */
+export function parseIssueId(id: string): {
+  agentName: string;
+  scope: IssueScope;
+  index: number;
+} | null {
+  // Extract scope first
+  let scope: IssueScope;
+  let scopeMarker: string;
+
+  if (id.includes('-in-scope-')) {
+    scope = 'in-scope';
+    scopeMarker = '-in-scope-';
+  } else if (id.includes('-out-of-scope-')) {
+    scope = 'out-of-scope';
+    scopeMarker = '-out-of-scope-';
+  } else {
+    return null;
+  }
+
+  // Split by scope marker
+  const parts = id.split(scopeMarker);
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const agentName = parts[0];
+  const indexStr = parts[1];
+
+  // Parse index
+  const index = parseInt(indexStr, 10);
+  if (isNaN(index) || index < 0) {
+    return null;
+  }
+
+  return { agentName, scope, index };
+}
+
+/**
  * Read and parse a single manifest file
  *
  * Reads a JSON manifest file and validates its contents as an array of IssueRecords.
@@ -178,6 +239,10 @@ export function parseManifestFilename(filename: string): ManifestFilenameCompone
  * - Agents being incorrectly marked as complete
  * - Review findings being silently lost
  * - Workflow proceeding without critical feedback
+ *
+ * The completion detection logic interprets empty arrays as "agent found zero issues"
+ * (a successful review outcome). Throwing on read failures ensures corrupted or
+ * unreadable data is never mistaken for a successful zero-issue completion.
  *
  * @param filepath - Full path to the manifest file
  * @returns Array of IssueRecords, or empty array if file does not exist
@@ -387,6 +452,24 @@ export function readManifestFiles(): Map<string, AgentManifest> {
     });
   }
 
+  // Check for complete data loss: all manifest files failed to read
+  if (manifestFiles.length > 0 && agentManifests.size === 0 && skippedFiles.length > 0) {
+    logger.error('All manifest files failed to read - complete data loss detected', {
+      totalFiles: manifestFiles.length,
+      skippedFiles,
+      impact: 'All review findings lost - workflow state may be corrupted',
+    });
+    throw new FilesystemError(
+      `Failed to read any manifest files. All ${manifestFiles.length} files encountered errors. ` +
+        `This indicates a serious filesystem issue. Check tmp/wiggum directory for corruption. ` +
+        `Failed files: ${skippedFiles.map((f) => f.filename).join(', ')}`,
+      manifestDir,
+      new Error('All manifest files failed to read'),
+      undefined,
+      'COMPLETE_READ_FAILURE'
+    );
+  }
+
   logger.info('Read manifest files', {
     totalFiles: files.length,
     manifestCount: agentManifests.size,
@@ -489,12 +572,12 @@ export function groupIssuesByAgent<T extends { agent_name: string }>(
  * high-priority in-scope issues remaining, which is used to decide
  * whether to advance to the next step or continue iteration.
  *
- * **Note:** Issues where already_fixed === true are excluded from the count.
+ * **Note:** Issues where not_fixed === true are excluded from the count.
  * The count is read from manifest.high_priority_count which is computed by
- * createAgentManifest() and already excludes already_fixed issues.
+ * createAgentManifest() and already excludes not_fixed issues.
  *
  * @param manifests - Map of agent manifests from readManifestFiles
- * @returns Total count of high-priority issues in all in-scope manifests (excluding already_fixed)
+ * @returns Total count of high-priority issues in all in-scope manifests (excluding not_fixed)
  *
  * @example
  * const manifests = readManifestFiles();
@@ -507,8 +590,6 @@ export function countHighPriorityInScopeIssues(manifests: Map<string, AgentManif
   let total = 0;
   for (const [key, manifest] of manifests.entries()) {
     if (key.endsWith('-in-scope')) {
-      // manifest.high_priority_count already excludes already_fixed issues
-      // (computed by createAgentManifest)
       total += manifest.high_priority_count;
     }
   }
@@ -646,6 +727,25 @@ export function collectManifestIssuesWithReferences(
     });
   }
 
+  // Check for complete data loss: all files failed to read
+  if (matchingFiles.length > 0 && allIssueRecords.length === 0 && skippedFiles.length > 0) {
+    logger.error('All manifest files failed to read - complete data loss detected', {
+      totalFiles: matchingFiles.length,
+      skippedFiles,
+      scope,
+      impact: 'All review findings lost - workflow state may be corrupted',
+    });
+    throw new FilesystemError(
+      `Failed to read any manifest files. All ${matchingFiles.length} files encountered errors. ` +
+        `This indicates a serious filesystem issue. Check tmp/wiggum directory for corruption. ` +
+        `Failed files: ${skippedFiles.map((f) => f.filename).join(', ')}`,
+      getManifestDir(),
+      new Error('All manifest files failed to read'),
+      undefined,
+      'COMPLETE_READ_FAILURE'
+    );
+  }
+
   // Create issue references with stable IDs
   const issueReferences: IssueReference[] = [];
   for (const [key, issues] of issuesByAgentScope) {
@@ -666,83 +766,6 @@ export function collectManifestIssuesWithReferences(
   });
 
   return { references: issueReferences, records: allIssueRecords };
-}
-
-/**
- * Update agent completion status using 2-strike verification logic
- *
- * Implements a 2-strike completion rule:
- * - First time agent finds 0 high-priority in-scope issues → "pending completion" (runs again)
- * - Second consecutive time → marked complete (stops running)
- * - If agent finds issues after being pending → reset to active (removed from both lists)
- *
- * This prevents false completions due to transient code states while still achieving
- * the optimization goal of skipping agents that have no more work to do.
- *
- * @param manifests - Map of agent manifests from readManifestFiles
- * @param previousPending - Array of agents pending completion from previous iteration
- * @param previousCompleted - Array of completed agents from previous iteration
- * @returns Object with completedAgents and pendingCompletionAgents arrays
- *
- * @example
- * // Run 1: agent finds 0 issues
- * updateAgentCompletionStatus(manifests, [], [])
- * // Returns: { completedAgents: [], pendingCompletionAgents: ['code-reviewer'] }
- *
- * // Run 2: agent still finds 0 issues
- * updateAgentCompletionStatus(manifests, ['code-reviewer'], [])
- * // Returns: { completedAgents: ['code-reviewer'], pendingCompletionAgents: [] }
- *
- * // Run 3: agent finds issues after being pending
- * updateAgentCompletionStatus(manifestsWithIssues, ['code-reviewer'], [])
- * // Returns: { completedAgents: [], pendingCompletionAgents: [] } // Reset to active
- */
-export function updateAgentCompletionStatus(
-  manifests: Map<string, AgentManifest>,
-  previousPending: readonly string[],
-  previousCompleted: readonly string[]
-): { completedAgents: string[]; pendingCompletionAgents: string[] } {
-  const completedAgents: string[] = [...previousCompleted];
-  const pendingCompletionAgents: string[] = [];
-
-  for (const agentName of REVIEW_AGENT_NAMES) {
-    // Skip already completed agents (never revert completion)
-    if (previousCompleted.includes(agentName)) {
-      continue;
-    }
-
-    const inScopeManifest = manifests.get(`${agentName}-in-scope`);
-    const hasHighPriorityIssues =
-      inScopeManifest !== undefined && inScopeManifest.high_priority_count > 0;
-
-    if (hasHighPriorityIssues) {
-      // Agent found issues - reset any pending status
-      // (implicitly not added to either list - back to active)
-      logger.info('Agent has work - resetting pending status if any', {
-        agentName,
-        highPriorityCount: inScopeManifest.high_priority_count,
-        wasPending: previousPending.includes(agentName),
-      });
-    } else if (previousPending.includes(agentName)) {
-      // Second consecutive 0 → COMPLETE (2-strike verification passed)
-      completedAgents.push(agentName);
-      logger.info('Agent marked complete after 2-strike verification', {
-        agentName,
-        reason: '2nd consecutive iteration with zero high-priority issues',
-        highPriorityCount: inScopeManifest?.high_priority_count ?? 0,
-      });
-    } else {
-      // First time 0 → PENDING (needs verification)
-      pendingCompletionAgents.push(agentName);
-      logger.info('Agent pending completion - will verify next iteration', {
-        agentName,
-        reason: '1st iteration with zero high-priority issues',
-        highPriorityCount: inScopeManifest?.high_priority_count ?? 0,
-      });
-    }
-  }
-
-  return { completedAgents, pendingCompletionAgents };
 }
 
 /**

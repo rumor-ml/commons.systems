@@ -24,7 +24,7 @@ import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js'
 import {
   readManifestFiles,
   cleanupManifestFiles,
-  updateAgentCompletionStatus,
+  safeCleanupManifestFiles,
   countHighPriorityInScopeIssues,
 } from './manifest-utils.js';
 
@@ -56,7 +56,7 @@ export type CompleteFixInput = z.infer<typeof CompleteFixInputSchema>;
  * Complete a fix cycle and update state
  *
  * NOTE: This function shares patterns with complete-all-hands.ts including:
- * - Manifest reading and agent completion status update
+ * - Manifest reading and high-priority issue counting
  * - Fast-path state update when no high-priority issues
  * - State persistence with error handling
  * See code-simplifier-in-scope-3 for potential future refactoring.
@@ -137,20 +137,11 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   // Read manifests to determine current state
   const manifests = readManifestFiles();
 
-  // Update agent completion status using 2-strike logic
-  const { completedAgents, pendingCompletionAgents } = updateAgentCompletionStatus(
-    manifests,
-    state.wiggum.pendingCompletionAgents ?? [],
-    state.wiggum.completedAgents ?? []
-  );
-
   // Determine if there are any high-priority in-scope issues remaining
   const totalHighPriorityIssues = countHighPriorityInScopeIssues(manifests);
 
   logger.info('Manifest analysis complete', {
     totalHighPriorityIssues,
-    completedAgents,
-    pendingCompletionAgents,
     totalManifests: manifests.size,
   });
 
@@ -163,8 +154,6 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
         targetNumber,
         outOfScopeIssues: input.out_of_scope_issues,
         currentStep: state.wiggum.step,
-        completedAgents,
-        pendingCompletionAgents,
       }
     );
 
@@ -260,15 +249,13 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
     ),
   });
 
-  // State remains at same step but with filtered completedSteps and updated agent tracking
+  // State remains at same step but with filtered completedSteps
   const newState: WiggumState = createWiggumState({
     iteration: state.wiggum.iteration,
     step: state.wiggum.step,
     completedSteps: completedStepsFiltered,
     phase: state.wiggum.phase,
     maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
-    completedAgents,
-    pendingCompletionAgents,
   });
 
   logger.info('Posting wiggum state comment', {
@@ -308,8 +295,14 @@ export async function completeFix(input: CompleteFixInput): Promise<ToolResult> 
   });
 
   // Clean up manifest files after successful state update
-  // This ensures manifests are scoped to a single iteration
-  await cleanupManifestFiles();
+  // Use SAFE version because state is already persisted - cleanup failure
+  // should warn but not block workflow progression
+  await safeCleanupManifestFiles();
+
+  logger.info('Manifest cleanup complete (best-effort)', {
+    phase,
+    targetNumber,
+  });
 
   // Reuse newState to avoid race condition with GitHub API (issue #388).
   // The GitHub API may not immediately return updated state due to eventual consistency.

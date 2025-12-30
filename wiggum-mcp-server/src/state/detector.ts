@@ -85,7 +85,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       errorMessage: errorMsg,
       errorType: repoError instanceof Error ? repoError.constructor.name : typeof repoError,
     });
-    throw new StateApiError(
+    throw StateApiError.create(
       `Failed to detect PR state: Could not determine current repository. ` +
         `Ensure you are in a git repository with a GitHub remote. Error: ${errorMsg}`,
       'read',
@@ -150,11 +150,15 @@ export async function detectPRState(repo?: string): Promise<PRState> {
 
     // Rate limit errors - throw StateApiError with specific guidance
     if (lowerMsg.includes('rate limit') || lowerMsg.includes('api rate limit exceeded')) {
+      const matchedPattern = lowerMsg.includes('api rate limit exceeded')
+        ? 'api rate limit exceeded'
+        : 'rate limit';
       logger.error('detectPRState: GitHub API rate limit exceeded', {
         repo: resolvedRepo,
         errorMessage: errorMsg,
+        matchedPattern,
       });
-      throw new StateApiError(
+      throw StateApiError.create(
         `Failed to detect PR state: GitHub API rate limit exceeded. ` +
           `Check rate limit status with: gh api rate_limit`,
         'read',
@@ -171,11 +175,19 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       lowerMsg.includes('http 403') ||
       lowerMsg.includes('http 401')
     ) {
+      const matchedPattern = lowerMsg.includes('http 401')
+        ? 'http 401'
+        : lowerMsg.includes('http 403')
+          ? 'http 403'
+          : lowerMsg.includes('unauthorized')
+            ? 'unauthorized'
+            : 'forbidden';
       logger.error('detectPRState: GitHub authentication failed', {
         repo: resolvedRepo,
         errorMessage: errorMsg,
+        matchedPattern,
       });
-      throw new StateApiError(
+      throw StateApiError.create(
         `Failed to detect PR state: GitHub authentication failed. ` +
           `Check auth status with: gh auth status`,
         'read',
@@ -192,11 +204,19 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       lowerMsg.includes('econnrefused') ||
       lowerMsg.includes('enotfound')
     ) {
+      const matchedPattern = lowerMsg.includes('enotfound')
+        ? 'enotfound'
+        : lowerMsg.includes('econnrefused')
+          ? 'econnrefused'
+          : lowerMsg.includes('timeout')
+            ? 'timeout'
+            : 'network';
       logger.error('detectPRState: Network error while checking for PR', {
         repo: resolvedRepo,
         errorMessage: errorMsg,
+        matchedPattern,
       });
-      throw new StateApiError(
+      throw StateApiError.create(
         `Failed to detect PR state: Network error. ` +
           `Check connectivity and retry. Error: ${errorMsg}`,
         'read',
@@ -213,7 +233,7 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       errorType: error instanceof Error ? error.constructor.name : typeof error,
       stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3).join('\n') : undefined,
     });
-    throw new StateApiError(
+    throw StateApiError.create(
       `Failed to detect PR state: Unexpected error. ${errorMsg}`,
       'read',
       'pr',
@@ -278,16 +298,16 @@ function detectIssueState(git: GitState): IssueState {
  * ```
  */
 export async function detectCurrentState(repo?: string, depth = 0): Promise<CurrentState> {
-  // Validate depth parameter FIRST - before any work
-  // Catches undefined, NaN, negative, or non-integer values that would bypass the depth check
-  if (!Number.isSafeInteger(depth) || depth < 0) {
+  const MAX_RECURSION_DEPTH = 3;
+
+  // Validate depth parameter before state detection work
+  // Catches undefined, NaN, negative, non-integer, or unreasonably large values
+  if (!Number.isSafeInteger(depth) || depth < 0 || depth > MAX_RECURSION_DEPTH) {
     throw new StateDetectionError(
-      `Invalid recursion depth parameter: ${depth}. Must be non-negative safe integer.`,
-      { depth, maxDepth: 3 }
+      `Invalid recursion depth parameter: ${depth}. Must be non-negative integer <= ${MAX_RECURSION_DEPTH}.`,
+      { depth, maxDepth: MAX_RECURSION_DEPTH }
     );
   }
-
-  const MAX_RECURSION_DEPTH = 3;
 
   // Check depth limit: MAX_RECURSION_DEPTH=3 means depths 0,1,2 allowed; 3+ rejected
   if (depth >= MAX_RECURSION_DEPTH) {
@@ -346,7 +366,7 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
 
     // If state detection took longer than 5 seconds, re-validate PR state
     // to detect race conditions where PR might have been closed/modified during the slow API call.
-    // Note: This is at most one recursive call per invocation (not a loop), with overall depth limit enforced above.
+    // Note: Race conditions can trigger recursive redetection, with maximum depth controlled by MAX_RECURSION_DEPTH.
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
       // Only retry if a DIFFERENT PR is now current - indicates race condition

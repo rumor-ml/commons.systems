@@ -275,62 +275,6 @@ describe('advanceToNextStep', () => {
     });
   });
 
-  describe('completedAgents reset integration', () => {
-    it('should reset completedAgents when step changes', () => {
-      const state = createWiggumState({
-        step: STEP_PHASE2_CODE_QUALITY,
-        iteration: 2,
-        phase: 'phase2',
-        completedSteps: [STEP_PHASE2_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_CHECKS],
-        completedAgents: ['code-reviewer', 'pr-test-analyzer'],
-      });
-
-      const newState = advanceToNextStep(state);
-
-      // completedAgents should be reset when advancing to new step
-      assert.deepStrictEqual(newState.completedAgents, undefined);
-    });
-
-    it('should reset completedAgents when advancing to any new step', () => {
-      // Test multiple transitions to verify reset behavior
-      const steps: { from: WiggumStep; completedSteps: WiggumStep[] }[] = [
-        {
-          from: STEP_PHASE2_MONITOR_WORKFLOW,
-          completedSteps: [],
-        },
-        {
-          from: STEP_PHASE2_MONITOR_CHECKS,
-          completedSteps: [STEP_PHASE2_MONITOR_WORKFLOW],
-        },
-        {
-          from: STEP_PHASE2_PR_REVIEW,
-          completedSteps: [
-            STEP_PHASE2_MONITOR_WORKFLOW,
-            STEP_PHASE2_MONITOR_CHECKS,
-            STEP_PHASE2_CODE_QUALITY,
-          ],
-        },
-      ];
-
-      for (const { from, completedSteps } of steps) {
-        const state = createWiggumState({
-          step: from,
-          iteration: 3,
-          phase: 'phase2',
-          completedSteps,
-          completedAgents: ['agent1', 'agent2'],
-        });
-
-        const newState = advanceToNextStep(state);
-        assert.deepStrictEqual(
-          newState.completedAgents,
-          undefined,
-          `completedAgents should be reset when advancing from ${from}`
-        );
-      }
-    });
-  });
-
   describe('completedSteps invariant', () => {
     it('should maintain invariant: completedSteps only contains prior steps', () => {
       const state = createWiggumState({
@@ -436,15 +380,11 @@ describe('advanceToNextStep', () => {
         iteration: 3,
         phase: 'phase2',
         completedSteps: [],
-        completedAgents: ['agent1'],
       });
 
       const originalStep = originalState.step;
       const originalIteration = originalState.iteration;
       const originalCompletedSteps = [...originalState.completedSteps];
-      const originalCompletedAgents = originalState.completedAgents
-        ? [...originalState.completedAgents]
-        : undefined;
 
       advanceToNextStep(originalState);
 
@@ -452,10 +392,6 @@ describe('advanceToNextStep', () => {
       assert.strictEqual(originalState.step, originalStep);
       assert.strictEqual(originalState.iteration, originalIteration);
       assert.deepStrictEqual([...originalState.completedSteps], originalCompletedSteps);
-      assert.deepStrictEqual(
-        originalState.completedAgents ? [...originalState.completedAgents] : undefined,
-        originalCompletedAgents
-      );
     });
 
     it('should return a new state object', () => {
@@ -515,13 +451,12 @@ describe('advanceToNextStep', () => {
       assert.ok(newState.completedSteps.includes(STEP_PHASE2_PR_REVIEW));
     });
 
-    it('should handle state with empty completedAgents', () => {
+    it('should handle state with empty completedSteps', () => {
       const state = createWiggumState({
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         iteration: 0,
         phase: 'phase2',
         completedSteps: [],
-        completedAgents: [],
       });
 
       const newState = advanceToNextStep(state);

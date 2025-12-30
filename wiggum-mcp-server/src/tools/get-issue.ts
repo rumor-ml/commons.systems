@@ -23,6 +23,7 @@ import {
   isManifestFile,
   readManifestFile,
   extractScopeFromFilename,
+  parseIssueId,
 } from './manifest-utils.js';
 import type { IssueReference } from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
@@ -58,7 +59,7 @@ export interface IssueDetails {
   };
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly files_to_edit?: readonly string[];
-  readonly already_fixed?: boolean;
+  readonly not_fixed?: boolean;
 }
 
 /**
@@ -68,48 +69,6 @@ export interface BatchIssueDetails {
   readonly batch_id: string;
   readonly files: readonly string[];
   readonly issues: readonly IssueDetails[];
-}
-
-/**
- * Parse issue ID into components
- * Format: {agent-name}-{scope}-{index}
- * Example: "code-reviewer-in-scope-0"
- */
-function parseIssueId(id: string): {
-  agentName: string;
-  scope: IssueScope;
-  index: number;
-} | null {
-  // Extract scope first
-  let scope: IssueScope;
-  let scopeMarker: string;
-
-  if (id.includes('-in-scope-')) {
-    scope = 'in-scope';
-    scopeMarker = '-in-scope-';
-  } else if (id.includes('-out-of-scope-')) {
-    scope = 'out-of-scope';
-    scopeMarker = '-out-of-scope-';
-  } else {
-    return null;
-  }
-
-  // Split by scope marker
-  const parts = id.split(scopeMarker);
-  if (parts.length !== 2) {
-    return null;
-  }
-
-  const agentName = parts[0];
-  const indexStr = parts[1];
-
-  // Parse index
-  const index = parseInt(indexStr, 10);
-  if (isNaN(index) || index < 0) {
-    return null;
-  }
-
-  return { agentName, scope, index };
 }
 
 /**
@@ -194,7 +153,7 @@ function findIssueById(id: string): IssueDetails | null {
     existing_todo: issue.existing_todo,
     metadata: issue.metadata,
     files_to_edit: issue.files_to_edit,
-    already_fixed: issue.already_fixed,
+    not_fixed: issue.not_fixed,
   };
 
   logger.info('Retrieved issue details', {

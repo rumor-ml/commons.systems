@@ -16,13 +16,14 @@
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import type { ToolResult } from '../types.js';
-import type { IssueRecord, IssueScope } from './manifest-types.js';
+import type { IssueRecord } from './manifest-types.js';
 import {
   getManifestDir,
   isManifestFile,
   readManifestFile,
   extractScopeFromFilename,
   groupIssuesByAgent,
+  type IssueReference,
 } from './manifest-utils.js';
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
@@ -80,17 +81,8 @@ export const ListIssuesInputSchema = z.object({
 
 export type ListIssuesInput = z.infer<typeof ListIssuesInputSchema>;
 
-/**
- * Minimal issue reference returned to main thread
- * Full details can be retrieved via wiggum_get_issue
- */
-export interface IssueReference {
-  readonly id: string; // Unique identifier: "{agent}-{scope}-{index}"
-  readonly agent_name: string;
-  readonly scope: IssueScope;
-  readonly priority: 'high' | 'low';
-  readonly title: string; // Just the title, not full description
-}
+// Re-export IssueReference from manifest-utils for backward compatibility
+export type { IssueReference };
 
 /**
  * Batch of in-scope issues grouped by file overlap

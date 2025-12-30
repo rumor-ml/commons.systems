@@ -31,7 +31,7 @@ const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInst
  * Create a mock CurrentState for testing
  *
  * Uses createPRExists/createPRDoesNotExist factory functions to ensure
- * PR state is validated at construction time (issue #625 type-design-analyzer-in-scope-3).
+ * PR state is validated at construction time.
  */
 function createMockState(overrides: {
   pr?: { exists: boolean; state?: PRStateValue; number?: number };

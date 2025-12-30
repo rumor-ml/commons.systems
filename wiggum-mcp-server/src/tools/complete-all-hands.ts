@@ -22,9 +22,8 @@ import { buildStateUpdateFailureResponse } from '../utils/state-update-error.js'
 import {
   readManifestFiles,
   cleanupManifestFiles,
-  updateAgentCompletionStatus,
+  safeCleanupManifestFiles,
   countHighPriorityInScopeIssues,
-  REVIEW_AGENT_NAMES,
 } from './manifest-utils.js';
 
 export const CompleteAllHandsInputSchema = z.object({
@@ -43,13 +42,12 @@ export type CompleteAllHandsInput = z.infer<typeof CompleteAllHandsInputSchema>;
 /**
  * Complete all-hands review cycle and update state
  *
- * Reads manifests internally to determine agent completion status.
- * Uses 2-strike verification logic to mark agents complete.
- * If all agents complete (0 high-priority in-scope issues), advances to next step.
- * If agents have issues remaining, returns instructions to continue iteration.
+ * Reads manifests internally to count high-priority in-scope issues.
+ * If no high-priority issues remain, advances to next step.
+ * If issues remain, increments iteration and returns instructions to continue.
  *
  * NOTE: This function shares patterns with complete-fix.ts including:
- * - Manifest reading and agent completion status update
+ * - Manifest reading and high-priority issue counting
  * - Fast-path state update when no high-priority issues
  * - State persistence with error handling
  * See code-simplifier-in-scope-3 for potential future refactoring.
@@ -71,39 +69,21 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   // Read manifests to determine current state
   const manifests = readManifestFiles();
 
-  // Update agent completion status using 2-strike logic
-  const { completedAgents, pendingCompletionAgents } = updateAgentCompletionStatus(
-    manifests,
-    state.wiggum.pendingCompletionAgents ?? [],
-    state.wiggum.completedAgents ?? []
-  );
-
   // Determine if there are any high-priority in-scope issues remaining
   const totalHighPriorityIssues = countHighPriorityInScopeIssues(manifests);
 
   logger.info('Manifest analysis complete', {
     totalHighPriorityIssues,
-    completedAgents,
-    pendingCompletionAgents,
     totalManifests: manifests.size,
   });
 
-  // Check if all agents have completed (2-strike verification passed)
-  const allAgentsComplete = REVIEW_AGENT_NAMES.every((agent) => completedAgents.includes(agent));
-
-  // If no high-priority in-scope issues remain AND all agents complete, mark step complete and proceed
-  if (totalHighPriorityIssues === 0 && allAgentsComplete) {
-    logger.info(
-      'All agents complete with no high-priority issues - marking step complete and proceeding to next step',
-      {
-        phase,
-        targetNumber,
-        currentStep: state.wiggum.step,
-        completedAgents,
-        pendingCompletionAgents,
-        allAgentsComplete,
-      }
-    );
+  // If no high-priority in-scope issues remain, mark step complete and proceed
+  if (totalHighPriorityIssues === 0) {
+    logger.info('No high-priority issues - marking step complete and proceeding to next step', {
+      phase,
+      targetNumber,
+      currentStep: state.wiggum.step,
+    });
 
     // Mark current step as complete and advance to next step
     let newState = advanceToNextStep(state.wiggum);
@@ -112,13 +92,6 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
     if (input.maxIterations !== undefined) {
       newState = { ...newState, maxIterations: input.maxIterations };
     }
-
-    // Update agent tracking
-    newState = {
-      ...newState,
-      completedAgents,
-      pendingCompletionAgents,
-    };
 
     // Clean up manifest files BEFORE state persistence in fast-path
     // Must use throwing version here because cleanup happens BEFORE state is persisted.
@@ -169,7 +142,7 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   }
 
   // There are still high-priority issues remaining
-  // Increment iteration and update state with new agent tracking
+  // Increment iteration and update state
   // Each completion call represents one iteration cycle (review + fix)
   const newState: WiggumState = createWiggumState({
     iteration: state.wiggum.iteration + 1,
@@ -177,11 +150,9 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
     completedSteps: state.wiggum.completedSteps,
     phase: state.wiggum.phase,
     maxIterations: input.maxIterations ?? state.wiggum.maxIterations,
-    completedAgents,
-    pendingCompletionAgents,
   });
 
-  logger.info('Posting wiggum state comment with updated agent tracking', {
+  logger.info('Posting wiggum state comment', {
     phase,
     targetNumber,
     location: formatLocation(phase, targetNumber),
@@ -217,11 +188,13 @@ export async function completeAllHands(input: CompleteAllHandsInput): Promise<To
   });
 
   // Clean up manifest files after successful state update
-  // Use throwing version for consistency with fast-path - cleanup failures
-  // would corrupt agent completion tracking on the next iteration.
-  // If cleanup fails, workflow should halt with a clear error message
-  // rather than proceeding with stale manifests.
-  await cleanupManifestFiles();
+  // Use SAFE version because state is already persisted to GitHub.
+  // Unlike fast-path (line 127) where cleanup happens BEFORE state persistence,
+  // here the state is already committed. Cleanup failure should:
+  // - Log a warning but NOT block workflow progression
+  // - Allow user to manually clean up tmp/wiggum/*.json if needed
+  // - Avoid creating inconsistent state (persisted state + thrown error)
+  await safeCleanupManifestFiles();
 
   // Reuse newState instead of calling detectCurrentState() again to avoid race condition
   const updatedState = applyWiggumState(state, newState);

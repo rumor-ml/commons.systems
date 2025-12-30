@@ -103,23 +103,25 @@ describe('Error Classes', () => {
     assert.strictEqual(error.context, undefined);
   });
 
-  it('should create StateApiError with all fields', () => {
+  it('should create StateApiError with all fields via factory', () => {
     const cause = new Error('Rate limit exceeded');
-    const error = new StateApiError('Failed to read PR state', 'read', 'pr', 123, cause);
+    const error = StateApiError.create('Failed to read PR state', 'read', 'pr', 123, cause);
     assert.strictEqual(error.message, 'Failed to read PR state');
     assert.strictEqual(error.code, 'STATE_API_ERROR');
     assert.strictEqual(error.name, 'StateApiError');
+    assert.ok(error instanceof StateApiError);
     assert.strictEqual(error.operation, 'read');
     assert.strictEqual(error.resourceType, 'pr');
     assert.strictEqual(error.resourceId, 123);
     assert.strictEqual(error.cause, cause);
   });
 
-  it('should create StateApiError without optional fields', () => {
-    const error = new StateApiError('Failed to write issue state', 'write', 'issue');
+  it('should create StateApiError without optional fields via factory', () => {
+    const error = StateApiError.create('Failed to write issue state', 'write', 'issue');
     assert.strictEqual(error.message, 'Failed to write issue state');
     assert.strictEqual(error.code, 'STATE_API_ERROR');
     assert.strictEqual(error.name, 'StateApiError');
+    assert.ok(error instanceof StateApiError);
     assert.strictEqual(error.operation, 'write');
     assert.strictEqual(error.resourceType, 'issue');
     assert.strictEqual(error.resourceId, undefined);
@@ -194,7 +196,7 @@ describe('createErrorResult', () => {
   });
 
   it('should create error result for StateApiError', () => {
-    const error = new StateApiError('API operation failed', 'read', 'pr', 456);
+    const error = StateApiError.create('API operation failed', 'read', 'pr', 456);
     const result = createErrorResult(error);
 
     assert.strictEqual(result._meta?.errorType, 'StateApiError');
@@ -262,93 +264,71 @@ describe('isTerminalError', () => {
   });
 
   it('should treat StateApiError as retryable (not terminal)', () => {
-    const error = new StateApiError('API failed', 'read', 'pr');
+    const error = StateApiError.create('API failed', 'read', 'pr');
     assert.strictEqual(isTerminalError(error), false);
   });
 });
 
-describe('StateApiError validation', () => {
-  describe('constructor validation', () => {
-    it('should throw ValidationError for zero resourceId', () => {
-      assert.throws(
-        () => new StateApiError('Failed', 'read', 'pr', 0),
-        /resourceId must be a positive integer/
-      );
-    });
-
-    it('should throw ValidationError for negative resourceId', () => {
-      assert.throws(
-        () => new StateApiError('Failed', 'read', 'pr', -1),
-        /resourceId must be a positive integer/
-      );
-    });
-
-    it('should throw ValidationError for non-integer resourceId', () => {
-      assert.throws(
-        () => new StateApiError('Failed', 'read', 'pr', 3.5),
-        /resourceId must be a positive integer/
-      );
-    });
-
-    it('should throw ValidationError for NaN resourceId', () => {
-      assert.throws(
-        () => new StateApiError('Failed', 'read', 'pr', NaN),
-        /resourceId must be a positive integer/
-      );
-    });
-
-    it('should accept positive integer resourceId', () => {
-      const error = new StateApiError('Failed', 'read', 'pr', 42);
-      assert.strictEqual(error.resourceId, 42);
-    });
-
-    it('should accept undefined resourceId', () => {
-      const error = new StateApiError('Failed', 'read', 'pr');
-      assert.strictEqual(error.resourceId, undefined);
-    });
+describe('StateApiError.create() factory function', () => {
+  it('should return StateApiError for valid resourceId', () => {
+    const result = StateApiError.create('Failed', 'read', 'pr', 42);
+    assert.ok(result instanceof StateApiError, 'Should return StateApiError');
+    assert.strictEqual(result.resourceId, 42);
+    assert.strictEqual(result.message, 'Failed');
   });
 
-  describe('create() factory function', () => {
-    it('should return ValidationError for zero resourceId', () => {
-      const result = StateApiError.create('Failed', 'read', 'pr', 0);
-      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
-      assert.ok(result.message.includes('resourceId must be a positive integer'));
-    });
+  it('should return StateApiError for undefined resourceId', () => {
+    const result = StateApiError.create('Failed', 'read', 'issue');
+    assert.ok(result instanceof StateApiError, 'Should return StateApiError');
+    assert.strictEqual(result.resourceId, undefined);
+  });
 
-    it('should return ValidationError for negative resourceId', () => {
-      const result = StateApiError.create('Failed', 'read', 'pr', -1);
-      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
-    });
+  it('should return ValidationError for zero resourceId (never throws)', () => {
+    const result = StateApiError.create('Failed', 'read', 'pr', 0);
+    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
+    assert.ok(result.message.includes('resourceId must be a positive integer'));
+    assert.ok(result.message.includes('0'));
+  });
 
-    it('should return ValidationError for non-integer resourceId', () => {
-      const result = StateApiError.create('Failed', 'read', 'pr', 3.5);
-      assert.ok(result instanceof ValidationError, 'Should return ValidationError');
-    });
+  it('should return ValidationError for negative resourceId (never throws)', () => {
+    const result = StateApiError.create('Failed', 'read', 'pr', -1);
+    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
+    assert.ok(result.message.includes('resourceId must be a positive integer'));
+    assert.ok(result.message.includes('-1'));
+  });
 
-    it('should return StateApiError for valid resourceId', () => {
-      const result = StateApiError.create('Failed', 'read', 'pr', 42);
-      assert.ok(result instanceof StateApiError, 'Should return StateApiError');
-      assert.strictEqual(result.resourceId, 42);
-    });
+  it('should return ValidationError for non-integer resourceId (never throws)', () => {
+    const result = StateApiError.create('Failed', 'read', 'pr', 3.5);
+    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
+    assert.ok(result.message.includes('resourceId must be a positive integer'));
+    assert.ok(result.message.includes('3.5'));
+  });
 
-    it('should return StateApiError for undefined resourceId', () => {
-      const result = StateApiError.create('Failed', 'read', 'issue');
-      assert.ok(result instanceof StateApiError, 'Should return StateApiError');
-      assert.strictEqual(result.resourceId, undefined);
-    });
+  it('should return ValidationError for NaN resourceId (never throws)', () => {
+    const result = StateApiError.create('Failed', 'read', 'pr', NaN);
+    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
+    assert.ok(result.message.includes('resourceId must be a positive integer'));
+    assert.ok(result.message.includes('NaN'));
+  });
 
-    it('should preserve operation and resourceType', () => {
-      const result = StateApiError.create('Failed', 'write', 'issue', 99);
-      assert.ok(result instanceof StateApiError);
-      assert.strictEqual(result.operation, 'write');
-      assert.strictEqual(result.resourceType, 'issue');
-    });
+  it('should preserve operation and resourceType', () => {
+    const result = StateApiError.create('Failed', 'write', 'issue', 99);
+    assert.ok(result instanceof StateApiError);
+    assert.strictEqual(result.operation, 'write');
+    assert.strictEqual(result.resourceType, 'issue');
+  });
 
-    it('should preserve cause in factory function', () => {
-      const cause = new Error('Network error');
-      const result = StateApiError.create('Failed', 'read', 'pr', 100, cause);
-      assert.ok(result instanceof StateApiError);
-      assert.strictEqual(result.cause, cause);
-    });
+  it('should preserve cause in factory function', () => {
+    const cause = new Error('Network error');
+    const result = StateApiError.create('Failed', 'read', 'pr', 100, cause);
+    assert.ok(result instanceof StateApiError);
+    assert.strictEqual(result.cause, cause);
+  });
+
+  it('should return ValidationError when resourceId is invalid (cause is not preserved)', () => {
+    const cause = new Error('Network error');
+    const result = StateApiError.create('Failed', 'read', 'pr', -1, cause);
+    assert.ok(result instanceof ValidationError);
+    assert.ok(result.message.includes('resourceId must be a positive integer'));
   });
 });

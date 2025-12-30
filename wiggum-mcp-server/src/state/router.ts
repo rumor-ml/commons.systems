@@ -36,7 +36,6 @@ import {
 import type { ToolResult } from '../types.js';
 import { GitHubCliError, StateApiError } from '../utils/errors.js';
 import { sanitizeErrorMessage } from '../utils/security.js';
-import { REVIEW_AGENT_NAMES } from '../tools/manifest-utils.js';
 
 /**
  * Helper type for state where PR is guaranteed to exist
@@ -45,23 +44,6 @@ import { REVIEW_AGENT_NAMES } from '../tools/manifest-utils.js';
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
-
-/**
- * Get list of active review agents (not yet completed)
- *
- * Filters REVIEW_AGENT_NAMES by removing any agents in completedAgents.
- * Returns all agents if completedAgents is undefined or empty.
- *
- * @param completedAgents - Array of agent names that have completed (from WiggumState)
- * @returns Array of active agent names that should still run
- */
-function getActiveAgents(completedAgents: readonly string[] | undefined): readonly string[] {
-  if (!completedAgents || completedAgents.length === 0) {
-    return REVIEW_AGENT_NAMES;
-  }
-
-  return REVIEW_AGENT_NAMES.filter((agent) => !completedAgents.includes(agent));
-}
 
 /**
  * Result type for state update operations
@@ -88,9 +70,8 @@ export type StateUpdateResult =
 /**
  * Create a StateUpdateResult failure with validated parameters
  *
- * Factory function that ensures invariants are met at construction time:
- * - attemptCount must be a positive integer
- * - lastError must be an Error instance
+ * Enforces type safety at runtime to prevent invalid failure states that could
+ * corrupt retry tracking and debugging (issue #625).
  *
  * @param reason - Failure reason ('rate_limit' or 'network')
  * @param lastError - Error from the final retry attempt
@@ -148,7 +129,7 @@ function checkUncommittedChanges(
   stepsCompleted: string[]
 ): ToolResult | null {
   if (state.git.hasUncommittedChanges) {
-    // TODO(#981): Add INFO level logging when returning early with commit instructions
+    // TODO(#981): Add INFO level logging when uncommitted changes detected
     output.instructions =
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
@@ -221,10 +202,8 @@ export async function safeUpdatePRBodyState(
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
-  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
+  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
-  // This validation ensures the retry loop executes at least once and terminates correctly,
-  // preventing the unreachable code path at the end (which would throw an internal error).
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
@@ -288,7 +267,7 @@ export async function safeUpdatePRBodyState(
     });
     // Include state summary in error message for debugging without log access (issue #625)
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
-    throw new StateApiError(
+    throw StateApiError.create(
       `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
       'write',
       'pr',
@@ -328,11 +307,11 @@ export async function safeUpdatePRBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Network error classification rationale:
-      //   - We use message pattern matching (ECONNREFUSED, ETIMEDOUT, etc.) because network
-      //     failure exit codes vary by tool and platform (Node.js, gh CLI, OS-specific codes).
-      //   - HTTP errors (404, 429) have reliable exitCode values from gh CLI.
-      //   - This split approach minimizes false positives while correctly classifying both types.
+      //
+      // Network vs HTTP error classification:
+      //   - Network errors: Use message pattern matching (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
+      //     because network failure exit codes vary by tool/platform (Node.js, gh CLI, OS).
+      //   - HTTP errors (404, 429): Use reliable exitCode values from gh CLI.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -490,10 +469,8 @@ export async function safeUpdateIssueBodyState(
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
-  //   - maxRetries > 100: Would cause excessive delays (with 60s cap, could be up to 100 minutes)
+  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
-  // This validation ensures the retry loop executes at least once and terminates correctly,
-  // preventing the unreachable code path at the end (which would throw an internal error).
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
@@ -557,7 +534,7 @@ export async function safeUpdateIssueBodyState(
     });
     // Include state summary in error message for debugging without log access (issue #625)
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
-    throw new StateApiError(
+    throw StateApiError.create(
       `Invalid state - validation failed: ${validationDetails}. State: ${stateSummary}`,
       'write',
       'issue',
@@ -591,11 +568,11 @@ export async function safeUpdateIssueBodyState(
 
       // Classify error type based on error message patterns and exit codes
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      // Network error classification rationale:
-      //   - We use message pattern matching (ECONNREFUSED, ETIMEDOUT, etc.) because network
-      //     failure exit codes vary by tool and platform (Node.js, gh CLI, OS-specific codes).
-      //   - HTTP errors (404, 429) have reliable exitCode values from gh CLI.
-      //   - This split approach minimizes false positives while correctly classifying both types.
+      //
+      // Network vs HTTP error classification:
+      //   - Network errors: Use message pattern matching (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
+      //     because network failure exit codes vary by tool/platform (Node.js, gh CLI, OS).
+      //   - HTTP errors (404, 429): Use reliable exitCode values from gh CLI.
       const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
       const isAuth =
         /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
@@ -1050,9 +1027,7 @@ async function handlePhase1MonitorWorkflow(
  */
 function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolResult {
   // Get active agents (filter out completed ones)
-  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
-  const agentList =
-    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+  // All agents run every iteration
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
@@ -1060,7 +1035,7 @@ function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolRes
     iteration_count: state.wiggum.iteration,
     instructions: `## Step 2: PR Review (Before PR Creation)
 
-Execute comprehensive PR review on the current branch before creating the pull request.${agentList}
+Execute comprehensive PR review on the current branch before creating the pull request.
 
 **Instructions:**
 
@@ -1104,9 +1079,7 @@ Execute comprehensive PR review on the current branch before creating the pull r
  */
 function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
   // Get active agents (filter out completed ones)
-  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
-  const agentList =
-    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+  // All agents run every iteration
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
@@ -1114,7 +1087,7 @@ function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): T
     iteration_count: state.wiggum.iteration,
     instructions: `## Step 3: Security Review (Before PR Creation)
 
-Execute security review on the current branch before creating the pull request.${agentList}
+Execute security review on the current branch before creating the pull request.
 
 **Instructions:**
 
@@ -1759,16 +1732,14 @@ async function handlePhase2CodeQuality(state: CurrentStateWithPR): Promise<ToolR
  */
 function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
   // Get active agents (filter out completed ones)
-  const activeAgents = getActiveAgents(state.wiggum.completedAgents);
-  const agentList =
-    activeAgents.length > 0 ? `\n\n**Active Agents:** ${activeAgents.join(', ')}` : '';
+  // All agents run every iteration
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW],
     step_number: STEP_PHASE2_SECURITY_REVIEW,
     iteration_count: state.wiggum.iteration,
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline${agentList}
+Review all commits: git log main..HEAD --oneline
 
 Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
 

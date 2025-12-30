@@ -11,8 +11,11 @@ import {
   isToolSuccess,
   validateToolResult,
   type ToolResult,
+  type ToolResultStrict,
   type ToolSuccess,
+  type ToolSuccessStrict,
   type ToolError,
+  type ToolErrorStrict,
 } from './types.js';
 import { GitHubCliError, isSystemError } from './errors.js';
 
@@ -37,6 +40,13 @@ describe('createToolSuccess', () => {
     const result: ToolSuccess = createToolSuccess('Test');
 
     // Type assertion - if this compiles, type is correct
+    assert.equal(result.isError, false);
+  });
+
+  it('ToolSuccess is assignable to ToolSuccessStrict for application code', () => {
+    // Factory returns ToolSuccess, which can be used where ToolSuccessStrict is expected
+    // This enables strict type checking in application code
+    const result: ToolSuccessStrict = createToolSuccess('Test');
     assert.equal(result.isError, false);
   });
 });
@@ -80,6 +90,14 @@ describe('createToolError', () => {
     const result: ToolError = createToolError('Error', 'TestError');
 
     // Type assertion - if this compiles, type is correct
+    assert.equal(result.isError, true);
+    assert.equal(result._meta.errorType, 'TestError');
+  });
+
+  it('ToolError is assignable to ToolErrorStrict for application code', () => {
+    // Factory returns ToolError, which can be used where ToolErrorStrict is expected
+    // This enables strict type checking in application code
+    const result: ToolErrorStrict = createToolError('Error', 'TestError');
     assert.equal(result.isError, true);
     assert.equal(result._meta.errorType, 'TestError');
   });

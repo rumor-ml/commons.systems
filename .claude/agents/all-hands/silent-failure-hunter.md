@@ -244,7 +244,7 @@ mcp__wiggum__wiggum_record_review_issue({
 **Priority Mapping:**
 
 - CRITICAL severity → `priority: 'high'`
-- HIGH severity → `priority: 'high'`
+- HIGH severity → `priority: 'low'`
 - MEDIUM severity → `priority: 'low'`
 
 **files_to_edit (REQUIRED for in-scope issues):**

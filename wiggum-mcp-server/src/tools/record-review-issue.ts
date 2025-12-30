@@ -26,7 +26,7 @@
  */
 
 import { z } from 'zod';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { detectCurrentState } from '../state/detector.js';
@@ -189,8 +189,9 @@ function getOrCreateManifestDir(): string {
  * The function is named "appendToManifest" because it conceptually appends to the set
  * of manifest files in the directory, not because it appends to an existing file.
  *
- * The defensive read-existing-content logic (lines 129-133) handles the theoretical
- * edge case of filename collision, but in practice this code path is never executed.
+ * CRITICAL: If a filename collision is detected, we fail loudly instead of silently
+ * appending. A collision indicates a serious bug in the filename generation logic
+ * (timestamp or random bytes generation), and masking it would make debugging harder.
  */
 function appendToManifest(issue: IssueRecord): string {
   const manifestDir = getOrCreateManifestDir();
@@ -198,22 +199,30 @@ function appendToManifest(issue: IssueRecord): string {
   const filepath = join(manifestDir, filename);
 
   try {
-    // Read existing manifest or create new array
-    let issues: IssueRecord[] = [];
+    // CRITICAL: Each call creates a UNIQUE file (timestamp + 4-byte random).
+    // If this file exists, we have a serious bug in filename generation.
+    // Fail loudly instead of masking the issue by silently appending.
     if (existsSync(filepath)) {
-      const content = readFileSync(filepath, 'utf-8');
-      issues = JSON.parse(content);
+      logger.error('Manifest filename collision detected - impossible bug triggered', {
+        filepath,
+        agentName: issue.agent_name,
+        impact: 'Filename generation is broken - timestamp or random function failing',
+      });
+      throw new FilesystemError(
+        `Manifest file already exists: ${filepath}. This should be impossible. ` +
+          `Check Date.now() and randomBytes() for bugs.`,
+        filepath,
+        new Error('Filename collision detected')
+      );
     }
 
-    // Append new issue
-    issues.push(issue);
-
-    // Write back to file
+    // Write new file (single issue array)
+    const issues = [issue];
     writeFileSync(filepath, JSON.stringify(issues, null, 2), 'utf-8');
 
-    logger.info('Appended issue to manifest', {
+    logger.info('Created new manifest file', {
       filepath,
-      issueCount: issues.length,
+      issueCount: 1,
       agentName: issue.agent_name,
       scope: issue.scope,
       priority: issue.priority,
@@ -221,6 +230,11 @@ function appendToManifest(issue: IssueRecord): string {
 
     return filepath;
   } catch (error) {
+    // Re-throw FilesystemError (already properly formatted from collision detection)
+    if (error instanceof FilesystemError) {
+      throw error;
+    }
+
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorCode = (error as NodeJS.ErrnoException).code;
 
@@ -239,11 +253,6 @@ function appendToManifest(issue: IssueRecord): string {
       errorMessage =
         `Cannot write manifest file - filesystem is read-only: ${filepath}. ` +
         `This is a system configuration issue.`;
-    } else if (error instanceof SyntaxError) {
-      // JSON parse error when reading existing manifest
-      errorMessage =
-        `Cannot append to manifest - existing file is corrupted: ${filepath}. ` +
-        `Parse error: ${errorMsg}. Delete the file and retry.`;
     } else {
       errorMessage =
         `Failed to write manifest file: ${errorMsg}. ` +
@@ -473,14 +482,29 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
         errorMsg.includes('econnreset') ||
         errorMsg.includes('econnrefused');
 
-      if (!isRetryable || attempt === MAX_COMMENT_RETRIES) {
-        // Non-retryable error or final attempt - log and exit loop
-        logger.error('Failed to post GitHub comment', {
+      if (!isRetryable) {
+        // Non-retryable error - exit immediately without retrying
+        logger.error('Failed to post GitHub comment - error is not retryable', {
+          agentName: input.agent_name,
+          error: commentError,
+          attempt,
+          errorType: 'non-retryable',
+          manifestSucceeded: filepath !== undefined,
+          impact: filepath
+            ? 'Issue is in manifest but not visible on GitHub'
+            : 'Issue completely lost - neither in manifest nor on GitHub',
+        });
+        break;
+      }
+
+      if (attempt === MAX_COMMENT_RETRIES) {
+        // Exhausted all retries - final attempt failed
+        logger.error('Failed to post GitHub comment - exhausted all retries', {
           agentName: input.agent_name,
           error: commentError,
           attempt,
           maxRetries: MAX_COMMENT_RETRIES,
-          isRetryable,
+          errorType: 'exhausted-retries',
           manifestSucceeded: filepath !== undefined,
           impact: filepath
             ? 'Issue is in manifest but not visible on GitHub'

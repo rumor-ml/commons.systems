@@ -268,7 +268,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'wiggum_update_issue',
         description:
-          'Update fields on an existing issue in the manifest files. Used by implementation agents to mark issues as already_fixed when they discover that an issue has been resolved by a previous fix in the same batch.',
+          'Update fields on an existing issue in the manifest files. Used by implementation agents to mark issues as not_fixed when they discover that an issue has been resolved by a previous fix in the same batch.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -276,12 +276,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'string',
               description: 'Issue ID (e.g., "code-reviewer-in-scope-0")',
             },
-            already_fixed: {
+            not_fixed: {
               type: 'boolean',
               description: 'Whether the issue has already been fixed',
             },
           },
-          required: ['id', 'already_fixed'],
+          required: ['id', 'not_fixed'],
         },
       },
     ],

@@ -394,4 +394,306 @@ describe('manifest-utils integration tests', () => {
       );
     });
   });
+
+  describe('2-strike logic with filesystem errors', () => {
+    /**
+     * These tests verify that readManifestFiles properly handles corrupted manifests
+     * and doesn't cause incorrect agent completion status.
+     *
+     * When manifest reads fail during agent completion tracking:
+     * - Corrupted files should be skipped (logged as warning)
+     * - Valid files from other agents should still be processed
+     * - Agent completion status should reflect available data
+     *
+     * @see pr-test-analyzer-in-scope-3 for the issue that prompted these tests
+     */
+
+    it('should skip corrupted manifest file and process valid ones', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // Valid manifest for code-reviewer
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer', priority: 'high' }),
+      ]);
+
+      // Corrupted manifest for silent-failure-hunter (invalid JSON)
+      const corruptPath = join(
+        manifestDir,
+        'silent-failure-hunter-in-scope-123456789-corrupt.json'
+      );
+      writeFileSync(corruptPath, '{ corrupted json', 'utf-8');
+
+      // Valid manifest for code-simplifier
+      writeTestManifest(manifestDir, 'code-simplifier', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-simplifier', priority: 'low' }),
+      ]);
+
+      // Should not throw - corrupted file is skipped
+      const result = readManifestFiles();
+
+      // Should have 2 valid manifests (code-reviewer and code-simplifier)
+      assert.strictEqual(result.size, 2);
+      assert.ok(result.has('code-reviewer-in-scope'));
+      assert.ok(result.has('code-simplifier-in-scope'));
+      // Corrupted manifest for silent-failure-hunter is skipped
+      assert.ok(!result.has('silent-failure-hunter-in-scope'));
+    });
+
+    it('should skip manifest with non-array JSON and process valid ones', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // Valid manifest
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer' }),
+      ]);
+
+      // Invalid manifest (object instead of array)
+      const invalidPath = join(manifestDir, 'code-simplifier-in-scope-123456789-invalid.json');
+      writeFileSync(invalidPath, JSON.stringify({ not: 'an array' }), 'utf-8');
+
+      const result = readManifestFiles();
+
+      // Should only have the valid manifest
+      assert.strictEqual(result.size, 1);
+      assert.ok(result.has('code-reviewer-in-scope'));
+    });
+
+    it('should skip manifest with invalid IssueRecord schema and process valid ones', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // Valid manifest
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer' }),
+      ]);
+
+      // Invalid manifest (array but wrong schema)
+      const invalidPath = join(manifestDir, 'pr-test-analyzer-in-scope-123456789-invalid.json');
+      writeFileSync(invalidPath, JSON.stringify([{ missing: 'required fields' }]), 'utf-8');
+
+      const result = readManifestFiles();
+
+      // Should only have the valid manifest
+      assert.strictEqual(result.size, 1);
+      assert.ok(result.has('code-reviewer-in-scope'));
+    });
+
+    it('should correctly compute high_priority_count despite some corrupted files', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // Valid manifest with 2 high-priority issues
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer', priority: 'high', title: 'Issue 1' }),
+        createIssueRecord({ agent_name: 'code-reviewer', priority: 'high', title: 'Issue 2' }),
+        createIssueRecord({ agent_name: 'code-reviewer', priority: 'low', title: 'Issue 3' }),
+      ]);
+
+      // Corrupted manifest (would have had high-priority issues if readable)
+      const corruptPath = join(
+        manifestDir,
+        'silent-failure-hunter-in-scope-123456789-corrupt.json'
+      );
+      writeFileSync(corruptPath, '{ corrupted', 'utf-8');
+
+      const result = readManifestFiles();
+
+      const manifest = result.get('code-reviewer-in-scope');
+      assert.ok(manifest);
+      // high_priority_count should be computed from valid issues only
+      assert.strictEqual(manifest.high_priority_count, 2);
+      assert.strictEqual(manifest.issues.length, 3);
+    });
+
+    it('should throw FilesystemError when all manifests are corrupted', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // All corrupted manifests
+      writeFileSync(
+        join(manifestDir, 'code-reviewer-in-scope-123456789-corrupt1.json'),
+        '{ bad json 1',
+        'utf-8'
+      );
+      writeFileSync(
+        join(manifestDir, 'silent-failure-hunter-in-scope-123456789-corrupt2.json'),
+        '{ bad json 2',
+        'utf-8'
+      );
+
+      // Should throw FilesystemError when complete data loss is detected
+      assert.throws(
+        () => readManifestFiles(),
+        (error: Error) => {
+          return (
+            error.name === 'FilesystemError' &&
+            error.message.includes('Failed to read any manifest files')
+          );
+        }
+      );
+    });
+
+    it('should throw FilesystemError for mixed valid and invalid issue records within same file', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // File with valid array structure but invalid IssueRecord fields
+      // The entire file should be rejected since schema validation fails
+      const mixedPath = join(manifestDir, 'code-reviewer-in-scope-123456789-mixed.json');
+      writeFileSync(
+        mixedPath,
+        JSON.stringify([
+          createIssueRecord({ agent_name: 'code-reviewer' }), // Valid
+          { invalid: 'record', missing: 'fields' }, // Invalid
+        ]),
+        'utf-8'
+      );
+
+      // When the only file is invalid, it throws FilesystemError for complete data loss
+      assert.throws(
+        () => readManifestFiles(),
+        (error: Error) => {
+          return (
+            error.name === 'FilesystemError' &&
+            error.message.includes('Failed to read any manifest files')
+          );
+        }
+      );
+    });
+
+    it('should process multiple files for same agent even if one is corrupted', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // First valid manifest file for code-reviewer
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer', title: 'Issue 1' }),
+      ]);
+
+      // Second corrupted manifest file for same agent
+      const corruptPath = join(manifestDir, 'code-reviewer-in-scope-999999999-corrupt.json');
+      writeFileSync(corruptPath, '{ broken', 'utf-8');
+
+      // Third valid manifest file for code-reviewer
+      const thirdPath = join(manifestDir, 'code-reviewer-in-scope-888888888-valid.json');
+      writeFileSync(
+        thirdPath,
+        JSON.stringify([createIssueRecord({ agent_name: 'code-reviewer', title: 'Issue 2' })]),
+        'utf-8'
+      );
+
+      const result = readManifestFiles();
+
+      // Should have merged issues from valid files only
+      const manifest = result.get('code-reviewer-in-scope');
+      assert.ok(manifest);
+      // Should have 2 issues from the two valid files (corrupted file skipped)
+      assert.strictEqual(manifest.issues.length, 2);
+      const titles = manifest.issues.map((i) => i.title);
+      assert.ok(titles.includes('Issue 1'));
+      assert.ok(titles.includes('Issue 2'));
+    });
+  });
+
+  describe('partial write recovery tests', () => {
+    /**
+     * These tests verify error handling for partial write scenarios
+     * that can occur when the process crashes or is killed mid-write.
+     *
+     * @see pr-test-analyzer-in-scope-2 for the issue that prompted these tests
+     */
+
+    it('should throw FilesystemError with recovery guidance for partial JSON write', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+      const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-partial.json');
+
+      // Simulate partial write (missing closing bracket)
+      writeFileSync(
+        filepath,
+        '[{"agent_name":"code-reviewer","scope":"in-scope","priority":"high","title":"Test"',
+        'utf-8'
+      );
+
+      assert.throws(
+        () => readManifestFile(filepath),
+        (err: Error) => {
+          assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+          assert.ok(
+            err.message.includes('malformed JSON'),
+            `Expected 'malformed JSON' in message, got: ${err.message}`
+          );
+          return true;
+        }
+      );
+    });
+
+    it('should throw FilesystemError for truncated array', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+      const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-truncated.json');
+
+      // Simulate truncated array (incomplete second element)
+      writeFileSync(
+        filepath,
+        '[{"agent_name":"code-reviewer","scope":"in-scope","priority":"high","title":"Issue 1","description":"Desc","timestamp":"2025-01-01T00:00:00Z"},{"agent_name"',
+        'utf-8'
+      );
+
+      assert.throws(
+        () => readManifestFile(filepath),
+        (err: Error) => {
+          assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+          return true;
+        }
+      );
+    });
+
+    it('should continue processing other agents when one has corrupted manifest', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+
+      // Valid manifest for code-reviewer
+      writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [
+        createIssueRecord({ agent_name: 'code-reviewer', priority: 'high' }),
+      ]);
+
+      // Corrupted manifest for code-simplifier (partial write)
+      const corruptPath = join(manifestDir, 'code-simplifier-in-scope-123456789-partial.json');
+      writeFileSync(corruptPath, '[ { "agent_name": "code-simplifier", "scope":', 'utf-8');
+
+      // Valid manifest for silent-failure-hunter
+      writeTestManifest(manifestDir, 'silent-failure-hunter', 'in-scope', [
+        createIssueRecord({ agent_name: 'silent-failure-hunter', priority: 'low' }),
+      ]);
+
+      // Should skip corrupted file and process others
+      const result = readManifestFiles();
+
+      // Should have 2 manifests (corrupted code-simplifier is skipped)
+      assert.strictEqual(result.size, 2);
+      assert.ok(result.has('code-reviewer-in-scope'));
+      assert.ok(result.has('silent-failure-hunter-in-scope'));
+      assert.ok(!result.has('code-simplifier-in-scope'));
+    });
+
+    it('should throw FilesystemError for empty JSON file', () => {
+      const manifestDir = getManifestDir();
+      mkdirSync(manifestDir, { recursive: true });
+      const filepath = join(manifestDir, 'code-reviewer-in-scope-123456789-empty.json');
+
+      // Empty file (write was interrupted before any data)
+      writeFileSync(filepath, '', 'utf-8');
+
+      assert.throws(
+        () => readManifestFile(filepath),
+        (err: Error) => {
+          assert.ok(err instanceof FilesystemError, 'Should throw FilesystemError');
+          return true;
+        }
+      );
+    });
+  });
 });

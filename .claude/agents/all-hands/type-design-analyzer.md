@@ -218,8 +218,14 @@ mcp__wiggum__wiggum_record_review_issue({
 
 **Priority Mapping:**
 
-- Concerns (specific issues needing attention) → `priority: 'high'`
-- Recommended Improvements (suggestions for enhancement) → `priority: 'low'`
+Raise the bar for high priority concerns - only critical type safety issues:
+
+- Type allows **invalid states that will cause runtime errors** → `priority: 'high'`
+- Type **lacks validation** at construction and invalid instances can be created → `priority: 'high'`
+- Type **exposes mutable internals** that can be corrupted externally → `priority: 'high'`
+- Type could have **stronger encapsulation** but current design is safe → `priority: 'low'`
+- Type could express invariants **more clearly** but they are enforced → `priority: 'low'`
+- Type follows anti-patterns but **won't cause bugs** in practice → `priority: 'low'`
 
 **files_to_edit (REQUIRED for in-scope issues):**
 

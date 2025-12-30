@@ -501,8 +501,6 @@ describe('createWiggumState', () => {
         completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW],
         phase: 'phase1',
         maxIterations: 15,
-        completedAgents: ['agent1', 'agent2'],
-        pendingCompletionAgents: ['agent3'],
       });
 
       assert.strictEqual(state.iteration, 5);
@@ -510,8 +508,6 @@ describe('createWiggumState', () => {
       assert.deepStrictEqual(state.completedSteps, [STEP_PHASE1_MONITOR_WORKFLOW]);
       assert.strictEqual(state.phase, 'phase1');
       assert.strictEqual(state.maxIterations, 15);
-      assert.deepStrictEqual(state.completedAgents, ['agent1', 'agent2']);
-      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent3']);
     });
 
     it('should create a valid phase2 state', () => {
@@ -619,75 +615,6 @@ describe('createWiggumState', () => {
           }),
         /phase and step\/completedSteps prefixes must be consistent/
       );
-    });
-
-    it('should throw when agent appears in both completedAgents and pendingCompletionAgents', () => {
-      assert.throws(
-        () =>
-          createWiggumState({
-            iteration: 0,
-            step: STEP_PHASE1_MONITOR_WORKFLOW,
-            completedSteps: [],
-            phase: 'phase1',
-            completedAgents: ['agent1', 'agent2'],
-            pendingCompletionAgents: ['agent2', 'agent3'], // agent2 is in both
-          }),
-        /completedAgents and pendingCompletionAgents must be mutually exclusive/
-      );
-    });
-
-    it('should allow disjoint completedAgents and pendingCompletionAgents', () => {
-      const state = createWiggumState({
-        iteration: 0,
-        step: STEP_PHASE1_MONITOR_WORKFLOW,
-        completedSteps: [],
-        phase: 'phase1',
-        completedAgents: ['agent1', 'agent2'],
-        pendingCompletionAgents: ['agent3', 'agent4'],
-      });
-
-      assert.deepStrictEqual(state.completedAgents, ['agent1', 'agent2']);
-      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent3', 'agent4']);
-    });
-
-    it('should allow completedAgents without pendingCompletionAgents', () => {
-      const state = createWiggumState({
-        iteration: 0,
-        step: STEP_PHASE1_MONITOR_WORKFLOW,
-        completedSteps: [],
-        phase: 'phase1',
-        completedAgents: ['agent1'],
-      });
-
-      assert.deepStrictEqual(state.completedAgents, ['agent1']);
-      assert.strictEqual(state.pendingCompletionAgents, undefined);
-    });
-
-    it('should allow pendingCompletionAgents without completedAgents', () => {
-      const state = createWiggumState({
-        iteration: 0,
-        step: STEP_PHASE1_MONITOR_WORKFLOW,
-        completedSteps: [],
-        phase: 'phase1',
-        pendingCompletionAgents: ['agent1'],
-      });
-
-      assert.strictEqual(state.completedAgents, undefined);
-      assert.deepStrictEqual(state.pendingCompletionAgents, ['agent1']);
-    });
-
-    it('should allow empty arrays for both completedAgents and pendingCompletionAgents', () => {
-      const state = createWiggumState({
-        iteration: 0,
-        step: STEP_PHASE1_MONITOR_WORKFLOW,
-        completedSteps: [],
-        phase: 'phase1',
-        completedAgents: [],
-        pendingCompletionAgents: [],
-      });
-
-      assert.deepStrictEqual(state.completedAgents, []);
-      assert.deepStrictEqual(state.pendingCompletionAgents, []);
     });
   });
 

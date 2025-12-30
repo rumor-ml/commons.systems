@@ -181,9 +181,13 @@ mcp__wiggum__wiggum_record_review_issue({
 
 **Priority Mapping:**
 
-- Critical Issues (factually incorrect/misleading) → `priority: 'high'`
-- Recommended Removals (adds no value/confusing) → `priority: 'high'`
-- Improvement Opportunities (could be enhanced) → `priority: 'low'`
+Raise the bar for high priority - only the most critical issues:
+
+- Critical Issues that are **factually wrong** and will cause developer confusion/bugs → `priority: 'high'`
+- Recommended Removals where comments **must be removed** because they document deleted/changed code → `priority: 'high'`
+- Improvement Opportunities where comments are **vague or incomplete** but not misleading → `priority: 'low'`
+- Improvement Opportunities where comments **could be clearer** but won't cause mistakes → `priority: 'low'`
+- Style/formatting improvements → `priority: 'low'`
 
 **files_to_edit (REQUIRED for in-scope issues):**
 

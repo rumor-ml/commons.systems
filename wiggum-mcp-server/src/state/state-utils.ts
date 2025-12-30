@@ -121,17 +121,12 @@ export function createCompletedStepState(
     ? currentState.iteration + 1
     : currentState.iteration;
 
-  // Reset completedAgents and pendingCompletionAgents when step changes or on first iteration
-  const resetAgents = shouldResetCompletedAgents(currentState.step, step, newIteration);
-
   return createWiggumState({
     iteration: newIteration,
     step,
     completedSteps: addToCompletedSteps(currentState.completedSteps, step),
     phase: options?.phase ?? currentState.phase,
     maxIterations: currentState.maxIterations,
-    completedAgents: resetAgents ? undefined : currentState.completedAgents,
-    pendingCompletionAgents: resetAgents ? undefined : currentState.pendingCompletionAgents,
   });
 }
 
@@ -160,40 +155,6 @@ export function getEffectiveMaxIterations(state: WiggumState): number {
  */
 export function isIterationLimitReached(state: WiggumState): boolean {
   return state.iteration >= getEffectiveMaxIterations(state);
-}
-
-/**
- * Determine if completedAgents and pendingCompletionAgents should be reset
- *
- * Resets when:
- * 1. Step changes (currentStep !== newStep)
- * 2. First iteration (newIteration === 1)
- *
- * This ensures agents are only skipped within the same step across iterations,
- * but all agents run again when moving to a new step. Both completedAgents and
- * pendingCompletionAgents are reset together to maintain consistency.
- *
- * @param currentStep - Current workflow step
- * @param newStep - New workflow step
- * @param newIteration - New iteration number
- * @returns true if completedAgents and pendingCompletionAgents should be reset to undefined
- */
-export function shouldResetCompletedAgents(
-  currentStep: WiggumStep,
-  newStep: WiggumStep,
-  newIteration: number
-): boolean {
-  // Reset if step changes
-  if (currentStep !== newStep) {
-    return true;
-  }
-
-  // Reset if first iteration (fresh start)
-  if (newIteration === 1) {
-    return true;
-  }
-
-  return false;
 }
 
 /**

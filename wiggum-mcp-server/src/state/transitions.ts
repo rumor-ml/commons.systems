@@ -7,7 +7,7 @@
 
 import { WiggumStep, STEP_ORDER } from '../constants.js';
 import { WiggumState, createWiggumState } from './types.js';
-import { addToCompletedSteps, shouldResetCompletedAgents } from './state-utils.js';
+import { addToCompletedSteps } from './state-utils.js';
 import { ValidationError } from '../utils/errors.js';
 
 /**
@@ -51,15 +51,11 @@ export function advanceToNextStep(state: WiggumState): WiggumState {
     );
   }
 
-  // Reset completedAgents when step changes
-  const resetAgents = shouldResetCompletedAgents(state.step, nextStep, state.iteration);
-
   return createWiggumState({
     iteration: state.iteration,
     step: nextStep,
     completedSteps: addToCompletedSteps(state.completedSteps, state.step),
     phase: state.phase,
     maxIterations: state.maxIterations,
-    completedAgents: resetAgents ? undefined : state.completedAgents,
   });
 }

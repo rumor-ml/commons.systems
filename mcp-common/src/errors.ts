@@ -127,6 +127,11 @@ function isValidStatusCode(code: number): boolean {
  * This is intentional to support both `gh` CLI exit codes and GitHub
  * API response status codes for error classification.
  *
+ * Interpreting exit codes: Values 0-255 are typically Unix exit codes,
+ * while 400-599 are HTTP status codes. Context matters - check the error
+ * message or stderr to determine which domain applies. For example, 1 is
+ * almost always a Unix exit code, while 404 is almost always HTTP.
+ *
  * @example
  * ```typescript
  * // When a gh command fails, capture the error details:
@@ -169,6 +174,47 @@ export class GitHubCliError extends McpError {
     if (cause) {
       this.cause = cause;
     }
+  }
+
+  /**
+   * Safely create GitHubCliError with automatic exit code clamping
+   *
+   * This factory never throws - it clamps invalid exit codes to the valid
+   * Unix range (0-255) and adds a warning prefix to the message. Use this
+   * when processing external command output where exit codes may be unexpected.
+   *
+   * @param message - Error message
+   * @param exitCode - Exit code (will be clamped if invalid)
+   * @param stderr - Standard error output (default: '')
+   * @param stdout - Standard output (optional)
+   * @param cause - Root cause error (optional)
+   * @returns GitHubCliError instance (never throws)
+   *
+   * @example
+   * ```typescript
+   * // Safe construction from external process output:
+   * const error = GitHubCliError.createSafe('Command failed', 999, stderr);
+   * // error.message === '[Warning: Invalid exit code 999 clamped to 255] Command failed'
+   * // error.exitCode === 255
+   *
+   * // Valid exit codes pass through unchanged:
+   * const error2 = GitHubCliError.createSafe('Not found', 404, stderr);
+   * // error2.exitCode === 404 (valid HTTP status code)
+   * ```
+   */
+  static createSafe(
+    message: string,
+    exitCode: number = -1,
+    stderr: string = '',
+    stdout?: string,
+    cause?: Error
+  ): GitHubCliError {
+    if (!isValidStatusCode(exitCode)) {
+      const clampedExitCode = exitCode === -1 ? -1 : Math.max(0, Math.min(255, exitCode));
+      const warningPrefix = `[Warning: Invalid exit code ${exitCode} clamped to ${clampedExitCode}] `;
+      return new GitHubCliError(warningPrefix + message, clampedExitCode, stderr, stdout, cause);
+    }
+    return new GitHubCliError(message, exitCode, stderr, stdout, cause);
   }
 }
 

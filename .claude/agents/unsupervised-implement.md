@@ -304,15 +304,23 @@ If ambiguities found, return structured JSON:
 
 ### Phase 4: Implementation
 
-#### Handling Already-Fixed Issues
+#### Handling Not-Fixed Issues
 
-During implementation, if you discover that an issue in your batch is already fixed
-(e.g., by a previous fix in the same batch or by another issue you just implemented):
+During implementation, if you discover that an issue in your batch should not be counted:
 
-1. Call `wiggum_update_issue({ id: "{issue_id}", already_fixed: true })`
-2. Log the reason why the issue was already fixed
-3. Do NOT attempt to fix an already-fixed issue
-4. Include in your completion status: `"already_fixed_issues": ["issue-id-1", "issue-id-2"]`
+**When to mark an issue as not_fixed:**
+
+- Issue was already fixed by a previous implementation in the same batch
+- Issue is erroneous or inaccurate (reviewer misread the code)
+- Implementation is intentional (design decision, not a bug)
+- Issue doesn't apply to the current context
+
+**How to mark:**
+
+1. Call `wiggum_update_issue({ id: "{issue_id}", not_fixed: true })`
+2. Log the reason why the issue should not be counted
+3. Do NOT attempt to fix a not-fixed issue
+4. Include in your completion status: `"not_fixed_issues": ["issue-id-1", "issue-id-2"]`
 
 #### Closing Referenced TODO Issues
 
@@ -527,7 +535,7 @@ Always return structured JSON at the end of your response:
   "status": "complete",
   "fixes_applied": ["fix1", "fix2"],
   "issues_fixed": 3, // Number of issues from batch that were fixed
-  "already_fixed_issues": [], // Issue IDs marked as already_fixed
+  "not_fixed_issues": [], // Issue IDs marked as not_fixed
   "todo_issues_closed": [], // GitHub issue numbers closed (from TODO references)
   "tests_passed": true,
   "iterations": 1,

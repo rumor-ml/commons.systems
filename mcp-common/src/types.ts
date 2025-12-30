@@ -1,6 +1,11 @@
-// TODO(#998): Consider separating MCP-compatible types (with index signatures) from
-// internal types (without) to improve type safety while maintaining SDK compatibility.
-// The index signatures on ToolSuccess/ToolError weaken type safety despite factory functions.
+// Type safety architecture: This module provides two type layers:
+// 1. Strict types (ToolSuccessStrict/ToolErrorStrict) - No index signatures, full type safety
+//    Used by factory functions and application code for compile-time guarantees
+// 2. MCP-compatible types (ToolSuccess/ToolError) - With index signatures for SDK compatibility
+//    Used only at MCP SDK boundaries where the framework may add additional properties
+//
+// See issue #998 for the design decision rationale. Index signatures allow arbitrary
+// property assignment which bypasses readonly modifiers and weakens type narrowing.
 
 /**
  * Shared types for MCP servers
@@ -14,96 +19,140 @@
 import { ValidationError } from './errors.js';
 
 /**
- * Successful tool execution result with discriminated union type
+ * Strict successful tool execution result (NO index signature)
  *
- * The `isError: false` discriminant enables TypeScript type narrowing.
+ * This type provides full TypeScript type safety with no escape hatches.
+ * Factory functions return this type, ensuring proper validation and immutability.
+ *
+ * Use `ToolSuccessStrict` throughout application code. The MCP-compatible
+ * `ToolSuccess` type (with index signature) should only be used at SDK boundaries.
  *
  * @property content - Array of text content objects
  * @property isError - Always false (discriminant for type narrowing)
  * @property _meta - Optional metadata object
  *
- * **MCP SDK Compatibility:**
- * Includes `[key: string]: unknown` index signature to support MCP SDK
- * extensions. This allows the MCP framework to add SDK-specific properties
- * without breaking type compatibility. Use factory functions
- * (createToolSuccess) to maintain type safety.
+ * @example
+ * ```typescript
+ * const result = createToolSuccess('Success'); // Returns ToolSuccessStrict
+ * result.isError; // false - type-safe access
+ * result.arbitrary = 'value'; // Compile error! No index signature
+ * ```
+ */
+export interface ToolSuccessStrict {
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
+  readonly isError: false;
+  readonly _meta?: Readonly<{ [key: string]: unknown }>;
+}
+
+/**
+ * MCP-compatible successful tool execution result (WITH index signature)
  *
- * **WARNING - Index Signature Escape Hatch:**
+ * Extends `ToolSuccessStrict` with an index signature for MCP SDK compatibility.
+ * The index signature allows the MCP framework to add SDK-specific properties.
+ *
+ * **WARNING - Type Safety Escape Hatch:**
  * The `[key: string]: unknown` index signature allows bypassing TypeScript's
- * type safety. This is ONLY intended for MCP SDK internal use. Application
- * code should NEVER use this directly - always use createToolSuccess() factory
- * function to ensure proper validation and type safety.
+ * type safety. This is ONLY intended for MCP SDK boundary use. Application
+ * code should use `ToolSuccessStrict` (returned by factory functions) for
+ * full type safety.
  *
  * @example
  * ```typescript
- * const result: ToolSuccess = {
- *   content: [{ type: 'text', text: 'Success' }],
- *   isError: false,
- * };
+ * // At SDK boundary - accepts index signature for framework properties
+ * function handleMcpResponse(result: ToolSuccess) { ... }
+ *
+ * // ToolSuccessStrict is assignable to ToolSuccess
+ * const strict = createToolSuccess('Success');
+ * handleMcpResponse(strict); // OK
  * ```
  */
-export interface ToolSuccess {
-  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
-  readonly isError: false; // Required discriminant for consistency
-  readonly _meta?: Readonly<{ [key: string]: unknown }>;
-  // WARNING: Index signature allows bypassing type safety - use createToolSuccess() instead
+export interface ToolSuccess extends ToolSuccessStrict {
+  // WARNING: Index signature allows bypassing type safety - use ToolSuccessStrict in app code
   [key: string]: unknown; // MCP SDK compatibility only
 }
 
 /**
- * Error tool execution result with discriminated union type
+ * Strict error tool execution result (NO index signature)
  *
- * The `isError: true` discriminant enables TypeScript type narrowing.
- * Must include errorType in _meta for error categorization.
+ * This type provides full TypeScript type safety with no escape hatches.
+ * Factory functions return this type, ensuring proper validation and immutability.
+ *
+ * Use `ToolErrorStrict` throughout application code. The MCP-compatible
+ * `ToolError` type (with index signature) should only be used at SDK boundaries.
  *
  * @property content - Array of text content objects
  * @property isError - Always true (discriminant for type narrowing)
  * @property _meta - Required metadata with errorType
  *
- * **MCP SDK Compatibility:**
- * Includes `[key: string]: unknown` index signature to support MCP SDK
- * extensions. This allows the MCP framework to add SDK-specific properties
- * without breaking type compatibility. Use factory functions
- * (createToolError) to maintain type safety.
+ * @example
+ * ```typescript
+ * const result = createToolError('Error', 'ValidationError'); // Returns ToolErrorStrict
+ * result._meta.errorType; // 'ValidationError' - type-safe access
+ * result.arbitrary = 'value'; // Compile error! No index signature
+ * ```
+ */
+export interface ToolErrorStrict {
+  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
+  readonly isError: true;
+  readonly _meta: Readonly<{
+    readonly errorType: string;
+    readonly errorCode?: string;
+    [key: string]: unknown;
+  }>;
+}
+
+/**
+ * MCP-compatible error tool execution result (WITH index signature)
  *
- * **WARNING - Index Signature Escape Hatch:**
+ * Extends `ToolErrorStrict` with an index signature for MCP SDK compatibility.
+ * The index signature allows the MCP framework to add SDK-specific properties.
+ *
+ * **WARNING - Type Safety Escape Hatch:**
  * The `[key: string]: unknown` index signature allows bypassing TypeScript's
- * type safety. This is ONLY intended for MCP SDK internal use. Application
- * code should NEVER use this directly - always use createToolError() factory
- * function to ensure proper validation and type safety.
+ * type safety. This is ONLY intended for MCP SDK boundary use. Application
+ * code should use `ToolErrorStrict` (returned by factory functions) for
+ * full type safety.
  *
  * @example
  * ```typescript
- * const result: ToolError = {
- *   content: [{ type: 'text', text: 'Error occurred' }],
- *   isError: true,
- *   _meta: { errorType: 'ValidationError' },
- * };
+ * // At SDK boundary - accepts index signature for framework properties
+ * function handleMcpError(result: ToolError) { ... }
+ *
+ * // ToolErrorStrict is assignable to ToolError
+ * const strict = createToolError('Error', 'TestError');
+ * handleMcpError(strict); // OK
  * ```
  */
-export interface ToolError {
-  readonly content: Array<{ readonly type: 'text'; readonly text: string }>;
-  readonly isError: true; // Required discriminant - should be immutable
-  readonly _meta: Readonly<{
-    // Required for errors
-    readonly errorType: string; // Error type should be immutable
-    readonly errorCode?: string; // Error code should be immutable
-    [key: string]: unknown;
-  }>;
-  // WARNING: Index signature allows bypassing type safety - use createToolError() instead
+export interface ToolError extends ToolErrorStrict {
+  // WARNING: Index signature allows bypassing type safety - use ToolErrorStrict in app code
   [key: string]: unknown; // MCP SDK compatibility only
 }
 
 /**
- * Discriminated union for tool results
+ * Strict discriminated union for tool results (NO index signatures)
+ *
+ * Use `ToolResultStrict` throughout application code for full type safety.
+ * Factory functions (`createToolSuccess`, `createToolError`) return strict types.
+ *
+ * @example
+ * ```typescript
+ * const result = createToolSuccess('Success'); // ToolSuccessStrict
+ * result.arbitrary = 'value'; // Compile error! No index signature
+ * ```
+ */
+export type ToolResultStrict = ToolSuccessStrict | ToolErrorStrict;
+
+/**
+ * MCP-compatible discriminated union for tool results (WITH index signatures)
  *
  * This uses TypeScript's discriminated union pattern with `isError` as the discriminant.
  * TypeScript's type narrowing automatically refines the type based on the discriminant check:
  * - When `result.isError === true`, TypeScript knows `result` is `ToolError` (has `_meta.errorType`)
  * - When `result.isError !== true`, TypeScript knows `result` is `ToolSuccess` (no required `_meta`)
  *
- * This provides compile-time type safety without runtime overhead. The type guards
- * `isToolError()` and `isToolSuccess()` leverage this for convenient type narrowing.
+ * **Use at SDK boundaries only.** For application code, prefer `ToolResultStrict`.
+ * Strict types are assignable to MCP-compatible types, so you can pass factory-created
+ * results to SDK functions expecting `ToolResult`.
  *
  * @example
  * ```typescript
@@ -123,20 +172,48 @@ export type ToolResult = ToolSuccess | ToolError;
 /**
  * Type guard to check if a result is an error
  *
- * @param result - Tool result to check
+ * Works with both strict and MCP-compatible types.
+ *
+ * @param result - Tool result to check (strict or MCP-compatible)
  * @returns true if result is an error, with type narrowing
  */
-export function isToolError(result: ToolResult): result is ToolError {
+export function isToolError(result: ToolResult | ToolResultStrict): result is ToolError {
+  return result.isError === true;
+}
+
+/**
+ * Strict type guard to check if a result is an error
+ *
+ * Returns `ToolErrorStrict` for use in application code where full type safety is needed.
+ *
+ * @param result - Strict tool result to check
+ * @returns true if result is an error, with type narrowing to ToolErrorStrict
+ */
+export function isToolErrorStrict(result: ToolResultStrict): result is ToolErrorStrict {
   return result.isError === true;
 }
 
 /**
  * Type guard to check if a result is successful
  *
- * @param result - Tool result to check
+ * Works with both strict and MCP-compatible types.
+ *
+ * @param result - Tool result to check (strict or MCP-compatible)
  * @returns true if result is successful, with type narrowing
  */
-export function isToolSuccess(result: ToolResult): result is ToolSuccess {
+export function isToolSuccess(result: ToolResult | ToolResultStrict): result is ToolSuccess {
+  return result.isError !== true;
+}
+
+/**
+ * Strict type guard to check if a result is successful
+ *
+ * Returns `ToolSuccessStrict` for use in application code where full type safety is needed.
+ *
+ * @param result - Strict tool result to check
+ * @returns true if result is successful, with type narrowing to ToolSuccessStrict
+ */
+export function isToolSuccessStrict(result: ToolResultStrict): result is ToolSuccessStrict {
   return result.isError !== true;
 }
 
@@ -221,7 +298,7 @@ export type ErrorResult = ToolError;
  *
  * @param text - Success message text (empty string allowed, null/undefined rejected)
  * @param meta - Optional metadata to include
- * @returns A properly typed ToolSuccess object
+ * @returns A ToolSuccess object (internally satisfies ToolSuccessStrict constraints)
  * @throws {ValidationError} If text is null, undefined, or an array
  *
  * @example
@@ -268,7 +345,9 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
     isError: false as const,
     ...(meta && { _meta: Object.freeze(meta) }),
   };
-  return Object.freeze(result);
+  // Type assertion: the frozen object satisfies ToolSuccessStrict requirements,
+  // and we widen to ToolSuccess for SDK compatibility
+  return Object.freeze(result) as ToolSuccess;
 }
 
 /**
@@ -286,7 +365,7 @@ export function createToolSuccess(text: string, meta?: Record<string, unknown>):
  * @param errorType - Error type for categorization (required, must be non-empty after trimming)
  * @param errorCode - Optional error code for programmatic handling
  * @param meta - Optional additional metadata (must not contain 'isError' or 'content' keys)
- * @returns A properly typed ToolError object
+ * @returns A ToolError object (internally satisfies ToolErrorStrict constraints)
  * @throws {ValidationError} If text or errorType is null/undefined/empty, or if meta contains reserved keys (development mode only)
  *
  * @example
@@ -364,5 +443,7 @@ export function createToolError(
       ...(errorCode && { errorCode }),
     }),
   };
-  return Object.freeze(result);
+  // Type assertion: the frozen object satisfies ToolErrorStrict requirements,
+  // and we widen to ToolError for SDK compatibility
+  return Object.freeze(result) as ToolError;
 }

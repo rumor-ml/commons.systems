@@ -140,8 +140,12 @@ export interface IssueRecord {
   readonly timestamp: string;
   /** Files this issue requires editing (for in-scope batching) */
   readonly files_to_edit?: readonly string[];
-  /** Whether this issue has already been fixed by another fix in the same batch */
-  readonly already_fixed?: boolean;
+  /**
+   * Whether this issue should not be counted (excludes from high-priority count).
+   * Set when: issue was already fixed, issue is erroneous/inaccurate,
+   * implementation is intentional, or issue doesn't apply.
+   */
+  readonly not_fixed?: boolean;
 }
 
 /**
@@ -172,7 +176,7 @@ const IssueRecordSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   timestamp: z.string().datetime({ message: 'timestamp must be valid ISO 8601 format' }),
   files_to_edit: z.array(z.string()).optional(),
-  already_fixed: z.boolean().optional(),
+  not_fixed: z.boolean().optional(),
 });
 
 // Export schema for validation in other modules if needed
@@ -261,10 +265,8 @@ export function createAgentManifest(
   }
 
   // Compute high_priority_count from issues (single source of truth)
-  // Exclude issues that are already fixed
-  const high_priority_count = issues.filter(
-    (i) => i.priority === 'high' && !i.already_fixed
-  ).length;
+  // Exclude issues marked as not_fixed
+  const high_priority_count = issues.filter((i) => i.priority === 'high' && !i.not_fixed).length;
 
   return {
     agent_name,
