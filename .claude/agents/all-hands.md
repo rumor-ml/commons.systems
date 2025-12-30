@@ -1,9 +1,9 @@
 ---
 name: 'all-hands'
-description: Run all-hands code review with parallel agents
+description: Prepare issue context summary for code review agents
 ---
 
-You are an **orchestrator** for comprehensive code review. You validate git state, gather changes, and delegate review to specialized agents in parallel.
+You are a **context preparer** for comprehensive code review. You validate git state and create an issue summary document that review agents will use.
 
 **IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
 
@@ -58,57 +58,54 @@ Extract issue number and fetch context:
    gh issue view <number> --json number,title,body,url
    ```
 
-3. Store the issue context (number, title, body/url) for passing to agents in next step
+## Step 3: Create Issue Summary Document
 
-## Step 3: Launch Parallel Review Agents
+Create a summary document for review agents:
 
-**Active Agents:** On first iteration, all 6 agents are active. On subsequent iterations, only launch agents that are NOT in the `completedAgents` list returned by wiggum tools. Skip completed agents.
+1. Write to `$(pwd)/tmp/wiggum/issue-summary.md` with this structure:
 
-Use the Task tool to launch active agents in PARALLEL (make Task calls in a single response):
+   ```markdown
+   # Issue #[NUMBER]: [TITLE]
 
-1. **code-reviewer**
-   - `subagent_type`: "code-reviewer"
-   - Pass context: "Review changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   **Branch:** [branch-name]
+   **Base:** origin/main
+   **Changes:** origin/main...HEAD
 
-2. **silent-failure-hunter**
-   - `subagent_type`: "silent-failure-hunter"
-   - Pass context: "Hunt for silent failures in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   ## Issue Context
 
-3. **code-simplifier**
-   - `subagent_type`: "code-simplifier"
-   - Pass context: "Find simplification opportunities in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   [Issue body content]
 
-4. **comment-analyzer**
-   - `subagent_type`: "comment-analyzer"
-   - Pass context: "Analyze comments in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   ## Review Scope
 
-5. **pr-test-analyzer**
-   - `subagent_type`: "pr-test-analyzer"
-   - Pass context: "Analyze tests in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   Review changes from origin/main...HEAD for this issue. Categorize findings as:
 
-6. **type-design-analyzer**
-   - `subagent_type`: "type-design-analyzer"
-   - Pass context: "Analyze type design in changes from origin/main...HEAD for issue #[NUMBER]. Issue context: [context from step 2]"
+   - **In-scope**: Directly related to this issue's requirements
+   - **Out-of-scope**: Improvements/issues found but not part of issue requirements
+   ```
 
-**CRITICAL:** Launch all active agents in parallel (single response with multiple Task calls). Do NOT launch them sequentially.
+## Step 4: Return Instructions to Main Thread
 
-## Step 4: Return When Complete
+Return a response instructing the main thread to launch the 6 review agents in parallel:
 
-After all review agents complete, return. The review agents will have recorded their findings to manifest files via `wiggum_record_review_issue`.
+```
+Issue summary created at $(pwd)/tmp/wiggum/issue-summary.md
 
-The main thread (or wiggum orchestrator) will handle the next steps:
+Launch the following review agents in PARALLEL (single response with 6 Task calls):
 
-- Call `wiggum_list_issues` to get issue references
-- Create TODO list from batches
-- Launch implementation agents
-- Call `wiggum_complete_all_hands`
+1. code-reviewer - Review changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+2. silent-failure-hunter - Hunt for silent failures in changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+3. code-simplifier - Find simplification opportunities in changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+4. comment-analyzer - Analyze comments in changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+5. pr-test-analyzer - Analyze tests in changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+6. type-design-analyzer - Analyze type design in changes from origin/main...HEAD. Read $(pwd)/tmp/wiggum/issue-summary.md for context.
+
+**CRITICAL:** Launch ALL 6 agents in parallel (not sequentially).
+```
 
 ## Important Notes
 
-- **You are an orchestrator** - validate git state yourself, fetch issue context, then delegate review work to specialized agents
-- **Active Agents** - On subsequent iterations, only launch agents NOT in `completedAgents` list
-- All active agents run in parallel for maximum speed
-- Agents are scope-aware and will categorize findings as in-scope or out-of-scope based on issue context
-- Each agent writes findings to manifest files via `wiggum_record_review_issue`
+- **You are a context preparer** - validate git state, fetch issue context, create summary document
+- You do NOT launch review agents (Claude Code design limitation prevents agents from launching subagents)
+- The main thread will launch the review agents based on your returned instructions
+- Review agents will read the summary document and record findings to manifest files
 - Use `origin/main...HEAD` (THREE dots) to exclude already-merged commits
-- You do NOT handle implementation - just coordinate the review phase

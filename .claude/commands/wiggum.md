@@ -87,7 +87,7 @@ When in-scope issues are found during reviews, wiggum launches the unsupervised-
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent on local branch
+2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent (creates summary), then launch 6 review agents
 3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
 4. **p1-4: Create PR** - Only after all pre-PR checks pass
 
@@ -118,24 +118,43 @@ Execute AFTER PR is created for final validation:
 
 ### Step p1-2: Code Review (Pre-PR)
 
-**Phase 1: Review**
+**Phase 1: Prepare Context**
 
 1. Invoke all-hands agent:
+
    ```
    Task tool with subagent_type="all-hands"
    ```
 
-**Phase 2: List & Organize**
+   - Agent validates git state
+   - Creates issue summary document at `$(pwd)/tmp/wiggum/issue-summary.md`
+   - Returns instructions listing 6 review agents to launch
 
-2. After agent completes, call `wiggum_list_issues({ scope: 'all' })`
-3. Create TODO list from the response:
+**Phase 2: Launch Review Agents**
+
+2. Follow the all-hands agent's instructions to launch 6 review agents in PARALLEL:
+   - code-reviewer
+   - silent-failure-hunter
+   - code-simplifier
+   - comment-analyzer
+   - pr-test-analyzer
+   - type-design-analyzer
+
+   Each agent will read `$(pwd)/tmp/wiggum/issue-summary.md` for context.
+
+**CRITICAL:** Launch ALL 6 agents in parallel (single response with 6 Task calls).
+
+**Phase 3: List & Organize**
+
+3. After ALL review agents complete, call `wiggum_list_issues({ scope: 'all' })`
+4. Create TODO list from the response:
    - One item per IN-SCOPE BATCH: `[batch-{N}] {file_count} files, {issue_count} issues`
    - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
    - One item for "Validate all implementations"
 
-**Phase 3: Parallel Implementation**
+**Phase 4: Parallel Implementation**
 
-4. Launch in PARALLEL using Task tool:
+5. Launch in PARALLEL using Task tool:
    - For each in-scope batch:
      - `subagent_type="unsupervised-implement"`
      - Pass batch_id from wiggum_list_issues
@@ -146,11 +165,11 @@ Execute AFTER PR is created for final validation:
 
 **CRITICAL:** Launch ALL agents in parallel (single response with multiple Task calls). Wait for ALL to complete before proceeding.
 
-**Phase 4: Sequential Validation**
+**Phase 5: Sequential Validation**
 
-5. After ALL Phase 3 agents complete, invoke SINGLE unsupervised-implement agent:
+6. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
    - `subagent_type="unsupervised-implement"`
-   - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 3 responses]."
+   - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 4 responses]."
    - Pass list of all batch IDs that were implemented
 
 **Why two stages?**
@@ -159,10 +178,10 @@ Execute AFTER PR is created for final validation:
 - Final validation agent runs after all edits complete, so it can run full test suite without race conditions
 - Any cross-batch issues are resolved by the validation agent
 
-**Phase 5: Complete**
+**Phase 6: Complete**
 
-6. Call `wiggum_complete_all_hands({})`
-7. Follow the instructions returned by the tool
+7. Call `wiggum_complete_all_hands({})`
+8. Follow the instructions returned by the tool
 
 ---
 
