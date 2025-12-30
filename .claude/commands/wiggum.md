@@ -87,7 +87,7 @@ When in-scope issues are found during reviews, wiggum launches the unsupervised-
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Run `/all-hands-review` on local branch
+2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent on local branch
 3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
 4. **p1-4: Create PR** - Only after all pre-PR checks pass
 
@@ -111,6 +111,60 @@ Execute AFTER PR is created for final validation:
 - **Phase 1** catches issues early (before PR creation noise)
 - **Phase 2** validates the PR in its final state (after all CI/CD)
 - This structure prevents creating PRs with known issues
+
+---
+
+## Step-by-Step Orchestration
+
+### Step p1-2: Code Review (Pre-PR)
+
+**Phase 1: Review**
+
+1. Invoke all-hands agent:
+   ```
+   Task tool with subagent_type="all-hands"
+   ```
+
+**Phase 2: List & Organize**
+
+2. After agent completes, call `wiggum_list_issues({ scope: 'all' })`
+3. Create TODO list from the response:
+   - One item per IN-SCOPE BATCH: `[batch-{N}] {file_count} files, {issue_count} issues`
+   - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
+   - One item for "Validate all implementations"
+
+**Phase 3: Parallel Implementation**
+
+4. Launch in PARALLEL using Task tool:
+   - For each in-scope batch:
+     - `subagent_type="unsupervised-implement"`
+     - Pass batch_id from wiggum_list_issues
+     - Instructions: "Implement fixes for batch-{N}. You may run unit tests scoped to your edits. However, full validation outside your edit scope may fail because other agents are concurrently editing other parts of the codebase. If you encounter validation errors outside your edit scope, include them in your response for the validation agent to resolve."
+   - For each out-of-scope issue:
+     - `subagent_type="out-of-scope-tracker"`
+     - Pass issue_id from wiggum_list_issues
+
+**CRITICAL:** Launch ALL agents in parallel (single response with multiple Task calls). Wait for ALL to complete before proceeding.
+
+**Phase 4: Sequential Validation**
+
+5. After ALL Phase 3 agents complete, invoke SINGLE unsupervised-implement agent:
+   - `subagent_type="unsupervised-implement"`
+   - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 3 responses]."
+   - Pass list of all batch IDs that were implemented
+
+**Why two stages?**
+
+- Parallel agents can run scoped unit tests but may see failures in code being edited by other agents
+- Final validation agent runs after all edits complete, so it can run full test suite without race conditions
+- Any cross-batch issues are resolved by the validation agent
+
+**Phase 5: Complete**
+
+6. Call `wiggum_complete_all_hands({})`
+7. Follow the instructions returned by the tool
+
+---
 
 ## Reading Tool Responses
 
@@ -267,9 +321,9 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 ### wiggum_complete_all_hands
 
-Call after `/all-hands-review` completes AND ALL TODO items are addressed (both review and implementation agents finish).
+Call after all-hands agent completes AND ALL TODO items are addressed (both review and implementation agents finish).
 
-**CRITICAL: One iteration = `/all-hands-review` + fix ALL issues. Do NOT call this tool until ALL TODO items are addressed.**
+**CRITICAL: One iteration = all-hands agent + fix ALL issues. Do NOT call this tool until ALL TODO items are addressed.**
 
 **Used in Phase 1 (p1-2) only:** Pre-PR all-hands code review on local branch
 
@@ -305,7 +359,7 @@ The tool uses 2-strike verification to prevent false completions:
 
 **Active Agents:**
 
-When the tool returns instructions for the next iteration, it includes an **Active Agents** list. On subsequent `/all-hands-review` calls:
+When the tool returns instructions for the next iteration, it includes an **Active Agents** list. On subsequent all-hands agent invocations:
 
 - **Only launch agents NOT in `completedAgents`**
 - Completed agents have passed 2-strike verification and should not run again

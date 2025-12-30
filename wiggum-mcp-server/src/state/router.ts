@@ -1031,7 +1031,7 @@ function handlePhase1PRReview(state: CurrentState, _issueNumber: number): ToolRe
     current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
     step_number: STEP_PHASE1_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
-    instructions: `See \`.claude/commands/wiggum.md\` for orchestration instructions for step **${STEP_NAMES[STEP_PHASE1_PR_REVIEW]}**.`,
+    instructions: `Follow wiggum skill instructions for step **${STEP_NAMES[STEP_PHASE1_PR_REVIEW]}**.`,
     steps_completed_by_tool: [],
     context: {},
   };
