@@ -1,4 +1,5 @@
 ---
+name: 'all-hands'
 description: Run all-hands code review with parallel agents
 ---
 
