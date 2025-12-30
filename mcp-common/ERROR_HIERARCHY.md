@@ -193,18 +193,33 @@ new GitHubCliError(
 - `message: string` - Human-readable error description
 - `name: string` - Always 'GitHubCliError'
 - `code: 'GH_CLI_ERROR'` - Automatically set
-- `exitCode: number` - Process exit code (clamped to 0-255, except -1 sentinel is preserved)
+- `exitCode: number` - Exit/status code (see valid ranges below)
 - `stderr: string` - Standard error output (can be empty string)
 - `stdout?: string` - Standard output (optional)
 
-**Special behavior**: Exit codes outside 0-255 are automatically clamped with a warning in the message, except -1 which is preserved as a sentinel value for "exit code unknown". This ensures error construction never fails.
+**Exit code validation**: The exitCode field has dual semantics - it stores either Unix exit codes (from process execution) OR HTTP status codes (from API responses for error classification).
+
+Valid ranges:
+
+- `-1`: Sentinel value indicating "exit code unknown" (process didn't run)
+- `0-255`: Standard Unix exit codes
+- `400-599`: HTTP status codes for API error classification (e.g., 404 Not Found, 429 Rate Limit)
+
+Invalid exit codes (e.g., -5, 300, 600) throw `ValidationError` at construction time.
 
 **Example**:
 
 ```typescript
 import { GitHubCliError } from '@commons/mcp-common/errors';
 
+// Unix exit code from gh CLI
 throw new GitHubCliError('Failed to create PR', 1, 'Error: could not create pull request', '');
+
+// HTTP status code for API error classification
+throw new GitHubCliError('Rate limited', 429, 'Too many requests');
+
+// Invalid exit code throws ValidationError
+new GitHubCliError('msg', 1000, 'stderr'); // throws!
 ```
 
 ## Result Types
@@ -765,7 +780,9 @@ createToolError('msg', '   '); // Throws ValidationError (whitespace-only errorT
 ```typescript
 createToolSuccess(''); // OK - empty string is valid text
 createErrorResult(unknownError); // OK - converts unknown errors gracefully
-new GitHubCliError('msg', 500, 'stderr'); // OK - clamps invalid exit codes automatically
+new GitHubCliError('msg', 500, 'stderr'); // OK - HTTP status code (400-599) is valid
+new GitHubCliError('msg', 128, 'stderr'); // OK - Unix exit code (0-255) is valid
+// new GitHubCliError('msg', 1000, 'stderr'); // THROWS - invalid code
 ```
 
 ### Best Practice

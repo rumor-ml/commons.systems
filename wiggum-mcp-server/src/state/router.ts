@@ -6,14 +6,23 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
-import { getPRReviewComments } from '../utils/gh-cli.js';
-import { postWiggumStateComment } from './comments.js';
-import { postWiggumStateIssueComment } from './issue-comments.js';
+// TODO(#942): Extract verbose error handling pattern in router.ts state update failures
+// TODO(#941): Extract duplicate state update pattern in router.ts (safeUpdatePRBodyState and safeUpdateIssueBodyState)
+// TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
+// TODO(#858): Improve state update retry loop error context capture
+// TODO(#811): Extract verbose state update error message formatting
+// TODO(#810): Extract duplicate safeUpdate functions in router.ts
+// TODO(#716): Migrate error classification in router.ts to structured error types
+// TODO(#710): Extract type alias for TransientFailureReason
+import { getPRReviewComments, sleep } from '../utils/gh-cli.js';
+import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
-import { addToCompletedSteps, applyWiggumState } from './state-utils.js';
+import { WiggumStateSchema, createWiggumState } from './types.js';
+import { applyWiggumState } from './state-utils.js';
+import { advanceToNextStep } from './transitions.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
@@ -22,20 +31,18 @@ import {
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
   STEP_PHASE2_CODE_QUALITY,
-  STEP_PHASE2_PR_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
-  PHASE1_PR_REVIEW_COMMAND,
-  PHASE2_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
   generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { GitHubCliError } from '../utils/errors.js';
+import { GitHubCliError, StateApiError, extractZodValidationDetails } from '../utils/errors.js';
+import { classifyGitHubError } from '@commons/mcp-common/errors';
 import { sanitizeErrorMessage } from '../utils/security.js';
 
 /**
@@ -47,22 +54,54 @@ type CurrentStateWithPR = CurrentState & {
 };
 
 /**
- * Result type for state comment posting operations
+ * Result type for state update operations
  *
- * CONTEXT: This discriminated union supports race-safe state persistence (issue #388).
- * By distinguishing successful persistence from transient failures, callers can make
- * informed decisions about retrying vs halting the workflow when state updates fail.
+ * Discriminated union for race-safe state persistence (issue #388).
  *
- * Provides expressive error handling with clear failure reasons:
- * - success: true - Comment posted successfully, state persisted
- * - success: false - Comment failed due to transient error (rate limit or network)
+ * - Success: State persisted to PR/issue body
+ * - Failure: Transient error (rate limit or network) - safe to retry
  *
- * Transient errors are logged and cause workflow to halt gracefully with
- * actionable retry instructions. Critical errors (404, auth) are thrown immediately.
+ * Critical errors (404, auth) throw immediately and never return failure.
+ * All failures returned from this type are transient by definition.
+ *
+ * Failure cases include lastError and attemptCount for debugging (issue #625).
  */
-type StateCommentResult =
-  | { success: true }
-  | { success: false; reason: 'rate_limit' | 'network'; isTransient: true };
+export type StateUpdateResult =
+  | { readonly success: true }
+  | {
+      readonly success: false;
+      readonly reason: 'rate_limit' | 'network';
+      readonly lastError: Error;
+      readonly attemptCount: number;
+    };
+
+/**
+ * Create a StateUpdateResult failure with validated parameters
+ *
+ * Enforces type safety at runtime to prevent invalid failure states that could
+ * corrupt retry tracking and debugging (issue #625).
+ *
+ * @param reason - Failure reason ('rate_limit' or 'network')
+ * @param lastError - Error from the final retry attempt
+ * @param attemptCount - Number of retry attempts made (must be positive integer)
+ * @returns StateUpdateResult failure object
+ * @throws Error if attemptCount is not a positive integer or lastError is not an Error
+ */
+export function createStateUpdateFailure(
+  reason: 'rate_limit' | 'network',
+  lastError: Error,
+  attemptCount: number
+): StateUpdateResult {
+  if (attemptCount < 1 || !Number.isInteger(attemptCount)) {
+    throw new Error(
+      `createStateUpdateFailure: attemptCount must be positive integer, got: ${attemptCount}`
+    );
+  }
+  if (!(lastError instanceof Error)) {
+    throw new Error(`createStateUpdateFailure: lastError must be Error instance`);
+  }
+  return { success: false, reason, lastError, attemptCount };
+}
 
 interface WiggumInstructions {
   current_step: string;
@@ -81,13 +120,12 @@ interface WiggumInstructions {
 }
 
 /**
- * Internal helper: Check for uncommitted changes and return early exit if found
+ * Check for uncommitted changes before workflow monitoring
  *
- * This is an internal utility function used by multiple step handlers
- * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
- * git state before proceeding with monitoring operations.
+ * Internal helper shared by handleStepMonitorWorkflow and handleStepMonitorPRChecks.
+ * Returns early exit instructions if uncommitted changes detected.
  *
- * @internal
+ * @internal Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -99,6 +137,7 @@ function checkUncommittedChanges(
   stepsCompleted: string[]
 ): ToolResult | null {
   if (state.git.hasUncommittedChanges) {
+    // TODO(#981): Add INFO level logging when uncommitted changes detected
     output.instructions =
       'Uncommitted changes detected. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked for uncommitted changes'];
@@ -110,13 +149,12 @@ function checkUncommittedChanges(
 }
 
 /**
- * Internal helper: Check if branch is pushed to remote and return early exit if not
+ * Check if branch is pushed to remote before workflow monitoring
  *
- * This is an internal utility function used by multiple step handlers
- * (handleStepMonitorWorkflow, handleStepMonitorPRChecks) to validate
- * git state before proceeding with monitoring operations.
+ * Internal helper shared by handleStepMonitorWorkflow and handleStepMonitorPRChecks.
+ * Returns early exit instructions if branch not pushed to remote.
  *
- * @internal
+ * @internal Exported via _testExports for unit testing only.
  * @param state - Current workflow state from detectCurrentState
  * @param output - WiggumInstructions object to populate with instructions
  * @param stepsCompleted - Array of steps completed so far to include in output
@@ -128,6 +166,7 @@ function checkBranchPushed(
   stepsCompleted: string[]
 ): ToolResult | null {
   if (!state.git.isPushed) {
+    // TODO(#981): Add INFO level logging when returning early with push instructions
     output.instructions =
       'Branch not pushed to remote. Execute the `/commit-merge-push` slash command using SlashCommand tool, then call wiggum_init to restart workflow monitoring.';
     output.steps_completed_by_tool = [...stepsCompleted, 'Checked push status'];
@@ -138,251 +177,437 @@ function checkBranchPushed(
   return null;
 }
 
+// TODO(#984): Extract common logic between safeUpdatePRBodyState and safeUpdateIssueBodyState
+// into a generic safeUpdateBodyState<T> function to reduce ~480 lines of duplication to ~250 lines.
+
 /**
- * Safely post wiggum state comment with error handling
+ * Safely update wiggum state in PR body with error handling and retry logic
  *
  * State persistence is CRITICAL for race condition fix (issue #388). Without
- * successful comment posting, workflow state may become inconsistent when tools
+ * successful state updates, workflow state may become inconsistent when tools
  * are called out-of-order or GitHub API returns stale data. This function
  * classifies errors to distinguish between transient failures (safe to retry)
  * and critical failures (require immediate intervention).
  *
- * Error handling strategy:
- * - Critical errors (404, 401/403): Throw - require immediate intervention
- * - Transient errors (429, network): Return failure Result - may self-resolve
+ * Retry strategy (issue #799):
+ * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
- * @param prNumber - PR number to comment on
+ * @param prNumber - PR number to update
  * @param state - New wiggum state to save
- * @param title - Comment title
- * @param body - Comment body
  * @param step - Step identifier for logging context
+ * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-export async function safePostStateComment(
+export async function safeUpdatePRBodyState(
   prNumber: number,
   state: WiggumState,
-  title: string,
-  body: string,
-  step: string
-): Promise<StateCommentResult> {
-  try {
-    await postWiggumStateComment(prNumber, state, title, body);
-    return { success: true };
-  } catch (commentError) {
-    // State comment posting is CRITICAL for race condition fix (issue #388)
-    // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
-    // TODO(#320): Surface state comment failures to users instead of silent warning
-    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-    // TODO(#468): Broad catch-all hides programming errors - add early type validation
-    const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-    const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
-    const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
-    const stateJson = JSON.stringify(state);
-
-    // Classify error type based on error message patterns
-    // TODO(#478): Document expected GitHub API error patterns and add test coverage
-    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-    const isAuth =
-      /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-      exitCode === 401 ||
-      exitCode === 403;
-    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
-
-    // Build comprehensive error context
-    const errorContext = {
+  step: string,
+  maxRetries = 3
+): Promise<StateUpdateResult> {
+  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
+    logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
       prNumber,
       step,
-      title,
-      iteration: state.iteration,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
       phase: state.phase,
-      completedSteps: state.completedSteps,
-      stateJson,
-      error: errorMsg,
-      errorType: commentError instanceof GitHubCliError ? 'GitHubCliError' : typeof commentError,
-      exitCode,
-      stderr,
-    };
-
-    // Critical errors: PR not found or authentication failures
-    if (is404) {
-      logger.error('Critical: PR not found - cannot post state comment', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - audit trail incomplete',
-        recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
-        nextSteps: 'Workflow cannot continue without valid PR',
-        isTransient: false,
-      });
-      throw commentError;
-    }
-
-    if (isAuth) {
-      logger.error('Critical: Authentication failed - cannot post state comment', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - insufficient permissions',
-        recommendation: 'Check gh auth status and token scopes: gh auth status',
-        nextSteps: 'Re-authenticate or update token permissions',
-        isTransient: false,
-      });
-      throw commentError;
-    }
-
-    // Transient errors: Rate limits or network issues
-    if (isRateLimit) {
-      logger.warn('Transient: Rate limit exceeded - state comment not posted', {
-        ...errorContext,
-        impact: 'State comment skipped - will retry on next state update',
-        recommendation: 'Check rate limit status: gh api rate_limit',
-        nextSteps: 'Workflow continues - rate limit may resolve',
-        isTransient: true,
-        recoveryNote: 'Missing state comment is recoverable on next update',
-      });
-      return { success: false, reason: 'rate_limit', isTransient: true };
-    }
-
-    if (isNetwork) {
-      logger.warn('Transient: Network error - state comment not posted', {
-        ...errorContext,
-        impact: 'State comment skipped - network connectivity issue',
-        recommendation: 'Check network connection and GitHub API status',
-        nextSteps: 'Workflow continues - network may recover',
-        isTransient: true,
-        recoveryNote: 'Missing state comment is recoverable on next update',
-      });
-      return { success: false, reason: 'network', isTransient: true };
-    }
-
-    // Unexpected errors: Programming errors or unknown failures
-    logger.error('Unexpected error posting state comment to PR - re-throwing', {
-      ...errorContext,
-      impact: 'Unknown failure type - may indicate programming error',
-      recommendation: 'Review error message and stack trace',
-      nextSteps: 'Workflow halted - manual investigation required',
-      isTransient: false,
+      impact: 'Cannot execute retry loop with invalid parameter',
     });
-    throw commentError;
+    throw new Error(
+      `safeUpdatePRBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
+    );
   }
+
+  // Validate state before attempting to post (issue #799: state validation errors)
+  // This catches invalid states early and provides clear error messages rather than
+  // opaque GitHub API errors when posting malformed state to PR body
+  try {
+    WiggumStateSchema.parse(state);
+  } catch (validationError) {
+    const { details, originalError } = extractZodValidationDetails(validationError, {
+      prNumber,
+      step,
+    });
+
+    logger.error('safeUpdatePRBodyState: State validation failed before posting', {
+      prNumber,
+      step,
+      state,
+      validationDetails: details,
+      error: originalError?.message ?? String(validationError),
+      errorStack: originalError?.stack,
+      impact: 'Invalid state cannot be persisted to GitHub',
+    });
+    // Include state summary in error message for debugging without log access (issue #625)
+    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
+    throw StateApiError.create(
+      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
+      'write',
+      'pr',
+      prNumber,
+      originalError ?? new Error(String(validationError))
+    );
+  }
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await updatePRBodyState(prNumber, state);
+
+      // Log recovery on retry success
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          prNumber,
+          step,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      }
+
+      return { success: true };
+    } catch (updateError) {
+      // State update is CRITICAL for race condition fix (issue #388)
+      // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
+      //
+      // Known limitations:
+      // TODO(#320): Surface state persistence failures to users instead of silent warning (user-facing)
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
+      // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
+      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
+      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      const stateJson = JSON.stringify(state);
+
+      // Classify error type using shared utility
+      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      const classification = classifyGitHubError(updateError, exitCode);
+
+      // Build error context including classification results for debugging
+      const errorContext = {
+        prNumber,
+        step,
+        attempt,
+        maxRetries,
+        iteration: state.iteration,
+        phase: state.phase,
+        completedSteps: state.completedSteps,
+        stateJson,
+        error: errorMsg,
+        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
+        exitCode,
+        stderr,
+        classification,
+      };
+
+      // Critical errors: PR not found or authentication failures - throw immediately (no retry)
+      if (classification.is404) {
+        logger.error('Critical: PR not found - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed',
+          recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
+          nextSteps: 'Workflow cannot continue without valid PR',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      if (classification.isAuth) {
+        logger.error('Critical: Authentication failed - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed - insufficient permissions',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          nextSteps: 'Re-authenticate or update token permissions',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (classification.isTransient) {
+        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2^attempt seconds, capped at 60s
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          logger.info('Transient error updating state - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
+            remainingAttempts: maxRetries - attempt,
+          });
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - return failure result with error context for debugging
+        const lastErrorObj =
+          updateError instanceof Error ? updateError : new Error(String(updateError));
+        logger.warn('State update failed after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Workflow halted - manual retry required',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - throw immediately
+      logger.error('Unexpected error updating state in PR body - re-throwing', {
+        ...errorContext,
+        impact: 'Unknown failure type - may indicate programming error',
+        recommendation: 'Review error message and stack trace',
+        nextSteps: 'Workflow halted - manual investigation required',
+        isTransient: false,
+      });
+      throw updateError;
+    }
+  }
+  // Fallback: TypeScript cannot prove all catch paths return/throw.
+  // If this executes, investigate gap in error classification (issue #625).
+  logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
+    prNumber,
+    step,
+    maxRetries,
+    phase: state.phase,
+    iteration: state.iteration,
+    stateJson: JSON.stringify(state),
+    impact: 'Programming error in retry logic',
+  });
+  throw new Error(
+    `INTERNAL ERROR: safeUpdatePRBodyState retry loop completed without returning. ` +
+      `PR: #${prNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+      `Phase: ${state.phase}, Iteration: ${state.iteration}`
+  );
 }
 
 /**
- * Safely post wiggum state comment to issue with error handling
+ * Safely update wiggum state in issue body with error handling and retry logic
  *
- * Wraps postWiggumStateIssueComment with error classification and logging.
- * Error handling strategy:
- * - Critical errors (404, 401/403): Throw - require immediate intervention
- * - Transient errors (429, network): Return failure Result - may self-resolve
+ * State persistence is CRITICAL for race condition fix (issue #388). Without
+ * successful state updates, workflow state may become inconsistent when tools
+ * are called out-of-order or GitHub API returns stale data.
+ *
+ * Retry strategy (issue #799):
+ * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
- * @param issueNumber - Issue number to comment on
+ * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
- * @param title - Comment title
- * @param body - Comment body
  * @param step - Step identifier for logging context
+ * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-export async function safePostIssueStateComment(
+export async function safeUpdateIssueBodyState(
   issueNumber: number,
   state: WiggumState,
-  title: string,
-  body: string,
-  step: string
-): Promise<StateCommentResult> {
-  try {
-    await postWiggumStateIssueComment(issueNumber, state, title, body);
-    return { success: true };
-  } catch (commentError) {
-    // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-    const errorMsg = commentError instanceof Error ? commentError.message : String(commentError);
-    const exitCode = commentError instanceof GitHubCliError ? commentError.exitCode : undefined;
-    const stderr = commentError instanceof GitHubCliError ? commentError.stderr : undefined;
-    const stateJson = JSON.stringify(state);
-
-    // Classify error type based on error message patterns
-    // TODO(#478): Document expected GitHub API error patterns and add test coverage
-    const is404 = /not found|404/i.test(errorMsg) || exitCode === 404;
-    const isAuth =
-      /permission|forbidden|unauthorized|401|403/i.test(errorMsg) ||
-      exitCode === 401 ||
-      exitCode === 403;
-    const isRateLimit = /rate limit|429/i.test(errorMsg) || exitCode === 429;
-    const isNetwork = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|fetch/i.test(errorMsg);
-
-    // Build comprehensive error context
-    const errorContext = {
+  step: string,
+  maxRetries = 3
+): Promise<StateUpdateResult> {
+  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
+    logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
       issueNumber,
       step,
-      title,
-      iteration: state.iteration,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
       phase: state.phase,
-      completedSteps: state.completedSteps,
-      stateJson,
-      error: errorMsg,
-      errorType: commentError instanceof GitHubCliError ? 'GitHubCliError' : typeof commentError,
-      exitCode,
-      stderr,
-    };
-
-    // Critical errors: Issue not found or authentication failures
-    if (is404) {
-      logger.error('Critical: Issue not found - cannot post state comment', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - audit trail incomplete',
-        recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
-        nextSteps: 'Workflow cannot continue without valid issue',
-        isTransient: false,
-      });
-      throw commentError;
-    }
-
-    if (isAuth) {
-      logger.error('Critical: Authentication failed - cannot post state comment', {
-        ...errorContext,
-        impact: 'Workflow state persistence failed - insufficient permissions',
-        recommendation: 'Check gh auth status and token scopes: gh auth status',
-        nextSteps: 'Re-authenticate or update token permissions',
-        isTransient: false,
-      });
-      throw commentError;
-    }
-
-    // Transient errors: Rate limits or network issues
-    if (isRateLimit) {
-      logger.warn('Transient: Rate limit exceeded - state comment not posted', {
-        ...errorContext,
-        impact: 'State comment skipped - will retry on next state update',
-        recommendation: 'Check rate limit status: gh api rate_limit',
-        nextSteps: 'Workflow continues - rate limit may resolve',
-        isTransient: true,
-        recoveryNote: 'Missing state comment is recoverable on next update',
-      });
-      return { success: false, reason: 'rate_limit', isTransient: true };
-    }
-
-    if (isNetwork) {
-      logger.warn('Transient: Network error - state comment not posted', {
-        ...errorContext,
-        impact: 'State comment skipped - network connectivity issue',
-        recommendation: 'Check network connection and GitHub API status',
-        nextSteps: 'Workflow continues - network may recover',
-        isTransient: true,
-        recoveryNote: 'Missing state comment is recoverable on next update',
-      });
-      return { success: false, reason: 'network', isTransient: true };
-    }
-
-    // Unexpected errors: Programming errors or unknown failures
-    logger.error('Unexpected error posting state comment - re-throwing', {
-      ...errorContext,
-      impact: 'Unknown failure type - may indicate programming error',
-      recommendation: 'Review error message and stack trace',
-      nextSteps: 'Workflow halted - manual investigation required',
-      isTransient: false,
+      impact: 'Cannot execute retry loop with invalid parameter',
     });
-    throw commentError;
+    throw new Error(
+      `safeUpdateIssueBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
+    );
   }
+
+  // Validate state before attempting to post (issue #799: state validation errors)
+  // This catches invalid states early and provides clear error messages rather than
+  // opaque GitHub API errors when posting malformed state to issue body
+  try {
+    WiggumStateSchema.parse(state);
+  } catch (validationError) {
+    const { details, originalError } = extractZodValidationDetails(validationError, {
+      issueNumber,
+      step,
+    });
+
+    logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
+      issueNumber,
+      step,
+      state,
+      validationDetails: details,
+      error: originalError?.message ?? String(validationError),
+      errorStack: originalError?.stack,
+      impact: 'Invalid state cannot be persisted to GitHub',
+    });
+    // Include state summary in error message for debugging without log access (issue #625)
+    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
+    throw StateApiError.create(
+      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
+      'write',
+      'issue',
+      issueNumber,
+      originalError ?? new Error(String(validationError))
+    );
+  }
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await updateIssueBodyState(issueNumber, state);
+
+      // Log recovery on retry success
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          issueNumber,
+          step,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      }
+
+      return { success: true };
+    } catch (updateError) {
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
+      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
+      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      const stateJson = JSON.stringify(state);
+
+      // Classify error type using shared utility
+      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      const classification = classifyGitHubError(updateError, exitCode);
+
+      // Build error context including classification results for debugging
+      const errorContext = {
+        issueNumber,
+        step,
+        attempt,
+        maxRetries,
+        iteration: state.iteration,
+        phase: state.phase,
+        completedSteps: state.completedSteps,
+        stateJson,
+        error: errorMsg,
+        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
+        exitCode,
+        stderr,
+        classification,
+      };
+
+      // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
+      if (classification.is404) {
+        logger.error('Critical: Issue not found - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed',
+          recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
+          nextSteps: 'Workflow cannot continue without valid issue',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      if (classification.isAuth) {
+        logger.error('Critical: Authentication failed - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed - insufficient permissions',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          nextSteps: 'Re-authenticate or update token permissions',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (classification.isTransient) {
+        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2^attempt seconds, capped at 60s
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          logger.info('Transient error updating state - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
+            remainingAttempts: maxRetries - attempt,
+          });
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - return failure result with error context for debugging
+        const lastErrorObj =
+          updateError instanceof Error ? updateError : new Error(String(updateError));
+        logger.warn('State update failed after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Workflow halted - manual retry required',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - throw immediately
+      logger.error('Unexpected error updating state in issue body - re-throwing', {
+        ...errorContext,
+        impact: 'Unknown failure type - may indicate programming error',
+        recommendation: 'Review error message and stack trace',
+        nextSteps: 'Workflow halted - manual investigation required',
+        isTransient: false,
+      });
+      throw updateError;
+    }
+  }
+  // Fallback: TypeScript cannot prove all catch paths return/throw.
+  // If this executes, investigate gap in error classification (issue #625).
+  logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
+    issueNumber,
+    step,
+    maxRetries,
+    phase: state.phase,
+    iteration: state.iteration,
+    stateJson: JSON.stringify(state),
+    impact: 'Programming error in retry logic',
+  });
+  throw new Error(
+    `INTERNAL ERROR: safeUpdateIssueBodyState retry loop completed without returning. ` +
+      `Issue: #${issueNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+      `Phase: ${state.phase}, Iteration: ${state.iteration}`
+  );
 }
 
 /**
@@ -409,19 +634,49 @@ function formatFixInstructions(
   defaultMessage: string,
   issueNumber?: number
 ): string {
-  // TODO(#417): Add logging when sanitization occurs to help debugging
   // Sanitize external input to prevent secret exposure and markdown issues
   // failureDetails comes from GitHub API responses (workflow logs, check outputs)
-  const sanitizedDetails = failureDetails
-    ? sanitizeErrorMessage(failureDetails, 1000)
-    : defaultMessage;
+  let sanitizedDetails: string;
+  let truncationIndicator = '';
+
+  if (failureDetails) {
+    const originalLength = failureDetails.length;
+    const hadMultipleLines = failureDetails.includes('\n');
+    sanitizedDetails = sanitizeErrorMessage(failureDetails, 1000);
+
+    // Detect sanitization and log for debugging
+    const wasLengthTruncated = sanitizedDetails.length < originalLength;
+    const wasMultilineReduced = hadMultipleLines && !sanitizedDetails.includes('\n');
+    const wasSanitized = wasLengthTruncated || wasMultilineReduced;
+
+    if (wasSanitized) {
+      logger.info('Error details sanitized during formatting', {
+        failureType,
+        originalLength,
+        sanitizedLength: sanitizedDetails.length,
+        wasLengthTruncated,
+        wasMultilineReduced,
+        impact: 'User sees sanitized error message',
+        recommendation: 'Check full failure details in GitHub workflow logs',
+      });
+      // Add user-facing indicator only for significant truncation
+      if (wasLengthTruncated) {
+        truncationIndicator =
+          '\n\n_(Error details truncated. See workflow logs for full details.)_';
+      }
+    }
+  } else {
+    sanitizedDetails = defaultMessage;
+  }
 
   // If issueNumber provided, use triage workflow
   if (issueNumber !== undefined) {
-    return generateWorkflowTriageInstructions(
-      issueNumber,
-      failureType as 'Workflow' | 'PR checks',
-      sanitizedDetails
+    return (
+      generateWorkflowTriageInstructions(
+        issueNumber,
+        failureType as 'Workflow' | 'PR checks',
+        sanitizedDetails
+      ) + truncationIndicator
     );
   }
 
@@ -435,7 +690,7 @@ function formatFixInstructions(
 5. Call wiggum_complete_fix with fix_description
 
 **Failure Details:**
-${sanitizedDetails}`;
+${sanitizedDetails}${truncationIndicator}`;
 }
 
 /**
@@ -534,48 +789,50 @@ async function handlePhase1MonitorWorkflow(
   const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (monitorResult.success) {
-    // Mark Step p1-1 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE1_MONITOR_WORKFLOW,
-      completedSteps: addToCompletedSteps(
-        state.wiggum.completedSteps,
-        STEP_PHASE1_MONITOR_WORKFLOW
-      ),
-      phase: 'phase1',
-    };
+    // Mark Step p1-1 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
-    const stateResult = await safePostIssueStateComment(
+    const stateResult = await safeUpdateIssueBodyState(
       issueNumber,
       newState,
-      `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Complete`,
-      'Feature branch workflow completed successfully.',
       STEP_PHASE1_MONITOR_WORKFLOW
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         issueNumber,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
           {
             type: 'text',
+            // TODO(#1012): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment to issue #${issueNumber}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: {},
             }),
@@ -596,44 +853,53 @@ async function handlePhase1MonitorWorkflow(
     return await getNextStepInstructions(updatedState);
   } else {
     // Workflow failed - increment iteration and return fix instructions with triage
-    const newState = {
+    const newState = createWiggumState({
       iteration: state.wiggum.iteration + 1,
       step: STEP_PHASE1_MONITOR_WORKFLOW,
       completedSteps: state.wiggum.completedSteps,
       phase: 'phase1' as const,
-    };
+    });
 
-    const stateResult = await safePostIssueStateComment(
+    const stateResult = await safeUpdateIssueBodyState(
       issueNumber,
       newState,
-      `${STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW]} - Failed`,
-      'Feature branch workflow failed. See instructions for fix process.',
       STEP_PHASE1_MONITOR_WORKFLOW
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         issueNumber,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
           {
             type: 'text',
+            // TODO(#1012): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment to issue #${issueNumber}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: {},
             }),
@@ -656,7 +922,7 @@ async function handlePhase1MonitorWorkflow(
       'Checked push status',
       'Monitored workflow run until first failure',
       'Retrieved complete failure details via gh_get_failure_details tool',
-      'Posted state to issue',
+      'Updated state in issue body',
       'Incremented iteration',
     ];
   }
@@ -669,37 +935,14 @@ async function handlePhase1MonitorWorkflow(
 /**
  * Phase 1 Step 2: PR Review
  */
-function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolResult {
+function handlePhase1PRReview(state: CurrentState, _issueNumber: number): ToolResult {
+  // Return pure state - orchestration instructions are in wiggum.md
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
     step_number: STEP_PHASE1_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 2: PR Review (Before PR Creation)
-
-Execute comprehensive PR review on the current branch before creating the pull request.
-
-**Instructions:**
-
-1. Execute the PR review command:
-   \`\`\`
-   ${PHASE1_PR_REVIEW_COMMAND}
-   \`\`\`
-
-2. After the review completes, call the \`wiggum_complete_pr_review\` tool with:
-   - command_executed: true
-   - verbatim_response: (full review output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)
-
-3. Results will be posted to issue #${issueNumber}
-
-4. If issues are found:
-   - You will be instructed to fix them (Plan + Fix cycle)
-   - After fixes, workflow restarts from Step p1-1
-
-5. If no issues:
-   - Proceed to Step p1-3 (Security Review - Pre-PR)`,
+    instructions: `Follow wiggum skill instructions for step **${STEP_NAMES[STEP_PHASE1_PR_REVIEW]}**.`,
     steps_completed_by_tool: [],
     context: {},
   };
@@ -713,6 +956,9 @@ Execute comprehensive PR review on the current branch before creating the pull r
  * Phase 1 Step 3: Security Review
  */
 function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
+  // Get active agents (filter out completed ones)
+  // All agents run every iteration
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
     step_number: STEP_PHASE1_SECURITY_REVIEW,
@@ -728,20 +974,29 @@ Execute security review on the current branch before creating the pull request.
    ${SECURITY_REVIEW_COMMAND}
    \`\`\`
 
-2. After the review completes, call the \`wiggum_complete_security_review\` tool with:
+2. After the review completes, aggregate results from all agents:
+   - Collect result file paths from each agent's JSON response
+   - Sum issue counts across all agents
+
+3. If any in-scope issues were found and fixed:
+   - Execute \`/commit-merge-push\` using SlashCommand tool
+
+4. Call the \`wiggum_complete_security_review\` tool with:
    - command_executed: true
-   - verbatim_response: (full review output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)
+   - in_scope_result_files: [array of result file paths from all agents]
+   - out_of_scope_result_files: [array of result file paths from all agents]
+   - in_scope_issue_count: (total count of in-scope security issues across all result files)
+   - out_of_scope_issue_count: (total count of out-of-scope security issues across all result files)
 
-3. Results will be posted to issue #${issueNumber}
+   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
 
-4. If issues are found:
+5. Results will be posted to issue #${issueNumber}
+
+6. If issues are found:
    - You will be instructed to fix them (Plan + Fix cycle)
    - After fixes, workflow restarts from Step p1-1
 
-5. If no issues:
+7. If no issues:
    - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
     steps_completed_by_tool: [],
     context: {},
@@ -847,16 +1102,8 @@ async function getPhase2NextStep(state: CurrentState): Promise<ToolResult> {
     return await handlePhase2CodeQuality(stateWithPR);
   }
 
-  // Step p2-4: PR Review (if not completed)
-  if (!state.wiggum.completedSteps.includes(STEP_PHASE2_PR_REVIEW)) {
-    logger.info('Routing to Phase 2 Step 4: PR Review', {
-      prNumber: stateWithPR.pr.number,
-      iteration: state.wiggum.iteration,
-    });
-    return handlePhase2PRReview(stateWithPR);
-  }
-
   // Step p2-5: Security Review (if not completed)
+  // NOTE: Phase 2 PR review (p2-4) removed - Phase 1 review is comprehensive
   if (!state.wiggum.completedSteps.includes(STEP_PHASE2_SECURITY_REVIEW)) {
     logger.info('Routing to Phase 2 Step 5: Security Review', {
       prNumber: stateWithPR.pr.number,
@@ -906,35 +1153,36 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
   const monitorResult = await monitorRun(state.git.currentBranch, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (monitorResult.success) {
-    // Mark Step p2-1 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_WORKFLOW,
-      completedSteps: addToCompletedSteps(
-        state.wiggum.completedSteps,
-        STEP_PHASE2_MONITOR_WORKFLOW
-      ),
-      phase: 'phase2',
-    };
+    // Mark Step p2-1 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
-    const stateResult = await safePostStateComment(
+    const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
       newState,
-      `${STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW]} - Complete`,
-      'Workflow run completed successfully.',
       STEP_PHASE2_MONITOR_WORKFLOW
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         prNumber: state.pr.number,
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -944,10 +1192,10 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
               step_number: STEP_PHASE2_MONITOR_WORKFLOW,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -960,15 +1208,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     const stepsCompleted = [
       'Monitored workflow run until completion',
       'Marked Step p2-1 complete',
-      'Posted state comment to PR',
+      'Updated state in PR body',
     ];
 
     // CONTINUE to Step p2-2: Monitor PR checks (within same function call)
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
     const updatedState = applyWiggumState(state, newState);
 
     const uncommittedCheck = checkUncommittedChanges(updatedState, output, stepsCompleted);
@@ -986,7 +1230,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         'PR checks',
         prChecksResult.failureDetails || prChecksResult.errorSummary,
         'See PR checks for details',
-        updatedState.issue.number
+        updatedState.issue.exists ? updatedState.issue.number : undefined
       );
       output.steps_completed_by_tool = [
         ...stepsCompleted,
@@ -1000,35 +1244,36 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       };
     }
 
-    // PR checks succeeded - mark Step p2-2 complete (with deduplication)
-    const newState2: WiggumState = {
-      iteration: updatedState.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: addToCompletedSteps(
-        updatedState.wiggum.completedSteps,
-        STEP_PHASE2_MONITOR_CHECKS
-      ),
-      phase: 'phase2',
-    };
+    // PR checks succeeded - mark Step p2-2 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState2: WiggumState = advanceToNextStep(updatedState.wiggum);
 
-    const stateResult2 = await safePostStateComment(
+    const stateResult2 = await safeUpdatePRBodyState(
       state.pr.number,
       newState2,
-      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
-      'All PR checks passed successfully.',
       STEP_PHASE2_MONITOR_CHECKS
     );
 
     if (!stateResult2.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         prNumber: state.pr.number,
         step: STEP_PHASE2_MONITOR_CHECKS,
         iteration: newState2.iteration,
         phase: newState2.phase,
         reason: stateResult2.reason,
+        lastError: stateResult2.lastError?.message,
+        attemptCount: stateResult2.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult2.lastError
+        ? `\n\nActual error: ${stateResult2.lastError.message}`
+        : '';
+      const retryInfo = stateResult2.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult2.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1038,10 +1283,10 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
               step_number: STEP_PHASE2_MONITOR_CHECKS,
               iteration_count: newState2.iteration,
-              instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult2.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult2.reason} after ${stateResult2.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1056,15 +1301,11 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       'Checked push status',
       'Monitored all PR checks until completion',
       'Marked Step p2-2 complete',
-      'Posted state comment to PR'
+      'Updated state in PR body'
     );
 
     // CONTINUE to Step p2-3: Code Quality
-    // Reuse newState2 to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState2 to avoid race condition (issue #799: state validation errors)
     const finalState = applyWiggumState(updatedState, newState2);
     return processPhase2CodeQualityAndReturnNextInstructions(
       finalState as CurrentStateWithPR,
@@ -1076,7 +1317,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
       'Workflow',
       monitorResult.failureDetails || monitorResult.errorSummary,
       'See workflow logs for details',
-      state.issue.number
+      state.issue.exists ? state.issue.number : undefined
     );
     output.steps_completed_by_tool = [
       'Monitored workflow run until first failure',
@@ -1115,32 +1356,36 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
   const prChecksResult = await monitorPRChecks(state.pr.number, WORKFLOW_MONITOR_TIMEOUT_MS);
 
   if (prChecksResult.success) {
-    // Mark Step p2-2 complete (with deduplication)
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_MONITOR_CHECKS,
-      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_MONITOR_CHECKS),
-      phase: 'phase2',
-    };
+    // Mark Step p2-2 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
-    const stateResult = await safePostStateComment(
+    const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
       newState,
-      `${STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS]} - Complete`,
-      'All PR checks passed successfully.',
       STEP_PHASE2_MONITOR_CHECKS
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         prNumber: state.pr.number,
         step: STEP_PHASE2_MONITOR_CHECKS,
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1150,10 +1395,10 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
               current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
               step_number: STEP_PHASE2_MONITOR_CHECKS,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1168,15 +1413,11 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       'Checked push status',
       'Monitored all PR checks until completion',
       'Marked Step p2-2 complete',
-      'Posted state comment to PR',
+      'Updated state in PR body',
     ];
 
     // CONTINUE to Step p2-3: Code Quality (Step p2-2 standalone path)
-    // Reuse newState to avoid race condition with GitHub API (issue #388)
-    // TRADE-OFF: This avoids GitHub API eventual consistency issues but assumes no external
-    // state changes have occurred (PR closed, commits added, issue modified). This is safe
-    // during inline step transitions within the same tool call. For state staleness validation,
-    // see issue #391.
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
     const updatedState = applyWiggumState(state, newState);
     return processPhase2CodeQualityAndReturnNextInstructions(
       updatedState as CurrentStateWithPR,
@@ -1188,7 +1429,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
       'PR checks',
       prChecksResult.failureDetails || prChecksResult.errorSummary,
       'See PR checks for details',
-      state.issue.number
+      state.issue.exists ? state.issue.number : undefined
     );
     output.steps_completed_by_tool = [
       'Checked for uncommitted changes',
@@ -1218,7 +1459,24 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   // Fetch code quality bot comments
   // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
   // Current: errors propagate as GitHubCliError without wiggum-specific context
-  const comments = await getPRReviewComments(state.pr.number, CODE_QUALITY_BOT_USERNAME);
+  const { comments, skippedCount, warning } = await getPRReviewComments(
+    state.pr.number,
+    CODE_QUALITY_BOT_USERNAME
+  );
+
+  // Warn if any comments failed to parse - review data may be incomplete
+  // Also prepare warning text to surface to user in output
+  let userWarning: string | undefined;
+  if (skippedCount > 0) {
+    logger.warn('Some code quality comments could not be parsed - review may be incomplete', {
+      prNumber: state.pr.number,
+      parsedCount: comments.length,
+      skippedCount,
+      impact: 'Code quality review may miss some findings',
+    });
+    // Surface warning to user so they know review data is incomplete
+    userWarning = warning;
+  }
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
@@ -1226,6 +1484,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     iteration_count: state.wiggum.iteration,
     instructions: '',
     steps_completed_by_tool: [...stepsCompletedSoFar],
+    warning: userWarning, // Surface parsing warning to user
     context: {
       pr_number: state.pr.number,
       current_branch: state.git.currentBranch,
@@ -1233,32 +1492,36 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   };
 
   if (comments.length === 0) {
-    // No comments - mark Step p2-3 complete and return Step p2-4 (PR Review) instructions
-    const newState: WiggumState = {
-      iteration: state.wiggum.iteration,
-      step: STEP_PHASE2_CODE_QUALITY,
-      completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE2_CODE_QUALITY),
-      phase: 'phase2',
-    };
+    // No comments - mark Step p2-3 complete and advance to next step
+    // Use advanceToNextStep() to maintain state invariant (issue #799)
+    const newState: WiggumState = advanceToNextStep(state.wiggum);
 
-    const stateResult = await safePostStateComment(
+    const stateResult = await safeUpdatePRBodyState(
       state.pr.number,
       newState,
-      `${STEP_NAMES[STEP_PHASE2_CODE_QUALITY]} - Complete`,
-      'No code quality comments found. Step complete.',
       STEP_PHASE2_CODE_QUALITY
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State comment failed to post - halting workflow', {
+      logger.error('Critical: State update failed - halting workflow', {
         prNumber: state.pr.number,
         step: STEP_PHASE2_CODE_QUALITY,
         iteration: newState.iteration,
         phase: newState.phase,
         reason: stateResult.reason,
+        lastError: stateResult.lastError?.message,
+        attemptCount: stateResult.attemptCount,
         impact: 'Race condition fix requires state persistence',
         recommendation: 'Retry after resolving rate limit/network issues',
       });
+
+      // Build detailed error context for user-facing message
+      const errorDetails = stateResult.lastError
+        ? `\n\nActual error: ${stateResult.lastError.message}`
+        : '';
+      const retryInfo = stateResult.attemptCount
+        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
+        : '';
 
       return {
         content: [
@@ -1268,10 +1531,10 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
               current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
               step_number: STEP_PHASE2_CODE_QUALITY,
               iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to post state comment to PR #${state.pr.number}. The race condition fix requires state persistence.\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
               steps_completed_by_tool: [
-                'Attempted to post state comment',
-                'Failed due to transient error',
+                'Attempted to update state in body',
+                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
               ],
               context: { pr_number: state.pr.number },
             }),
@@ -1286,28 +1549,19 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
       'Marked Step p2-3 complete'
     );
 
-    // Return Step p2-4 (PR Review) instructions
-    output.current_step = STEP_NAMES[STEP_PHASE2_PR_REVIEW];
-    output.step_number = STEP_PHASE2_PR_REVIEW;
-    // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Extract duplicated PR review instructions to helper function
-    output.instructions = `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline
-
-Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
-
-After all review agents complete:
-1. Capture the complete verbatim response
-2. Count issues by priority (high, medium, low)
-3. Call wiggum_complete_pr_review with:
-   - command_executed: true
-   - verbatim_response: (full output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)`;
+    // Skip to Step p2-5 (Security Review) - p2-4 removed as Phase 1 review is comprehensive
+    // Reuse newState to avoid race condition (issue #799: state validation errors)
+    const updatedState = applyWiggumState(state, newState);
+    return await getNextStepInstructions(updatedState);
   } else {
     // Comments found - return code quality review instructions
     output.steps_completed_by_tool.push(`Fetched code quality comments - ${comments.length} found`);
-    output.instructions = `${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
+
+    // Prepend warning to instructions if some comments could not be parsed
+    // This ensures the warning is prominent and not just in the warning field
+    const warningPrefix = userWarning ? `**WARNING:** ${userWarning}\n\n` : '';
+
+    output.instructions = `${warningPrefix}${comments.length} code quality comment(s) from ${CODE_QUALITY_BOT_USERNAME} found.
 
 IMPORTANT: These are automated suggestions and NOT authoritative. Evaluate critically.
 
@@ -1354,43 +1608,13 @@ async function handlePhase2CodeQuality(state: CurrentStateWithPR): Promise<ToolR
 }
 
 /**
- * Phase 2 Step 4: PR Review
- */
-function handlePhase2PRReview(state: CurrentStateWithPR): ToolResult {
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_PHASE2_PR_REVIEW],
-    step_number: STEP_PHASE2_PR_REVIEW,
-    iteration_count: state.wiggum.iteration,
-    instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
-Review all commits: git log main..HEAD --oneline
-
-Execute ${PHASE2_PR_REVIEW_COMMAND} using SlashCommand tool (no arguments).
-
-After all review agents complete:
-1. Capture the complete verbatim response
-2. Count issues by priority (high, medium, low)
-3. Call wiggum_complete_pr_review with:
-   - command_executed: true
-   - verbatim_response: (full output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)`,
-    steps_completed_by_tool: [],
-    context: {
-      pr_number: state.pr.number,
-      current_branch: state.git.currentBranch,
-    },
-  };
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
  * Phase 2 Step 5: Security Review
+ * NOTE: Step 4 (PR Review) was removed as Phase 1 review is comprehensive
  */
 function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
+  // Get active agents (filter out completed ones)
+  // All agents run every iteration
+
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE2_SECURITY_REVIEW],
     step_number: STEP_PHASE2_SECURITY_REVIEW,
@@ -1460,12 +1684,6 @@ Final actions:
 function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
   return state.pr.exists && state.pr.state === 'OPEN';
 }
-
-/**
- * Export StateCommentResult type for use by other modules
- * Note: safePostStateComment and safePostIssueStateComment are exported at their declarations above
- */
-export type { StateCommentResult };
 
 /**
  * Export internal functions for testing

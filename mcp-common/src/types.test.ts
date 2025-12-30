@@ -11,8 +11,11 @@ import {
   isToolSuccess,
   validateToolResult,
   type ToolResult,
+  type ToolResultStrict,
   type ToolSuccess,
+  type ToolSuccessStrict,
   type ToolError,
+  type ToolErrorStrict,
 } from './types.js';
 import { GitHubCliError, isSystemError } from './errors.js';
 
@@ -37,6 +40,13 @@ describe('createToolSuccess', () => {
     const result: ToolSuccess = createToolSuccess('Test');
 
     // Type assertion - if this compiles, type is correct
+    assert.equal(result.isError, false);
+  });
+
+  it('ToolSuccess is assignable to ToolSuccessStrict for application code', () => {
+    // Factory returns ToolSuccess, which can be used where ToolSuccessStrict is expected
+    // This enables strict type checking in application code
+    const result: ToolSuccessStrict = createToolSuccess('Test');
     assert.equal(result.isError, false);
   });
 });
@@ -80,6 +90,14 @@ describe('createToolError', () => {
     const result: ToolError = createToolError('Error', 'TestError');
 
     // Type assertion - if this compiles, type is correct
+    assert.equal(result.isError, true);
+    assert.equal(result._meta.errorType, 'TestError');
+  });
+
+  it('ToolError is assignable to ToolErrorStrict for application code', () => {
+    // Factory returns ToolError, which can be used where ToolErrorStrict is expected
+    // This enables strict type checking in application code
+    const result: ToolErrorStrict = createToolError('Error', 'TestError');
     assert.equal(result.isError, true);
     assert.equal(result._meta.errorType, 'TestError');
   });
@@ -207,28 +225,37 @@ describe('Edge cases', () => {
 });
 
 describe('GitHubCliError exit code validation', () => {
-  it('accepts valid exit codes (0-255)', () => {
+  it('accepts valid Unix exit codes (0-255)', () => {
     assert.doesNotThrow(() => new GitHubCliError('msg', 0, 'stderr'));
     assert.doesNotThrow(() => new GitHubCliError('msg', 1, 'stderr'));
     assert.doesNotThrow(() => new GitHubCliError('msg', 127, 'stderr'));
     assert.doesNotThrow(() => new GitHubCliError('msg', 255, 'stderr'));
   });
 
-  it('preserves -1 sentinel value without warning', () => {
+  it('accepts HTTP status codes (400-599)', () => {
+    assert.doesNotThrow(() => new GitHubCliError('msg', 400, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 404, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 429, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 500, 'stderr'));
+    assert.doesNotThrow(() => new GitHubCliError('msg', 599, 'stderr'));
+  });
+
+  it('preserves -1 sentinel value', () => {
     const error = new GitHubCliError('Process did not run', -1, 'stderr');
     assert.equal(error.exitCode, -1);
-    assert.ok(!error.message.includes('Warning'));
     assert.equal(error.message, 'Process did not run');
   });
 
-  it('clamps invalid exit codes instead of throwing', () => {
-    const error1 = new GitHubCliError('msg', -5, 'stderr');
-    assert.equal(error1.exitCode, 0);
-    assert.ok(error1.message.includes('Warning: Invalid exit code -5 clamped to 0'));
+  it('throws ValidationError for invalid exit codes', () => {
+    // Negative codes (except -1)
+    assert.throws(() => new GitHubCliError('msg', -5, 'stderr'), /Invalid exit\/status code: -5/);
 
-    const error2 = new GitHubCliError('msg', 256, 'stderr');
-    assert.equal(error2.exitCode, 255);
-    assert.ok(error2.message.includes('Warning: Invalid exit code 256 clamped to 255'));
+    // Gap between Unix and HTTP codes (256-399)
+    assert.throws(() => new GitHubCliError('msg', 256, 'stderr'), /Invalid exit\/status code: 256/);
+    assert.throws(() => new GitHubCliError('msg', 399, 'stderr'), /Invalid exit\/status code: 399/);
+
+    // Above HTTP status codes (600+)
+    assert.throws(() => new GitHubCliError('msg', 600, 'stderr'), /Invalid exit\/status code: 600/);
   });
 
   it('accepts optional stdout parameter', () => {

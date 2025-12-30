@@ -9,6 +9,11 @@
 // TODO: See issue #285 - Improve error handling: narrow catch blocks, add specific error messages instead of generic ones
 
 // Import Firestore operations
+// TODO(#588): Fix silent failures and error handling in production code
+// TODO(#462): Add JSDoc type annotations and validation for JavaScript types
+// TODO(#331): Lower card render failure threshold and show which cards failed
+// TODO(#322): Add E2E tests for library navigation error handling
+// TODO(#321): Add tests for card rendering error recovery
 import {
   getAllCards,
   createCard as createCardInDB,

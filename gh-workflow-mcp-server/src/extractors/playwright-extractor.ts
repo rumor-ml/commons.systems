@@ -2,6 +2,7 @@
  * Playwright test framework extractor - parses JSON output only
  */
 
+// TODO(#551): Add defensive error handling to test counting logic in Playwright extractor
 import type {
   DetectionResult,
   ExtractionResult,
@@ -9,12 +10,43 @@ import type {
   FrameworkExtractor,
 } from './types.js';
 import { safeValidateExtractedError, ValidationErrorTracker } from './types.js';
+import { z } from 'zod';
 
-interface PlaywrightJsonReport {
-  config?: any; // Config object (optional, may not be present in all reports)
-  suites: PlaywrightSuite[];
+export class PlaywrightJsonNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlaywrightJsonNotFoundError';
+  }
 }
 
+const PlaywrightTestResultSchema = z.object({
+  duration: z.number(),
+  status: z.string(),
+  error: z
+    .object({
+      message: z.string(),
+      stack: z.string().optional(),
+      snippet: z.string().optional(),
+    })
+    .nullish(), // Allow undefined or null - Playwright sends null when test fails before error object creation (e.g., timeout scenarios)
+});
+
+const PlaywrightTestSchema = z.object({
+  expectedStatus: z.string(),
+  status: z.string(),
+  projectName: z.string(),
+  results: z.array(PlaywrightTestResultSchema),
+});
+
+const PlaywrightSpecSchema = z.object({
+  title: z.string(),
+  ok: z.boolean(),
+  tests: z.array(PlaywrightTestSchema),
+});
+
+// Define types first, then schemas with z.lazy() to handle circular references
+// WHY: Zod cannot infer types from schemas with circular references (PlaywrightSuite.suites)
+// Pattern: interface → schema → z.lazy() enables self-referential structure validation
 interface PlaywrightSuite {
   title: string;
   file: string;
@@ -44,7 +76,42 @@ interface PlaywrightTestResult {
     message: string;
     stack?: string;
     snippet?: string;
-  };
+  } | null;
+}
+
+interface PlaywrightJsonReport {
+  config?: any;
+  suites: PlaywrightSuite[];
+}
+
+const PlaywrightSuiteSchema: z.ZodType<PlaywrightSuite> = z.lazy(() =>
+  z.object({
+    title: z.string(),
+    file: z.string(),
+    column: z.number(),
+    line: z.number(),
+    specs: z.array(PlaywrightSpecSchema),
+    suites: z.array(PlaywrightSuiteSchema).optional(),
+  })
+);
+
+const PlaywrightJsonReportSchema = z.object({
+  config: z.any().optional(),
+  suites: z.array(PlaywrightSuiteSchema),
+});
+
+/**
+ * Get error message from an unknown error value
+ */
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Get error stack trace from an unknown error value, or empty string
+ */
+function getErrorStack(err: unknown): string {
+  return err instanceof Error && err.stack ? err.stack : '';
 }
 
 export class PlaywrightExtractor implements FrameworkExtractor {
@@ -76,8 +143,36 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           };
         }
       } catch (err) {
-        // TODO: See issue #332 - Empty catch swallows all errors including unexpected ones
-        // Not valid JSON or extraction failed - this is expected, not an error
+        // Defensive logging: Capture ALL errors first before type checking
+        // This ensures visibility even if error type checking logic has bugs
+        console.error(
+          `[DEBUG] detect() caught error: ${getErrorMessage(err)}` +
+            ` (type: ${err?.constructor?.name || typeof err})`
+        );
+
+        // detect() only handles expected errors - returns null for non-Playwright:
+        // - SyntaxError: malformed JSON
+        // - PlaywrightJsonNotFoundError: missing required fields
+        if (err instanceof SyntaxError || err instanceof PlaywrightJsonNotFoundError) {
+          return null; // Expected: not Playwright format
+        }
+
+        // Unexpected error - this is a BUG, must propagate
+        const stack = getErrorStack(err);
+        const errorMsg = getErrorMessage(err);
+
+        console.error(
+          `[ERROR] Unexpected error during Playwright detection: ${errorMsg}` +
+            (stack ? `\nStack: ${stack}` : '') +
+            `. This is a bug in the Playwright extractor detection logic.`
+        );
+
+        // Wrap with context and propagate - do NOT hide bugs
+        throw new Error(
+          `Playwright detector encountered unexpected error: ${errorMsg}. ` +
+            `This is a bug in the detection logic and should be reported.`,
+          { cause: err }
+        );
       }
     }
 
@@ -163,11 +258,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return this.parsePlaywrightText(logText, maxErrors);
     }
 
-    // No Playwright detected at all
-    return {
-      framework: 'unknown',
-      errors: [],
-    };
+    // No Playwright detected - try parsePlaywrightJson anyway to provide
+    // a helpful error message (e.g., missing JSON, wrong reporter config)
+    return this.parsePlaywrightJson(logText, maxErrors);
   }
 
   private parsePlaywrightTimeout(logText: string): ExtractionResult {
@@ -210,7 +303,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
             const timeResult = this.parseTimeDiff(setupTimestamp, configTimestamp);
             timeGap = timeResult.seconds;
 
-            // Store diagnostic for inclusion in error message if parsing failed
+            // Store diagnostic for inclusion in error message
+            // Diagnostic may be present when timestamps exist but parsing failed
+            // (e.g., invalid HH:MM:SS format, NaN values, midnight rollover detected)
             if (timeResult.seconds === null && timeResult.diagnostic) {
               timeDiagnostic = timeResult.diagnostic;
               console.error(
@@ -232,10 +327,16 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     if (typeof timeGap === 'number' && timeGap > 60) {
       message += `There was a ${Math.floor(timeGap / 60)} minute gap before termination, `;
       message += 'suggesting the webServer failed to start or tests hung. ';
-    } else if (timeGap === null && timeDiagnostic) {
-      // Include diagnostic directly in user-facing message
-      message += `\n\nTimestamp diagnostic: ${timeDiagnostic}\n`;
-      message += `This may indicate log format changes or timestamp extraction issues. `;
+    } else if (timeGap === null && (setupTimestamp || configTimestamp)) {
+      // Timestamps exist but parsing failed - show diagnostic context
+      const diagnosticInfo =
+        timeDiagnostic || `Timestamps: ${setupTimestamp || '?'} → ${configTimestamp || '?'}`;
+      message +=
+        `\n\nCould not determine time gap between events. ` +
+        `Diagnostic: ${diagnosticInfo}\n` +
+        `This may indicate log format changes or timestamp extraction issues. `;
+    } else if (timeGap === undefined) {
+      message += `No timestamp information available in logs. `;
     }
 
     message +=
@@ -276,6 +377,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
   /**
    * Parse a single HH:MM:SS timestamp string into seconds
    *
+   * Surfaces parsing diagnostics via console.error for observability.
+   * Caller (parseTimeDiff) aggregates individual failures into combined diagnostic.
+   *
    * @param timestamp - Timestamp string in HH:MM:SS format
    * @param label - Descriptive label for error messages (e.g., "time1", "time2")
    * @returns Seconds since midnight, or null if parsing fails
@@ -285,7 +389,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * parseTimestamp("invalid", "time1")  // returns null (logs warning)
    */
   private parseTimestamp(timestamp: string, label: string): number | null {
-    // Validate format is HH:MM:SS
+    // Validate format is HH:MM:SS (regex guarantees digits, so Number() never produces NaN)
     if (!/^\d{2}:\d{2}:\d{2}$/.test(timestamp)) {
       console.error(
         `[WARN] parseTimestamp: ${label} has invalid format "${timestamp}" (expected HH:MM:SS)`
@@ -293,22 +397,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       return null;
     }
 
-    // Parse without try-catch - let unexpected errors propagate
     const [h, m, s] = timestamp.split(':').map(Number);
-
-    // Check for NaN values (expected error - malformed input)
-    if (isNaN(h) || isNaN(m) || isNaN(s)) {
-      console.error(
-        `[WARN] parseTimestamp: ${label} "${timestamp}" contains non-numeric values (h=${h}, m=${m}, s=${s})`
-      );
-      return null;
-    }
 
     // Validate ranges (hours: 0-23, minutes/seconds: 0-59)
     const rangeErrors: string[] = [];
-    if (h < 0 || h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
-    if (m < 0 || m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
-    if (s < 0 || s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
+    if (h > 23) rangeErrors.push(`hours=${h} (valid: 0-23)`);
+    if (m > 59) rangeErrors.push(`minutes=${m} (valid: 0-59)`);
+    if (s > 59) rangeErrors.push(`seconds=${s} (valid: 0-59)`);
 
     if (rangeErrors.length > 0) {
       console.error(
@@ -328,13 +423,13 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    *
    * FAILURE HANDLING:
    * - Returns structured result with optional diagnostic on failure
-   * - Logs warnings for invalid formats or NaN values
-   * - Caller conditionally includes diagnostic in error messages when available
+   * - Aggregates parseTimestamp() diagnostics (logged to console) into combined diagnostic
+   * - Caller (parsePlaywrightTimeout) conditionally includes diagnostic in error messages when available
    *
    * FAILURE CASES:
    * - Invalid format (not HH:MM:SS)
    * - NaN after parsing (e.g., "12:AB:34")
-   * - Unexpected parsing errors
+   * - Midnight rollover (diff > 12h threshold)
    *
    * @param time1 - First timestamp in HH:MM:SS format
    * @param time2 - Second timestamp in HH:MM:SS format
@@ -372,11 +467,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
     const diff = Math.abs(seconds2 - seconds1);
 
-    // TODO(#289): Add stderr logging for midnight rollover detection
-    // TODO(#305): Document rationale for 12-hour threshold
-    // Why: Valid test runs never exceed 12h; larger gaps indicate date boundary crossed
-    // See PR review #273 comment improvement recommendations
-    // Detect midnight rollover (gap > 12 hours = likely crossed midnight)
+    // Midnight rollover detection: 12h threshold (43200s)
+    // Rationale: CI timeouts typically 2-6h max; 12h provides safety margin while detecting date boundaries
+    // Example: 23:50:00 → 00:10:00 yields diff=85200s (23h 40m) > 12h → likely midnight rollover
     if (diff > 43200) {
       return {
         seconds: null,
@@ -389,6 +482,20 @@ export class PlaywrightExtractor implements FrameworkExtractor {
 
   /**
    * Parse Playwright JSON report from logs
+   *
+   * Processes Playwright's JSON reporter output to extract test failures with full context.
+   * Handles logs containing embedded JSON (e.g., GitHub Actions with timestamps).
+   *
+   * ERROR HANDLING PHASES:
+   * 1. JSON Extraction (extractJsonFromLogs): Throws on no valid JSON structure found
+   * 2. JSON Parsing (JSON.parse): Returns fallback error on malformed JSON
+   * 3. Schema Validation (Zod): Returns fallback error on invalid Playwright structure
+   * 4. Suite Traversal: No try-catch - bugs propagate (expected structure after validation)
+   *
+   * FAILURE MODES:
+   * - Extraction fails → Returns error with log size context
+   * - Parse fails → Returns error with JSON snippet
+   * - Traversal throws → Bug propagates (indicates schema change or extractor bug)
    *
    * NOTE: The _maxErrors parameter is intentionally unused but retained for interface compatibility.
    * Unlike Go test JSON (which streams line-by-line and can be limited), Playwright JSON reports
@@ -404,49 +511,127 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * @param logText - Full log text containing Playwright JSON report
    * @param _maxErrors - Unused; kept for FrameworkExtractor interface compatibility
    * @returns ExtractionResult with all failures found in the report
+   *   - On success: { framework: 'playwright', errors: ExtractedError[], summary?, parseWarnings? }
+   *   - On user error (bad JSON): { framework: 'playwright', errors: [fallback error with diagnostic] }
+   * @throws {Error} Propagates unexpected errors (OOM, V8 bugs) - never throws for user-facing errors like malformed JSON
+   *
+   * @example
+   * // Typical usage with embedded JSON
+   * const logText = `
+   * 2025-01-15T10:00:00.000Z Running tests...
+   * 2025-01-15T10:00:01.000Z {"suites":[{"specs":[...]}]}
+   * `;
+   * const result = parsePlaywrightJson(logText, 10);
+   * // Returns: { framework: 'playwright', errors: [...], summary: '2 failed, 8 passed' }
    */
   private parsePlaywrightJson(logText: string, _maxErrors: number): ExtractionResult {
     const failures: ExtractedError[] = [];
     const validationTracker = new ValidationErrorTracker();
 
-    // Phase 1: Extract JSON from logs (let failure propagate for now)
+    // Phase 1: Extract JSON from logs
     let jsonText: string;
     try {
       jsonText = this.extractJsonFromLogs(logText);
     } catch (extractErr) {
-      // extractJsonFromLogs failed - no valid JSON structure found
-      // TODO(#332): Include total log length, line count, and snippet from end of logs for better debugging
+      // Only catch user-facing errors (PlaywrightJsonNotFoundError)
+      // Propagate unexpected errors (wrapped Errors with cause) for fail-fast
+      if (!(extractErr instanceof PlaywrightJsonNotFoundError)) {
+        // Log unexpected error before propagating
+        const errorMsg = getErrorMessage(extractErr);
+        const errorStack = getErrorStack(extractErr);
+        console.error(
+          `[ERROR] parsePlaywrightJson: extractJsonFromLogs threw unexpected error: ${errorMsg}` +
+            (errorStack ? `\nStack: ${errorStack}` : '') +
+            `. This indicates a bug or resource issue (OOM, V8 internal error).`
+        );
+        throw extractErr; // Propagate with context
+      }
+      const lines = logText.split('\n');
+      const logStats = {
+        totalChars: logText.length,
+        totalLines: lines.length,
+        firstLine: lines[0]?.substring(0, 100) || '(empty)',
+        lastLine: lines[lines.length - 1]?.substring(0, 100) || '(empty)',
+      };
+      const endSnippet = lines.slice(-10).join('\n');
+
+      const errorMsg = getErrorMessage(extractErr);
+      const errorStack = getErrorStack(extractErr);
+
+      // TODO(#508): Replace console.error with logError for Sentry integration
       console.error(
-        `[ERROR] parsePlaywrightJson: JSON extraction from logs failed (no valid JSON structure found): ` +
-          `${extractErr instanceof Error ? extractErr.message : String(extractErr)}`
+        `[ERROR] parsePlaywrightJson: JSON extraction failed.\n` +
+          `  Error: ${errorMsg}\n` +
+          `  Stack: ${errorStack ? '\n' + errorStack : '(no stack trace)'}\n` +
+          `  Log stats: ${logStats.totalChars} chars, ${logStats.totalLines} lines\n` +
+          `  Last 10 lines:\n${endSnippet}`
       );
+
+      const message = [
+        'Failed to extract Playwright JSON from logs.',
+        '',
+        `Error: ${errorMsg}`,
+        '',
+        'Log statistics:',
+        `  - Total: ${logStats.totalChars} chars, ${logStats.totalLines} lines`,
+        `  - First: ${logStats.firstLine}`,
+        `  - Last: ${logStats.lastLine}`,
+        '',
+        'Common causes:',
+        '  1. Wrong reporter (use --reporter=json)',
+        '  2. Truncated output',
+        '  3. JSON generation failure',
+        '',
+        `Last 10 lines:\n${endSnippet}`,
+      ].join('\n');
+
       const validatedError = safeValidateExtractedError(
         {
-          message: `Failed to extract Playwright JSON from logs: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
-          rawOutput: [logText.substring(0, 500)],
+          message,
+          rawOutput: [
+            `First 500 chars: ${logText.substring(0, 500)}`,
+            `Last 500 chars: ${logText.substring(Math.max(0, logText.length - 500))}`,
+          ],
         },
         'JSON extraction error',
         validationTracker
       );
-      return {
-        framework: 'playwright',
-        errors: [validatedError],
-      };
+
+      return { framework: 'playwright', errors: [validatedError] };
     }
 
-    // Phase 2: Parse JSON (narrow catch)
+    // Phase 2: Parse and validate JSON
     let report: PlaywrightJsonReport;
     try {
-      report = JSON.parse(jsonText) as PlaywrightJsonReport;
+      const parsed = JSON.parse(jsonText);
+      const validationResult = PlaywrightJsonReportSchema.safeParse(parsed);
+      if (!validationResult.success) {
+        throw new Error(
+          `Parsed JSON does not match Playwright schema. ` +
+            `Validation errors: ${validationResult.error.issues
+              .map((i) => `${i.path.join('.')}: ${i.message}`)
+              .join('; ')}`
+        );
+      }
+      report = validationResult.data;
     } catch (parseErr) {
-      // JSON.parse failed - malformed JSON after extraction
+      // Expected errors: SyntaxError (malformed JSON) or Error (Zod validation)
+      // Non-Error throws are bugs (OOM, V8 internal errors) - propagate with context
+      if (!(parseErr instanceof Error)) {
+        throw new Error(
+          `Unexpected non-Error exception during JSON parsing: ${String(parseErr)}. ` +
+            `This indicates a critical runtime issue.`,
+          { cause: parseErr }
+        );
+      }
+      // JSON.parse or validation failed - malformed JSON after extraction
       console.error(
-        `[ERROR] parsePlaywrightJson: JSON.parse failed after successful extraction: ` +
-          `${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+        `[ERROR] parsePlaywrightJson: JSON parsing or validation failed: ${parseErr.message}` +
+          (parseErr.stack ? `\nStack: ${parseErr.stack}` : '')
       );
       const validatedError = safeValidateExtractedError(
         {
-          message: `Failed to parse Playwright JSON report: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          message: `Failed to parse Playwright JSON report: ${parseErr.message}`,
           rawOutput: [jsonText.substring(0, 500)],
         },
         'JSON parse error',
@@ -458,7 +643,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       };
     }
 
-    // Phase 3: Traverse suites (NO catch - bugs should propagate)
+    // TODO(#504): Add error boundaries to suite traversal for resilience against schema changes
+    // Phase 3: Traverse suites and extract failures (NO catch - bugs should propagate)
+    // Rationale: Zod validates JSON structure (shape), not runtime invariants (e.g., array iteration safety).
+    // After validation, traversal errors = extractor bugs or schema drift. Fail-fast for visibility.
     const extractFromSuite = (suite: PlaywrightSuite) => {
       for (const spec of suite.specs || []) {
         if (!spec.ok) {
@@ -473,8 +661,9 @@ export class PlaywrightExtractor implements FrameworkExtractor {
                 if (error?.snippet) rawOutput.push(error.snippet);
 
                 // Ensure rawOutput has at least one element for schema validation
+                // Provides minimal context when Playwright reports failure without error details
                 if (rawOutput.length === 0) {
-                  rawOutput.push('Test failed');
+                  rawOutput.push('Test failed (no error details from Playwright)');
                 }
 
                 const testName = `[${test.projectName}] ${spec.title}`;
@@ -512,6 +701,7 @@ export class PlaywrightExtractor implements FrameworkExtractor {
       extractFromSuite(suite);
     }
 
+    // TODO(#505): Add defensive error handling to prevent counting crashes from losing extraction results
     // Count total tests for summary
     let totalPassed = 0;
     let totalFailed = failures.length;
@@ -636,9 +826,10 @@ export class PlaywrightExtractor implements FrameworkExtractor {
    * 5. Fallback to entire log text if no marker found or parsing fails
    *
    * FALLBACK BEHAVIOR:
-   * - If no JSON start marker found: logs warning, returns entire log text (may fail downstream)
-   * - If progressive parsing fails: logs error with retry count, returns from marker to end
-   * - Caller (parsePlaywrightJson) will catch JSON.parse errors and return error result
+   * - No JSON start marker → throws PlaywrightJsonNotFoundError with diagnostic
+   * - Progressive parsing all fail → throws PlaywrightJsonNotFoundError for incomplete JSON
+   * - Unexpected errors in fallback → throws Error with context (cause chain preserved)
+   * - Caller (parsePlaywrightJson) catches these and returns error result to user
    *
    * WHY PROGRESSIVE PARSING:
    * - Handles nested braces in JSON strings correctly (regex-based brace counting would fail)
@@ -673,22 +864,47 @@ export class PlaywrightExtractor implements FrameworkExtractor {
     }
 
     if (jsonStart === -1) {
-      // FALLBACK 1: No JSON start marker found
-      // This happens when logs don't contain a recognizable Playwright JSON report
-      // Caller will likely fail to parse, but we provide full context for debugging
-      // TODO(#332): Validate fallback return value is parseable JSON before returning
-      console.error(
-        '[WARN] Playwright JSON extraction: No JSON start marker found. ' +
-          'Expected standalone "{" followed by "config" or "suites" fields within ~20 lines. ' +
-          'FALLBACK: Returning entire log text (will likely fail in JSON.parse). ' +
-          `Log size: ${logText.length} chars, ${lines.length} lines`
+      console.error('[WARN] Playwright JSON extraction: No JSON start marker found...');
+
+      // Edge case: try parsing entire log
+      try {
+        const parsed = JSON.parse(logText.trim());
+        if (parsed.suites || parsed.config) {
+          console.error('[WARN] Entire log is valid Playwright JSON');
+          return logText.trim();
+        }
+      } catch (err) {
+        // Expected: SyntaxError if log is not valid JSON
+        if (!(err instanceof SyntaxError)) {
+          const errorMsg = getErrorMessage(err);
+          const errorStack = getErrorStack(err);
+          console.error(
+            `[ERROR] Unexpected error parsing entire log (${logText.length} chars): ${errorMsg}` +
+              (errorStack ? `\nStack: ${errorStack}` : '')
+          );
+          // Re-throw with context - this is a bug or resource issue, not user error
+          throw new Error(
+            `Unexpected error parsing log file: ${errorMsg}. ` +
+              `Log size: ${logText.length} chars. This may indicate a bug or resource limitation.`,
+            { cause: err }
+          );
+        }
+        // SyntaxError is expected - fall through to main error
+      }
+
+      throw new PlaywrightJsonNotFoundError(
+        `No valid Playwright JSON found in logs. ` +
+          `Log contains ${lines.length} lines (${logText.length} chars). ` +
+          `Expected JSON with "suites" or "config" fields. ` +
+          `Use --reporter=json in playwright.config.ts`
       );
-      return logText.trim();
     }
 
     // Try progressive parsing - keep adding lines until we have valid JSON
     // This handles nested braces in strings correctly
     let parseAttempts = 0;
+    // Start at +10 to skip typical config object header (~5-8 lines)
+    // Rationale: Provides safety margin to include enough JSON structure for first valid parse attempt
     for (let jsonEnd = jsonStart + 10; jsonEnd < cleanLines.length; jsonEnd++) {
       try {
         const candidate = cleanLines.slice(jsonStart, jsonEnd + 1).join('\n');
@@ -698,29 +914,68 @@ export class PlaywrightExtractor implements FrameworkExtractor {
           return candidate;
         }
       } catch (parseErr) {
-        // Keep trying with more lines
-        // Log first few parse errors for diagnostics
-        // TODO(#332): Only catch SyntaxError, let other exceptions propagate to expose bugs
+        if (!(parseErr instanceof SyntaxError)) {
+          throw parseErr; // Other errors are bugs
+        }
+        // SyntaxError expected during progressive parsing
+        // Limit debug logging to first 3 attempts to avoid spam in large logs
         if (parseAttempts < 3) {
           console.error(
-            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1} failed at jsonEnd=${jsonEnd}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+            `[DEBUG] extractJsonFromLogs: progressive parse attempt ${parseAttempts + 1}...`
           );
         }
         parseAttempts++;
       }
     }
 
-    // FALLBACK 2: Found JSON start marker but couldn't complete parsing
-    // This indicates truncated or malformed JSON in the log output
-    // TODO(#332): Validate fallback JSON or throw specific error for incomplete JSON
-    const extractedLines = cleanLines.length - jsonStart;
-    console.error(
-      `[ERROR] Playwright JSON extraction: FALLBACK 2 after ${parseAttempts} parse attempts. ` +
-        `Found JSON start at line ${jsonStart} but could not parse complete JSON. ` +
-        `FALLBACK: Returning ${extractedLines} lines from jsonStart to end (may be incomplete/malformed). ` +
-        `This likely indicates truncated or malformed JSON in logs. ` +
-        `Expected "suites" or "config" fields but parsing never succeeded.`
-    );
-    return cleanLines.slice(jsonStart).join('\n');
+    // FALLBACK 2: Try parsing what we have
+    const fallbackJson = cleanLines.slice(jsonStart).join('\n');
+    try {
+      const parsed = JSON.parse(fallbackJson);
+      if (!parsed.suites && !parsed.config) {
+        const snippet = fallbackJson.substring(0, 200);
+        throw new PlaywrightJsonNotFoundError(
+          `Valid JSON found but missing required fields (suites, config). ` +
+            `Parse attempts: ${parseAttempts}. May be incomplete Playwright output. ` +
+            `JSON preview: ${snippet}${fallbackJson.length > 200 ? '...' : ''}`
+        );
+      }
+      console.error(`[WARN] Fallback JSON parsed after ${parseAttempts} attempts`);
+      return fallbackJson;
+    } catch (err) {
+      const snippet = fallbackJson.substring(0, 200);
+      const jsonPreview = `${snippet}${fallbackJson.length > 200 ? '...' : ''}`;
+
+      if (err instanceof SyntaxError) {
+        throw new PlaywrightJsonNotFoundError(
+          `Incomplete Playwright JSON after ${parseAttempts} attempts. ` +
+            `Found start at line ${jsonStart} but parsing failed. ` +
+            `SyntaxError: ${err.message}. Indicates truncated/malformed JSON. ` +
+            `JSON preview: ${jsonPreview}`
+        );
+      }
+
+      if (err instanceof PlaywrightJsonNotFoundError) {
+        console.error(
+          `[DEBUG] extractJsonFromLogs: Re-throwing PlaywrightJsonNotFoundError. ` +
+            `JSON preview: ${jsonPreview}`
+        );
+        throw err;
+      }
+
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[ERROR] extractJsonFromLogs: Unexpected error in fallback path. ` +
+          `Error: ${errorMsg}. JSON preview: ${jsonPreview}`
+      );
+      throw new Error(
+        `Unexpected error during Playwright JSON extraction fallback: ${errorMsg}. ` +
+          `Parse attempts: ${parseAttempts}, JSON start line: ${jsonStart}, ` +
+          `Fallback JSON size: ${fallbackJson.length} chars. ` +
+          `JSON preview: ${jsonPreview}. ` +
+          `This may indicate memory issues or a bug in JSON.parse.`,
+        { cause: err }
+      );
+    }
   }
 }

@@ -2,6 +2,7 @@
 # Inject Firebase web app configuration into site
 # Usage: inject-firebase-config.sh <site-name>
 
+# TODO(#434): Improve error handling in Firebase deployment infrastructure scripts
 set -e
 
 SITE_NAME="${1}"

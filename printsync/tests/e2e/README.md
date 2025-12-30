@@ -186,7 +186,7 @@ lsof -ti:4000 | xargs kill -9  # UI
 
 ```bash
 # Check emulator logs
-cat /tmp/claude/emulators.log
+cat tmp/infrastructure/firebase-emulators.log
 
 # Check server is running
 curl http://localhost:8080/health
@@ -255,7 +255,7 @@ The `test-go-fullstack-printsync` job:
 3. Installs dependencies
 4. Runs `infrastructure/scripts/test-go-fullstack-app.sh printsync`
 5. Uploads artifacts on failure:
-   - Emulator logs (`/tmp/claude/emulators.log`)
+   - Emulator logs (`tmp/infrastructure/firebase-emulators.log`)
    - Test results (`printsync/test-results/`)
    - Playwright report (`printsync/playwright-report/`)
 

@@ -44,7 +44,7 @@ describe('init tool', () => {
     });
 
     it('should have StateApiError available for API error handling', () => {
-      const error = new StateApiError('API failure', 'read', 'pr', 123);
+      const error = StateApiError.create('API failure', 'read', 'pr', 123);
       const result = createErrorResult(error);
       assert.strictEqual(result.isError, true);
       assert.strictEqual(result._meta?.errorType, 'StateApiError');
