@@ -28,7 +28,7 @@ assistant: "I'll use the pr-test-analyzer agent to thoroughly review the test co
 Daisy wants a final test coverage check before marking PR ready, use the pr-test-analyzer agent.
 </commentary>
 </example>
-model: inherit
+model: sonnet
 permissionMode: acceptEdits
 color: cyan
 ---

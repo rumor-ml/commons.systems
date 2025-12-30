@@ -27,7 +27,6 @@ import {
   STEP_PHASE2_APPROVAL,
   STEP_NAMES,
   CODE_QUALITY_BOT_USERNAME,
-  PHASE1_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
   NEEDS_REVIEW_LABEL,
   WORKFLOW_MONITOR_TIMEOUT_MS,
@@ -1025,46 +1024,14 @@ async function handlePhase1MonitorWorkflow(
 /**
  * Phase 1 Step 2: PR Review
  */
-function handlePhase1PRReview(state: CurrentState, issueNumber: number): ToolResult {
-  // Get active agents (filter out completed ones)
-  // All agents run every iteration
+function handlePhase1PRReview(state: CurrentState, _issueNumber: number): ToolResult {
+  // Return pure state - orchestration instructions are in wiggum.md
 
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_PR_REVIEW],
     step_number: STEP_PHASE1_PR_REVIEW,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 2: PR Review (Before PR Creation)
-
-Execute comprehensive PR review on the current branch before creating the pull request.
-
-**Instructions:**
-
-1. Execute the PR review command:
-   \`\`\`
-   ${PHASE1_PR_REVIEW_COMMAND}
-   \`\`\`
-
-2. After the review completes, aggregate results from all agents:
-   - Collect result file paths from each agent's JSON response
-   - Sum issue counts across all agents
-
-3. Call the \`wiggum_complete_pr_review\` tool with:
-   - command_executed: true
-   - in_scope_result_files: [array of result file paths from all agents]
-   - out_of_scope_result_files: [array of result file paths from all agents]
-   - in_scope_issue_count: (total count of in-scope issues across all result files)
-   - out_of_scope_issue_count: (total count of out-of-scope issues across all result files)
-
-   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
-
-4. Results will be posted to issue #${issueNumber}
-
-5. If issues are found:
-   - You will be instructed to fix them (Plan + Fix cycle)
-   - After fixes, workflow restarts from Step p1-1
-
-6. If no issues:
-   - Proceed to Step p1-3 (Security Review - Pre-PR)`,
+    instructions: `See \`.claude/commands/wiggum.md\` for orchestration instructions for step **${STEP_NAMES[STEP_PHASE1_PR_REVIEW]}**.`,
     steps_completed_by_tool: [],
     context: {},
   };

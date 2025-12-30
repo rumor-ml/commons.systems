@@ -22,7 +22,7 @@ Daisy: "I've updated the error handling in the authentication module"
 Assistant: "Let me proactively use the silent-failure-hunter agent to ensure the error handling changes don't introduce silent failures."
 <Task tool invocation to launch silent-failure-hunter agent>
 </example>
-model: inherit
+model: sonnet
 permissionMode: acceptEdits
 color: yellow
 ---

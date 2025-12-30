@@ -1,7 +1,7 @@
 ---
 name: out-of-scope-tracker
 description: Tracks out-of-scope issues found during reviews by creating GitHub issues and maintaining TODO references in code. Ensures proper labeling and tracks whether referenced issues are still open or have been superseded.
-model: opus
+model: sonnet
 permissionMode: acceptEdits
 color: yellow
 ---

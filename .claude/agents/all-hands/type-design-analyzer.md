@@ -19,7 +19,7 @@ assistant: "Let me use the type-design-analyzer agent to review all the types be
 During PR creation with new types, use the type-design-analyzer to review their design quality.
 </commentary>
 </example>
-model: inherit
+model: sonnet
 permissionMode: acceptEdits
 color: pink
 ---

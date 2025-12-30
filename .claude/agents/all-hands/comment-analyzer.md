@@ -28,7 +28,7 @@ assistant: "Before creating the pull request, let me use the comment-analyzer ag
 Before finalizing a PR, use the comment-analyzer to review all comment changes.
 </commentary>
 </example>
-model: inherit
+model: sonnet
 permissionMode: acceptEdits
 color: green
 ---
