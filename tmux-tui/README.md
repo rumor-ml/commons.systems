@@ -282,7 +282,7 @@ The daemon automatically assesses health based on these thresholds:
 
 - File system monitoring issues
 - May indicate disk I/O problems
-- Check debug log: `/tmp/claude/tui-debug.log`
+- Check debug log: `tmp/infrastructure/tui-debug.log` (in worktree root)
 
 **No connected clients:**
 

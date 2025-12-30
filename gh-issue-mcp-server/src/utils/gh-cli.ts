@@ -20,7 +20,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       reject: false,
     };
 
-    // Add repo flag if provided
     const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
     const result = await execa('gh', fullArgs, execaOptions);
@@ -35,7 +34,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
-    // TODO: See issue #443 - Distinguish programming errors from operational errors
     if (error instanceof GitHubCliError) {
       throw error;
     }
@@ -61,7 +59,6 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
-    // Provide context about what command failed and show output snippet
     const outputSnippet = output.length > 200 ? output.substring(0, 200) + '...' : output;
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new ParsingError(
@@ -81,7 +78,10 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
-    // TODO: See issue #441 - Preserve original error details (currently discards cause chain)
+    // TODO: Preserve original error details (currently discards cause chain)
+    // TODO(#441): Fix silent error swallowing in getCurrentRepo()
+    //   Use error.cause parameter (passed below) to preserve full stack trace through error chain
+    //   This allows debugging to trace back to root cause (e.g., network error -> GitHubCliError)
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${error instanceof Error ? error.message : String(error)}`,
       error instanceof GitHubCliError ? error.exitCode : undefined,
@@ -100,4 +100,365 @@ export async function resolveRepo(repo?: string): Promise<string> {
     return repo;
   }
   return getCurrentRepo();
+}
+
+/**
+ * Sleep for a specified number of milliseconds
+ *
+ * Utility function for introducing delays, useful for retry logic and rate limiting.
+ *
+ * @param ms - Milliseconds to sleep
+ * @returns Promise that resolves after the specified delay
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Node.js error codes that indicate retryable network/connection issues
+ *
+ * These are stable error codes from the Node.js error API, preferred over
+ * string matching on error messages.
+ */
+const RETRYABLE_ERROR_CODES = [
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'ENETDOWN',
+  'EHOSTUNREACH',
+  'EHOSTDOWN',
+  'EPIPE',
+];
+
+/**
+ * Check if an error is retryable (network errors, 5xx server errors, rate limits)
+ *
+ * Determines if an error should be retried using a priority-based approach:
+ * 1. Exit code (most reliable) - HTTP status: 429 (rate limit), 502-504 (server errors)
+ * 2. Node.js error.code (stable API) - ECONNRESET, ETIMEDOUT, etc. (see RETRYABLE_ERROR_CODES)
+ * 3. Message pattern matching (fallback) - string matching when structured data unavailable
+ *
+ * **FRAGILITY WARNING:** When exitCode is undefined, gh CLI wraps errors in generic Error objects,
+ * requiring message parsing. This is fragile to gh CLI updates.
+ * TODO: Migrate to structured error types to eliminate message parsing dependency.
+ *
+ * @param error - Error to check for retryability
+ * @param exitCode - Optional exit code from the CLI command
+ * @returns true if error should be retried, false otherwise
+ *
+ * Note: Only known retryable HTTP codes (429, 502-504) return true immediately.
+ * All other exit codes (including non-retryable codes like 404, 422) fall through
+ * to Priority 2/3 checks. This conservative approach ensures network-level issues
+ * are detected even when the error has a non-retryable HTTP status code.
+ *
+ */
+// TODO(#453): See mcp-common/src/gh-retry.ts isRetryableError() for structured error type migration plan
+function isRetryableError(error: unknown, exitCode?: number): boolean {
+  // Priority 1: Exit code (most reliable when available)
+  // Check for known retryable HTTP status codes (429, 502-504) and return true immediately.
+  // For non-retryable HTTP codes (400, 404, 422, etc.), we fall through to check Node.js
+  // error codes and message patterns. This handles edge cases where the error is
+  // network-related (e.g., ECONNREFUSED during request) but gh CLI reports the last HTTP
+  // status before connection failure. This is intentionally conservative - only Priority 1
+  // retryable codes (429, 502-504) return true immediately; all other exit codes (including
+  // non-retryable ones like 404, 422) fall through to Priority 2/3 checks to avoid missing
+  // retryable network conditions.
+  if (exitCode !== undefined) {
+    if ([429, 502, 503, 504].includes(exitCode)) {
+      return true;
+    }
+    // Non-retryable HTTP codes fall through to Priority 2/3 checks
+  }
+
+  if (error instanceof Error) {
+    // Priority 2: Node.js error codes (stable API)
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code && RETRYABLE_ERROR_CODES.includes(nodeError.code)) {
+      return true;
+    }
+
+    // Priority 3: Message pattern matching (fallback, less reliable)
+    // FRAGILE: gh CLI error message format is not a stable API.
+    // If patterns fail to match, see issue #453 for troubleshooting steps and migration plan.
+    const msg = error.message.toLowerCase();
+    const patterns = [
+      // Network errors
+      'network',
+      'timeout',
+      'socket',
+      'connection',
+      // Error codes as text - catches when error.code is missing or gh CLI wraps Node error in Error
+      'econnreset',
+      'econnrefused',
+      // HTTP status codes (in case exitCode not provided)
+      '429',
+      '502',
+      '503',
+      '504',
+      // Rate limit messages (multiple phrasings - fragile to changes)
+      'rate limit',
+      'api rate limit exceeded',
+      'rate_limit_exceeded',
+      'quota exceeded',
+      'too many requests',
+    ];
+
+    return patterns.some((pattern) => msg.includes(pattern));
+  }
+  return false;
+}
+
+/**
+ * Classify error type for logging and diagnostics
+ *
+ * Categorizes errors into types for pattern analysis and debugging.
+ * Uses a priority-based approach:
+ * 1. Exit code (most reliable when available)
+ * 2. Node.js error codes (stable API)
+ * 3. Message pattern matching (fallback, less reliable)
+ *
+ * @param error - Error to classify
+ * @param exitCode - Optional exit code for more reliable classification
+ * @returns Error type string (network, timeout, rate_limit, permission, not_found, server_error, unknown)
+ */
+function classifyErrorType(error: Error, exitCode?: number): string {
+  // Priority 1: Use exit code for classification (most reliable)
+  if (exitCode !== undefined) {
+    if (exitCode === 429) return 'rate_limit';
+    if ([502, 503, 504].includes(exitCode)) return 'server_error';
+    if ([401, 403].includes(exitCode)) return 'permission';
+    if (exitCode === 404) return 'not_found';
+  }
+
+  // Priority 2: Use Node.js error codes (stable API)
+  const nodeError = error as NodeJS.ErrnoException;
+  if (nodeError.code) {
+    if (['ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'ENOTFOUND'].includes(nodeError.code)) {
+      return 'network';
+    }
+    if (nodeError.code === 'ETIMEDOUT') {
+      return 'timeout';
+    }
+  }
+
+  // Priority 3: Message pattern matching (fallback, less reliable)
+  const msg = error.message.toLowerCase();
+
+  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
+    return 'network';
+  }
+  if (msg.includes('timeout') || msg.includes('etimedout')) {
+    return 'timeout';
+  }
+  if (msg.includes('rate limit') || msg.includes('429')) {
+    return 'rate_limit';
+  }
+  if (msg.includes('forbidden') || msg.includes('401') || msg.includes('403')) {
+    return 'permission';
+  }
+  if (msg.includes('404') || msg.includes('not found')) {
+    return 'not_found';
+  }
+  if (msg.includes('502') || msg.includes('503') || msg.includes('504')) {
+    return 'server_error';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Execute gh CLI command with retry logic
+ *
+ * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
+ * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
+ * Non-retryable errors (like validation errors) fail immediately.
+ *
+ * @param args - GitHub CLI command arguments
+ * @param options - Optional execution options
+ * @param maxRetries - Maximum number of retry attempts (default: 3)
+ * @returns The stdout from the gh command
+ * @throws {Error} When all retry attempts are exhausted or error is non-retryable
+ *
+ * @example
+ * ```typescript
+ * // Retry network-sensitive operations
+ * const data = await ghCliWithRetry(['pr', 'view', '123'], {}, 5);
+ * ```
+ */
+export async function ghCliWithRetry(
+  args: string[],
+  options?: GhCliOptions,
+  maxRetries = 3
+): Promise<string> {
+  // Validate maxRetries - see mcp-common/src/gh-retry.ts for detailed validation rationale
+  if (!Number.isInteger(maxRetries) || maxRetries < 1) {
+    throw new GitHubCliError(
+      `ghCliWithRetry: maxRetries must be a positive integer, got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Command: gh ${args.join(' ')}`
+    );
+  }
+
+  let lastError: Error | undefined;
+  let firstError: Error | undefined;
+  let lastExitCode: number | undefined;
+  let firstExitCode: number | undefined;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await ghCli(args, options);
+
+      // Success after retry - log recovery at WARN level for production visibility
+      // INFO may be filtered in production, hiding important recovery patterns
+      // Helps identify flaky endpoints or transient GitHub API issues
+      // Uses console.error to ensure visibility even when stdout is redirected
+      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
+      if (attempt > 1 && firstError) {
+        console.error(
+          `[gh-issue] WARN ghCliWithRetry: succeeded after retry - transient failure recovered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError, firstExitCode)}, command: gh ${args.join(' ')}, impact: Operation delayed by retry, action: Monitor for consistent retry patterns)`
+        );
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      lastExitCode = (error as { exitCode?: number }).exitCode;
+      // Fallback: Parse error message for HTTP status if not available in error object
+      // Wrapped in try-catch to prevent status extraction failures from masking the original error
+      if (lastExitCode === undefined && lastError.message) {
+        try {
+          // Try multiple patterns to extract HTTP status from error message
+          // Different gh CLI versions and error contexts may format status differently
+          const statusPatterns = [
+            /HTTP\s+(\d{3})/i, // "HTTP 429"
+            /status[:\s]+(\d{3})/i, // "status: 429" or "status 429"
+            /(\d{3})\s+Too\s+Many/i, // "429 Too Many Requests"
+            /rate\s+limit.*?(\d{3})/i, // "rate limit (429)" or "rate limit exceeded 429"
+          ];
+
+          for (const pattern of statusPatterns) {
+            const statusMatch = lastError.message.match(pattern);
+            if (statusMatch && statusMatch[1]) {
+              const parsed = parseInt(statusMatch[1], 10);
+              // Accept HTTP error codes (100-599) for classification logging
+              // Note: 100-399 unlikely in errors but accepted for robustness
+              if (
+                Number.isFinite(parsed) &&
+                Number.isSafeInteger(parsed) &&
+                parsed >= 100 &&
+                parsed <= 599
+              ) {
+                lastExitCode = parsed;
+                console.error(
+                  `[gh-issue] DEBUG Extracted HTTP status from error message (pattern: ${pattern.source}, exitCode: ${parsed})`
+                );
+                break;
+              } else {
+                // Log when we extract a value but it fails validation
+                // This helps detect gh CLI format changes or regex pattern bugs
+                console.error(
+                  `[gh-issue] WARN Extracted invalid HTTP status code from error message (extracted: ${parsed}, pattern: ${pattern.source}, errorMessage: ${lastError.message}, impact: Falling back to message pattern matching, action: Check if gh CLI message format changed or regex pattern needs update)`
+                );
+              }
+            }
+          }
+
+          // Log if no valid HTTP status code was extracted from error message
+          if (lastExitCode === undefined) {
+            // Check if error message suggests this SHOULD have had HTTP status
+            const likelyHttpError = lastError.message.match(/\b(HTTP|status|429|502|503|504)\b/i);
+
+            if (likelyHttpError) {
+              // This looks like an HTTP error but we couldn't extract the status code
+              console.error(
+                `[gh-issue] WARN Failed to extract HTTP status code from error that appears HTTP-related (errorMessage: ${lastError.message}, matchedPattern: ${likelyHttpError[0]}, impact: Falling back to message pattern matching for retry logic, action: Update status extraction patterns or check for gh CLI version changes)`
+              );
+            } else {
+              console.error(
+                `[gh-issue] DEBUG No valid HTTP status code found in error message (errorMessage: ${lastError.message})`
+              );
+            }
+          }
+        } catch (extractionError) {
+          // Status extraction failed - log and continue with undefined exitCode
+          // This ensures original error handling proceeds even if extraction has bugs
+          console.error(
+            `[gh-issue] WARN Status extraction threw unexpected error (extractionError: ${extractionError instanceof Error ? extractionError.message : String(extractionError)}, originalError: ${lastError.message}, impact: Proceeding without HTTP status code, action: Check status extraction patterns for bugs)`
+          );
+        }
+      }
+
+      // Capture first error for diagnostics
+      if (attempt === 1) {
+        firstError = lastError;
+        firstExitCode = lastExitCode;
+      }
+
+      if (!isRetryableError(error, lastExitCode)) {
+        // Non-retryable error, fail immediately
+        console.error(
+          `[gh-issue] ghCliWithRetry: non-retryable error (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError, lastExitCode)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')})`
+        );
+        throw lastError;
+      }
+
+      if (attempt === maxRetries) {
+        // Final attempt failed - log all attempts exhausted
+        console.error(
+          `[gh-issue] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError, lastExitCode)}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+        );
+        throw lastError;
+      }
+
+      // Log based on attempt number
+      const errorType = classifyErrorType(lastError, lastExitCode);
+
+      // Warn when error cannot be classified and we have no exit code
+      // This indicates error message patterns may have changed or new error type encountered
+      if (errorType === 'unknown' && lastExitCode === undefined) {
+        console.error(
+          `[gh-issue] WARN Error classification unknown and no exit code extracted (errorMessage: ${lastError.message}, command: gh ${args.join(' ')})`
+        );
+      }
+
+      if (attempt === 1) {
+        // Initial failure - log at INFO level since retry is designed to handle transient errors
+        // This reduces noise in logs when first attempt fails but retry succeeds
+        console.error(
+          `[gh-issue] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+        );
+      } else {
+        // Subsequent failures - log at WARN level
+        console.error(
+          `[gh-issue] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, exitCode: ${lastExitCode}, command: gh ${args.join(' ')}, error: ${lastError.message})`
+        );
+      }
+
+      // Exponential backoff: 2^attempt * 1000ms, capped at 60s
+      // Examples: attempt 1->2s, 2->4s, 3->8s, 4->16s, 5->32s, 6->60s (capped)
+      // Rationale: Reduces API load during outages, gives transient issues time to resolve
+      // Cap at 60s prevents impractical delays for high maxRetries values
+      const MAX_DELAY_MS = 60000; // 60 seconds maximum delay
+      const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+      const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+      await sleep(delayMs);
+    }
+  }
+
+  // This should be unreachable with maxRetries >= 1 validation above
+  // If reached, provide full diagnostic context for debugging
+  // TODO(#1019): Explain why we log to console.error before throwing
+  console.error(
+    `[gh-issue] ERROR INTERNAL: ghCliWithRetry loop completed without returning (maxRetries: ${maxRetries}, lastExitCode: ${lastExitCode}, command: gh ${args.join(' ')}, lastError: ${lastError?.message ?? 'none'})`
+  );
+  throw (
+    lastError ||
+    new GitHubCliError(
+      `INTERNAL ERROR: ghCliWithRetry loop completed without returning. ` +
+        `This indicates a programming error in retry logic. ` +
+        `Command: gh ${args.join(' ')}, maxRetries: ${maxRetries}, ` +
+        `lastError: none, lastExitCode: ${lastExitCode ?? 'undefined'}`
+    )
+  );
 }

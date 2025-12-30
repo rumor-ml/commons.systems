@@ -6,6 +6,10 @@
 
 set -euo pipefail
 
+# Get project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 # Configuration
 PROJECT="chalanding"
 
@@ -61,14 +65,17 @@ firebase deploy --only firestore:rules --project "${PROJECT}" --token "$FIREBASE
 
 echo -e "${BLUE}🚀 Deploying to channel: ${SANITIZED_BRANCH}...${NC}"
 
+# Ensure tmp directory exists
+mkdir -p "${PROJECT_ROOT}/tmp/infrastructure"
+
 firebase hosting:channel:deploy "${SANITIZED_BRANCH}" \
   --only "${SITE}" \
   --project "${PROJECT}" \
   --token "$FIREBASE_TOKEN" \
-  --json > /tmp/claude/deploy-output.json
+  --json > "${PROJECT_ROOT}/tmp/infrastructure/deploy-output.json"
 
 # Extract deployed URL from JSON output (nested under site name)
-DEPLOYED_URL=$(jq -r ".result.${SITE}.url" /tmp/claude/deploy-output.json)
+DEPLOYED_URL=$(jq -r ".result.${SITE}.url" "${PROJECT_ROOT}/tmp/infrastructure/deploy-output.json")
 echo -e "${GREEN}✅ Deployed to: ${DEPLOYED_URL}${NC}"
 
 echo -e "${BLUE}🌱 Seeding test data...${NC}"

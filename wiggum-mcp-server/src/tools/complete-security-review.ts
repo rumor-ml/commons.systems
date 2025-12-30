@@ -5,57 +5,55 @@
  */
 
 import { z } from 'zod';
-import {
-  STEP_PHASE1_SECURITY_REVIEW,
-  STEP_PHASE2_SECURITY_REVIEW,
-  SECURITY_REVIEW_COMMAND,
-} from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { completeReview, type ReviewConfig } from './review-completion-helper.js';
+import { completeReview, createSecurityReviewConfig } from './review-completion-helper.js';
 
 export const CompleteSecurityReviewInputSchema = z.object({
-  command_executed: z.boolean().describe('Confirm /security-review was actually executed'),
-  verbatim_response: z
-    .string()
+  command_executed: z
+    .literal(true, {
+      errorMap: () => ({
+        message:
+          'command_executed must be true. Execute /security-review before calling this tool.',
+      }),
+    })
+    .describe('Confirm /security-review was actually executed (must be true)'),
+  in_scope_result_files: z
+    .array(z.string())
+    .describe('Array of in-scope result file paths (each file may contain multiple issues)'),
+  out_of_scope_result_files: z
+    .array(z.string())
+    .describe('Array of out-of-scope result file paths (each file may contain multiple issues)'),
+  in_scope_issue_count: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Total count of in-scope security issues across all result files'),
+  out_of_scope_issue_count: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Total count of out-of-scope security issues across all result files'),
+  maxIterations: z
+    .number()
+    .int()
+    .positive('maxIterations must be a positive integer')
     .optional()
     .describe(
-      'DEPRECATED: Complete verbatim response from security review command. Use verbatim_response_file instead.'
+      'Optional custom iteration limit. Use when user approves increasing the limit beyond default.'
     ),
-  verbatim_response_file: z
-    .string()
-    .optional()
-    .describe(
-      'Path to temp file containing complete verbatim response from security review command (preferred method)'
-    ),
-  high_priority_issues: z.number().describe('Count of high priority security issues found'),
-  medium_priority_issues: z.number().describe('Count of medium priority security issues found'),
-  low_priority_issues: z.number().describe('Count of low priority security issues found'),
 });
 
 export type CompleteSecurityReviewInput = z.infer<typeof CompleteSecurityReviewInputSchema>;
 
-// TODO(#334): Add validation tests for phase-specific fields
-const SECURITY_REVIEW_CONFIG: ReviewConfig = {
-  phase1Step: STEP_PHASE1_SECURITY_REVIEW,
-  phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-  phase1Command: SECURITY_REVIEW_COMMAND,
-  phase2Command: SECURITY_REVIEW_COMMAND,
-  reviewTypeLabel: 'Security',
-  issueTypeLabel: 'security issue(s) found',
-  successMessage: `All security checks passed with no vulnerabilities identified.
-
-**Security Aspects Covered:**
-- Authentication and authorization
-- Input validation and sanitization
-- Secrets management
-- Dependency vulnerabilities
-- Security best practices`,
-};
+// Use factory function for validated security review configuration
+// This centralizes configuration in review-completion-helper.ts and ensures consistency
+const SECURITY_REVIEW_CONFIG = createSecurityReviewConfig();
 
 /**
  * Complete security review and update state
  *
- * TODO(#314): Replace silent fallback with ValidationError when issueNumber undefined
+ * Throws ValidationError if issue number is undefined (see review-completion-helper.ts:1294-1296).
+ * TODO(#314): Add more actionable error context to help users diagnose state detection issues.
  */
 export async function completeSecurityReview(
   input: CompleteSecurityReviewInput

@@ -5,6 +5,7 @@
  * with timeout support and structured result handling.
  */
 
+// TODO(#874): Use discriminated union for WatchResult to prevent inconsistent states
 import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { CHECK_ICONS } from '../constants.js';
@@ -25,6 +26,8 @@ export interface WatchOptions {
   timeout: number;
   /** Repository in format "owner/repo" (optional) */
   repo?: string;
+  /** Enable fail-fast mode for PR checks (optional) */
+  failFast?: boolean;
 }
 
 export interface Check {
@@ -43,9 +46,10 @@ export interface OverallStatus {
 /**
  * Execute a gh watch command with timeout support using AbortController
  *
- * Timeout is enforced using AbortController's signal mechanism. When timeout
- * expires, the controller aborts the execa process, which throws an error with
- * `isCanceled: true`. This is detected to return a timeout result.
+ * Uses AbortController for timeout enforcement to avoid orphaned processes.
+ * When timeout expires, the controller aborts the execa process cleanly, which
+ * throws an error with `isCanceled: true`. This is detected to return a timeout
+ * result rather than treating it as a command failure.
  *
  * @param args - Command arguments (e.g., ['run', 'watch', '123', '--exit-status'])
  * @param timeoutMs - Timeout in milliseconds
@@ -73,11 +77,11 @@ async function createAbortableWatch(args: string[], timeoutMs: number): Promise<
   } catch (error: any) {
     clearTimeout(timer);
 
-    // Check if error was due to abort/timeout
     if (error.isCanceled) {
+      // Return standard Unix timeout exit code (same as 'timeout' command)
       return {
         success: false,
-        exitCode: 124, // Standard timeout exit code
+        exitCode: 124,
         timedOut: true,
         output: '',
       };
@@ -145,6 +149,10 @@ export async function watchWorkflowRun(runId: number, options: WatchOptions): Pr
  */
 export async function watchPRChecks(prNumber: number, options: WatchOptions): Promise<WatchResult> {
   const args = ['pr', 'checks', prNumber.toString(), '--watch'];
+
+  if (options.failFast) {
+    args.push('--fail-fast');
+  }
 
   if (options.repo) {
     args.unshift('--repo', options.repo);

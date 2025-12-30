@@ -191,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: emulator-logs-printsync
-          path: /tmp/claude/emulators.log
+          path: tmp/infrastructure/firebase-emulators.log
           retention-days: 7
           if-no-files-found: ignore
 

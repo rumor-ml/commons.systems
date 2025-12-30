@@ -21,6 +21,8 @@ const DROPDOWN_RENDER_DELAY_MS = 50;
 const SUBTYPE_UPDATE_DELAY_MS = 100;
 
 // Standard viewport sizes for responsive testing
+// TODO(#491): Add test coverage for E2E test helper error paths
+// TODO(#490): Add comprehensive error handling to E2E test helpers
 // Frozen to prevent accidental mutations that could affect test consistency
 // Mobile: iPhone 8 dimensions, Tablet: iPad portrait, Desktop: Common 16:9 resolutions
 export const VIEWPORTS = Object.freeze({

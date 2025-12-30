@@ -18,7 +18,12 @@ import {
   analyzeRetryability,
   formatError,
   isSystemError,
+  isKnownErrorCategory,
   SYSTEM_ERROR_CODES,
+  getExitCodeDomain,
+  isHttpStatusCode,
+  isUnixExitCode,
+  type ExitCodeDomain,
 } from './errors.js';
 
 describe('McpError', () => {
@@ -150,35 +155,64 @@ describe('GitHubCliError', () => {
     assert.ok(!error.message.includes('Warning')); // No clamping warning
   });
 
-  it('clamps negative exit codes to 0', () => {
-    const error = new GitHubCliError('Test', -5, 'stderr');
-
-    assert.equal(error.exitCode, 0);
-    assert.ok(error.message.includes('Warning: Invalid exit code -5'));
-    assert.ok(error.message.includes('clamped to 0'));
+  it('throws ValidationError for negative exit codes (except -1)', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', -5, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid exit/status code: -5') &&
+          err.message.includes(
+            'Must be -1 (unknown), 0-255 (Unix exit code), or 400-599 (HTTP status code)'
+          )
+        );
+      }
+    );
   });
 
-  it('preserves -1 sentinel value without warning', () => {
+  it('preserves -1 sentinel value', () => {
     const error = new GitHubCliError('Process did not run', -1, 'stderr');
 
-    assert.equal(error.exitCode, -1); // NOT clamped
-    assert.ok(!error.message.includes('Warning')); // No warning for sentinel
+    assert.equal(error.exitCode, -1);
     assert.equal(error.message, 'Process did not run');
   });
 
-  it('clamps exit codes above 255 to 255', () => {
-    const error = new GitHubCliError('Test', 500, 'stderr');
+  it('accepts HTTP status codes (400-599)', () => {
+    // HTTP status codes are valid for API error classification
+    const error404 = new GitHubCliError('Not found', 404, 'stderr');
+    assert.equal(error404.exitCode, 404);
 
-    assert.equal(error.exitCode, 255);
-    assert.ok(error.message.includes('Warning: Invalid exit code 500'));
-    assert.ok(error.message.includes('clamped to 255'));
+    const error429 = new GitHubCliError('Rate limited', 429, 'stderr');
+    assert.equal(error429.exitCode, 429);
+
+    const error500 = new GitHubCliError('Server error', 500, 'stderr');
+    assert.equal(error500.exitCode, 500);
+  });
+
+  it('throws ValidationError for exit codes in invalid range (256-399)', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', 300, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid exit/status code: 300');
+      }
+    );
+  });
+
+  it('throws ValidationError for exit codes above 599', () => {
+    assert.throws(
+      () => new GitHubCliError('Test', 600, 'stderr'),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid exit/status code: 600');
+      }
+    );
   });
 
   it('does not modify message for valid exit codes', () => {
     const error = new GitHubCliError('Normal error', 1, 'stderr');
 
     assert.equal(error.message, 'Normal error');
-    assert.ok(!error.message.includes('Warning'));
   });
 
   it('extends McpError', () => {
@@ -213,6 +247,222 @@ describe('GitHubCliError', () => {
 
     assert.ok('cause' in error);
     assert.equal((error as any).cause.message, 'DNS timeout');
+  });
+
+  describe('createSafe static factory', () => {
+    it('passes through valid exit codes unchanged', () => {
+      const error = GitHubCliError.createSafe('Command failed', 1, 'stderr');
+
+      assert.equal(error.exitCode, 1);
+      assert.equal(error.message, 'Command failed');
+      assert.equal(error.stderr, 'stderr');
+    });
+
+    it('passes through valid HTTP status codes unchanged', () => {
+      const error = GitHubCliError.createSafe('Not found', 404, 'Not Found');
+
+      assert.equal(error.exitCode, 404);
+      assert.equal(error.message, 'Not found');
+    });
+
+    it('clamps exit codes above 255 to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', 999, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 999 clamped to 255]'));
+      assert.ok(error.message.includes('Command failed'));
+    });
+
+    it('clamps exit codes in invalid range (256-399) to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', 300, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 300 clamped to 255]'));
+    });
+
+    it('clamps exit codes above 599 to 255 with warning', () => {
+      const error = GitHubCliError.createSafe('Server error', 600, 'stderr');
+
+      assert.equal(error.exitCode, 255);
+      assert.ok(error.message.includes('[Warning: Invalid exit code 600 clamped to 255]'));
+    });
+
+    it('clamps negative exit codes (except -1) to 0 with warning', () => {
+      const error = GitHubCliError.createSafe('Command failed', -5, 'stderr');
+
+      assert.equal(error.exitCode, 0);
+      assert.ok(error.message.includes('[Warning: Invalid exit code -5 clamped to 0]'));
+    });
+
+    it('preserves -1 sentinel value', () => {
+      const error = GitHubCliError.createSafe('Process did not run', -1, 'stderr');
+
+      assert.equal(error.exitCode, -1);
+      assert.equal(error.message, 'Process did not run');
+    });
+
+    it('uses default values when parameters are omitted', () => {
+      const error = GitHubCliError.createSafe('Message only');
+
+      assert.equal(error.exitCode, -1);
+      assert.equal(error.stderr, '');
+      assert.equal(error.stdout, undefined);
+    });
+
+    it('preserves stdout and cause parameters', () => {
+      const cause = new Error('Root cause');
+      const error = GitHubCliError.createSafe('Command failed', 1, 'stderr', 'stdout', cause);
+
+      assert.equal(error.stdout, 'stdout');
+      assert.strictEqual(error.cause, cause);
+    });
+
+    it('never throws even with extreme invalid values', () => {
+      // These would throw with the constructor
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', 1000, 'stderr'));
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', -100, 'stderr'));
+      assert.doesNotThrow(() => GitHubCliError.createSafe('Test', 350, 'stderr'));
+    });
+  });
+
+  describe('exitCodeDomain property', () => {
+    it('returns unknown for -1 sentinel value', () => {
+      const error = new GitHubCliError('Process did not run', -1, 'stderr');
+      assert.equal(error.exitCodeDomain, 'unknown');
+    });
+
+    it('returns unix for exit codes 0-255', () => {
+      const error0 = new GitHubCliError('Success', 0, '');
+      assert.equal(error0.exitCodeDomain, 'unix');
+
+      const error1 = new GitHubCliError('Failed', 1, 'stderr');
+      assert.equal(error1.exitCodeDomain, 'unix');
+
+      const error128 = new GitHubCliError('Signal', 128, 'stderr');
+      assert.equal(error128.exitCodeDomain, 'unix');
+
+      const error255 = new GitHubCliError('Max code', 255, 'stderr');
+      assert.equal(error255.exitCodeDomain, 'unix');
+    });
+
+    it('returns http for status codes 400-599', () => {
+      const error404 = new GitHubCliError('Not found', 404, 'stderr');
+      assert.equal(error404.exitCodeDomain, 'http');
+
+      const error429 = new GitHubCliError('Rate limited', 429, 'stderr');
+      assert.equal(error429.exitCodeDomain, 'http');
+
+      const error500 = new GitHubCliError('Server error', 500, 'stderr');
+      assert.equal(error500.exitCodeDomain, 'http');
+
+      const error599 = new GitHubCliError('Max HTTP', 599, 'stderr');
+      assert.equal(error599.exitCodeDomain, 'http');
+    });
+  });
+});
+
+describe('getExitCodeDomain', () => {
+  it('returns unknown for -1', () => {
+    assert.equal(getExitCodeDomain(-1), 'unknown');
+  });
+
+  it('returns unix for 0', () => {
+    assert.equal(getExitCodeDomain(0), 'unix');
+  });
+
+  it('returns unix for 255', () => {
+    assert.equal(getExitCodeDomain(255), 'unix');
+  });
+
+  it('returns http for 400', () => {
+    assert.equal(getExitCodeDomain(400), 'http');
+  });
+
+  it('returns http for 599', () => {
+    assert.equal(getExitCodeDomain(599), 'http');
+  });
+
+  it('throws ValidationError for invalid exit codes', () => {
+    // Gap between Unix and HTTP ranges (256-399)
+    assert.throws(
+      () => getExitCodeDomain(300),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: 300')
+    );
+
+    // Negative (except -1)
+    assert.throws(
+      () => getExitCodeDomain(-5),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: -5')
+    );
+
+    // Above HTTP range
+    assert.throws(
+      () => getExitCodeDomain(600),
+      (err: unknown) =>
+        err instanceof ValidationError && err.message.includes('Invalid exit code: 600')
+    );
+  });
+
+  it('enables type narrowing for discriminated domain checks', () => {
+    const exitCode = 404;
+    const domain: ExitCodeDomain = getExitCodeDomain(exitCode);
+
+    // This verifies the type system allows the exhaustive switch
+    switch (domain) {
+      case 'unknown':
+        assert.fail('Should not be unknown');
+        break;
+      case 'unix':
+        assert.fail('Should not be unix');
+        break;
+      case 'http':
+        // Expected path for HTTP status code
+        assert.ok(true);
+        break;
+    }
+  });
+});
+
+describe('isHttpStatusCode', () => {
+  it('returns true for HTTP status codes (400-599)', () => {
+    assert.equal(isHttpStatusCode(400), true);
+    assert.equal(isHttpStatusCode(404), true);
+    assert.equal(isHttpStatusCode(429), true);
+    assert.equal(isHttpStatusCode(500), true);
+    assert.equal(isHttpStatusCode(599), true);
+  });
+
+  it('returns false for Unix exit codes (0-255)', () => {
+    assert.equal(isHttpStatusCode(0), false);
+    assert.equal(isHttpStatusCode(1), false);
+    assert.equal(isHttpStatusCode(128), false);
+    assert.equal(isHttpStatusCode(255), false);
+  });
+
+  it('returns false for unknown (-1)', () => {
+    assert.equal(isHttpStatusCode(-1), false);
+  });
+});
+
+describe('isUnixExitCode', () => {
+  it('returns true for Unix exit codes (0-255)', () => {
+    assert.equal(isUnixExitCode(0), true);
+    assert.equal(isUnixExitCode(1), true);
+    assert.equal(isUnixExitCode(128), true);
+    assert.equal(isUnixExitCode(255), true);
+  });
+
+  it('returns false for HTTP status codes (400-599)', () => {
+    assert.equal(isUnixExitCode(400), false);
+    assert.equal(isUnixExitCode(404), false);
+    assert.equal(isUnixExitCode(429), false);
+    assert.equal(isUnixExitCode(599), false);
+  });
+
+  it('returns false for unknown (-1)', () => {
+    assert.equal(isUnixExitCode(-1), false);
   });
 });
 
@@ -933,6 +1183,98 @@ describe('analyzeRetryability', () => {
     } finally {
       process.env.NODE_ENV = originalEnv;
       console.debug = originalDebug;
+    }
+  });
+});
+
+describe('isKnownErrorCategory', () => {
+  it('returns true for ValidationError', () => {
+    assert.equal(isKnownErrorCategory('ValidationError'), true);
+  });
+
+  it('returns true for FormattingError', () => {
+    assert.equal(isKnownErrorCategory('FormattingError'), true);
+  });
+
+  it('returns true for TimeoutError', () => {
+    assert.equal(isKnownErrorCategory('TimeoutError'), true);
+  });
+
+  it('returns true for NetworkError', () => {
+    assert.equal(isKnownErrorCategory('NetworkError'), true);
+  });
+
+  it('returns true for GitHubCliError', () => {
+    assert.equal(isKnownErrorCategory('GitHubCliError'), true);
+  });
+
+  it('returns true for ParsingError', () => {
+    assert.equal(isKnownErrorCategory('ParsingError'), true);
+  });
+
+  it('returns true for McpError', () => {
+    assert.equal(isKnownErrorCategory('McpError'), true);
+  });
+
+  it('returns false for generic Error', () => {
+    assert.equal(isKnownErrorCategory('Error'), false);
+  });
+
+  it('returns false for TypeError', () => {
+    assert.equal(isKnownErrorCategory('TypeError'), false);
+  });
+
+  it('returns false for RangeError', () => {
+    assert.equal(isKnownErrorCategory('RangeError'), false);
+  });
+
+  it('returns false for arbitrary strings', () => {
+    assert.equal(isKnownErrorCategory('SomeRandomError'), false);
+    assert.equal(isKnownErrorCategory('CustomError'), false);
+    assert.equal(isKnownErrorCategory('string'), false);
+    assert.equal(isKnownErrorCategory('object'), false);
+    assert.equal(isKnownErrorCategory('undefined'), false);
+  });
+
+  it('returns false for empty string', () => {
+    assert.equal(isKnownErrorCategory(''), false);
+  });
+
+  it('works with analyzeRetryability result', () => {
+    // For known MCP errors, isKnownErrorCategory should return true
+    const validationDecision = analyzeRetryability(new ValidationError('test'));
+    assert.equal(isKnownErrorCategory(validationDecision.errorType), true);
+
+    const timeoutDecision = analyzeRetryability(new TimeoutError('test'));
+    assert.equal(isKnownErrorCategory(timeoutDecision.errorType), true);
+
+    // For unknown errors, isKnownErrorCategory should return false
+    const genericDecision = analyzeRetryability(new Error('test'));
+    assert.equal(isKnownErrorCategory(genericDecision.errorType), false);
+
+    const stringDecision = analyzeRetryability('string error');
+    assert.equal(isKnownErrorCategory(stringDecision.errorType), false);
+  });
+
+  it('enables type narrowing in conditional branches', () => {
+    const decision = analyzeRetryability(new NetworkError('test'));
+
+    // This test verifies the type guard works for type narrowing
+    if (isKnownErrorCategory(decision.errorType)) {
+      // Inside this branch, decision.errorType is KnownErrorCategory
+      // TypeScript should allow accessing it as such
+      const category:
+        | 'ValidationError'
+        | 'FormattingError'
+        | 'TimeoutError'
+        | 'NetworkError'
+        | 'GitHubCliError'
+        | 'ParsingError'
+        | 'McpError' = decision.errorType;
+      assert.equal(category, 'NetworkError');
+    } else {
+      // This branch should not be reached for known errors
+      assert.fail('NetworkError should be a known error category');
     }
   });
 });

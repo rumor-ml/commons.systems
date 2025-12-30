@@ -186,19 +186,20 @@ describe('Type Safety', () => {
     // Full integration tests would require actual GitHub API errors or mocking
 
     it('should have StateApiError type available for rate limit errors', () => {
-      const error = new StateApiError('Rate limit test', 'read', 'pr');
+      const error = StateApiError.create('Rate limit test', 'read', 'pr');
       assert.strictEqual(error.code, 'STATE_API_ERROR');
+      assert.ok(error instanceof StateApiError);
       assert.strictEqual(error.operation, 'read');
       assert.strictEqual(error.resourceType, 'pr');
     });
 
     it('should have StateApiError type available for auth errors', () => {
-      const error = new StateApiError('Auth test', 'read', 'pr');
+      const error = StateApiError.create('Auth test', 'read', 'pr');
       assert.strictEqual(error.code, 'STATE_API_ERROR');
     });
 
     it('should have StateApiError type available for network errors', () => {
-      const error = new StateApiError('Network test', 'read', 'pr');
+      const error = StateApiError.create('Network test', 'read', 'pr');
       assert.strictEqual(error.code, 'STATE_API_ERROR');
     });
 

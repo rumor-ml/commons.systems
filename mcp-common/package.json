@@ -6,7 +6,8 @@
   "exports": {
     "./errors": "./dist/errors.js",
     "./types": "./dist/types.js",
-    "./result-builders": "./dist/result-builders.js"
+    "./result-builders": "./dist/result-builders.js",
+    "./gh-retry": "./dist/gh-retry.js"
   },
   "scripts": {
     "build": "tsc",

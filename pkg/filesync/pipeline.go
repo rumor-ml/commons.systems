@@ -4,6 +4,7 @@
 //  2. Upload: Users review extracted files and approve/reject. Approved files are uploaded.
 //
 // This design allows user review of metadata before files are uploaded to permanent storage.
+// TODO(#307): Fix blocking sleep in periodic stats flush goroutine (implementation bug)
 package filesync
 
 import (

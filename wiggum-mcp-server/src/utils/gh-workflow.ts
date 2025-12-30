@@ -53,6 +53,7 @@ export async function monitorRun(
 
   // If failed, enrich with failure details
   // TODO(#375): Surface enrichment errors to users in failure messages
+  // TODO(#392): Surface workflow failure enrichment errors to users
   // Current: enrichment failures only logged, not shown to users (see PR review #273)
   // Supersedes #272 with implementation details from PR review
   if (!result.success && !result.failureDetails) {
