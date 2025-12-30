@@ -183,6 +183,49 @@ const IssueRecordSchema = z.object({
 export { IssueRecordSchema };
 
 /**
+ * Input type for createIssueRecord factory (timestamp is auto-generated)
+ */
+export type IssueRecordInput = Omit<IssueRecord, 'timestamp'>;
+
+/**
+ * Create a validated IssueRecord object
+ *
+ * This factory function ensures all IssueRecord objects pass runtime validation
+ * through IssueRecordSchema.parse(), catching invalid data early and enforcing
+ * all invariants (non-empty title/description, valid agent name, etc.).
+ *
+ * **Why use this factory instead of object literals:**
+ * 1. Validates all fields via Zod schema (catches invalid data at construction)
+ * 2. Auto-generates ISO 8601 timestamp (single source of truth)
+ * 3. Consistent with other types (GitState, WiggumState, AgentManifest, ManifestSummary)
+ * 4. Prevents invalid IssueRecord objects from being created
+ *
+ * @param data - Issue record data (timestamp is added automatically)
+ * @returns Validated IssueRecord with all invariants verified
+ * @throws {z.ZodError} If validation fails (invalid agent_name, empty title, etc.)
+ *
+ * @example
+ * ```typescript
+ * const issue = createIssueRecord({
+ *   agent_name: 'code-reviewer',
+ *   scope: 'in-scope',
+ *   priority: 'high',
+ *   title: 'Missing error handling',
+ *   description: 'The function does not handle errors...',
+ *   location: 'src/api/users.ts:42',
+ * });
+ * // issue.timestamp is auto-generated
+ * ```
+ */
+export function createIssueRecord(data: IssueRecordInput): IssueRecord {
+  const issue: IssueRecord = {
+    ...data,
+    timestamp: new Date().toISOString(),
+  };
+  return IssueRecordSchema.parse(issue);
+}
+
+/**
  * Aggregated manifest data for a single agent and scope
  *
  * Used by manifest-utils to track agent completion status.

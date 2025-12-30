@@ -42,7 +42,8 @@ function validateGraphQLResponse(
     const responseJson = JSON.stringify(result);
     const errors = result.errors || [];
 
-    // ALWAYS log GitHub API error messages at WARN level - they're safe and critical for debugging
+    // ALWAYS log GitHub API error messages - they're safe and critical for debugging
+    // Logged via console.error() with WARN prefix to indicate warning severity
     // This ensures production users can diagnose authentication, permission, or rate limit issues
     if (errors.length > 0) {
       console.error(

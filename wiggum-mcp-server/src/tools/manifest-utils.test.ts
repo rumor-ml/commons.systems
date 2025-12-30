@@ -22,7 +22,9 @@ import {
   ManifestSummaryInvariantError,
   createAgentManifest,
   AgentManifestInvariantError,
+  createIssueRecord,
 } from './manifest-types.js';
+import { ZodError } from 'zod';
 import type {
   IssueRecord,
   ReviewAgentName,
@@ -1113,6 +1115,232 @@ describe('manifest-utils', () => {
     it('should be instanceof Error', () => {
       const error = new AgentManifestInvariantError('test', {});
       assert.ok(error instanceof Error);
+    });
+  });
+
+  describe('createIssueRecord', () => {
+    describe('successful creation', () => {
+      it('should create valid IssueRecord with required fields', () => {
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test Issue',
+          description: 'Test Description',
+        });
+
+        assert.strictEqual(issue.agent_name, 'code-reviewer');
+        assert.strictEqual(issue.scope, 'in-scope');
+        assert.strictEqual(issue.priority, 'high');
+        assert.strictEqual(issue.title, 'Test Issue');
+        assert.strictEqual(issue.description, 'Test Description');
+        // Timestamp is auto-generated
+        assert.ok(issue.timestamp);
+        assert.ok(typeof issue.timestamp === 'string');
+      });
+
+      it('should auto-generate valid ISO 8601 timestamp', () => {
+        const before = new Date().toISOString();
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test',
+          description: 'Test',
+        });
+        const after = new Date().toISOString();
+
+        // Timestamp should be between before and after
+        assert.ok(issue.timestamp >= before);
+        assert.ok(issue.timestamp <= after);
+        // Should be valid ISO 8601
+        assert.ok(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(issue.timestamp));
+      });
+
+      it('should accept all optional fields', () => {
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'out-of-scope',
+          priority: 'low',
+          title: 'Test Issue',
+          description: 'Test Description',
+          location: 'src/file.ts:42',
+          existing_todo: {
+            has_todo: true,
+            issue_reference: '#123',
+          },
+          metadata: { severity: 'critical', confidence: 95 },
+          files_to_edit: ['src/file.ts', 'src/other.ts'],
+          not_fixed: true,
+        });
+
+        assert.strictEqual(issue.location, 'src/file.ts:42');
+        assert.deepStrictEqual(issue.existing_todo, {
+          has_todo: true,
+          issue_reference: '#123',
+        });
+        assert.deepStrictEqual(issue.metadata, { severity: 'critical', confidence: 95 });
+        assert.deepStrictEqual(issue.files_to_edit, ['src/file.ts', 'src/other.ts']);
+        assert.strictEqual(issue.not_fixed, true);
+      });
+
+      it('should accept all valid agent names', () => {
+        const agentNames: ReviewAgentName[] = [
+          'code-reviewer',
+          'silent-failure-hunter',
+          'code-simplifier',
+          'comment-analyzer',
+          'pr-test-analyzer',
+          'type-design-analyzer',
+        ];
+
+        for (const agentName of agentNames) {
+          assert.doesNotThrow(() =>
+            createIssueRecord({
+              agent_name: agentName,
+              scope: 'in-scope',
+              priority: 'high',
+              title: 'Test',
+              description: 'Test',
+            })
+          );
+        }
+      });
+    });
+
+    describe('validation failures', () => {
+      it('should throw ZodError for invalid agent_name', () => {
+        assert.throws(
+          () =>
+            createIssueRecord({
+              agent_name: 'invalid-agent' as ReviewAgentName,
+              scope: 'in-scope',
+              priority: 'high',
+              title: 'Test',
+              description: 'Test',
+            }),
+          (error: Error) => {
+            assert.ok(error instanceof ZodError);
+            return true;
+          }
+        );
+      });
+
+      it('should throw ZodError for empty title', () => {
+        assert.throws(
+          () =>
+            createIssueRecord({
+              agent_name: 'code-reviewer',
+              scope: 'in-scope',
+              priority: 'high',
+              title: '',
+              description: 'Test',
+            }),
+          (error: Error) => {
+            assert.ok(error instanceof ZodError);
+            const zodError = error as ZodError;
+            assert.ok(zodError.errors.some((e) => e.message.includes('title')));
+            return true;
+          }
+        );
+      });
+
+      it('should throw ZodError for empty description', () => {
+        assert.throws(
+          () =>
+            createIssueRecord({
+              agent_name: 'code-reviewer',
+              scope: 'in-scope',
+              priority: 'high',
+              title: 'Test',
+              description: '',
+            }),
+          (error: Error) => {
+            assert.ok(error instanceof ZodError);
+            const zodError = error as ZodError;
+            assert.ok(zodError.errors.some((e) => e.message.includes('description')));
+            return true;
+          }
+        );
+      });
+
+      it('should throw ZodError for invalid scope', () => {
+        assert.throws(
+          () =>
+            createIssueRecord({
+              agent_name: 'code-reviewer',
+              scope: 'invalid-scope' as IssueScope,
+              priority: 'high',
+              title: 'Test',
+              description: 'Test',
+            }),
+          (error: Error) => {
+            assert.ok(error instanceof ZodError);
+            return true;
+          }
+        );
+      });
+
+      it('should throw ZodError for invalid priority', () => {
+        assert.throws(
+          () =>
+            createIssueRecord({
+              agent_name: 'code-reviewer',
+              scope: 'in-scope',
+              priority: 'medium' as IssuePriority,
+              title: 'Test',
+              description: 'Test',
+            }),
+          (error: Error) => {
+            assert.ok(error instanceof ZodError);
+            return true;
+          }
+        );
+      });
+    });
+
+    describe('consistency with other factory functions', () => {
+      it('should produce records that pass isIssueRecord validation', () => {
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test Issue',
+          description: 'Test Description',
+        });
+
+        assert.strictEqual(isIssueRecord(issue), true);
+      });
+
+      it('should produce records usable with createAgentManifest', () => {
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test Issue',
+          description: 'Test Description',
+        });
+
+        // Should not throw
+        const manifest = createAgentManifest('code-reviewer', 'in-scope', [issue]);
+        assert.strictEqual(manifest.issues.length, 1);
+        assert.strictEqual(manifest.high_priority_count, 1);
+      });
+
+      it('should produce records usable with createManifestSummary', () => {
+        const issue = createIssueRecord({
+          agent_name: 'code-reviewer',
+          scope: 'in-scope',
+          priority: 'high',
+          title: 'Test Issue',
+          description: 'Test Description',
+        });
+
+        // Should not throw
+        const summary = createManifestSummary([issue]);
+        assert.strictEqual(summary.total_issues, 1);
+        assert.strictEqual(summary.high_priority_count, 1);
+      });
     });
   });
 

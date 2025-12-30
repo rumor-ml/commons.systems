@@ -4,7 +4,7 @@
  * This module contains reusable utilities for state validation,
  * JSON parsing, and security checks used across state management modules.
  *
- * TODO(#302): Implement comprehensive tests for security utils
+ * TODO(#1022): Implement comprehensive tests for security utils
  * Security-critical code needs thorough testing for edge cases and attack scenarios.
  */
 

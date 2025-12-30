@@ -36,7 +36,7 @@ import { logger } from '../utils/logger.js';
 import { FilesystemError, ValidationError, GitHubCliError } from '../utils/errors.js';
 import type { ToolResult } from '../types.js';
 import type { IssueRecord } from './manifest-types.js';
-import { ReviewAgentNameSchema } from './manifest-types.js';
+import { ReviewAgentNameSchema, createIssueRecord } from './manifest-types.js';
 
 /**
  * Known file extensions for validating auto-extracted file paths
@@ -520,8 +520,8 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     }
   }
 
-  // Create issue record with timestamp
-  const issue: IssueRecord = {
+  // Create validated issue record (factory validates via IssueRecordSchema.parse())
+  const issue: IssueRecord = createIssueRecord({
     agent_name: input.agent_name,
     scope: input.scope,
     priority: input.priority,
@@ -530,9 +530,8 @@ export async function recordReviewIssue(input: RecordReviewIssueInput): Promise<
     location: input.location,
     existing_todo: input.existing_todo,
     metadata: input.metadata,
-    timestamp: new Date().toISOString(),
     files_to_edit: filesToEdit,
-  };
+  });
 
   let filepath: string | undefined;
   let manifestError: string | undefined;
