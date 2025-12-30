@@ -23,6 +23,7 @@ import {
   doc,
   query,
   orderBy,
+  where,
   serverTimestamp,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
@@ -59,7 +60,23 @@ async function getFirebaseConfig() {
         return config;
       }
     } catch (error) {
-      console.warn('Failed to fetch Firebase Hosting config, using local config:', error);
+      const isTimeout = error.message?.includes('timeout');
+      console.error('[Firebase] CRITICAL: Failed to fetch Firebase Hosting config:', {
+        message: error.message,
+        isTimeout,
+        hostname: window.location.hostname,
+      });
+
+      // Show blocking error banner - wrong environment could cause data corruption
+      if (typeof window !== 'undefined') {
+        const errorBanner = document.createElement('div');
+        errorBanner.className = 'error-banner';
+        errorBanner.style.cssText =
+          'background: var(--color-error); color: white; padding: 1.5rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; text-align: center; font-weight: bold;';
+        errorBanner.textContent =
+          '⚠️ CONFIGURATION ERROR: Failed to load Firebase config. You may be connected to the wrong environment. Please refresh or contact support.';
+        document.body.insertBefore(errorBanner, document.body.firstChild);
+      }
     }
   }
 
@@ -109,7 +126,7 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
+        // TODO(#327, #285): Use error.code instead of msg.includes('already') for emulator detection
         const msg = error.message || '';
 
         // Expected: already connected (happens on HTMX page swaps)
@@ -118,13 +135,42 @@ async function initFirebase() {
           return { app, db, auth, cardsCollection };
         }
 
-        // Unexpected emulator connection errors
-        console.error('[Firebase] Emulator connection failed:', {
-          error: msg,
+        // Unexpected: CRITICAL ERROR - emulator connection failed
+        console.error('[Firebase] CRITICAL: Emulator connection failed', {
+          message: msg,
           firestoreHost,
           authHost,
           env: import.meta.env.MODE,
         });
+
+        // CRITICAL: Show blocking error screen and halt execution
+        // Prevents accidental writes to production database
+        if (typeof window !== 'undefined') {
+          const errorScreen = document.createElement('div');
+          errorScreen.style.cssText =
+            'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--color-error); color: white; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; padding: 2rem; text-align: center;';
+
+          const title = document.createElement('h1');
+          title.textContent = '🛑 EMULATOR CONNECTION FAILED';
+          title.style.cssText = 'font-size: 2rem; margin-bottom: 1rem;';
+
+          const message = document.createElement('p');
+          message.textContent =
+            'Cannot connect to Firebase emulator. Execution halted to prevent accidental production writes.';
+          message.style.cssText = 'font-size: 1.2rem; margin-bottom: 2rem; max-width: 600px;';
+
+          const instructions = document.createElement('p');
+          instructions.textContent =
+            'Please ensure emulators are running (make dev) and refresh the page.';
+          instructions.style.cssText = 'font-size: 1rem;';
+
+          errorScreen.appendChild(title);
+          errorScreen.appendChild(message);
+          errorScreen.appendChild(instructions);
+          document.body.appendChild(errorScreen);
+        }
+
+        // Throw error to halt execution - do not allow any Firebase operations
         throw error;
       }
     }
@@ -156,13 +202,38 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
   return Promise.race([promise, timeoutPromise]);
 }
 
+/**
+ * Validate card data for required fields and types
+ * Extracted from createCard and updateCard to eliminate duplication
+ * @param {Object} cardData - Card data to validate
+ * @throws {Error} If validation fails
+ */
+function validateCardData(cardData) {
+  if (!cardData.title?.trim()) {
+    throw new Error('Card title is required');
+  }
+  if (!cardData.type?.trim()) {
+    throw new Error('Card type is required');
+  }
+  if (!cardData.subtype?.trim()) {
+    throw new Error('Card subtype is required');
+  }
+  if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
+    throw new Error('isPublic must be a boolean value');
+  }
+}
+
 // Get all cards from Firestore with timeout protection
+// Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
+  // TODO(#484): Document timeout rationale - why 5 seconds? Based on empirical data or estimated worst-case?
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {
-    const q = query(cardsCollection, orderBy('title', 'asc'));
+    // Query for public cards only - this matches the security rules requirement
+    // NOTE: Firestore requires query constraints to match security rule constraints
+    const q = query(cardsCollection, where('isPublic', '==', true), orderBy('title', 'asc'));
 
     // Wrap query with timeout to prevent hanging on slow/unresponsive Firestore
     const querySnapshot = await withTimeout(
@@ -180,9 +251,12 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
-    // Error will be handled by caller - no need to log here
-    // This reduces console noise during normal operation
-    throw error;
+    // TODO(#286): Update comment to reflect new Error object creation
+    // Enrich error with context before re-throwing
+    const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
+    enrichedError.originalError = error;
+    enrichedError.code = error.code;
+    throw enrichedError;
   }
 }
 
@@ -207,19 +281,12 @@ export async function getCard(cardId) {
 }
 
 // Create a new card
+// TODO(#475): Use Card type from types.js for better type safety
 export async function createCard(cardData) {
   await initFirebase();
 
   // Validate required fields before making Firestore call
-  if (!cardData.title?.trim()) {
-    throw new Error('Card title is required');
-  }
-  if (!cardData.type?.trim()) {
-    throw new Error('Card type is required');
-  }
-  if (!cardData.subtype?.trim()) {
-    throw new Error('Card subtype is required');
-  }
+  validateCardData(cardData);
 
   // Use getAuthInstance() to get the current auth instance
   // This ensures we get window.__testAuth if it exists (for tests)
@@ -232,6 +299,7 @@ export async function createCard(cardData) {
 
     const docRef = await addDoc(cardsCollection, {
       ...cardData,
+      isPublic: cardData.isPublic ?? true, // Default to public for backward compatibility
       createdBy: user.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -253,8 +321,12 @@ export async function createCard(cardData) {
 // Update an existing card
 export async function updateCard(cardId, cardData) {
   await initFirebase();
+
+  // Validate required fields before making Firestore call
+  validateCardData(cardData);
+
+  const authInstance = getAuthInstance();
   try {
-    const authInstance = getAuthInstance();
     const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to update cards');
@@ -270,6 +342,8 @@ export async function updateCard(cardId, cardData) {
   } catch (error) {
     console.error('[Firebase] Error updating card:', {
       cardId,
+      title: cardData.title,
+      type: cardData.type,
       message: error.message,
       code: error.code,
     });
@@ -300,6 +374,7 @@ export async function deleteCard(cardId) {
 }
 
 // Batch import cards (for seeding from rules.md)
+// TODO(#285): Surface failed card imports to user (currently only logged to console)
 export async function importCards(cards) {
   await initFirebase();
   try {
@@ -307,6 +382,7 @@ export async function importCards(cards) {
       created: 0,
       updated: 0,
       errors: 0,
+      failedCards: [], // Track which cards failed
     };
 
     for (const card of cards) {
@@ -331,14 +407,18 @@ export async function importCards(cards) {
           results.created++;
         }
       } catch (error) {
-        console.error(`Error importing card "${card.title}":`, error);
+        console.error(`[Firebase] Error importing card "${card.title}":`, error);
         results.errors++;
+        results.failedCards.push({
+          title: card.title,
+          error: error.message,
+        });
       }
     }
 
     return results;
   } catch (error) {
-    console.error('Error importing cards:', error);
+    console.error('[Firebase] Error importing cards:', error);
     throw error;
   }
 }
