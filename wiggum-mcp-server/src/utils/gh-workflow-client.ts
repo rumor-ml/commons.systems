@@ -16,17 +16,37 @@ import type { MonitorResult } from './gh-workflow.js';
 let ghWorkflowClient: Client | null = null;
 
 /**
+ * Options for extractTextFromMCPResult
+ */
+interface ExtractTextOptions {
+  /**
+   * If true, allow empty text content without throwing an error.
+   * Use this for tools where empty results are legitimate (e.g., no failures found).
+   * Default: false (empty results throw an error)
+   */
+  allowEmpty?: boolean;
+}
+
+/**
  * Extract text content from MCP tool result
  *
- * Provides consistent extraction and validation of text content from MCP responses
+ * Provides consistent extraction and validation of text content from MCP responses.
+ * By default, empty text content throws an error (fail-safe approach). Use the
+ * `allowEmpty` option for tools where empty results are legitimate.
  *
  * @param result - MCP tool result
  * @param toolName - Name of tool for error messages
  * @param context - Context string (e.g., branch name, PR number) for error messages
+ * @param options - Optional extraction options (e.g., allowEmpty)
  * @returns Extracted text content
- * @throws Error if result format is invalid
+ * @throws Error if result format is invalid or empty (unless allowEmpty is true)
  */
-function extractTextFromMCPResult(result: any, toolName: string, context: string): string {
+function extractTextFromMCPResult(
+  result: any,
+  toolName: string,
+  context: string,
+  options: ExtractTextOptions = {}
+): string {
   if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
     logger.error(`Invalid ${toolName} response: no content array`, {
       hasContent: !!result.content,
@@ -37,12 +57,43 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
   }
 
   const textContent = result.content.find((c: any) => c.type === 'text');
-  if (!textContent || !('text' in textContent)) {
-    logger.error(`Invalid ${toolName} response: no text content`, {
+  if (!textContent || !('text' in textContent) || typeof textContent.text !== 'string') {
+    logger.error(`Invalid ${toolName} response: no valid text content`, {
       contentTypes: result.content.map((c: any) => c.type),
+      textContentType: textContent ? typeof textContent.text : 'undefined',
       context,
     });
-    throw new Error(`No text content in ${toolName} response for ${context}`);
+    throw new Error(`No valid text content in ${toolName} response for ${context}`);
+  }
+
+  // Empty text content has two distinct causes:
+  // 1. LEGITIMATE: Tool executed successfully but found no data (e.g., no workflow failures)
+  // 2. FAILURE: Tool malfunction, API issue, or data loss
+  //
+  // By default, we treat empty responses as errors (fail-safe approach).
+  // Callers can use options.allowEmpty for tools where empty is valid.
+  // To diagnose ambiguous cases, check gh-workflow-mcp-server logs for:
+  //   - "No failures found" or similar messages (legitimate empty result)
+  //   - Error/exception stack traces (tool crash)
+  //   - Rate limit warnings from GitHub API
+  //   - Network timeout messages
+  if (textContent.text.length === 0 && !options.allowEmpty) {
+    logger.error(`Empty text content in ${toolName} response - ambiguous failure`, {
+      context,
+      allowEmpty: options.allowEmpty,
+      diagnosticSteps: [
+        '1. Check gh-workflow-mcp-server logs for tool execution details',
+        '2. Verify GitHub API rate limit: gh api rate_limit',
+        '3. Confirm network connectivity: gh auth status',
+        '4. Review tool schema - may return empty string for "no data" case',
+        '5. If empty is valid for this tool, set options.allowEmpty = true',
+      ],
+    });
+    throw new Error(
+      `Empty content from ${toolName} for ${context}. ` +
+        `Possible causes: (1) No data found, (2) Tool crashed silently, (3) Rate limit/network issue. ` +
+        `Check gh-workflow-mcp-server logs for diagnostic details.`
+    );
   }
 
   return textContent.text;
@@ -51,14 +102,15 @@ function extractTextFromMCPResult(result: any, toolName: string, context: string
 /**
  * Call MCP tool with retry logic for timeout errors
  *
- * The MCP TypeScript SDK has a hardcoded 60-second timeout. For long-running
- * operations (like workflow monitoring), we retry on timeout errors until
- * the operation completes or maxDurationMs is reached.
+ * The MCP TypeScript SDK has a hardcoded 60-second timeout in Client.callTool
+ * (not configurable as of SDK v0.5.0). For long-running operations (like workflow
+ * monitoring in issue #625), we retry on timeout errors until the operation
+ * completes or maxDurationMs is reached.
  *
  * @param client - MCP client instance
  * @param toolName - Name of the tool to call
  * @param args - Tool arguments
- * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes)
+ * @param maxDurationMs - Maximum total duration before giving up (default: 10 minutes, max: 1 hour)
  * @returns Promise resolving to tool result
  * @throws Error if operation exceeds maxDurationMs or encounters non-timeout error
  */
@@ -68,14 +120,54 @@ async function callToolWithRetry(
   args: any,
   maxDurationMs: number = 600000 // 10 minutes
 ): Promise<any> {
-  // Validate timeout
-  if (maxDurationMs <= 0) {
-    throw new Error(`Invalid maxDurationMs: ${maxDurationMs}. Must be positive.`);
+  // Validate timeout - must be positive and not exceed 1 hour
+  const MAX_DURATION_LIMIT_MS = 3600000; // 1 hour
+  if (maxDurationMs <= 0 || maxDurationMs > MAX_DURATION_LIMIT_MS) {
+    throw new Error(
+      `Invalid maxDurationMs: ${maxDurationMs}. Must be between 1ms and ${MAX_DURATION_LIMIT_MS}ms (1 hour). ` +
+        `Common values: 60000 (1 min), 300000 (5 min), 600000 (10 min).`
+    );
   }
 
   const startTime = Date.now();
 
+  // Circuit breaker: Maximum iterations to prevent infinite loops
+  // At 60s per iteration (SDK timeout), 1000 iterations = ~16.7 hours
+  // This protects against bugs in retry logic or unexpected edge cases
+  const MAX_ITERATIONS = 1000;
+  let iteration = 0;
+
   while (true) {
+    iteration++;
+
+    // Log warning if too many iterations (possible stuck operation)
+    if (iteration > 10 && iteration % 10 === 0) {
+      logger.warn('callToolWithRetry: high iteration count detected', {
+        toolName,
+        iteration,
+        elapsed: Date.now() - startTime,
+        maxDurationMs,
+        impact: 'Possible stuck operation or retry logic issue',
+        action: 'Monitor for completion or timeout',
+      });
+    }
+
+    // Circuit breaker: fail if maximum iterations exceeded
+    if (iteration > MAX_ITERATIONS) {
+      const errorMsg =
+        `callToolWithRetry: Circuit breaker triggered - exceeded maximum iterations (${MAX_ITERATIONS}). ` +
+        `This indicates a bug in retry logic or an operation that never completes. ` +
+        `Tool: ${toolName}, Elapsed: ${Date.now() - startTime}ms, MaxDuration: ${maxDurationMs}ms`;
+      logger.error('callToolWithRetry: circuit breaker triggered', {
+        toolName,
+        iteration,
+        elapsed: Date.now() - startTime,
+        maxDurationMs,
+        impact: 'Operation terminated to prevent infinite loop',
+      });
+      throw new Error(errorMsg);
+    }
+
     const elapsed = Date.now() - startTime;
 
     if (elapsed >= maxDurationMs) {
@@ -92,23 +184,117 @@ async function callToolWithRetry(
     }
 
     try {
-      return await client.callTool({
+      const result = await client.callTool({
         name: toolName,
         arguments: args,
       });
+
+      // Check if result contains "still running" markers (chunked monitoring mode)
+      // These markers indicate the operation is still in progress and should retry
+      if (result.content && Array.isArray(result.content)) {
+        const textContent = result.content.find((c: any) => c.type === 'text');
+        if (textContent && 'text' in textContent) {
+          const text = textContent.text;
+          if (text.includes('WORKFLOW_RUNNING') || text.includes('CHECKS_RUNNING')) {
+            const attemptEstimate = Math.floor(elapsed / 50000) + 1;
+            logger.info(
+              `Workflow/checks still running, continuing to monitor (attempt ~${attemptEstimate}, elapsed ${elapsed}ms, remaining ${maxDurationMs - elapsed}ms)`,
+              { toolName }
+            );
+            continue; // Retry the call
+          }
+        }
+      }
+
+      return result;
     } catch (error: unknown) {
       // Extract error details once
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode =
         error instanceof Error && 'code' in error ? (error as { code?: number }).code : undefined;
 
-      // Check if it's the MCP timeout error
-      // Use strict pattern to avoid false positives from other timeout messages
+      // MCP JSON-RPC error codes (from MCP specification):
+      // Fatal errors (fail fast):
+      //   -32601: Method not found - Tool doesn't exist (version mismatch)
+      //   -32602: Invalid params - Schema mismatch (programming error)
+      // Retryable errors:
+      //   -32001: Timeout (MCP-specific extension) - retry until maxDurationMs
+      // Unexpected errors (log and propagate):
+      //   -32700: Parse error - Invalid JSON
+      //   -32600: Invalid request - Request object malformed
+      //   -32603: Internal error - Server-side error
+      // See: https://spec.modelcontextprotocol.io/specification/basic/messages/#error-codes
+
+      // Check for known non-retryable MCP errors first (fail fast with clear diagnostics)
+      if (errorCode === -32601) {
+        // Method not found - tool doesn't exist in gh-workflow-mcp-server
+        logger.error('MCP tool not found - check gh-workflow-mcp-server version', {
+          toolName,
+          errorCode,
+          errorMessage,
+          action:
+            'Verify gh-workflow-mcp-server is built and up-to-date: cd gh-workflow-mcp-server && npm run build',
+        });
+        throw error;
+      }
+
+      if (errorCode === -32602) {
+        // Invalid params - schema mismatch between caller and tool
+        logger.error('MCP invalid parameters - check tool schema', {
+          toolName,
+          args,
+          errorCode,
+          errorMessage,
+          action: 'Verify tool arguments match expected schema in gh-workflow-mcp-server',
+        });
+        throw error;
+      }
+
+      // Check if it's the MCP timeout error (retryable)
+      // Detection strategy (in priority order):
+      // 1. errorCode === -32001: MCP spec-defined timeout code (most reliable - part of protocol)
+      // 2. error.name === 'TimeoutError': Standard Error subclass (reliable - JavaScript convention)
+      // 3. Message pattern matching: Regex fallback (brittle - depends on exact error message wording)
+      //
+      // Why pattern matching is brittle:
+      //   - Not part of MCP spec or JavaScript standard
+      //   - Can break if SDK changes error message text
+      //   - Different Node/SDK versions may phrase errors differently
+      // We log a warning when pattern matching is used to track SDK version differences.
+      //
+      // Expanded timeout patterns (issue #625):
+      // Added additional patterns to catch more timeout-related error messages:
+      //   - "deadline exceeded" - common in gRPC/distributed systems
+      //   - "took too long" - human-readable timeout messages
+      //   - "exceeded.*timeout" / "timeout.*exceeded" - variations in phrasing
+      const errorName = error instanceof Error ? error.name : undefined;
+      const timeoutPatterns = [
+        /\b(request|operation) timed? ?out\b/i,
+        /\bdeadline exceeded\b/i,
+        /\btook too long\b/i,
+        /\bexceeded.*timeout\b/i,
+        /\btimeout.*exceeded\b/i,
+      ];
       const isTimeout =
         error instanceof Error &&
-        (errorCode === -32001 || /\b(request|operation) timed? ?out\b/i.test(errorMessage));
+        (errorCode === -32001 ||
+          errorName === 'TimeoutError' ||
+          timeoutPatterns.some((pattern) => pattern.test(errorMessage)));
 
       if (isTimeout) {
+        // Log when using brittle detection methods (pattern matching instead of error code/name)
+        if (errorCode !== -32001 && errorName !== 'TimeoutError') {
+          const matchedPattern = timeoutPatterns.find((p) => p.test(errorMessage));
+          logger.warn('Timeout detected via brittle message pattern matching', {
+            toolName,
+            errorMessage,
+            errorCode,
+            errorName,
+            matchedPattern: matchedPattern?.source,
+            impact: 'Pattern may break if MCP SDK changes error message wording',
+            action: 'Monitor for SDK updates that expose structured timeout errors',
+          });
+        }
         // Calculate attempt count estimate (elapsed time / 60s SDK timeout)
         const attemptEstimate = Math.floor(elapsed / 60000) + 1;
         logger.info(
@@ -121,13 +307,32 @@ async function callToolWithRetry(
         continue;
       }
 
-      // Non-timeout error - include timing context
-      logger.error(`callToolWithRetry failed with non-timeout error`, {
+      // Check if error message suggests a timeout that our patterns didn't catch
+      // This helps identify new timeout phrasings that should be added to timeoutPatterns
+      if (error instanceof Error) {
+        const likelyTimeoutPattern = /timeout|deadline|duration|took.*long|timed?\s*out/i;
+        if (likelyTimeoutPattern.test(errorMessage)) {
+          logger.warn('Possible timeout not detected by current patterns', {
+            toolName,
+            errorMessage,
+            errorCode,
+            errorName,
+            impact: 'Operation may fail instead of retrying - potential false negative',
+            action: 'Consider adding this error pattern to timeoutPatterns array',
+            currentPatterns: timeoutPatterns.map((p) => p.source),
+          });
+        }
+      }
+
+      // Unknown error type - log with enhanced diagnostics for pattern analysis
+      logger.error(`callToolWithRetry failed with unexpected error type`, {
         toolName,
         error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
         code: errorCode,
         elapsed,
         remaining: maxDurationMs - elapsed,
+        action: 'Check if this is a new error type that needs explicit handling',
       });
       throw error;
     }
@@ -146,6 +351,12 @@ export async function getGhWorkflowClient(): Promise<Client> {
   if (ghWorkflowClient) {
     return ghWorkflowClient;
   }
+
+  // Reset singleton to null before attempting connection
+  // This ensures that if a previous connection attempt failed and left the singleton
+  // in an inconsistent state (e.g., partially initialized), we start fresh
+  // Without this, retry attempts would return the stale singleton at line 192
+  ghWorkflowClient = null;
 
   logger.info('Initializing gh-workflow-mcp-server client');
 
@@ -188,30 +399,25 @@ export async function getGhWorkflowClient(): Promise<Client> {
     } catch (closeError) {
       const closeMsg = closeError instanceof Error ? closeError.message : String(closeError);
 
-      const diagnosticLines = [
-        '⚠️  CRITICAL: MCP TRANSPORT CLEANUP FAILED',
-        '',
-        `Connection Error: ${errorMsg}`,
-        `Cleanup Error: ${closeMsg}`,
-        '',
-        'RESOURCE LEAK DETECTED:',
-        '  - Socket/process may remain open',
-        `  - Server path: ${serverPath}`,
-        '',
-        'IMMEDIATE ACTIONS:',
-        '  1. Kill stuck: pkill -f gh-workflow-mcp-server',
-        '  2. Check zombies: ps aux | grep gh-workflow-mcp-server',
-        '  3. Verify limits: ulimit -a',
-        '',
-        'DIAGNOSIS:',
-        `  - Verify server: ls -la ${serverPath}`,
-        '  - Check Node: node --version',
-        '',
-        'If persists, rebuild: cd gh-workflow-mcp-server && npm run build',
-      ].join('\n');
+      // Log detailed diagnostics separately - don't overwhelm the thrown error
+      logger.error('MCP transport cleanup failed after connection failure', {
+        originalError: errorMsg,
+        cleanupError: closeMsg,
+        serverPath,
+        impact: 'Resource leak possible - socket/process may remain open',
+        actions: {
+          immediate: 'pkill -f gh-workflow-mcp-server',
+          diagnosis: `ls -la ${serverPath}; ps aux | grep gh-workflow-mcp-server`,
+          recovery: 'cd gh-workflow-mcp-server && npm run build',
+        },
+      });
 
-      logger.error('MCP transport cleanup failed', { closeError: closeMsg, serverPath });
-      throw new Error(diagnosticLines);
+      // Throw a simpler error that references both issues but isn't overwhelming
+      throw new Error(
+        `Failed to connect to gh-workflow-mcp-server: ${errorMsg}\n` +
+          `Additionally, transport cleanup failed: ${closeMsg}\n` +
+          `This may indicate a resource leak. See logs for diagnostic commands.`
+      );
     }
 
     // Re-throw the original connection error after successful cleanup
@@ -313,6 +519,7 @@ export async function monitorRun(params: {
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
+      max_single_call_timeout_seconds: 50, // Enable 50s chunks for wiggum
     },
     (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
   );
@@ -350,6 +557,7 @@ export async function monitorPRChecks(params: {
       poll_interval_seconds: params.poll_interval_seconds ?? 10,
       timeout_seconds: params.timeout_seconds ?? 600,
       fail_fast: params.fail_fast ?? true,
+      max_single_call_timeout_seconds: 50, // Enable 50s chunks for wiggum
     },
     (params.timeout_seconds ?? 600) * 1000 // Convert to milliseconds
   );
@@ -377,6 +585,10 @@ export async function monitorPRChecks(params: {
 function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_run', `branch ${branch}`);
+
+  // Note: "WORKFLOW_RUNNING" marker is handled by callToolWithRetry
+  // If we reach here, the workflow has completed
+
   logger.info('Parsed workflow monitor result', { textLength: text.length, branch });
 
   // Parse the text to determine success/failure
@@ -398,16 +610,28 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
   const conclusion = conclusionMatch ? conclusionMatch[1] : null;
 
   if (!conclusion) {
+    // Log TRUNCATED response for debugging to prevent log overflow and secret exposure
+    // Large workflow outputs (10K+ chars) can flood logs and may contain sensitive data
+    const MAX_LOG_SNIPPET = 1000;
+    const textSnippet =
+      text.length > MAX_LOG_SNIPPET
+        ? `${text.substring(0, MAX_LOG_SNIPPET)}... [truncated, total ${text.length} chars]`
+        : text;
+
     logger.error('Failed to parse conclusion from gh_monitor_run response', {
       branch,
-      textSnippet: text.substring(0, 500),
-      fullTextLength: text.length,
+      textSnippet,
+      textLength: text.length,
+      expectedPattern: 'Conclusion: <value>',
+      action: 'Check if gh-workflow-mcp-server output format changed',
     });
     throw new ParsingError(
-      `Failed to parse workflow conclusion from gh_monitor_run response for branch ${branch}. ` +
-        `Expected format "Conclusion: <value>" not found in output. ` +
-        `This likely indicates a format change in gh-workflow-mcp-server. ` +
-        `Response snippet: ${text.substring(0, 200)}`
+      `Failed to parse workflow conclusion from gh_monitor_run response for branch ${branch}.\n` +
+        `Expected format: "Conclusion: <value>" not found in output.\n` +
+        `This likely indicates a format change in gh-workflow-mcp-server.\n` +
+        `Response length: ${text.length} chars\n` +
+        `First 500 chars: ${text.substring(0, 500)}\n` +
+        `Last 200 chars: ${text.substring(Math.max(0, text.length - 200))}`
     );
   }
 
@@ -444,6 +668,10 @@ function parseWorkflowMonitorResult(result: any, branch: string): MonitorResult 
 function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResult {
   // Extract text from result
   const text = extractTextFromMCPResult(result, 'gh_monitor_pr_checks', `PR #${prNumber}`);
+
+  // Note: "CHECKS_RUNNING" marker is handled by callToolWithRetry
+  // If we reach here, the checks have completed
+
   logger.info('Parsed PR checks monitor result', { textLength: text.length, prNumber });
 
   // Parse failure count from summary line: "Success: N, Failed: N, Other: N"
@@ -499,6 +727,36 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
   if (failureCount !== null) {
     // Primary logic: success if no failures, regardless of skipped/other checks
     success = failureCount === 0;
+
+    // Validate consistency when both failureCount and overallStatus are available
+    // This catches data inconsistencies that could hide actual failures
+    if (overallStatus !== null) {
+      // BLOCKED means checks passed but PR cannot merge (missing reviews, conflicts, etc.)
+      // This is NOT a success state - the PR needs intervention before it can merge
+      if (overallStatus === 'BLOCKED') {
+        logger.warn('PR is BLOCKED - checks passed but merge is prevented', {
+          prNumber,
+          overallStatus,
+          failureCount,
+          impact: 'PR cannot be merged despite passing checks',
+          action: 'Check PR for merge blockers (missing reviews, branch not updated, etc.)',
+        });
+      }
+      // Compare against SUCCESS only - BLOCKED is not a success state
+      const statusSuccess = overallStatus === 'SUCCESS';
+      if (success !== statusSuccess) {
+        logger.warn('Inconsistent PR checks result: failureCount and status disagree', {
+          failureCount,
+          overallStatus,
+          derivedFromCount: success,
+          derivedFromStatus: statusSuccess,
+          prNumber,
+          impact: 'Using failure count as source of truth, but data may be corrupted',
+          action: 'Check gh-workflow-mcp-server output for format inconsistencies',
+        });
+      }
+    }
+
     logger.info('Determined success from failure count', {
       failureCount,
       success,
@@ -507,8 +765,22 @@ function parsePRChecksMonitorResult(result: any, prNumber: number): MonitorResul
     });
   } else {
     // Fallback: use status-based logic if failure count not parseable
-    success = overallStatus === 'SUCCESS' || overallStatus === 'BLOCKED';
-    logger.info('Determined success from status (fallback)', { overallStatus, success, prNumber });
+    // BLOCKED is NOT a success state - checks passed but PR cannot merge
+    if (overallStatus === 'BLOCKED') {
+      logger.warn('PR is BLOCKED (fallback path) - checks passed but merge is prevented', {
+        prNumber,
+        overallStatus,
+        impact: 'PR cannot be merged despite passing checks',
+        action: 'Check PR for merge blockers (missing reviews, branch not updated, etc.)',
+      });
+    }
+    success = overallStatus === 'SUCCESS';
+    logger.info('Determined success from status (fallback)', {
+      overallStatus,
+      success,
+      prNumber,
+      note: 'BLOCKED status treated as failure - PR cannot merge',
+    });
   }
 
   if (success) {

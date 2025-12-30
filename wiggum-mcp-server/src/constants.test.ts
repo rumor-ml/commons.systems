@@ -23,6 +23,8 @@ import {
   isValidStep,
   generateTriageInstructions,
   generateWorkflowTriageInstructions,
+  generateOutOfScopeTrackingInstructions,
+  generateScopeSeparatedFixInstructions,
   SKIP_MECHANISM_GUIDANCE,
   type WiggumStep,
 } from './constants.js';
@@ -779,6 +781,77 @@ describe('generateWorkflowTriageInstructions', () => {
   });
 });
 
+describe('generateOutOfScopeTrackingInstructions', () => {
+  it('should include file list in output', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 3, [
+      '/tmp/claude/file1.md',
+      '/tmp/claude/file2.md',
+    ]);
+    assert(result.includes('/tmp/claude/file1.md'));
+    assert(result.includes('/tmp/claude/file2.md'));
+  });
+
+  it('should include issue number when provided', () => {
+    const result = generateOutOfScopeTrackingInstructions(456, 'Security', 2, [
+      '/tmp/claude/file.md',
+    ]);
+    assert(result.includes('issue #456'));
+  });
+
+  it('should handle undefined issue number', () => {
+    const result = generateOutOfScopeTrackingInstructions(undefined, 'PR', 1, [
+      '/tmp/claude/file.md',
+    ]);
+    assert(result.includes('this work'));
+    assert(!result.includes('issue #undefined'));
+  });
+
+  it('should include review type in lowercase', () => {
+    const prResult = generateOutOfScopeTrackingInstructions(123, 'PR', 5, ['/tmp/f.md']);
+    const secResult = generateOutOfScopeTrackingInstructions(123, 'Security', 3, ['/tmp/f.md']);
+
+    assert(prResult.includes('pr review'));
+    assert(secResult.includes('security review'));
+  });
+
+  it('should include out-of-scope count in header', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 7, ['/tmp/f.md']);
+    assert(result.includes('7 out-of-scope'));
+  });
+
+  it('should mention step is complete', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 3, ['/tmp/f.md']);
+    assert(result.includes('**complete**'));
+  });
+
+  it('should include issue creation template guidance', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 2, ['/tmp/f.md']);
+    assert(result.includes('**Issue Creation Template:**'));
+    assert(result.includes('Title:'));
+    assert(result.includes('Body:'));
+    assert(result.includes('Labels:'));
+  });
+
+  it('should include gh issue list search command', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('gh issue list -S'));
+    assert(result.includes('--json number,title,body'));
+  });
+
+  it('should include Task tool example', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('Task({'));
+    assert(result.includes('subagent_type: "general-purpose"'));
+    assert(result.includes('model: "sonnet"'));
+  });
+
+  it('should include label suggestions', () => {
+    const result = generateOutOfScopeTrackingInstructions(123, 'PR', 1, ['/tmp/f.md']);
+    assert(result.includes('"enhancement"'));
+    assert(result.includes('"from-review"'));
+  });
+});
+
 describe('SKIP_MECHANISM_GUIDANCE constant', () => {
   it('should be a non-empty string', () => {
     assert(typeof SKIP_MECHANISM_GUIDANCE === 'string');
@@ -803,5 +876,196 @@ describe('SKIP_MECHANISM_GUIDANCE constant', () => {
 
   it('should include TODO comment requirement', () => {
     assert(SKIP_MECHANISM_GUIDANCE.includes('// TODO(#NNN):'));
+  });
+});
+
+describe('generateScopeSeparatedFixInstructions', () => {
+  describe('output format', () => {
+    it('should include issue number in output', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 2, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('#123'));
+      assert(result.includes('issue #123'));
+    });
+
+    it('should include in-scope file list', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        123,
+        'PR',
+        3,
+        ['/tmp/in1.md', '/tmp/in2.md'],
+        0,
+        []
+      );
+      assert(result.includes('/tmp/in1.md'));
+      assert(result.includes('/tmp/in2.md'));
+    });
+
+    it('should include out-of-scope file list when provided', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 3, ['/tmp/in.md'], 2, [
+        '/tmp/out1.md',
+        '/tmp/out2.md',
+      ]);
+      assert(result.includes('/tmp/out1.md'));
+      assert(result.includes('/tmp/out2.md'));
+    });
+
+    it('should include Agent 1 and Agent 2 sections when both counts > 0', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 3, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('### Agent 1:'));
+      assert(result.includes('### Agent 2:'));
+    });
+
+    it('should omit Agent 2 section when outOfScopeCount is 0', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 0, []);
+      assert(result.includes('### Agent 1:'));
+      assert(!result.includes('### Agent 2:'));
+    });
+
+    it('should use correct model for each agent', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('model: "opus"')); // Agent 1
+      assert(result.includes('model: "sonnet"')); // Agent 2
+    });
+
+    it('should include in-scope count in header', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 7, ['/tmp/in.md'], 0, []);
+      assert(result.includes('7 in-scope pr review issue(s) found'));
+    });
+
+    it('should include both counts in header when out-of-scope exists', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 5, ['/tmp/in.md'], 3, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('5 in-scope pr review issue(s) found'));
+      assert(result.includes('3 out-of-scope recommendation(s)'));
+    });
+
+    it('should include parallel agent instructions', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
+        '/tmp/out.md',
+      ]);
+      assert(result.includes('Launch TWO Agents in PARALLEL'));
+      assert(result.includes('Task({'));
+      assert(result.includes('subagent_type: "general-purpose"'));
+    });
+
+    it('should include wiggum_complete_fix instructions', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('wiggum_complete_fix'));
+      assert(result.includes('fix_description'));
+      assert(result.includes('has_in_scope_fixes'));
+      assert(result.includes('out_of_scope_issues'));
+    });
+
+    it('should include /commit-merge-push instruction', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('/commit-merge-push'));
+    });
+
+    it('should format review type in lowercase', () => {
+      const prResult = generateScopeSeparatedFixInstructions(123, 'PR', 3, ['/tmp/in.md'], 0, []);
+      const secResult = generateScopeSeparatedFixInstructions(
+        456,
+        'Security',
+        2,
+        ['/tmp/in.md'],
+        0,
+        []
+      );
+      assert(prResult.includes('pr review'));
+      assert(secResult.includes('security review'));
+    });
+
+    it('should include EnterPlanMode reference for Agent 1', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('EnterPlanMode'));
+      assert(result.includes('ExitPlanMode'));
+    });
+
+    it('should include test validation step for Agent 1', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('Run tests to validate fixes'));
+      assert(result.includes('make test'));
+    });
+  });
+
+  describe('review type handling', () => {
+    it('should handle PR review type', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 0, []);
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
+
+    it('should handle Security review type', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        456,
+        'Security',
+        3,
+        ['/tmp/in.md'],
+        0,
+        []
+      );
+      assert(typeof result === 'string');
+      assert(result.length > 0);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle empty in-scope files array with non-zero count', () => {
+      // Edge case: count says there are issues, but no files provided
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, [], 0, []);
+      assert(typeof result === 'string');
+      assert(result.includes('5 in-scope'));
+    });
+
+    it('should handle multiple in-scope files correctly', () => {
+      const files = [
+        '/tmp/claude/code-reviewer-in-scope-1.md',
+        '/tmp/claude/silent-failure-hunter-in-scope-2.md',
+        '/tmp/claude/comment-analyzer-in-scope-3.md',
+      ];
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 10, files, 0, []);
+      // All files should be listed
+      files.forEach((file) => {
+        assert(result.includes(file), `Missing file: ${file}`);
+      });
+    });
+
+    it('should handle large issue counts', () => {
+      const result = generateScopeSeparatedFixInstructions(
+        999,
+        'Security',
+        1000,
+        ['/tmp/in.md'],
+        500,
+        ['/tmp/out.md']
+      );
+      assert(result.includes('1000 in-scope'));
+      assert(result.includes('500 out-of-scope'));
+    });
+
+    it('should handle single in-scope issue with no out-of-scope', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(result.includes('1 in-scope'));
+      assert(!result.includes('Agent 2'));
+    });
+
+    it('should handle zero in-scope but non-zero out-of-scope gracefully', () => {
+      // This is an edge case - normally if in-scope is 0, this function wouldn't be called
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 0, [], 5, ['/tmp/out.md']);
+      assert(typeof result === 'string');
+    });
+
+    it('should include issue number in Agent 1 prompt', () => {
+      const result = generateScopeSeparatedFixInstructions(456, 'PR', 3, ['/tmp/in.md'], 0, []);
+      // Issue number should appear in Agent 1's instructions
+      assert(result.includes('#456') || result.includes('issue #456'));
+    });
   });
 });

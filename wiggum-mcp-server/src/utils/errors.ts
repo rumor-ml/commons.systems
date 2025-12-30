@@ -14,6 +14,7 @@
  *   - NetworkError: Network-related failures (from mcp-common)
  *   - GitHubCliError: GitHub CLI command failures (from mcp-common)
  *   - GitError: Git command failures (wiggum-specific)
+ *   - FilesystemError: Cascading filesystem failures (wiggum-specific)
  *   - ParsingError: Failed to parse external command output (from mcp-common)
  *   - FormattingError: Failed to format response data (from mcp-common)
  *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
@@ -33,6 +34,7 @@ import {
   formatError,
   isTerminalError as baseIsTerminalError,
 } from '@commons/mcp-common/errors';
+import { logger } from './logger.js';
 import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
 import type { ToolError } from '@commons/mcp-common/types';
 import { createToolError } from '@commons/mcp-common/types';
@@ -69,6 +71,33 @@ export class GitError extends McpError {
 }
 
 /**
+ * Error thrown when file system operations fail with cascading errors
+ *
+ * Used when an initial file operation fails and subsequent diagnostic operations
+ * (like stat() to check file existence) also fail. This pattern indicates serious
+ * filesystem issues like:
+ * - NFS mount failures or timeouts
+ * - Filesystem corruption
+ * - Permission cascades (directory permissions prevent stat on files)
+ * - Disk failures
+ *
+ * This is a terminal error - retrying is unlikely to help without fixing the
+ * underlying filesystem issue.
+ */
+export class FilesystemError extends McpError {
+  constructor(
+    message: string,
+    public readonly filePath: string,
+    public readonly originalError: Error,
+    public readonly diagnosticError?: Error,
+    public readonly errorCode?: string
+  ) {
+    super(message, 'FILESYSTEM_ERROR');
+    this.name = 'FilesystemError';
+  }
+}
+
+/**
  * Error thrown when state detection fails
  *
  * Indicates that the workflow state could not be reliably determined, typically
@@ -97,8 +126,25 @@ export class StateDetectionError extends McpError {
  * Wraps GitHub API errors (auth, rate limit, network, etc.) with context about
  * the specific state operation that failed. Use this for failures during state
  * reads/writes rather than generic GitHubCliError.
+ *
+ * Note: Constructor validates resourceId if provided (must be positive integer).
+ * Invalid resourceId throws ValidationError during construction.
  */
 export class StateApiError extends McpError {
+  /**
+   * Create a StateApiError
+   *
+   * Note: Prefer using StateApiError.create() factory function for safer construction.
+   * The constructor throws ValidationError if resourceId is invalid, which may be unexpected
+   * in some code paths.
+   *
+   * @param message - Human-readable error description
+   * @param operation - Whether this was a 'read' or 'write' operation
+   * @param resourceType - The GitHub resource type ('pr' or 'issue')
+   * @param resourceId - Optional PR/issue number (must be positive integer if provided)
+   * @param cause - Optional underlying error that caused this failure
+   * @throws {ValidationError} If resourceId is provided but is not a positive integer
+   */
   constructor(
     message: string,
     public readonly operation: 'read' | 'write',
@@ -106,8 +152,42 @@ export class StateApiError extends McpError {
     public readonly resourceId?: number,
     public readonly cause?: Error
   ) {
+    // Validate resourceId if provided - must be positive integer (valid PR/issue number)
+    if (resourceId !== undefined && (!Number.isInteger(resourceId) || resourceId <= 0)) {
+      throw new ValidationError(
+        `StateApiError: resourceId must be a positive integer, got: ${resourceId}`
+      );
+    }
     super(message, 'STATE_API_ERROR');
     this.name = 'StateApiError';
+  }
+
+  /**
+   * Factory function to create StateApiError with validation
+   *
+   * Returns either a StateApiError on success or a ValidationError if resourceId is invalid.
+   * This avoids throwing from the constructor, making error construction more predictable.
+   *
+   * @param message - Human-readable error description
+   * @param operation - Whether this was a 'read' or 'write' operation
+   * @param resourceType - The GitHub resource type ('pr' or 'issue')
+   * @param resourceId - Optional PR/issue number (must be positive integer if provided)
+   * @param cause - Optional underlying error that caused this failure
+   * @returns StateApiError if valid, ValidationError if resourceId is invalid
+   */
+  static create(
+    message: string,
+    operation: 'read' | 'write',
+    resourceType: 'pr' | 'issue',
+    resourceId?: number,
+    cause?: Error
+  ): StateApiError | ValidationError {
+    if (resourceId !== undefined && (!Number.isInteger(resourceId) || resourceId <= 0)) {
+      return new ValidationError(
+        `StateApiError: resourceId must be a positive integer, got: ${resourceId}`
+      );
+    }
+    return new StateApiError(message, operation, resourceType, resourceId, cause);
   }
 }
 
@@ -117,6 +197,7 @@ export class StateApiError extends McpError {
  * Retry Strategy:
  * - ValidationError: Terminal (requires user input correction)
  * - StateDetectionError: Terminal (workflow state unreliable, requires manual intervention)
+ * - FilesystemError: Terminal (cascading filesystem failures require manual intervention)
  * - TimeoutError: Potentially retryable (may succeed with more time)
  * - NetworkError: Potentially retryable (transient network issues)
  * - StateApiError: Potentially retryable (may be transient API failure)
@@ -136,8 +217,16 @@ export function isTerminalError(error: unknown): boolean {
     return false; // Wiggum treats FormattingError as retryable
   }
 
-  // StateDetectionError is always terminal
+  // StateDetectionError is terminal: workflow state could not be reliably determined
+  // Retrying would likely hit the same detection issue (recursion limit, rapid PR changes)
+  // Manual intervention is required to stabilize the PR/issue state before retry
   if (error instanceof StateDetectionError) {
+    return true;
+  }
+
+  // FilesystemError is terminal: cascading filesystem failures indicate serious issues
+  // (NFS mount, corruption, permission cascades) that won't resolve on retry
+  if (error instanceof FilesystemError) {
     return true;
   }
 
@@ -148,8 +237,9 @@ export function isTerminalError(error: unknown): boolean {
 /**
  * Create a standardized error result for MCP tool responses
  *
- * This wiggum-specific wrapper handles StateDetectionError and StateApiError
- * before delegating to the mcp-common createErrorResult for other error types.
+ * This wiggum-specific wrapper handles StateDetectionError, StateApiError,
+ * and FilesystemError before delegating to the mcp-common createErrorResult
+ * for other error types.
  *
  * @param error - The error to convert to a tool result
  * @returns Standardized ToolError with error information and type metadata
@@ -168,6 +258,74 @@ export function createErrorResult(error: unknown): ToolError {
     return createToolError(`Error: ${error.message}`, 'StateApiError', 'STATE_API_ERROR');
   }
 
+  if (error instanceof FilesystemError) {
+    return createToolError(`Error: ${error.message}`, 'FilesystemError', 'FILESYSTEM_ERROR');
+  }
+
   // Delegate to mcp-common for all other error types
   return baseCreateErrorResult(error);
+}
+
+/**
+ * Result of extracting Zod validation error details
+ */
+export interface ZodErrorDetails {
+  /** Human-readable error details string */
+  readonly details: string;
+  /** Original error if it was an Error instance */
+  readonly originalError: Error | undefined;
+  /** True if the thrown value was not an Error instance */
+  readonly isNonError: boolean;
+}
+
+/**
+ * Extract detailed validation information from a Zod error or other validation error
+ *
+ * Zod errors have an 'issues' array with field-level details. This function extracts
+ * those details into a human-readable string, or falls back to the error message
+ * for non-Zod errors.
+ *
+ * @param error - The error thrown during validation (may or may not be a ZodError)
+ * @param context - Optional context for logging (e.g., { prNumber, step })
+ * @returns Structured details including the formatted message and original error
+ */
+export function extractZodValidationDetails(
+  error: unknown,
+  context?: Record<string, unknown>
+): ZodErrorDetails {
+  if (error instanceof Error && 'issues' in error) {
+    // Zod error with issues array
+    const zodError = error as {
+      issues: Array<{ path: (string | number)[]; message: string }>;
+    };
+    const details = zodError.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    return {
+      details,
+      originalError: error,
+      isNonError: false,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      details: error.message,
+      originalError: error,
+      isNonError: false,
+    };
+  }
+
+  // Non-Error thrown (unexpected) - log critical programming error
+  logger.error('CRITICAL: Non-Error thrown during validation', {
+    validationError: error,
+    errorType: typeof error,
+    ...context,
+    impact: 'Programming error - validation threw non-Error object',
+  });
+  return {
+    details: `Non-Error thrown: ${String(error)}`,
+    originalError: undefined,
+    isNonError: true,
+  };
 }

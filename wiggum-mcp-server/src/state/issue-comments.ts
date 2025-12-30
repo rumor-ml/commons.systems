@@ -1,19 +1,15 @@
 /**
- * GitHub issue comment state management for Wiggum flow
- * Mirrors PR comment functionality but operates on GitHub issues
+ * GitHub issue comment utilities for Wiggum flow
+ *
+ * NOTE: State tracking has been moved to body-state.ts.
+ * This module now only handles comment-based utilities like
+ * review command evidence checking and general issue comment operations.
  */
 
 // TODO(#302): Implement comprehensive tests for Phase 1 workflow
 // Currently 43% of tests are placeholders. See issue for specific test requirements.
 import { ghCli, ghCliJson, resolveRepo } from '../utils/gh-cli.js';
-import {
-  WIGGUM_STATE_MARKER,
-  WIGGUM_COMMENT_PREFIX,
-  STEP_PHASE1_MONITOR_WORKFLOW,
-} from '../constants.js';
 import { logger } from '../utils/logger.js';
-import { safeJsonParse, validateWiggumState } from './utils.js';
-import type { WiggumState } from './types.js';
 
 /**
  * GitHub issue comment type
@@ -85,73 +81,17 @@ export async function postIssueComment(
 }
 
 /**
- * Parse wiggum state from issue comments
- * Looks for comments with <!-- wiggum-state:{...} --> marker
+ * Search for command evidence in a list of comments
+ *
+ * @internal Pure function for testing - no I/O operations
  */
-export async function getWiggumStateFromIssue(
-  issueNumber: number,
-  repo?: string
-): Promise<WiggumState> {
-  const comments = await getIssueComments(issueNumber, repo);
-
-  // Find most recent wiggum state comment
-  for (let i = comments.length - 1; i >= 0; i--) {
-    const comment = comments[i];
-    const match = comment.body.match(
-      new RegExp(`<!--\\s*${WIGGUM_STATE_MARKER}:(.+?)\\s*-->`, 's')
-    );
-
-    if (match) {
-      try {
-        const raw = safeJsonParse(match[1]);
-        return validateWiggumState(raw, 'issue comment');
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        // TODO(#272): Add security alerting for prototype pollution detection
-        // Current: logs at ERROR but no notification/alert (see PR review #273)
-        // Log prototype pollution attempts at ERROR level for security monitoring
-        const logLevel = errorMsg.includes('Prototype pollution') ? 'error' : 'warn';
-        // TODO(#328) [was #299: wiggum-mcp: Code quality improvements (DRY and clarity)]: Replace dynamic logger method selection with explicit if/else for clarity
-        logger[logLevel]('getWiggumStateFromIssue: failed to parse state JSON from comment', {
-          commentId: comment.id,
-          error: errorMsg,
-          rawJson: match[1].substring(0, 200),
-          isPotentialAttack: errorMsg.includes('Prototype pollution'),
-        });
-        continue;
-      }
+function searchCommandInComments(comments: readonly { body: string }[], command: string): boolean {
+  for (const comment of comments) {
+    if (comment.body.includes(command)) {
+      return true;
     }
   }
-
-  // No state found, return initial state (Phase 1, Step 1)
-  return {
-    iteration: 0,
-    step: STEP_PHASE1_MONITOR_WORKFLOW,
-    completedSteps: [],
-    phase: 'phase1',
-  };
-}
-
-/**
- * Post a new wiggum state comment to issue
- */
-export async function postWiggumStateIssueComment(
-  issueNumber: number,
-  state: WiggumState,
-  title: string,
-  body: string,
-  repo?: string
-): Promise<void> {
-  const stateJson = JSON.stringify(state);
-  const comment = `<!-- ${WIGGUM_STATE_MARKER}:${stateJson} -->
-${WIGGUM_COMMENT_PREFIX} ${title}
-
-${body}
-
----
-*Automated via Wiggum*`;
-
-  await postIssueComment(issueNumber, comment, repo);
+  return false;
 }
 
 /**
@@ -170,18 +110,23 @@ export async function hasIssueReviewCommandEvidence(
     commentCount: comments.length,
   });
 
-  // Search for command mention in any comment
-  for (const comment of comments) {
-    if (comment.body.includes(command)) {
-      return true;
-    }
+  const found = searchCommandInComments(comments, command);
+
+  if (!found) {
+    logger.debug('hasIssueReviewCommandEvidence: command not found', {
+      issueNumber,
+      command,
+      checkedCommentCount: comments.length,
+    });
   }
 
-  logger.debug('hasIssueReviewCommandEvidence: command not found', {
-    issueNumber,
-    command,
-    checkedCommentCount: comments.length,
-  });
-
-  return false;
+  return found;
 }
+
+/**
+ * Test exports for unit testing internal functions
+ * @internal Only use in tests
+ */
+export const _testExports = {
+  searchCommandInComments,
+};

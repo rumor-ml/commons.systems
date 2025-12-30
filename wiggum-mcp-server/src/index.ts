@@ -10,15 +10,20 @@ import {
 
 import { wiggumInit, WiggumInitInputSchema } from './tools/init.js';
 import { completePRCreation, CompletePRCreationInputSchema } from './tools/complete-pr-creation.js';
-import { completePRReview, CompletePRReviewInputSchema } from './tools/complete-pr-review.js';
+import { completeAllHands, CompleteAllHandsInputSchema } from './tools/complete-all-hands.js';
 import {
   completeSecurityReview,
   CompleteSecurityReviewInputSchema,
 } from './tools/complete-security-review.js';
 import { completeFix, CompleteFixInputSchema } from './tools/complete-fix.js';
+import { recordReviewIssue, RecordReviewIssueInputSchema } from './tools/record-review-issue.js';
+import { readManifests, ReadManifestsInputSchema } from './tools/read-manifests.js';
+import { listIssues, ListIssuesInputSchema } from './tools/list-issues.js';
+import { getIssue, GetIssueInputSchema } from './tools/get-issue.js';
+import { updateIssue, UpdateIssueInputSchema } from './tools/update-issue.js';
 
 import { createErrorResult } from './utils/errors.js';
-import { MAX_ITERATIONS } from './constants.js';
+import { DEFAULT_MAX_ITERATIONS } from './constants.js';
 
 const server = new Server(
   {
@@ -63,41 +68,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'wiggum_complete_pr_review',
+        name: 'wiggum_complete_all_hands',
         description:
-          'Complete PR review step after executing /pr-review-toolkit:review-pr. Validates command execution, posts structured PR comment with review results, and returns next step instructions. If issues found, increments iteration and returns Plan+Fix instructions. If no issues, marks step complete and proceeds.',
+          'Complete all-hands review after all agents finish (both review and implementation). Reads manifests internally, applies 2-strike agent completion logic, and returns next step instructions. If all agents complete with 0 high-priority in-scope issues, marks step complete and proceeds. Otherwise returns instructions to continue iteration.',
         inputSchema: {
           type: 'object',
           properties: {
-            command_executed: {
-              type: 'boolean',
+            maxIterations: {
+              type: 'number',
               description:
-                'Confirm /pr-review-toolkit:review-pr was actually executed (must be true)',
-            },
-            verbatim_response: {
-              type: 'string',
-              description: 'Complete verbatim response from review command',
-            },
-            high_priority_issues: {
-              type: 'number',
-              description: 'Count of high priority issues found',
-            },
-            medium_priority_issues: {
-              type: 'number',
-              description: 'Count of medium priority issues found',
-            },
-            low_priority_issues: {
-              type: 'number',
-              description: 'Count of low priority issues found',
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
             },
           },
-          required: [
-            'command_executed',
-            'verbatim_response',
-            'high_priority_issues',
-            'medium_priority_issues',
-            'low_priority_issues',
-          ],
+          required: [],
         },
       },
       {
@@ -111,35 +94,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Confirm /security-review was actually executed (must be true)',
             },
-            verbatim_response: {
-              type: 'string',
-              description: 'Complete verbatim response from security review command',
+            in_scope_result_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Array of in-scope result file paths from security review agents (each file may contain multiple issues)',
             },
-            high_priority_issues: {
-              type: 'number',
-              description: 'Count of high priority security issues found',
+            out_of_scope_result_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Array of out-of-scope result file paths from security review agents (each file may contain multiple issues)',
             },
-            medium_priority_issues: {
+            in_scope_issue_count: {
               type: 'number',
-              description: 'Count of medium priority security issues found',
+              description:
+                'Total count of in-scope security issues found across all agents (not file count)',
             },
-            low_priority_issues: {
+            out_of_scope_issue_count: {
               type: 'number',
-              description: 'Count of low priority security issues found',
+              description:
+                'Total count of out-of-scope security recommendations across all agents (not file count)',
+            },
+            maxIterations: {
+              type: 'number',
+              description:
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
             },
           },
           required: [
             'command_executed',
-            'verbatim_response',
-            'high_priority_issues',
-            'medium_priority_issues',
-            'low_priority_issues',
+            'in_scope_result_files',
+            'out_of_scope_result_files',
+            'in_scope_issue_count',
+            'out_of_scope_issue_count',
           ],
         },
       },
       {
         name: 'wiggum_complete_fix',
-        description: `Complete a Plan+Fix cycle. Posts PR comment documenting the fix and returns instructions to restart workflow monitoring (Step 1). Used after fixing any issues found during workflow monitoring, PR checks, code quality review, PR review, or security review. Maximum ${MAX_ITERATIONS} iterations allowed.`,
+        description: `Complete a Plan+Fix cycle. Posts PR comment documenting the fix and returns instructions to restart workflow monitoring (Step 1). Used after fixing any issues found during workflow monitoring, PR checks, code quality review, PR review, or security review. Maximum ${DEFAULT_MAX_ITERATIONS} iterations allowed.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -158,8 +152,136 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'List of issue numbers for out-of-scope recommendations (both new and existing)',
             },
+            maxIterations: {
+              type: 'number',
+              description:
+                'Optional custom iteration limit. Use when user approves increasing the limit beyond default.',
+            },
           },
           required: ['fix_description', 'has_in_scope_fixes'],
+        },
+      },
+      {
+        name: 'wiggum_record_review_issue',
+        description:
+          'Record a single review issue to the manifest file system and post as GitHub comment. Each issue is appended to a manifest file based on agent name, scope, and timestamp. Posts to PR (phase2) or issue (phase1).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            agent_name: {
+              type: 'string',
+              description: 'Name of the review agent that found this issue',
+            },
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope'],
+              description: 'Whether this issue is in-scope or out-of-scope for the current work',
+            },
+            priority: {
+              type: 'string',
+              enum: ['high', 'low'],
+              description: 'Priority level of the issue (high or low only)',
+            },
+            title: {
+              type: 'string',
+              description: 'Brief title summarizing the issue',
+            },
+            description: {
+              type: 'string',
+              description: 'Detailed description of the issue',
+            },
+            location: {
+              type: 'string',
+              description: 'Optional file path or location where the issue was found',
+            },
+            existing_todo: {
+              type: 'object',
+              description:
+                'Optional existing TODO tracking information for out-of-scope issues. Used to avoid duplicate GitHub comments.',
+              properties: {
+                has_todo: {
+                  type: 'boolean',
+                  description: 'Whether a TODO comment exists at the issue location',
+                },
+                issue_reference: {
+                  type: 'string',
+                  description: 'Issue number reference from TODO (e.g., "#123")',
+                },
+              },
+              required: ['has_todo'],
+            },
+            metadata: {
+              type: 'object',
+              description: 'Optional metadata object with additional context',
+            },
+          },
+          required: ['agent_name', 'scope', 'priority', 'title', 'description'],
+        },
+      },
+      {
+        name: 'wiggum_read_manifests',
+        description:
+          'Read and aggregate review issue manifest files based on scope filter. Returns aggregated manifest data with summary statistics including total issues, priority counts, and issues grouped by agent.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope', 'all'],
+              description: 'Filter manifests by scope: in-scope, out-of-scope, or all',
+            },
+          },
+          required: ['scope'],
+        },
+      },
+      {
+        name: 'wiggum_list_issues',
+        description:
+          'List all review issues as minimal references (ID, title, agent, scope, priority) without full details. Use this in the main thread to get issue IDs, then pass IDs to subagents who call wiggum_get_issue to get full details. Prevents token waste in main thread.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['in-scope', 'out-of-scope', 'all'],
+              description: 'Filter issues by scope (defaults to "all")',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'wiggum_get_issue',
+        description:
+          'Get full details for a single issue by ID. Used by subagents to retrieve complete issue information including description, location, existing_todo, and metadata. ID format: {agent-name}-{scope}-{index} (e.g., "code-reviewer-in-scope-0")',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Issue ID from wiggum_list_issues (e.g., "code-reviewer-in-scope-0")',
+            },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        name: 'wiggum_update_issue',
+        description:
+          'Update fields on an existing issue in the manifest files. Used by implementation agents to mark issues as not_fixed when they discover that an issue has been resolved by a previous fix in the same batch.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Issue ID (e.g., "code-reviewer-in-scope-0")',
+            },
+            not_fixed: {
+              type: 'boolean',
+              description: 'Whether the issue has already been fixed',
+            },
+          },
+          required: ['id', 'not_fixed'],
         },
       },
     ],
@@ -182,9 +304,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await completePRCreation(validated);
       }
 
-      case 'wiggum_complete_pr_review': {
-        const validated = CompletePRReviewInputSchema.parse(args);
-        return await completePRReview(validated);
+      case 'wiggum_complete_all_hands': {
+        const validated = CompleteAllHandsInputSchema.parse(args);
+        return await completeAllHands(validated);
       }
 
       case 'wiggum_complete_security_review': {
@@ -197,9 +319,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await completeFix(validated);
       }
 
+      case 'wiggum_record_review_issue': {
+        const validated = RecordReviewIssueInputSchema.parse(args);
+        return await recordReviewIssue(validated);
+      }
+
+      case 'wiggum_read_manifests': {
+        const validated = ReadManifestsInputSchema.parse(args);
+        return await readManifests(validated);
+      }
+
+      case 'wiggum_list_issues': {
+        const validated = ListIssuesInputSchema.parse(args);
+        return await listIssues(validated);
+      }
+
+      case 'wiggum_get_issue': {
+        const validated = GetIssueInputSchema.parse(args);
+        return await getIssue(validated);
+      }
+
+      case 'wiggum_update_issue': {
+        const validated = UpdateIssueInputSchema.parse(args);
+        return await updateIssue(validated);
+      }
+
       default:
         throw new Error(
-          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_pr_review, wiggum_complete_security_review, wiggum_complete_fix`
+          `Unknown tool: ${name}. Available tools: wiggum_init, wiggum_complete_pr_creation, wiggum_complete_all_hands, wiggum_complete_security_review, wiggum_complete_fix, wiggum_record_review_issue, wiggum_read_manifests, wiggum_list_issues, wiggum_get_issue, wiggum_update_issue`
         );
     }
   } catch (error) {

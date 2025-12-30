@@ -4,7 +4,16 @@
 
 import { execa } from 'execa';
 import { GitHubCliError, ParsingError } from './errors.js';
-import { PR_CHECK_IN_PROGRESS_STATES, PR_CHECK_TERMINAL_STATE_MAP } from '../constants.js';
+import {
+  PR_CHECK_IN_PROGRESS_STATES,
+  PR_CHECK_TERMINAL_STATES,
+  PR_CHECK_TERMINAL_STATE_MAP,
+} from '../constants.js';
+import {
+  ghCliWithRetry as sharedGhCliWithRetry,
+  sleep as sharedSleep,
+  type GhCliWithRetryOptions,
+} from '@commons/mcp-common/gh-retry';
 
 export interface GhCliOptions {
   repo?: string;
@@ -21,7 +30,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       reject: false,
     };
 
-    // Add repo flag if provided
     const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
     const result = await execa('gh', fullArgs, execaOptions);
@@ -36,11 +44,37 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
 
     return result.stdout || '';
   } catch (error) {
-    // TODO: See issue #443 - Distinguish programming errors from operational errors
+    // Preserve GitHubCliError instances - already properly wrapped
     if (error instanceof GitHubCliError) {
       throw error;
     }
+
+    // Handle known operational error types from execa
     if (error instanceof Error) {
+      // Check for timeout from execa (timedOut property)
+      if ('timedOut' in error && (error as { timedOut?: boolean }).timedOut) {
+        throw new GitHubCliError(
+          `GitHub CLI command timed out after ${options.timeout}ms: gh ${args.join(' ')}`,
+          undefined,
+          undefined,
+          undefined,
+          error
+        );
+      }
+
+      // Check for signal termination (SIGKILL, SIGTERM, etc.)
+      if ('signal' in error && (error as { signal?: string }).signal) {
+        throw new GitHubCliError(
+          `GitHub CLI command terminated by signal: ${(error as { signal: string }).signal}`,
+          undefined,
+          undefined,
+          undefined,
+          error
+        );
+      }
+
+      // Generic operational error
+      // TODO(#443): Add operational vs programming error classification metadata
       throw new GitHubCliError(
         `Failed to execute gh CLI: ${error.message}`,
         undefined,
@@ -49,7 +83,46 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
         error
       );
     }
-    throw new GitHubCliError(`Failed to execute gh CLI: ${String(error)}`);
+
+    // Unknown error type - likely programming error, log for diagnosis
+    // Capture stack trace at the catch point for debugging since non-Error values don't have stacks
+    const capturedStack = new Error('Stack trace for unknown error type').stack;
+    const errorType = typeof error;
+    const errorStr = String(error);
+
+    // Safely serialize error for logging - handle objects that don't JSON.stringify cleanly
+    let errorSerialized: string;
+    try {
+      errorSerialized = JSON.stringify(error, null, 2);
+    } catch (_serializeError) {
+      // Fallback for objects with circular references or non-enumerable properties
+      errorSerialized = errorStr;
+    }
+
+    console.error(
+      '[gh-workflow] WARN ghCli caught unexpected error type',
+      JSON.stringify(
+        {
+          errorType,
+          errorString: errorStr,
+          errorSerialized,
+          args,
+          capturedStack,
+        },
+        null,
+        2
+      )
+    );
+    // Include full diagnostic context in thrown error for debugging
+    throw new GitHubCliError(
+      `Failed to execute gh CLI (unexpected error type):\n` +
+        `Command: gh ${args.join(' ')}\n` +
+        `Error type: ${errorType}\n` +
+        `Error value: ${errorStr}\n` +
+        `Error serialized: ${errorSerialized}\n` +
+        `This indicates a programming error (non-Error thrown).\n` +
+        `Stack trace at catch point:\n${capturedStack}`
+    );
   }
 }
 
@@ -78,13 +151,19 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
  * Get the current repository in format "owner/repo"
  */
 export async function getCurrentRepo(): Promise<string> {
-  // TODO(#463): Preserve original error diagnostic information when rethrowing
   try {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // Preserve original error details for debugging while providing user-friendly message
+    // TODO(#441): Fix silent error swallowing in getCurrentRepo()
+    const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
-      "Failed to get current repository. Make sure you're in a git repository or provide the --repo flag."
+      `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
+      error instanceof GitHubCliError ? error.exitCode : undefined,
+      error instanceof GitHubCliError ? error.stderr : undefined,
+      undefined,
+      error instanceof Error ? error : undefined
     );
   }
 }
@@ -151,30 +230,78 @@ export interface FailedStepLog {
 }
 
 /**
+ * Result of parsing failed step logs
+ *
+ * Includes data completeness information to allow callers to warn users
+ * when failure diagnosis may be incomplete due to parsing issues.
+ *
+ * Note: totalLines counts only non-empty lines. Empty lines are silently
+ * skipped and not included in totalLines or skippedLines counts. Rationale:
+ * Empty lines are common in log output (formatting, separation) and are not
+ * data loss - skipping them prevents false positives in data completeness warnings.
+ */
+export interface FailedStepLogsResult {
+  /** Parsed failed step logs grouped by job and step */
+  readonly steps: FailedStepLog[];
+  /** Total number of non-empty lines in the log output */
+  readonly totalLines: number;
+  /** Number of lines that could not be parsed */
+  readonly skippedLines: number;
+  /** Ratio of successfully parsed lines (0.0 to 1.0) */
+  readonly successRate: number;
+  /** Whether all lines were parsed successfully (skippedLines === 0) */
+  readonly isComplete: boolean;
+  /** User-facing warning when data is incomplete (undefined if complete) */
+  readonly warning?: string;
+}
+
+/**
  * Parse tab-delimited output from `gh run view --log-failed`
  *
- * The GitHub CLI outputs failed step logs in a tab-delimited format:
+ * Expected format: Each line contains three tab-separated fields:
  * "job-name\tstep-name\ttimestamp log-line"
  *
  * This function groups log lines by job and step for easier processing.
+ * Returns data completeness information to allow callers to warn users
+ * when failure diagnosis may be incomplete.
  *
- * **Important**: Malformed lines (missing tabs) are silently skipped.
- * See issue #454 for debug logging enhancement.
+ * Parsing quality validation:
+ * - Warns (stderr) if ANY lines cannot be parsed (even 1 skipped line)
+ * - Throws ParsingError if success rate < 70% (more than 30% of lines unparseable)
+ * - Empty lines are silently skipped and not counted toward totalLines or skippedLines
  *
  * @param output - Raw output from `gh run view --log-failed`
- * @returns Array of failed step logs grouped by job and step
+ * @returns Result object with parsed steps and completeness metadata
+ * @throws {ParsingError} If fewer than 70% of non-empty lines parse successfully
  */
-export function parseFailedStepLogs(output: string): FailedStepLog[] {
+export function parseFailedStepLogs(output: string): FailedStepLogsResult {
   const steps: Map<string, FailedStepLog> = new Map();
+  let skippedCount = 0;
 
-  // TODO: See issue #454 - Add debug logging for skipped malformed log lines
   for (const line of output.split('\n')) {
+    // Skip empty lines silently (common, not an error)
+    if (!line.trim()) continue;
+
     // Split by first two tabs only
     const firstTab = line.indexOf('\t');
-    if (firstTab === -1) continue;
+    if (firstTab === -1) {
+      skippedCount++;
+      // WARN level - malformed lines represent data loss that affects failure diagnosis
+      console.error(
+        `[gh-workflow] WARN Skipping malformed log line - missing first tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length}, impact: Failure diagnosis may be incomplete)`
+      );
+      continue;
+    }
 
     const secondTab = line.indexOf('\t', firstTab + 1);
-    if (secondTab === -1) continue;
+    if (secondTab === -1) {
+      skippedCount++;
+      // WARN level - malformed lines represent data loss that affects failure diagnosis
+      console.error(
+        `[gh-workflow] WARN Skipping malformed log line - missing second tab delimiter (linePreview: ${line.substring(0, 100)}, lineLength: ${line.length}, impact: Failure diagnosis may be incomplete)`
+      );
+      continue;
+    }
 
     const jobName = line.substring(0, firstTab);
     const stepName = line.substring(firstTab + 1, secondTab);
@@ -188,7 +315,58 @@ export function parseFailedStepLogs(output: string): FailedStepLog[] {
     steps.get(key)!.lines.push(content);
   }
 
-  return Array.from(steps.values());
+  // Calculate parsing statistics for threshold validation
+  const totalLines = output.split('\n').filter((l) => l.trim()).length;
+  const successCount = totalLines - skippedCount;
+  const successRate = totalLines > 0 ? successCount / totalLines : 1;
+  const MIN_SUCCESS_RATE = 0.7; // At least 70% of lines must parse successfully
+
+  // Warn on ANY data loss - even one skipped line affects failure diagnosis
+  // This logs to stderr but doesn't fail unless threshold is exceeded (see below)
+  if (skippedCount > 0) {
+    const skipRate = totalLines > 0 ? (skippedCount / totalLines) * 100 : 0;
+
+    // Always use WARN level - any data loss affects failure diagnosis
+    console.error(
+      `[gh-workflow] WARN Log parsing incomplete: ${skippedCount}/${totalLines} lines (${skipRate.toFixed(1)}%) could not be parsed (impact: Some failure details may be missing, action: Check stderr for individual malformed line details, suggestion: If this persists check for gh CLI format changes)`
+    );
+  }
+
+  // Fail only if parsing quality is too poor (< 70% success rate)
+  // This catches gh CLI format changes or severe log corruption
+  // The threshold allows minor parsing issues while catching severe format problems
+  if (totalLines > 0 && successRate < MIN_SUCCESS_RATE) {
+    console.error(
+      `[gh-workflow] ERROR Log parsing failed below threshold (successRate: ${(successRate * 100).toFixed(1)}%, threshold: ${(MIN_SUCCESS_RATE * 100).toFixed(1)}%, skipped: ${skippedCount}/${totalLines})`
+    );
+
+    throw new ParsingError(
+      `Failed to parse workflow logs: ${((1 - successRate) * 100).toFixed(1)}% of lines could not be parsed.\n` +
+        `This indicates a format change in GitHub CLI output or log corruption.\n` +
+        `Parsed ${steps.size} steps from ${successCount} lines.\n` +
+        `Check for:\n` +
+        `  1. Recent gh CLI version updates (run: gh --version)\n` +
+        `  2. Workflow log corruption (check: gh run view --log-failed manually)\n` +
+        `  3. Non-standard workflow step output (custom actions, binary data)`
+    );
+  }
+
+  // Build result with completeness metadata
+  const isComplete = skippedCount === 0;
+  const warning =
+    skippedCount > 0
+      ? `Warning: ${skippedCount}/${totalLines} log lines could not be parsed. ` +
+        `Failure diagnosis may be incomplete. Review stderr for details.`
+      : undefined;
+
+  return {
+    steps: Array.from(steps.values()),
+    totalLines,
+    skippedLines: skippedCount,
+    successRate,
+    isComplete,
+    warning,
+  };
 }
 
 /**
@@ -262,6 +440,16 @@ export async function getWorkflowRunsForCommit(
 }
 
 /**
+ * Result of mapping a PR check state to workflow run status
+ */
+export interface StateToStatusResult {
+  /** Normalized workflow run status ("in_progress" or "completed") */
+  status: string;
+  /** The unknown state if one was encountered (for surfacing to users) */
+  unknownState?: string;
+}
+
+/**
  * Map PR check state to workflow run status
  *
  * GitHub's `gh pr checks` API returns check states (PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, etc.)
@@ -271,16 +459,36 @@ export async function getWorkflowRunsForCommit(
  * Mapping rationale:
  * - PENDING/QUEUED/IN_PROGRESS/WAITING → "in_progress": Actively running or queued checks
  * - SUCCESS/FAILURE/ERROR/CANCELLED/SKIPPED/STALE → "completed": Known terminal states
- * - Unknown states → "completed": Conservative default (treats unrecognized states as terminal)
+ * - Unknown states → "in_progress": Conservative default to continue monitoring. If GitHub adds
+ *                                   new terminal states, monitoring will continue until timeout.
+ *                                   This is safer than the optimistic "completed" default which
+ *                                   could exit monitoring prematurely and report incomplete results.
  *
  * Source: GitHub CLI `gh pr checks` command returns CheckRun states from the GitHub API
  * Possible values: PENDING, QUEUED, IN_PROGRESS, WAITING, SUCCESS, FAILURE, ERROR, CANCELLED, SKIPPED, STALE
  *
  * @param state - The PR check state from GitHub API (uppercase format)
- * @returns Normalized workflow run status ("in_progress" or "completed")
+ * @returns Object with normalized status and optional unknownState for surfacing to users
  */
-export function mapStateToStatus(state: string): string {
-  return PR_CHECK_IN_PROGRESS_STATES.includes(state) ? 'in_progress' : 'completed';
+export function mapStateToStatus(state: string): StateToStatusResult {
+  if (PR_CHECK_IN_PROGRESS_STATES.includes(state)) {
+    return { status: 'in_progress' };
+  }
+
+  if (PR_CHECK_TERMINAL_STATES.includes(state)) {
+    return { status: 'completed' };
+  }
+
+  // Unknown state - log at ERROR level and default to conservative 'in_progress'
+  // This ensures monitoring continues rather than exiting prematurely with incomplete results
+  // Also return the unknown state so callers can surface it to users
+  console.error(
+    `[gh-workflow] ERROR mapStateToStatus: Unknown GitHub check state encountered: ${state}. ` +
+      `Defaulting to 'in_progress' to avoid premature exit. ` +
+      `Action: Add '${state}' to known states in constants.ts if this is a valid terminal state.`
+  );
+
+  return { status: 'in_progress', unknownState: state };
 }
 
 /**
@@ -312,9 +520,24 @@ export function mapStateToConclusion(state: string): string | null {
 }
 
 /**
- * Get workflow runs for a PR
+ * Result of getting workflow runs for a PR, including any warnings about unknown states
  */
-export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Promise<any[]> {
+export interface WorkflowRunsForPRResult {
+  /** Array of workflow runs mapped from PR checks */
+  runs: any[];
+  /** Unknown GitHub check states encountered during mapping (for surfacing to users) */
+  unknownStates: string[];
+}
+
+/**
+ * Get workflow runs for a PR
+ *
+ * @returns Object with runs array and any unknown states encountered for surfacing to users
+ */
+export async function getWorkflowRunsForPR(
+  prNumber: number,
+  repo?: string
+): Promise<WorkflowRunsForPRResult> {
   const resolvedRepo = await resolveRepo(repo);
   const checks = await ghCliJson<any[]>(
     [
@@ -327,16 +550,30 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
     { repo: resolvedRepo }
   );
 
+  // Track unknown states to surface to users
+  const unknownStates = new Set<string>();
+
   // Map gh pr checks format to workflow run format
-  return checks.map((check: any) => ({
-    name: check.name,
-    status: mapStateToStatus(check.state),
-    conclusion: mapStateToConclusion(check.state),
-    detailsUrl: check.link,
-    startedAt: check.startedAt,
-    completedAt: check.completedAt,
-    workflowName: check.workflow,
-  }));
+  const runs = checks.map((check: any) => {
+    const statusResult = mapStateToStatus(check.state);
+    if (statusResult.unknownState) {
+      unknownStates.add(statusResult.unknownState);
+    }
+    return {
+      name: check.name,
+      status: statusResult.status,
+      conclusion: mapStateToConclusion(check.state),
+      detailsUrl: check.link,
+      startedAt: check.startedAt,
+      completedAt: check.completedAt,
+      workflowName: check.workflow,
+    };
+  });
+
+  return {
+    runs,
+    unknownStates: Array.from(unknownStates),
+  };
 }
 
 /**
@@ -344,9 +581,6 @@ export async function getWorkflowRunsForPR(prNumber: number, repo?: string): Pro
  */
 export async function getPR(prNumber: number, repo?: string) {
   const resolvedRepo = await resolveRepo(repo);
-  // TODO(#349): Improve JSON parsing resilience - see PR #273 review
-  // Current: Throws on first malformed JSON, blocking all subsequent comments
-  // Recommended: Skip malformed lines with logging instead of throwing
   return ghCliJson(
     [
       'pr',
@@ -398,129 +632,25 @@ export async function getWorkflowJobs(runId: number, repo?: string) {
 
 /**
  * Sleep for a specified number of milliseconds
+ *
+ * Re-exports from mcp-common for backward compatibility.
  */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export const sleep = sharedSleep;
 
-/**
- * Check if an error is retryable (network errors, 5xx server errors)
- */
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return (
-      msg.includes('network') ||
-      msg.includes('timeout') ||
-      msg.includes('econnreset') ||
-      msg.includes('socket') ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.includes('504')
-    );
-  }
-  return false;
-}
-
-// TODO(#477): Explain exit code precedence, error message patterns, classification logic
-/**
- * Classify error type for logging and diagnostics
- */
-function classifyErrorType(error: Error): string {
-  const msg = error.message.toLowerCase();
-
-  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
-    return 'network';
-  }
-  if (msg.includes('timeout') || msg.includes('etimedout')) {
-    return 'timeout';
-  }
-  if (msg.includes('rate limit') || msg.includes('429')) {
-    return 'rate_limit';
-  }
-  if (msg.includes('forbidden') || msg.includes('401') || msg.includes('403')) {
-    return 'permission';
-  }
-  if (msg.includes('404') || msg.includes('not found')) {
-    return 'not_found';
-  }
-  if (msg.includes('502') || msg.includes('503') || msg.includes('504')) {
-    return 'server_error';
-  }
-
-  return 'unknown';
-}
-
-// TODO(#389): Replace console.error with structured logger for retry monitoring
 /**
  * Execute gh CLI command with retry logic
+ *
+ * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
+ * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
+ * Non-retryable errors (like validation errors) fail immediately.
+ *
+ * This is a wrapper around the shared ghCliWithRetry from mcp-common,
+ * injecting the local ghCli function.
  */
 export async function ghCliWithRetry(
   args: string[],
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
-  let lastError: Error | undefined;
-  let firstError: Error | undefined;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await ghCli(args, options);
-
-      // Success after retry - log recovery with first error type for diagnostics
-      // We log firstError (not lastError) because it's the initial failure that triggered the retry sequence
-      if (attempt > 1 && firstError) {
-        console.error(
-          `[gh-workflow] INFO ghCliWithRetry: succeeded after retry (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(firstError)}, command: gh ${args.join(' ')})`
-        );
-      }
-
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Capture first error for diagnostics
-      if (attempt === 1) {
-        firstError = lastError;
-      }
-
-      if (!isRetryableError(error)) {
-        // Non-retryable error, fail immediately with context
-        console.error(
-          `[gh-workflow] ghCliWithRetry: non-retryable error encountered (attempt ${attempt}/${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')})`
-        );
-        throw lastError;
-      }
-
-      if (attempt === maxRetries) {
-        // Final attempt failed - log all attempts exhausted with full context
-        console.error(
-          `[gh-workflow] ghCliWithRetry: all attempts failed (maxRetries: ${maxRetries}, errorType: ${classifyErrorType(lastError)}, command: gh ${args.join(' ')}, error: ${lastError.message})`
-        );
-        throw lastError;
-      }
-
-      // Log retry attempts with consistent formatting and full context
-      // Note: Using console.error() for all logs to ensure visibility in MCP stderr streams
-      // The INFO/WARN prefixes in the message indicate severity for human readers
-      const errorType = classifyErrorType(lastError);
-      if (attempt === 1) {
-        // Initial failure - INFO level since retry is designed for this
-        console.error(
-          `[gh-workflow] INFO ghCliWithRetry: initial attempt failed, will retry (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
-        );
-      } else {
-        // Subsequent failures - WARN level to indicate multiple failures
-        console.error(
-          `[gh-workflow] WARN ghCliWithRetry: retry attempt failed, will retry again (attempt ${attempt}/${maxRetries}, errorType: ${errorType}, command: gh ${args.join(' ')}, error: ${lastError.message})`
-        );
-      }
-
-      // Exponential backoff: 2^attempt seconds (attempt 1→2s, 2→4s, 3→8s)
-      const delayMs = Math.pow(2, attempt) * 1000;
-      await sleep(delayMs);
-    }
-  }
-
-  throw lastError || new Error('Unexpected retry failure');
+  return sharedGhCliWithRetry(ghCli, args, options as GhCliWithRetryOptions, maxRetries);
 }

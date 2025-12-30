@@ -17,7 +17,14 @@ import {
   FormattingError,
   isSystemError,
 } from './errors.js';
-import type { ToolResult, ToolError, ToolSuccess } from './types.js';
+import type {
+  ToolResult,
+  ToolResultStrict,
+  ToolError,
+  ToolErrorStrict,
+  ToolSuccess,
+  ToolSuccessStrict,
+} from './types.js';
 import { createToolError, createToolSuccess } from './types.js';
 
 /**

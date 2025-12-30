@@ -6,6 +6,11 @@ import { execa } from 'execa';
 import { GitHubCliError } from './errors.js';
 import { getGitRoot } from './git.js';
 import { logger } from './logger.js';
+import {
+  ghCliWithRetry as sharedGhCliWithRetry,
+  sleep as sharedSleep,
+  type GhCliWithRetryOptions,
+} from '@commons/mcp-common/gh-retry';
 
 export interface GhCliOptions {
   repo?: string;
@@ -40,7 +45,6 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
       cwd: cwd,
     };
 
-    // Add repo flag if provided
     const fullArgs = options.repo ? ['--repo', options.repo, ...args] : args;
 
     const result = await execa('gh', fullArgs, execaOptions);
@@ -56,16 +60,36 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     return result.stdout || '';
   } catch (error) {
     // TODO: See issue #443 - Distinguish programming errors from operational errors
+    // TODO(#999): Review error propagation to ensure original error context is preserved
     if (error instanceof GitHubCliError) {
       throw error;
     }
-    // Preserve original error type for better debugging, but wrap in GitHubCliError
+
+    // Extract exitCode, stderr, stdout from execa errors before wrapping
+    // This preserves critical metadata for retry logic and debugging
     const originalError = error instanceof Error ? error : new Error(String(error));
+    let exitCode: number | undefined;
+    let stderr: string | undefined;
+    let stdout: string | undefined;
+
+    // Check if this is an execa error with these properties
+    if (error && typeof error === 'object') {
+      if ('exitCode' in error && typeof (error as Record<string, unknown>).exitCode === 'number') {
+        exitCode = (error as Record<string, unknown>).exitCode as number;
+      }
+      if ('stderr' in error && typeof (error as Record<string, unknown>).stderr === 'string') {
+        stderr = (error as Record<string, unknown>).stderr as string;
+      }
+      if ('stdout' in error && typeof (error as Record<string, unknown>).stdout === 'string') {
+        stdout = (error as Record<string, unknown>).stdout as string;
+      }
+    }
+
     throw new GitHubCliError(
       `Failed to execute gh CLI command (gh ${args.join(' ')}): ${originalError.message}`,
-      undefined,
-      undefined,
-      undefined,
+      exitCode,
+      stderr,
+      stdout,
       originalError
     );
   }
@@ -273,17 +297,34 @@ export async function postPRComment(prNumber: number, body: string, repo?: strin
  * Note: This is a subset of the full API response - includes common fields
  */
 export interface GitHubPRReviewComment {
-  id: number;
-  user: {
-    login: string;
+  readonly id: number;
+  readonly user: {
+    readonly login: string;
   };
-  body: string;
-  path: string;
-  position?: number;
-  line?: number;
-  created_at: string;
-  updated_at: string;
-  [key: string]: unknown; // Allow additional fields from GitHub API
+  readonly body: string;
+  readonly path: string;
+  readonly position?: number;
+  readonly line?: number;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly [key: string]: unknown; // Allow additional fields from GitHub API
+}
+
+/**
+ * Result from getPRReviewComments including parsed comments and completeness info
+ *
+ * Data completeness is tracked explicitly to help callers warn users when
+ * review data is incomplete due to parsing failures.
+ */
+export interface PRReviewCommentsResult {
+  /** Successfully parsed review comments */
+  readonly comments: readonly GitHubPRReviewComment[];
+  /** Number of comments that failed to parse and were skipped */
+  readonly skippedCount: number;
+  /** Whether all comments were parsed successfully (skippedCount === 0) */
+  readonly isComplete: boolean;
+  /** User-facing warning when skippedCount > 0, describing data incompleteness */
+  readonly warning?: string;
 }
 
 /**
@@ -292,15 +333,21 @@ export interface GitHubPRReviewComment {
  * Fetches inline code review comments (not PR comments) from a specific user
  * using GitHub API via gh CLI. These are comments on specific lines of code.
  *
+ * Returns both the parsed comments and a count of any comments that failed to parse.
+ * Callers should check skippedCount and warn users if review data is incomplete.
+ *
  * @param prNumber - PR number to fetch review comments for
  * @param username - GitHub username to filter comments by
  * @param repo - Optional repository in "owner/repo" format
- * @returns Array of review comments from the specified user
+ * @returns Object with parsed comments array and count of skipped malformed comments
  * @throws {GitHubCliError} When API call fails or JSON parsing fails
  *
  * @example
  * ```typescript
- * const comments = await getPRReviewComments(123, "github-code-quality[bot]");
+ * const { comments, skippedCount } = await getPRReviewComments(123, "github-code-quality[bot]");
+ * if (skippedCount > 0) {
+ *   console.warn(`${skippedCount} comments could not be parsed - review data may be incomplete`);
+ * }
  * console.log(`Found ${comments.length} code review comments`);
  * ```
  */
@@ -308,7 +355,7 @@ export async function getPRReviewComments(
   prNumber: number,
   username: string,
   repo?: string
-): Promise<GitHubPRReviewComment[]> {
+): Promise<PRReviewCommentsResult> {
   const resolvedRepo = await resolveRepo(repo);
   // Escape username for safe use in jq filter string context
   const escapedUsername = username.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -323,7 +370,7 @@ export async function getPRReviewComments(
   );
 
   if (!result.trim()) {
-    return [];
+    return { comments: [], skippedCount: 0, isComplete: true };
   }
 
   // Split by newlines and parse each JSON object
@@ -332,115 +379,105 @@ export async function getPRReviewComments(
     .split('\n')
     .filter((line) => line.trim());
   const comments: GitHubPRReviewComment[] = [];
+  let skippedCount = 0;
 
-  // TODO(#272): Skip malformed comments instead of throwing (see PR review #273)
-  // TODO(#457, #465): Skip malformed comments, log warning, continue processing valid comments
-  // Current: throws on first malformed comment, blocking all remaining valid comments
+  // Design decision: Continue processing when individual comments are malformed
+  // Rationale: Single malformed JSON should not block processing of all remaining valid comments
+  // Historical context: Production incidents showed one bad comment blocking entire review pipeline
+  // Solution: Skip malformed comments with warning logging to prevent total failure
   for (const line of lines) {
     try {
       comments.push(JSON.parse(line));
-      // TODO(#319): Skip malformed comments instead of throwing
-      // Current: Single malformed comment blocks all subsequent valid comments
     } catch (error) {
-      throw new GitHubCliError(
-        `Failed to parse review comment JSON for PR ${prNumber}: ${error instanceof Error ? error.message : String(error)}. Line: ${line.substring(0, 100)}`
-      );
+      skippedCount++;
+      // WARN level - individual parse failures are expected edge cases, not errors
+      // Include stack trace for debugging JSON parsing failures (may indicate API format changes)
+      // TODO(#982): Add DEBUG-level log with full raw line content for post-mortem analysis
+      logger.warn('Failed to parse review comment JSON - comment will be skipped', {
+        prNumber,
+        username,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
+        linePreview: line.substring(0, 100),
+        position: comments.length,
+        totalSkipped: skippedCount,
+        impact: 'Review data incomplete - some comments could not be parsed',
+      });
     }
   }
 
-  return comments;
+  // Build warning and log summary if any comments were skipped
+  let warning: string | undefined;
+  const totalAttempted = comments.length + skippedCount;
+
+  if (skippedCount > 0) {
+    const skipPercentage = ((skippedCount / totalAttempted) * 100).toFixed(1);
+    const skipRatio = skippedCount / totalAttempted;
+
+    // Throw if too much data lost (>10% of comments unparseable)
+    // This indicates a GitHub API issue, gh CLI version incompatibility, or severe corruption
+    // that makes the review data too unreliable to use
+    // Note: Lower threshold (10% vs 20%) because code review data is critical for quality gates
+    if (skipRatio > 0.1) {
+      logger.error('Too many malformed review comments - data unreliable', {
+        prNumber,
+        username,
+        parsedCount: comments.length,
+        skippedCount,
+        skipPercentage: `${skipPercentage}%`,
+        threshold: '10%',
+        impact: 'Review data too incomplete to proceed safely',
+        action: 'Check GitHub API and gh CLI version compatibility',
+      });
+
+      throw new GitHubCliError(
+        `Too many malformed review comments (${skippedCount}/${totalAttempted}, ${skipPercentage}%). ` +
+          `This indicates a GitHub API issue or gh CLI version incompatibility. ` +
+          `Review data is too incomplete to proceed safely. ` +
+          `Check the comments on GitHub's web UI to see all feedback.`
+      );
+    }
+
+    warning =
+      `Warning: ${skippedCount} of ${totalAttempted} review comments (${skipPercentage}%) ` +
+      `could not be parsed and were skipped. Review data may be incomplete. ` +
+      `Check the comments on GitHub's web UI to see all feedback.`;
+
+    logger.error('Some review comments could not be parsed', {
+      prNumber,
+      username,
+      parsedCount: comments.length,
+      skippedCount,
+      skipPercentage: `${skipPercentage}%`,
+      userGuidance: warning,
+      action: 'Display warning to user and suggest checking GitHub web UI',
+    });
+  }
+
+  return {
+    comments,
+    skippedCount,
+    isComplete: skippedCount === 0,
+    warning,
+  };
 }
 
 /**
  * Sleep for a specified number of milliseconds
  *
- * Utility function for introducing delays, useful for retry logic and rate limiting.
- *
- * @param ms - Milliseconds to sleep
- * @returns Promise that resolves after the specified delay
- *
- * @example
- * ```typescript
- * await sleep(1000); // Wait 1 second
- * ```
+ * Re-exports from mcp-common for backward compatibility.
  */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Check if an error is retryable (network errors, 5xx server errors)
- *
- * Determines if an error should be retried based on the error message.
- * Retryable errors include network issues, timeouts, and 5xx server errors.
- *
- * @param error - Error to check for retryability
- * @returns true if error should be retried, false otherwise
- *
- * @example
- * ```typescript
- * try {
- *   await ghCli(['pr', 'view']);
- * } catch (error) {
- *   if (isRetryableError(error)) {
- *     // Retry the operation
- *   }
- * }
- * ```
- */
-// TODO: See issue #453 - Use error types instead of string matching for retry logic
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return (
-      msg.includes('network') ||
-      msg.includes('timeout') ||
-      msg.includes('econnreset') ||
-      msg.includes('socket') ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.includes('504')
-    );
-  }
-  return false;
-}
-
-/**
- * Classify error type for logging and diagnostics
- *
- * Categorizes errors into types for pattern analysis and debugging.
- */
-function classifyErrorType(error: Error): string {
-  const msg = error.message.toLowerCase();
-
-  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
-    return 'network';
-  }
-  if (msg.includes('timeout') || msg.includes('etimedout')) {
-    return 'timeout';
-  }
-  if (msg.includes('rate limit') || msg.includes('429')) {
-    return 'rate_limit';
-  }
-  if (msg.includes('forbidden') || msg.includes('401') || msg.includes('403')) {
-    return 'permission';
-  }
-  if (msg.includes('404') || msg.includes('not found')) {
-    return 'not_found';
-  }
-  if (msg.includes('502') || msg.includes('503') || msg.includes('504')) {
-    return 'server_error';
-  }
-
-  return 'unknown';
-}
+export const sleep = sharedSleep;
 
 /**
  * Execute gh CLI command with retry logic
  *
- * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors).
+ * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
  * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
  * Non-retryable errors (like validation errors) fail immediately.
+ *
+ * This is a wrapper around the shared ghCliWithRetry from mcp-common,
+ * injecting the local ghCli function.
  *
  * @param args - GitHub CLI command arguments
  * @param options - Optional execution options
@@ -459,79 +496,5 @@ export async function ghCliWithRetry(
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
-  let lastError: Error | undefined;
-  let firstError: Error | undefined;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await ghCli(args, options);
-
-      // Success after retry - log recovery
-      if (attempt > 1 && firstError) {
-        logger.info('ghCliWithRetry: succeeded after retry', {
-          attempt,
-          command: `gh ${args.join(' ')}`,
-          initialErrorType: classifyErrorType(firstError),
-          initialErrorMessage: firstError.message,
-        });
-      }
-
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Capture first error for diagnostics
-      if (attempt === 1) {
-        firstError = lastError;
-      }
-
-      if (!isRetryableError(error)) {
-        // Non-retryable error, fail immediately
-        throw lastError;
-      }
-
-      if (attempt === maxRetries) {
-        // Final attempt failed - log all attempts exhausted
-        logger.warn('ghCliWithRetry: all attempts failed', {
-          maxRetries,
-          command: `gh ${args.join(' ')}`,
-          errorType: classifyErrorType(lastError),
-          errorMessage: lastError.message,
-        });
-        throw lastError;
-      }
-
-      // Log based on attempt number
-      const errorType = classifyErrorType(lastError);
-      if (attempt === 1) {
-        // Initial failure - log at INFO level since retry is designed for this
-        logger.info('ghCliWithRetry: initial attempt failed, will retry', {
-          attempt,
-          maxRetries,
-          command: `gh ${args.join(' ')}`,
-          errorType,
-          errorMessage: lastError.message,
-        });
-      } else {
-        // Subsequent failures - log at WARN level
-        logger.warn('ghCliWithRetry: retry attempt failed, will retry again', {
-          attempt,
-          maxRetries,
-          command: `gh ${args.join(' ')}`,
-          errorType,
-          errorMessage: lastError.message,
-        });
-      }
-
-      // Exponential backoff: 2s, 4s, 8s
-      const delayMs = Math.pow(2, attempt) * 1000;
-      logger.debug('ghCliWithRetry: waiting before retry', {
-        attempt,
-        retryDelayMs: delayMs,
-      });
-      await sleep(delayMs);
-    }
-  }
-
-  throw lastError || new Error('Unexpected retry failure');
+  return sharedGhCliWithRetry(ghCli, args, options as GhCliWithRetryOptions, maxRetries);
 }

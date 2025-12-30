@@ -104,6 +104,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
 
     return result.stdout || '';
   } catch (error) {
+    // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
     if (error instanceof GitError) {
       throw error;
     }

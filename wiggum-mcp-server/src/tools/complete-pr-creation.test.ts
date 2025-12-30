@@ -45,6 +45,7 @@ describe('complete-pr-creation tool', () => {
   // Note: Testing issue extraction and PR creation logic would require
   // mocking git/gh CLI commands, which is beyond the scope of basic
   // schema validation tests. These would be integration tests.
+  // TODO(#436): Add integration test for completePRCreation state update flow
 
   describe('completePRCreation verification error handling', () => {
     // TODO(#320): Add behavioral tests for PR verification error handling

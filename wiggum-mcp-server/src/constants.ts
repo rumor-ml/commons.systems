@@ -11,7 +11,7 @@ export const WORKFLOW_LOG_MAX_CHARS = 50000; // For complete error logs in autom
 export const WORKFLOW_MONITOR_TIMEOUT_MS = 600000; // 10 minutes for workflow/PR check monitoring
 
 // Wiggum flow constants
-export const MAX_ITERATIONS = 10;
+export const DEFAULT_MAX_ITERATIONS = 10;
 export const NEEDS_REVIEW_LABEL = 'needs review';
 export const CODE_QUALITY_BOT_USERNAME = 'github-code-quality[bot]';
 
@@ -160,16 +160,15 @@ export function generateTriageInstructions(
     );
   }
 
-  // Validate issueNumber: Must be positive integer (e.g., 123, not 0, -1, 123.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
+  // Validate issueNumber: Must be positive integer
+  // Note: Number.isInteger rejects Infinity, -Infinity, NaN, and decimals (no need for separate Number.isFinite check)
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_ISSUE_NUMBER}] Invalid issueNumber: ${issueNumber}. Must be a positive integer.`
     );
   }
 
-  // Validate totalIssues: Must be non-negative integer (e.g., 0, 5, 42, not -1, 5.5, Infinity, NaN)
-  // Note: Number.isInteger returns false for Infinity, -Infinity, and NaN, so Number.isFinite is redundant
+  // Validate totalIssues: Must be non-negative integer (0, 5, 42, etc.)
   if (!Number.isInteger(totalIssues) || totalIssues < 0) {
     throw new ValidationError(
       `[${ERROR_INVALID_TOTAL_ISSUES}] Invalid totalIssues: ${totalIssues}. Must be a non-negative integer.`
@@ -196,11 +195,11 @@ Call the EnterPlanMode tool to enter planning mode for the triage process.
 
 Review output was written to temp file for token efficiency.
 
-**File Pattern:** \`/tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md\`
+**File Pattern:** \`$(pwd)/tmp/wiggum/{agent-name}-{scope}-*.md\`
 
 **To view if needed:**
 \`\`\`bash
-ls -t /tmp/claude/wiggum-*-${reviewType.toLowerCase()}-review-*.md | head -1 | xargs cat
+ls -t $(pwd)/tmp/wiggum/*-in-scope-*.md $(pwd)/tmp/wiggum/*-out-of-scope-*.md | head -1 | xargs cat
 \`\`\`
 
 ### 2b. Fetch Issue Context
@@ -255,6 +254,194 @@ Call ExitPlanMode when plan is complete.
 4. Call wiggum_complete_fix with:
    - fix_description: Description of in-scope fixes
    - out_of_scope_issues: Array of issue numbers (both new and existing)`;
+}
+
+/**
+ * Generate instructions for tracking out-of-scope recommendations
+ *
+ * When a review completes with only out-of-scope recommendations (no in-scope issues),
+ * the step is marked complete but we still need to track the out-of-scope items.
+ *
+ * @param issueNumber - GitHub issue number (optional - may be undefined)
+ * @param reviewType - Review type label (e.g., "PR", "Security")
+ * @param outOfScopeCount - Number of out-of-scope recommendations
+ * @param outOfScopeFiles - Array of file paths containing out-of-scope results
+ * @returns Instructions for tracking out-of-scope recommendations
+ */
+export function generateOutOfScopeTrackingInstructions(
+  issueNumber: number | undefined,
+  reviewType: string,
+  outOfScopeCount: number,
+  outOfScopeFiles: readonly string[]
+): string {
+  const fileList = outOfScopeFiles.map((f) => `- ${f}`).join('\n');
+
+  return `${outOfScopeCount} out-of-scope ${reviewType.toLowerCase()} review recommendation(s) found.
+
+The review step is **complete** (no in-scope issues require fixing), but these out-of-scope recommendations should be tracked for future work.
+
+## Task: Track Out-of-Scope Recommendations
+
+Launch a general-purpose agent to handle out-of-scope tracking:
+
+\`\`\`
+Task({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  prompt: \`Track out-of-scope recommendations in GitHub issues.
+
+**Out-of-Scope Result Files:**
+${fileList}
+
+**Your Tasks:**
+1. Read ALL out-of-scope result files above
+2. For each recommendation:
+   - Search for existing issues: \\\`gh issue list -S "keywords" --json number,title,body\\\`
+   - If matching issue exists: Add comment linking to ${issueNumber ? `issue #${issueNumber}` : 'this work'}
+   - If no match: Create new issue with proper labels and context
+3. Collect all issue numbers (both new and existing)
+4. Report back with list of issue numbers
+
+**Issue Creation Template:**
+- Title: Concise description of recommendation
+- Body: Context from review${issueNumber ? `, link to issue #${issueNumber}` : ''}
+- Labels: "enhancement", "from-review", appropriate area labels
+\`
+})
+\`\`\`
+
+After the agent completes, the workflow will proceed to the next step automatically.`;
+}
+
+/**
+ * Generate parallel fix instructions for scope-separated review results
+ *
+ * When using the new file-based scope-separated format (in_scope_result_files + out_of_scope_result_files),
+ * triage has already been done by the review agents. We can launch TWO agents in PARALLEL:
+ * 1. One to plan and fix in-scope issues
+ * 2. One to track out-of-scope recommendations
+ *
+ * This is more efficient than the old sequential triage workflow.
+ *
+ * @param issueNumber - GitHub issue number
+ * @param reviewType - Review type label (e.g., "PR", "Security")
+ * @param inScopeCount - Number of in-scope issues (total issue count, not file count)
+ * @param inScopeFiles - Array of result file paths containing in-scope results
+ * @param outOfScopeCount - Number of out-of-scope recommendations (total issue count, not file count)
+ * @param outOfScopeFiles - Array of result file paths containing out-of-scope results
+ * @returns Instructions for parallel fix execution
+ */
+export function generateScopeSeparatedFixInstructions(
+  issueNumber: number,
+  reviewType: string,
+  inScopeCount: number,
+  inScopeFiles: readonly string[],
+  outOfScopeCount: number,
+  outOfScopeFiles: readonly string[]
+): string {
+  // TODO(#986): Consider deprecating unused parameters (issueNumber, inScopeFiles, outOfScopeFiles) in a future version bump
+  // issueNumber, inScopeFiles, and outOfScopeFiles are kept in signature for backwards compatibility
+  // but are no longer used since we switched to wiggum_list_issues workflow
+  void issueNumber;
+  void inScopeFiles;
+  void outOfScopeFiles;
+
+  // Build the instruction text
+  let instructions = `${inScopeCount} in-scope ${reviewType.toLowerCase()} review issue(s) found.`;
+
+  if (outOfScopeCount > 0) {
+    instructions += ` Also found ${outOfScopeCount} out-of-scope recommendation(s) to track.`;
+  }
+
+  instructions += `
+
+## Workflow: List Issues -> Launch Agents
+
+**Step 1: Get Issue References**
+
+Call \`wiggum_list_issues\` to get minimal issue references:
+
+\`\`\`
+wiggum_list_issues({ scope: 'all' })
+\`\`\`
+
+This returns issue IDs, titles, and counts WITHOUT full descriptions (saves tokens).
+
+**Step 2: Create TODO List**
+
+From the returned issue references, create a TODO list to track progress.
+
+**Step 3: Launch Agents**
+
+### For In-Scope Issues: RUN ONE AT A TIME (Sequential)
+
+For EACH in-scope issue (one at a time, in order):
+
+\`\`\`
+Task({
+  subagent_type: "unsupervised-implement",
+  model: "opus",
+  description: "Implement fix for issue {issue_id}",
+  prompt: \`Implement fix for issue: {issue_id}
+
+**Instructions:**
+1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
+2. Implement the fix described in the issue
+3. Return completion status
+
+**IMPORTANT:** The agent will fetch full issue details using wiggum_get_issue.
+Do not pass full details in this prompt - pass only the issue_id.
+\`
+})
+\`\`\`
+
+Wait for each agent to complete before starting the next one.
+
+`;
+
+  if (outOfScopeCount > 0) {
+    instructions += `
+### For Out-of-Scope Issues: RUN ALL IN PARALLEL
+
+Launch ALL out-of-scope tracking agents IN PARALLEL (all in one message):
+
+For EACH out-of-scope issue:
+
+\`\`\`
+Task({
+  subagent_type: "out-of-scope-tracker",
+  model: "sonnet",
+  description: "Track out-of-scope issue {issue_id}",
+  prompt: \`Track out-of-scope issue: {issue_id}
+
+**Instructions:**
+1. Call wiggum_get_issue({ id: "{issue_id}" }) to get full issue details
+2. Follow the out-of-scope tracking workflow in your system prompt
+3. Return completion status with issue numbers created/updated
+
+**IMPORTANT:** The agent will fetch full issue details using wiggum_get_issue.
+Do not pass full details in this prompt - pass only the issue_id.
+\`
+})
+\`\`\`
+
+**Launch all out-of-scope agents in parallel** by making multiple Task calls in a single message.
+
+`;
+  }
+
+  instructions += `
+## After All Agents Complete
+
+1. Wait for ALL agents to finish (both in-scope sequential and out-of-scope parallel)
+2. Run \`/commit-merge-push\` to commit and push ALL fixes
+3. Call \`wiggum_complete_fix\` with:
+   - \`fix_description\`: Summary of in-scope fixes
+   - \`has_in_scope_fixes\`: true (we fixed ${inScopeCount} issue(s))
+   - \`out_of_scope_issues\`: Array of issue numbers from out-of-scope trackers${outOfScopeCount === 0 ? ' (empty array if no out-of-scope)' : ''}
+`;
+
+  return instructions;
 }
 
 /**
@@ -418,3 +605,39 @@ export const SKIP_MECHANISM_GUIDANCE = `
 
 **Always add TODO comment at skip location:** \`// TODO(#NNN): [brief reason]\`
 `.trim();
+
+/**
+ * Generate user prompt instructions when iteration limit is reached
+ *
+ * Provides clear instructions and options when the workflow hits the iteration limit.
+ * Allows users to manually approve an increase to continue work.
+ *
+ * @param state - Current WiggumState with iteration and limit information
+ * @param currentLimit - Effective max iterations (custom or default)
+ * @returns Formatted instructions for user with options to increase limit or intervene manually
+ */
+export function generateIterationLimitInstructions(
+  state: import('./state/types.js').WiggumState,
+  currentLimit: number
+): string {
+  return `**Iteration Limit Reached (${state.iteration}/${currentLimit})**
+
+The workflow has reached the ${state.maxIterations ? 'custom' : 'default'} iteration limit.
+
+**Current Situation:**
+- Current iteration: ${state.iteration}
+- Current limit: ${currentLimit}${state.maxIterations ? ' (custom)' : ' (default)'}
+- Current step: ${STEP_NAMES[state.step]}
+- Phase: ${state.phase === 'phase1' ? 'Phase 1 (Pre-PR)' : 'Phase 2 (Post-PR)'}
+
+**Options:**
+
+1. **Increase Iteration Limit** - Respond with new limit:
+   "Increase iteration limit to [NUMBER]" (e.g., "Increase iteration limit to 15")
+
+2. **Manual Intervention** - Fix issues manually and resume with wiggum_init
+
+**If you approve an increase:**
+- The workflow will continue from the current step with the new limit
+- You'll need to call the completion tool with the maxIterations parameter`;
+}

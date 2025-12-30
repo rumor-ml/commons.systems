@@ -2,21 +2,22 @@
 set -euo pipefail
 
 # Start Firebase emulators for Firestore and GCS Storage
-# Emulators are SHARED across all worktrees for efficient resource usage
+# Emulators are per-worktree for isolation
 
 # Source port allocation script to get shared ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
 # Emulators use shared default ports (set by allocate-test-ports.sh)
 PROJECT_ID="demo-test"
 MAX_RETRIES=30
 RETRY_INTERVAL=1
-SHARED_PID_FILE="/tmp/claude/firebase-emulators.pid"  # Shared PID file
-SHARED_LOG_FILE="/tmp/claude/firebase-emulators.log"  # Shared log file
+PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-emulators.pid"
+LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-emulators.log"
 
 # Ensure temp directory exists
-mkdir -p /tmp/claude
+mkdir -p "${PROJECT_ROOT}/tmp/infrastructure"
 
 echo "Firebase Emulators (Shared Instance):"
 echo "  Auth: localhost:${AUTH_PORT}"
@@ -40,14 +41,14 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Start emulators in the background (using default ports from firebase.json)
-npx firebase-tools emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > "$SHARED_LOG_FILE" 2>&1 &
+npx firebase-tools emulators:start --only auth,firestore,storage --project="${PROJECT_ID}" > "$LOG_FILE" 2>&1 &
 EMULATOR_PID=$!
 
-# Save PID for cleanup (shared across worktrees)
-echo "$EMULATOR_PID" > "$SHARED_PID_FILE"
+# Save PID for cleanup
+echo "$EMULATOR_PID" > "$PID_FILE"
 
 echo "Firebase emulators started with PID: ${EMULATOR_PID}"
-echo "Log file: $SHARED_LOG_FILE"
+echo "Log file: $LOG_FILE"
 
 # Health check for Auth
 echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
@@ -57,9 +58,9 @@ while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
+    tail -n 20 "$LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
+    rm -f "$PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -74,9 +75,9 @@ while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
+    tail -n 20 "$LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
+    rm -f "$PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
@@ -91,9 +92,9 @@ while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
     echo "Last 20 lines of emulator log:"
-    tail -n 20 "$SHARED_LOG_FILE"
+    tail -n 20 "$LOG_FILE"
     kill $EMULATOR_PID 2>/dev/null || true
-    rm -f "$SHARED_PID_FILE"
+    rm -f "$PID_FILE"
     exit 1
   fi
   sleep $RETRY_INTERVAL
