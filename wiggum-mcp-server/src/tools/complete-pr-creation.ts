@@ -39,7 +39,11 @@ import { detectCurrentState } from '../state/detector.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { addToCompletedSteps } from '../state/state-utils.js';
 import { logger } from '../utils/logger.js';
-import { STEP_PHASE1_CREATE_PR, NEEDS_REVIEW_LABEL } from '../constants.js';
+import {
+  STEP_PHASE1_CREATE_PR,
+  NEEDS_REVIEW_LABEL,
+  STEP_PHASE2_MONITOR_WORKFLOW,
+} from '../constants.js';
 import { ValidationError, StateApiError, NetworkError } from '../utils/errors.js';
 import { getCurrentBranch } from '../utils/git.js';
 import { ghCli, getPR } from '../utils/gh-cli.js';
@@ -230,7 +234,7 @@ ${commits}`;
     // State will be persisted to PR body by getNextStepInstructions() via safeUpdatePRBodyState()
     const newState: WiggumState = createWiggumState({
       iteration: state.wiggum.iteration,
-      step: STEP_PHASE1_CREATE_PR,
+      step: STEP_PHASE2_MONITOR_WORKFLOW,
       completedSteps: addToCompletedSteps(state.wiggum.completedSteps, STEP_PHASE1_CREATE_PR),
       phase: 'phase2',
       maxIterations: undefined,
