@@ -102,6 +102,7 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 		// TODO(#356): Add fallback notification for message construction failures
 		// See issue for details from PR #273 review
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=block_change error=%v", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct block change revert message: %v\n", err)
 		return
 	}
 	d.broadcast(msg.ToWireFormat())
@@ -161,7 +162,21 @@ func (d *AlertDaemon) playAlertSound() {
 	}()
 }
 
-// broadcastAudioError broadcasts an audio playback error with tracking
+// broadcastAudioError broadcasts an audio playback error to all connected clients.
+//
+// This function is called from the playAlertSound() goroutine when audio playback fails.
+// It attempts to notify clients using the v2 protocol (MsgTypeAudioError), but falls back
+// to a v1 message if message construction fails.
+//
+// Error Handling:
+//   - If message construction fails: Logs CRITICAL error to stderr and falls back to v1 message
+//   - The fallback ensures users are notified even if the v2 protocol has issues
+//   - Audio errors are non-critical to daemon functionality - the daemon continues running
+//
+// Goroutine Safety:
+//   - Safe to call from the playAlertSound() goroutine
+//   - Uses d.broadcast() which handles concurrent access with proper locking
+//
 // TODO(#251): Add timeout to audio error broadcasting to prevent goroutine leaks when eventCh is congested - see PR review for #273
 func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 	errorMsg := fmt.Sprintf("Audio playback failed: %v\n\n"+
@@ -484,6 +499,7 @@ func (d *AlertDaemon) watchAlerts() {
 				d.watcherErrors.Add(1)
 				d.lastWatcherError.Store(event.Error.Error())
 				debug.Log("DAEMON_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
+				fmt.Fprintf(os.Stderr, "ERROR: Alert watcher error: %v\n", event.Error)
 				continue
 			}
 
@@ -510,6 +526,7 @@ func (d *AlertDaemon) watchPaneFocus() {
 				d.watcherErrors.Add(1)
 				d.lastWatcherError.Store(event.Error.Error())
 				debug.Log("DAEMON_PANE_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
+				fmt.Fprintf(os.Stderr, "ERROR: Pane focus watcher error: %v\n", event.Error)
 				continue
 			}
 
@@ -563,6 +580,7 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	msg, err := NewPaneFocusMessage(d.seqCounter.Add(1), event.PaneID)
 	if err != nil {
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=pane_focus error=%v", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct pane focus message: %v\n", err)
 		return
 	}
 	d.broadcast(msg.ToWireFormat())
@@ -617,6 +635,7 @@ func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
 	msg, err := NewAlertChangeMessage(d.seqCounter.Add(1), event.PaneID, event.EventType, event.Created)
 	if err != nil {
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=alert_change error=%v", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct alert change message: %v\n", err)
 		return
 	}
 	d.broadcast(msg.ToWireFormat())
@@ -1007,10 +1026,42 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	}
 }
 
-// broadcast sends a message to all connected clients.
-// Message must already have a sequence number assigned (from v2 constructor).
-// If some clients fail to receive the message, they are removed from the clients map
-// and a sync warning is sent to successful clients.
+// broadcast sends a message to all connected clients with partial failure handling.
+//
+// Message Requirements:
+//   - Message must have a sequence number assigned via v2 constructor (NewAlertChangeMessage, etc.)
+//   - Sequence numbers are globally incrementing via d.seqCounter.Add(1)
+//   - Clients use sequence numbers to detect gaps and request resync
+//
+// Partial Failure Handling:
+//   - If some clients fail to receive the message, they are disconnected and removed
+//   - Failed clients are forced to reconnect, which triggers a full state resync (sendFullState)
+//   - Successful clients receive a sync warning notification about the disconnections
+//   - This ensures eventual consistency across all clients
+//
+// Error Recovery Cascade (when client send fails):
+//  1. Track the send failure and log to debug
+//  2. Disconnect the client (close connection)
+//  3. Send sync warning to successful clients
+//  4. If disconnect notification fails, log to debug
+//  5. If connection close fails, log to stderr and track in health metrics (CRITICAL if threshold exceeded)
+//
+// Lock Safety:
+//   - Acquires RLock for reading clients and attempting sends (allows concurrent broadcasts)
+//   - Releases RLock before cleanup to avoid deadlock
+//   - Acquires Lock for removing failed clients (exclusive access during cleanup)
+//   - Follows lock ordering: Never hold clientsMu.Lock during message sends
+//
+// Health Metrics:
+//   - Tracks broadcast failures in d.broadcastFailures counter
+//   - Tracks connection close errors in d.connectionCloseErrors counter
+//   - Stores last broadcast error in d.lastBroadcastError for health queries
+//   - Stores last close error in d.lastCloseError for health queries
+//
+// Thread Safety:
+//   - Concurrent-safe: Multiple goroutines can call broadcast simultaneously
+//   - Lock-free message send attempts under RLock
+//   - Exclusive Lock only for client cleanup
 func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
 	totalClients := len(d.clients)
@@ -1140,7 +1191,27 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	}
 }
 
-// sendFullState sends the complete current state to a client
+// sendFullState sends the complete current daemon state to a single client.
+//
+// Purpose:
+//   - Initial state synchronization when a client first connects
+//   - Resynchronization when a client detects a sequence number gap
+//   - Recovery mechanism after broadcast failures (via forced reconnection)
+//
+// State Included:
+//   - All current alerts (pane ID -> event type mapping)
+//   - All blocked branches (branch name -> reason mapping)
+//   - Fresh sequence number from the global counter
+//
+// Error Handling:
+//   - Message construction errors: Logged to stderr and debug, returned to caller
+//   - Send errors: Logged to stderr and debug, returned to caller
+//   - Caller (handleClient) typically disconnects the client on error
+//
+// Thread Safety:
+//   - Creates copies of alerts and blocked branches maps under locks
+//   - Sends the message without holding any locks (prevents blocking other operations)
+//   - Safe to call concurrently for different clients
 func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
 	alertsCopy := d.copyAlerts()
 	blockedCopy := d.copyBlockedBranches()
@@ -1149,11 +1220,13 @@ func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) e
 	fullStateMsg, err := NewFullStateMessage(d.seqCounter.Add(1), alertsCopy, blockedCopy)
 	if err != nil {
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=full_state error=%v", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct full state message for client %s: %v\n", clientID, err)
 		return fmt.Errorf("failed to construct full state message: %w", err)
 	}
 
 	if err := client.sendMessage(fullStateMsg.ToWireFormat()); err != nil {
 		debug.Log("DAEMON_RESYNC_ERROR client=%s error=%v", clientID, err)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to send full state to client %s: %v\n", clientID, err)
 		return fmt.Errorf("resync failed: %w", err)
 	}
 	debug.Log("DAEMON_RESYNC_SENT client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
@@ -1168,7 +1241,33 @@ func (d *AlertDaemon) removeClient(clientID string) {
 	debug.Log("DAEMON_CLIENT_REMOVED id=%s remaining=%d", clientID, len(d.clients))
 }
 
-// GetHealthStatus returns daemon health metrics for monitoring
+// GetHealthStatus returns daemon health metrics for monitoring and diagnostics.
+//
+// Metrics Returned:
+//   - Broadcast failures: Total count of failed client message sends
+//   - Watcher errors: Total count of alert/pane focus watcher errors
+//   - Connection close errors: Total count of failed connection closures
+//   - Audio failures: Total count of audio playback failures
+//   - Active connections: Current number of connected clients
+//   - Active alerts: Current number of panes with alerts
+//   - Blocked branches: Current number of blocked git branches
+//   - Last errors: Most recent error messages for each category (if any)
+//
+// Error Handling:
+//   - Validates the health status before returning
+//   - Returns error if validation fails
+//   - Logs validation errors to stderr for immediate visibility
+//
+// Thread Safety:
+//   - Uses atomic counters for error counts (no locks needed)
+//   - Briefly acquires RLock on each map to get counts
+//   - Lock acquisitions are short and non-blocking
+//   - Safe to call concurrently from multiple goroutines
+//
+// Usage:
+//   - Called by the health query handler (/health endpoint)
+//   - Used by monitoring tools to detect daemon issues
+//   - Provides visibility into error conditions without requiring log access
 func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	lastBroadcastErr, _ := d.lastBroadcastError.Load().(string)
 	lastWatcherErr, _ := d.lastWatcherError.Load().(string)

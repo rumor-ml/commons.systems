@@ -236,7 +236,7 @@ describe('callToolWithRetry', () => {
 
       await assert.rejects(
         () => callToolWithRetry(mockClient as any, 'test_tool', {}, -1000),
-        /Invalid maxDurationMs: -1000. Must be positive/
+        /Invalid maxDurationMs: -1000\. Must be between 1ms and 3600000ms/
       );
 
       assert.strictEqual(mockClient.getCallCount(), 0);
@@ -247,7 +247,18 @@ describe('callToolWithRetry', () => {
 
       await assert.rejects(
         () => callToolWithRetry(mockClient as any, 'test_tool', {}, 0),
-        /Invalid maxDurationMs: 0. Must be positive/
+        /Invalid maxDurationMs: 0\. Must be between 1ms and 3600000ms/
+      );
+
+      assert.strictEqual(mockClient.getCallCount(), 0);
+    });
+
+    it('should reject maxDurationMs exceeding 1 hour limit', async () => {
+      mockClient.queueSuccess({ ok: true });
+
+      await assert.rejects(
+        () => callToolWithRetry(mockClient as any, 'test_tool', {}, 3600001), // 1 hour + 1 ms
+        /Invalid maxDurationMs: 3600001\. Must be between 1ms and 3600000ms/
       );
 
       assert.strictEqual(mockClient.getCallCount(), 0);
@@ -455,7 +466,29 @@ describe('extractTextFromMCPResult', () => {
 
       assert.throws(
         () => extractTextFromMCPResult(result, 'test_tool', 'test context'),
-        /No text content in test_tool response for test context/
+        /No valid text content in test_tool response for test context/
+      );
+    });
+
+    it('should throw for content with non-string text', () => {
+      const result = {
+        content: [{ type: 'text', text: { nested: 'object' } }],
+      };
+
+      assert.throws(
+        () => extractTextFromMCPResult(result, 'test_tool', 'test context'),
+        /No valid text content in test_tool response for test context/
+      );
+    });
+
+    it('should throw for content with null text', () => {
+      const result = {
+        content: [{ type: 'text', text: null }],
+      };
+
+      assert.throws(
+        () => extractTextFromMCPResult(result, 'test_tool', 'test context'),
+        /No valid text content in test_tool response for test context/
       );
     });
 

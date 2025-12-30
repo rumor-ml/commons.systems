@@ -6,6 +6,7 @@ set -euo pipefail
 
 # Source port allocation script to get shared ports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
 # Emulators use worktree-specific ports (set by allocate-test-ports.sh)

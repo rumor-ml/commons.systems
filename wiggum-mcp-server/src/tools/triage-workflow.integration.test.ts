@@ -258,7 +258,7 @@ describe('Triage Workflow Integration', () => {
       // - Iteration increments when issues found (has_in_scope_fixes: true)
       // - Iteration stays same when no issues or fast-path
       // - Each iteration is logged and included in comments
-      // - Iteration limit (MAX_ITERATIONS = 10) prevents infinite loops
+      // - Iteration limit (DEFAULT_MAX_ITERATIONS = 10) prevents infinite loops
       assert.strictEqual(true, true, 'Test documents iteration tracking');
     });
 
