@@ -17,6 +17,7 @@
  * @module types
  */
 
+// TODO(#998): ToolSuccess/ToolError index signatures weaken type safety despite factory functions
 import { ValidationError } from './errors.js';
 
 /**

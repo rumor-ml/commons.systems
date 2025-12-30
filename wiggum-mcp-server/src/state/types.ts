@@ -6,6 +6,7 @@
  * rather than mutating existing state.
  */
 
+// TODO(#990): IssueState lacks discriminated union pattern like PRState
 import { z } from 'zod';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import { STEP_ORDER } from '../constants.js';

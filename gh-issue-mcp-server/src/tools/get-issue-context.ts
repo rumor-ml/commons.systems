@@ -3,6 +3,8 @@
  * Get comprehensive hierarchical context for a GitHub issue
  */
 
+// TODO(#706): Use structured logger instead of console.error for GraphQL validation failures
+// TODO(#655): Document magic number for comment limit in get-issue-context.ts
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
 import { ghCliJson, resolveRepo } from '../utils/gh-cli.js';

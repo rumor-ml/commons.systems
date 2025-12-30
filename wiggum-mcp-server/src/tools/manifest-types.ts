@@ -12,6 +12,7 @@
  * 3. Maintainability - changes only need to be made in one place
  */
 
+// TODO(#1022): Missing unit tests for type definition files
 import { z } from 'zod';
 
 /**

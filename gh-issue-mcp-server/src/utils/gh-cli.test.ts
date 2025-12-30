@@ -5,6 +5,7 @@
  * TODO: Add integration tests that mock ghCli for complete retry execution testing
  */
 
+// TODO(#950): Improve TODO comment specificity in gh-cli integration tests
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ghCliWithRetry, sleep } from './gh-cli.js';

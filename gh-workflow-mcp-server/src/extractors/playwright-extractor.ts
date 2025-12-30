@@ -2,6 +2,7 @@
  * Playwright test framework extractor - parses JSON output only
  */
 
+// TODO(#551): Add defensive error handling to test counting logic in Playwright extractor
 import type {
   DetectionResult,
   ExtractionResult,
