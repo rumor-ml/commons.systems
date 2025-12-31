@@ -110,9 +110,11 @@ case "$APP_TYPE" in
     ;;
 
   go-fullstack)
-    # Go app with Firebase emulators
-    echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
+    # Go app with Firebase backend emulators (no hosting emulator)
+    # These apps serve via their own web server (started by Playwright webServer config)
+    # They only need backend emulators: Auth, Firestore, Storage
+    echo "Starting Firebase backend emulators..."
+    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST
