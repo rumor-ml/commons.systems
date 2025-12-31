@@ -42,6 +42,11 @@ echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestor
 case "$APP_TYPE" in
   firebase)
     # Static Firebase app with Firebase emulators
+
+    # Build the site BEFORE starting emulators to prevent 404 caching
+    echo "Building..."
+    pnpm --dir "${APP_PATH_ABS}/site" build
+
     echo "Starting Firebase emulators..."
     source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
@@ -76,9 +81,6 @@ case "$APP_TYPE" in
       "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
     }
     trap cleanup EXIT
-
-    echo "Building..."
-    pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
 
   go-fullstack)
