@@ -157,8 +157,11 @@ cd "${REPO_ROOT}"
 TEMP_CONFIG="${PROJECT_ROOT}/tmp/firebase.${PROJECT_ID}.json"
 
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
+# Keep paths relative since Firebase is launched from PROJECT_ROOT
 if [ -n "$APP_NAME" ]; then
-  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" '[.hosting[] | select(.site == $site)]' firebase.json)
+  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
+    '[.hosting[] | select(.site == $site)]' \
+    firebase.json)
   echo "Hosting only site: $APP_NAME"
 else
   HOSTING_CONFIG=$(jq '.hosting' firebase.json)
