@@ -6,7 +6,7 @@
  * - Structured error logging with context objects
  * - User-friendly error messages for Firebase operations
  */
-// TODO: See issue #285 - Improve error handling: narrow catch blocks, add specific error messages instead of generic ones
+// TODO: See issue #588 - Fix silent failures: narrow catch blocks, add specific error messages instead of generic ones
 
 // Import Firestore operations
 // TODO(#588): Fix silent failures and error handling in production code
@@ -251,7 +251,7 @@ function resetState() {
   state.loading = false;
   state.error = null;
   state.listenersAttached = false;
-  // TODO(#286): Add impact context to cleanup comment
+  // TODO(#462): Add impact context to cleanup comment
   // Clean up pending auth timeout
   if (state.authTimeoutId) {
     clearTimeout(state.authTimeoutId);
@@ -838,10 +838,10 @@ async function loadCards() {
 
     // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
     // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
-    // TODO(#285): Never fall back to demo data - show explicit auth error instead
+    // TODO(#588): Never fall back to demo data - show explicit auth error instead
     const isAuthenticated = !!getAuthInstance()?.currentUser;
 
-    // TODO(#285): CRITICAL - Never fall back to demo data for authenticated users - causes data loss
+    // TODO(#588): CRITICAL - Never fall back to demo data for authenticated users - causes data loss
     // Authenticated user with permission-denied will see demo data, add cards thinking they're saving → work lost
     if (error.code === 'permission-denied') {
       if (!isAuthenticated) {
@@ -884,7 +884,7 @@ async function loadCards() {
       return;
     }
 
-    // TODO(#285): Never fall back to demo data for authenticated users
+    // TODO(#588): Never fall back to demo data for authenticated users
     // All other errors: show error without demo data fallback
     state.cards = [];
     state.filteredCards = [];

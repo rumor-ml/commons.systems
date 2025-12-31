@@ -9,9 +9,9 @@
  *   3. Firestore write failure state cleanup (isSaving flag)
  *   4. Auth state restoration retry logic
  *   5. Combobox error state on getOptions() exception
- * TODO: See issue #241 - Add delete card E2E tests (security, confirmation, Firestore removal)
- * TODO: See issue #241 - Add concurrent edit conflict detection tests
- * TODO: See issue #241 - Add network error handling tests (timeouts, retries, user guidance)
+ * TODO: See issue #311 - Add delete card E2E tests (security, confirmation, Firestore removal)
+ * TODO: See issue #311 - Add concurrent edit conflict detection tests
+ * TODO: See issue #311 - Add network error handling tests (timeouts, retries, user guidance)
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
@@ -43,7 +43,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Wait for Firestore write to propagate (emulator can have delays, especially in Firefox)
-    // TODO(#286, #474): Document empirical browser latency findings
+    // TODO(#462, #474): Document empirical browser latency findings
     await page.waitForTimeout(2000);
 
     // Verify in Firestore
@@ -4734,11 +4734,11 @@ test.describe('Add Card - Collection Pattern Tests', () => {
   });
 });
 
-// TODO(#241): Add test for whitespace-only subtype
+// TODO(#311): Add test for whitespace-only subtype
 // Test should verify that whitespace-only subtypes are rejected by validation
 // (current validation uses .trim() but no test verifies the rejection)
 
-// TODO(#311, #241): Replace fixed timeouts with condition-based waiting
+// TODO(#311): Replace fixed timeouts with condition-based waiting
 // Many tests use page.waitForTimeout() with hardcoded values (2000ms, 3000ms, etc.)
 // Replace with condition-based waiting for better reliability and faster test execution
 
