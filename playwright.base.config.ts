@@ -1,6 +1,7 @@
 // playwright.base.config.ts
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
+// TODO(#1074): Add port validation and factory pattern to prevent invalid state combinations
 export interface SiteConfig {
   siteName: string;
   port: number;

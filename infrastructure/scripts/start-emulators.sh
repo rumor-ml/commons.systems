@@ -135,7 +135,7 @@ fi
 echo "Starting per-worktree hosting emulator..."
 echo "  Port: ${HOSTING_PORT}"
 echo "  Project: ${PROJECT_ID}"
-echo "  Serving from: fellspiral/site/dist (relative to this worktree)"
+echo "  Serving from: Paths configured in firebase.json (relative to this worktree)"
 
 # Validate port availability
 # allocate-test-ports.sh should have found an available port
@@ -144,8 +144,9 @@ if ! is_port_available ${HOSTING_PORT}; then
   echo "Port owner:" >&2
   get_port_owner ${HOSTING_PORT} >&2
   echo "" >&2
-  echo "This should not happen - allocate-test-ports.sh should have found an available port" >&2
-  echo "If you see this error, there may be a race condition." >&2
+  echo "Port allocation race condition detected. Try running the script again." >&2
+  echo "If this persists, check for processes holding ports in range 5000-5990:" >&2
+  echo "  lsof -i :5000-5990" >&2
   exit 1
 fi
 
@@ -162,13 +163,34 @@ TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 # Remove site/target fields for emulation - single hosting config serves at root
 if [ -n "$APP_NAME" ]; then
   # Extract the one site config and remove site/target fields
-  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
+  if ! HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
     '.hosting[] | select(.site == $site) | del(.site, .target)' \
-    firebase.json)
+    firebase.json 2>&1); then
+    echo "ERROR: Failed to extract hosting config for site '$APP_NAME' from firebase.json" >&2
+    echo "jq error: $HOSTING_CONFIG" >&2
+    exit 1
+  fi
+
+  if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
+    echo "ERROR: No hosting config found for site '$APP_NAME' in firebase.json" >&2
+    echo "Available sites: $(jq -r '.hosting[].site' firebase.json 2>/dev/null | tr '\n' ', ')" >&2
+    exit 1
+  fi
+
   echo "Hosting only site: $APP_NAME"
 else
   # For all sites, keep as array but remove site/target fields
-  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json)
+  if ! HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1); then
+    echo "ERROR: Failed to extract hosting configs from firebase.json" >&2
+    echo "jq error: $HOSTING_CONFIG" >&2
+    exit 1
+  fi
+
+  if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ] || [ "$HOSTING_CONFIG" = "[]" ]; then
+    echo "ERROR: No hosting configs found in firebase.json" >&2
+    exit 1
+  fi
+
   echo "Hosting all sites from firebase.json"
 fi
 
@@ -217,12 +239,22 @@ npx firebase-tools emulators:start \
   > "$HOSTING_LOG_FILE" 2>&1 &
 
 HOSTING_PID=$!
-HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID | tr -d ' ')
 
-# Save both PID and PGID for cleanup (format: PID:PGID)
-echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
+# Extract PGID with error handling
+HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ')
 
-echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
+if [ -z "$HOSTING_PGID" ]; then
+  echo "WARNING: Failed to extract process group ID for PID ${HOSTING_PID}" >&2
+  echo "This may happen if the process terminated immediately or due to platform differences" >&2
+  echo "Process group cleanup may not work correctly - falling back to PID-only tracking" >&2
+  echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
+  echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID extraction failed)"
+else
+  # Save both PID and PGID for cleanup (format: PID:PGID)
+  echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
+  echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
+fi
+
 echo "Log file: $HOSTING_LOG_FILE"
 
 # Wait for hosting to be ready (check the assigned port)

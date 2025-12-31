@@ -24,6 +24,11 @@ test:
 	@echo "Running tests..."
 	@go test -v ./...
 
+# Run port-utils tests
+test-port-utils:
+	@echo "Running port-utils tests..."
+	@./scripts/tests/port-utils.test.sh
+
 # Format code
 fmt:
 	@echo "Formatting code..."
@@ -37,10 +42,11 @@ tidy:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build    - Build the iac binary to bin/iac"
-	@echo "  install  - Install iac globally"
-	@echo "  clean    - Remove build artifacts"
-	@echo "  test     - Run tests"
-	@echo "  fmt      - Format code"
-	@echo "  tidy     - Run go mod tidy"
-	@echo "  help     - Show this help message"
+	@echo "  build           - Build the iac binary to bin/iac"
+	@echo "  install         - Install iac globally"
+	@echo "  clean           - Remove build artifacts"
+	@echo "  test            - Run Go tests"
+	@echo "  test-port-utils - Run port-utils.sh tests"
+	@echo "  fmt             - Format code"
+	@echo "  tidy            - Run go mod tidy"
+	@echo "  help            - Show this help message"

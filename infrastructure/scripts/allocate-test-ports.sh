@@ -8,6 +8,17 @@ if [ -z "${SCRIPT_DIR:-}" ]; then
 fi
 source "${SCRIPT_DIR}/port-utils.sh"
 
+# Validate port is in valid range
+validate_port() {
+  local port=$1
+  local name=$2
+
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "FATAL: Invalid $name port: $port (must be 1-65535)" >&2
+    exit 1
+  fi
+}
+
 # Get worktree root directory path
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
@@ -17,7 +28,13 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
 PORT_OFFSET=$(($HASH % 100))
 
-# SHARED EMULATOR PORTS - Same across all worktrees (from firebase.json)
+# Validate offset is in expected range
+if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
+  echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
+  exit 1
+fi
+
+# SHARED EMULATOR PORTS - Standard Firebase emulator ports (match firebase.json)
 # Multiple worktrees connect to the same emulator instance
 AUTH_PORT=9099
 FIRESTORE_PORT=8081
@@ -26,20 +43,33 @@ UI_PORT=4000
 
 # UNIQUE APP SERVER PORT - Different per worktree
 # Prevents conflicts when running multiple app servers concurrently
+# Port range: [8080, 9070] (8080 + 0*10 to 8080 + 99*10)
 APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
+validate_port "$APP_PORT" "APP"
 
 # PER-WORKTREE HOSTING EMULATOR PORT - Different per worktree
 # Hosting emulator serves from relative path → must be per-worktree
 # Use automatic port fallback to avoid system-reserved ports (5000, 5001, etc.)
+# Base port range: [5000, 5990] (5000 + 0*10 to 5000 + 99*10)
 BASE_HOSTING_PORT=$((5000 + ($PORT_OFFSET * 10)))
+validate_port "$BASE_HOSTING_PORT" "BASE_HOSTING"
 HOSTING_PORT=$(find_available_port $BASE_HOSTING_PORT 10 10)
+PORT_ALLOC_STATUS=$?
 
-# Check if fallback was used
-if [ $? -ne 0 ]; then
+# Check if allocation succeeded
+if [ $PORT_ALLOC_STATUS -ne 0 ]; then
   echo "FATAL: Could not allocate hosting port in range ${BASE_HOSTING_PORT}-$((BASE_HOSTING_PORT + 100))" >&2
+  echo "All candidate ports are in use or blacklisted" >&2
   exit 1
 fi
 
+# Validate port is a valid number
+if ! [[ "$HOSTING_PORT" =~ ^[0-9]+$ ]]; then
+  echo "FATAL: Port allocation returned invalid value: ${HOSTING_PORT}" >&2
+  exit 1
+fi
+
+# Check if fallback was used
 if [ "$HOSTING_PORT" != "$BASE_HOSTING_PORT" ]; then
   echo "⚠️  Using fallback port $HOSTING_PORT (base $BASE_HOSTING_PORT was unavailable)"
   echo ""

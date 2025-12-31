@@ -24,7 +24,7 @@ async function globalSetup() {
     return;
   }
 
-  // Use localhost and port from firebase.json - single source of truth
+  // Use standard Firebase emulator ports (must match firebase.json)
   const firestoreHost = 'localhost';
   const firestorePort = 8081;
 
@@ -59,6 +59,9 @@ async function globalSetup() {
     // Initialize Firebase Admin with emulator
     // Use per-worktree project ID for data isolation
     const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+    // TODO(#1070): Add integration tests to verify GCP_PROJECT_ID isolation works correctly
+    // Tests should verify that different project IDs have isolated Firestore data when
+    // using the same emulator instance.
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId,

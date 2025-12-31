@@ -20,7 +20,19 @@ HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_
 
 if [ -f "$HOSTING_PID_FILE" ]; then
   # Read PID:PGID format from file
-  IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null || true
+  if ! IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null; then
+    echo "WARNING: Failed to read PID file at ${HOSTING_PID_FILE}" >&2
+    pid=""
+    pgid=""
+  fi
+
+  # Validate we got at least some data
+  if [ -z "$pid" ] && [ -z "$pgid" ]; then
+    echo "WARNING: PID file exists but contains no valid data" >&2
+    echo "File contents: $(cat "$HOSTING_PID_FILE" 2>/dev/null || echo 'unreadable')" >&2
+    echo "Attempting port-based cleanup as fallback" >&2
+    rm -f "$HOSTING_PID_FILE"
+  fi
 
   if [ -n "$pgid" ]; then
     # Kill entire process group
@@ -50,9 +62,14 @@ else
 fi
 
 # Also cleanup by port (fallback)
-if lsof -ti :${HOSTING_PORT} >/dev/null 2>&1; then
-  lsof -ti :${HOSTING_PORT} | xargs kill -9
+PIDS=$(lsof -ti :${HOSTING_PORT} 2>/dev/null || true)
+if [ -n "$PIDS" ]; then
+  echo "$PIDS" | xargs kill -9 2>/dev/null || {
+    echo "WARNING: Failed to kill some processes on port ${HOSTING_PORT}" >&2
+  }
   echo "✓ Killed processes on port ${HOSTING_PORT}"
+else
+  echo "ℹ No processes running on port ${HOSTING_PORT}"
 fi
 
 # Clean up temp config file
