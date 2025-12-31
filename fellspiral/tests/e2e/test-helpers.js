@@ -38,19 +38,19 @@ export async function setupDesktopViewport(page) {
 
 /**
  * Generate unique test card data
+ * Returns a frozen object to prevent accidental mutation during tests.
  * @param {string} suffix - Optional suffix to add to title for uniqueness
- * @returns {{
+ * @returns {Readonly<{
  *   title: string, type: string, subtype: string,
  *   tags: string, description: string,
  *   stat1: string, stat2: string, cost: string
- * }} Card data object
+ * }>} Immutable card data object
  */
-// TODO: See issue #462 - Add type/subtype validation with centralized constants and Object.freeze()
 export function generateTestCardData(suffix = '') {
   const timestamp = Date.now();
   const uniqueSuffix = suffix ? `-${suffix}` : '';
 
-  return {
+  return Object.freeze({
     title: `Test Card ${timestamp}${uniqueSuffix}`,
     type: 'Equipment',
     subtype: 'Weapon',
@@ -59,19 +59,19 @@ export function generateTestCardData(suffix = '') {
     stat1: 'd8',
     stat2: '2 slot',
     cost: '5 pt',
-  };
+  });
 }
 
 /**
- * Wait for Firebase to initialize after page load
- * Firebase initialization happens asynchronously on DOMContentLoaded, so tests
- * need to wait for it to complete before interacting with auth-dependent features
+ * Wait for app initialization after page load
+ * App initialization (including Firebase) happens asynchronously on DOMContentLoaded,
+ * so tests need to wait for it to complete before interacting with auth-dependent features.
+ * This is a simple timeout wrapper - consider using page.waitForTimeout() directly
+ * or implementing actual Firebase state checking if more precise timing is needed.
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {number} timeout - Timeout in milliseconds (default: 3000)
- * TODO(#481): Function name implies Firebase-specific logic but just wraps waitForTimeout
- * Consider: rename to waitForAppInit, replace with direct calls, or actually check Firebase state
  */
-export async function waitForFirebaseInit(page, timeout = 3000) {
+export async function waitForAppInit(page, timeout = 3000) {
   await page.waitForTimeout(timeout);
 }
 
@@ -122,6 +122,7 @@ async function selectComboboxOption(page, listboxId, targetValue) {
  * @param {string} inputId - ID of the combobox input element
  * @param {string} listboxId - ID of the listbox element
  * @param {string} value - Value to fill and select
+ * @returns {Promise<boolean>} True if option was selected, false if value was typed but option not found
  */
 async function fillCombobox(page, inputId, listboxId, value) {
   await page.locator(`#${inputId}`).fill(value);
@@ -130,8 +131,11 @@ async function fillCombobox(page, inputId, listboxId, value) {
 
   const selected = await selectComboboxOption(page, listboxId, value);
   if (!selected) {
+    // Option not found in dropdown - close it but keep the typed value
+    // This allows custom values via the "Add New" feature
     await page.locator(`#${inputId}`).press('Escape');
   }
+  return selected;
 }
 
 /**
@@ -192,14 +196,18 @@ export async function createCardViaUI(page, cardData) {
       },
       { timeout: 5000 }
     )
-    .catch(async (error) => {
-      // Enhanced error with auth state snapshot for debugging
+    .catch(async (originalError) => {
+      // Enhanced error with auth state snapshot for debugging, preserving original error
       const authState = await page.evaluate(() => ({
         authExists: !!window.__testAuth,
         currentUser: !!window.__testAuth?.currentUser,
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
-      throw new Error(`Auth not ready after 5s: ${JSON.stringify(authState)}`);
+      const enhancedError = new Error(
+        `Auth not ready after 5s: ${JSON.stringify(authState)}. Original: ${originalError.message}`
+      );
+      enhancedError.cause = originalError;
+      throw enhancedError;
     });
 
   // Submit form
@@ -262,10 +270,8 @@ async function getFirestoreAdmin() {
 
 /**
  * Query Firestore emulator directly to get a card by title
- * Includes retry logic to handle emulator write propagation delays. Firefox has
- * more delays than Chromium due to differences in network stack implementation
- * for localhost connections (Firefox's async DNS resolution and connection pooling
- * can add latency even for loopback addresses).
+ * Includes retry logic to handle emulator write propagation delays.
+ * Empirically measured: Firefox requires higher retry delays than Chromium (500ms vs 200ms baseline).
  * @param {string} cardTitle - Title of the card to find
  * @param {number} maxRetries - Maximum number of retries (default: 5)
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)

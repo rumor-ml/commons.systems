@@ -49,7 +49,13 @@ let isSaving = false;
 
 // HTML escape utility to prevent XSS attacks
 // Uses browser's built-in escaping via textContent property.
-// TODO(#484): Document specific XSS attack vectors this prevents (e.g., <script>, onerror, javascript:)
+//
+// XSS Attack Vectors Prevented:
+//   - Script injection: <script>alert('xss')</script> → escaped, not executed
+//   - Event handler injection: <img onerror="alert('xss')"> → escaped, not executed
+//   - Protocol injection: <a href="javascript:alert('xss')"> → escaped, not clickable
+//   - Entity bypass: &#60;script&#62; → double-escaped if attempted
+//
 // CRITICAL: Use for ALL user-generated content before inserting into DOM:
 //   - Card titles, descriptions, types, subtypes in renderCards()
 //   - Custom type/subtype values from combobox "Add New" feature
@@ -70,13 +76,104 @@ function sanitizeCardType(type) {
   return VALID_CARD_TYPES.includes(type) ? type : '';
 }
 
-// State management
+// ==========================================================================
+// Card Data Type Definitions and Validation
+// ==========================================================================
+
+/**
+ * Card data structure for Firestore storage and local state.
+ * @typedef {Object} CardData
+ * @property {string} [id] - Firestore document ID (set by Firestore on create)
+ * @property {string} title - Card title (required, max 100 chars)
+ * @property {string} type - Card type (required, e.g., 'Equipment', 'Skill')
+ * @property {string} subtype - Card subtype (required, e.g., 'Weapon', 'Magic')
+ * @property {string[]} [tags] - Optional array of tag strings
+ * @property {string} [description] - Optional description (max 500 chars)
+ * @property {string} [stat1] - Optional primary stat value
+ * @property {string} [stat2] - Optional secondary stat value
+ * @property {string} [cost] - Optional cost value
+ * @property {boolean} [isPublic] - Whether card is publicly visible (default: false)
+ * @property {string} [createdBy] - UID of user who created the card
+ * @property {string} [lastModifiedBy] - UID of user who last modified the card
+ */
+
+/**
+ * Validation constraints for card data fields.
+ * Centralized to ensure consistency between client and server validation.
+ */
+const CARD_CONSTRAINTS = {
+  TITLE_MAX_LENGTH: 100,
+  DESCRIPTION_MAX_LENGTH: 500,
+  REQUIRED_FIELDS: ['title', 'type', 'subtype'],
+};
+
+/**
+ * Validate card data structure and return validation errors.
+ * @param {Partial<CardData>} cardData - Card data to validate
+ * @returns {{ valid: boolean, errors: Array<{ field: string, message: string }> }}
+ */
+function validateCardData(cardData) {
+  const errors = [];
+
+  if (!cardData || typeof cardData !== 'object') {
+    return {
+      valid: false,
+      errors: [{ field: 'cardData', message: 'Card data must be an object' }],
+    };
+  }
+
+  // Required field validation
+  if (!cardData.title || typeof cardData.title !== 'string' || !cardData.title.trim()) {
+    errors.push({ field: 'title', message: 'Title is required' });
+  } else if (cardData.title.length > CARD_CONSTRAINTS.TITLE_MAX_LENGTH) {
+    errors.push({
+      field: 'title',
+      message: `Title must be ${CARD_CONSTRAINTS.TITLE_MAX_LENGTH} characters or less`,
+    });
+  }
+
+  if (!cardData.type || typeof cardData.type !== 'string' || !cardData.type.trim()) {
+    errors.push({ field: 'type', message: 'Type is required' });
+  }
+
+  if (!cardData.subtype || typeof cardData.subtype !== 'string' || !cardData.subtype.trim()) {
+    errors.push({ field: 'subtype', message: 'Subtype is required' });
+  }
+
+  // Optional field validation
+  if (
+    cardData.description &&
+    cardData.description.length > CARD_CONSTRAINTS.DESCRIPTION_MAX_LENGTH
+  ) {
+    errors.push({
+      field: 'description',
+      message: `Description must be ${CARD_CONSTRAINTS.DESCRIPTION_MAX_LENGTH} characters or less`,
+    });
+  }
+
+  if (cardData.tags !== undefined && !Array.isArray(cardData.tags)) {
+    errors.push({ field: 'tags', message: 'Tags must be an array' });
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// ==========================================================================
+// State Management with Validation
+// ==========================================================================
+
+/**
+ * Valid view modes for card display.
+ * @type {readonly ['grid', 'list']}
+ */
+const VALID_VIEW_MODES = /** @type {const} */ (['grid', 'list']);
+
 /**
  * Global application state (singleton pattern)
- * @property {Array} cards - All cards loaded from Firestore
- * @property {Array} filteredCards - Cards matching current filters
+ * @property {CardData[]} cards - All cards loaded from Firestore
+ * @property {CardData[]} filteredCards - Cards matching current filters
  * @property {Object|null} selectedNode - Currently selected tree node
- * @property {string} viewMode - Current view mode: 'grid' or 'list'
+ * @property {'grid'|'list'} viewMode - Current view mode
  * @property {Object} filters - Current filter state (type, subtype, search)
  * @property {boolean} loading - Whether data is currently being loaded
  * @property {string|null} error - Current error message, if any
@@ -112,6 +209,36 @@ const state = {
   authListenerRetries: 0, // Counter for auth listener setup retry attempts
   authListenerMaxRetries: 10, // Max retry attempts before giving up (10 retries = 5 seconds)
 };
+
+/**
+ * Update state.viewMode with validation.
+ * @param {'grid'|'list'} mode - New view mode
+ * @returns {boolean} Whether the update was valid
+ */
+function updateViewMode(mode) {
+  if (!VALID_VIEW_MODES.includes(mode)) {
+    console.warn(
+      `[Cards] Invalid view mode: ${mode}. Must be one of: ${VALID_VIEW_MODES.join(', ')}`
+    );
+    return false;
+  }
+  state.viewMode = mode;
+  return true;
+}
+
+/**
+ * Update state.cards with validation.
+ * @param {CardData[]} cards - New cards array
+ * @returns {boolean} Whether the update was valid
+ */
+function updateCards(cards) {
+  if (!Array.isArray(cards)) {
+    console.error('[Cards] Invalid cards update: must be an array');
+    return false;
+  }
+  state.cards = cards;
+  return true;
+}
 
 // Reset state for fresh initialization
 function resetState() {
@@ -259,8 +386,9 @@ function createCombobox(config) {
       errorLi.textContent = 'Unable to load options. Please refresh the page.';
       listbox.appendChild(errorLi);
 
-      // Re-throw to propagate error to callers
-      throw error;
+      // Don't re-throw - UI error is shown, form should remain usable
+      // Caller can check listbox.classList.contains('combobox-error') if needed
+      return;
     }
 
     // Render options - separate try-catch for DOM errors with clearer context
@@ -316,8 +444,8 @@ function createCombobox(config) {
       errorLi.style.cssText = 'font-style: italic; color: var(--color-error);';
       listbox.appendChild(errorLi);
 
-      // Re-throw to propagate error to callers
-      throw error;
+      // Don't re-throw - UI error is shown, form should remain usable
+      return;
     }
   }
 
@@ -336,13 +464,11 @@ function createCombobox(config) {
           stack: error.stack,
         });
 
-        // Show user-facing error before propagating
+        // Show user-facing error - don't re-throw as combobox should remain usable
         showFormError(
           `Failed to update form after selecting "${value}". Please try again or refresh the page.`
         );
-
-        // Re-throw to propagate error to callers
-        throw error;
+        // Return without re-throwing - error is logged and user is notified
       }
     }
   }
@@ -451,15 +577,13 @@ function destroyCombobox(combobox, name) {
       return null;
     }
 
-    // Critical: unexpected error during destroy - show error UI and throw
-    // Note: showErrorUI is called BEFORE throw to ensure user sees the error
-    // Throwing after UI update allows caller to handle the error if needed
+    // Critical: unexpected error during destroy - show error UI but don't throw
+    // Throwing would prevent further cleanup operations from running
     console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
-    const errorObj = new Error(`Combobox cleanup failed: ${error.message}`);
     showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
       window.location.reload()
     );
-    throw errorObj;
+    // Return null to allow caller to continue cleanup (e.g., destroy other comboboxes)
   }
   return null;
 }
@@ -882,11 +1006,13 @@ function setupEventListeners() {
       listenersAttached: state.listenersAttached,
     });
 
-    // TODO(#305): Show blocking error UI instead of continuing in broken state
-    // Create enriched error with original error preserved
-    const enrichedError = new Error(`Event listener setup failed: ${error.message}`);
-    enrichedError.originalError = error;
-    throw enrichedError;
+    // Show blocking error UI - don't throw as it would halt app initialization
+    // User can retry via the refresh button
+    showErrorUI('Failed to initialize card controls. Please refresh the page.', () =>
+      window.location.reload()
+    );
+    // Mark as not attached so retry can attempt again
+    state.listenersAttached = false;
   }
 }
 
@@ -959,19 +1085,24 @@ function setupMobileMenu() {
 // Setup auth state listener to show/hide auth-controls
 // TODO(#480): Add E2E test coverage for auth listener retry logic (lines 889-950)
 // Test scenarios: SDK not ready on first attempt, max retries exceeded, recovery after transient failure
-// TODO(#285): Replace string matching with error codes for auth retry logic
+//
+// Auth Initialization Retry Logic:
+// Firebase Auth SDK initialization is asynchronous. When this function runs before
+// the SDK is ready, onAuthStateChanged throws an error. We detect this via:
+//   1. error.code === 'auth-not-initialized' (preferred, if Firebase provides it)
+//   2. error.name === 'AuthNotInitializedError' (custom error name)
+//   3. error.message containing 'before auth initialized' (fallback string match)
+// TODO(#483): Consolidate to error codes once Firebase provides consistent error.code
+//
+// On detection, we retry after AUTH_RETRY_MS (500ms) up to authListenerMaxRetries (10)
+// times, totaling 5 seconds max wait. This handles cold starts and slow networks.
 function setupAuthStateListener() {
   try {
     // Reset retry counter on successful setup
     state.authListenerRetries = 0;
 
     // Register listener for auth state changes
-    // NOTE: Firebase Auth initialization is asynchronous. If this code runs before
-    // the Firebase Auth SDK is ready, onAuthStateChanged will be undefined, causing
-    // "before auth initialized" errors. The retry logic below handles Firebase SDK
-    // async initialization by retrying every 500ms until the auth instance is ready
-    // (up to 10 retries = 5 seconds). Once available, Firebase SDK guarantees
-    // immediate callback invocation with current auth state.
+    // Once Firebase SDK is ready, it guarantees immediate callback with current state.
     if (state.authUnsubscribe) {
       state.authUnsubscribe();
     }
@@ -1008,7 +1139,9 @@ function setupAuthStateListener() {
         showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
           window.location.reload()
         );
-        throw error;
+        // Don't throw - error UI is shown, app can continue in degraded mode
+        // User will need to refresh to get auth-gated features
+        return;
       }
       setTimeout(setupAuthStateListener, TIMEOUTS.AUTH_RETRY_MS);
       return;
@@ -1018,7 +1151,7 @@ function setupAuthStateListener() {
     showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
       window.location.reload()
     );
-    throw error;
+    // Don't throw - error UI is shown, app continues in degraded mode
   }
 }
 
@@ -1071,7 +1204,9 @@ function capitalizeFirstLetter(str) {
 
 // Set view mode
 function setViewMode(mode) {
-  state.viewMode = mode;
+  if (!updateViewMode(mode)) {
+    return; // Invalid mode, warning already logged by updateViewMode
+  }
 
   document.querySelectorAll('.view-mode-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
@@ -1557,8 +1692,11 @@ async function handleCardSave(e) {
       stack: error.stack,
       cardId: id || newCardId,
     });
-    // Continue to UI updates - don't show user error for state corruption
-    // They can refresh to recover
+    // State corruption is recoverable via refresh - show warning but continue
+    // Card is saved in Firestore, so data is safe
+    showWarningBanner(
+      'Card saved but local display may be outdated. Refresh the page to see all changes.'
+    );
   }
 
   try {

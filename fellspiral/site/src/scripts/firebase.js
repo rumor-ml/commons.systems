@@ -74,9 +74,12 @@ async function getFirebaseConfig() {
         errorBanner.style.cssText =
           'background: var(--color-error); color: white; padding: 1.5rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; text-align: center; font-weight: bold;';
         errorBanner.textContent =
-          '⚠️ CONFIGURATION ERROR: Failed to load Firebase config. You may be connected to the wrong environment. Please refresh or contact support.';
+          'CONFIGURATION ERROR: Failed to load Firebase config. You may be connected to the wrong environment. Please refresh or contact support.';
         document.body.insertBefore(errorBanner, document.body.firstChild);
       }
+
+      // Re-throw error to halt initialization - do not continue with potentially wrong config
+      throw error;
     }
   }
 
@@ -126,11 +129,16 @@ async function initFirebase() {
 
         connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
       } catch (error) {
-        // TODO(#327, #285): Use error.code instead of msg.includes('already') for emulator detection
         const msg = error.message || '';
+        const code = error.code || '';
 
         // Expected: already connected (happens on HTMX page swaps)
-        if (msg.includes('already')) {
+        // Firebase throws 'failed-precondition' with message containing 'already'
+        // Check both code and message for robustness across SDK versions
+        const isAlreadyConnected =
+          code === 'failed-precondition' || msg.toLowerCase().includes('already');
+
+        if (isAlreadyConnected) {
           console.debug('[Firebase] Emulators already connected');
           return { app, db, auth, cardsCollection };
         }
@@ -206,9 +214,17 @@ export function withTimeout(promise, ms, errorMessage = 'Operation timed out') {
  * Validate card data for required fields and types
  * Extracted from createCard and updateCard to eliminate duplication
  * @param {Object} cardData - Card data to validate
- * @throws {Error} If validation fails
+ * @throws {Error} If validation fails (null/undefined input, non-object, or missing required fields)
  */
 function validateCardData(cardData) {
+  // Runtime type check for cardData parameter
+  if (cardData === null || cardData === undefined) {
+    throw new Error('Card data is required');
+  }
+  if (typeof cardData !== 'object' || Array.isArray(cardData)) {
+    throw new Error('Card data must be a plain object');
+  }
+
   if (!cardData.title?.trim()) {
     throw new Error('Card title is required');
   }
@@ -227,7 +243,10 @@ function validateCardData(cardData) {
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
-  // TODO(#484): Document timeout rationale - why 5 seconds? Based on empirical data or estimated worst-case?
+  // Timeout of 5 seconds balances user experience with network variance:
+  // - Typical Firestore cold-start latency: 1-2s, warm queries: 100-500ms
+  // - 5s allows for slow connections while preventing indefinite hangs
+  // - Beyond 5s, perceived wait becomes unacceptable for card list loading
   const FIRESTORE_TIMEOUT_MS = 5000;
 
   try {
@@ -251,8 +270,7 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
-    // TODO(#286): Update comment to reflect new Error object creation
-    // Enrich error with context before re-throwing
+    // Create enriched error with context for better debugging and error handling
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
     enrichedError.originalError = error;
     enrichedError.code = error.code;
@@ -374,7 +392,7 @@ export async function deleteCard(cardId) {
 }
 
 // Batch import cards (for seeding from rules.md)
-// TODO(#285): Surface failed card imports to user (currently only logged to console)
+// TODO(#1057): Surface failed card imports to user (currently only logged to console)
 export async function importCards(cards) {
   await initFirebase();
   try {

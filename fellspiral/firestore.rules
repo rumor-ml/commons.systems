@@ -41,9 +41,12 @@ service cloud.firestore {
       // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
       // Root cause: serverTimestamp() is a sentinel that resolves AFTER rule evaluation completes,
       // so rules cannot compare createdAt == request.time at document creation time.
-      // Impact: Clients could backdate or future-date document creation times.
-      // Mitigation: Client code (firebase.js createCard()) uses serverTimestamp(), but this is
-      // convention, not enforcement. UPDATE operations CAN validate lastModifiedAt == request.time.
+      // Impact: Clients could backdate or future-date document creation times. For this app,
+      // timestamp accuracy is cosmetic (display only) - not security-critical. No authorization
+      // decisions depend on createdAt values.
+      // Mitigation: (1) Client code (firebase.js createCard()) uses serverTimestamp() by convention.
+      // (2) UPDATE operations enforce lastModifiedAt == request.time for audit trail integrity.
+      // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
       // TODO(#283): Add E2E test attempting to forge createdAt timestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
@@ -62,11 +65,12 @@ service cloud.firestore {
                         || request.resource.data.description.size() <= 500);
 
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
-      // SECURITY IMPACT: ANY authenticated user can edit ANY card by setting lastModifiedBy to their UID.
-      // This collaborative editing design allows vandalism of public cards by malicious users.
-      // Tradeoff: Enables wiki-style collaboration (audit trail via lastModifiedBy) but sacrifices
-      // ownership protection. If vandalism becomes an issue, consider role-based permissions or
-      // restricting updates to createdBy only.
+      // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
+      // SECURITY TRADEOFF: This allows vandalism of public cards by malicious users in exchange for
+      // frictionless collaboration (no permission requests, no ownership gatekeeping).
+      // AUDIT: lastModifiedBy field tracks who made each change, enabling rollback if needed.
+      // FUTURE: If vandalism becomes problematic, migrate to role-based permissions (editor invites)
+      // or restrict updates to createdBy only. See issue tracking for adoption metrics before changing.
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))

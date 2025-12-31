@@ -43,8 +43,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Wait for Firestore write to propagate (emulator can have delays, especially in Firefox)
-    // TODO(#286): Document empirical browser latency findings
-    // TODO(#474): Document empirical browser latency findings
+    // TODO(#286, #474): Document empirical browser latency findings
     await page.waitForTimeout(2000);
 
     // Verify in Firestore
@@ -4489,6 +4488,249 @@ test.describe('Add Card - isSaving Flag Tests', () => {
 
     // Verify modal is still open (user can retry)
     await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+  });
+});
+
+test.describe('Add Card - Security Rules Extended Tests', () => {
+  test.skip(!isEmulatorMode, 'Security tests only run against emulator');
+
+  test('should prevent non-owner from deleting card', async ({ page, authEmulator }) => {
+    // User1 creates a card
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const user1Email = `user1-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(user1Email);
+    await authEmulator.signInTestUser(user1Email);
+
+    const cardData = generateTestCardData('owner-only-delete');
+    await createCardViaUI(page, cardData);
+
+    await page.waitForTimeout(2000);
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard).toBeTruthy();
+
+    // Sign out user1, sign in user2
+    await page.evaluate(() => window.__signOut());
+    await page.waitForTimeout(1000);
+
+    const user2Email = `user2-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(user2Email);
+    await authEmulator.signInTestUser(user2Email);
+
+    // User2 attempts to delete user1's card via direct Firestore API
+    let deleteErrorOccurred = false;
+    try {
+      await page.evaluate(
+        async ({ cardId }) => {
+          const { db } = await import('/src/scripts/firebase.js');
+          const { doc, deleteDoc } = await import('firebase/firestore');
+          const cardRef = doc(db, 'cards', cardId);
+          await deleteDoc(cardRef);
+        },
+        { cardId: firestoreCard.id }
+      );
+    } catch (error) {
+      deleteErrorOccurred = true;
+      // Expected: permission-denied error
+      console.log('Expected delete rejection:', error.message);
+    }
+
+    expect(deleteErrorOccurred).toBe(true);
+
+    // Verify card still exists
+    const cardAfterAttempt = await getCardFromFirestore(cardData.title);
+    expect(cardAfterAttempt).toBeTruthy();
+  });
+
+  test('should allow collaborative edit with valid lastModifiedBy', async ({
+    page,
+    authEmulator,
+  }) => {
+    // User1 creates a card
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const user1Email = `user1-${Date.now()}@example.com`;
+    const user1 = await authEmulator.createTestUser(user1Email);
+    await authEmulator.signInTestUser(user1Email);
+
+    const cardData = generateTestCardData('collab-edit');
+    await createCardViaUI(page, cardData);
+
+    await page.waitForTimeout(2000);
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard).toBeTruthy();
+    expect(firestoreCard.createdBy).toBe(user1.uid);
+
+    // Sign out user1, sign in user2
+    await page.evaluate(() => window.__signOut());
+    await page.waitForTimeout(1000);
+
+    const user2Email = `user2-${Date.now()}@example.com`;
+    const user2 = await authEmulator.createTestUser(user2Email);
+    await authEmulator.signInTestUser(user2Email);
+
+    // User2 updates the card with lastModifiedBy set to their own UID
+    let updateSucceeded = false;
+    try {
+      await page.evaluate(
+        async ({ cardId, user2Uid }) => {
+          const { db } = await import('/src/scripts/firebase.js');
+          const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+          const cardRef = doc(db, 'cards', cardId);
+          await updateDoc(cardRef, {
+            description: 'Updated by user2',
+            lastModifiedBy: user2Uid,
+            lastModifiedAt: serverTimestamp(),
+          });
+        },
+        { cardId: firestoreCard.id, user2Uid: user2.uid }
+      );
+      updateSucceeded = true;
+    } catch (error) {
+      console.log('Collaborative update failed:', error.message);
+    }
+
+    expect(updateSucceeded).toBe(true);
+
+    // Verify lastModifiedBy is user2's UID
+    const updatedCard = await getCardFromFirestore(cardData.title);
+    expect(updatedCard.lastModifiedBy).toBe(user2.uid);
+  });
+
+  test('should reject collaborative edit with forged lastModifiedBy', async ({
+    page,
+    authEmulator,
+  }) => {
+    // User1 creates a card
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const user1Email = `user1-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(user1Email);
+    await authEmulator.signInTestUser(user1Email);
+
+    const cardData = generateTestCardData('forged-modifier');
+    await createCardViaUI(page, cardData);
+
+    await page.waitForTimeout(2000);
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard).toBeTruthy();
+
+    // Sign out user1, sign in user2
+    await page.evaluate(() => window.__signOut());
+    await page.waitForTimeout(1000);
+
+    const user2Email = `user2-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(user2Email);
+    await authEmulator.signInTestUser(user2Email);
+
+    // Create a user3 to impersonate
+    const user3Email = `user3-${Date.now()}@example.com`;
+    const user3 = await authEmulator.createTestUser(user3Email);
+
+    // User2 attempts to update with lastModifiedBy forged to user3's UID
+    let forgeAttemptFailed = false;
+    try {
+      await page.evaluate(
+        async ({ cardId, forgedUid }) => {
+          const { db } = await import('/src/scripts/firebase.js');
+          const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+          const cardRef = doc(db, 'cards', cardId);
+          await updateDoc(cardRef, {
+            description: 'Updated with forged identity',
+            lastModifiedBy: forgedUid, // Forged to user3's UID
+            lastModifiedAt: serverTimestamp(),
+          });
+        },
+        { cardId: firestoreCard.id, forgedUid: user3.uid }
+      );
+    } catch (error) {
+      forgeAttemptFailed = true;
+      console.log('Expected forged update rejection:', error.message);
+    }
+
+    // Security rules should reject the forged lastModifiedBy
+    expect(forgeAttemptFailed).toBe(true);
+  });
+
+  test('should set isPublic: true by default on card creation', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    const cardData = generateTestCardData('ispublic-default');
+    await createCardViaUI(page, cardData);
+
+    await page.waitForTimeout(2000);
+
+    // Verify isPublic is true in Firestore
+    const firestoreCard = await getCardFromFirestore(cardData.title);
+    expect(firestoreCard).toBeTruthy();
+    expect(firestoreCard.isPublic).toBe(true);
+
+    // Verify card is visible in UI (read rule allows it)
+    const cardVisible = await page
+      .locator('.card-item-title')
+      .filter({ hasText: cardData.title })
+      .isVisible();
+    expect(cardVisible).toBe(true);
+  });
+});
+
+test.describe('Add Card - Collection Pattern Tests', () => {
+  test.skip(!isEmulatorMode, 'Collection pattern tests only run against emulator');
+
+  test('should query cards using composite index (isPublic + title)', async ({
+    page,
+    authEmulator,
+  }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Create multiple cards with different titles
+    const cardA = generateTestCardData('composite-A');
+    const cardB = generateTestCardData('composite-B');
+
+    await createCardViaUI(page, cardA);
+    await page.waitForTimeout(1000);
+    // Need to spread since generateTestCardData now returns frozen object
+    await createCardViaUI(page, { ...cardB, title: `Test Card ${Date.now()}-composite-B` });
+
+    await page.waitForTimeout(2000);
+
+    // Query using the composite index pattern (isPublic + title sort)
+    const querySucceeded = await page.evaluate(async () => {
+      try {
+        const { db } = await import('/src/scripts/firebase.js');
+        const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
+        const cardsCollection = collection(db, 'cards');
+
+        // This query requires the composite index: isPublic (ASC) + title (ASC)
+        const q = query(cardsCollection, where('isPublic', '==', true), orderBy('title', 'asc'));
+        const snapshot = await getDocs(q);
+        return { success: true, count: snapshot.size };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    });
+
+    // If composite index is missing, query will fail with "index not found" error
+    expect(querySucceeded.success).toBe(true);
+    expect(querySucceeded.count).toBeGreaterThanOrEqual(2);
   });
 });
 

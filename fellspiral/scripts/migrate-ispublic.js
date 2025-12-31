@@ -30,155 +30,221 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const args = process.argv.slice(2);
-const dryRun = args.includes('--dry-run');
-
-// Initialize Firebase Admin
-let app;
-try {
-  // Try to use existing app or initialize from service account
-  app = admin.app();
-} catch (error) {
-  // Initialize new app
-  const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-
-  if (serviceAccountPath) {
-    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
-    app = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-  } else {
-    console.error('ERROR: GOOGLE_APPLICATION_CREDENTIALS environment variable not set');
-    console.error('Please set it to point to your Firebase service account JSON file');
-    process.exit(1);
-  }
-}
-
-const db = admin.firestore();
+/** Firestore batch size limit */
+export const BATCH_SIZE = 500;
 
 /**
- * Migrate cards collection to add isPublic field
+ * Identify cards that need migration (missing isPublic field)
+ * @param {Object[]} cards - Array of card documents with id and data() method
+ * @returns {{ cardsNeedingUpdate: Object[], cardsAlreadyHaveField: string[] }}
  */
-async function migrateCards() {
-  console.log('Starting isPublic field migration...');
-  console.log(
-    dryRun ? 'MODE: DRY RUN (no changes will be made)\n' : 'MODE: LIVE (changes will be applied)\n'
-  );
+export function identifyCardsNeedingMigration(cards) {
+  const cardsNeedingUpdate = [];
+  const cardsAlreadyHaveField = [];
 
-  const cardsRef = db.collection('cards');
+  cards.forEach((doc) => {
+    const data = typeof doc.data === 'function' ? doc.data() : doc;
+    const id = doc.id;
 
+    if (data.isPublic === undefined) {
+      cardsNeedingUpdate.push({
+        id,
+        title: data.title || '(untitled)',
+        createdBy: data.createdBy || '(unknown)',
+      });
+    } else {
+      cardsAlreadyHaveField.push(id);
+    }
+  });
+
+  return { cardsNeedingUpdate, cardsAlreadyHaveField };
+}
+
+/**
+ * Split cards into batches for Firestore batch writes
+ * @param {Object[]} cards - Array of card objects to batch
+ * @param {number} batchSize - Maximum batch size (default: BATCH_SIZE)
+ * @returns {Object[][]} - Array of card arrays, each at most batchSize length
+ */
+export function splitIntoBatches(cards, batchSize = BATCH_SIZE) {
+  const batches = [];
+  for (let i = 0; i < cards.length; i += batchSize) {
+    batches.push(cards.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+/**
+ * Execute batch migration with fail-fast error handling
+ * @param {Object} db - Firestore database instance
+ * @param {Object} cardsRef - Firestore collection reference
+ * @param {Object[]} cardsNeedingUpdate - Cards to update
+ * @param {Object} options - Migration options
+ * @param {boolean} options.dryRun - If true, don't actually write to database
+ * @param {Function} options.getServerTimestamp - Function returning server timestamp
+ * @returns {Promise<{ success: boolean, updatedCount: number, error?: Error, failedBatchNum?: number }>}
+ */
+export async function executeBatchMigration(db, cardsRef, cardsNeedingUpdate, options = {}) {
+  const {
+    dryRun = false,
+    getServerTimestamp = () => admin.firestore.FieldValue.serverTimestamp(),
+  } = options;
+
+  if (dryRun) {
+    return { success: true, updatedCount: 0, dryRun: true };
+  }
+
+  const batches = splitIntoBatches(cardsNeedingUpdate);
+  let updatedCount = 0;
+
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batchCards = batches[batchIndex];
+    const batchNum = batchIndex + 1;
+    const batch = db.batch();
+
+    batchCards.forEach((card) => {
+      const docRef = cardsRef.doc(card.id);
+      batch.update(docRef, {
+        isPublic: true,
+        _migratedIsPublic: getServerTimestamp(),
+      });
+    });
+
+    try {
+      await batch.commit();
+      updatedCount += batchCards.length;
+    } catch (error) {
+      return {
+        success: false,
+        updatedCount,
+        error,
+        failedBatchNum: batchNum,
+        failedCardIds: batchCards.map((c) => c.id),
+      };
+    }
+  }
+
+  return { success: true, updatedCount };
+}
+
+// Only run main script logic when executed directly (not imported for testing)
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+
+if (isMainModule) {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+
+  // Initialize Firebase Admin
+  let app;
   try {
-    // DEPLOYMENT SEQUENCE (CRITICAL - follow this order to prevent data access issues):
-    // 1. Deploy NEW security rules (require isPublic field)
-    // 2. Run THIS migration script to backfill isPublic on existing cards
-    // 3. Verify migration completed successfully (all cards now have isPublic field)
-    // If migration fails mid-way, DO NOT deploy security rules until ALL cards are migrated
-    // Get all cards (no query filter - we need to check all cards)
-    const snapshot = await cardsRef.get();
+    // Try to use existing app or initialize from service account
+    app = admin.app();
+  } catch (error) {
+    // Initialize new app
+    const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-    console.log(`Found ${snapshot.size} total cards in collection`);
+    if (serviceAccountPath) {
+      const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
+      app = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+    } else {
+      console.error('ERROR: GOOGLE_APPLICATION_CREDENTIALS environment variable not set');
+      console.error('Please set it to point to your Firebase service account JSON file');
+      process.exit(1);
+    }
+  }
 
-    const cardsNeedingUpdate = [];
-    const cardsAlreadyHaveField = [];
+  const db = admin.firestore();
 
-    // Identify cards needing migration
-    snapshot.forEach((doc) => {
-      const data = doc.data();
+  /**
+   * Migrate cards collection to add isPublic field
+   */
+  async function migrateCards() {
+    console.log('Starting isPublic field migration...');
+    console.log(
+      dryRun
+        ? 'MODE: DRY RUN (no changes will be made)\n'
+        : 'MODE: LIVE (changes will be applied)\n'
+    );
 
-      if (data.isPublic === undefined) {
-        cardsNeedingUpdate.push({
-          id: doc.id,
-          title: data.title || '(untitled)',
-          createdBy: data.createdBy || '(unknown)',
-        });
-      } else {
-        cardsAlreadyHaveField.push(doc.id);
+    const cardsRef = db.collection('cards');
+
+    try {
+      // DEPLOYMENT SEQUENCE (CRITICAL - follow this order to prevent data access issues):
+      // 1. Run THIS migration script to backfill isPublic on existing cards
+      // 2. Verify migration completed successfully (all cards now have isPublic field)
+      // 3. Deploy NEW security rules (require isPublic field)
+      // If migration fails mid-way, DO NOT deploy security rules until ALL cards are migrated
+      // Get all cards (no query filter - we need to check all cards)
+      const snapshot = await cardsRef.get();
+
+      console.log(`Found ${snapshot.size} total cards in collection`);
+
+      // Use exported function for card identification
+      const cards = [];
+      snapshot.forEach((doc) => cards.push(doc));
+      const { cardsNeedingUpdate, cardsAlreadyHaveField } = identifyCardsNeedingMigration(cards);
+
+      console.log(`\nCards already with isPublic field: ${cardsAlreadyHaveField.length}`);
+      console.log(`Cards needing migration: ${cardsNeedingUpdate.length}\n`);
+
+      if (cardsNeedingUpdate.length === 0) {
+        console.log('No cards need migration. All cards already have isPublic field.');
+        return;
       }
-    });
 
-    console.log(`\nCards already with isPublic field: ${cardsAlreadyHaveField.length}`);
-    console.log(`Cards needing migration: ${cardsNeedingUpdate.length}\n`);
+      // Show cards that will be updated
+      console.log('Cards to update:');
+      cardsNeedingUpdate.forEach((card, index) => {
+        console.log(`  ${index + 1}. ${card.id} - "${card.title}" (created by: ${card.createdBy})`);
+      });
+      console.log('');
 
-    if (cardsNeedingUpdate.length === 0) {
-      console.log('✅ No cards need migration. All cards already have isPublic field.');
-      return;
-    }
+      if (dryRun) {
+        console.log('DRY RUN: No changes made. Run without --dry-run to apply changes.');
+        return;
+      }
 
-    // Show cards that will be updated
-    console.log('Cards to update:');
-    cardsNeedingUpdate.forEach((card, index) => {
-      console.log(`  ${index + 1}. ${card.id} - "${card.title}" (created by: ${card.createdBy})`);
-    });
-    console.log('');
-
-    if (dryRun) {
-      console.log('DRY RUN: No changes made. Run without --dry-run to apply changes.');
-      return;
-    }
-
-    // Perform migration using batch updates
-    // Firestore enforces max 500 operations per batch commit
-    // See: https://firebase.google.com/docs/firestore/manage-data/transactions#batched-writes
-    const batchSize = 500;
-    let updatedCount = 0;
-    // Note: Script uses fail-fast approach - exits immediately on first error
-    // so error accumulation variables are not needed
-
-    for (let i = 0; i < cardsNeedingUpdate.length; i += batchSize) {
-      const batch = db.batch();
-      const batchCards = cardsNeedingUpdate.slice(i, i + batchSize);
-
-      batchCards.forEach((card) => {
-        const docRef = cardsRef.doc(card.id);
-        batch.update(docRef, {
-          isPublic: true,
-          // Audit trail for debugging and rollback:
-          // - Query migrated cards: db.collection('cards').where('_migratedIsPublic', '!=', null)
-          // - Count migrations: aggregation query on _migratedIsPublic field
-          // - Rollback if needed: identify cards by _migratedIsPublic timestamp, remove isPublic field
-          // - Debug migration issues: compare createdAt vs _migratedIsPublic to find edge cases
-          _migratedIsPublic: admin.firestore.FieldValue.serverTimestamp(),
-        });
+      // Use exported function for batch migration
+      const result = await executeBatchMigration(db, cardsRef, cardsNeedingUpdate, {
+        dryRun,
+        getServerTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      const batchNum = Math.floor(i / batchSize) + 1;
-      try {
-        await batch.commit();
-        updatedCount += batchCards.length;
-        console.log(`✅ Batch ${batchNum}: ${batchCards.length} cards updated`);
-      } catch (error) {
+      if (!result.success) {
         // Stop immediately on first batch failure to prevent inconsistent database state
-        console.error(`\n❌ CRITICAL: Batch ${batchNum} FAILED - Migration stopped immediately!`, {
-          error: error?.message || String(error),
-          code: error?.code || 'UNKNOWN',
-          cardIds: batchCards.map((c) => c.id),
-        });
-        console.error('\n⚠️  DATABASE STATE IS INCONSISTENT:');
-        console.error(`  Successfully updated: ${updatedCount} cards (batches 1-${batchNum - 1})`);
-        console.error(`  Failed batch: ${batchCards.length} cards (batch ${batchNum})`);
         console.error(
-          `  Not processed: ${cardsNeedingUpdate.length - i - batchCards.length} cards (remaining batches)`
+          `\nCRITICAL: Batch ${result.failedBatchNum} FAILED - Migration stopped immediately!`,
+          {
+            error: result.error?.message || String(result.error),
+            code: result.error?.code || 'UNKNOWN',
+            cardIds: result.failedCardIds,
+          }
         );
-        console.error('\n⚠️  DO NOT DEPLOY security rules until ALL batches succeed!');
+        console.error('\nDATABASE STATE IS INCONSISTENT:');
+        console.error(`  Successfully updated: ${result.updatedCount} cards`);
+        console.error(`  Failed batch: batch ${result.failedBatchNum}`);
+        console.error('\nDO NOT DEPLOY security rules until ALL batches succeed!');
         console.error('  Fix the error and re-run this script.');
         process.exit(1);
       }
+
+      console.log(`\nMigration complete! All ${result.updatedCount} cards updated successfully.`);
+    } catch (error) {
+      console.error('Migration failed:', error);
+      process.exit(1);
     }
-
-    console.log(`\n✅ Migration complete! All ${updatedCount} cards updated successfully.`);
-  } catch (error) {
-    console.error('Migration failed:', error);
-    process.exit(1);
   }
-}
 
-// Run migration
-migrateCards()
-  .then(() => {
-    console.log('\nMigration script finished');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Unexpected error:', error);
-    process.exit(1);
-  });
+  // Run migration
+  migrateCards()
+    .then(() => {
+      console.log('\nMigration script finished');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('Unexpected error:', error);
+      process.exit(1);
+    });
+}
