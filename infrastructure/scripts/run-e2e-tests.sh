@@ -34,7 +34,15 @@ APP_NAME=$(basename "$APP_PATH_ABS")
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
 # Allocate ports based on worktree
-source "$SCRIPT_DIR/allocate-test-ports.sh"
+source "$SCRIPT_DIR/allocate-test-ports.sh" || {
+  echo "FATAL: Port allocation failed" >&2
+  echo "This could be due to:" >&2
+  echo "  - Missing allocate-test-ports.sh file" >&2
+  echo "  - Port allocation failure (all ports in use)" >&2
+  echo "  - Invalid port configuration" >&2
+  echo "Check allocate-test-ports.sh output above for details" >&2
+  exit 1
+}
 
 # Validate all critical variables are set by allocate-test-ports.sh
 MISSING_VARS=""

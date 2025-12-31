@@ -106,7 +106,7 @@ is_port_available() {
 #   $3 (port_step): Step between port attempts (default: 10)
 # Returns:
 #   Outputs available port to stdout, returns 0 on success, 1 on failure
-# TODO(#1071): Port utility functions return 1 but caller may not check exit codes
+# Note: Callers MUST check exit code - see allocate-test-ports.sh for example
 find_available_port() {
   local base_port=$1
   local max_attempts=${2:-10}
@@ -190,10 +190,16 @@ parse_pid_file() {
 
   # Try to read PID:PGID format
   if IFS=':' read -r pid pgid < "$pid_file_path" 2>/dev/null; then
-    # Validate we got at least a PID
-    if [ -n "$pid" ]; then
+    # Validate we got at least a PID and that it's numeric
+    if [ -n "$pid" ] && [[ "$pid" =~ ^[0-9]+$ ]]; then
       PARSED_PID="$pid"
-      PARSED_PGID="$pgid"  # May be empty if only PID was stored
+      # Validate PGID is numeric if present
+      if [ -n "$pgid" ] && ! [[ "$pgid" =~ ^[0-9]+$ ]]; then
+        # Invalid PGID - clear it but still accept the valid PID
+        PARSED_PGID=""
+      else
+        PARSED_PGID="$pgid"  # May be empty if only PID was stored
+      fi
       return 0
     fi
   fi

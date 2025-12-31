@@ -68,6 +68,35 @@ async function getFirebaseConfig() {
 }
 
 /**
+ * Retry an async operation with exponential backoff
+ * @param {Function} operation - Async function to retry
+ * @param {number} maxAttempts - Maximum number of attempts
+ * @param {number} initialDelay - Initial delay in milliseconds
+ * @returns {Promise} Result of the operation
+ */
+async function retryWithBackoff(operation, maxAttempts = 3, initialDelay = 100) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      const delay = initialDelay * Math.pow(2, attempt - 1);
+      console.debug(`[Firebase] Retry attempt ${attempt}/${maxAttempts} after ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Initialize Firebase app and services
  * This is called lazily on first use to allow async config loading
  */
@@ -108,8 +137,14 @@ async function initFirebase() {
       const authPort = FIREBASE_PORTS.auth;
 
       try {
-        connectFirestoreEmulator(db, firestoreHost, firestorePort);
-        connectAuthEmulator(auth, `http://${authHost}:${authPort}`, { disableWarnings: true });
+        await retryWithBackoff(
+          async () => {
+            connectFirestoreEmulator(db, firestoreHost, firestorePort);
+            connectAuthEmulator(auth, `http://${authHost}:${authPort}`, { disableWarnings: true });
+          },
+          3,
+          100
+        );
       } catch (error) {
         // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
         const msg = error.message || '';
@@ -120,11 +155,9 @@ async function initFirebase() {
           return { app, db, auth, cardsCollection };
         }
 
-        // Unexpected emulator connection errors
-        // TODO(#1073): Add exponential backoff retry (3 attempts, 100ms-1s delays) for transient network errors.
-        // Consider making non-fatal if emulators are optional in dev mode.
+        // Unexpected emulator connection errors after retry attempts
         // TODO(#1084): firebase.js throws error after logging it, but no user-facing error message in UI
-        console.error('[Firebase] Emulator connection failed:', {
+        console.error('[Firebase] Emulator connection failed after retries:', {
           error: msg,
           firestoreHost: `${firestoreHost}:${firestorePort}`,
           authHost: `${authHost}:${authPort}`,

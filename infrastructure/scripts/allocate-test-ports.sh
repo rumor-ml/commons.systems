@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -eu
 
+# Helper function to exit/return appropriately based on how script is invoked
+# When sourced: use return to allow parent script to handle error
+# When executed: use exit to terminate with error code
+exit_or_return() {
+  local code=$1
+  if [[ "${BASH_SOURCE[1]}" != "${0}" ]]; then
+    # Script is being sourced - use return
+    return "$code"
+  else
+    # Script is being executed directly - use exit
+    exit "$code"
+  fi
+}
+
 # Get script directory and source port utilities
 # When sourced by start-emulators.sh, SCRIPT_DIR is already set
 if [ -z "${SCRIPT_DIR:-}" ]; then
@@ -15,7 +29,7 @@ validate_port() {
 
   if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
     echo "FATAL: Invalid $name port: $port (must be 1-65535)" >&2
-    exit 1
+    exit_or_return 1
   fi
 }
 
@@ -29,7 +43,7 @@ HASH_OUTPUT=$(echo -n "$WORKTREE_ROOT" | cksum 2>&1)
 if [ $? -ne 0 ]; then
   echo "FATAL: cksum command failed" >&2
   echo "Output: $HASH_OUTPUT" >&2
-  exit 1
+  exit_or_return 1
 fi
 
 HASH=$(echo "$HASH_OUTPUT" | awk '{print $1}')
@@ -39,7 +53,7 @@ if ! [[ "$HASH" =~ ^[0-9]+$ ]]; then
   echo "FATAL: cksum produced non-numeric output" >&2
   echo "Expected: number, got: $HASH" >&2
   echo "Full cksum output: $HASH_OUTPUT" >&2
-  exit 1
+  exit_or_return 1
 fi
 
 # Calculate offset
@@ -50,7 +64,7 @@ if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
   echo "This should be impossible - please report this bug" >&2
   echo "HASH=$HASH, WORKTREE_ROOT=$WORKTREE_ROOT" >&2
-  exit 1
+  exit_or_return 1
 fi
 
 # SHARED EMULATOR PORTS - Standard Firebase emulator ports (match firebase.json)
@@ -83,14 +97,14 @@ if [ $PORT_ALLOC_STATUS -ne 0 ]; then
   echo "FATAL: Could not allocate hosting port in range ${BASE_HOSTING_PORT}-$((BASE_HOSTING_PORT + 100))" >&2
   echo "All candidate ports are in use or blacklisted" >&2
   echo "Check stderr output above from find_available_port for details" >&2
-  exit 1
+  exit_or_return 1
 fi
 
 # Validate port is a valid number
 if ! [[ "$HOSTING_PORT" =~ ^[0-9]+$ ]]; then
   echo "FATAL: Port allocation returned invalid value: ${HOSTING_PORT}" >&2
   echo "Expected a numeric port, check find_available_port implementation" >&2
-  exit 1
+  exit_or_return 1
 fi
 
 # Check if fallback was used (only show when run directly, not when sourced)

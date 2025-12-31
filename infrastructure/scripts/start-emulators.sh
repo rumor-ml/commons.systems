@@ -111,12 +111,21 @@ echo "  Serving from: Paths configured in firebase.json (relative to repository 
 # (race condition possible if another process claimed it between allocation and startup)
 if ! is_port_available ${HOSTING_PORT}; then
   echo "ERROR: Allocated port ${HOSTING_PORT} is not available" >&2
-  echo "Port owner:" >&2
-  get_port_owner ${HOSTING_PORT} >&2
+  echo "Port allocation race condition detected!" >&2
   echo "" >&2
-  echo "Port allocation race condition detected. Try running the script again." >&2
-  echo "If this persists, check for processes holding ports in range 5000-5990:" >&2
-  echo "  lsof -i :5000-5990" >&2
+  echo "Port owner details:" >&2
+  if ! get_port_owner ${HOSTING_PORT} >&2; then
+    echo "  (Unable to determine port owner - port may have been freed)" >&2
+  fi
+  echo "" >&2
+  echo "This can happen when:" >&2
+  echo "  1. Another process claimed the port between allocation and startup" >&2
+  echo "  2. A previous emulator instance is still running" >&2
+  echo "" >&2
+  echo "Solutions:" >&2
+  echo "  - Try running the script again (port allocation will find a different port)" >&2
+  echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
+  echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
   exit 1
 fi
 
@@ -146,16 +155,24 @@ fi
 # Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
   # Extract the one site config and remove site/target fields
+  # Capture stderr separately to avoid mixing error messages with JSON output
+  JQ_ERROR=$(mktemp)
   HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
     '.hosting[] | select(.site == $site) | del(.site, .target)' \
-    firebase.json 2>&1)
+    firebase.json 2>"$JQ_ERROR")
   JQ_EXIT=$?
 
   if [ $JQ_EXIT -ne 0 ]; then
     echo "ERROR: jq command failed while processing firebase.json" >&2
-    echo "jq error: $HOSTING_CONFIG" >&2
+    echo "jq exit code: $JQ_EXIT" >&2
+    if [ -s "$JQ_ERROR" ]; then
+      echo "jq error output:" >&2
+      cat "$JQ_ERROR" >&2
+    fi
+    rm -f "$JQ_ERROR"
     exit 1
   fi
+  rm -f "$JQ_ERROR"
 
   if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
     echo "ERROR: No hosting config found for site '$APP_NAME' in firebase.json" >&2
@@ -170,14 +187,22 @@ if [ -n "$APP_NAME" ]; then
   echo "Hosting only site: $APP_NAME"
 else
   # For all sites, keep as array but remove site/target fields
-  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1)
+  # Capture stderr separately to avoid mixing error messages with JSON output
+  JQ_ERROR=$(mktemp)
+  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>"$JQ_ERROR")
   JQ_EXIT=$?
 
   if [ $JQ_EXIT -ne 0 ]; then
     echo "ERROR: jq command failed while processing firebase.json" >&2
-    echo "jq error: $HOSTING_CONFIG" >&2
+    echo "jq exit code: $JQ_EXIT" >&2
+    if [ -s "$JQ_ERROR" ]; then
+      echo "jq error output:" >&2
+      cat "$JQ_ERROR" >&2
+    fi
+    rm -f "$JQ_ERROR"
     exit 1
   fi
+  rm -f "$JQ_ERROR"
 
   if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ] || [ "$HOSTING_CONFIG" = "[]" ]; then
     echo "ERROR: No hosting configs found in firebase.json" >&2
@@ -238,10 +263,13 @@ npx firebase-tools emulators:start \
 HOSTING_PID=$!
 
 # Extract PGID with error handling
-HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ')
+PS_OUTPUT=$(ps -o pgid= -p $HOSTING_PID 2>&1)
+PS_EXIT=$?
 
-if [ -z "$HOSTING_PGID" ]; then
-  echo "WARNING: Failed to extract process group ID for PID ${HOSTING_PID}" >&2
+if [ $PS_EXIT -ne 0 ]; then
+  echo "ERROR: ps command failed to extract PGID for PID ${HOSTING_PID}" >&2
+  echo "ps exit code: $PS_EXIT" >&2
+  echo "ps output: $PS_OUTPUT" >&2
 
   # Check if process actually exists
   if ! kill -0 $HOSTING_PID 2>/dev/null; then
@@ -253,16 +281,52 @@ if [ -z "$HOSTING_PGID" ]; then
     exit 1
   fi
 
-  # Process exists but PGID extraction failed
+  # Process exists but ps command failed (platform incompatibility)
   echo "Platform: $(uname -s)" >&2
-  echo "This will prevent proper cleanup of child processes!" >&2
-  echo "Falling back to PID-only tracking (CLEANUP WILL BE INCOMPLETE)" >&2
+  echo "WARNING: PGID extraction failed - cleanup will be incomplete!" >&2
+  echo "Child processes may continue running after script exits." >&2
+  echo "Falling back to PID-only tracking" >&2
   echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
-  echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID extraction failed)"
+  echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID unavailable)"
 else
-  # Save both PID and PGID for cleanup (format: PID:PGID)
-  echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
-  echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
+  # Parse PGID from ps output (remove whitespace)
+  HOSTING_PGID=$(echo "$PS_OUTPUT" | tr -d ' ')
+
+  if [ -z "$HOSTING_PGID" ]; then
+    echo "ERROR: ps returned empty PGID for PID ${HOSTING_PID}" >&2
+    echo "ps output: '$PS_OUTPUT'" >&2
+
+    # Check if process actually exists
+    if ! kill -0 $HOSTING_PID 2>/dev/null; then
+      echo "ERROR: Process ${HOSTING_PID} does not exist - emulator failed to start!" >&2
+      echo "Last 50 lines of log:" >&2
+      tail -n 50 "$HOSTING_LOG_FILE" >&2
+      rm -f "$HOSTING_PID_FILE"
+      rm -f "$TEMP_CONFIG"
+      exit 1
+    fi
+
+    # Process exists but PGID is empty string
+    echo "Platform: $(uname -s)" >&2
+    echo "WARNING: PGID extraction returned empty value - cleanup will be incomplete!" >&2
+    echo "Child processes may continue running after script exits." >&2
+    echo "Falling back to PID-only tracking" >&2
+    echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
+    echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID empty)"
+  else
+    # Validate PGID is numeric
+    if ! [[ "$HOSTING_PGID" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: Extracted PGID is not numeric: '$HOSTING_PGID'" >&2
+      echo "ps output: '$PS_OUTPUT'" >&2
+      echo "WARNING: Using PID-only tracking - cleanup will be incomplete!" >&2
+      echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
+      echo "Hosting emulator started with PID: ${HOSTING_PID} (invalid PGID)"
+    else
+      # Save both PID and PGID for cleanup (format: PID:PGID)
+      echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
+      echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
+    fi
+  fi
 fi
 
 echo "Log file: $HOSTING_LOG_FILE"
