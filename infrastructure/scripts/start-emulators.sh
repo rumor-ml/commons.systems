@@ -128,32 +128,46 @@ echo "Verifying emulator HTTP endpoints..."
 # Wait a moment for services to fully initialize after port binding
 sleep 3
 
+# Track HTTP check failures
+HTTP_CHECK_FAILURES=0
+
 # Check Auth emulator REST API
 if curl -sf "http://127.0.0.1:${AUTH_PORT}/identitytoolkit.googleapis.com/v1/projects/demo-test/accounts" > /dev/null 2>&1; then
   echo "✓ Auth emulator HTTP API is responding"
 else
-  echo "⚠️  WARNING: Auth emulator port is open but not responding to HTTP requests"
-  echo "   This may indicate the emulator crashed during startup"
-  echo ""
-  echo "=== Last 30 lines of emulator log ==="
-  tail -n 30 "$LOG_FILE"
-  echo ""
-  echo "Full log: $LOG_FILE"
+  echo "ERROR: Auth emulator port is open but not responding to HTTP requests"
+  HTTP_CHECK_FAILURES=$((HTTP_CHECK_FAILURES + 1))
 fi
 
 # Check Firestore emulator
-# TODO(#1046): HTTP health checks only log warnings - should fail script or retry
 if curl -sf "http://127.0.0.1:${FIRESTORE_PORT}/" > /dev/null 2>&1; then
   echo "✓ Firestore emulator HTTP API is responding"
 else
-  echo "⚠️  WARNING: Firestore emulator port is open but not responding to HTTP requests"
+  echo "ERROR: Firestore emulator port is open but not responding to HTTP requests"
+  HTTP_CHECK_FAILURES=$((HTTP_CHECK_FAILURES + 1))
 fi
 
 # Check Storage emulator
 if curl -sf "http://127.0.0.1:${STORAGE_PORT}/" > /dev/null 2>&1; then
   echo "✓ Storage emulator HTTP API is responding"
 else
-  echo "⚠️  WARNING: Storage emulator port is open but not responding to HTTP requests"
+  echo "ERROR: Storage emulator port is open but not responding to HTTP requests"
+  HTTP_CHECK_FAILURES=$((HTTP_CHECK_FAILURES + 1))
+fi
+
+# Exit with error if any HTTP health check failed
+if [ $HTTP_CHECK_FAILURES -gt 0 ]; then
+  echo ""
+  echo "ERROR: ${HTTP_CHECK_FAILURES} emulator(s) failed HTTP health checks"
+  echo "   This may indicate the emulator crashed during startup or is not functional"
+  echo ""
+  echo "=== Last 30 lines of emulator log ==="
+  tail -n 30 "$LOG_FILE"
+  echo ""
+  echo "Full log: $LOG_FILE"
+  kill $EMULATOR_PID 2>/dev/null || true
+  rm -f "$PID_FILE"
+  exit 1
 fi
 
 echo ""

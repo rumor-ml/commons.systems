@@ -126,6 +126,7 @@ async function initFirebase() {
         }
 
         // Unexpected: CRITICAL ERROR - emulator connection failed
+        // TODO(#1063): Warning banner may not be visible (thrown before render completes)
         console.error('[Firebase] CRITICAL: Emulator connection failed', {
           message: msg,
           firestoreHost: import.meta.env.VITE_FIRESTORE_EMULATOR_HOST,
@@ -199,6 +200,7 @@ export async function getAllCards() {
     return cards;
   } catch (error) {
     // TODO(#1034): Verify error enrichment doesn't break caller's error.code checks
+    // TODO(#1062): Error wrapping may break instanceof checks and other error properties
     // Enrich error with context before re-throwing
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
     enrichedError.originalError = error;
@@ -408,6 +410,7 @@ export function getAuthInstance() {
   if (typeof window !== 'undefined' && window.__testAuth) {
     return window.__testAuth;
   }
+  // TODO(#1060): Throw error instead of returning undefined when auth not initialized
   if (!auth) {
     console.warn('[Firebase] getAuthInstance called before Firebase initialized');
   }

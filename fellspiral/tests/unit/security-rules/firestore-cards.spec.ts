@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { FirestoreTestHelper } from '../fixtures/firestore-test-helper.js';
 import admin from 'firebase-admin';
 
-// TODO(#485): Add batch operation tests, invalid collection name tests, and field edge case tests
+// TODO(#485): Add field edge case tests (type validation, null handling, size limits)
 describe('Firestore Security Rules - Cards Collection', () => {
   let helper: FirestoreTestHelper;
   // Removed shared testCardId - each describe block now manages its own test data (#485)
@@ -410,6 +410,18 @@ describe('Firestore Security Rules - Cards Collection', () => {
         });
       }, 'Update removing type field should be denied');
     });
+
+    it('should deny update that removes required subtype field', async () => {
+      // Subtype requirement added in #244 - users cannot remove it via FieldValue.delete()
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('cards').doc(testCardId).update({
+          subtype: admin.firestore.FieldValue.delete(), // Removing required subtype field
+          lastModifiedBy: USER_1,
+          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }, 'Update removing subtype field should be denied');
+    });
   });
 
   describe('DELETE operations', () => {
@@ -479,6 +491,42 @@ describe('Firestore Security Rules - Cards Collection', () => {
         const userDb = await helper.getFirestoreAsUser(USER_1);
         await userDb.collection('forbidden_collection').doc('test').get();
       }, 'Read from non-cards collection should be denied');
+    });
+
+    it('should allow authenticated users to list cards', async () => {
+      // Create multiple cards to verify list operations work
+      await helper.createCardAsUser(USER_1, {
+        title: 'List Test Card 1',
+        type: 'task',
+        subtype: 'default',
+      });
+      await helper.createCardAsUser(USER_2, {
+        title: 'List Test Card 2',
+        type: 'bug',
+        subtype: 'default',
+      });
+
+      // List all cards as USER_1
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const snapshot = await userDb.collection('cards').get();
+
+      assert.ok(snapshot.size >= 2, 'Should be able to list multiple cards');
+      console.log(`Listed ${snapshot.size} cards`);
+    });
+
+    it('should allow querying cards with where clause', async () => {
+      // Create a card with specific type for querying
+      await helper.createCardAsUser(USER_1, {
+        title: 'Query Test Card',
+        type: 'feature',
+        subtype: 'default',
+      });
+
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const snapshot = await userDb.collection('cards').where('type', '==', 'feature').get();
+
+      assert.ok(snapshot.size >= 1, 'Should be able to query cards with where clause');
+      console.log(`Queried ${snapshot.size} cards with type=feature`);
     });
   });
 
@@ -635,6 +683,60 @@ describe('Firestore Security Rules - Cards Collection', () => {
 
         await batch.commit();
       }, 'Cross-user batch operation should be denied');
+    });
+
+    it('should deny batch update missing required lastModifiedAt', async () => {
+      // Batch updates must include lastModifiedAt per security rules
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Batch Update Test Card',
+        type: 'task',
+        subtype: 'default',
+      });
+
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        const batch = userDb.batch();
+        batch.update(userDb.collection('cards').doc(cardRef.id), {
+          title: 'Updated via Batch',
+          lastModifiedBy: USER_1,
+          // Missing lastModifiedAt - should be denied
+        });
+        await batch.commit();
+      }, 'Batch update without lastModifiedAt should be denied');
+    });
+
+    it('should deny batch delete by non-creator', async () => {
+      // Creator-only delete rule must be enforced in batch operations
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Batch Delete Test Card',
+        type: 'task',
+        subtype: 'default',
+      });
+
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_2);
+        const batch = userDb.batch();
+        batch.delete(userDb.collection('cards').doc(cardRef.id));
+        await batch.commit();
+      }, 'Batch delete by non-creator should be denied');
+    });
+
+    it('should allow batch delete by creator', async () => {
+      // Creator should be able to delete their own card via batch
+      const cardRef = await helper.createCardAsUser(USER_1, {
+        title: 'Batch Delete Test Card',
+        type: 'task',
+        subtype: 'default',
+      });
+
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const batch = userDb.batch();
+      batch.delete(userDb.collection('cards').doc(cardRef.id));
+      await batch.commit();
+
+      const doc = await userDb.collection('cards').doc(cardRef.id).get();
+      assert.strictEqual(doc.exists, false, 'Card should be deleted via batch');
+      console.log(`Creator deleted card ${cardRef.id} via batch`);
     });
   });
 

@@ -241,6 +241,7 @@ let _configuredFirestoreHost = null;
 async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     // Validate emulator host hasn't changed
+    // TODO(#1059): Firestore emulator connection warning doesn't explain production data risk
     const currentHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:11980';
     if (_isFirestoreConfigured && _configuredFirestoreHost !== currentHost) {
       console.warn('Firestore emulator host changed after initialization', {

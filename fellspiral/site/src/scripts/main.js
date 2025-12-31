@@ -1182,6 +1182,7 @@ document.body.addEventListener('htmx:afterSwap', async (event) => {
   }
 
   // Re-initialize library navigation on page swap
+  // TODO(#1061): Consider adding user feedback if library navigation is critical
   initLibraryNav().catch((error) => {
     console.error('Failed to initialize library navigation after swap:', error);
   });

@@ -17,11 +17,17 @@ const PROJECT_ID = 'demo-test';
  * Optional fields:
  * - description: Optional text content
  * - Additional fields allowed via index signature for testing flexibility
+ *
+ * NOTE: `subtype` is marked optional in TypeScript to support testing scenarios
+ * where we intentionally omit required fields to verify security rules deny the
+ * operation. The helper's `createCardAsUser` method provides a default subtype
+ * value for valid card creation. For testing missing field validation, use
+ * direct Firestore calls via `getFirestoreAsUser()`.
  */
 export interface CardData {
   title: string;
   type: string;
-  subtype?: string; // Optional in interface to allow testing missing field scenarios
+  subtype?: string; // Optional to allow testing missing field scenarios
   description?: string;
   [key: string]: unknown; // Allow additional fields for testing
 }
