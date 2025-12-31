@@ -239,6 +239,10 @@ function validateCardData(cardData) {
   }
 }
 
+// TODO(#284): Add categorizeFirestoreError() helper and comprehensive tests
+// Should categorize timeout → demo data, permission-denied → login prompt, network errors
+// Tests needed for error categorization to prevent showing login prompts for network issues
+
 // Get all cards from Firestore with timeout protection
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
