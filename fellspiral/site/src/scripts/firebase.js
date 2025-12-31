@@ -29,6 +29,7 @@ import {
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
+import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
 
 // Initialize Firebase with config
 let app, db, auth, cardsCollection;
@@ -96,15 +97,15 @@ async function initFirebase() {
 
     // Connect to emulators in test/dev environment
     if (
-      import.meta.env.MODE === 'development' ||
-      import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+      import.meta.env?.MODE === 'development' ||
+      import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
       // Use localhost consistently (hosting emulator runs on same machine)
-      // Use standard Firebase emulator ports (must match firebase.json)
+      // Firebase emulator ports from shared config
       const firestoreHost = 'localhost';
-      const firestorePort = 8081;
+      const firestorePort = FIREBASE_PORTS.firestore;
       const authHost = 'localhost';
-      const authPort = 9099;
+      const authPort = FIREBASE_PORTS.auth;
 
       try {
         connectFirestoreEmulator(db, firestoreHost, firestorePort);
@@ -120,12 +121,14 @@ async function initFirebase() {
         }
 
         // Unexpected emulator connection errors
-        // TODO(#1073): Consider adding retry logic or making this non-fatal
+        // TODO(#1073): Add exponential backoff retry (3 attempts, 100ms-1s delays) for transient network errors.
+        // Consider making non-fatal if emulators are optional in dev mode.
+        // TODO(#1084): firebase.js throws error after logging it, but no user-facing error message in UI
         console.error('[Firebase] Emulator connection failed:', {
           error: msg,
           firestoreHost: `${firestoreHost}:${firestorePort}`,
           authHost: `${authHost}:${authPort}`,
-          env: import.meta.env.MODE,
+          env: import.meta.env?.MODE,
         });
         throw error;
       }

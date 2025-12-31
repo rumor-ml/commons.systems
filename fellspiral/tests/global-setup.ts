@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
+import { FIREBASE_PORTS } from '../../shared/config/firebase-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,9 +25,9 @@ async function globalSetup() {
     return;
   }
 
-  // Use standard Firebase emulator ports (must match firebase.json)
+  // Firebase emulator port from shared config
   const firestoreHost = 'localhost';
-  const firestorePort = 8081;
+  const firestorePort = FIREBASE_PORTS.firestore;
 
   console.log(`📦 Seeding Firestore emulator at ${firestoreHost}:${firestorePort}...`);
 
@@ -53,15 +54,15 @@ async function globalSetup() {
 
     // Import Firestore Admin SDK
     console.log(`   Connecting to Firestore Admin SDK...`);
+    // TODO(#1085): global-setup.ts Firebase Admin initialization could fail silently if admin module import fails
     const adminModule = await import('firebase-admin');
     const admin = adminModule.default;
 
     // Initialize Firebase Admin with emulator
     // Use per-worktree project ID for data isolation
+    // Integration tests in infrastructure/scripts/tests/firestore-isolation.test.sh verify
+    // that different project IDs correctly isolate Firestore data when using the same emulator.
     const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
-    // TODO(#1070): Add integration tests to verify GCP_PROJECT_ID isolation works correctly
-    // Tests should verify that different project IDs have isolated Firestore data when
-    // using the same emulator instance.
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId,
@@ -79,6 +80,7 @@ async function globalSetup() {
     });
     console.log(`   ✓ Connected to Firestore emulator at ${firestoreHost}:${firestorePort}`);
 
+    // TODO(#1086): global-setup.ts collection name resolution uses hardcoded fallback without validating environment
     const collectionName = getCardsCollectionName();
     const cardsCollection = db.collection(collectionName);
     console.log(`   Using collection: ${collectionName}`);

@@ -60,8 +60,7 @@ else
   echo "Starting shared backend emulators (Auth, Firestore, Storage)..."
 
   # Change to repository root
-  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-  cd "${REPO_ROOT}"
+  cd "${PROJECT_ROOT}"
 
   # Start ONLY backend emulators (shared)
   npx firebase-tools emulators:start \
@@ -76,55 +75,25 @@ else
   echo "Log file: $BACKEND_LOG_FILE"
 
   # Health check for Auth
-  echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
-  RETRY_COUNT=0
-  while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-      echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
-      echo "Last 20 lines of emulator log:"
-      tail -n 20 "$BACKEND_LOG_FILE"
-      kill $BACKEND_PID 2>/dev/null || true
-      rm -f "$BACKEND_PID_FILE"
-      exit 1
-    fi
-    sleep $RETRY_INTERVAL
-  done
-  echo "✓ Auth emulator ready on port ${AUTH_PORT}"
+  wait_for_port ${AUTH_PORT} "Auth emulator" ${MAX_RETRIES} "$BACKEND_LOG_FILE" $BACKEND_PID || {
+    kill $BACKEND_PID 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE"
+    exit 1
+  }
 
   # Health check for Firestore
-  echo "Waiting for Firestore emulator on port ${FIRESTORE_PORT}..."
-  RETRY_COUNT=0
-  while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-      echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
-      echo "Last 20 lines of emulator log:"
-      tail -n 20 "$BACKEND_LOG_FILE"
-      kill $BACKEND_PID 2>/dev/null || true
-      rm -f "$BACKEND_PID_FILE"
-      exit 1
-    fi
-    sleep $RETRY_INTERVAL
-  done
-  echo "✓ Firestore emulator ready on port ${FIRESTORE_PORT}"
+  wait_for_port ${FIRESTORE_PORT} "Firestore emulator" ${MAX_RETRIES} "$BACKEND_LOG_FILE" $BACKEND_PID || {
+    kill $BACKEND_PID 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE"
+    exit 1
+  }
 
   # Health check for Storage
-  echo "Waiting for Storage emulator on port ${STORAGE_PORT}..."
-  RETRY_COUNT=0
-  while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-      echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
-      echo "Last 20 lines of emulator log:"
-      tail -n 20 "$BACKEND_LOG_FILE"
-      kill $BACKEND_PID 2>/dev/null || true
-      rm -f "$BACKEND_PID_FILE"
-      exit 1
-    fi
-    sleep $RETRY_INTERVAL
-  done
-  echo "✓ Storage emulator ready on port ${STORAGE_PORT}"
+  wait_for_port ${STORAGE_PORT} "Storage emulator" ${MAX_RETRIES} "$BACKEND_LOG_FILE" $BACKEND_PID || {
+    kill $BACKEND_PID 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE"
+    exit 1
+  }
   echo ""
 fi
 
@@ -135,10 +104,11 @@ fi
 echo "Starting per-worktree hosting emulator..."
 echo "  Port: ${HOSTING_PORT}"
 echo "  Project: ${PROJECT_ID}"
-echo "  Serving from: Paths configured in firebase.json (relative to this worktree)"
+echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
 
 # Validate port availability
-# allocate-test-ports.sh should have found an available port
+# allocate-test-ports.sh found an available port, but verify it's still free
+# (race condition possible if another process claimed it between allocation and startup)
 if ! is_port_available ${HOSTING_PORT}; then
   echo "ERROR: Allocated port ${HOSTING_PORT} is not available" >&2
   echo "Port owner:" >&2
@@ -151,37 +121,60 @@ if ! is_port_available ${HOSTING_PORT}; then
 fi
 
 # Change to repository root
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-cd "${REPO_ROOT}"
+cd "${PROJECT_ROOT}"
 
 # Create temporary firebase config for this worktree with custom hosting port
 # Put it in PROJECT_ROOT so relative paths work correctly
 TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
+# Validate firebase.json exists and is readable
+if [ ! -f firebase.json ]; then
+  echo "ERROR: firebase.json not found in repository root" >&2
+  echo "Current directory: $(pwd)" >&2
+  exit 1
+fi
+
+# Validate firebase.json is valid JSON
+if ! jq empty firebase.json 2>/dev/null; then
+  echo "ERROR: firebase.json contains invalid JSON syntax" >&2
+  echo "Run: jq . firebase.json" >&2
+  exit 1
+fi
+
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
-# Keep paths relative since Firebase is launched from PROJECT_ROOT
-# Remove site/target fields for emulation - single hosting config serves at root
+# Keep paths relative - Firebase emulator resolves them from CWD (PROJECT_ROOT)
+# Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
   # Extract the one site config and remove site/target fields
-  if ! HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
+  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
     '.hosting[] | select(.site == $site) | del(.site, .target)' \
-    firebase.json 2>&1); then
-    echo "ERROR: Failed to extract hosting config for site '$APP_NAME' from firebase.json" >&2
+    firebase.json 2>&1)
+  JQ_EXIT=$?
+
+  if [ $JQ_EXIT -ne 0 ]; then
+    echo "ERROR: jq command failed while processing firebase.json" >&2
     echo "jq error: $HOSTING_CONFIG" >&2
     exit 1
   fi
 
   if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
     echo "ERROR: No hosting config found for site '$APP_NAME' in firebase.json" >&2
-    echo "Available sites: $(jq -r '.hosting[].site' firebase.json 2>/dev/null | tr '\n' ', ')" >&2
+    AVAILABLE_SITES=$(jq -r '.hosting[].site // empty' firebase.json 2>/dev/null)
+    if [ -n "$AVAILABLE_SITES" ]; then
+      echo "Available sites:" >&2
+      echo "$AVAILABLE_SITES" | sed 's/^/  - /' >&2
+    fi
     exit 1
   fi
 
   echo "Hosting only site: $APP_NAME"
 else
   # For all sites, keep as array but remove site/target fields
-  if ! HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1); then
-    echo "ERROR: Failed to extract hosting configs from firebase.json" >&2
+  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1)
+  JQ_EXIT=$?
+
+  if [ $JQ_EXIT -ne 0 ]; then
+    echo "ERROR: jq command failed while processing firebase.json" >&2
     echo "jq error: $HOSTING_CONFIG" >&2
     exit 1
   fi
@@ -207,6 +200,7 @@ EOF
 
 # Cleanup function for hosting emulator (process group)
 cleanup_hosting_emulator() {
+  # Read PID file before deletion if it exists
   if [ -f "$HOSTING_PID_FILE" ]; then
     IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null || true
     if [ -n "$pgid" ]; then
@@ -220,8 +214,11 @@ cleanup_hosting_emulator() {
       sleep 1
       kill -KILL $pid 2>/dev/null || true
     fi
-    rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
   fi
+
+  # Always cleanup files, even if no PID file exists yet
+  # This handles the case where emulator fails before PID is written
+  rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
 }
 
 # Only register trap when script is run directly, not sourced
@@ -245,8 +242,21 @@ HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ')
 
 if [ -z "$HOSTING_PGID" ]; then
   echo "WARNING: Failed to extract process group ID for PID ${HOSTING_PID}" >&2
-  echo "This may happen if the process terminated immediately or due to platform differences" >&2
-  echo "Process group cleanup may not work correctly - falling back to PID-only tracking" >&2
+
+  # Check if process actually exists
+  if ! kill -0 $HOSTING_PID 2>/dev/null; then
+    echo "ERROR: Process ${HOSTING_PID} does not exist - emulator failed to start!" >&2
+    echo "Last 50 lines of log:" >&2
+    tail -n 50 "$HOSTING_LOG_FILE" >&2
+    rm -f "$HOSTING_PID_FILE"
+    rm -f "$TEMP_CONFIG"
+    exit 1
+  fi
+
+  # Process exists but PGID extraction failed
+  echo "Platform: $(uname -s)" >&2
+  echo "This will prevent proper cleanup of child processes!" >&2
+  echo "Falling back to PID-only tracking (CLEANUP WILL BE INCOMPLETE)" >&2
   echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
   echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID extraction failed)"
 else

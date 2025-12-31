@@ -6,6 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# Source port utilities for process management
+source "${SCRIPT_DIR}/port-utils.sh"
+
 # Source allocate-test-ports.sh to get PROJECT_ID
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
@@ -27,45 +30,13 @@ echo ""
 if [ -f "$HOSTING_PID_FILE" ]; then
   echo "Stopping hosting emulator..."
 
-  # Read PID and PGID from file (format: PID:PGID) with error handling
-  IFS=':' read -r HOSTING_PID HOSTING_PGID < "$HOSTING_PID_FILE" 2>/dev/null || {
-    echo "WARNING: Failed to read PID file at ${HOSTING_PID_FILE}" >&2
-    HOSTING_PID=""
-    HOSTING_PGID=""
-  }
-
-  # Validate we got at least some data
-  if [ -z "$HOSTING_PID" ] && [ -z "$HOSTING_PGID" ]; then
-    echo "WARNING: PID file exists but contains no valid data" >&2
-    echo "File contents: $(cat "$HOSTING_PID_FILE" 2>/dev/null || echo 'unreadable')" >&2
+  # Use port-utils.sh functions for PID file parsing and process killing
+  if parse_pid_file "$HOSTING_PID_FILE"; then
+    kill_process_group "$PARSED_PID" "$PARSED_PGID"
+    echo "✓ Successfully stopped hosting emulator"
+  else
+    echo "WARNING: PID file exists but could not be parsed" >&2
     echo "Skipping PID-based cleanup - will attempt port-based cleanup" >&2
-  fi
-
-  if [ -n "${HOSTING_PGID:-}" ]; then
-    # Kill entire process group (parent + children)
-    echo "  Killing process group ${HOSTING_PGID}..."
-    if kill -TERM -${HOSTING_PGID} 2>/dev/null; then
-      echo "✓ Successfully stopped hosting emulator process group ${HOSTING_PGID}"
-    else
-      echo "⚠️  Process group ${HOSTING_PGID} not found (may have already stopped)"
-    fi
-
-    # Give it a moment to shut down gracefully
-    sleep 1
-
-    # Force kill if still running
-    kill -KILL -${HOSTING_PGID} 2>/dev/null || true
-  elif [ -n "${HOSTING_PID:-}" ]; then
-    # Fallback to single PID
-    echo "  Killing PID ${HOSTING_PID}..."
-    if kill -TERM ${HOSTING_PID} 2>/dev/null; then
-      echo "✓ Successfully stopped hosting emulator PID ${HOSTING_PID}"
-    else
-      echo "⚠️  Process ${HOSTING_PID} not found (may have already stopped)"
-    fi
-
-    sleep 1
-    kill -KILL ${HOSTING_PID} 2>/dev/null || true
   fi
 
   # Clean up hosting PID file

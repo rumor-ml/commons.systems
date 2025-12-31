@@ -56,7 +56,7 @@ validate_port_range() {
 # Args:
 #   $1 (port): Port number to check (1-65535)
 # Returns:
-#   0 if blacklisted, 1 if OK, error exit if invalid input
+#   0 if blacklisted, 1 if not blacklisted or invalid input
 is_port_blacklisted() {
   local port=$1
 
@@ -208,6 +208,8 @@ parse_pid_file() {
 #   $2 (pgid): Process group ID (optional)
 # Returns:
 #   0 on success
+# Note: PGID (process group ID) allows killing entire process tree (parent + children)
+#       PID fallback kills only the parent process (children may continue running)
 kill_process_group() {
   local pid=$1
   local pgid=${2:-}
@@ -218,7 +220,7 @@ kill_process_group() {
     sleep 1
     kill -KILL -$pgid 2>/dev/null || true
   elif [ -n "$pid" ]; then
-    # Fallback to single PID
+    # Fallback to single PID (children may continue running)
     kill -TERM $pid 2>/dev/null || true
     sleep 1
     kill -KILL $pid 2>/dev/null || true

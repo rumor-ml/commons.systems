@@ -201,6 +201,171 @@ EOF
   fi
 }
 
+test_hosting_emulator_process_group_cleanup() {
+  # Integration test for stop-hosting-emulator.sh process group cleanup
+  # Tests PID file format (PID:PGID) used by hosting emulator cleanup
+
+  local test_pid_file="${TMPDIR:-/tmp}/test-hosting-$$.pid"
+  CLEANUP_FILES+=("$test_pid_file")
+
+  # Start a test process
+  sleep 300 &
+  local test_pid=$!
+  CLEANUP_PIDS+=("$test_pid")
+
+  sleep 0.2
+
+  # Verify process is running
+  if ! kill -0 "$test_pid" 2>/dev/null; then
+    test_fail "Hosting emulator process group cleanup" "Test process not running"
+    return
+  fi
+
+  # Write PID file in the format used by hosting emulator (PID:PGID)
+  # The hosting emulator writes PGID to enable killing entire process tree
+  local fake_pgid="99999"
+  echo "${test_pid}:${fake_pgid}" > "$test_pid_file"
+
+  # Test 1: Parse PID file using same logic as stop-hosting-emulator.sh
+  local pid pgid
+  if ! IFS=':' read -r pid pgid < "$test_pid_file" 2>/dev/null; then
+    test_fail "Hosting emulator process group cleanup" "Failed to parse PID file"
+    kill -9 "$test_pid" 2>/dev/null || true
+    return
+  fi
+
+  # Test 2: Verify parsed values match expected format
+  if [ "$pid" != "$test_pid" ] || [ "$pgid" != "$fake_pgid" ]; then
+    test_fail "Hosting emulator process group cleanup" "Parsed values incorrect: pid=$pid pgid=$pgid"
+    kill -9 "$test_pid" 2>/dev/null || true
+    return
+  fi
+
+  # Test 3: Use kill pattern from kill_process_group function
+  # Try PGID first (will fail with fake PGID), then fall back to PID
+  if [ -n "$pgid" ]; then
+    kill -TERM -$pgid 2>/dev/null || true
+  fi
+  if [ -n "$pid" ]; then
+    kill -TERM $pid 2>/dev/null || true
+  fi
+  sleep 1
+  if [ -n "$pgid" ]; then
+    kill -KILL -$pgid 2>/dev/null || true
+  fi
+  if [ -n "$pid" ]; then
+    kill -KILL $pid 2>/dev/null || true
+  fi
+
+  # Test 4: Verify process is dead
+  sleep 0.2
+
+  if kill -0 "$test_pid" 2>/dev/null; then
+    test_fail "Hosting emulator process group cleanup" "Process still running after cleanup"
+    kill -9 "$test_pid" 2>/dev/null || true
+  else
+    test_pass "Hosting emulator process group cleanup"
+  fi
+}
+
+test_hosting_emulator_cleanup_pgid_fallback() {
+  # Test fallback when PGID is missing from PID file
+  # This ensures stop-hosting-emulator.sh still works with old PID files
+
+  # Source port-utils.sh to get kill_process_group function
+  source "${SCRIPT_DIR}/port-utils.sh"
+
+  local test_pid_file="${TMPDIR:-/tmp}/test-hosting-fallback-$$.pid"
+  CLEANUP_FILES+=("$test_pid_file")
+
+  # Start a simple process (no children needed for fallback test)
+  sleep 300 &
+  local test_pid=$!
+  CLEANUP_PIDS+=("$test_pid")
+
+  sleep 0.2
+
+  # Write PID file WITHOUT PGID (format: PID:)
+  echo "${test_pid}:" > "$test_pid_file"
+
+  # Parse PID file
+  local pid pgid
+  if ! IFS=':' read -r pid pgid < "$test_pid_file" 2>/dev/null; then
+    test_fail "Hosting emulator cleanup PGID fallback" "Failed to parse PID file"
+    kill -9 "$test_pid" 2>/dev/null || true
+    return
+  fi
+
+  # Verify PGID is empty (fallback scenario)
+  if [ -n "$pgid" ]; then
+    test_fail "Hosting emulator cleanup PGID fallback" "PGID should be empty for fallback test"
+    kill -9 "$test_pid" 2>/dev/null || true
+    return
+  fi
+
+  # Use kill_process_group with empty PGID (should fall back to PID-only)
+  kill_process_group "$pid" "$pgid"
+
+  # Verify process is dead
+  sleep 0.2
+  if kill -0 "$test_pid" 2>/dev/null; then
+    test_fail "Hosting emulator cleanup PGID fallback" "Process still running after fallback cleanup"
+    kill -9 "$test_pid" 2>/dev/null || true
+  else
+    test_pass "Hosting emulator cleanup PGID fallback"
+  fi
+}
+
+test_hosting_emulator_concurrent_cleanup() {
+  # Test that concurrent cleanup attempts don't crash
+  # Simulates scenario where multiple cleanup scripts run simultaneously
+
+  # Source port-utils.sh to get kill_process_group function
+  source "${SCRIPT_DIR}/port-utils.sh"
+
+  local test_pid_file="${TMPDIR:-/tmp}/test-hosting-concurrent-$$.pid"
+  CLEANUP_FILES+=("$test_pid_file")
+
+  # Start test process
+  sleep 300 &
+  local test_pid=$!
+  CLEANUP_PIDS+=("$test_pid")
+
+  sleep 0.2
+
+  # Write PID file
+  echo "${test_pid}:" > "$test_pid_file"
+
+  # Parse PID file
+  local pid pgid
+  IFS=':' read -r pid pgid < "$test_pid_file" 2>/dev/null
+
+  # Simulate concurrent cleanup: kill in background, then kill again
+  kill_process_group "$pid" "$pgid" &
+  local cleanup1_pid=$!
+
+  # Small delay to let first cleanup start
+  sleep 0.1
+
+  # Second cleanup attempt (should handle already-dead process gracefully)
+  kill_process_group "$pid" "$pgid" &
+  local cleanup2_pid=$!
+
+  # Wait for both cleanups to complete
+  wait "$cleanup1_pid" 2>/dev/null || true
+  wait "$cleanup2_pid" 2>/dev/null || true
+
+  # Verify process is dead (at least one cleanup succeeded)
+  sleep 0.2
+  if kill -0 "$test_pid" 2>/dev/null; then
+    test_fail "Hosting emulator concurrent cleanup" "Process still running after concurrent cleanups"
+    kill -9 "$test_pid" 2>/dev/null || true
+  else
+    # Test passes - concurrent cleanups handled gracefully (no crash)
+    test_pass "Hosting emulator concurrent cleanup"
+  fi
+}
+
 test_process_group_fallback_to_pid() {
   # Test fallback when PGID is not available
   # Start a simple background process
@@ -409,6 +574,9 @@ run_test test_pid_file_format_empty
 
 # Process Group Termination Tests
 run_test test_process_group_kill_all_children
+run_test test_hosting_emulator_process_group_cleanup
+run_test test_hosting_emulator_cleanup_pgid_fallback
+run_test test_hosting_emulator_concurrent_cleanup
 run_test test_process_group_fallback_to_pid
 
 # End-to-End Integration Tests

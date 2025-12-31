@@ -25,12 +25,31 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 
 # Hash the worktree path (not just name) for deterministic port allocation
 # Use cksum for cross-platform compatibility
-HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
+HASH_OUTPUT=$(echo -n "$WORKTREE_ROOT" | cksum 2>&1)
+if [ $? -ne 0 ]; then
+  echo "FATAL: cksum command failed" >&2
+  echo "Output: $HASH_OUTPUT" >&2
+  exit 1
+fi
+
+HASH=$(echo "$HASH_OUTPUT" | awk '{print $1}')
+
+# Validate HASH is numeric
+if ! [[ "$HASH" =~ ^[0-9]+$ ]]; then
+  echo "FATAL: cksum produced non-numeric output" >&2
+  echo "Expected: number, got: $HASH" >&2
+  echo "Full cksum output: $HASH_OUTPUT" >&2
+  exit 1
+fi
+
+# Calculate offset
 PORT_OFFSET=$(($HASH % 100))
 
-# Validate offset is in expected range
+# Validate offset is in expected range (defensive programming - mathematically should always pass)
 if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
+  echo "This should be impossible - please report this bug" >&2
+  echo "HASH=$HASH, WORKTREE_ROOT=$WORKTREE_ROOT" >&2
   exit 1
 fi
 
@@ -53,6 +72,9 @@ validate_port "$APP_PORT" "APP"
 # Base port range: [5000, 5990] (5000 + 0*10 to 5000 + 99*10)
 BASE_HOSTING_PORT=$((5000 + ($PORT_OFFSET * 10)))
 validate_port "$BASE_HOSTING_PORT" "BASE_HOSTING"
+
+# Allocate hosting port with automatic fallback
+# Note: find_available_port outputs diagnostic messages to stderr and port number to stdout
 HOSTING_PORT=$(find_available_port $BASE_HOSTING_PORT 10 10)
 PORT_ALLOC_STATUS=$?
 
@@ -60,17 +82,19 @@ PORT_ALLOC_STATUS=$?
 if [ $PORT_ALLOC_STATUS -ne 0 ]; then
   echo "FATAL: Could not allocate hosting port in range ${BASE_HOSTING_PORT}-$((BASE_HOSTING_PORT + 100))" >&2
   echo "All candidate ports are in use or blacklisted" >&2
+  echo "Check stderr output above from find_available_port for details" >&2
   exit 1
 fi
 
 # Validate port is a valid number
 if ! [[ "$HOSTING_PORT" =~ ^[0-9]+$ ]]; then
   echo "FATAL: Port allocation returned invalid value: ${HOSTING_PORT}" >&2
+  echo "Expected a numeric port, check find_available_port implementation" >&2
   exit 1
 fi
 
-# Check if fallback was used
-if [ "$HOSTING_PORT" != "$BASE_HOSTING_PORT" ]; then
+# Check if fallback was used (only show when run directly, not when sourced)
+if [ "$HOSTING_PORT" != "$BASE_HOSTING_PORT" ] && [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo "⚠️  Using fallback port $HOSTING_PORT (base $BASE_HOSTING_PORT was unavailable)"
   echo ""
 fi
@@ -97,19 +121,21 @@ export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
 export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
 export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
 
-# Print allocated ports for debugging
-echo "Port allocation for worktree '${WORKTREE_NAME}':"
-echo "  App server: $APP_PORT (unique per worktree)"
-echo "  Hosting emulator: $HOSTING_PORT (unique per worktree)"
-echo "  Project ID: $PROJECT_ID (unique per worktree)"
-echo ""
-echo "Shared backend emulators (all worktrees):"
-echo "  Firebase Auth: $AUTH_PORT"
-echo "  Firestore: $FIRESTORE_PORT"
-echo "  Storage: $STORAGE_PORT"
-echo "  UI: $UI_PORT"
-echo ""
-echo "Emulator architecture:"
-echo "  - Backend services (Firestore/Auth/Storage) are shared for efficiency"
-echo "  - Hosting emulator is per-worktree (serves worktree-specific build)"
-echo "  - Project IDs isolate Firestore data per worktree"
+# Print allocated ports for debugging (only when run directly, not when sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "Port allocation for worktree '${WORKTREE_NAME}':"
+  echo "  App server: $APP_PORT (unique per worktree)"
+  echo "  Hosting emulator: $HOSTING_PORT (unique per worktree)"
+  echo "  Project ID: $PROJECT_ID (unique per worktree)"
+  echo ""
+  echo "Shared backend emulators (all worktrees):"
+  echo "  Firebase Auth: $AUTH_PORT"
+  echo "  Firestore: $FIRESTORE_PORT"
+  echo "  Storage: $STORAGE_PORT"
+  echo "  UI: $UI_PORT"
+  echo ""
+  echo "Emulator architecture:"
+  echo "  - Backend services (Firestore/Auth/Storage) are shared for efficiency"
+  echo "  - Hosting emulator is per-worktree (serves worktree-specific build)"
+  echo "  - Project IDs isolate Firestore data per worktree"
+fi

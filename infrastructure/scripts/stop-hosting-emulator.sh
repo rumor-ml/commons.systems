@@ -7,6 +7,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# Source port utilities for process management
+source "${SCRIPT_DIR}/port-utils.sh"
+
 # Source port allocation to get PROJECT_ID and HOSTING_PORT
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
@@ -19,41 +22,13 @@ echo ""
 HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
 
 if [ -f "$HOSTING_PID_FILE" ]; then
-  # Read PID:PGID format from file
-  if ! IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null; then
-    echo "WARNING: Failed to read PID file at ${HOSTING_PID_FILE}" >&2
-    pid=""
-    pgid=""
-  fi
-
-  # Validate we got at least some data
-  if [ -z "$pid" ] && [ -z "$pgid" ]; then
-    echo "WARNING: PID file exists but contains no valid data" >&2
-    echo "File contents: $(cat "$HOSTING_PID_FILE" 2>/dev/null || echo 'unreadable')" >&2
+  # Use port-utils.sh functions for PID file parsing and process killing
+  if parse_pid_file "$HOSTING_PID_FILE"; then
+    kill_process_group "$PARSED_PID" "$PARSED_PGID"
+    echo "✓ Killed hosting emulator"
+  else
+    echo "WARNING: PID file exists but could not be parsed" >&2
     echo "Attempting port-based cleanup as fallback" >&2
-    rm -f "$HOSTING_PID_FILE"
-  fi
-
-  if [ -n "$pgid" ]; then
-    # Kill entire process group
-    if kill -0 -$pgid 2>/dev/null; then
-      kill -TERM -$pgid 2>/dev/null || true
-      sleep 1
-      kill -KILL -$pgid 2>/dev/null || true
-      echo "✓ Killed hosting emulator process group (PGID: ${pgid})"
-    else
-      echo "ℹ Hosting emulator process group (PGID: ${pgid}) not running"
-    fi
-  elif [ -n "$pid" ]; then
-    # Fallback to single PID
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-      sleep 1
-      kill -KILL "$pid" 2>/dev/null || true
-      echo "✓ Killed hosting emulator (PID: ${pid})"
-    else
-      echo "ℹ Hosting emulator process (PID: ${pid}) not running"
-    fi
   fi
 
   rm -f "$HOSTING_PID_FILE"

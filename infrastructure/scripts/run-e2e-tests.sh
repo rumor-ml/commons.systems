@@ -36,6 +36,22 @@ echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 # Allocate ports based on worktree
 source "$SCRIPT_DIR/allocate-test-ports.sh"
 
+# Validate all critical variables are set by allocate-test-ports.sh
+MISSING_VARS=""
+[ -z "${GCP_PROJECT_ID:-}" ] && MISSING_VARS="$MISSING_VARS GCP_PROJECT_ID"
+[ -z "${FIRESTORE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIRESTORE_EMULATOR_HOST"
+[ -z "${FIREBASE_AUTH_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIREBASE_AUTH_EMULATOR_HOST"
+[ -z "${STORAGE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS STORAGE_EMULATOR_HOST"
+[ -z "${HOSTING_PORT:-}" ] && MISSING_VARS="$MISSING_VARS HOSTING_PORT"
+
+if [ -n "$MISSING_VARS" ]; then
+  echo "FATAL: Required variables not set by allocate-test-ports.sh:" >&2
+  echo "  Missing:$MISSING_VARS" >&2
+  echo "" >&2
+  echo "This indicates a bug in the port allocation script" >&2
+  exit 1
+fi
+
 echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"
 
 # --- Type-specific setup ---
@@ -44,6 +60,8 @@ case "$APP_TYPE" in
     # Static Firebase app with Firebase emulators
 
     # Build the site BEFORE starting emulators to prevent 404 caching
+    # The hosting emulator caches 404 responses for missing files during startup.
+    # Building first ensures files exist when emulator initializes, preventing cached 404s.
     echo "Building..."
     pnpm --dir "${APP_PATH_ABS}/site" build
 
@@ -51,10 +69,10 @@ case "$APP_TYPE" in
     source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
     # Export emulator env vars
-    export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-    export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-    export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
-    export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+    export FIRESTORE_EMULATOR_HOST
+    export STORAGE_EMULATOR_HOST
+    export FIREBASE_AUTH_EMULATOR_HOST
+    export GCP_PROJECT_ID
 
     # Debug: Verify emulator environment
     echo "=== CI Debug: Emulator Environment ==="
@@ -89,10 +107,10 @@ case "$APP_TYPE" in
     source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
     # Export emulator env vars
-    export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-    export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-    export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
-    export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+    export FIRESTORE_EMULATOR_HOST
+    export STORAGE_EMULATOR_HOST
+    export FIREBASE_AUTH_EMULATOR_HOST
+    export GCP_PROJECT_ID
 
     # Set up cleanup trap
     cleanup() {

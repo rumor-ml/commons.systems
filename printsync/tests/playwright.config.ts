@@ -10,6 +10,7 @@ const __dirname = dirname(__filename);
 const port = parseInt(process.env.TEST_PORT || '8080', 10);
 
 const config = createPlaywrightConfig({
+  mode: 'web-server',
   siteName: 'printsync',
   port, // Now configurable!
   deployedUrl: 'https://printsync.commons.systems',

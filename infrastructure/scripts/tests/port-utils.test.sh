@@ -12,6 +12,7 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 
+# TODO(#1082): Shell tests use inconsistent assertion patterns (test_pass/test_fail vs direct assertions)
 # Test result tracking
 test_pass() {
   local test_name=$1
@@ -283,6 +284,71 @@ test_find_available_port_range_overflow() {
   fi
 }
 
+test_hosting_port_fallback_e2e() {
+  # Block port 5000 to simulate macOS AirPlay or other system service
+  nc -l 5000 &
+  local blocker_pid=$!
+
+  # Give nc time to bind
+  sleep 0.2
+
+  # Source allocate script in subshell to isolate environment
+  local result
+  result=$(
+    # Mock git to return fake worktree with hash that maps to port 5000
+    # Hash of "/fake/worktree" via cksum gives offset 0 -> base port 5000
+    git() {
+      if [[ "$*" == *"rev-parse --show-toplevel"* ]]; then
+        echo "/fake/worktree"
+      elif [[ "$*" == *"branch --show-current"* ]]; then
+        echo "test-branch"
+      fi
+    }
+    export -f git
+
+    # Source the allocation script
+    source "${SCRIPT_DIR}/allocate-test-ports.sh" 2>/dev/null
+
+    # Output the allocated port
+    echo "$HOSTING_PORT"
+  )
+
+  # Clean up blocker
+  kill $blocker_pid 2>/dev/null || true
+  wait $blocker_pid 2>/dev/null || true
+
+  # Verify fallback was used
+  if [ "$result" != "5000" ] && [ "$result" -gt 5000 ] && [ "$result" -le 5990 ]; then
+    test_pass "Hosting port fallback E2E (allocated $result instead of 5000)"
+  else
+    test_fail "Hosting port fallback E2E" "Expected port != 5000 and in range, got: $result"
+  fi
+}
+
+test_find_available_port_exhaustion() {
+  # Try to find port in a tight range that's likely exhausted
+  # Use very high port range to minimize real port conflicts
+  local output
+  output=$(find_available_port 65530 3 1 2>&1)
+  local exit_code=$?
+
+  # This test has two valid outcomes:
+  # 1. Ports available: returns port successfully
+  # 2. Ports unavailable: returns error with helpful range message
+
+  if [ $exit_code -eq 0 ]; then
+    # Ports were available - test passes (can't force exhaustion)
+    test_pass "Port exhaustion test (ports available, allocation succeeded)"
+  else
+    # Verify error message includes the port range for debugging
+    if [[ "$output" == *"65530"* ]] && [[ "$output" == *"range"* ]]; then
+      test_pass "Port exhaustion returns helpful error with range"
+    else
+      test_fail "Port exhaustion returns helpful error with range" "Output missing range info: $output"
+    fi
+  fi
+}
+
 # ============================================================================
 # INTEGRATION TESTS - Multi-Worktree Isolation
 # ============================================================================
@@ -405,6 +471,8 @@ run_test test_find_available_port_invalid_base
 run_test test_find_available_port_invalid_attempts
 run_test test_find_available_port_invalid_step
 run_test test_find_available_port_range_overflow
+run_test test_hosting_port_fallback_e2e
+run_test test_find_available_port_exhaustion
 
 # Integration Tests
 run_test test_hash_consistency_allocate_cleanup

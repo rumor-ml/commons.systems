@@ -69,6 +69,29 @@ test.describe('Environment Variable Propagation', () => {
     }
   });
 
+  test('can connect to Firestore emulator using env vars', async () => {
+    // Skip connectivity test when testing deployed site (no emulators)
+    if (process.env.DEPLOYED_URL) {
+      test.skip();
+      return;
+    }
+
+    // Verify we can actually connect to Firestore using the env vars
+    const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST;
+    expect(firestoreHost, 'FIRESTORE_EMULATOR_HOST should be defined').toBeDefined();
+
+    // Import and test actual Firestore connectivity
+    const { getAllCards } = await import('../../../fellspiral/site/src/scripts/firebase.js');
+
+    // This will fail if:
+    // - Emulator isn't running
+    // - Port is wrong
+    // - Connection string is malformed
+    const cards = await getAllCards();
+    expect(Array.isArray(cards), 'Should retrieve cards array from Firestore').toBe(true);
+    expect(cards.length, 'Should have seeded test data').toBeGreaterThan(0);
+  });
+
   test('no silent fallback values are hiding missing variables', async () => {
     // This test ensures variables are explicitly set, not falling back to defaults
     // If run-e2e-tests.sh fails to export a variable, this should catch it
@@ -77,9 +100,9 @@ test.describe('Environment Variable Propagation', () => {
     const hostingPort = process.env.HOSTING_PORT;
     expect(hostingPort, 'HOSTING_PORT should be defined').toBeDefined();
 
-    // In playwright.config.ts, the fallback is '5002'
-    // In a real test run, this should be set by allocate-test-ports.sh to a worktree-specific port
-    // We can't assert the exact value since it varies per worktree, but we can verify it's set
+    // This should be set by allocate-test-ports.sh to a worktree-specific port
+    // If not set, playwright.config.ts provides a fallback value
+    // We verify it's explicitly set (not empty)
     expect(hostingPort.length, 'HOSTING_PORT should be explicitly set (not empty)').toBeGreaterThan(
       0
     );
@@ -95,8 +118,9 @@ test.describe('Environment Variable Propagation', () => {
     // We verify it's set and not falling back to 'demo-test' default
     expect(projectId, 'GCP_PROJECT_ID should be defined').toBeDefined();
 
-    // Note: We can't assert it's NOT 'demo-test' because that might be the intentional value
-    // But we verify it matches the expected pattern
+    // Note: In single-worktree mode, 'demo-test' is valid. In multi-worktree mode,
+    // it should be 'demo-test-{HASH}'. Since we can't distinguish the mode here,
+    // we only verify the identifier format is valid.
     expect(projectId, 'GCP_PROJECT_ID should be a valid identifier').toMatch(/^[a-z0-9-]+$/);
   });
 });
